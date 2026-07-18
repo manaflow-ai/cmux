@@ -25,7 +25,7 @@ extension CMUXCLI {
         executablePathLookup: (Int) -> String?,
         argumentsLookup: (Int) -> [String]?
     ) -> SessionsListProcessIdentity? {
-        AgentStableProcessIdentityValidator.identity(
+        agentStableProcessIdentityValidator.identity(
             for: pid,
             probedKernelStartTime: probedKernelStartTime,
             processStartTimeLookup: processStartTimeLookup,

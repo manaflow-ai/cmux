@@ -521,14 +521,16 @@ extension CMUXCLI {
         }
 
         if !edges.isEmpty {
-            edges = AgentSessionGraphEdgeSanitizer.acyclicEdges(nodes: nodes, edges: edges)
+            edges = AgentSessionGraphEdgeSanitizer(
+                graphOrdering: agentSessionGraphOrdering
+            ).acyclicEdges(nodes: nodes, edges: edges)
             if !edges.isEmpty {
                 AgentSubtreeActivityProjector().project(nodes: &nodes, edges: edges)
             }
         }
 
-        nodes.sort(by: AgentSessionGraphOrdering.nodePrecedes)
-        edges.sort(by: AgentSessionGraphOrdering.edgePrecedes)
+        nodes.sort(by: agentSessionGraphOrdering.nodePrecedes)
+        edges.sort(by: agentSessionGraphOrdering.edgePrecedes)
         let snapshot = AgentSessionGraphSnapshot(
             nodes: nodes,
             edges: edges,
@@ -583,7 +585,7 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord,
         provider: String
     ) -> [AgentSessionRunRecord] {
-        AgentSessionRunCanonicalizer.runs(record: record, provider: provider)
+        agentSessionRunCanonicalizer.runs(record: record, provider: provider)
     }
 
     /// Counts raw registry rows one at a time before the compatibility bridge

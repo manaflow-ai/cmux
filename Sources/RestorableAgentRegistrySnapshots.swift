@@ -64,14 +64,7 @@ extension RestorableAgentSessionIndex {
             )
             failedProviders = result.failedProviders
             verifiedCanonicalRestoreOwners = result.verifiedCanonicalRestoreOwners
-            if !failedProviders.isEmpty {
-                NSLog(
-                    "[SessionRestore] legacy agent registry preparation skipped providers=%@",
-                    failedProviders.sorted().joined(separator: ",")
-                )
-            }
         } catch {
-            NSLog("[SessionRestore] agent registry preparation unavailable error=%@", String(describing: error))
             failedProviders = Set(kinds.map(\.rawValue))
             verifiedCanonicalRestoreOwners = []
         }

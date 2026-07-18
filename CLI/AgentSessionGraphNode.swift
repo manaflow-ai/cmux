@@ -203,7 +203,7 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
 /// The newest copy of the same provider/session/run wins. Distinct logical
 /// sessions sharing one process generation remain separate graph nodes.
 struct AgentSessionGraphNodeIndex: Sendable {
-    static func indices(_ nodes: [AgentSessionGraphNode]) -> [String: Int] {
+    func indices(_ nodes: [AgentSessionGraphNode]) -> [String: Int] {
         nodes.indices.reduce(into: [:]) { result, candidateIndex in
             let nodeId = nodes[candidateIndex].nodeId
             guard let existingIndex = result[nodeId] else {
@@ -216,21 +216,21 @@ struct AgentSessionGraphNodeIndex: Sendable {
         }
     }
 
-    static func nodes(_ nodes: [AgentSessionGraphNode]) -> [String: AgentSessionGraphNode] {
+    func nodes(_ nodes: [AgentSessionGraphNode]) -> [String: AgentSessionGraphNode] {
         indices(nodes).mapValues { nodes[$0] }
     }
 
-    static func canonicalNodes(_ nodes: [AgentSessionGraphNode]) -> [AgentSessionGraphNode] {
+    func canonicalNodes(_ nodes: [AgentSessionGraphNode]) -> [AgentSessionGraphNode] {
         indices(nodes).values.sorted().map { nodes[$0] }
     }
 
-    static func candidatesByRunId(_ nodes: [AgentSessionGraphNode]) -> [String: [AgentSessionGraphNode]] {
+    func candidatesByRunId(_ nodes: [AgentSessionGraphNode]) -> [String: [AgentSessionGraphNode]] {
         Dictionary(grouping: canonicalNodes(nodes), by: \.runId).mapValues { candidates in
             candidates.sorted { prefers($0, over: $1) }
         }
     }
 
-    static func prefers(_ candidate: AgentSessionGraphNode, over existing: AgentSessionGraphNode) -> Bool {
+    func prefers(_ candidate: AgentSessionGraphNode, over existing: AgentSessionGraphNode) -> Bool {
         if candidate.updatedAt != existing.updatedAt { return candidate.updatedAt > existing.updatedAt }
         if candidate.startedAt != existing.startedAt { return candidate.startedAt > existing.startedAt }
         let candidateKey = "\(candidate.provider):\(candidate.sessionId ?? ""):\(candidate.surfaceId)"

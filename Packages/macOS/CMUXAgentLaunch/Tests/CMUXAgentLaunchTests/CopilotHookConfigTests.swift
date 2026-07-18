@@ -2,6 +2,42 @@ import CMUXAgentLaunch
 import Foundation
 import Testing
 
+// Test-only compatibility keeps the assertions focused on JSON behavior while
+// routing every call through an independently owned transformer instance.
+extension CopilotHookConfig {
+    static func installing(
+        events: [Event],
+        in existing: Data?,
+        isOwnedCommand: (String) -> Bool
+    ) throws -> Data {
+        try CopilotHookConfig().installing(
+            events: events,
+            in: existing,
+            isOwnedCommand: isOwnedCommand
+        )
+    }
+
+    static func uninstalling(
+        from existing: Data,
+        isOwnedCommand: (String) -> Bool
+    ) throws -> RemovalResult {
+        try CopilotHookConfig().uninstalling(
+            from: existing,
+            isOwnedCommand: isOwnedCommand
+        )
+    }
+
+    static func removingOwnedHooks(
+        from existing: Data,
+        isOwnedCommand: (String) -> Bool
+    ) throws -> RemovalResult {
+        try CopilotHookConfig().removingOwnedHooks(
+            from: existing,
+            isOwnedCommand: isOwnedCommand
+        )
+    }
+}
+
 @Suite("Copilot hook configuration")
 struct CopilotHookConfigTests {
     private let owned: @Sendable (String) -> Bool = { command in

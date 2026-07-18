@@ -10,8 +10,10 @@ public enum AgentProcessLaunchMode: Sendable, Equatable {
     case unknown
 }
 
-public enum AgentLaunchModeClassifier {
-    public static func processMode(
+public struct AgentLaunchModeClassifier: Sendable {
+    public init() {}
+
+    public func processMode(
         processName: String?,
         arguments: [String]?,
         kind: String
@@ -27,7 +29,7 @@ public enum AgentLaunchModeClassifier {
         return mode(kind: kind, arguments: providerArguments)
     }
 
-    static func mode(kind: String, arguments: [String]) -> AgentProcessLaunchMode {
+    func mode(kind: String, arguments: [String]) -> AgentProcessLaunchMode {
         let kind = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard var policy = policy(for: kind) else { return .unknown }
         if containsOption(nonSessionOptions(for: kind), in: arguments, policy: policy) {
@@ -134,7 +136,7 @@ public enum AgentLaunchModeClassifier {
     /// Protocol and service modes own a live process across multiple turns.
     /// They take precedence over terminal-looking flags so malformed or mixed
     /// argv can never retire a server at its first Stop event.
-    private static func longLivedProtocolMode(
+    private func longLivedProtocolMode(
         kind: String,
         arguments: [String],
         policy: AgentLaunchSanitizer.Policy
@@ -253,7 +255,7 @@ public enum AgentLaunchModeClassifier {
 
     /// `app-server` has its own option grammar. Parse its optional nested command without
     /// letting an option value such as `--listen ws://...` masquerade as that command.
-    private static func codexAppServerSubcommand(
+    private func codexAppServerSubcommand(
         in arguments: [String],
         after appServerIndex: Int
     ) -> String? {
@@ -268,7 +270,7 @@ public enum AgentLaunchModeClassifier {
         )
     }
 
-    private static func nestedSubcommand(
+    private func nestedSubcommand(
         in arguments: [String],
         after parentCommandIndex: Int,
         valueOptions: Set<String>
@@ -293,7 +295,7 @@ public enum AgentLaunchModeClassifier {
         return nil
     }
 
-    private static func rovoDevMode(
+    private func rovoDevMode(
         arguments: [String],
         policy: AgentLaunchSanitizer.Policy
     ) -> AgentProcessLaunchMode {
@@ -336,7 +338,7 @@ public enum AgentLaunchModeClassifier {
     /// `threads l` means `list`), so model the documented command grammar before
     /// the generic first-positional classifier. Stream JSON input is a live
     /// multi-turn protocol only when its two required companion flags are present.
-    private static func ampMode(
+    private func ampMode(
         arguments: [String],
         policy: AgentLaunchSanitizer.Policy
     ) -> AgentProcessLaunchMode? {
@@ -364,7 +366,7 @@ public enum AgentLaunchModeClassifier {
             : nil
     }
 
-    private static func policy(for kind: String) -> AgentLaunchSanitizer.Policy? {
+    private func policy(for kind: String) -> AgentLaunchSanitizer.Policy? {
         switch kind {
         case "claude": AgentLaunchSanitizer.claudePolicy
         case "codex": AgentLaunchSanitizer.codexPolicy
@@ -389,7 +391,7 @@ public enum AgentLaunchModeClassifier {
         }
     }
 
-    private static func oneShotOptions(for kind: String) -> Set<String> {
+    private func oneShotOptions(for kind: String) -> Set<String> {
         switch kind {
         case "claude": ["--print", "-p"]
         case "grok": ["--single", "-p", "--prompt-file", "--prompt-json"]
@@ -408,7 +410,7 @@ public enum AgentLaunchModeClassifier {
         }
     }
 
-    private static func interactiveOptions(for kind: String) -> Set<String> {
+    private func interactiveOptions(for kind: String) -> Set<String> {
         switch kind {
         case "pi", "omp", "campfire": ["--no-session"]
         case "gemini", "antigravity", "rovodev", "qoder": ["--prompt-interactive", "-i"]
@@ -418,7 +420,7 @@ public enum AgentLaunchModeClassifier {
         }
     }
 
-    private static func unknownOptions(for kind: String) -> Set<String> {
+    private func unknownOptions(for kind: String) -> Set<String> {
         switch kind {
         case "claude": ["--background", "--bg"]
         case "pi", "omp": ["--prompt"]
@@ -429,7 +431,7 @@ public enum AgentLaunchModeClassifier {
         }
     }
 
-    private static func oneShotCommands(for kind: String) -> Set<String> {
+    private func oneShotCommands(for kind: String) -> Set<String> {
         switch kind {
         case "claude": ["ultrareview"]
         case "codex": ["exec", "e", "review"]
@@ -439,7 +441,7 @@ public enum AgentLaunchModeClassifier {
         }
     }
 
-    private static func nonSessionOptions(for kind: String) -> Set<String> {
+    private func nonSessionOptions(for kind: String) -> Set<String> {
         var options = AgentLaunchSanitizer.nonSessionMetadataOptions(kind: kind)
         switch kind {
         case "gemini":
@@ -464,14 +466,14 @@ public enum AgentLaunchModeClassifier {
         return options
     }
 
-    private static func oneShotCommandAllowsUnknownTrailingOptions(
+    private func oneShotCommandAllowsUnknownTrailingOptions(
         kind: String,
         command: String
     ) -> Bool {
         kind == "codex" && ["exec", "e", "review"].contains(command)
     }
 
-    private static func interactiveCommands(for kind: String) -> Set<String> {
+    private func interactiveCommands(for kind: String) -> Set<String> {
         switch kind {
         case "codex": ["resume", "fork"]
         case "opencode": ["attach", "pr"]
@@ -480,7 +482,7 @@ public enum AgentLaunchModeClassifier {
         }
     }
 
-    private static func normalizedArguments(kind: String, arguments: [String]) -> [String] {
+    private func normalizedArguments(kind: String, arguments: [String]) -> [String] {
         var arguments = arguments
         if kind == "cursor", arguments.first == "agent" {
             arguments.removeFirst()
@@ -495,7 +497,7 @@ public enum AgentLaunchModeClassifier {
         return arguments
     }
 
-    private static func containsOption(
+    private func containsOption(
         _ options: Set<String>,
         in arguments: [String],
         policy: AgentLaunchSanitizer.Policy
@@ -516,7 +518,7 @@ public enum AgentLaunchModeClassifier {
         return false
     }
 
-    private static func containsUnknownOption(
+    private func containsUnknownOption(
         in arguments: [String],
         policy: AgentLaunchSanitizer.Policy
     ) -> Bool {
@@ -543,14 +545,14 @@ public enum AgentLaunchModeClassifier {
         return false
     }
 
-    private static func firstPositional(
+    private func firstPositional(
         in arguments: [String],
         policy: AgentLaunchSanitizer.Policy
     ) -> String? {
         firstPositionalLocation(in: arguments, policy: policy)?.value
     }
 
-    private static func firstPositionalLocation(
+    private func firstPositionalLocation(
         in arguments: [String],
         policy: AgentLaunchSanitizer.Policy
     ) -> (index: Int, value: String)? {
@@ -567,7 +569,7 @@ public enum AgentLaunchModeClassifier {
         return nil
     }
 
-    private static func positionalValues(
+    private func positionalValues(
         in arguments: [String],
         policy: AgentLaunchSanitizer.Policy,
         limit: Int
@@ -587,7 +589,7 @@ public enum AgentLaunchModeClassifier {
         return values
     }
 
-    private static func optionValue(_ option: String, in arguments: [String]) -> String? {
+    private func optionValue(_ option: String, in arguments: [String]) -> String? {
         for (index, argument) in arguments.enumerated() {
             if argument == option, index + 1 < arguments.count {
                 return arguments[index + 1].lowercased()
@@ -599,11 +601,11 @@ public enum AgentLaunchModeClassifier {
         return nil
     }
 
-    private static func containsRawOption(_ options: Set<String>, in arguments: [String]) -> Bool {
+    private func containsRawOption(_ options: Set<String>, in arguments: [String]) -> Bool {
         arguments.contains { options.contains(optionName($0)) }
     }
 
-    private static func optionName(_ argument: String) -> String {
+    private func optionName(_ argument: String) -> String {
         guard let equals = argument.firstIndex(of: "=") else { return argument }
         return String(argument[..<equals])
     }

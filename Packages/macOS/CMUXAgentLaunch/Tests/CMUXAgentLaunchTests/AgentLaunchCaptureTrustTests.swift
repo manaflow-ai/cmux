@@ -1,6 +1,22 @@
 import Testing
 @testable import CMUXAgentLaunch
 
+// Keep the existing table-driven call sites compact while exercising the
+// constructable production classifier on every assertion.
+extension AgentLaunchModeClassifier {
+    static func processMode(
+        processName: String?,
+        arguments: [String]?,
+        kind: String
+    ) -> AgentProcessLaunchMode {
+        AgentLaunchModeClassifier().processMode(
+            processName: processName,
+            arguments: arguments,
+            kind: kind
+        )
+    }
+}
+
 @Suite("Agent launch capture trust")
 struct AgentLaunchCaptureTrustTests {
     @Test func exactKindMatchIsTrusted() {

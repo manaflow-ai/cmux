@@ -83,75 +83,84 @@ struct AgentSessionAutoResumeSwiftTests {
         failedPanel.terminal = nil
         failedPanel.markdown = nil
         snapshot.panels.append(failedPanel)
+        let bulkPanelIds = (0..<32).map { _ in UUID() }
+        let bulkPanelTemplate = try #require(snapshot.panels.first { $0.id == missingPanelId })
+        for bulkPanelId in bulkPanelIds {
+            var bulkPanel = bulkPanelTemplate
+            bulkPanel.id = bulkPanelId
+            snapshot.panels.append(bulkPanel)
+        }
         guard case .pane(var paneSnapshot) = snapshot.layout else {
             Issue.record("Expected one pane for the restore breadcrumb fixture")
             return
         }
         paneSnapshot.panelIds.append(failedPanelId)
+        paneSnapshot.panelIds.append(contentsOf: bulkPanelIds)
         snapshot.layout = .pane(paneSnapshot)
 
-        let logURL = startupBreadcrumbLogURL()
-        let startingOffset = ((try? FileManager.default.attributesOfItem(atPath: logURL.path)[.size]) as? NSNumber)?.intValue ?? 0
-        let previousEnabled = environmentValue("CMUX_STARTUP_BREADCRUMBS")
-        let previousDisabled = environmentValue("CMUX_DISABLE_STARTUP_BREADCRUMBS")
-        setenv("CMUX_STARTUP_BREADCRUMBS", "1", 1)
-        unsetenv("CMUX_DISABLE_STARTUP_BREADCRUMBS")
-        defer {
-            restoreEnvironmentValue(previousEnabled, key: "CMUX_STARTUP_BREADCRUMBS")
-            restoreEnvironmentValue(previousDisabled, key: "CMUX_DISABLE_STARTUP_BREADCRUMBS")
-        }
-
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        var recordedBatches: [[StartupBreadcrumbEvent]] = []
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            startupBreadcrumbBatchWriter: { recordedBatches.append($0) }
+        )
         let mapping = restored.restoreSessionSnapshot(snapshot)
         #expect(mapping[issuedPanelId] != nil)
         #expect(mapping[missingPanelId] != nil)
         #expect(mapping[rejectedPanelId] != nil)
         #expect(mapping[failedPanelId] == nil)
+        for bulkPanelId in bulkPanelIds {
+            #expect(mapping[bulkPanelId] != nil)
+        }
 
-        let logData = (try? Data(contentsOf: logURL)) ?? Data()
-        let appendedData = startingOffset <= logData.count ? logData.dropFirst(startingOffset) : logData[...]
-        let appendedText = String(decoding: appendedData, as: UTF8.self)
-        let events = appendedText
-            .split(separator: "\n")
-            .compactMap { line -> [String: Any]? in
-                guard let data = String(line).data(using: .utf8) else { return nil }
-                return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            }
-            .filter { $0["event"] as? String == "session.restore.panel" }
+        #expect(recordedBatches.count == 1)
+        let events = try #require(recordedBatches.first)
+        #expect(events.count == snapshot.panels.count)
+        #expect(events.allSatisfy { $0.event == "session.restore.panel" })
+        let expectedPanelTokens = snapshot.panels
+            .map { String($0.id.uuidString.lowercased().prefix(8)) }
+            .sorted()
+        #expect(events.compactMap { $0.fields["panel"] }.sorted() == expectedPanelTokens)
 
         let issued = try #require(event(for: issuedPanelId, in: events))
-        #expect(issued["type"] as? String == "terminal")
-        #expect(issued["binding"] as? String == "found")
-        #expect(issued["bindingReason"] as? String == "approved")
-        #expect(issued["resume"] as? String == "issued")
-        #expect(issued["resumeReason"] as? String == "binding")
-        #expect(issued["resumeMode"] as? String == "command")
-        #expect(issued["provider"] as? String == "codex")
-        #expect(issued["outcome"] as? String == "created")
+        #expect(issued["type"] == "terminal")
+        #expect(issued["binding"] == "found")
+        #expect(issued["bindingReason"] == "approved")
+        #expect(issued["resume"] == "issued")
+        #expect(issued["resumeReason"] == "binding")
+        #expect(issued["resumeMode"] == "command")
+        #expect(issued["provider"] == "codex")
+        #expect(issued["outcome"] == "created")
 
         let missing = try #require(event(for: missingPanelId, in: events))
-        #expect(missing["binding"] as? String == "missing")
-        #expect(missing["bindingReason"] as? String == "absent")
-        #expect(missing["resume"] as? String == "suppressed")
-        #expect(missing["resumeReason"] as? String == "no_candidate")
-        #expect(missing["outcome"] as? String == "created")
+        #expect(missing["binding"] == "missing")
+        #expect(missing["bindingReason"] == "absent")
+        #expect(missing["resume"] == "suppressed")
+        #expect(missing["resumeReason"] == "no_candidate")
+        #expect(missing["outcome"] == "created")
 
         let rejected = try #require(event(for: rejectedPanelId, in: events))
-        #expect(rejected["binding"] as? String == "rejected")
-        #expect(rejected["bindingReason"] as? String == "policy_denied")
-        #expect(rejected["resume"] as? String == "suppressed")
-        #expect(rejected["resumeReason"] as? String == "binding_rejected")
-        #expect(rejected["outcome"] as? String == "created")
+        #expect(rejected["binding"] == "rejected")
+        #expect(rejected["bindingReason"] == "policy_denied")
+        #expect(rejected["resume"] == "suppressed")
+        #expect(rejected["resumeReason"] == "binding_rejected")
+        #expect(rejected["outcome"] == "created")
 
         let failed = try #require(event(for: failedPanelId, in: events))
-        #expect(failed["type"] as? String == "markdown")
-        #expect(failed["outcome"] as? String == "failed")
-        #expect(failed["failureReason"] as? String == "panel_creation_failed")
+        #expect(failed["type"] == "markdown")
+        #expect(failed["outcome"] == "failed")
+        #expect(failed["failureReason"] == "panel_creation_failed")
 
-        #expect(!appendedText.contains(sessionId))
-        #expect(!appendedText.contains(privateDirectory))
-        #expect(!appendedText.contains(privateEnvironmentValue))
-        #expect(!appendedText.contains(issuedPanelId.uuidString))
+        let recordedJSON = try JSONSerialization.data(
+            withJSONObject: events.map { event -> [String: Any] in
+                ["event": event.event, "fields": event.fields]
+            },
+            options: [.sortedKeys]
+        )
+        let recordedText = String(decoding: recordedJSON, as: UTF8.self)
+        #expect(!recordedText.contains(sessionId))
+        #expect(!recordedText.contains(privateDirectory))
+        #expect(!recordedText.contains(privateEnvironmentValue))
+        #expect(!recordedText.contains(issuedPanelId.uuidString))
     }
 
     @MainActor
@@ -1544,32 +1553,12 @@ struct AgentSessionAutoResumeSwiftTests {
         return try body()
     }
 
-    private func startupBreadcrumbLogURL() -> URL {
-        let logsDirectory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)
-            .first?
-            .appendingPathComponent("Logs/cmux", isDirectory: true)
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-                .appendingPathComponent("cmux-logs", isDirectory: true)
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "unknown"
-        return logsDirectory.appendingPathComponent("startup-\(bundleIdentifier).log")
-    }
-
-    private func environmentValue(_ key: String) -> String? {
-        guard let value = getenv(key) else { return nil }
-        return String(cString: value)
-    }
-
-    private func restoreEnvironmentValue(_ value: String?, key: String) {
-        if let value {
-            setenv(key, value, 1)
-        } else {
-            unsetenv(key)
-        }
-    }
-
-    private func event(for panelId: UUID, in events: [[String: Any]]) -> [String: Any]? {
+    private func event(
+        for panelId: UUID,
+        in events: [StartupBreadcrumbEvent]
+    ) -> [String: String]? {
         let panelToken = String(panelId.uuidString.lowercased().prefix(8))
-        return events.first { $0["panel"] as? String == panelToken }
+        return events.first { $0.fields["panel"] == panelToken }?.fields
     }
 
     @MainActor

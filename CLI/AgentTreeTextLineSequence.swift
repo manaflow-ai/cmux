@@ -5,9 +5,10 @@ import Foundation
 struct AgentTreeTextLineSequence: Sequence {
     let snapshot: AgentSessionGraphSnapshot
     let maximumDepth: Int
+    let nodeIndex = AgentSessionGraphNodeIndex()
 
     func makeIterator() -> Iterator {
-        Iterator(snapshot: snapshot, maximumDepth: maximumDepth)
+        Iterator(snapshot: snapshot, maximumDepth: maximumDepth, nodeIndex: nodeIndex)
     }
 
     struct Iterator: IteratorProtocol {
@@ -39,7 +40,11 @@ struct AgentTreeTextLineSequence: Sequence {
         private var visited: Set<Int> = []
         private var covered: Set<Int> = []
 
-        init(snapshot: AgentSessionGraphSnapshot, maximumDepth: Int) {
+        init(
+            snapshot: AgentSessionGraphSnapshot,
+            maximumDepth: Int,
+            nodeIndex: AgentSessionGraphNodeIndex
+        ) {
             self.maximumDepth = maximumDepth
             nodes = snapshot.nodes
             guard !snapshot.edges.isEmpty else {
@@ -47,8 +52,11 @@ struct AgentTreeTextLineSequence: Sequence {
                 roots = Array(snapshot.nodes.indices)
                 return
             }
-            let indexByNodeID = AgentSessionGraphNodeIndex.indices(snapshot.nodes)
-            let edgeResolver = AgentSessionGraphEdgeResolver(nodes: snapshot.nodes)
+            let indexByNodeID = nodeIndex.indices(snapshot.nodes)
+            let edgeResolver = AgentSessionGraphEdgeResolver(
+                nodes: snapshot.nodes,
+                nodeIndex: nodeIndex
+            )
             var seenEdgeKeys: Set<ResolvedEdgeKey> = []
             var mutableChildrenByNodeIndex: [Int: [Child]] = [:]
             var childNodeIndices: Set<Int> = []

@@ -349,6 +349,7 @@ extension Workspace {
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
         var pendingAgentHibernationAdoptions: [PendingRestoredAgentHibernationAdoption] = []
+        var startupBreadcrumbEvents: [StartupBreadcrumbEvent] = []
 
         for entry in leafEntries {
             restorePane(
@@ -358,8 +359,12 @@ extension Workspace {
                 snapshotWorkspaceId: snapshot.workspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
                 oldToNewPanelIds: &oldToNewPanelIds,
+                startupBreadcrumbEvents: &startupBreadcrumbEvents,
                 pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
             )
+        }
+        if !startupBreadcrumbEvents.isEmpty {
+            startupBreadcrumbBatchWriter(startupBreadcrumbEvents)
         }
 
         if let restoredAgentHibernationAdoptionBatch {
@@ -491,16 +496,8 @@ extension Workspace {
                     panelId: request.surfaceId,
                     restoredAgent: request.agent
                 )
-                NSLog(
-                    "[Workspace] discarded unowned restored agent hibernation session=%@",
-                    request.agent.sessionId
-                )
             case .unavailable:
                 pendingRestoredAgentHibernationAdoptionsByPanelId[request.surfaceId] = adoption
-                NSLog(
-                    "[Workspace] deferred restored agent hibernation adoption while authority store is unavailable session=%@",
-                    request.agent.sessionId
-                )
             }
         }
     }
@@ -1253,12 +1250,14 @@ extension Workspace {
         let hibernationSuppression = beginAgentHibernationRestoreSuppression()
         defer { endAgentHibernationRestoreSuppression(hibernationSuppression) }
         var pendingAgentHibernationAdoptions: [PendingRestoredAgentHibernationAdoption] = []
+        var discardedStartupBreadcrumbEvents: [StartupBreadcrumbEvent] = []
         guard let panelId = createPanel(
             from: entry.snapshot,
             inPane: pane,
             snapshotWorkspaceId: entry.workspaceId,
             shouldRestoreSingleDefaultCloudTerminal: false,
             recordsStartupBreadcrumb: false,
+            startupBreadcrumbEvents: &discardedStartupBreadcrumbEvents,
             pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
         ) else { return nil }
         finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
@@ -1298,12 +1297,14 @@ extension Workspace {
         }
 
         var pendingAgentHibernationAdoptions: [PendingRestoredAgentHibernationAdoption] = []
+        var discardedStartupBreadcrumbEvents: [StartupBreadcrumbEvent] = []
         guard let panelId = createPanel(
             from: entry.snapshot,
             inPane: pane,
             snapshotWorkspaceId: entry.workspaceId,
             shouldRestoreSingleDefaultCloudTerminal: false,
             recordsStartupBreadcrumb: false,
+            startupBreadcrumbEvents: &discardedStartupBreadcrumbEvents,
             pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
         ) else {
             _ = closePanel(placeholderPanel.id, force: true)
@@ -1597,6 +1598,7 @@ extension Workspace {
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
         oldToNewPanelIds: inout [UUID: UUID],
+        startupBreadcrumbEvents: inout [StartupBreadcrumbEvent],
         pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption]
     ) {
         let existingPanelIds = bonsplitController
@@ -1614,12 +1616,14 @@ extension Workspace {
                 snapshotWorkspaceId: snapshotWorkspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
                 recordsStartupBreadcrumb: true,
+                startupBreadcrumbEvents: &startupBreadcrumbEvents,
                 pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
             )
             if panelSnapshot.type != .terminal {
                 recordSessionRestorePanelBreadcrumb(
                     snapshot: panelSnapshot,
-                    outcome: createdPanelId == nil ? "failed" : "created"
+                    outcome: createdPanelId == nil ? "failed" : "created",
+                    events: &startupBreadcrumbEvents
                 )
             }
             guard let createdPanelId else { continue }
@@ -1703,6 +1707,7 @@ extension Workspace {
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
         recordsStartupBreadcrumb: Bool,
+        startupBreadcrumbEvents: inout [StartupBreadcrumbEvent],
         pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption]
     ) -> UUID? {
         let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
@@ -2001,7 +2006,8 @@ extension Workspace {
                     recordSessionRestorePanelBreadcrumb(
                         snapshot: snapshot,
                         outcome: "failed",
-                        terminalFields: terminalBreadcrumbFields
+                        terminalFields: terminalBreadcrumbFields,
+                        events: &startupBreadcrumbEvents
                     )
                 }
                 return nil
@@ -2010,7 +2016,8 @@ extension Workspace {
                 recordSessionRestorePanelBreadcrumb(
                     snapshot: snapshot,
                     outcome: "created",
-                    terminalFields: terminalBreadcrumbFields
+                    terminalFields: terminalBreadcrumbFields,
+                    events: &startupBreadcrumbEvents
                 )
             }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
@@ -2094,10 +2101,6 @@ extension Workspace {
                         discardRejectedRestoredAgentHibernation(
                             panelId: terminalPanel.id,
                             restoredAgent: restorableAgent
-                        )
-                        NSLog(
-                            "[Workspace] discarded unowned restored agent hibernation session=%@",
-                            restorableAgent.sessionId
                         )
                     }
                 }
@@ -2223,7 +2226,8 @@ extension Workspace {
     private func recordSessionRestorePanelBreadcrumb(
         snapshot: SessionPanelSnapshot,
         outcome: String,
-        terminalFields: [String: String] = [:]
+        terminalFields: [String: String] = [:],
+        events: inout [StartupBreadcrumbEvent]
     ) {
         var fields = terminalFields
         fields["panel"] = String(snapshot.id.uuidString.lowercased().prefix(8))
@@ -2232,7 +2236,7 @@ extension Workspace {
         if outcome == "failed" {
             fields["failureReason"] = "panel_creation_failed"
         }
-        StartupBreadcrumbLog.append("session.restore.panel", fields: fields)
+        events.append((event: "session.restore.panel", fields: fields))
     }
 
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
@@ -2988,6 +2992,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
+    private let startupBreadcrumbBatchWriter: StartupBreadcrumbBatchWriter
 
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
 
@@ -3488,11 +3493,13 @@ final class Workspace: Identifiable, ObservableObject {
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
+        startupBreadcrumbBatchWriter: @escaping StartupBreadcrumbBatchWriter = { StartupBreadcrumbLog.append($0) },
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.id = UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
+        self.startupBreadcrumbBatchWriter = startupBreadcrumbBatchWriter
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -5430,20 +5437,12 @@ final class Workspace: Identifiable, ObservableObject {
                 authorityOutcome = .rejected
             }
             if authorityOutcome == .unavailable {
-                NSLog(
-                    "[Workspace] deferred hibernated agent resume while authority store is unavailable session=%@",
-                    candidate.agent.sessionId
-                )
                 continue
             }
             guard authorityOutcome == .acquired else {
                 discardRejectedRestoredAgentHibernation(
                     panelId: candidate.panelId,
                     restoredAgent: candidate.agent
-                )
-                NSLog(
-                    "[Workspace] discarded hibernated agent after resume authority loss session=%@",
-                    candidate.agent.sessionId
                 )
                 if focusPanelId == candidate.panelId { focusPanel(candidate.panelId) }
                 continue

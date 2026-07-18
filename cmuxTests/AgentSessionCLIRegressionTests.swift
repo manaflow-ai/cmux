@@ -1478,7 +1478,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         let canonical: [AgentSessionRunRecord?] = [[authoritative, child], [child, authoritative]].map { runs in
-            let values = AgentSessionRunCanonicalizer.runs(
+            let values = AgentSessionRunCanonicalizer().runs(
                 record: ClaudeHookSessionRecord(
                     sessionId: "session", workspaceId: "workspace", surfaceId: "surface",
                     startedAt: 100, updatedAt: 200, runs: runs
@@ -1515,7 +1515,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         for runs in [[live, ended], [ended, live]] {
-            let canonical = try #require(AgentSessionRunCanonicalizer.runs(
+            let canonical = try #require(AgentSessionRunCanonicalizer().runs(
                 record: ClaudeHookSessionRecord(
                     sessionId: "session", workspaceId: "workspace", surfaceId: "surface",
                     startedAt: 100, updatedAt: 200, runs: runs
@@ -1549,7 +1549,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         for conflicting in [runtimeConflict, processConflict] {
             for runs in [[baseline, conflicting], [conflicting, baseline]] {
-                let canonical = try #require(AgentSessionRunCanonicalizer.runs(
+                let canonical = try #require(AgentSessionRunCanonicalizer().runs(
                     record: ClaudeHookSessionRecord(
                         sessionId: "session", workspaceId: "workspace", surfaceId: "surface",
                         startedAt: 100, updatedAt: 200, runs: runs, cmuxRuntime: recordRuntime
@@ -1869,7 +1869,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         var executableProbeCount = 0
         var argumentsProbeCount = 0
         var verificationProbeCount = 0
-        let identity = AgentStableProcessIdentityValidator.identity(
+        let identity = AgentStableProcessIdentityValidator().identity(
             for: 42,
             probedKernelStartTime: 100,
             processStartTimeLookup: { _ in
@@ -2170,7 +2170,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let expectedNodeIDs = nodes.map(\.nodeId).sorted()
         for permutation in [nodes, [nodes[1], nodes[2], nodes[0]], Array(nodes.reversed())] {
             #expect(
-                Array(permutation).sorted(by: AgentSessionGraphOrdering.nodePrecedes).map(\.nodeId)
+                Array(permutation).sorted(by: AgentSessionGraphOrdering().nodePrecedes).map(\.nodeId)
                     == expectedNodeIDs
             )
         }
@@ -2192,7 +2192,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let expectedParentRuns: [String?] = [nil, "parent-a", "parent-b"]
         for permutation in [edges, [edges[1], edges[2], edges[0]], Array(edges.reversed())] {
             #expect(
-                Array(permutation).sorted(by: AgentSessionGraphOrdering.edgePrecedes).map(\.fromRunId)
+                Array(permutation).sorted(by: AgentSessionGraphOrdering().edgePrecedes).map(\.fromRunId)
                     == expectedParentRuns
             )
         }
@@ -2207,7 +2207,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         #expect(first.nodeId != second.nodeId)
-        #expect(AgentSessionGraphNodeIndex.indices([first, second]).count == 2)
+        #expect(AgentSessionGraphNodeIndex().indices([first, second]).count == 2)
     }
 
     @Test func repeatedRunGraphResolutionStaysLinearAtTenThousandEdges() {

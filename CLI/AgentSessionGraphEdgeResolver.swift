@@ -63,8 +63,16 @@ struct AgentSessionGraphEdgeResolver: Sendable {
     private let candidatesByRunSession: [RunSessionKey: CandidateSummary]
     private let parentCandidatesBySession: [String: CandidateSummary]
     private let nodesByNodeID: [String: NodeIdentity]
+    private let nodeIndex: AgentSessionGraphNodeIndex
+    private let graphOrdering: AgentSessionGraphOrdering
 
-    init(nodes: [AgentSessionGraphNode]) {
+    init(
+        nodes: [AgentSessionGraphNode],
+        nodeIndex: AgentSessionGraphNodeIndex = AgentSessionGraphNodeIndex(),
+        graphOrdering: AgentSessionGraphOrdering = AgentSessionGraphOrdering()
+    ) {
+        self.nodeIndex = nodeIndex
+        self.graphOrdering = graphOrdering
         let nodeIDs = nodes.map(\.nodeId)
         var canonicalIndexByNodeID: [String: Int] = [:]
         canonicalIndexByNodeID.reserveCapacity(nodes.count)
@@ -74,7 +82,7 @@ struct AgentSessionGraphEdgeResolver: Sendable {
                 canonicalIndexByNodeID[nodeID] = index
                 continue
             }
-            if AgentSessionGraphNodeIndex.prefers(nodes[index], over: nodes[existing]) {
+            if nodeIndex.prefers(nodes[index], over: nodes[existing]) {
                 canonicalIndexByNodeID[nodeID] = index
             }
         }
@@ -94,8 +102,8 @@ struct AgentSessionGraphEdgeResolver: Sendable {
         let runOrderedIndices = canonicalIndices.sorted { lhsIndex, rhsIndex in
             let lhs = nodes[lhsIndex]
             let rhs = nodes[rhsIndex]
-            if AgentSessionGraphNodeIndex.prefers(lhs, over: rhs) { return true }
-            if AgentSessionGraphNodeIndex.prefers(rhs, over: lhs) { return false }
+            if nodeIndex.prefers(lhs, over: rhs) { return true }
+            if nodeIndex.prefers(rhs, over: lhs) { return false }
             return nodeIDs[lhsIndex] < nodeIDs[rhsIndex]
         }
         var byProviderRun: [ProviderRunKey: CandidateSummary] = [:]
@@ -246,14 +254,29 @@ struct AgentSessionGraphEdgeSanitizer: Sendable {
         var childNodeIndex: Int
     }
 
-    static func acyclicEdges(
+    private let nodeIndex: AgentSessionGraphNodeIndex
+    private let graphOrdering: AgentSessionGraphOrdering
+
+    init(
+        nodeIndex: AgentSessionGraphNodeIndex = AgentSessionGraphNodeIndex(),
+        graphOrdering: AgentSessionGraphOrdering = AgentSessionGraphOrdering()
+    ) {
+        self.nodeIndex = nodeIndex
+        self.graphOrdering = graphOrdering
+    }
+
+    func acyclicEdges(
         nodes: [AgentSessionGraphNode],
         edges: [AgentSessionGraphEdge]
     ) -> [AgentSessionGraphEdge] {
         guard !nodes.isEmpty, !edges.isEmpty else { return [] }
 
-        let indexByNodeID = AgentSessionGraphNodeIndex.indices(nodes)
-        let resolver = AgentSessionGraphEdgeResolver(nodes: nodes)
+        let indexByNodeID = nodeIndex.indices(nodes)
+        let resolver = AgentSessionGraphEdgeResolver(
+            nodes: nodes,
+            nodeIndex: nodeIndex,
+            graphOrdering: graphOrdering
+        )
         var resolvedEdges: [ResolvedEdge] = []
         resolvedEdges.reserveCapacity(edges.count)
         for edge in edges {
@@ -270,8 +293,8 @@ struct AgentSessionGraphEdgeSanitizer: Sendable {
             ))
         }
         resolvedEdges.sort { lhs, rhs in
-            if AgentSessionGraphOrdering.edgePrecedes(lhs.edge, rhs.edge) { return true }
-            if AgentSessionGraphOrdering.edgePrecedes(rhs.edge, lhs.edge) { return false }
+            if graphOrdering.edgePrecedes(lhs.edge, rhs.edge) { return true }
+            if graphOrdering.edgePrecedes(rhs.edge, lhs.edge) { return false }
             let lhsParentNodeID = nodes[lhs.parentNodeIndex].nodeId
             let rhsParentNodeID = nodes[rhs.parentNodeIndex].nodeId
             if lhsParentNodeID != rhsParentNodeID { return lhsParentNodeID < rhsParentNodeID }
@@ -318,6 +341,6 @@ struct AgentSessionGraphEdgeSanitizer: Sendable {
         return edgeByChildNodeIndex.values
             .filter { !removedChildNodeIndices.contains($0.childNodeIndex) }
             .map(\.edge)
-            .sorted(by: AgentSessionGraphOrdering.edgePrecedes)
+            .sorted(by: graphOrdering.edgePrecedes)
     }
 }

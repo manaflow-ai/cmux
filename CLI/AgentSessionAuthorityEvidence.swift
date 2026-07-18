@@ -26,11 +26,11 @@ enum AgentSessionAuthorityEvidence: String, Codable, Sendable, Equatable {
 }
 
 struct AgentSessionAuthorityTransition: Sendable {
-    static func persistedEvidence(for run: AgentSessionRunRecord) -> AgentSessionAuthorityEvidence? {
+    func persistedEvidence(for run: AgentSessionRunRecord) -> AgentSessionAuthorityEvidence? {
         run.authorityEvidence ?? (run.relationship == .spawned ? .legacyChild : nil)
     }
 
-    static func canRecoverProvisionalFork(
+    func canRecoverProvisionalFork(
         previous: AgentSessionAuthorityEvidence?,
         incoming: AgentHookSessionLineage
     ) -> Bool {

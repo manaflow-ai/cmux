@@ -1,6 +1,8 @@
 import Foundation
 
-public enum CopilotHookConfig {
+public struct CopilotHookConfig: Sendable {
+    public init() {}
+
     public struct Event: Equatable, Sendable {
         public var name: String
         public var command: String
@@ -29,7 +31,7 @@ public enum CopilotHookConfig {
         case invalidEvent(String)
     }
 
-    public static func installing(
+    public func installing(
         events: [Event],
         in existing: Data?,
         isOwnedCommand: (String) -> Bool
@@ -54,7 +56,7 @@ public enum CopilotHookConfig {
         return try serialized(root)
     }
 
-    public static func uninstalling(
+    public func uninstalling(
         from existing: Data,
         isOwnedCommand: (String) -> Bool
     ) throws -> RemovalResult {
@@ -76,7 +78,7 @@ public enum CopilotHookConfig {
 
     /// Removes cmux-owned entries from an older Copilot settings/config file
     /// without changing its schema or adding a version field.
-    public static func removingOwnedHooks(
+    public func removingOwnedHooks(
         from existing: Data,
         isOwnedCommand: (String) -> Bool
     ) throws -> RemovalResult {
@@ -94,7 +96,7 @@ public enum CopilotHookConfig {
         )
     }
 
-    private static func rootObject(from data: Data?) throws -> [String: Any] {
+    private func rootObject(from data: Data?) throws -> [String: Any] {
         guard let data, !data.isEmpty else { return [:] }
         guard let object = try? JSONSerialization.jsonObject(with: data),
               let root = object as? [String: Any] else {
@@ -103,7 +105,7 @@ public enum CopilotHookConfig {
         return root
     }
 
-    private static func hooksObject(from root: [String: Any]) throws -> [String: Any] {
+    private func hooksObject(from root: [String: Any]) throws -> [String: Any] {
         guard let rawHooks = root["hooks"] else { return [:] }
         guard let hooks = rawHooks as? [String: Any] else {
             throw ConfigError.invalidHooks
@@ -111,7 +113,7 @@ public enum CopilotHookConfig {
         return hooks
     }
 
-    private static func eventEntries(named name: String, in hooks: [String: Any]) throws -> [[String: Any]] {
+    private func eventEntries(named name: String, in hooks: [String: Any]) throws -> [[String: Any]] {
         guard let rawEntries = hooks[name] else { return [] }
         guard let entries = rawEntries as? [[String: Any]] else {
             throw ConfigError.invalidEvent(name)
@@ -119,7 +121,7 @@ public enum CopilotHookConfig {
         return entries
     }
 
-    private static func removeOwnedHooks(
+    private func removeOwnedHooks(
         from hooks: inout [String: Any],
         isOwnedCommand: (String) -> Bool
     ) throws -> Int {
@@ -161,7 +163,7 @@ public enum CopilotHookConfig {
         return removedCount
     }
 
-    private static func serialized(_ root: [String: Any]) throws -> Data {
+    private func serialized(_ root: [String: Any]) throws -> Data {
         guard JSONSerialization.isValidJSONObject(root) else {
             throw ConfigError.invalidJSON
         }

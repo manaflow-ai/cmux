@@ -186,7 +186,7 @@ public enum AgentLaunchSanitizer {
             // replay safety as separate decisions, but reject this replay shape
             // at the sanitizer boundary too so stale persisted records cannot
             // resurrect it after an app restart.
-            if AgentLaunchModeClassifier.mode(kind: "rovodev", arguments: args) == .oneShot {
+            if AgentLaunchModeClassifier().mode(kind: "rovodev", arguments: args) == .oneShot {
                 return nil
             }
             var tail = args
@@ -236,7 +236,7 @@ public enum AgentLaunchSanitizer {
     /// remote credentials, or stale session selector.
     static func preservedOpenCodeInteractiveRunArguments(args: [String]) -> [String]? {
         guard args.first == "run",
-              AgentLaunchModeClassifier.mode(kind: "opencode", arguments: args) == .interactive else {
+              AgentLaunchModeClassifier().mode(kind: "opencode", arguments: args) == .interactive else {
             return nil
         }
         let tail = Array(args.dropFirst())

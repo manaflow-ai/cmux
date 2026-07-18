@@ -15,14 +15,14 @@ struct AgentSessionGraphSnapshot: Codable, Sendable, Equatable {
     }
 }
 
-enum AgentSessionGraphOrdering {
-    static func nodePrecedes(_ lhs: AgentSessionGraphNode, _ rhs: AgentSessionGraphNode) -> Bool {
+struct AgentSessionGraphOrdering: Sendable {
+    func nodePrecedes(_ lhs: AgentSessionGraphNode, _ rhs: AgentSessionGraphNode) -> Bool {
         if lhs.startedAt != rhs.startedAt { return lhs.startedAt < rhs.startedAt }
         if lhs.runId != rhs.runId { return lhs.runId < rhs.runId }
         return lhs.nodeId < rhs.nodeId
     }
 
-    static func edgePrecedes(_ lhs: AgentSessionGraphEdge, _ rhs: AgentSessionGraphEdge) -> Bool {
+    func edgePrecedes(_ lhs: AgentSessionGraphEdge, _ rhs: AgentSessionGraphEdge) -> Bool {
         if lhs.toNodeId != rhs.toNodeId { return lhs.toNodeId < rhs.toNodeId }
         if lhs.relationship != rhs.relationship {
             return lhs.relationship.rawValue < rhs.relationship.rawValue
@@ -33,7 +33,7 @@ enum AgentSessionGraphOrdering {
         return false
     }
 
-    private static func optionalStringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
+    private func optionalStringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
         if lhs == rhs { return nil }
         guard let lhs else { return true }
         guard let rhs else { return false }
@@ -41,8 +41,8 @@ enum AgentSessionGraphOrdering {
     }
 }
 
-enum AgentSessionRunCanonicalizer {
-    static func runs(
+struct AgentSessionRunCanonicalizer: Sendable {
+    func runs(
         record: ClaudeHookSessionRecord,
         provider: String
     ) -> [AgentSessionRunRecord] {
@@ -75,7 +75,7 @@ enum AgentSessionRunCanonicalizer {
         return newestByRunID.values.sorted { $0.runId < $1.runId }
     }
 
-    static func projectedRun(
+    func projectedRun(
         record: ClaudeHookSessionRecord,
         provider: String
     ) -> AgentSessionRunRecord {
@@ -89,7 +89,7 @@ enum AgentSessionRunCanonicalizer {
         }
     }
 
-    private static func isNewer(
+    private func isNewer(
         _ candidate: AgentSessionRunRecord,
         than current: AgentSessionRunRecord
     ) -> Bool {
@@ -140,7 +140,7 @@ enum AgentSessionRunCanonicalizer {
         return false
     }
 
-    private static func canonicalDuplicate(
+    private func canonicalDuplicate(
         _ candidate: AgentSessionRunRecord,
         _ current: AgentSessionRunRecord
     ) -> AgentSessionRunRecord {
@@ -202,7 +202,7 @@ enum AgentSessionRunCanonicalizer {
         return merged
     }
 
-    private static func conflictingProcessIdentity(
+    private func conflictingProcessIdentity(
         _ lhs: AgentSessionRunRecord,
         _ rhs: AgentSessionRunRecord
     ) -> Bool {
@@ -215,7 +215,7 @@ enum AgentSessionRunCanonicalizer {
         return false
     }
 
-    private static func conflictingRuntimeIdentity(
+    private func conflictingRuntimeIdentity(
         _ lhs: AgentCmuxRuntimeIdentity?,
         _ rhs: AgentCmuxRuntimeIdentity?
     ) -> Bool {
@@ -223,7 +223,7 @@ enum AgentSessionRunCanonicalizer {
         return lhs.id != rhs.id
     }
 
-    private static func preferredRuntime(
+    private func preferredRuntime(
         _ lhs: AgentCmuxRuntimeIdentity?,
         _ rhs: AgentCmuxRuntimeIdentity?
     ) -> AgentCmuxRuntimeIdentity? {
@@ -237,13 +237,13 @@ enum AgentSessionRunCanonicalizer {
         )
     }
 
-    private static func mergedRuntimeField(_ lhs: String?, _ rhs: String?) -> String? {
+    private func mergedRuntimeField(_ lhs: String?, _ rhs: String?) -> String? {
         guard let lhs else { return rhs }
         guard let rhs else { return lhs }
         return lhs == rhs ? lhs : nil
     }
 
-    private static func preferredAuthorityEvidence(
+    private func preferredAuthorityEvidence(
         _ lhs: AgentSessionAuthorityEvidence?,
         _ rhs: AgentSessionAuthorityEvidence?
     ) -> AgentSessionAuthorityEvidence? {
@@ -256,7 +256,7 @@ enum AgentSessionRunCanonicalizer {
         }.first
     }
 
-    private static func optionalStringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
+    private func optionalStringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
         if lhs == rhs { return nil }
         guard let lhs else { return false }
         guard let rhs else { return true }

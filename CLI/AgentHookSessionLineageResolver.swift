@@ -68,6 +68,11 @@ struct AgentHookSessionAuthorityPolicy: Sendable {
 /// to enforce `restoreAuthority` independently of notification preferences.
 struct AgentHookSessionLineageResolver: Sendable {
     private let maximumAncestorDepth = 64
+    private let launchModeClassifier: AgentLaunchModeClassifier
+
+    init(launchModeClassifier: AgentLaunchModeClassifier = AgentLaunchModeClassifier()) {
+        self.launchModeClassifier = launchModeClassifier
+    }
 
     func resolve(
         agentName: String,
@@ -94,7 +99,7 @@ struct AgentHookSessionLineageResolver: Sendable {
             )
         } ?? false
         let processLaunchMode = identity.map {
-            AgentLaunchModeClassifier.processMode(
+            launchModeClassifier.processMode(
                 processName: $0.executableName,
                 arguments: $0.arguments,
                 kind: agentName

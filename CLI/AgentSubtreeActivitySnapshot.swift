@@ -85,13 +85,28 @@ struct AgentSubtreeActivityProjector: Sendable {
         var child: Int
     }
 
+    private let nodeIndex: AgentSessionGraphNodeIndex
+    private let graphOrdering: AgentSessionGraphOrdering
+
+    init(
+        nodeIndex: AgentSessionGraphNodeIndex = AgentSessionGraphNodeIndex(),
+        graphOrdering: AgentSessionGraphOrdering = AgentSessionGraphOrdering()
+    ) {
+        self.nodeIndex = nodeIndex
+        self.graphOrdering = graphOrdering
+    }
+
     func project(nodes: inout [AgentSessionGraphNode], edges: [AgentSessionGraphEdge]) {
-        var indexByNode = AgentSessionGraphNodeIndex.indices(nodes)
+        var indexByNode = nodeIndex.indices(nodes)
         if indexByNode.count != nodes.count {
             nodes = indexByNode.values.sorted().map { nodes[$0] }
-            indexByNode = AgentSessionGraphNodeIndex.indices(nodes)
+            indexByNode = nodeIndex.indices(nodes)
         }
-        let edgeResolver = AgentSessionGraphEdgeResolver(nodes: nodes)
+        let edgeResolver = AgentSessionGraphEdgeResolver(
+            nodes: nodes,
+            nodeIndex: nodeIndex,
+            graphOrdering: graphOrdering
+        )
         var parentsByChild: [Int: [Int]] = [:]
         var remainingChildren = Array(repeating: 0, count: nodes.count)
         var seenEdges: Set<EdgeKey> = []

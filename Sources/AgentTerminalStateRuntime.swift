@@ -27,17 +27,17 @@ final class AgentTerminalObservationCache: @unchecked Sendable {
     }
 }
 
-nonisolated let agentTerminalObservationCache = AgentTerminalObservationCache()
-
 /// App composition adapter from terminal dirty signals to Workspace lifecycle state.
 @MainActor
 final class AgentTerminalStateRuntime {
     private let scheduler: AgentTerminalStateDetectionScheduler
+    nonisolated private let observationCache: AgentTerminalObservationCache
     private let classificationWorker = AgentTerminalClassificationWorker()
     private let surfaceTasks = AgentTerminalSurfaceTaskSequencer()
     private var observers: [UUID: AgentTerminalStateSurfaceObserver] = [:]
 
-    init() {
+    nonisolated init(observationCache: AgentTerminalObservationCache) {
+        self.observationCache = observationCache
         scheduler = AgentTerminalStateDetectionScheduler(clock: .continuous())
     }
 
@@ -53,7 +53,7 @@ final class AgentTerminalStateRuntime {
             expectedRuntimeGeneration: expectedRuntimeGeneration
         )
         observers[surfaceID] = observer
-        agentTerminalObservationCache.replace(surfaceID: surfaceID, with: nil)
+        observationCache.replace(surfaceID: surfaceID, with: nil)
         let worker = classificationWorker
         surfaceTasks.install(surfaceID: surfaceID) { [weak self, scheduler] in
             await scheduler.start(surfaceID: surfaceID, signal: signal) { revision in
@@ -75,7 +75,7 @@ final class AgentTerminalStateRuntime {
     func drop(surfaceID: UUID, surfaceGeneration: UInt64) {
         guard observers[surfaceID]?.expectedRuntimeGeneration == surfaceGeneration else { return }
         let observer = observers.removeValue(forKey: surfaceID)
-        agentTerminalObservationCache.replace(surfaceID: surfaceID, with: nil)
+        observationCache.replace(surfaceID: surfaceID, with: nil)
         let scheduler = scheduler
         let classificationWorker = classificationWorker
         surfaceTasks.drop(surfaceID: surfaceID) {
@@ -112,7 +112,7 @@ final class AgentTerminalStateRuntime {
         guard let familyID = classification.familyID,
               let sessionProviderID = classification.sessionProviderID,
               let state = classification.state.observedState else {
-            agentTerminalObservationCache.replace(surfaceID: update.surfaceID, with: nil)
+            observationCache.replace(surfaceID: update.surfaceID, with: nil)
             return
         }
         let process = classification.processIdentity
@@ -120,7 +120,7 @@ final class AgentTerminalStateRuntime {
             ?? GhosttyApp.terminalSurfaceRegistry
                 .terminalSurface(id: update.surfaceID)?
                 .requestedWorkingDirectory
-        agentTerminalObservationCache.replace(
+        observationCache.replace(
             surfaceID: update.surfaceID,
             with: CmuxAgentTerminalObservation(
                 runtimeID: TerminalSurface.managedCmuxRuntimeId,

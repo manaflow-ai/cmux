@@ -6,8 +6,8 @@ struct AgentStableProcessIdentity: Sendable, Equatable {
     let startTime: TimeInterval
 }
 
-enum AgentStableProcessIdentityValidator {
-    static func identity(
+struct AgentStableProcessIdentityValidator: Sendable {
+    func identity(
         for pid: Int,
         probedKernelStartTime: TimeInterval,
         processStartTimeLookup: (Int) -> TimeInterval?,
@@ -55,6 +55,15 @@ struct AgentSessionRunRecord: Codable, Sendable, Equatable {
 
 struct AgentSessionRunReconciler: Sendable {
     var maximumRecords: Int
+    private let authorityTransition: AgentSessionAuthorityTransition
+
+    init(
+        maximumRecords: Int,
+        authorityTransition: AgentSessionAuthorityTransition = AgentSessionAuthorityTransition()
+    ) {
+        self.maximumRecords = maximumRecords
+        self.authorityTransition = authorityTransition
+    }
 
     func reconciling(
         _ existing: [AgentSessionRunRecord],
@@ -94,8 +103,8 @@ struct AgentSessionRunReconciler: Sendable {
         lineage: AgentHookSessionLineage,
         now: TimeInterval
     ) {
-        let previousEvidence = AgentSessionAuthorityTransition.persistedEvidence(for: run)
-        let recoversProvisionalFork = AgentSessionAuthorityTransition.canRecoverProvisionalFork(
+        let previousEvidence = authorityTransition.persistedEvidence(for: run)
+        let recoversProvisionalFork = authorityTransition.canRecoverProvisionalFork(
             previous: previousEvidence,
             incoming: lineage
         )
