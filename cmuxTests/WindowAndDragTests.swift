@@ -3334,7 +3334,9 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             accuracy: 2
         )
         XCTAssertEqual(dragFrame.maxX, contentView.bounds.maxX, accuracy: 2)
-        XCTAssertEqual(dragFrame.maxY, contentView.bounds.maxY, accuracy: 2)
+        let dragTopY = contentView.isFlipped ? dragFrame.minY : dragFrame.maxY
+        let contentTopY = contentView.isFlipped ? contentView.bounds.minY : contentView.bounds.maxY
+        XCTAssertEqual(dragTopY, contentTopY, accuracy: 2)
         XCTAssertEqual(dragFrame.height, WindowChromeMetrics.bonsplitTabBarHeight, accuracy: 2)
     }
 

@@ -20,6 +20,21 @@ struct WorkspaceFloatingDockContentView: View {
         )
         .frame(minWidth: 320, minHeight: 220)
         .ignoresSafeArea(.container, edges: .top)
+        .overlay(alignment: .top) {
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: WorkspaceFloatingDockChromeMetrics.trafficLightClearance)
+                    .allowsHitTesting(false)
+
+                // Reuse cmux's explicit titlebar drag routing so every empty
+                // part of the Dock chrome moves the panel while pane tabs and
+                // registered controls keep their own mouse gestures.
+                WindowDragHandleView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: WindowChromeMetrics.bonsplitTabBarHeight)
+        }
         .overlay(alignment: .topLeading) {
             WorkspaceFloatingDockTitlebarIdentity(onCreateDock: onCreateDock)
                 .padding(.leading, WorkspaceFloatingDockChromeMetrics.trafficLightClearance)
@@ -65,6 +80,7 @@ private struct WorkspaceFloatingDockTitlebarIdentity: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .frame(width: WorkspaceFloatingDockChromeMetrics.newDockButtonWidth)
+            .titlebarInteractiveControl()
             .help("floatingDock.window.new")
             .accessibilityLabel(Text("floatingDock.window.new"))
             .accessibilityIdentifier("WorkspaceFloatingDockNewDockButton")
