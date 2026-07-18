@@ -23,8 +23,8 @@ struct AgentHookSessionAuthorityPolicy: Sendable {
             && !managedChild
             && processIdentityAvailable
             && !hasAgentAncestor
-        let ancestryAmbiguous = !isForkRoot
-            && processIdentityAvailable
+            && ancestryProvenAbsent
+        let ancestryAmbiguous = processIdentityAvailable
             && !hasAgentAncestor
             && !ancestryProvenAbsent
         let isSpawnedChild = managedChild
