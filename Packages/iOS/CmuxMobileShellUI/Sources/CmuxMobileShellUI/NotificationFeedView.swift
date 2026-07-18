@@ -55,7 +55,7 @@ struct NotificationFeedView: View {
                                     remove: { actions.remove(item) }
                                 )
                             )
-                            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                            .listRowInsets(EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12))
                             .listRowSeparator(.hidden)
                         }
                     } header: {

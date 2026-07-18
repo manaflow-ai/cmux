@@ -12,11 +12,13 @@ struct NotificationFeedRow: View {
         HStack(alignment: .top, spacing: 0) {
             WorkspaceUnreadDot(isUnread: !item.isRead, leftShift: 0)
             avatar
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
+                // One visual anchor per row: the small secondary workspace
+                // label cedes weight to the notification title below it.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(workspaceDisplayName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 8)
                     Text(timeLabel)
@@ -85,15 +87,15 @@ struct NotificationFeedRow: View {
         ZStack {
             Circle()
                 .fill(avatarGradient)
-                .frame(width: 36, height: 36)
+                .frame(width: 32, height: 32)
             if let initial = workspaceInitial {
                 Text(initial)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .accessibilityHidden(true)
             } else {
                 Image(systemName: "bell.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .accessibilityHidden(true)
             }
