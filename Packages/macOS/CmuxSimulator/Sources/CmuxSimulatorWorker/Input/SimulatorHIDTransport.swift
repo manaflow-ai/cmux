@@ -414,7 +414,7 @@ final class SimulatorHIDTransport {
         return send(message)
     }
 
-    func sendSystemGesture(endY: Double, holdsAtEnd: Bool) async -> Bool {
+    func sendSystemGesture(endY: Double) async -> Bool {
         let edge = SimulatorEdge.bottom
         var succeeded = send(
             SimulatorPointerEvent(
@@ -449,18 +449,6 @@ final class SimulatorHIDTransport {
                 _ = send(SimulatorPointerEvent(
                     phase: .cancelled,
                     primary: SimulatorPoint(x: 0.5, y: y),
-                    edge: edge
-                ))
-                return false
-            }
-        }
-        if holdsAtEnd {
-            do {
-                try await sleeper.sleep(for: .milliseconds(500))
-            } catch {
-                _ = send(SimulatorPointerEvent(
-                    phase: .cancelled,
-                    primary: SimulatorPoint(x: 0.5, y: endY),
                     edge: edge
                 ))
                 return false

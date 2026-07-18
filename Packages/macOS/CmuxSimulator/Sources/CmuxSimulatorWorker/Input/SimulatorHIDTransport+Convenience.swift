@@ -76,17 +76,7 @@ extension SimulatorHIDTransport {
     func press(_ button: SimulatorHardwareButton) async -> Bool {
         switch SimulatorHardwareButtonMapping(button) {
         case let .legacy(eventSource):
-            let mapped = modernUsage(forLegacyEventSource: eventSource)
-            let token: SimulatorConvenienceButton
-            if let mapped, modernTransport != nil || convenienceSenderOverride != nil {
-                token = .modern(page: mapped.page, usage: mapped.usage)
-            } else {
-                token = .legacy(eventSource: eventSource)
-            }
-            let duration: Duration = eventSource == 0x400002
-                ? .milliseconds(300)
-                : .milliseconds(50)
-            return await pressConvenience(token, duration: duration)
+            return await pressLegacyButton(eventSource: eventSource)
         case let .arbitrary(page, usage):
             let token: SimulatorConvenienceButton = modernTransport != nil
                 || convenienceSenderOverride != nil
@@ -94,9 +84,15 @@ extension SimulatorHIDTransport {
                 : .arbitrary(page: page, usage: usage)
             return await pressConvenience(token, duration: .milliseconds(50))
         case .swipeHome:
-            return await sendSystemGesture(endY: 0.30, holdsAtEnd: false)
+            return await sendSystemGesture(endY: 0.30)
         case .appSwitcher:
-            return await sendSystemGesture(endY: 0.42, holdsAtEnd: true)
+            guard await pressLegacyButton(eventSource: 0) else { return false }
+            do {
+                try await sleeper.sleep(for: .milliseconds(50))
+            } catch {
+                return false
+            }
+            return await pressLegacyButton(eventSource: 0)
         }
     }
 
@@ -159,6 +155,20 @@ extension SimulatorHIDTransport {
         guard sendConvenience(token, down: false) else { return false }
         heldConvenienceButtons.remove(token)
         return true
+    }
+
+    private func pressLegacyButton(eventSource: Int32) async -> Bool {
+        let mapped = modernUsage(forLegacyEventSource: eventSource)
+        let token: SimulatorConvenienceButton
+        if let mapped, modernTransport != nil || convenienceSenderOverride != nil {
+            token = .modern(page: mapped.page, usage: mapped.usage)
+        } else {
+            token = .legacy(eventSource: eventSource)
+        }
+        let duration: Duration = eventSource == 0x400002
+            ? .milliseconds(300)
+            : .milliseconds(50)
+        return await pressConvenience(token, duration: duration)
     }
 
     private func sendConvenience(_ token: SimulatorConvenienceButton, down: Bool) -> Bool {
