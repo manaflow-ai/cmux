@@ -264,7 +264,7 @@ struct CLIHookNoResponseTests {
         #expect(result.stdout == "{}\n")
     }
 
-    @Test func nativeCodexAdmissionReturnsBeforeUnresponsiveSocketAndFallback() throws {
+    @Test func nativeCodexAdmissionReturnsAfterCompleteUnacknowledgedHandoff() throws {
         let cliPath = try Self.bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-native-admission-deadline-\(UUID().uuidString)", isDirectory: true)
@@ -341,23 +341,13 @@ struct CLIHookNoResponseTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         #expect(elapsed < .seconds(0.15), "Hook admission took \(elapsed)")
-        #expect(waitForCondition(timeout: 1) {
-            FileManager.default.fileExists(atPath: fallbackArgs.path)
-                && FileManager.default.fileExists(atPath: leaderPIDFile.path)
-                && FileManager.default.fileExists(atPath: descendantPIDFile.path)
-        })
-        #expect(
-            try String(contentsOf: fallbackArgs, encoding: .utf8)
-                == "--socket \(socketPath) hooks codex enqueue session-start"
-        )
-        for pidFile in [leaderPIDFile, descendantPIDFile] {
-            let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
-            let pid = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
-            #expect(waitForCondition(timeout: 2) {
-                errno = 0
-                return Darwin.kill(pid, 0) == -1 && errno == ESRCH
-            })
-        }
+        // A complete write transfers the event to the app-side socket even
+        // when its durable ack is late. Do not amplify overload by forking a
+        // second delivery process for every unacknowledged handoff.
+        Thread.sleep(forTimeInterval: 0.9)
+        #expect(!FileManager.default.fileExists(atPath: fallbackArgs.path))
+        #expect(!FileManager.default.fileExists(atPath: leaderPIDFile.path))
+        #expect(!FileManager.default.fileExists(atPath: descendantPIDFile.path))
     }
 
     @Test func nativeCodexAdmissionUsesBoundedEmergencyFallbackWhenForkFails() throws {
@@ -368,8 +358,18 @@ struct CLIHookNoResponseTests {
         let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux-emergency-fallback", isDirectory: false)
         let capturedArgs = root.appendingPathComponent("emergency-args.txt", isDirectory: false)
+        let leaderPIDFile = root.appendingPathComponent("emergency-leader.pid", isDirectory: false)
+        let descendantPIDFile = root.appendingPathComponent("emergency-descendant.pid", isDirectory: false)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer {
+            for pidFile in [leaderPIDFile, descendantPIDFile] {
+                if let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
+                   let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    Darwin.kill(pid, SIGKILL)
+                }
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
 
         let inject = runCodexHookProcess(
             executablePath: cliPath,
@@ -387,6 +387,10 @@ struct CLIHookNoResponseTests {
             "#!/bin/sh",
             "/bin/sleep 0.02",
             "printf '%s' \"$*\" > \"$CMUX_TEST_EMERGENCY_ARGS\"",
+            "printf '%s' \"$$\" > \"$CMUX_TEST_EMERGENCY_LEADER\"",
+            "/bin/sh -c 'trap \"\" TERM; printf \"%s\" \"$$\" > \"$CMUX_TEST_EMERGENCY_DESCENDANT\"; while :; do :; done' &",
+            "trap 'exit 143' TERM",
+            "while :; do :; done",
         ])
 
         let started = ContinuousClock().now
@@ -404,6 +408,8 @@ struct CLIHookNoResponseTests {
                 "CMUX_AGENT_HOOK_DELIVERY_ID": "native-forced-fork-failure",
                 "CMUX_TEST_FORCE_HOOK_FORK_FAILURE": "1",
                 "CMUX_TEST_EMERGENCY_ARGS": capturedArgs.path,
+                "CMUX_TEST_EMERGENCY_LEADER": leaderPIDFile.path,
+                "CMUX_TEST_EMERGENCY_DESCENDANT": descendantPIDFile.path,
             ],
             standardInput: #"{"session_id":"fork-failure","hook_event_name":"SessionStart"}"#,
             timeout: 0.25
@@ -419,6 +425,13 @@ struct CLIHookNoResponseTests {
             try String(contentsOf: capturedArgs, encoding: .utf8)
                 == "--socket /tmp/cmux-native-forced-fork-failure.sock hooks codex enqueue session-start"
         )
+        for pidFile in [leaderPIDFile, descendantPIDFile] {
+            let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
+            let pid = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
+            errno = 0
+            #expect(Darwin.kill(pid, 0) == -1)
+            #expect(errno == ESRCH)
+        }
     }
 
     @Test func nativeCodexAdmissionStaysInstantAcrossSixtyFourUnacknowledgedHooks() throws {

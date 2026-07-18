@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -24,18 +25,18 @@ enum {
     CMUX_HOOK_MAX_PAYLOAD_BYTES = 8 * 1024 * 1024,
     CMUX_HOOK_MAX_ENVIRONMENT_BYTES = 256 * 1024,
     CMUX_HOOK_MAX_ENVIRONMENT_VALUE_BYTES = 128 * 1024,
-    CMUX_HOOK_FOREGROUND_TIMEOUT_MILLISECONDS = 60,
-    CMUX_HOOK_WORKER_READY_TIMEOUT_MILLISECONDS = 60,
+    CMUX_HOOK_FOREGROUND_TIMEOUT_MILLISECONDS = 35,
     CMUX_HOOK_WORKER_RETRY_ATTEMPTS = 2,
     CMUX_HOOK_WORKER_ATTEMPT_TIMEOUT_MILLISECONDS = 350,
     CMUX_HOOK_FALLBACK_TIMEOUT_MILLISECONDS = 500,
+    CMUX_HOOK_EMERGENCY_FALLBACK_TIMEOUT_MILLISECONDS = 50,
     CMUX_HOOK_TERMINATION_GRACE_MILLISECONDS = 50,
-    CMUX_HOOK_WORKER_CLOSE_FD_LIMIT = 4096,
 };
 
 typedef enum {
     CMUX_SUBMISSION_RETRYABLE,
     CMUX_SUBMISSION_QUEUED,
+    CMUX_SUBMISSION_HANDOFF_UNACKNOWLEDGED,
     CMUX_SUBMISSION_UNSUPPORTED,
     CMUX_SUBMISSION_REJECTED,
 } CMUXSubmissionResult;
@@ -615,9 +616,18 @@ static CMUXSubmissionResult cmux_read_queued_ack(int socket_fd, int64_t deadline
         if (errno == EINTR) {
             continue;
         }
-        if ((errno == EAGAIN || errno == EWOULDBLOCK)
-            && cmux_wait_for_socket(socket_fd, POLLIN, deadline)) {
-            continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (cmux_wait_for_socket(socket_fd, POLLIN, deadline)) {
+                continue;
+            }
+            // The complete request already reached the local Unix socket.
+            // Closing our side leaves those bytes readable after EOF, so the
+            // app retains ownership even when its durable ack misses this
+            // foreground deadline. Retrying every such handoff would create a
+            // fork/CLI storm precisely while the app is overloaded.
+            if (cmux_monotonic_milliseconds() >= deadline) {
+                return CMUX_SUBMISSION_HANDOFF_UNACKNOWLEDGED;
+            }
         }
         return CMUX_SUBMISSION_RETRYABLE;
     }
@@ -768,7 +778,8 @@ static void cmux_run_cli_fallback(
     const char *subcommand,
     const char *socket_path,
     const CMUXBuffer *payload,
-    bool use_legacy_entrypoint
+    bool use_legacy_entrypoint,
+    int timeout_milliseconds
 ) {
     const char *cli = getenv("CMUX_BUNDLED_CLI_PATH");
     const bool use_path_search = cli == NULL || cli[0] == '\0' || access(cli, X_OK) != 0;
@@ -913,7 +924,7 @@ static void cmux_run_cli_fallback(
     }
 
     const int64_t deadline = cmux_monotonic_milliseconds()
-        + CMUX_HOOK_FALLBACK_TIMEOUT_MILLISECONDS;
+        + timeout_milliseconds;
     const bool wrote_payload = cmux_write_all_fd_until(
         input_pipe[1],
         payload->bytes,
@@ -927,12 +938,52 @@ static void cmux_run_cli_fallback(
 }
 
 static void cmux_close_inherited_worker_descriptors(void) {
-    int limit = getdtablesize();
-    if (limit < 0 || limit > CMUX_HOOK_WORKER_CLOSE_FD_LIMIT) {
-        limit = CMUX_HOOK_WORKER_CLOSE_FD_LIMIT;
+    DIR *directory = opendir("/dev/fd");
+    if (directory != NULL) {
+        const int directory_fd = dirfd(directory);
+        struct dirent *entry = NULL;
+        while ((entry = readdir(directory)) != NULL) {
+            char *end = NULL;
+            errno = 0;
+            const long raw_descriptor = strtol(entry->d_name, &end, 10);
+            if (errno != 0 || end == entry->d_name || *end != '\0'
+                || raw_descriptor < 3 || raw_descriptor > INT32_MAX
+                || raw_descriptor == directory_fd) {
+                continue;
+            }
+            close((int)raw_descriptor);
+        }
+        closedir(directory);
+        return;
     }
-    for (int descriptor = 4; descriptor < limit; descriptor += 1) {
+
+    // `/dev/fd` is present on supported macOS releases. Keep a complete
+    // fallback for degraded environments instead of capping the scan and
+    // leaking an arbitrarily high inherited descriptor.
+    const int limit = getdtablesize();
+    for (int descriptor = 3; descriptor < limit; descriptor += 1) {
         close(descriptor);
+    }
+}
+
+static void cmux_redirect_standard_descriptors_to_null(void) {
+    const int null_fd = open("/dev/null", O_RDWR);
+    if (null_fd < 0) {
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        return;
+    }
+    const bool succeeded = dup2(null_fd, STDIN_FILENO) >= 0
+        && dup2(null_fd, STDOUT_FILENO) >= 0
+        && dup2(null_fd, STDERR_FILENO) >= 0;
+    if (null_fd > STDERR_FILENO) {
+        close(null_fd);
+    }
+    if (!succeeded) {
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
     }
 }
 
@@ -961,7 +1012,8 @@ static void cmux_run_fallback_worker(
         subcommand,
         socket_path,
         payload,
-        result == CMUX_SUBMISSION_UNSUPPORTED
+        result == CMUX_SUBMISSION_UNSUPPORTED,
+        CMUX_HOOK_FALLBACK_TIMEOUT_MILLISECONDS
     );
 }
 
@@ -972,61 +1024,25 @@ static bool cmux_start_fallback_worker(
     const CMUXBuffer *request,
     const CMUXBuffer *payload
 ) {
-    int ready_pipe[2] = {-1, -1};
-    if (pipe(ready_pipe) != 0) {
-        return false;
+    pid_t worker = -1;
+#if defined(DEBUG)
+    const char *force_fork_failure = getenv("CMUX_TEST_FORCE_HOOK_FORK_FAILURE");
+    if (force_fork_failure == NULL || strcmp(force_fork_failure, "1") != 0) {
+        worker = fork();
+    } else {
+        errno = EAGAIN;
     }
-    fcntl(ready_pipe[0], F_SETFD, FD_CLOEXEC);
-    fcntl(ready_pipe[1], F_SETFD, FD_CLOEXEC);
-
-    const pid_t worker = fork();
+#else
+    worker = fork();
+#endif
     if (worker < 0) {
-        close(ready_pipe[0]);
-        close(ready_pipe[1]);
         return false;
     }
     if (worker == 0) {
-        close(ready_pipe[0]);
-        if (ready_pipe[1] != 3) {
-            if (dup2(ready_pipe[1], 3) < 0) {
-                _exit(1);
-            }
-            close(ready_pipe[1]);
-        }
-        const int null_fd = open("/dev/null", O_RDWR);
-        if (null_fd < 0
-            || dup2(null_fd, STDIN_FILENO) < 0
-            || dup2(null_fd, STDOUT_FILENO) < 0
-            || dup2(null_fd, STDERR_FILENO) < 0
-            || setsid() < 0) {
-            _exit(1);
-        }
-        if (null_fd > 3) {
-            close(null_fd);
-        }
-        const unsigned char ready = 1;
-        if (write(3, &ready, 1) != 1) {
-            _exit(1);
-        }
-        close(3);
+        (void)setsid();
         cmux_close_inherited_worker_descriptors();
         cmux_run_fallback_worker(initial_result, subcommand, socket_path, request, payload);
         _exit(0);
-    }
-
-    close(ready_pipe[1]);
-    const int64_t deadline = cmux_monotonic_milliseconds()
-        + CMUX_HOOK_WORKER_READY_TIMEOUT_MILLISECONDS;
-    unsigned char ready = 0;
-    const bool started = cmux_wait_for_socket(ready_pipe[0], POLLIN, deadline)
-        && read(ready_pipe[0], &ready, 1) == 1
-        && ready == 1;
-    close(ready_pipe[0]);
-    if (!started) {
-        (void)kill(worker, SIGKILL);
-        int status = 0;
-        while (waitpid(worker, &status, 0) < 0 && errno == EINTR) {}
-        return false;
     }
     int status = 0;
     (void)waitpid(worker, &status, WNOHANG);
@@ -1103,14 +1119,33 @@ int main(int argument_count, char **arguments) {
         );
     }
 
-    if (submission != CMUX_SUBMISSION_QUEUED) {
-        (void)cmux_start_fallback_worker(
+    const bool needs_fallback = submission != CMUX_SUBMISSION_QUEUED
+        && submission != CMUX_SUBMISSION_HANDOFF_UNACKNOWLEDGED;
+    if (needs_fallback) {
+        // Emit and detach the caller-visible descriptors before forking. The
+        // worker can then start whenever the scheduler permits without
+        // extending Codex's hook latency or retaining its stdout pipe.
+        cmux_print_noop();
+        cmux_redirect_standard_descriptors_to_null();
+        const bool started = cmux_start_fallback_worker(
             submission,
             subcommand,
             socket_path,
             &request,
             &payload
         );
+        if (!started) {
+            // Process pressure can make fork return EAGAIN. Preserve the old
+            // delivery attempt under its own short deadline rather than
+            // silently dropping the event or violating the hook budget.
+            cmux_run_cli_fallback(
+                subcommand,
+                socket_path,
+                &payload,
+                submission == CMUX_SUBMISSION_UNSUPPORTED,
+                CMUX_HOOK_EMERGENCY_FALLBACK_TIMEOUT_MILLISECONDS
+            );
+        }
     }
 
     cmux_buffer_destroy(&request);
@@ -1118,6 +1153,8 @@ int main(int argument_count, char **arguments) {
     free(payload_base64);
     cmux_buffer_destroy(&environment);
     cmux_buffer_destroy(&payload);
-    cmux_print_noop();
+    if (!needs_fallback) {
+        cmux_print_noop();
+    }
     return 0;
 }
