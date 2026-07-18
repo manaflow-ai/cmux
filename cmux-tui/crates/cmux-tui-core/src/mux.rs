@@ -4149,6 +4149,38 @@ mod tests {
     }
 
     #[test]
+    fn zellij_new_pane_emits_pane_added_delta_and_layout_change() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let (workspace, screen, first_pane) = mux.with_state(|state| {
+            let workspace = &state.workspaces[0];
+            let screen = &workspace.screens[0];
+            (workspace.id, screen.id, state.pane_of(first.id).unwrap())
+        });
+        let events = mux.subscribe();
+
+        let added = mux.new_pane(first_pane, None).unwrap();
+        let added_pane = mux.with_state(|state| state.pane_of(added.id).unwrap());
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TreeDelta(TreeDelta {
+                kind: TreeDeltaKind::PaneAdded,
+                workspace: event_workspace,
+                screen: Some(event_screen),
+                pane: Some(event_pane),
+                surface: None,
+                index: Some(1),
+                ..
+            }) if event_workspace == workspace && event_screen == screen && event_pane == added_pane
+        ));
+        assert!(
+            matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(event_screen) if event_screen == screen)
+        );
+        assert!(events.try_iter().all(|event| !matches!(event, MuxEvent::TreeChanged)));
+    }
+
+    #[test]
     fn closing_zellij_pane_reapplies_layout_for_remaining_count() {
         let mux = test_mux();
         let first = mux.new_workspace(None, None).unwrap();
