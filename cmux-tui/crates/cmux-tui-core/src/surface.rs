@@ -667,7 +667,7 @@ impl Surface {
                     default_colors,
                 )?,
             };
-            return Self::spawn_hosted(id, opts, mux, attachment);
+            return Self::spawn_hosted(id, opts, mux, attachment, true);
         }
         let _ = terminal_id;
         let pty = native_pty_system().openpty(PtySize {
@@ -854,8 +854,15 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
         mut attachment: crate::terminal_host_runtime::HostAttachment,
+        terminate_on_error: bool,
     ) -> anyhow::Result<Arc<Surface>> {
         let mut reader = attachment.take_reader()?;
+        if let Ok(delay_ms) = std::env::var("CMUX_TUI_TEST_HOSTED_SPAWN_FAIL_AFTER_CONNECT")
+            && let Ok(delay_ms) = delay_ms.parse::<u64>()
+        {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+            anyhow::bail!("injected hosted surface setup failure after attachment");
+        }
         let mut capability_responses = attachment.capability_responses();
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
@@ -920,6 +927,10 @@ impl Surface {
         }));
         spawn_frame_producer(&surface, frame_rx)?;
 
+        // Keep exact-child rollback ownership armed through the final thread
+        // spawn. If Builder::spawn fails, dropping the closure clone and
+        // function-local Surface drops the still-armed attachment, so no
+        // control-write failure can convert this Err into a live orphan.
         std::thread::Builder::new().name(format!("surface-{id}-host")).spawn({
             let surface = surface.clone();
             let scrollback = opts.scrollback;
@@ -1318,6 +1329,12 @@ impl Surface {
                 }
             }
         })?;
+        if terminate_on_error
+            && let Some(pty) = surface.as_pty()
+            && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
+        {
+            host.commit_launched_host();
+        }
         Ok(surface)
     }
 
@@ -1330,7 +1347,7 @@ impl Surface {
         record_path: PathBuf,
     ) -> anyhow::Result<Arc<Surface>> {
         let attachment = crate::terminal_host_runtime::adopt_terminal_host(record, record_path)?;
-        Self::spawn_hosted(id, opts, mux, attachment)
+        Self::spawn_hosted(id, opts, mux, attachment, false)
     }
 
     /// Materialize canonical Exited registry state without inventing a live
