@@ -103,7 +103,6 @@ describe("Open Graph image discovery", () => {
         }
         expect(visibleTaglinePixels).toBeGreaterThan(5_000);
       },
-      15_000,
     );
   }
 
