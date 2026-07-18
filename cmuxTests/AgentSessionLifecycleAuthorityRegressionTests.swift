@@ -325,11 +325,13 @@ extension CMUXCLIErrorOutputRegressionTests {
             ("antigravity", "agy", ["--prompt", "fix this"]),
             ("antigravity", "agy", ["--print", "fix this"]),
             ("rovodev", "acli", ["rovodev", "run", "--prompt", "fix this"]),
+            ("rovodev", "acli", ["rovodev", "run", "fix this"]),
             ("hermes-agent", "hermes", ["--oneshot", "fix this"]),
             ("hermes-agent", "hermes", ["chat", "-q", "fix this"]),
             ("copilot", "copilot", ["--prompt", "fix this"]),
             ("codebuddy", "codebuddy", ["--print", "fix this"]),
             ("qoder", "qodercli", ["--print", "fix this"]),
+            ("kiro", "kiro-cli", ["chat", "--no-interactive", "fix this"]),
             ("kimi", "kimi", ["--print", "fix this"]),
             ("kimi", "kimi", ["--quiet", "fix this"]),
         ]
@@ -401,6 +403,184 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func nestedOneShotStopPreservesTheRootGenerationUntilTheFinalBoundary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-nested-one-shot-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/usr/bin/yes", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["exec", "fix this"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        let pid = Int(process.processIdentifier)
+        let command = AgentHookLaunchCommandRecord(
+            launcher: "codex",
+            executablePath: executable.path,
+            arguments: [executable.path, "exec", "fix this"],
+            workingDirectory: root.path,
+            environment: nil,
+            capturedAt: Date().timeIntervalSince1970,
+            source: "process"
+        )
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("hook-sessions.json").path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+        ], agentName: "codex")
+        #expect(try store.upsert(
+            sessionId: "nested-one-shot",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            launchCommand: command,
+            markActive: true
+        ))
+        for _ in 0..<2 {
+            let submit = try store.recordPromptSubmit(
+                sessionId: "nested-one-shot",
+                workspaceId: "workspace-a",
+                surfaceId: "surface-a",
+                cwd: root.path,
+                pid: pid,
+                launchCommand: command
+            )
+            #expect(submit.accepted)
+        }
+
+        let nestedStop = try store.recordPromptStop(
+            sessionId: "nested-one-shot",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            launchCommand: command,
+            lastSubtitle: nil,
+            lastBody: nil
+        )
+        #expect(nestedStop.accepted)
+        #expect(nestedStop.nested)
+        #expect(!nestedStop.completedGeneration)
+        let afterNestedStop = try #require(try store.lookup(sessionId: "nested-one-shot"))
+        #expect(afterNestedStop.activePromptDepth == 1)
+        #expect(afterNestedStop.completedAt == nil)
+        #expect(afterNestedStop.activeRunId != nil)
+
+        let rootStop = try store.recordPromptStop(
+            sessionId: "nested-one-shot",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            launchCommand: command,
+            lastSubtitle: nil,
+            lastBody: nil
+        )
+        #expect(!rootStop.accepted)
+        #expect(rootStop.completedGeneration)
+        #expect(rootStop.completionReason == .terminalLaunch)
+    }
+
+    @Test func oneShotStopPreservesLiveBackgroundAuthority() throws {
+        for evidence in ["incoming-pending", "stored-workload"] {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-agent-one-shot-background-\(evidence)-\(UUID().uuidString)", isDirectory: true)
+            let executable = root.appendingPathComponent("claude", isDirectory: false)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(atPath: "/usr/bin/yes", toPath: executable.path)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = ["--print", "fix this"]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            defer {
+                if process.isRunning { process.terminate() }
+                process.waitUntilExit()
+            }
+            let pid = Int(process.processIdentifier)
+            let command = AgentHookLaunchCommandRecord(
+                launcher: "claude",
+                executablePath: executable.path,
+                arguments: [executable.path, "--print", "fix this"],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: Date().timeIntervalSince1970,
+                source: "process"
+            )
+            let store = ClaudeHookSessionStore(processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("hook-sessions.json").path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+            ], agentName: "claude")
+            #expect(try store.upsert(
+                sessionId: evidence,
+                workspaceId: "workspace-a",
+                surfaceId: "surface-a",
+                cwd: root.path,
+                pid: pid,
+                launchCommand: command,
+                markActive: true
+            ))
+            if evidence == "stored-workload" {
+                try store.reconcileSemanticState(
+                    sessionId: evidence,
+                    workloads: [AgentWorkloadRecord(
+                        id: "background-terminal",
+                        kind: .backgroundTerminal,
+                        phase: .running,
+                        keepsSessionBusy: true,
+                        startedAt: Date().timeIntervalSince1970,
+                        updatedAt: Date().timeIntervalSince1970,
+                        endedAt: nil,
+                        endReason: nil
+                    )]
+                )
+            }
+
+            let stop: AgentPromptStopResult
+            if evidence == "incoming-pending" {
+                stop = try store.upsertPromptStop(
+                    sessionId: evidence,
+                    workspaceId: "workspace-a",
+                    surfaceId: "surface-a",
+                    cwd: root.path,
+                    pid: pid,
+                    launchCommand: command,
+                    agentLifecycle: .running,
+                    hadPendingBackgroundWorkAtStop: true,
+                    markActive: true
+                )
+            } else {
+                stop = try store.recordPromptStop(
+                    sessionId: evidence,
+                    workspaceId: "workspace-a",
+                    surfaceId: "surface-a",
+                    cwd: root.path,
+                    pid: pid,
+                    launchCommand: command,
+                    lastSubtitle: nil,
+                    lastBody: nil
+                )
+            }
+            #expect(stop.accepted, "\(evidence) was consumed")
+            #expect(!stop.completedGeneration)
+            let active = try #require(try store.lookup(sessionId: evidence))
+            #expect(active.completedAt == nil)
+            #expect(active.activeRunId != nil)
+            #expect(store.snapshot().activeSessionsByWorkspace["workspace-a"]?.sessionId == evidence)
+        }
+    }
+
     @Test func liveInteractiveStopRemainsATurnBoundaryForEverySupportedAgent() throws {
         let launches: [(agent: String, executable: String, arguments: [String])] = [
             ("codex", "codex", []),
@@ -408,37 +588,61 @@ extension CMUXCLIErrorOutputRegressionTests {
             ("claude", "claude", []),
             ("claude", "claude", ["--no-session-persistence"]),
             ("claude", "claude", ["--background", "fix this"]),
+            ("claude", "claude", ["--print", "--input-format", "stream-json", "--output-format", "stream-json"]),
+            ("codex", "codex", ["app-server"]),
+            ("codex", "codex", ["mcp-server"]),
+            ("codex", "codex", ["exec-server"]),
             ("gemini", "gemini", []),
             ("gemini", "gemini", ["--prompt-interactive", "fix this"]),
             ("cursor", "cursor-agent", []),
             ("factory", "droid", []),
+            ("factory", "droid", ["exec", "--input-format", "stream-jsonrpc", "--output-format", "stream-jsonrpc"]),
             ("opencode", "opencode", []),
             ("opencode", "opencode", ["pr", "123"]),
             ("opencode", "opencode", ["run", "--interactive", "fix this"]),
+            ("opencode", "opencode", ["acp"]),
+            ("opencode", "opencode", ["serve"]),
+            ("opencode", "opencode", ["web"]),
             ("grok", "grok", []),
+            ("grok", "grok", ["agent", "stdio", "--single", "fix this"]),
+            ("grok", "grok", ["agent", "serve"]),
+            ("grok", "grok", ["agent", "leader"]),
             ("pi", "pi", []),
             ("pi", "pi", ["--no-session"]),
+            ("pi", "pi", ["--mode", "rpc", "--print", "fix this"]),
             ("omp", "omp", []),
             ("omp", "omp", ["--prompt", "fix this"]),
+            ("omp", "omp", ["--mode", "rpc-ui", "--print", "fix this"]),
+            ("omp", "omp", ["acp", "--print", "fix this"]),
             ("campfire", "campfire", []),
             ("campfire", "campfire", ["--no-session"]),
             ("campfire", "campfire", ["--prompt", "fix this"]),
+            ("campfire", "campfire", ["--mode", "rpc", "--print", "fix this"]),
             ("amp", "amp", []),
             ("antigravity", "agy", []),
             ("antigravity", "agy", ["--prompt-interactive", "fix this"]),
             ("rovodev", "acli", []),
+            ("rovodev", "acli", ["rovodev", "run"]),
             ("rovodev", "acli", ["rovodev", "run", "--prompt-interactive", "fix this"]),
+            ("rovodev", "acli", ["rovodev", "config"]),
             ("hermes-agent", "hermes", []),
             ("hermes-agent", "hermes", ["-q", "fix this"]),
+            ("hermes-agent", "hermes", ["acp", "--oneshot", "fix this"]),
+            ("hermes-agent", "hermes", ["gateway", "run"]),
             ("copilot", "copilot", []),
             ("codebuddy", "codebuddy", []),
             ("qoder", "qodercli", []),
             ("qoder", "qodercli", ["--prompt-interactive", "fix this"]),
+            ("qoder", "qodercli", ["--acp", "--print", "fix this"]),
+            ("qoder", "qodercli", ["--input-format", "stream-json", "--print", "fix this"]),
             ("kiro", "kiro-cli", []),
             ("kiro", "kiro-cli", ["--no-interactive"]),
+            ("kiro", "kiro-cli", ["doctor", "--no-interactive"]),
             ("kimi", "kimi", []),
             ("kimi", "kimi", ["--prompt", "fix this"]),
             ("kimi", "kimi", ["-p", "fix this"]),
+            ("kimi", "kimi", ["--acp", "--print", "fix this"]),
+            ("kimi", "kimi", ["acp"]),
         ]
 
         for (index, launch) in launches.enumerated() {

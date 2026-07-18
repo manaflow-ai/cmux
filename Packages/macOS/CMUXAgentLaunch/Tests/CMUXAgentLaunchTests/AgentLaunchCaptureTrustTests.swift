@@ -384,6 +384,73 @@ struct AgentLaunchCaptureTrustTests {
                 kind: "kimi"
             ) == .interactive
         )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "kiro-cli",
+                arguments: ["kiro-cli", "chat", "--no-interactive", "fix this"],
+                kind: "kiro"
+            ) == .oneShot
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "kiro-cli",
+                arguments: ["kiro-cli", "doctor", "--no-interactive"],
+                kind: "kiro"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "acli",
+                arguments: ["acli", "rovodev", "run"],
+                kind: "rovodev"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "acli",
+                arguments: ["acli", "rovodev", "run", "fix this"],
+                kind: "rovodev"
+            ) == .oneShot
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "acli",
+                arguments: ["acli", "rovodev", "run", "--prompt-interactive", "fix this"],
+                kind: "rovodev"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "acli",
+                arguments: ["acli", "rovodev", "config"],
+                kind: "rovodev"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "droid",
+                arguments: [
+                    "droid", "exec",
+                    "--input-format", "stream-jsonrpc",
+                    "--output-format", "stream-jsonrpc",
+                ],
+                kind: "factory"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "codex",
+                arguments: ["codex", "--future-launch-mode", "exec", "fix this"],
+                kind: "codex"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "claude",
+                arguments: ["claude", "--background", "--print", "fix this"],
+                kind: "claude"
+            ) == .unknown
+        )
     }
 
     @Test func interpreterHostedLaunchRestorabilityStartsAfterTheAgentEntrypoint() {
@@ -426,5 +493,41 @@ struct AgentLaunchCaptureTrustTests {
                 kind: "campfire"
             ) == .oneShot
         )
+    }
+
+    @Test func longLivedProtocolModesOverrideOneShotLookingArguments() {
+        let launches: [(kind: String, executable: String, arguments: [String])] = [
+            ("claude", "claude", ["--print", "--input-format", "stream-json", "--output-format", "stream-json"]),
+            ("pi", "pi", ["--mode", "rpc", "--print", "fix this"]),
+            ("omp", "omp", ["--mode=rpc-ui", "--print", "fix this"]),
+            ("omp", "omp", ["acp", "--print", "fix this"]),
+            ("campfire", "campfire", ["--mode", "rpc", "--print", "fix this"]),
+            ("kimi", "kimi", ["--acp", "--print", "fix this"]),
+            ("kimi", "kimi", ["acp"]),
+            ("hermes-agent", "hermes", ["acp", "--oneshot", "fix this"]),
+            ("hermes-agent", "hermes", ["gateway", "run"]),
+            ("grok", "grok", ["agent", "stdio", "--single", "fix this"]),
+            ("grok", "grok", ["agent", "serve"]),
+            ("grok", "grok", ["agent", "leader"]),
+            ("opencode", "opencode", ["acp"]),
+            ("opencode", "opencode", ["serve"]),
+            ("opencode", "opencode", ["web"]),
+            ("qoder", "qodercli", ["--acp", "--print", "fix this"]),
+            ("qoder", "qodercli", ["--input-format", "stream-json", "--print", "fix this"]),
+            ("codex", "codex", ["app-server"]),
+            ("codex", "codex", ["mcp-server"]),
+            ("codex", "codex", ["exec-server"]),
+        ]
+
+        for launch in launches {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: launch.executable,
+                    arguments: [launch.executable] + launch.arguments,
+                    kind: launch.kind
+                ) != .oneShot,
+                "\(launch.kind) \(launch.arguments) was classified as terminal"
+            )
+        }
     }
 }
