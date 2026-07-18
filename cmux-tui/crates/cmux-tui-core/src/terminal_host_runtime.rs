@@ -223,15 +223,16 @@ mod unix {
     use std::collections::{HashMap, HashSet};
     use std::fs::{self, File, OpenOptions};
     use std::io::{Read, Write};
-    use std::os::fd::AsRawFd;
+    use std::os::fd::{AsRawFd, RawFd};
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
+    use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
     use std::sync::{Arc, Condvar, Mutex};
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use anyhow::Context;
     use ghostty_vt::{Callbacks, CursorShape, Terminal};
@@ -240,6 +241,11 @@ mod unix {
     use super::*;
 
     static RECORD_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+    const HOST_TERMINATE_GRACE: Duration = Duration::from_millis(250);
+    const HOST_KILL_WAIT: Duration = Duration::from_secs(2);
+    const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
+    const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
+    const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
 
     struct SpawnedHostProcess {
         child: Option<std::process::Child>,
@@ -252,6 +258,23 @@ mod unix {
 
         fn into_child(mut self) -> std::process::Child {
             self.child.take().expect("terminal-host child is present")
+        }
+
+        fn wait_timeout(&mut self, timeout: Duration) -> bool {
+            let deadline = Instant::now() + timeout;
+            loop {
+                let Some(child) = self.child.as_mut() else { return true };
+                match child.try_wait() {
+                    Ok(Some(_)) => {
+                        self.child.take();
+                        return true;
+                    }
+                    Ok(None) if Instant::now() < deadline => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Ok(None) | Err(_) => return false,
+                }
+            }
         }
     }
 
@@ -459,6 +482,10 @@ mod unix {
         writer: Arc<Mutex<UnixStream>>,
         capability_responses: Arc<CapabilityResponses>,
         next_request: AtomicU64,
+        /// Exact process ownership retained only between a successful launch
+        /// handshake and complete Surface materialization. Adoption never
+        /// carries this guard.
+        launch_process: Option<SpawnedHostProcess>,
     }
 
     impl std::fmt::Debug for HostAttachment {
@@ -505,6 +532,20 @@ mod unix {
 
         pub fn disconnect(&self) {
             let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+        }
+
+        /// Commit the launch ownership handoff after every fallible Surface
+        /// setup step succeeds. Until then, dropping this attachment exact-
+        /// kills and waits the child process through SpawnedHostProcess.
+        pub(crate) fn commit_launched_host(&mut self) {
+            let Some(process) = self.launch_process.take() else { return };
+            let mut child = process.into_child();
+            // Reaping is housekeeping after the ownership handoff. Failure to
+            // create this helper cannot turn a committed live Surface into an
+            // error; dropping Child leaves the independent host running.
+            let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
+                let _ = child.wait();
+            });
         }
 
         pub fn identity(&self) -> TerminalHostIdentity {
@@ -578,8 +619,71 @@ mod unix {
         }
     }
 
+    impl Drop for HostAttachment {
+        fn drop(&mut self) {
+            let Some(mut process) = self.launch_process.take() else { return };
+            // Surface setup failed after an authenticated launch. Ask the
+            // still-live host to perform its bounded PTY group shutdown and
+            // record cleanup, then wait on the exact owned host process. Only
+            // a wedged host that exceeds that bound is SIGKILLed by the
+            // SpawnedHostProcess fallback below.
+            let _ = self.terminate();
+            if process.wait_timeout(HOST_LAUNCH_ROLLBACK_WAIT) {
+                return;
+            }
+            drop(process);
+        }
+    }
+
     pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
         state_root.join(format!("terminal-hosts-{}", stable_token(session)))
+    }
+
+    /// Strip every descriptor except the private bootstrap stdio before the
+    /// hidden host starts any threads or opens its endpoint. This runs inside
+    /// the freshly exec'd `__terminal-host`, so descriptor enumeration is
+    /// race-free and cannot affect the daemon's own open files.
+    pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
+        let mut last_error = None;
+        let mut inherited = None;
+        for directory in ["/proc/self/fd", "/dev/fd"] {
+            match fs::read_dir(directory) {
+                Ok(entries) => {
+                    let mut descriptors = entries
+                        .filter_map(Result::ok)
+                        .filter_map(|entry| entry.file_name().to_str()?.parse::<libc::c_int>().ok())
+                        .filter(|descriptor| *descriptor > libc::STDERR_FILENO)
+                        .collect::<Vec<_>>();
+                    descriptors.sort_unstable();
+                    descriptors.dedup();
+                    inherited = Some(descriptors);
+                    break;
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        let descriptors = inherited.ok_or_else(|| {
+            anyhow::anyhow!(
+                "enumerate inherited terminal-host descriptors: {}",
+                last_error.unwrap_or_else(|| std::io::Error::other("no descriptor filesystem"))
+            )
+        })?;
+        for descriptor in descriptors {
+            // SAFETY: descriptors came from this single-threaded process's
+            // descriptor filesystem snapshot. stdio 0/1/2 is excluded.
+            if unsafe { libc::close(descriptor) } != 0 {
+                let error = std::io::Error::last_os_error();
+                if !matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::Interrupted
+                ) && error.raw_os_error() != Some(libc::EBADF)
+                {
+                    return Err(error)
+                        .context(format!("close inherited terminal-host descriptor {descriptor}"));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn launch_terminal_host(
@@ -636,15 +740,26 @@ mod unix {
         };
 
         let binary = std::env::current_exe().context("resolve cmux-tui terminal-host binary")?;
-        let child = Command::new(binary)
+        let mut command = Command::new(binary);
+        command
             .args(["__terminal-host", "--bootstrap-stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             // A host outlives its daemon, so it must not retain a daemon log
             // pipe whose EOF is itself used as a lifecycle signal.
-            .stderr(Stdio::null())
-            .spawn()
-            .context("spawn terminal-host process")?;
+            .stderr(Stdio::null());
+        // A durable host must not share the daemon's controlling terminal,
+        // session, or process group. Otherwise a shell hangup or group
+        // interrupt intended for the daemon can also kill every hosted PTY.
+        // SAFETY: setsid(2) is async-signal-safe and touches no Rust state in
+        // the post-fork child. A freshly forked child is not a process-group
+        // leader, so failure is an actual launch error and must be surfaced.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+            });
+        }
+        let child = command.spawn().context("spawn terminal-host process")?;
         let mut process = SpawnedHostProcess { child: Some(child) };
         let host_pid = process.child_mut().id();
         let mut stdin =
@@ -681,10 +796,6 @@ mod unix {
         }
         drop(stdin);
         drop(stdout);
-        let mut child = process.into_child();
-        thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        })?;
 
         let record: TerminalHostRecord = serde_json::from_slice(
             &fs::read(&record_path).context("read terminal-host discovery record")?,
@@ -697,7 +808,13 @@ mod unix {
         {
             anyhow::bail!("terminal-host discovery record changed during launch");
         }
-        connect_record(record, record_path)
+        // Keep the exact-kill guard armed through record validation and a
+        // successful authenticated Snapshot. Returning Err after disarming it
+        // would leave a live published host while the mux marks its registry
+        // row Exited.
+        let mut attachment = connect_record(record, record_path)?;
+        attachment.launch_process = Some(process);
+        Ok(attachment)
     }
 
     pub fn adopt_terminal_host(
@@ -993,6 +1110,7 @@ mod unix {
                 waiters: Mutex::new(HashMap::new()),
             }),
             next_request: AtomicU64::new(2),
+            launch_process: None,
         };
         attachment.send_viewer_size(attachment.snapshot.cols, attachment.snapshot.rows)?;
         Ok(attachment)
@@ -1105,6 +1223,70 @@ mod unix {
         }
     }
 
+    fn wait_for_pty_readable_or_forced_drain(
+        pty_fd: RawFd,
+        drain_waiter: &mut UnixStream,
+        force_drain: &AtomicBool,
+        forced_at: &mut Option<Instant>,
+    ) -> std::io::Result<bool> {
+        loop {
+            if force_drain.load(Ordering::Acquire) {
+                let started = forced_at.get_or_insert_with(Instant::now);
+                if started.elapsed() >= HOST_FORCED_DRAIN_WINDOW {
+                    return Ok(false);
+                }
+            }
+            let mut poll_fds = [
+                libc::pollfd {
+                    fd: pty_fd,
+                    events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: drain_waiter.as_raw_fd(),
+                    events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+                    revents: 0,
+                },
+            ];
+            let timeout_ms = forced_at
+                .map(|started| {
+                    let remaining = HOST_FORCED_DRAIN_WINDOW.saturating_sub(started.elapsed());
+                    remaining.as_millis().clamp(1, i32::MAX as u128) as i32
+                })
+                .unwrap_or(-1);
+            // SAFETY: poll_fds points to two initialized values and both
+            // descriptors remain owned by the caller for this call.
+            let ready = unsafe {
+                libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, timeout_ms)
+            };
+            if ready < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            if poll_fds[0].revents & libc::POLLNVAL != 0 {
+                return Ok(false);
+            }
+            if poll_fds[1].revents & libc::POLLIN != 0 {
+                let mut wake = [0u8; 64];
+                let _ = drain_waiter.read(&mut wake);
+            }
+            if poll_fds[0].revents != 0 {
+                return Ok(true);
+            }
+            if poll_fds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
+                && !force_drain.load(Ordering::Acquire)
+            {
+                return Ok(false);
+            }
+            // A wake transitions the next iteration into forced mode. While
+            // forced, an empty poll waits again until the remaining bounded
+            // window expires so late final bytes are still observed.
+        }
+    }
+
     struct HostShared {
         terminal_id: TerminalId,
         incarnation: HostIncarnation,
@@ -1125,6 +1307,15 @@ mod unix {
         next_client: AtomicU64,
         dead: AtomicBool,
         child_exit: (Mutex<bool>, Condvar),
+        child_waitable: AtomicBool,
+        pty_drained: AtomicBool,
+        exit_published: AtomicBool,
+        force_pty_drain: AtomicBool,
+        pty_drain_waker: Mutex<UnixStream>,
+        termination_started: AtomicBool,
+        child_signal_lock: Mutex<()>,
+        child_reaped: AtomicBool,
+        group_escalation_complete: AtomicBool,
     }
 
     fn publish_host_frames(
@@ -1168,7 +1359,7 @@ mod unix {
                 |viewer_sizes| {
                     viewer_sizes.remove(&client);
                 },
-                |desired| self.apply_viewer_minimum(desired),
+                |desired| self.apply_viewer_minimum(desired, false),
             );
         }
 
@@ -1179,7 +1370,11 @@ mod unix {
                 |viewer_sizes| {
                     viewer_sizes.insert(client, (cols, rows));
                 },
-                |desired| self.apply_viewer_minimum(desired),
+                // Every accepted ViewerSize is a request/ack round trip. Even
+                // when another smaller viewer keeps the canonical grid
+                // unchanged, renderers need a Resized+Colors replay to retire
+                // their in-flight physical resize without guessing.
+                |desired| self.apply_viewer_minimum(desired, true),
             )
         }
 
@@ -1189,46 +1384,57 @@ mod unix {
                 |viewer_sizes| {
                     viewer_sizes.remove(&client);
                 },
-                |desired| self.apply_viewer_minimum(desired),
+                |desired| self.apply_viewer_minimum(desired, false),
             );
         }
 
-        fn apply_viewer_minimum(&self, desired: Option<(u16, u16)>) -> anyhow::Result<()> {
+        fn apply_viewer_minimum(
+            &self,
+            desired: Option<(u16, u16)>,
+            acknowledge: bool,
+        ) -> anyhow::Result<()> {
             let Some((cols, rows)) = desired else { return Ok(()) };
             let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
             let mut size = self.size.lock().unwrap();
-            if *size == (cols, rows) {
+            let changed = *size != (cols, rows);
+            if !changed && !acknowledge {
                 return Ok(());
             }
             let previous = *size;
             let mut term = self.term.lock().unwrap();
             let master = self.master.lock().unwrap();
-            master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
-            if let Err(error) = term.resize(cols, rows, 8, 16) {
-                let _ = master.resize(PtySize {
-                    rows: previous.1,
-                    cols: previous.0,
-                    pixel_width: 0,
-                    pixel_height: 0,
-                });
-                return Err(error.into());
+            if changed {
+                master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
+                if let Err(error) = term.resize(cols, rows, 8, 16) {
+                    let _ = master.resize(PtySize {
+                        rows: previous.1,
+                        cols: previous.0,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    });
+                    return Err(error.into());
+                }
             }
             let replay =
                 match term.vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES) {
                     Ok(replay) => replay,
                     Err(error) => {
-                        let _ = term.resize(previous.0, previous.1, 8, 16);
-                        let _ = master.resize(PtySize {
-                            rows: previous.1,
-                            cols: previous.0,
-                            pixel_width: 0,
-                            pixel_height: 0,
-                        });
+                        if changed {
+                            let _ = term.resize(previous.0, previous.1, 8, 16);
+                            let _ = master.resize(PtySize {
+                                rows: previous.1,
+                                cols: previous.0,
+                                pixel_width: 0,
+                                pixel_height: 0,
+                            });
+                        }
                         return Err(error.into());
                     }
                 };
             let colors = term.color_overrides();
-            *size = (cols, rows);
+            if changed {
+                *size = (cols, rows);
+            }
             // Keep the parser lock through sequence publication so output
             // parsed at the new size cannot overtake the Resized marker.
             self.broadcast_with_colors(
@@ -1243,15 +1449,177 @@ mod unix {
             *self.child_exit.0.lock().unwrap()
         }
 
-        fn terminate_and_wait(&self) {
-            if !self.child_exited() {
-                let _ = self.killer.lock().unwrap().kill();
+        fn wait_for_child_exit(&self, timeout: Duration) -> bool {
+            let exited = self.child_exit.0.lock().unwrap();
+            if *exited {
+                return true;
             }
-            let mut exited = self.child_exit.0.lock().unwrap();
-            while !*exited {
-                exited = self.child_exit.1.wait(exited).unwrap();
+            let (exited, _) =
+                self.child_exit.1.wait_timeout_while(exited, timeout, |exited| !*exited).unwrap();
+            *exited
+        }
+
+        fn wait_for_child_waitable(&self, timeout: Duration) -> bool {
+            if self.child_waitable.load(Ordering::Acquire) {
+                return true;
+            }
+            let state = self.child_exit.0.lock().unwrap();
+            let (_state, _) = self
+                .child_exit
+                .1
+                .wait_timeout_while(state, timeout, |_| {
+                    !self.child_waitable.load(Ordering::Acquire)
+                })
+                .unwrap();
+            self.child_waitable.load(Ordering::Acquire)
+        }
+
+        fn wait_for_pty_drain(&self, timeout: Duration) -> bool {
+            if self.pty_drained.load(Ordering::Acquire) {
+                return true;
+            }
+            // The child-exit mutex is only a rendezvous guard here; the PTY
+            // reader notifies the same condition variable after publishing
+            // its final bytes and setting pty_drained.
+            let state = self.child_exit.0.lock().unwrap();
+            let (_state, _) = self
+                .child_exit
+                .1
+                .wait_timeout_while(state, timeout, |_| !self.pty_drained.load(Ordering::Acquire))
+                .unwrap();
+            self.pty_drained.load(Ordering::Acquire)
+        }
+
+        fn signal_terminal_process_groups(&self, signal: libc::c_int) {
+            let mut groups = Vec::with_capacity(2);
+            // The wait thread observes exit with WNOWAIT, then takes this lock
+            // before reaping. While we hold it, `!child_reaped` means the
+            // original PID/PGID is still kernel-reserved and cannot have been
+            // reused between validation and killpg.
+            let _signal = self.child_signal_lock.lock().unwrap();
+            let child_reserved = !self.child_reaped.load(Ordering::Acquire);
+            if child_reserved
+                && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
+            {
+                groups.push(pid);
+            }
+            // Query the PTY each time rather than trusting the original group:
+            // a foreground job or retained descendant may own a different
+            // group by the time explicit Terminate escalates.
+            if child_reserved
+                && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
+            {
+                groups.push(foreground);
+            }
+            groups.sort_unstable();
+            groups.dedup();
+            // A portable-pty child starts as a new session/process-group
+            // leader. Signal both that durable group and any foreground job
+            // group, but never risk addressing the terminal-host's own group.
+            // SAFETY: getpgrp has no preconditions.
+            let host_group = unsafe { libc::getpgrp() };
+            for group in groups.into_iter().filter(|group| *group > 0 && *group != host_group) {
+                // SAFETY: validated positive process-group ids owned by this
+                // PTY session; signal is a platform constant from this module.
+                let _ = unsafe { libc::killpg(group, signal) };
             }
         }
+
+        fn request_forced_pty_drain(&self) {
+            self.force_pty_drain.store(true, Ordering::Release);
+            // Wake the otherwise blocking poll in the sole PTY reader. The
+            // byte has no protocol meaning; it only makes the wake fd ready.
+            let _ = self.pty_drain_waker.lock().unwrap().write_all(&[1]);
+        }
+
+        fn request_termination(self: &Arc<Self>) {
+            let already_started = {
+                // Serialize the ownership transition with WNOWAIT's final
+                // reap decision so an explicit Terminate cannot lose the
+                // original reserved PID/PGID in between.
+                let _signal = self.child_signal_lock.lock().unwrap();
+                self.termination_started.swap(true, Ordering::AcqRel)
+            };
+            if already_started {
+                return;
+            }
+            let worker = self.clone();
+            if thread::Builder::new()
+                .name("terminal-host-terminate".into())
+                .spawn(move || worker.terminate_and_wait())
+                .is_err()
+            {
+                // Bounded fallback: even thread exhaustion cannot turn an
+                // accepted Terminate into an unbounded or ignored request.
+                self.terminate_and_wait();
+            }
+        }
+
+        fn finish_group_escalation(&self) {
+            self.group_escalation_complete.store(true, Ordering::Release);
+            self.child_exit.1.notify_all();
+        }
+
+        fn publish_exit_if_drained(&self) {
+            if claim_host_exit_after_drain(
+                &self.child_exit.0,
+                &self.pty_drained,
+                &self.exit_published,
+            ) {
+                self.dead.store(true, Ordering::Release);
+                self.broadcast(MessageKind::Exit, Vec::new());
+            }
+        }
+
+        fn terminate_and_wait(&self) {
+            {
+                let _signal = self.child_signal_lock.lock().unwrap();
+                self.termination_started.store(true, Ordering::Release);
+            }
+            // ProcessSignaller only targets the direct child. Start with a
+            // graceful group hangup so foreground jobs and normal descendants
+            // can clean up too, then escalate after a strict bound.
+            self.signal_terminal_process_groups(libc::SIGHUP);
+            if !self.child_waitable.load(Ordering::Acquire) {
+                let _ = self.killer.lock().unwrap().kill();
+            }
+            let _ = self.wait_for_child_waitable(HOST_TERMINATE_GRACE);
+            let _ = self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE);
+
+            // The direct child may ignore SIGHUP, or it may already have
+            // exited while a descendant retains the PTY. Kill both the
+            // original session group and its current foreground job group.
+            // This escalation is mandatory even if Darwin reports PTY EOF as
+            // soon as the session leader exits: an HUP-ignoring descendant
+            // can still be alive in the now-invisible original group.
+            self.signal_terminal_process_groups(libc::SIGKILL);
+            self.finish_group_escalation();
+            let child_exited = self.wait_for_child_exit(HOST_KILL_WAIT);
+            if child_exited && self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE) {
+                return;
+            }
+
+            if child_exited {
+                // A process that escaped the PTY session can retain a slave
+                // descriptor forever. Do not let an explicit tombstone hang
+                // the durable host: wake the reader, drain bytes already
+                // readable for a short bounded window, then publish Exit.
+                self.request_forced_pty_drain();
+                let _ = self.wait_for_pty_drain(HOST_FORCED_DRAIN_WINDOW * 2);
+            }
+        }
+    }
+
+    fn claim_host_exit_after_drain(
+        child_exited: &Mutex<bool>,
+        pty_drained: &AtomicBool,
+        exit_published: &AtomicBool,
+    ) -> bool {
+        pty_drained.load(Ordering::Acquire)
+            && *child_exited.lock().unwrap()
+            && exit_published
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
     }
 
     /// Keep viewer mutation, minimum reduction, and the resulting PTY resize
@@ -1275,6 +1643,31 @@ mod unix {
             return Err(error);
         }
         Ok(())
+    }
+
+    fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> std::io::Result<()> {
+        loop {
+            let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
+            // SAFETY: status points to writable siginfo storage. WNOWAIT
+            // observes this owned child becoming waitable without releasing
+            // its PID/PGID for reuse; the portable Child handle reaps it after
+            // acquiring child_signal_lock.
+            let result = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pid as libc::id_t,
+                    status.as_mut_ptr(),
+                    libc::WEXITED | libc::WNOWAIT,
+                )
+            };
+            if result == 0 {
+                return Ok(());
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
     }
 
     struct HostLivenessLease {
@@ -1493,8 +1886,10 @@ mod unix {
         let pid = child.process_id();
         drop(pty.slave);
         let killer = child.clone_killer();
+        let pty_poll_fd = pty.master.as_raw_fd().context("open terminal-host PTY poll fd")?;
         let mut pty_reader = pty.master.try_clone_reader()?;
         let pty_writer = pty.master.take_writer()?;
+        let (pty_drain_waker, pty_drain_waiter) = UnixStream::pair()?;
 
         let pending_responses = Arc::new(Mutex::new(Vec::<u8>::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -1544,13 +1939,29 @@ mod unix {
             next_client: AtomicU64::new(1),
             dead: AtomicBool::new(false),
             child_exit: (Mutex::new(false), Condvar::new()),
+            child_waitable: AtomicBool::new(false),
+            pty_drained: AtomicBool::new(false),
+            exit_published: AtomicBool::new(false),
+            force_pty_drain: AtomicBool::new(false),
+            pty_drain_waker: Mutex::new(pty_drain_waker),
+            termination_started: AtomicBool::new(false),
+            child_signal_lock: Mutex::new(()),
+            child_reaped: AtomicBool::new(false),
+            group_escalation_complete: AtomicBool::new(false),
         });
 
         let reader_host = shared.clone();
         thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
             let mut buffer = [0u8; 64 * 1024];
             let mut last_colors = TerminalColorOverrides::default();
-            loop {
+            let mut forced_at = None;
+            let mut pty_drain_waiter = pty_drain_waiter;
+            while let Ok(true) = wait_for_pty_readable_or_forced_drain(
+                pty_poll_fd,
+                &mut pty_drain_waiter,
+                &reader_host.force_pty_drain,
+                &mut forced_at,
+            ) {
                 let count = match pty_reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(count) => count,
@@ -1596,17 +2007,63 @@ mod unix {
                     let _ = writer.flush();
                 }
             }
+            // The reader publishes every final PTY byte before declaring the
+            // stream drained. Exit is emitted only after this flag and the
+            // child wait rendezvous, so clients can safely stop at Exit.
+            reader_host.pty_drained.store(true, Ordering::Release);
+            reader_host.child_exit.1.notify_all();
+            reader_host.publish_exit_if_drained();
         })?;
         let child_host = shared.clone();
         thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
-            let _ = child.wait();
-            {
+            let observed_without_reaping = child_host
+                .pid
+                .and_then(|pid| libc::pid_t::try_from(pid).ok())
+                .is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
+            if observed_without_reaping {
+                child_host.child_waitable.store(true, Ordering::Release);
+                child_host.child_exit.1.notify_all();
+                loop {
+                    let signal = child_host.child_signal_lock.lock().unwrap();
+                    let escalation_complete =
+                        child_host.group_escalation_complete.load(Ordering::Acquire);
+                    let termination_started =
+                        child_host.termination_started.load(Ordering::Acquire);
+                    let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
+                    if escalation_complete || (!termination_started && pty_drained) {
+                        let _ = child.wait();
+                        child_host.child_reaped.store(true, Ordering::Release);
+                        drop(signal);
+                        break;
+                    }
+                    drop(signal);
+                    let state = child_host.child_exit.0.lock().unwrap();
+                    let _state = child_host
+                        .child_exit
+                        .1
+                        .wait_while(state, |_| {
+                            !child_host.group_escalation_complete.load(Ordering::Acquire)
+                                && (child_host.termination_started.load(Ordering::Acquire)
+                                    || !child_host.pty_drained.load(Ordering::Acquire))
+                        })
+                        .unwrap();
+                }
                 let mut exited = child_host.child_exit.0.lock().unwrap();
                 *exited = true;
+                drop(exited);
+                child_host.child_exit.1.notify_all();
+                child_host.publish_exit_if_drained();
+            } else {
+                // Native Unix PTYs always expose a PID and support waitid;
+                // retain a conservative fallback for alternate backends.
+                let _ = child.wait();
+                child_host.child_reaped.store(true, Ordering::Release);
+                child_host.child_waitable.store(true, Ordering::Release);
+                let mut exited = child_host.child_exit.0.lock().unwrap();
+                *exited = true;
+                child_host.child_exit.1.notify_all();
+                child_host.publish_exit_if_drained();
             }
-            child_host.dead.store(true, Ordering::Release);
-            child_host.broadcast(MessageKind::Exit, Vec::new());
-            child_host.child_exit.1.notify_all();
         })?;
         Ok(shared)
     }
@@ -1738,7 +2195,7 @@ mod unix {
                         if !granted_rights.contains(CapabilityRights::TERMINATE) {
                             break;
                         }
-                        let _ = command_host.killer.lock().unwrap().kill();
+                        command_host.request_termination();
                     }
                     MessageKind::MintCapability => {
                         if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
@@ -2234,7 +2691,7 @@ mod unix {
                 thread::sleep(Duration::from_millis(200));
             });
 
-            let started = std::time::Instant::now();
+            let started = Instant::now();
             assert!(
                 connect_record_with_timeout(
                     record.clone(),
@@ -2356,6 +2813,119 @@ mod unix {
         }
 
         #[test]
+        fn exit_waits_for_final_pty_output_in_either_completion_order() {
+            for child_first in [false, true] {
+                let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+                let (sender, receiver) = sync_channel(8);
+                let tap = HostTap {
+                    sender,
+                    queued_bytes: Arc::new(AtomicUsize::new(0)),
+                    shutdown: Arc::new(host_socket),
+                    max_queued_bytes: usize::MAX,
+                };
+                let broadcast_lock = Mutex::new(());
+                let sequence = AtomicU64::new(0);
+                let taps = Mutex::new(HashMap::from([(1, tap)]));
+                let child_exited = Mutex::new(false);
+                let pty_drained = AtomicBool::new(false);
+                let exit_published = AtomicBool::new(false);
+
+                if child_first {
+                    *child_exited.lock().unwrap() = true;
+                    assert!(!claim_host_exit_after_drain(
+                        &child_exited,
+                        &pty_drained,
+                        &exit_published,
+                    ));
+                }
+
+                publish_host_frames(
+                    &broadcast_lock,
+                    &sequence,
+                    &taps,
+                    [Frame::new(MessageKind::Output, b"final-output".to_vec())],
+                );
+                pty_drained.store(true, Ordering::Release);
+
+                if !child_first {
+                    assert!(!claim_host_exit_after_drain(
+                        &child_exited,
+                        &pty_drained,
+                        &exit_published,
+                    ));
+                    *child_exited.lock().unwrap() = true;
+                }
+                assert!(claim_host_exit_after_drain(&child_exited, &pty_drained, &exit_published,));
+                publish_host_frames(
+                    &broadcast_lock,
+                    &sequence,
+                    &taps,
+                    [Frame::new(MessageKind::Exit, Vec::new())],
+                );
+                assert!(
+                    !claim_host_exit_after_drain(&child_exited, &pty_drained, &exit_published,)
+                );
+
+                let frames = receiver.try_iter().collect::<Vec<_>>();
+                assert_eq!(frames.len(), 2);
+                assert_eq!(frames[0].kind, MessageKind::Output);
+                assert_eq!(frames[0].payload, b"final-output");
+                assert_eq!(frames[0].sequence, 1);
+                assert_eq!(frames[1].kind, MessageKind::Exit);
+                assert_eq!(frames[1].sequence, 2);
+            }
+        }
+
+        #[test]
+        fn forced_drain_waits_for_late_bytes_then_exits_with_writer_still_open() {
+            let (mut pty_reader, mut retained_writer) = UnixStream::pair().unwrap();
+            let (mut drain_waiter, mut drain_waker) = UnixStream::pair().unwrap();
+            let force_drain = Arc::new(AtomicBool::new(false));
+            let worker_force = force_drain.clone();
+            let (written_tx, written_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let worker = thread::spawn(move || {
+                thread::sleep(Duration::from_millis(20));
+                worker_force.store(true, Ordering::Release);
+                drain_waker.write_all(&[1]).unwrap();
+                thread::sleep(Duration::from_millis(20));
+                retained_writer.write_all(b"late").unwrap();
+                written_tx.send(()).unwrap();
+                // Deliberately retain the write side beyond the forced drain
+                // bound. The helper must not confuse an open writer with more
+                // bytes becoming readable forever.
+                release_rx.recv().unwrap();
+            });
+
+            let mut forced_at = None;
+            assert!(
+                wait_for_pty_readable_or_forced_drain(
+                    pty_reader.as_raw_fd(),
+                    &mut drain_waiter,
+                    &force_drain,
+                    &mut forced_at,
+                )
+                .unwrap()
+            );
+            let mut late = [0u8; 4];
+            pty_reader.read_exact(&mut late).unwrap();
+            assert_eq!(&late, b"late");
+            written_rx.recv().unwrap();
+            assert!(
+                !wait_for_pty_readable_or_forced_drain(
+                    pty_reader.as_raw_fd(),
+                    &mut drain_waiter,
+                    &force_drain,
+                    &mut forced_at,
+                )
+                .unwrap()
+            );
+
+            release_tx.send(()).unwrap();
+            worker.join().unwrap();
+        }
+
+        #[test]
         fn coupled_color_frames_stay_adjacent_under_concurrent_exit_and_resize() {
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
             let (sender, receiver) = sync_channel(8);
@@ -2415,14 +2985,20 @@ mod unix {
 
 #[cfg(unix)]
 pub use unix::{
-    HostAttachment, adopt_terminal_host, launch_terminal_host, launch_terminal_host_with_identity,
-    load_terminal_host_records, remove_stale_terminal_host_record, serve_terminal_host_stdio,
-    terminal_host_record_liveness, terminal_host_root, validate_terminal_host_record,
+    HostAttachment, adopt_terminal_host, isolate_terminal_host_process_fds, launch_terminal_host,
+    launch_terminal_host_with_identity, load_terminal_host_records,
+    remove_stale_terminal_host_record, serve_terminal_host_stdio, terminal_host_record_liveness,
+    terminal_host_root, validate_terminal_host_record,
 };
 
 #[cfg(not(unix))]
 pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
     state_root.join(format!("{session}.terminal-hosts"))
+}
+
+#[cfg(not(unix))]
+pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
+    Ok(())
 }
 
 #[cfg(not(unix))]

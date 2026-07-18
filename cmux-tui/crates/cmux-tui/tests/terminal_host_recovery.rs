@@ -3,6 +3,7 @@
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -58,6 +59,31 @@ impl RecoveryHarness {
         harness
     }
 
+    fn start_in_own_session(name: &str) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        let mut command = harness.daemon_command();
+        // SAFETY: setsid(2) is async-signal-safe and touches no Rust state in
+        // the post-fork child. A private daemon session lets this test send a
+        // real process-group hangup without affecting the test runner.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+            });
+        }
+        harness.child = Some(command.spawn().unwrap());
+        wait_for_socket(&harness.socket);
+        harness
+    }
+
+    fn start_with_hosted_spawn_failure(name: &str, delay_ms: u64) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        let mut command = harness.daemon_command();
+        command.env("CMUX_TUI_TEST_HOSTED_SPAWN_FAIL_AFTER_CONNECT", delay_ms.to_string());
+        harness.child = Some(command.spawn().unwrap());
+        wait_for_socket(&harness.socket);
+        harness
+    }
+
     fn start_unstarted(name: &str) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp")
@@ -75,6 +101,12 @@ impl RecoveryHarness {
 
     fn restart(&mut self) {
         assert!(self.child.is_none());
+        let child = self.daemon_command().spawn().unwrap();
+        self.child = Some(child);
+        wait_for_socket(&self.socket);
+    }
+
+    fn daemon_command(&self) -> Command {
         let mut command = Command::new(bin());
         command
             .args(["--headless", "--session", &self.session, "--socket"])
@@ -86,9 +118,7 @@ impl RecoveryHarness {
         if let Some(delay_ms) = self.host_ready_delay_ms {
             command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
         }
-        let child = command.spawn().unwrap();
-        self.child = Some(child);
-        wait_for_socket(&self.socket);
+        command
     }
 
     fn sigkill(&mut self) {
@@ -103,6 +133,28 @@ impl RecoveryHarness {
         // SAFETY: the harness owns this child process and passes a platform
         // signal constant.
         assert_eq!(unsafe { libc::kill(pid, signal) }, 0);
+    }
+
+    fn hangup_daemon_process_group(&mut self) {
+        let mut child = self.child.take().unwrap();
+        let pid = child.id() as libc::pid_t;
+        // SAFETY: start_in_own_session made this daemon its private process
+        // group leader; a negative pid addresses exactly that group.
+        assert_eq!(unsafe { libc::kill(-pid, libc::SIGHUP) }, 0);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                let _ = status;
+                break;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("daemon did not exit after process-group SIGHUP");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = fs::remove_file(&self.socket);
     }
 
     fn host_root(&self) -> PathBuf {
@@ -151,6 +203,238 @@ impl Drop for RecoveryHarness {
         }
         let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+#[test]
+fn terminal_host_survives_daemon_process_group_hangup() {
+    let mut harness = RecoveryHarness::start_in_own_session("session-hangup");
+    let daemon_pid = harness.child.as_ref().unwrap().id() as libc::pid_t;
+    // SAFETY: the daemon is live and owned by this harness.
+    assert_eq!(unsafe { libc::getsid(daemon_pid) }, daemon_pid);
+    // SAFETY: the daemon is live and owned by this harness.
+    assert_eq!(unsafe { libc::getpgid(daemon_pid) }, daemon_pid);
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "name": "session-survivor",
+        }),
+    );
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let host_pid = record.host_pid as libc::pid_t;
+    // The host is both session and process-group leader, rather than a member
+    // of the daemon's group that the following SIGHUP targets.
+    // SAFETY: the discovery record's locked nonce proves this host is live.
+    assert_eq!(unsafe { libc::getsid(host_pid) }, host_pid);
+    // SAFETY: the discovery record's locked nonce proves this host is live.
+    assert_eq!(unsafe { libc::getpgid(host_pid) }, host_pid);
+
+    harness.hangup_daemon_process_group();
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live,
+    );
+    let host = adopt_terminal_host(record, record_path).unwrap();
+    host.terminate().unwrap();
+    host.disconnect();
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn new_host_rolls_back_when_surface_setup_fails_after_connect() {
+    let harness = RecoveryHarness::start_with_hosted_spawn_failure("post-connect-rollback", 500);
+    let socket = harness.socket.clone();
+    let shell_pid_path = harness.dir.join("rollback-shell.pid");
+    let request_value = serde_json::json!({
+        "id": 1,
+        "cmd": "run",
+        "argv": [
+            "/bin/sh",
+            "-c",
+            "trap '' HUP; printf '%s' \"$$\" > \"$1\"; while :; do sleep 60; done",
+            "cmux-rollback-shell",
+            shell_pid_path,
+        ],
+        "new_workspace": true,
+        "name": "must-roll-back",
+    });
+    let request_thread = std::thread::spawn(move || request_response(&socket, request_value));
+
+    // The injection runs only after the host has published its record and the
+    // daemon has authenticated a complete Snapshot, proving this exercises
+    // the ownership handoff rather than an earlier spawn failure.
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live,
+    );
+    let shell_pid = wait_for_pid_file(&harness.dir.join("rollback-shell.pid"));
+    let response = request_thread.join().unwrap();
+    assert_eq!(response["ok"], false);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if terminal_host_record_liveness(&record_path, &record).unwrap()
+            == TerminalHostLiveness::Dead
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "rolled-back host remained alive");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    wait_for_no_host_records(&harness.host_root());
+    wait_for_process_and_group_absent(shell_pid);
+}
+
+#[test]
+fn explicit_terminate_escalates_past_a_sighup_ignoring_child() {
+    let harness = RecoveryHarness::start("terminate-hup-ignoring-child");
+    let marker = format!("hup-ignored-ready-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                format!("trap '' HUP; printf '{marker}\\n'; while :; do sleep 60; done"),
+            ],
+            "new_workspace": true,
+            "name": "hup-ignoring-child",
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let shell_pid = host.snapshot.pid.unwrap() as libc::pid_t;
+    host.terminate().unwrap();
+    host.disconnect();
+    wait_for_no_host_records(&harness.host_root());
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Dead,
+    );
+    wait_for_process_and_group_absent(shell_pid);
+}
+
+#[test]
+fn explicit_terminate_reaps_descendants_in_the_pty_group() {
+    let harness = RecoveryHarness::start("terminate-pty-descendant");
+    let marker = format!("descendant-retained-pty-{}", std::process::id());
+    let descendant_pid_path = harness.dir.join("pty-descendant.pid");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                concat!(
+                    "(trap '' HUP; while :; do sleep 60; done) & ",
+                    "printf '%s' \"$!\" > \"$1\"; printf '%s\\n' \"$2\"; ",
+                    "while :; do sleep 60; done",
+                ),
+                "cmux-pty-descendant",
+                descendant_pid_path,
+                marker,
+            ],
+            "new_workspace": true,
+            "name": "pty-retaining-descendant",
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let descendant_pid = wait_for_pid_file(&harness.dir.join("pty-descendant.pid"));
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let observer = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let direct_pid = observer.snapshot.pid.unwrap() as libc::pid_t;
+    observer.disconnect();
+    assert!(process_exists(direct_pid), "direct PTY child exited before Terminate");
+    assert!(process_exists(descendant_pid), "PTY-retaining descendant exited before Terminate");
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_group = unsafe { libc::getpgid(direct_pid) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_group = unsafe { libc::getpgid(descendant_pid) };
+    assert!(direct_group > 0);
+    assert_eq!(descendant_group, direct_group, "fixture descendant left the PTY process group");
+
+    // ProcessSignaller's HUP exits the direct child while the descendant
+    // ignores it. The reserved-PGID escalation must still reap the latter.
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live,
+    );
+    let host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    host.terminate().unwrap();
+    host.disconnect();
+    wait_for_no_host_records(&harness.host_root());
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Dead,
+    );
+    wait_for_process_and_group_absent(direct_pid);
+    wait_for_process_and_group_absent(descendant_pid);
+}
+
+#[test]
+fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
+    let harness = RecoveryHarness::start("exit-after-final-bytes");
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                concat!(
+                    "IFS= read -r trigger; i=0; ",
+                    "while [ \"$i\" -lt 20000 ]; do ",
+                    "printf 'drain-%05d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n' \"$i\"; ",
+                    "i=$((i + 1)); done; ",
+                    "printf 'FINAL-PTY-BYTE-MARKER\\n'",
+                ),
+            ],
+            "new_workspace": true,
+            "name": "final-byte-ordering",
+        }),
+    );
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let mut renderer = connect_host_detailed(
+        &record.endpoint,
+        &record.terminal_id,
+        &record.owner_token,
+        ClientRole::Admin,
+        CapabilityRights::ADMIN,
+    )
+    .unwrap();
+    renderer.stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::Input, b"go\n".to_vec())).unwrap();
+
+    let mut output = Vec::new();
+    loop {
+        let frame = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD)
+            .unwrap()
+            .expect("terminal host closed before sequenced Exit");
+        assert_eq!(frame.sequence, renderer.next_sequence);
+        renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
+        if frame.kind == MessageKind::Output {
+            output.extend_from_slice(&frame.payload);
+        }
+        if frame.kind == MessageKind::Exit {
+            break;
+        }
+    }
+    assert!(contains_bytes(&output, b"FINAL-PTY-BYTE-MARKER"), "Exit overtook the final PTY bytes");
+    wait_for_no_host_records(&harness.host_root());
 }
 
 #[test]
@@ -834,6 +1118,23 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
         CapabilityRights::RENDERER,
     )
     .unwrap();
+    let mut non_minimum = Vec::new();
+    non_minimum.extend_from_slice(&120u16.to_le_bytes());
+    non_minimum.extend_from_slice(&40u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, non_minimum)).unwrap();
+    renderer.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let resized = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.sequence, renderer.next_sequence);
+    renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+    assert_eq!(&resized.payload[..4], &[80, 0, 24, 0]);
+    let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(colors.sequence, renderer.next_sequence);
+    renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
+    assert_eq!(colors.kind, MessageKind::Colors);
+    assert_eq!(colors.flags, 0);
+
     let mut oversized = Vec::new();
     oversized.extend_from_slice(&5_000u16.to_le_bytes());
     oversized.extend_from_slice(&1_000u16.to_le_bytes());
@@ -1131,6 +1432,41 @@ fn wait_for_no_host_records(root: &Path) {
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("terminal host record was not removed after close");
+}
+
+fn wait_for_pid_file(path: &Path) -> libc::pid_t {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(contents) = fs::read_to_string(path)
+            && let Ok(pid) = contents.trim().parse::<libc::pid_t>()
+            && pid > 0
+        {
+            return pid;
+        }
+        assert!(Instant::now() < deadline, "process did not publish pid at {}", path.display());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn wait_for_process_and_group_absent(pid: libc::pid_t) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let process_exists = process_exists(pid);
+        // SAFETY: same signal-0 probe for the positive process-group id.
+        let group_exists = unsafe { libc::killpg(pid, 0) } == 0
+            || std::io::Error::last_os_error().kind() == std::io::ErrorKind::PermissionDenied;
+        if !process_exists && !group_exists {
+            return;
+        }
+        assert!(Instant::now() < deadline, "terminated PTY process/group {pid} remained alive");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn process_exists(pid: libc::pid_t) -> bool {
+    // SAFETY: signal 0 performs existence/permission checks only.
+    (unsafe { libc::kill(pid, 0) }) == 0
+        || std::io::Error::last_os_error().kind() == std::io::ErrorKind::PermissionDenied
 }
 
 fn wait_for_host_size(root: &Path, cols: u16, rows: u16) {
