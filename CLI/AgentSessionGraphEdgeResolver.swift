@@ -24,6 +24,7 @@ struct AgentSessionGraphEdgeResolver: Sendable {
         let all: CandidateSummary
         let bySessionId: [String: CandidateSummary]
         let byProvider: [String: CandidateSummary]
+        let byProviderAndSessionId: [String: [String: CandidateSummary]]
 
         init(_ candidates: [AgentSessionGraphNode]) {
             all = CandidateSummary(candidates)
@@ -32,6 +33,12 @@ struct AgentSessionGraphEdgeResolver: Sendable {
             }, by: \.0).mapValues { CandidateSummary($0.map(\.1)) }
             byProvider = Dictionary(grouping: candidates, by: \.provider)
                 .mapValues(CandidateSummary.init)
+            byProviderAndSessionId = Dictionary(grouping: candidates, by: \.provider)
+                .mapValues { providerCandidates in
+                    Dictionary(grouping: providerCandidates.compactMap { node in
+                        node.sessionId.map { ($0, node) }
+                    }, by: \.0).mapValues { CandidateSummary($0.map(\.1)) }
+                }
         }
     }
 
@@ -77,14 +84,18 @@ struct AgentSessionGraphEdgeResolver: Sendable {
             let child = nodesByNodeId[edge.toNodeId]
             let excludesChild = child?.runId == fromRunId
             if let fromSessionId = edge.fromSessionId {
-                if let parentNodeId = candidates.bySessionId[fromSessionId]?
+                let exactCandidates: CandidateSummary?
+                if let child {
+                    exactCandidates = candidates.byProviderAndSessionId[child.provider]?[fromSessionId]
+                } else {
+                    exactCandidates = candidates.bySessionId[fromSessionId]
+                }
+                if let parentNodeId = exactCandidates?
                     .firstNodeId(excluding: edge.toNodeId) {
                     return parentNodeId
                 }
                 // The durable session identity is stronger than a reused run
                 // ID. Fall through to session-only recovery below.
-            } else if candidates.all.count - (excludesChild ? 1 : 0) == 1 {
-                return candidates.all.firstNodeId(excluding: edge.toNodeId)
             } else if let childProvider = child?.provider {
                 if let sameProvider = candidates.byProvider[childProvider],
                    sameProvider.count - (excludesChild ? 1 : 0) == 1 {
@@ -93,6 +104,8 @@ struct AgentSessionGraphEdgeResolver: Sendable {
                 // Run IDs are not global. Multiple same-provider candidates,
                 // or several foreign-provider candidates, are ambiguous.
                 return nil
+            } else if candidates.all.count - (excludesChild ? 1 : 0) == 1 {
+                return candidates.all.firstNodeId(excluding: edge.toNodeId)
             }
         }
         guard let fromSessionId = edge.fromSessionId else { return nil }

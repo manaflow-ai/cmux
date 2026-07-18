@@ -1,6 +1,32 @@
 import CmuxFoundation
 import Foundation
 
+enum AgentSessionGraphOrdering {
+    static func nodePrecedes(_ lhs: AgentSessionGraphNode, _ rhs: AgentSessionGraphNode) -> Bool {
+        if lhs.startedAt != rhs.startedAt { return lhs.startedAt < rhs.startedAt }
+        if lhs.runId != rhs.runId { return lhs.runId < rhs.runId }
+        return lhs.nodeId < rhs.nodeId
+    }
+
+    static func edgePrecedes(_ lhs: AgentSessionGraphEdge, _ rhs: AgentSessionGraphEdge) -> Bool {
+        if lhs.toNodeId != rhs.toNodeId { return lhs.toNodeId < rhs.toNodeId }
+        if lhs.relationship != rhs.relationship {
+            return lhs.relationship.rawValue < rhs.relationship.rawValue
+        }
+        if lhs.toRunId != rhs.toRunId { return lhs.toRunId < rhs.toRunId }
+        if let result = optionalStringPrecedes(lhs.fromRunId, rhs.fromRunId) { return result }
+        if let result = optionalStringPrecedes(lhs.fromSessionId, rhs.fromSessionId) { return result }
+        return false
+    }
+
+    private static func optionalStringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
+        if lhs == rhs { return nil }
+        guard let lhs else { return true }
+        guard let rhs else { return false }
+        return lhs < rhs
+    }
+}
+
 extension CMUXCLI {
     func runAgentsTreeCommand(
         commandArgs: [String],
@@ -271,14 +297,8 @@ extension CMUXCLI {
         }
         AgentSubtreeActivityProjector().project(nodes: &nodes, edges: edges)
 
-        nodes.sort { lhs, rhs in
-            if lhs.startedAt != rhs.startedAt { return lhs.startedAt < rhs.startedAt }
-            return lhs.runId < rhs.runId
-        }
-        edges.sort { lhs, rhs in
-            if lhs.toNodeId != rhs.toNodeId { return lhs.toNodeId < rhs.toNodeId }
-            return lhs.relationship.rawValue < rhs.relationship.rawValue
-        }
+        nodes.sort(by: AgentSessionGraphOrdering.nodePrecedes)
+        edges.sort(by: AgentSessionGraphOrdering.edgePrecedes)
         let snapshot = AgentSessionGraphSnapshot(nodes: nodes, edges: edges)
         if localJSONOutput {
             let encoder = JSONEncoder()
