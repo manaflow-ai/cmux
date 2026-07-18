@@ -221,12 +221,14 @@ extension CMUXCLI {
         )
         let snapshotLoad: AgentHookSessionRegistrySnapshots
         do {
+            // Storage admission has its own hard ceiling. The user-facing node
+            // budget is enforced below after provider/session/workspace filters,
+            // so narrowing a large registry can actually make the query fit.
             snapshotLoad = try AgentHookSessionRegistryBridge.snapshots(
                 specifications: selectedSpecifications.map { (provider: $0.name, suffix: $0.suffix) },
                 stateDirectory: stateDirectory,
                 environment: processEnv,
-                fileManager: fileManager,
-                maximumLegacyGraphNodes: maximumNodes
+                fileManager: fileManager
             )
         } catch let failure as AgentHookSessionStoreLoadFailure {
             throw agentsStoreLoadCLIError(failure, context: .tree, jsonOutput: localJSONOutput)
