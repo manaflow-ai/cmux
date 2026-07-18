@@ -1211,6 +1211,29 @@ mod environment_tests {
     use std::io::Write as _;
 
     #[test]
+    fn opencode_database_caps_sqlite_value_lengths_before_decoding() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-opencode-limit-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create fixture root");
+        let database_path = root.join("opencode.db");
+        Connection::open(&database_path).expect("create database");
+
+        let connection = open_opencode_database(&database_path).expect("open bounded database");
+
+        assert_eq!(
+            connection
+                .limit(rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH)
+                .expect("read SQLite length limit"),
+            i32::try_from(MAX_PATCH_BYTES).expect("patch limit fits SQLite")
+        );
+        drop(connection);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn claude_specific_hook_path_wins_and_expands_home() {
         let values = HashMap::from([
             ("HOME", OsString::from("/tmp/cmux-home")),

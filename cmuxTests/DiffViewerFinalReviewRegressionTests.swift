@@ -42,4 +42,45 @@ import Testing
 
         #expect(first != second)
     }
+
+    @Test func assetPruningPreservesReferencedAndNewestVersions() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-assets-\(UUID().uuidString)", isDirectory: true)
+        let assets = root.appendingPathComponent("assets", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var directories: [URL] = []
+        for index in 0..<18 {
+            let directory = assets.appendingPathComponent("version-\(index)", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.default.setAttributes(
+                [.modificationDate: now.addingTimeInterval(-Double(index + 2) * 24 * 60 * 60)],
+                ofItemAtPath: directory.path
+            )
+            directories.append(directory)
+        }
+        let referenced = directories[17]
+        let manifest: [String: Any] = [
+            "token": "0123456789abcdef",
+            "files": [[
+                "request_path": "/assets/version-17/main.mjs",
+                "file_path": referenced.appendingPathComponent("main.mjs").path,
+            ]],
+        ]
+        try JSONSerialization.data(withJSONObject: manifest).write(
+            to: root.appendingPathComponent(".manifest-0123456789abcdef.json"),
+            options: .atomic
+        )
+
+        CMUXCLI(args: []).pruneDiffViewerAssetDirectories(in: root, now: now)
+
+        for directory in directories.prefix(4) {
+            #expect(FileManager.default.fileExists(atPath: directory.path))
+        }
+        #expect(FileManager.default.fileExists(atPath: referenced.path))
+        #expect(!FileManager.default.fileExists(atPath: directories[4].path))
+        let remaining = try FileManager.default.contentsOfDirectory(atPath: assets.path)
+        #expect(remaining.count == 5)
+    }
 }
