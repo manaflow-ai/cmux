@@ -348,6 +348,13 @@ extension TerminalController: ControlPaneContext {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
+            case .submittedToBackend(let submission):
+                return .submittedToBackend(
+                    requestID: submission.requestID,
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: ws.id,
+                    typeRawValue: panelType.rawValue
+                )
             case .failed:
                 newPanelId = nil
             }

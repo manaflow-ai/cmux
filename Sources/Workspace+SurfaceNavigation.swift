@@ -86,8 +86,10 @@ extension Workspace {
     func reorderSurface(panelId: UUID, by offset: Int) -> Bool {
         if panels[panelId] is TerminalPanel,
            let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
-           !isApplyingCanonicalTopologyProjection {
-            return mutationCoordinator.reject(.reorderTab)
+           !isApplyingCanonicalTopologyProjection,
+           layoutMode == .canvas {
+            mutationCoordinator.reportFailure(for: .reorderTab)
+            return false
         }
         if layoutMode == .canvas {
             let previousRevision = canvasModel.revision

@@ -216,6 +216,8 @@ extension TerminalController {
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
+        case .submittedToBackend(let submission):
+            return .submittedToBackend(requestID: submission.requestID)
         case .failed:
             return .failed
         }
@@ -271,6 +273,8 @@ extension TerminalController {
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
+        case .submittedToBackend(let submission):
+            return .submittedToBackend(requestID: submission.requestID)
         case .failed:
             return .failed
         }

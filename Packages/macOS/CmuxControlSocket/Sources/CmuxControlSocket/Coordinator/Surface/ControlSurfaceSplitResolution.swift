@@ -37,6 +37,9 @@ public enum ControlSurfaceSplitResolution: Sendable, Equatable {
     /// No local surface exists yet — it arrives asynchronously via the
     /// mirror's `%layout-change` handling, so there is no surface id to echo.
     case routedToRemote(windowID: UUID?, workspaceID: UUID, typeRawValue: String)
+    /// The daemon accepted the split; stable identities arrive through the
+    /// canonical topology stream rather than an optimistic local panel.
+    case submittedToBackend(requestID: UUID, windowID: UUID?, workspaceID: UUID, typeRawValue: String)
     /// The split was created. Carries the echoed identity and the resulting panel
     /// type (which may be `nil` if the new panel could not be re-read).
     case created(

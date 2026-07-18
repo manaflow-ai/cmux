@@ -11895,6 +11895,8 @@ class TerminalController {
                 result = "OK \(panel.id.uuidString)"
             case .routedToRemote:
                 result = "OK routed-to-remote-tmux"
+            case .submittedToBackend(let submission):
+                result = "PENDING cmuxd request=\(submission.requestID.uuidString)"
             case .failed:
                 break
             }

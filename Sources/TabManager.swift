@@ -1555,34 +1555,86 @@ class TabManager: ObservableObject {
 
     // MARK: - Reordering (WorkspaceReorderCoordinator, CmuxWorkspaces)
 
-    func moveTabToTop(_ tabId: UUID) {
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            mutationCoordinator.reject(.reorderWorkspace)
-            return
+    private func hasCanonicalTerminal(_ workspace: Workspace) -> Bool {
+        workspace.panels.values.contains(where: { $0 is TerminalPanel })
+    }
+
+    /// Converts a row-space reorder into the daemon's terminal-workspace index
+    /// without changing the observable Swift array ahead of projection.
+    private func requestCanonicalWorkspaceReorder(
+        tabId: UUID,
+        toIndex targetIndex: Int
+    ) -> Bool? {
+        guard let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+              let plan = workspaceReordering.workspaceReorderPlan(
+                  tabId: tabId,
+                  toIndex: targetIndex
+              ),
+              hasCanonicalTerminal(tabs[plan.fromIndex]) else {
+            return nil
         }
-        workspaceReordering.moveTabToTop(tabId)
+        var desired = tabs
+        let moved = desired.remove(at: plan.fromIndex)
+        desired.insert(moved, at: plan.toIndex)
+        let canonicalOrder = desired.filter(hasCanonicalTerminal)
+        guard let canonicalIndex = canonicalOrder.firstIndex(where: { $0.id == tabId }) else {
+            return false
+        }
+        let currentCanonicalOrder = tabs.filter(hasCanonicalTerminal)
+        if currentCanonicalOrder.firstIndex(where: { $0.id == tabId }) == canonicalIndex {
+            return true
+        }
+        return mutationCoordinator.requestMoveWorkspace(tabId, to: canonicalIndex)
+    }
+
+    func moveTabToTop(_ tabId: UUID) {
+        if let workspace = tabs.first(where: { $0.id == tabId }),
+           hasCanonicalTerminal(workspace),
+           terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
+            _ = requestCanonicalWorkspaceReorder(tabId: tabId, toIndex: 0)
+        } else {
+            workspaceReordering.moveTabToTop(tabId)
+        }
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            mutationCoordinator.reject(.reorderWorkspace)
-            return
+        let canonicalIDs = tabs.filter {
+            tabIds.contains($0.id) && hasCanonicalTerminal($0)
+        }.map(\.id)
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil,
+           !canonicalIDs.isEmpty {
+            for (index, tabId) in canonicalIDs.enumerated() {
+                _ = requestCanonicalWorkspaceReorder(tabId: tabId, toIndex: index)
+            }
+            let clientOnlyIDs = tabIds.subtracting(canonicalIDs)
+            if !clientOnlyIDs.isEmpty {
+                workspaceReordering.moveTabsToTop(clientOnlyIDs)
+            }
+        } else {
+            workspaceReordering.moveTabsToTop(tabIds)
         }
-        workspaceReordering.moveTabsToTop(tabIds)
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            mutationCoordinator.reject(.reorderWorkspace)
-            return
+        if let workspace = tabs.first(where: { $0.id == tabId }),
+           hasCanonicalTerminal(workspace),
+           terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
+            let canonicalPinnedCount = tabs.filter {
+                hasCanonicalTerminal($0) && $0.isPinned
+            }.count
+            _ = requestCanonicalWorkspaceReorder(
+                tabId: tabId,
+                toIndex: canonicalPinnedCount
+            )
+        } else {
+            workspaceReordering.moveTabToTopForNotification(tabId)
         }
-        workspaceReordering.moveTabToTopForNotification(tabId)
     }
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            return mutationCoordinator.reject(.reorderWorkspace)
+        if let routed = requestCanonicalWorkspaceReorder(tabId: tabId, toIndex: targetIndex) {
+            return routed
         }
         return workspaceReordering.reorderWorkspace(
             tabId: tabId,
@@ -1637,8 +1689,8 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            return mutationCoordinator.reject(.reorderWorkspace)
+        if let routed = requestCanonicalWorkspaceReorder(tabId: tabId, toIndex: targetIndex) {
+            return routed
         }
         return workspaceReordering.reorderSidebarWorkspace(
             tabId: tabId,
@@ -1696,8 +1748,12 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil, isDragOperation: Bool = false) -> Bool {
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            return mutationCoordinator.reject(.reorderWorkspace)
+        if let plan = workspaceReordering.workspaceReorderPlan(
+            tabId: tabId,
+            before: beforeId,
+            after: afterId
+        ), let routed = requestCanonicalWorkspaceReorder(tabId: tabId, toIndex: plan.toIndex) {
+            return routed
         }
         return workspaceReordering.reorderWorkspace(
             tabId: tabId,
@@ -1722,10 +1778,23 @@ class TabManager: ObservableObject {
         orderedWorkspaceIds: [UUID],
         dryRun: Bool = false
     ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
-           !dryRun {
-            mutationCoordinator.reject(.reorderWorkspace)
-            return .success([])
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil,
+           !dryRun,
+           orderedWorkspaceIds.contains(where: { id in
+               tabs.first(where: { $0.id == id }).map(hasCanonicalTerminal) == true
+           }) {
+            let planResult = workspaceReordering.workspaceBatchReorderPlan(
+                orderedWorkspaceIds: orderedWorkspaceIds
+            )
+            guard case .success(let plan) = planResult else { return planResult }
+            let canonicalOrder = orderedWorkspaceIds.filter { id in
+                tabs.first(where: { $0.id == id }).map(hasCanonicalTerminal) == true
+            }
+            for (index, workspaceID) in canonicalOrder.enumerated() {
+                _ = terminalClientComposition.terminalBackendTopologyMutationCoordinator?
+                    .requestMoveWorkspace(workspaceID, to: index)
+            }
+            return .success(plan)
         }
         return workspaceReordering.reorderWorkspaces(
             orderedWorkspaceIds: orderedWorkspaceIds,
@@ -2056,7 +2125,11 @@ class TabManager: ObservableObject {
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         if workspace.panels.values.contains(where: { $0 is TerminalPanel }),
            let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            mutationCoordinator.reject(.closeWorkspace)
+            guard workspace.panels.values.allSatisfy({ $0 is TerminalPanel }) else {
+                mutationCoordinator.reportFailure(for: .closeWorkspace)
+                return
+            }
+            _ = mutationCoordinator.requestCloseWorkspace(workspace.id)
             return
         }
         guard tabs.count > 1 else { return }

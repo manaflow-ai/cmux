@@ -173,6 +173,13 @@ extension TerminalController {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
+            case .submittedToBackend(let submission):
+                return .submittedToBackend(
+                    requestID: submission.requestID,
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: ws.id,
+                    typeRawValue: panelType.rawValue
+                )
             case .failed:
                 newId = nil
             }
@@ -397,6 +404,13 @@ extension TerminalController {
                 newPanelId = panel.id
             case .routedToRemote:
                 return .routedToRemote(
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: ws.id,
+                    typeRawValue: panelType.rawValue
+                )
+            case .submittedToBackend(let submission):
+                return .submittedToBackend(
+                    requestID: submission.requestID,
                     windowID: v2ResolveWindowId(tabManager: tabManager),
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue

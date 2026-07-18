@@ -37,14 +37,15 @@ final class TerminalClientComposition {
         )
     }
 
-    static func persistent(
-        backendClient: any TerminalBackendClient,
+    static func persistent<Client>(
+        backendClient: Client,
         dependencies: TerminalSurfaceRuntimeDependencies,
         topologyFailureReporter: @escaping @MainActor (String) -> Void = { _ in }
-    ) -> TerminalClientComposition {
+    ) -> TerminalClientComposition where Client: TerminalBackendClient & TerminalBackendTopologyMutating {
         let registry = TerminalBackendPresentationRegistry()
         let topologyAuthorizationGate = TerminalBackendTopologyAuthorizationGate()
         let topologyMutationCoordinator = TerminalBackendTopologyMutationCoordinator(
+            mutator: backendClient,
             failureReporter: topologyFailureReporter
         )
         let renderConfigSource = TerminalBackendRenderConfigSource {

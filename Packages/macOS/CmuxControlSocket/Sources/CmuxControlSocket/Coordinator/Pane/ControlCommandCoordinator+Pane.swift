@@ -380,6 +380,13 @@ extension ControlCommandCoordinator {
                 typeRawValue: typeRawValue,
                 operation: .splitWindow
             )
+        case .submittedToBackend(let requestID, let windowID, let workspaceID, let typeRawValue):
+            return backendSubmittedCreationResult(
+                requestID: requestID,
+                windowID: windowID,
+                workspaceID: workspaceID,
+                typeRawValue: typeRawValue
+            )
         case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

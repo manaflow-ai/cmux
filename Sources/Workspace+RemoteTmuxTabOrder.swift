@@ -7,7 +7,17 @@ extension Workspace {
         if panels[panelId] is TerminalPanel,
            let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
            !isApplyingCanonicalTopologyProjection {
-            return mutationCoordinator.reject(.reorderTab)
+            guard let tabId = surfaceIdFromPanelId(panelId),
+                  let paneId = paneId(forPanelId: panelId),
+                  let sourceIndex = bonsplitController.tabs(inPane: paneId)
+                    .firstIndex(where: { $0.id == tabId }) else {
+                return false
+            }
+            let destinationIndex = max(0, min(index, bonsplitController.tabs(inPane: paneId).count))
+            if destinationIndex == sourceIndex || destinationIndex == sourceIndex + 1 {
+                return true
+            }
+            return mutationCoordinator.requestReorderTab(panelId, to: destinationIndex)
         }
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil

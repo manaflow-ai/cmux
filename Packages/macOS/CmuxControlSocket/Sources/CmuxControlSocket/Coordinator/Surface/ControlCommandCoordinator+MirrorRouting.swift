@@ -4,6 +4,32 @@ internal import Foundation
 /// mirror workspace (used by `surface.split`, `surface.create`, and
 /// `pane.create`).
 extension ControlCommandCoordinator {
+    /// Success payload for a daemon-committed mutation whose stable identities
+    /// will appear through the canonical topology stream.
+    func backendSubmittedCreationResult(
+        requestID: UUID,
+        windowID: UUID?,
+        workspaceID: UUID,
+        typeRawValue: String
+    ) -> ControlCallResult {
+        .ok(.object([
+            "submitted": .bool(true),
+            "accepted": .bool(false),
+            "request_id": .string(requestID.uuidString),
+            "submission_target": .string("cmuxd"),
+            "pending_projection": .bool(true),
+            "window_id": orNull(windowID?.uuidString),
+            "window_ref": ref(.window, windowID),
+            "workspace_id": .string(workspaceID.uuidString),
+            "workspace_ref": ref(.workspace, workspaceID),
+            "pane_id": .null,
+            "pane_ref": .null,
+            "surface_id": .null,
+            "surface_ref": .null,
+            "type": .string(typeRawValue),
+        ]))
+    }
+
     /// Success payload for a request that was routed to the remote tmux mirror:
     /// the new pane/tab arrives asynchronously via the mirror's topology events
     /// (`%layout-change` / `%window-add`), so there is no local surface id to
