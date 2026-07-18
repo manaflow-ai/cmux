@@ -1443,9 +1443,16 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
+        // Keep the app restore index on the same trust boundary as agents
+        // list/tree and fork diagnostics. `rejected` means the live process or
+        // captured argv proved that this launch shape is not safe to replay;
+        // an older sticky `isRestorable=true` bit must not resurrect it after
+        // an app restart.
+        guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else {
+            return false
+        }
         if kind == .codex {
             guard record.isRestorable != false else { return false }
-            guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
             let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()
             if record.isRestorable == true
                 || launchSource == "default"
