@@ -663,6 +663,12 @@ extension CMUXCLI {
         if normalized == "claude" || normalized == "claude-code" {
             return "claude"
         }
+        // Ollama has live terminal observations and native restore support, but
+        // no hook sidecar. Accept the canonical filter even when no app socket
+        // is available so empty offline list/tree queries remain well-formed.
+        if normalized == "ollama" {
+            return "ollama"
+        }
         if let definition = Self.agentDef(named: normalized) {
             return definition.name
         }

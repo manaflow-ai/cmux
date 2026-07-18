@@ -872,6 +872,7 @@ extension CMUXCLI {
         if localJSONOutput {
             try AgentStagedOutput().publish { handle in
                 var writer = try AgentPrettyJSONStreamWriter(handle: handle)
+                try writer.writeValueField(name: "schema_version", value: 2)
                 try writer.writeValueField(name: "default_codex_home", value: defaultCodexHome)
                 try writer.writeValueField(
                     name: "limit",

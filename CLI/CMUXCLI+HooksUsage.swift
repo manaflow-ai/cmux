@@ -32,7 +32,7 @@ extension CMUXCLI {
           ~/.campfire/agent/extensions/cmux-campfire-session.ts
           ~/.config/amp/plugins/cmux-session.ts
           ~/.kiro/agents/cmux.json
-          ~/.kimi-code/config.toml
+          ~/.kimi/config.toml
           See docs/agent-hooks.md for the full integration matrix.
 
         Examples:
