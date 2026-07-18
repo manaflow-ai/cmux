@@ -59,6 +59,62 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
 }
 
 @Suite struct TerminalSurfaceRuntimeTeardownCoordinatorTests {
+    @Test func hibernationFreeValidatesImmediatelyBeforeFreeAndAwaitsUserdataRelease() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let recorder = TeardownLifetimeRecorder()
+        let lease = LifetimeRecordingByteTeeLease(recorder: recorder)
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+
+        let didFree = await coordinator.freeRuntimeSurfaceForAgentHibernation(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.hibernate",
+            surface: surface,
+            callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: lease,
+            finalValidation: {
+                recorder.record("validation")
+                return true
+            },
+            freeSurface: { _ in
+                recorder.record("surface.free")
+            }
+        )
+
+        #expect(didFree)
+        #expect(recorder.snapshot() == ["validation", "surface.free", "tee.release"])
+    }
+
+    @Test func rejectedHibernationFreeKeepsNativeSurfaceAndUserdataOwnedByCaller() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let recorder = TeardownLifetimeRecorder()
+        let lease = LifetimeRecordingByteTeeLease(recorder: recorder)
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+
+        let didFree = await coordinator.freeRuntimeSurfaceForAgentHibernation(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.hibernate.rejected",
+            surface: surface,
+            callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: lease,
+            finalValidation: {
+                recorder.record("validation")
+                return false
+            },
+            freeSurface: { _ in
+                recorder.record("surface.free")
+            }
+        )
+
+        #expect(!didFree)
+        #expect(recorder.snapshot() == ["validation"])
+    }
+
     @Test func enqueuedTeardownInvokesInjectedFreeWithTheSamePointer() async {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let recorder = FreedSurfaceRecorder()
