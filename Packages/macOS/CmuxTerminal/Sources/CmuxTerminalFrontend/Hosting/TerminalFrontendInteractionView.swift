@@ -331,7 +331,8 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     }
 
     public override func isAccessibilityFocused() -> Bool {
-        accessibilityBridge.snapshot()?.focused ?? window?.firstResponder === self
+        accessibilityBridge.snapshot()?.focused
+            ?? (window?.firstResponder === self)
     }
 
     public override func setAccessibilityFocused(_ focused: Bool) {
@@ -531,13 +532,15 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     }
 
     /// Selects canonical terminal contents through the shared mutation path.
-    @IBAction public func selectAll(_ sender: Any?) {
+    @IBAction public override func selectAll(_ sender: Any?) {
         _ = sender
         recordIngress(interactionAdapter.performSelection(.selectAll))
     }
 
     /// Enables edit-menu actions only when their lightweight prerequisites exist.
-    public func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+    public func validateUserInterfaceItem(
+        _ item: any NSValidatedUserInterfaceItem
+    ) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
             interactionAdapter.hasCopyableSelection

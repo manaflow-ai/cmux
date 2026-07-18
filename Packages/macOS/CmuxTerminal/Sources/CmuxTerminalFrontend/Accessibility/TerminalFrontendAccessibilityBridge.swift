@@ -19,6 +19,9 @@ final class TerminalFrontendAccessibilityBridge {
 
     deinit {
         observationTask?.cancel()
+        for element in linkElements {
+            element.invalidate()
+        }
     }
 
     func bind(to owner: TerminalFrontendInteractionView) {
@@ -31,18 +34,22 @@ final class TerminalFrontendAccessibilityBridge {
         observationTask = nil
         demandStarted = false
         observedSnapshot = nil
-        linkElements.removeAll(keepingCapacity: false)
+        invalidateLinkElements()
     }
 
     func snapshot() -> TerminalAccessibilitySnapshot? {
         ensureDemand()
         guard let current = owner?.terminalAccessibilitySnapshot else {
             observedSnapshot = nil
-            linkElements.removeAll(keepingCapacity: false)
+            invalidateLinkElements()
             return nil
         }
         install(current, postNotifications: false)
-        return observedSnapshot == current ? current : nil
+        guard observedSnapshot == current else {
+            invalidateLinkElements()
+            return nil
+        }
+        return current
     }
 
     func children() -> [Any] {
@@ -50,48 +57,13 @@ final class TerminalFrontendAccessibilityBridge {
         return linkElements
     }
 
-    func string(
-        for range: TerminalAccessibilityRange,
-        snapshot: TerminalAccessibilitySnapshot
-    ) -> String? {
-        guard isCurrent(snapshot) else { return nil }
-        return TerminalFrontendAccessibilityTextModel(snapshot: snapshot).string(
-            for: NSRange(location: range.location, length: range.length)
-        )
-    }
-
-    func frame(
-        for range: TerminalAccessibilityRange,
-        snapshot: TerminalAccessibilitySnapshot
-    ) -> NSRect {
-        frame(
-            for: NSRange(location: range.location, length: range.length),
-            snapshot: snapshot
-        ) ?? .zero
-    }
-
     func frame(
         for range: NSRange,
         snapshot: TerminalAccessibilitySnapshot
     ) -> NSRect? {
-        guard isCurrent(snapshot), let owner, let window = owner.window else { return nil }
-        let model = TerminalFrontendAccessibilityTextModel(snapshot: snapshot)
-        guard TerminalFrontendAccessibilityTextModel.isValid(
-            range,
-            maximum: model.utf16Length
-        ) else { return nil }
-
-        var localFrame = NSRect.null
-        for cell in model.cells(intersecting: range) {
-            guard let rect = cellRect(
-                row: cell.row,
-                column: cell.column,
-                columnSpan: cell.columnSpan,
-                snapshot: snapshot
-            ) else { continue }
-            localFrame = localFrame.isNull ? rect : localFrame.union(rect)
-        }
-        guard !localFrame.isNull else { return nil }
+        guard let owner, let window = owner.window,
+              let localFrame = localFrame(for: range, snapshot: snapshot)
+        else { return nil }
         return window.convertToScreen(owner.convert(localFrame, to: nil))
     }
 
@@ -127,28 +99,24 @@ final class TerminalFrontendAccessibilityBridge {
         )
     }
 
-    /// Schedules one backend-revalidated link action and rejects stale children inline.
-    func activate(
+    /// Revalidates one revision-bound link before opening its exact daemon target.
+    private func activate(
         link: TerminalAccessibilityLink,
         snapshot: TerminalAccessibilitySnapshot
-    ) -> Bool {
+    ) async {
         guard isCurrent(snapshot), snapshot.links.contains(link),
               let owner, owner.window != nil else {
-            return false
+            return
         }
-        Task { @MainActor [weak self, weak owner] in
-            guard let self, let owner, self.isCurrent(snapshot),
-                  let validated = await owner.activateTerminalAccessibilityLink(
-                    link,
-                    snapshot: snapshot
-                  ),
-                  validated == link.target,
-                  self.isCurrent(snapshot),
-                  owner.window != nil
-            else { return }
-            _ = self.linkOpener(validated)
-        }
-        return true
+        guard let validated = await owner.activateTerminalAccessibilityLink(
+            link,
+            snapshot: snapshot
+        ),
+        validated == link.target,
+        isCurrent(snapshot),
+        owner.window != nil
+        else { return }
+        _ = linkOpener(validated)
     }
 
     private func ensureDemand() {
@@ -169,16 +137,23 @@ final class TerminalFrontendAccessibilityBridge {
         _ snapshot: TerminalAccessibilitySnapshot,
         postNotifications: Bool
     ) {
-        guard let owner,
-              snapshot.schemaVersion == Self.supportedSchemaVersion,
-              owner.terminalAccessibilitySnapshot == snapshot,
+        guard let owner else { return }
+        let current = owner.terminalAccessibilitySnapshot
+        guard snapshot.schemaVersion == Self.supportedSchemaVersion,
+              current == snapshot,
               isSuccessor(snapshot, of: observedSnapshot)
-        else { return }
+        else {
+            if current != observedSnapshot {
+                invalidateLinkElements()
+            }
+            return
+        }
 
         let previous = observedSnapshot
+        invalidateLinkElements()
         observedSnapshot = snapshot
         let model = TerminalFrontendAccessibilityTextModel(snapshot: snapshot)
-        linkElements = snapshot.links.compactMap { link in
+        let nextLinkElements = snapshot.links.compactMap { link in
             let range = NSRange(
                 location: link.utf16Range.location,
                 length: link.utf16Range.length
@@ -186,13 +161,28 @@ final class TerminalFrontendAccessibilityBridge {
             guard TerminalFrontendAccessibilityTextModel.isValid(
                 range,
                 maximum: model.utf16Length
-            ) else { return nil }
-            return TerminalFrontendAccessibilityLinkElement(
-                bridge: self,
-                link: link,
+            ),
+            let frameInParentSpace = cellRect(
+                row: link.row,
+                column: link.startColumn,
+                columnSpan: max(link.endColumn - link.startColumn, 1),
                 snapshot: snapshot
             )
+            else { return nil }
+            let label = model.string(for: range)
+            return TerminalFrontendAccessibilityLinkElement(
+                parent: owner,
+                link: link,
+                label: label?.isEmpty == false ? label : link.target,
+                frameInParentSpace: frameInParentSpace,
+                action: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        await self?.activate(link: link, snapshot: snapshot)
+                    }
+                }
+            )
         }
+        linkElements = nextLinkElements
 
         guard postNotifications else { return }
         NSAccessibility.post(element: owner, notification: .valueChanged)
@@ -218,6 +208,37 @@ final class TerminalFrontendAccessibilityBridge {
         guard owner?.terminalAccessibilitySnapshot == snapshot else { return false }
         install(snapshot, postNotifications: false)
         return observedSnapshot == snapshot
+    }
+
+    private func invalidateLinkElements() {
+        for element in linkElements {
+            element.invalidate()
+        }
+        linkElements.removeAll(keepingCapacity: false)
+    }
+
+    private func localFrame(
+        for range: NSRange,
+        snapshot: TerminalAccessibilitySnapshot
+    ) -> NSRect? {
+        guard isCurrent(snapshot) else { return nil }
+        let model = TerminalFrontendAccessibilityTextModel(snapshot: snapshot)
+        guard TerminalFrontendAccessibilityTextModel.isValid(
+            range,
+            maximum: model.utf16Length
+        ) else { return nil }
+
+        var localFrame = NSRect.null
+        for cell in model.cells(intersecting: range) {
+            guard let rect = cellRect(
+                row: cell.row,
+                column: cell.column,
+                columnSpan: cell.columnSpan,
+                snapshot: snapshot
+            ) else { continue }
+            localFrame = localFrame.isNull ? rect : localFrame.union(rect)
+        }
+        return localFrame.isNull ? nil : localFrame
     }
 
     private func isSuccessor(

@@ -384,6 +384,25 @@ import Testing
     }
 }
 
+@Suite struct TerminalFrontendAccessibilityLinkActionGateTests {
+    @Test func invalidationRejectsActionsFromNonisolatedCallers() async {
+        let actions = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let gate = TerminalFrontendAccessibilityLinkActionGate {
+            actions.continuation.yield()
+        }
+
+        #expect(await Task.detached { gate.perform() }.value)
+        var iterator = actions.stream.makeAsyncIterator()
+        _ = await iterator.next()
+
+        gate.invalidate()
+        let acceptedAfterInvalidation = await Task.detached { gate.perform() }.value
+        #expect(!acceptedAfterInvalidation)
+    }
+}
+
 @MainActor
 private final class RecordingTerminalClipboard: TerminalFrontendClipboardWriting,
     TerminalFrontendClipboardReading
