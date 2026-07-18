@@ -1,9 +1,10 @@
+public import CMUXMobileCore
 internal import CmuxMobileSupport
 public import Foundation
 
 /// Errors surfaced while connecting to or talking with a paired Mac over the
 /// mobile-sync RPC transport.
-public enum MobileShellConnectionError: LocalizedError {
+public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProviding {
     /// The server returned a response that could not be parsed.
     case invalidResponse
     /// The persistent transport closed.
@@ -46,6 +47,25 @@ public enum MobileShellConnectionError: LocalizedError {
             return message
         case let .rpcError(_, message):
             return message
+        }
+    }
+
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .invalidResponse, .rpcError:
+            .protocolViolation
+        case .connectionClosed:
+            .connectionClosed
+        case .requestTimedOut, .transportWriteTimedOut:
+            .timedOut
+        case .insecureManualRoute:
+            .unsupportedRoute
+        case .attachTicketExpired:
+            .credentialUnavailable
+        case .authorizationFailed:
+            .authorizationFailed
+        case .accountMismatch:
+            .accountMismatch
         }
     }
 }

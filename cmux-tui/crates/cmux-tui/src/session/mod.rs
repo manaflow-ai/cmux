@@ -19,6 +19,7 @@ use cmux_tui_core::{
     SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{MouseInput, RenderState, Terminal};
+use serde::Deserialize;
 use serde_json::json;
 
 pub use remote::{RemoteSession, RemoteSurface};
@@ -67,6 +68,32 @@ pub struct SidebarPluginSurface {
     pub retry_after_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ClientSizeInfo {
+    pub surface: SurfaceId,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ClientInfo {
+    pub client: u64,
+    pub transport: String,
+    pub name: Option<String>,
+    pub kind: Option<String>,
+    pub connected_seconds: u64,
+    pub attached: Vec<SurfaceId>,
+    pub sizes: Vec<ClientSizeInfo>,
+    #[serde(rename = "self")]
+    pub is_self: bool,
+    #[serde(default = "default_true")]
+    pub size_participating: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Attach optional cols/rows fields to a remote command.
 fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json::Value {
     if let Some((cols, rows)) = size {
@@ -74,6 +101,13 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
         cmd["rows"] = json!(rows);
     }
     cmd
+}
+
+fn response_surface(result: &serde_json::Value, created: &str) -> anyhow::Result<SurfaceId> {
+    result
+        .get("surface")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| anyhow::anyhow!("remote {created} creation omitted its surface"))
 }
 
 fn sidebar_status_to_surface(status: SidebarPluginStatus) -> SidebarPluginSurface {
@@ -97,6 +131,77 @@ pub enum SurfaceHandle {
 }
 
 impl Session {
+    pub fn clients(&self) -> anyhow::Result<Vec<ClientInfo>> {
+        let value = match self {
+            Session::Local(mux) => mux.control_clients_json(0),
+            Session::Remote(remote) => remote.request(json!({"cmd": "list-clients"}))?,
+        };
+        serde_json::from_value(value).map_err(Into::into)
+    }
+
+    pub fn set_client_sizing(&self, client: u64, enabled: bool) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .set_client_size_participation(client, enabled)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown client {client}")),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-client-sizing",
+                    "client": client,
+                    "enabled": enabled,
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    pub fn use_only_client_sizing(&self, client: u64) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .use_only_client_size(client)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown client {client}")),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-client-sizing",
+                    "client": client,
+                    "enabled": true,
+                    "exclusive": true,
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    pub fn use_all_client_sizing(&self) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                mux.use_all_client_sizes();
+                Ok(())
+            }
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-client-sizing",
+                    "enabled": true,
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    pub fn disconnect_client(&self, client: u64) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                if cmux_tui_core::server::detach_control_client(mux, client) {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown client {client}")
+                }
+            }
+            Session::Remote(remote) => {
+                remote.request(json!({"cmd": "detach-client", "client": client})).map(|_| ())
+            }
+        }
+    }
+
     pub fn begin_shutdown(&self) {
         if let Session::Remote(remote) = self {
             remote.begin_shutdown();
@@ -291,6 +396,23 @@ impl Session {
         }
     }
 
+    pub fn has_surface_size_report(&self, id: SurfaceId) -> bool {
+        match self {
+            Session::Local(mux) => mux.client_surface_size(id, 0).is_some(),
+            Session::Remote(remote) => {
+                remote.surface(id).and_then(|surface| surface.reported_size()).is_some()
+            }
+        }
+    }
+
+    pub fn invalidate_surface_size_report(&self, id: SurfaceId) {
+        if let Session::Remote(remote) = self
+            && let Some(surface) = remote.surface(id)
+        {
+            surface.clear_reported_size();
+        }
+    }
+
     pub fn can_attach_after_overflow(&self, id: SurfaceId) -> bool {
         match self {
             Session::Local(_) => true,
@@ -341,11 +463,43 @@ impl Session {
         }
     }
 
-    pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
+    /// Release this frontend's sizing lease without dropping its cached
+    /// attach stream. A later resize reclaims visibility for the surface.
+    pub fn release_surface_size(&self, id: SurfaceId) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux.new_tab(pane, None, size).map(|_| ()),
+            Session::Local(mux) => {
+                let changed = mux.client_surface_size(id, 0).is_some();
+                mux.remove_surface_size_client(id, 0);
+                if changed {
+                    mux.emit(cmux_tui_core::MuxEvent::ClientChanged {
+                        client: 0,
+                        name: Some("This TUI".to_string()),
+                        kind: Some("tui".to_string()),
+                    });
+                }
+                Ok(())
+            }
             Session::Remote(remote) => {
-                remote.request(with_size(json!({"cmd": "new-tab", "pane": pane}), size)).map(|_| ())
+                remote.request(json!({"cmd": "release-surface-size", "surface": id}))?;
+                if let Some(surface) = remote.surface(id) {
+                    surface.clear_reported_size();
+                }
+                Ok(())
+            }
+        }
+    }
+
+    pub fn new_tab(
+        &self,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<SurfaceId> {
+        match self {
+            Session::Local(mux) => mux.new_tab(pane, None, size).map(|surface| surface.id),
+            Session::Remote(remote) => {
+                let result =
+                    remote.request(with_size(json!({"cmd": "new-tab", "pane": pane}), size))?;
+                response_surface(&result, "tab")
             }
         }
     }
@@ -356,17 +510,18 @@ impl Session {
         pane: Option<PaneId>,
         cwd: Option<String>,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<SurfaceId> {
         match self {
-            Session::Local(mux) => {
-                mux.run_command_surface(argv, pane, false, cwd, None, size).map(|_| ())
-            }
-            Session::Remote(remote) => remote
-                .request(with_size(
+            Session::Local(mux) => mux
+                .run_command_surface(argv, pane, false, cwd, None, size)
+                .map(|placement| placement.surface),
+            Session::Remote(remote) => {
+                let result = remote.request(with_size(
                     json!({"cmd": "run", "argv": argv, "pane": pane, "cwd": cwd}),
                     size,
-                ))
-                .map(|_| ()),
+                ))?;
+                response_surface(&result, "command")
+            }
         }
     }
 
@@ -455,21 +610,29 @@ impl Session {
         }
     }
 
-    pub fn new_workspace(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
+    pub fn new_workspace(&self, size: Option<(u16, u16)>) -> anyhow::Result<SurfaceId> {
         match self {
-            Session::Local(mux) => mux.new_workspace(None, size).map(|_| ()),
+            Session::Local(mux) => mux.new_workspace(None, size).map(|surface| surface.id),
             Session::Remote(remote) => {
-                remote.request(with_size(json!({"cmd": "new-workspace"}), size)).map(|_| ())
+                let result = remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
+                response_surface(&result, "workspace")
             }
         }
     }
 
-    /// New screen in the active workspace.
-    pub fn new_screen(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
+    pub fn new_screen(
+        &self,
+        workspace: Option<WorkspaceId>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<SurfaceId> {
         match self {
-            Session::Local(mux) => mux.new_screen(None, size).map(|_| ()),
+            Session::Local(mux) => mux.new_screen(workspace, size).map(|surface| surface.id),
             Session::Remote(remote) => {
-                remote.request(with_size(json!({"cmd": "new-screen"}), size)).map(|_| ())
+                let result = remote.request(with_size(
+                    json!({"cmd": "new-screen", "workspace": workspace}),
+                    size,
+                ))?;
+                response_surface(&result, "screen")
             }
         }
     }
@@ -527,17 +690,17 @@ impl Session {
         pane: PaneId,
         dir: SplitDir,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<SurfaceId> {
         match self {
-            Session::Local(mux) => mux.split(pane, dir, size).map(|_| ()),
+            Session::Local(mux) => mux.split(pane, dir, size).map(|surface| surface.id),
             Session::Remote(remote) => {
                 let dir = match dir {
                     SplitDir::Right => "right",
                     SplitDir::Down => "down",
                 };
-                remote
-                    .request(with_size(json!({"cmd": "split", "pane": pane, "dir": dir}), size))
-                    .map(|_| ())
+                let result = remote
+                    .request(with_size(json!({"cmd": "split", "pane": pane, "dir": dir}), size))?;
+                response_surface(&result, "split")
             }
         }
     }
@@ -761,9 +924,17 @@ impl SurfaceHandle {
         let desired = (cols.max(1), rows.max(1));
         let reservation_id = match self {
             SurfaceHandle::Local(surface, mux) => {
+                let report_changed = mux.client_surface_size(surface.id, 0) != Some(desired);
                 let (accepted, reservation_id) = mux.resize_surface_for_client_with_reservation(
                     surface.id, 0, desired.0, desired.1,
                 )?;
+                if report_changed {
+                    mux.emit(cmux_tui_core::MuxEvent::ClientChanged {
+                        client: 0,
+                        name: Some("This TUI".to_string()),
+                        kind: Some("tui".to_string()),
+                    });
+                }
                 report(reservation_id);
                 return Ok(accepted);
             }

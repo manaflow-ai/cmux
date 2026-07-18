@@ -5,6 +5,7 @@ actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias IndependentEventByteStreamFactory = @Sendable () async throws -> CmxIndependentEventByteStream
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
+    typealias TransportConnectObserver = @Sendable (MobileRPCTransportConnectEvent) -> Void
     enum PendingRequestSettlement {
         case response(Result<Data, MobileShellConnectionError>)
         case cancelled
@@ -52,6 +53,8 @@ actor MobileCoreRPCSession {
     private let makeTransport: TransportFactory
     let makeIndependentEventByteStream: IndependentEventByteStreamFactory?
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
+    private let diagnosticTransport: DiagnosticTransportKind?
+    private let transportConnectObserver: TransportConnectObserver?
     private var transport: (any CmxByteTransport)?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
@@ -88,7 +91,9 @@ actor MobileCoreRPCSession {
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         makeTransport: @escaping TransportFactory,
         makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
-        didReceiveConnectedCandidate: ConnectedCandidateHook? = nil
+        didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
+        diagnosticTransport: DiagnosticTransportKind? = nil,
+        transportConnectObserver: TransportConnectObserver? = nil
     ) {
         self.connectAttemptKey = connectAttemptKey
         self.connectAttemptRegistry = connectAttemptRegistry
@@ -97,6 +102,8 @@ actor MobileCoreRPCSession {
         self.makeTransport = makeTransport
         self.makeIndependentEventByteStream = makeIndependentEventByteStream
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
+        self.diagnosticTransport = diagnosticTransport
+        self.transportConnectObserver = transportConnectObserver
     }
 
     deinit {
@@ -252,22 +259,92 @@ actor MobileCoreRPCSession {
             } else {
                 connectLease = .untracked
             }
+            let connectAttemptID = Int.random(in: 1...Int.max)
+            let connectStartedAt = ContinuousClock.now
+            let diagnosticTransport = diagnosticTransport
+            let transportConnectObserver = transportConnectObserver
+            if let diagnosticTransport, let transportConnectObserver {
+                transportConnectObserver(
+                    .attempt(
+                        attemptID: connectAttemptID,
+                        transport: diagnosticTransport
+                    )
+                )
+            }
             let candidate: any CmxByteTransport
             do {
                 candidate = try makeTransport()
             } catch {
                 await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
+                if error is CancellationError || Task.isCancelled {
+                    throw CancellationError()
+                }
+                if let diagnosticTransport, let transportConnectObserver {
+                    transportConnectObserver(
+                        .failed(
+                            attemptID: connectAttemptID,
+                            transport: diagnosticTransport,
+                            failure: DiagnosticFailureKind.classify(error),
+                            elapsedMilliseconds: Self.elapsedMilliseconds(
+                                since: connectStartedAt
+                            )
+                        )
+                    )
+                }
                 throw error
             }
             connectionID = UUID()
             task = Task.detached {
-                try await withTaskCancellationHandler {
-                    try await candidate.connect()
-                    return candidate
-                } onCancel: {
-                    Task {
-                        await candidate.close()
+                do {
+                    try await withTaskCancellationHandler {
+                        try await candidate.connect()
+                    } onCancel: {
+                        Task {
+                            await candidate.close()
+                        }
                     }
+                    // A cancellation-ignoring transport must still return its
+                    // late candidate to the existing abandoned-connect cleanup
+                    // path so that path can close it again after completion.
+                    // Suppress the success event without replacing that result
+                    // with `CancellationError`.
+                    if !Task.isCancelled,
+                       let diagnosticTransport,
+                       let transportConnectObserver {
+                        transportConnectObserver(
+                            .connected(
+                                attemptID: connectAttemptID,
+                                transport: diagnosticTransport,
+                                elapsedMilliseconds: Self.elapsedMilliseconds(
+                                    since: connectStartedAt
+                                )
+                            )
+                        )
+                    }
+                    return candidate
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    // Some transports surface their close error instead of
+                    // `CancellationError` after the cancellation handler closes
+                    // them. Treat the task's cancellation bit as authoritative
+                    // so an abandoned dial never becomes a false failure event.
+                    if Task.isCancelled {
+                        throw CancellationError()
+                    }
+                    if let diagnosticTransport, let transportConnectObserver {
+                        transportConnectObserver(
+                            .failed(
+                                attemptID: connectAttemptID,
+                                transport: diagnosticTransport,
+                                failure: DiagnosticFailureKind.classify(error),
+                                elapsedMilliseconds: Self.elapsedMilliseconds(
+                                    since: connectStartedAt
+                                )
+                            )
+                        )
+                    }
+                    throw error
                 }
             }
             connectionTask = (id: connectionID, lease: connectLease, task: task, waiters: [waiterID], completed: false)
@@ -370,6 +447,15 @@ actor MobileCoreRPCSession {
             throw CancellationError()
         }
         return candidate
+    }
+
+    private nonisolated static func elapsedMilliseconds(
+        since start: ContinuousClock.Instant
+    ) -> Int {
+        let components = start.duration(to: .now).components
+        let milliseconds = components.seconds * 1_000
+            + components.attoseconds / 1_000_000_000_000_000
+        return max(0, Int(milliseconds))
     }
 
     private func cancelConnectingWaiter(id connectionID: UUID, waiterID: UUID) async {

@@ -256,7 +256,6 @@ extension TerminalController: ControlPaneContext {
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-
         if panelType == .terminal {
             let remoteTarget: RemoteTmuxControlPaneLocation?
             if let requestedSurfaceID = inputs.requestedSourceSurfaceID {
@@ -281,7 +280,8 @@ extension TerminalController: ControlPaneContext {
                     initialDividerPosition: initialDividerPosition
                 )
                 guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
-                guard remoteTarget.requestSplit(vertical: orientation == .vertical) else {
+                let focusIntent = remoteTmuxSplitFocusIntent(requested: inputs.requestedFocus)
+                guard remoteTarget.requestSplit(vertical: orientation == .vertical, focusIntent: focusIntent) else {
                     return .createFailed
                 }
                 v2MaybeFocusWindow(for: tabManager)
