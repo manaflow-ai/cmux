@@ -731,6 +731,21 @@ impl WorkspaceRegistry {
         Ok(TerminalBatchClose { revision, closed })
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_terminal_close_failure(&self, enabled: bool) -> anyhow::Result<()> {
+        if enabled {
+            self.connection.execute_batch(
+                "CREATE TEMP TRIGGER cmux_test_fail_terminal_close
+                 BEFORE UPDATE OF lifecycle ON terminal_placements
+                 BEGIN SELECT RAISE(ABORT, 'forced terminal close failure'); END;",
+            )?;
+        } else {
+            self.connection
+                .execute_batch("DROP TRIGGER IF EXISTS cmux_test_fail_terminal_close")?;
+        }
+        Ok(())
+    }
+
     pub fn terminal_events_after(
         &self,
         revision: u64,

@@ -5088,7 +5088,6 @@ impl App {
                 // Close the active tab; the pane collapses with its last
                 // tab, so this is also "close pane" for single-tab panes.
                 if let Some(surface) = self.active_surface() {
-                    self.render_states.remove(&surface);
                     self.session.close_surface(surface);
                 }
             }
@@ -5405,7 +5404,6 @@ impl App {
             MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
             MenuAction::CloseTab(id) => {
                 if let Some(surface) = self.tree.pane(id).and_then(|p| p.active_surface()) {
-                    self.render_states.remove(&surface);
                     self.session.close_surface(surface);
                 }
             }
@@ -8454,7 +8452,7 @@ mod tests {
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -8633,7 +8631,7 @@ mod tests {
 
         release_tx.send(()).unwrap();
         holder.join().unwrap();
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -8694,7 +8692,7 @@ mod tests {
         input.join().unwrap();
 
         assert_eq!(result.unwrap(), PtyMousePressResult::Started);
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -8729,7 +8727,7 @@ mod tests {
         assert!(app.sidebar_focused);
         assert!(app.drag.is_none());
         assert!(app.encode_buf.is_empty());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -8857,7 +8855,7 @@ mod tests {
             PtyInputEnqueueResult::Failed,
         );
         assert!(!encode_test_mouse_motion(&handle, input).is_empty());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -8894,7 +8892,7 @@ mod tests {
         }))
         .unwrap();
         assert!(!encode_test_mouse_motion(&handle, input).is_empty());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11092,7 +11090,7 @@ mod tests {
             Some("PTY input queue is full; input was not sent")
         );
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11147,7 +11145,7 @@ mod tests {
         assert!(!row_contains(buffer, 1, "•"), "tab bar dot should clear");
         assert_ne!(buffer[(0, 2)].symbol(), "•", "sidebar dot should clear");
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11189,7 +11187,7 @@ mod tests {
             "plugin sidebar must register the SidebarResize hit on the divider column"
         );
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     fn test_mouse_motion() -> MouseInput {
@@ -11283,7 +11281,7 @@ mod tests {
         assert!(text.contains("known-sidebar-file"), "{text}");
         assert!(text.lines().next().is_some_and(|line| line.contains("• 1")), "{text}");
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -11310,7 +11308,7 @@ mod tests {
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         assert!(buffer_text(terminal.backend().buffer()).contains("toggle-marker"));
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -11327,7 +11325,7 @@ mod tests {
 
         app.run_action(Action::FocusSidebar).unwrap();
         assert!(!app.sidebar_focused);
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11353,7 +11351,7 @@ mod tests {
             );
         }
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 

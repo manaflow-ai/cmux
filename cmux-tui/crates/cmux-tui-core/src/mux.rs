@@ -2582,6 +2582,62 @@ impl Mux {
         *self.terminal_move_before_projection.lock().unwrap() = hook;
     }
 
+    #[cfg(all(test, unix))]
+    pub(crate) fn seed_running_terminal_for_test(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        incarnation: &str,
+        workspace_key: &str,
+    ) -> anyhow::Result<SurfaceId> {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        commit_terminal_transition(
+            &mut registry,
+            "terminal-reserved",
+            "seed-terminal-reservation",
+            &RegistryTerminal {
+                terminal_id: terminal_id.to_string(),
+                workspace_key: workspace_key.to_string(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({}),
+                exit: None,
+            },
+        )?;
+        commit_terminal_lifecycle(
+            &mut registry,
+            "terminal-ready",
+            "seed-running-terminal",
+            terminal_id,
+            TerminalLifecycle::Running,
+            Some(incarnation),
+            None,
+        )?;
+        let surface = Surface::exited_terminal_placeholder(
+            self.next_id(),
+            self.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(self),
+            TerminalHostIdentity {
+                terminal_id: terminal_id.to_string(),
+                incarnation: incarnation.to_string(),
+            },
+        )?;
+        let mut state = self.state.lock().unwrap();
+        insert_surface_checked(&mut state, surface.clone())?;
+        let (placement, changed) =
+            self.project_terminal_to_workspace_in_state(&mut state, terminal_id, workspace_key)?;
+        anyhow::ensure!(changed, "seeded terminal did not change topology");
+        anyhow::ensure!(
+            placement.is_some_and(|placement| placement.surface == surface.id),
+            "seeded terminal projection returned the wrong surface"
+        );
+        Ok(surface.id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_terminal_close_failure_for_test(&self, enabled: bool) -> anyhow::Result<()> {
+        self.workspace_registry.lock().unwrap().set_terminal_close_failure(enabled)
+    }
+
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
         let mut runtime = self.browser_runtime.lock().unwrap();
         if let Some(existing) = runtime.as_ref().filter(|existing| !existing.is_closed()) {
@@ -4567,17 +4623,16 @@ impl Mux {
     /// Close one tab. When it was the pane's last tab, the pane collapses
     /// out of its split tree. Empty workspace containers remain durable;
     /// only an explicit close-workspace mutation removes a workspace.
-    pub fn close_surface(&self, target: SurfaceId) {
+    pub fn close_surface(&self, target: SurfaceId) -> anyhow::Result<bool> {
         if let Some(surface) = self.surface(target)
             && let Err(error) = self.tombstone_hosted_surface(&surface)
         {
-            self.emit(MuxEvent::Status(format!("could not close terminal {target}: {error}")));
-            return;
+            return Err(error);
         }
-        self.remove_surface_after_registry(target);
+        Ok(self.remove_surface_after_registry(target))
     }
 
-    fn remove_surface_after_registry(&self, target: SurfaceId) {
+    fn remove_surface_after_registry(&self, target: SurfaceId) -> bool {
         let notifications = self.surface_notifications();
         let remove = || {
             let mut state = self.state.lock().unwrap();
@@ -4608,21 +4663,7 @@ impl Mux {
                 selection_resync,
             )
         };
-        let (removed, changed_screens, empty_revision, delta, selection_resync) = loop {
-            let Some(workspace) = self.surface_workspace(target) else {
-                break remove();
-            };
-            let lifecycle = self.workspace_lifecycle(workspace);
-            let workspace_lifecycle = lifecycle.lock().unwrap();
-            if self.surface_workspace(target) != Some(workspace) {
-                drop(workspace_lifecycle);
-                continue;
-            }
-            let result = remove();
-            drop(workspace_lifecycle);
-            break result;
-        };
-        if let Some(surface) = &removed {
+        let removed = if let Some(surface) = removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
         }
@@ -4635,13 +4676,19 @@ impl Mux {
             for screen in changed_screens {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
+            true
+        } else {
+            false
+        };
+        if empty {
+            self.emit(MuxEvent::Empty);
         }
-        self.emit_empty_if_current(empty_revision);
+        removed
     }
 
     /// Close every surface in `tabs` (helper for pane/screen/workspace
     /// close). Emits events outside the lock.
-    fn close_surfaces(&self, tabs: Vec<SurfaceId>, delta: TreeDelta) {
+    fn close_surfaces(&self, tabs: Vec<SurfaceId>, delta: TreeDelta) -> anyhow::Result<()> {
         let mutation = WorkspaceMutation::local("cmux-tui");
         let mut registry = self.workspace_registry.lock().unwrap();
         let (removed, changed_screens, empty, batch) = {
@@ -4652,17 +4699,7 @@ impl Mux {
                 .filter_map(|surface| surface.terminal_host_identity())
                 .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
                 .collect::<Vec<_>>();
-            let batch = match registry.close_terminals_atomically(&mutation, &hosted) {
-                Ok(batch) => batch,
-                Err(error) => {
-                    drop(state);
-                    drop(registry);
-                    self.emit(MuxEvent::Status(format!(
-                        "could not atomically close terminal topology: {error}"
-                    )));
-                    return;
-                }
-            };
+            let batch = registry.close_terminals_atomically(&mutation, &hosted)?;
             let changed_screens = unique_screen_ids(
                 tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
             );
@@ -4688,18 +4725,48 @@ impl Mux {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
         }
-        self.emit_empty_if_current(empty_revision);
-        true
+        if empty {
+            self.emit(MuxEvent::Empty);
+        }
+        Ok(())
     }
 
     /// Close a pane and every tab in it.
-    pub fn close_pane(&self, target: PaneId) {
-        self.close_tree_target(TreeCloseTarget::Pane(target));
+    pub fn close_pane(&self, target: PaneId) -> anyhow::Result<bool> {
+        let notifications = self.surface_notifications();
+        let (tabs, delta) = {
+            let state = self.state.lock().unwrap();
+            match state.panes.get(&target) {
+                Some(pane) => (
+                    pane.tabs.clone(),
+                    close_pane_delta(&state, &notifications, target)
+                        .expect("live pane has a close delta"),
+                ),
+                None => return Ok(false),
+            }
+        };
+        self.close_surfaces(tabs, delta).with_context(|| format!("close pane {target}"))?;
+        Ok(true)
     }
 
     /// Close a screen and every pane/tab in it.
-    pub fn close_screen(&self, target: ScreenId) -> bool {
-        self.close_tree_target(TreeCloseTarget::Screen(target))
+    pub fn close_screen(&self, target: ScreenId) -> anyhow::Result<bool> {
+        let notifications = self.surface_notifications();
+        let (tabs, delta) = {
+            let state = self.state.lock().unwrap();
+            let Some(screen) =
+                state.workspaces.iter().flat_map(|ws| ws.screens.iter()).find(|s| s.id == target)
+            else {
+                return Ok(false);
+            };
+            (
+                screen_tabs(&state, screen),
+                close_screen_delta(&state, &notifications, target)
+                    .expect("live screen has a close delta"),
+            )
+        };
+        self.close_surfaces(tabs, delta).with_context(|| format!("close screen {target}"))?;
+        Ok(true)
     }
 
     /// Close a workspace and every screen/pane/tab in it.
@@ -6865,6 +6932,18 @@ mod tests {
         surface
     }
 
+    #[cfg(unix)]
+    fn insert_running_terminal_identity_surface(
+        mux: &Arc<Mux>,
+        terminal_id: &str,
+        incarnation: &str,
+        workspace_key: &str,
+    ) -> Arc<Surface> {
+        let surface =
+            mux.seed_running_terminal_for_test(terminal_id, incarnation, workspace_key).unwrap();
+        mux.surface(surface).unwrap()
+    }
+
     #[test]
     fn terminal_registry_launch_spec_never_persists_environment_secrets() {
         let sentinel = "cmux-secret-sentinel-do-not-persist";
@@ -7454,7 +7533,7 @@ mod tests {
         assert_eq!(mux.list_agents(Some(first.id), None).len(), 1);
         assert!(mux.surface_notification(first.id).is_some());
 
-        mux.close_surface(first.id);
+        mux.close_surface(first.id).unwrap();
 
         // The dead surface must not linger in either side table.
         assert!(mux.list_agents(Some(first.id), None).is_empty());
@@ -8001,21 +8080,110 @@ mod tests {
             assert_eq!(ids, vec![p1, p2, p3]);
         });
 
-        mux.close_pane(p2);
+        mux.close_pane(p2).unwrap();
         mux.with_state(|s| {
             let mut ids = Vec::new();
             s.workspaces[0].screens[0].root.pane_ids(&mut ids);
             assert_eq!(ids, vec![p1, p3]);
         });
 
-        mux.close_pane(p1);
-        mux.close_pane(p3);
+        mux.close_pane(p1).unwrap();
+        mux.close_pane(p3).unwrap();
         assert_eq!(mux.surface_count(), 0);
         mux.with_state(|s| {
             assert_eq!(s.workspaces.len(), 1);
             assert!(s.workspaces[0].screens.is_empty());
             assert_eq!(s.workspace_revision, 1);
         });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn close_pane_reports_registry_failure_without_mutating_topology() {
+        const TERMINAL: &str = "00000000000040008000000000000010";
+        const INCARNATION: &str = "10000000000040008000000000000010";
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(None, Some("close-pane".into()), None).unwrap();
+        let surface =
+            insert_running_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &workspace.key);
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        let events = mux.subscribe();
+        mux.workspace_registry.lock().unwrap().set_terminal_close_failure(true).unwrap();
+
+        let error = mux.close_pane(pane).unwrap_err();
+        assert!(error.to_string().contains("close pane"));
+        assert!(format!("{error:#}").contains("forced terminal close failure"));
+        assert_eq!(mux.with_state(|state| state.pane_of(surface.id)), Some(pane));
+        assert!(mux.surface(surface.id).is_some());
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+        assert!(events.recv_timeout(Duration::from_millis(25)).is_err());
+
+        mux.workspace_registry.lock().unwrap().set_terminal_close_failure(false).unwrap();
+        assert!(mux.close_pane(pane).unwrap());
+        assert!(mux.surface(surface.id).is_none());
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Tombstoned
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn close_screen_reports_registry_failure_without_mutating_topology() {
+        const TERMINAL: &str = "00000000000040008000000000000011";
+        const INCARNATION: &str = "10000000000040008000000000000011";
+        let mux = test_mux();
+        let workspace =
+            mux.create_empty_workspace(None, Some("close-screen".into()), None).unwrap();
+        let surface =
+            insert_running_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &workspace.key);
+        let screen = mux.with_state(|state| surface_screen_id(state, surface.id).unwrap());
+        mux.workspace_registry.lock().unwrap().set_terminal_close_failure(true).unwrap();
+
+        let error = mux.close_screen(screen).unwrap_err();
+        assert!(error.to_string().contains("close screen"));
+        assert!(format!("{error:#}").contains("forced terminal close failure"));
+        assert_eq!(mux.with_state(|state| surface_screen_id(state, surface.id)), Some(screen));
+        assert!(mux.surface(surface.id).is_some());
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+
+        mux.workspace_registry.lock().unwrap().set_terminal_close_failure(false).unwrap();
+        assert!(mux.close_screen(screen).unwrap());
+        assert!(mux.surface(surface.id).is_none());
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Tombstoned
+        );
     }
 
     #[test]
@@ -8436,7 +8604,7 @@ mod tests {
         assert!(mux.focus_pane(p3));
         let previous_p1_focus = mux.with_state(|state| state.panes[&p1].focused_at);
         let events = mux.subscribe();
-        mux.close_pane(p3);
+        mux.close_pane(p3).unwrap();
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
@@ -8468,17 +8636,7 @@ mod tests {
         });
 
         // Closing the active tab activates the previous one; the pane stays.
-        let events = mux.subscribe();
-        mux.close_surface(s2.id);
-        assert!(matches!(
-            events.recv_timeout(Duration::from_secs(1)),
-            Ok(MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::TabClosed, surface, .. }))
-                if surface == Some(s2.id)
-        ));
-        assert!(matches!(
-            events.recv_timeout(Duration::from_secs(1)),
-            Ok(MuxEvent::TreeSelectionChanged)
-        ));
+        mux.close_surface(s2.id).unwrap();
         mux.with_state(|s| {
             let p = &s.panes[&pane];
             assert_eq!(p.tabs, vec![s1.id]);
@@ -8488,7 +8646,7 @@ mod tests {
 
         // Closing the last tab collapses the pane and screen, while the
         // canonical workspace remains until an explicit close-workspace.
-        mux.close_surface(s1.id);
+        mux.close_surface(s1.id).unwrap();
         mux.with_state(|s| {
             assert_eq!(s.workspaces.len(), 1);
             assert!(s.workspaces[0].screens.is_empty());
@@ -8772,7 +8930,7 @@ mod tests {
         mux.with_state(|s| assert_eq!(s.workspaces[0].active_screen, 1));
 
         // Closing screen 2 keeps the workspace with screen 1.
-        assert!(mux.close_screen(screen2));
+        assert!(mux.close_screen(screen2).unwrap());
         mux.with_state(|s| {
             let ws = &s.workspaces[0];
             assert_eq!(ws.screens.len(), 1);

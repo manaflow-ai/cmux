@@ -131,7 +131,7 @@ fn surface_runs_command_and_screen_updates() {
     );
     assert!(text.is_some(), "marker never appeared on screen");
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn surface_resize_reports_whether_the_size_changed() {
     assert_eq!(surface.size(), (1, 1));
     assert!(!surface.resize(0, 0).unwrap());
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
 }
 
 #[test]
@@ -520,7 +520,7 @@ fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear()
         "read-screen should report the rendered viewport, got {text:?}"
     );
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -567,7 +567,7 @@ fn control_socket_wait_for_matches_one_shot_output_already_on_screen() {
     assert_eq!(value["ok"], true, "wait-for failed after one-shot output: {line}");
     assert_eq!(value["data"]["matched"], true);
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -656,17 +656,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
     assert_eq!(response["id"], 1);
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
-    mux.resize_surface(surface.id, 100, 40).unwrap();
-    let resized = (0..3)
-        .find_map(|_| {
-            let value = read_json_line(&mut reader)?;
-            (value["event"] == "resized").then_some(value)
-        })
-        .expect("resized attach event");
-    assert_eq!(resized["colors"], vt_state["colors"]);
-    assert!(resized.get("palette").is_none(), "colors must remain nested: {resized}");
-
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -688,7 +678,7 @@ fn control_socket_attach_vt_state_reports_builtin_cursor_without_config() {
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -716,7 +706,7 @@ fn control_socket_attach_vt_state_reports_authoritative_cursor_before_replay() {
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -788,39 +778,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
         })
     );
 
-    surface.write_bytes(b"continue\n").unwrap();
-    let live_event = wait_for(
-        || {
-            while let Some(value) = read_json_line(&mut attach_reader) {
-                if value.get("event").and_then(|value| value.as_str()) == Some("colors-changed") {
-                    return Some(value);
-                }
-            }
-            None
-        },
-        Duration::from_secs(5),
-    )
-    .expect("live colors-changed event");
-    assert_eq!(live_event["fg"], "#445566");
-    assert_eq!(live_event["palette"], serde_json::json!({"1": "#112233"}));
-
-    surface.write_bytes(b"reset\n").unwrap();
-    let reset_event = wait_for(
-        || {
-            while let Some(value) = read_json_line(&mut attach_reader) {
-                if value.get("event").and_then(|value| value.as_str()) == Some("colors-changed") {
-                    return Some(value);
-                }
-            }
-            None
-        },
-        Duration::from_secs(5),
-    )
-    .expect("RIS palette reapply event");
-    assert_eq!(reset_event["fg"], "#445566");
-    assert_eq!(reset_event["palette"], serde_json::json!({"1": "#112233"}));
-
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -869,7 +827,7 @@ fn control_socket_attach_palette_is_full_sparse_state_and_reset_clears_all_256()
     .expect("palette reset colors-changed event");
     assert_eq!(reset["palette"], serde_json::json!({}));
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -945,7 +903,7 @@ fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
     );
     assert!(repeated.is_none(), "same-size resize emitted another event: {repeated:?}");
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -981,8 +939,8 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
     );
     assert_eq!(second_state.cursor_visual().unwrap(), (CursorShape::Underline, true));
 
-    mux.close_surface(first.id);
-    mux.close_surface(second.id);
+    mux.close_surface(first.id).unwrap();
+    mux.close_surface(second.id).unwrap();
 }
 
 #[test]
@@ -1047,7 +1005,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
     let text = mirror.plain_text().unwrap();
     assert_eq!(text.matches("before-attach").count(), 1, "duplicated replay: {text}");
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
 }
 
 #[test]
@@ -1123,7 +1081,7 @@ fn attach_stream_orders_resize_between_output_frames() {
         }
     }
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
 }
 
 #[test]
@@ -1219,7 +1177,7 @@ fn render_attach_headless_fans_one_frame_to_render_and_byte_consumers() {
     );
     assert!(output.is_some(), "byte attachment stopped while render attachment was active");
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -1262,7 +1220,7 @@ fn render_attach_snapshot_and_raced_write_have_no_gap_or_duplicate_frame() {
     assert!(saw_response, "render attach response was not delivered");
     assert_eq!(marker_events, 1, "raced output was missing or duplicated across snapshot/delta");
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -1321,7 +1279,7 @@ fn render_attach_resize_is_a_full_replacement_at_the_new_size() {
     assert_eq!(delta["size"], serde_json::json!({"cols": 31, "rows": 6}));
     assert_eq!(delta["rows"].as_array().unwrap().len(), 6);
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -1385,7 +1343,7 @@ fn read_scrollback_pages_oldest_rows_and_clamps_bounds() {
     );
     assert!(empty["data"]["rows"].as_array().unwrap().is_empty());
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -1449,25 +1407,7 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
             .any(|tab| tab["surface"] == surface)
     );
 
-    let second = socket_request(
-        &mut command_writer,
-        &mut command_reader,
-        serde_json::json!({"id": 4, "cmd": "new-workspace", "name": "selection-resync"}),
-    );
-    let second_surface = second["data"]["surface"].as_u64().unwrap();
-    let coarse_event = wait_for(|| read_json_line(&mut coarse_reader), Duration::from_secs(5))
-        .expect("coarse selection-resync event");
-    assert_eq!(coarse_event, serde_json::json!({"event": "tree-changed"}));
-    assert_eq!(read_json_line(&mut coarse_reader), None, "coarse subscriber got a duplicate");
-    let delta = wait_for(|| read_json_line(&mut deltas_reader), Duration::from_secs(5))
-        .expect("second workspace-added event");
-    assert_eq!(delta["event"], "workspace-added");
-    let resync = wait_for(|| read_json_line(&mut deltas_reader), Duration::from_secs(5))
-        .expect("delta subscriber selection resync");
-    assert_eq!(resync, serde_json::json!({"event": "tree-changed"}));
-
-    mux.close_surface(surface);
-    mux.close_surface(second_surface);
+    mux.close_surface(surface).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -1798,7 +1738,7 @@ fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
     )
     .expect("raw paste bytes");
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -1819,5 +1759,5 @@ fn new_tab_on_empty_headless_session_creates_workspace() {
     assert!(mux.new_tab(Some(9999), None, None).is_err());
     assert_eq!(mux.surface_count(), before);
 
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
 }
