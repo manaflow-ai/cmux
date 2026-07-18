@@ -1,4 +1,4 @@
-internal import os
+internal import Foundation
 
 /// Linearizable validity gate for an AppKit accessibility action callback.
 ///
@@ -9,19 +9,25 @@ internal import os
 final class TerminalFrontendAccessibilityLinkActionGate: @unchecked Sendable {
     private typealias Action = @Sendable () -> Void
 
-    private let action: OSAllocatedUnfairLock<Action?>
+    private let lock = NSLock()
+    private var action: Action?
 
     init(action: @escaping @Sendable () -> Void) {
-        self.action = OSAllocatedUnfairLock(initialState: action)
+        self.action = action
     }
 
     func perform() -> Bool {
-        guard let activeAction = action.withLock({ $0 }) else { return false }
+        lock.lock()
+        let activeAction = action
+        lock.unlock()
+        guard let activeAction else { return false }
         activeAction()
         return true
     }
 
     func invalidate() {
-        action.withLock { $0 = nil }
+        lock.lock()
+        action = nil
+        lock.unlock()
     }
 }

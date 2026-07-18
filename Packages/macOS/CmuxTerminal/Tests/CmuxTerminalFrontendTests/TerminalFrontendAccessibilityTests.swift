@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxTerminalFrontend
+import Dispatch
 import Testing
 
 @MainActor
@@ -401,6 +402,26 @@ import Testing
         gate.invalidate()
         let acceptedAfterInvalidation = await Task.detached { gate.perform() }.value
         #expect(!acceptedAfterInvalidation)
+    }
+
+    @Test func copiedActionCompletesOutsideTheInvalidationLock() async {
+        let actionStarted = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let allowActionToFinish = DispatchSemaphore(value: 0)
+        let gate = TerminalFrontendAccessibilityLinkActionGate {
+            actionStarted.continuation.yield()
+            allowActionToFinish.wait()
+        }
+        let firstPerform = Task.detached { gate.perform() }
+        var iterator = actionStarted.stream.makeAsyncIterator()
+        _ = await iterator.next()
+
+        gate.invalidate()
+        let acceptedAfterInvalidation = await Task.detached { gate.perform() }.value
+        #expect(!acceptedAfterInvalidation)
+        allowActionToFinish.signal()
+        #expect(await firstPerform.value)
     }
 }
 
