@@ -314,6 +314,47 @@ struct TerminalClientCompositionTests {
         await router.unregister(route)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func routeMailboxCoalescesPendingConfigToNewestRevision() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let updates = AsyncStream<TerminalBackendRenderConfigSnapshot>.makeStream()
+        let router = TerminalBackendFrontendEventRouter(
+            client: client,
+            configUpdates: updates.stream
+        )
+        let probe = FrontendRouterDeliveryProbe()
+        let gate = FrontendRouterTestGate()
+        await router.start()
+        let route = await router.register(
+            presentationID: UUID(),
+            workspaceID: UUID(),
+            rendererHandler: { _ in },
+            rendererStreamEndedHandler: {},
+            configHandler: { update in
+                await probe.recordConfig(revision: update.revision)
+                if await probe.configCount() == 1 {
+                    await gate.wait()
+                }
+            }
+        )
+        updates.continuation.yield(TerminalBackendRenderConfigSnapshot(
+            revision: 1,
+            data: Data("font-family = Menlo\n".utf8)
+        ))
+        await probe.waitForConfigCount(1)
+        for revision in 2...128 {
+            updates.continuation.yield(TerminalBackendRenderConfigSnapshot(
+                revision: UInt64(revision),
+                data: Data("font-size = \(revision)\n".utf8)
+            ))
+        }
+        await gate.open()
+        for _ in 0..<512 { await Task.yield() }
+
+        #expect(await probe.configRevisions() == [1, 128])
+        await router.unregister(route)
+    }
+
     @Test
     func rendererExitLedgerFencesPIDReuseAndRejectsStaleIdentity() {
         let daemonInstanceID = UUID()
@@ -4772,9 +4813,11 @@ private actor FrontendRouterTestGate {
 private actor FrontendRouterDeliveryProbe {
     private var rendererCounts: [UUID: Int] = [:]
     private var resyncCounts: [UUID: Int] = [:]
+    private var recordedConfigRevisions: [UInt64] = []
     private var rendererWaiters: [
         UUID: [Int: [CheckedContinuation<Void, Never>]]
     ] = [:]
+    private var configWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
     func recordRenderer(
         workspaceID: UUID,
@@ -4795,6 +4838,31 @@ private actor FrontendRouterDeliveryProbe {
 
     func resyncCount(workspaceID: UUID) -> Int {
         resyncCounts[workspaceID, default: 0]
+    }
+
+    func recordConfig(revision: UInt64) {
+        recordedConfigRevisions.append(revision)
+        let satisfied = configWaiters.keys.filter {
+            $0 <= recordedConfigRevisions.count
+        }
+        for count in satisfied {
+            configWaiters.removeValue(forKey: count)?.forEach { $0.resume() }
+        }
+    }
+
+    func configCount() -> Int {
+        recordedConfigRevisions.count
+    }
+
+    func configRevisions() -> [UInt64] {
+        recordedConfigRevisions
+    }
+
+    func waitForConfigCount(_ count: Int) async {
+        guard recordedConfigRevisions.count < count else { return }
+        await withCheckedContinuation { continuation in
+            configWaiters[count, default: []].append(continuation)
+        }
     }
 
     func waitForRendererCount(_ count: Int, workspaceID: UUID) async {
