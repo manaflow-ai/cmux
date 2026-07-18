@@ -1659,7 +1659,7 @@ struct ContentView: View {
     }
 
     private var sidebarView: some View {
-        VerticalTabsSidebar(
+        let sidebar = VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
             windowId: windowId,
@@ -1675,6 +1675,17 @@ struct ContentView: View {
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
+        return Group {
+            if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
+                // FLAG(sidebar-appkit-list-experiment): parent-driven
+                // re-evaluations (divider width ticks, unrelated ContentView
+                // state churn) skip the sidebar subtree; all sidebar content
+                // flows through tracked dependencies that bypass the gate.
+                sidebar.equatable()
+            } else {
+                sidebar
+            }
+        }
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
@@ -10433,7 +10444,20 @@ extension SidebarDragState {
 /// so pressing/releasing the modifier key while the menu is up does not flip
 /// the underlying row's shortcut badges (which would be visible around the
 /// open context menu). All other rows transition live.
-struct VerticalTabsSidebar: View {
+struct VerticalTabsSidebar: View, Equatable {
+    // Equatable gates only parent-driven re-evaluation: closures and
+    // Bindings are excluded on purpose (recreated per parent eval but
+    // functionally identical), and every data source the body renders from
+    // (@EnvironmentObject, @ObservedObject, @Binding, @State) invalidates
+    // this view directly, bypassing the gate. See TabItemView for the
+    // precedent.
+    static func == (lhs: VerticalTabsSidebar, rhs: VerticalTabsSidebar) -> Bool {
+        lhs.windowId == rhs.windowId
+            && lhs.observedWindow === rhs.observedWindow
+            && lhs.updateViewModel === rhs.updateViewModel
+            && lhs.fileExplorerState === rhs.fileExplorerState
+    }
+
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let windowId: UUID
@@ -11016,8 +11040,8 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        // FLAG(sidebar-appkit-list-experiment): the AppKit NSTableView sidebar
-        // is opt-in while it soaks; default stays on the SwiftUI list.
+        // The AppKit NSTableView sidebar is opt-in while it soaks; default stays
+        // on the SwiftUI list. The flag key is declared only in FeatureFlags.swift.
         Group {
             if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
                 AnyView(appKitWorkspaceScrollArea(renderContext: renderContext))
@@ -11354,6 +11378,11 @@ struct VerticalTabsSidebar: View {
     private func appKitWorkspaceTableRows(
         renderContext: WorkspaceListRenderContext
     ) -> [SidebarWorkspaceTableRowConfiguration] {
+#if DEBUG
+        // One line per full row-projection rebuild: the countable signal for
+        // whether a change class re-renders the sidebar subtree or skips it.
+        cmuxDebugLog("sidebar.table.rowsBuild items=\(renderContext.workspaceRenderItems.count)")
+#endif
         let unreadSummariesByWorkspaceId = sidebarUnread.summaryByWorkspaceId
         let notificationIndex = SidebarWorkspaceNotificationIndex(
             notifications: notificationStore.notifications

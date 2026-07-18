@@ -16,6 +16,9 @@ public struct CMUXMobileAppView: View {
     /// state lives here (not in the shell store) because, unlike terminals, it
     /// has no Mac-side counterpart and must survive `workspace.updated` re-syncs.
     @State private var browserStore: BrowserSurfaceStore
+    /// App-lifetime owner for the initial explicit-attach versus saved-Mac
+    /// reconnect decision. Root view lifecycle callbacks share this instance.
+    @State private var startupConnectionCoordinator = MobileStartupConnectionCoordinator()
     private let signOutHook: MobileSignOutHook
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
@@ -58,11 +61,16 @@ public struct CMUXMobileAppView: View {
         CMUXMobileRootView(
             store: store,
             onboardingStore: onboardingStore,
-            signOutHook: signOutHook
+            signOutHook: signOutHook,
+            startupConnectionCoordinator: startupConnectionCoordinator
         )
             .environment(browserStore)
         #else
-        CMUXMobileRootView(store: store, signOutHook: signOutHook)
+        CMUXMobileRootView(
+            store: store,
+            signOutHook: signOutHook,
+            startupConnectionCoordinator: startupConnectionCoordinator
+        )
             .environment(browserStore)
         #endif
     }

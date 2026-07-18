@@ -70,17 +70,29 @@ extension CmxIrohClientRuntime {
                 localBinding: binding
             )
         }
-        let provider = CmxIrohRegistryContextProvider(
-            supervisor: supervisor,
-            broker: broker,
-            localBindingExpectation: expectation,
-            managedRelayURLs: replacementManagedURLs,
-            allowedRouteRelayURLs: profile.allowedRelayURLs,
-            networkPathSnapshot: networkPathSnapshot,
-            offlinePolicy: offlinePolicy,
-            lanFallback: lanFallback,
-            now: now
-        )
+        let provider: CmxIrohRegistryContextProvider
+        if let registryContextProvider {
+            await registryContextProvider.updatePolicy(
+                localBindingExpectation: expectation,
+                managedRelayURLs: replacementManagedURLs,
+                allowedRouteRelayURLs: profile.allowedRelayURLs,
+                offlinePolicy: offlinePolicy
+            )
+            provider = registryContextProvider
+        } else {
+            provider = CmxIrohRegistryContextProvider(
+                supervisor: supervisor,
+                broker: broker,
+                localBindingExpectation: expectation,
+                managedRelayURLs: replacementManagedURLs,
+                allowedRouteRelayURLs: profile.allowedRelayURLs,
+                networkPathSnapshot: networkPathSnapshot,
+                offlinePolicy: offlinePolicy,
+                lanFallback: lanFallback,
+                now: now
+            )
+            registryContextProvider = provider
+        }
         await contextRouter.install(provider)
         try requireCurrent(revision)
 

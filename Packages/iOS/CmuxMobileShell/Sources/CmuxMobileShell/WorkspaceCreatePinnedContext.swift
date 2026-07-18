@@ -55,6 +55,7 @@ extension MobileShellComposite {
             case is CancellationError,
                  MobileShellConnectionError.connectionClosed,
                  MobileShellConnectionError.requestTimedOut,
+                 MobileShellConnectionError.transportWriteTimedOut,
                  MobileShellConnectionError.invalidResponse:
                 isAmbiguous = true
             default:

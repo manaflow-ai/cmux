@@ -239,13 +239,58 @@ extension MobileHostAuthorizationTests {
         #expect(await session.debugQueuedEventCountForTesting() == 0)
     }
 
-    @Test func testIdempotentProbeCannotReenableALaneThatFailsWhileProbeIsInFlight() async throws {
+    @Test func testIdempotentSubscriptionDoesNotReprobeHealthyIndependentLane() async throws {
+        let control = RecordingMobileHostByteTransport()
+        let independent = TestMobileHostIndependentEventWriter(
+            behavior: .failAfterProbe
+        )
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: control,
+            independentEventWriter: independent,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        let subscribe = MobileHostRPCRequest(
+            id: "subscribe",
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "events",
+                "topics": ["terminal.updated"],
+                "event_transport": "iroh_server_events_v1",
+            ],
+            auth: nil
+        )
+        _ = await session.debugHandleSubscriptionRPCForTesting(subscribe)
+        guard case let .ok(payload)? = await session.debugHandleSubscriptionRPCForTesting(subscribe) else {
+            Issue.record("Expected an idempotent subscribe response")
+            return
+        }
+        let acknowledgement = try #require(payload as? [String: Any])
+        #expect(acknowledgement["already_subscribed"] as? Bool == true)
+        #expect(
+            acknowledgement["event_transport"] as? String
+                == "iroh_server_events_v1"
+        )
+        #expect(
+            await session.debugEventTransportForTesting(streamID: "events")
+                == .irohServerEvents
+        )
+        // A re-assertion is a control-channel liveness proof. Re-probing the
+        // optional Iroh event lane can consume two 3-second host deadlines and
+        // make a healthy phone tear down its control session.
+        #expect(await independent.observedSendCount() == 1)
+        await session.close(reason: "test complete")
+    }
+
+    @Test func testIdempotentReassertionCannotReenableALaneWithAnInFlightFailure() async throws {
         let control = RecordingMobileHostByteTransport()
         let independent = TestMobileHostIndependentEventWriter(
             behavior: .blockAfterProbe
         )
         var eventBlocked = await independent.blockedEvents().makeAsyncIterator()
-        var probeBlocked = await independent.blockedProbeEvents().makeAsyncIterator()
         let session = MobileHostConnection(
             id: UUID(),
             transport: control,
@@ -274,19 +319,22 @@ extension MobileHostAuthorizationTests {
         )
         _ = await eventBlocked.next()
 
-        let reassertion = Task {
-            await session.debugHandleSubscriptionRPCForTesting(subscribe)
-        }
-        _ = await probeBlocked.next()
-        await independent.failBlockedSend()
-        await independent.releaseBlockedProbe(result: true)
-
-        guard case let .ok(payload)? = await reassertion.value else {
-            Issue.record("Expected a rolling-fallback subscribe response")
+        guard case let .ok(reassertionPayload)? = await session.debugHandleSubscriptionRPCForTesting(subscribe) else {
+            Issue.record("Expected an idempotent subscribe response")
             return
         }
-        let acknowledgement = try #require(payload as? [String: Any])
-        #expect(acknowledgement["event_transport"] as? String == "control_v1")
+        let reassertion = try #require(reassertionPayload as? [String: Any])
+        #expect(
+            reassertion["event_transport"] as? String
+                == "iroh_server_events_v1"
+        )
+        await independent.failBlockedSend()
+        for _ in 0..<1_000 {
+            if await session.debugEventTransportForTesting(streamID: "events") == .control {
+                break
+            }
+            await Task.yield()
+        }
         #expect(
             await session.debugEventTransportForTesting(streamID: "events")
                 == .control

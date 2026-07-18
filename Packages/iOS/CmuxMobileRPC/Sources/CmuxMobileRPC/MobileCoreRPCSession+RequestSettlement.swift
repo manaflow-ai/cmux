@@ -32,7 +32,7 @@ private extension MobileShellConnectionError {
         switch self {
         case .authorizationFailed, .accountMismatch, .rpcError:
             true
-        case .invalidResponse, .connectionClosed, .requestTimedOut,
+        case .invalidResponse, .connectionClosed, .requestTimedOut, .transportWriteTimedOut,
              .insecureManualRoute, .attachTicketExpired:
             false
         }

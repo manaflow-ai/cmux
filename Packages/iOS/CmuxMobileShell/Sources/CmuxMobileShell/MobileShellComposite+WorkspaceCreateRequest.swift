@@ -149,6 +149,13 @@ extension MobileShellComposite {
             return .success(())
         } catch {
             let isCurrentContext = isCurrentWorkspaceCreateContext(context)
+            if isCurrentContext {
+                handleMacAvailabilityFailureIfCurrent(
+                    after: error,
+                    expectedClient: context.client,
+                    expectedGeneration: context.generation
+                )
+            }
             switch WorkspaceCreatePinnedContext.caughtErrorDisposition(
                 operationID: spec?.operationID,
                 error: error
@@ -165,20 +172,19 @@ extension MobileShellComposite {
             case .surfaceError:
                 break
             }
-            // A stale operation (connection replaced mid-flight) must not mutate
-            // the NEW connection's state, but it must still report failure:
-            // mapping it to success lets the task composer dismiss and persist
-            // last-used defaults for a workspace that was never created.
+            // A stale operation must not mutate the replacement connection,
+            // but task-composer failures must remain retryable with the same ID.
             if isCurrentContext {
                 if disconnectForAuthorizationFailureIfNeeded(error) {
                     return .failure(.authorizationFailed(hostDisplayName: context.hostDisplayName))
                 }
-                markMacConnectionUnavailableIfNeeded(after: error)
                 if appliesOperationalError {
                     applyOperationalError(error)
                 }
             }
-            return .failure(workspaceMutationFailure(error, hostDisplayName: context.hostDisplayName))
+            return .failure(
+                workspaceMutationFailure(error, hostDisplayName: context.hostDisplayName)
+            )
         }
     }
 

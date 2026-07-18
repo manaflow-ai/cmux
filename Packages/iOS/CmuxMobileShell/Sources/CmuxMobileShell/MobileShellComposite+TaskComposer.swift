@@ -37,6 +37,7 @@ extension MobileShellComposite {
         }
         guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID,
               let client = remoteClient else { return .failure(.cancelled) }
+        let generation = connectionGeneration
         // The last learned capability set can be stale after a tagged Mac
         // relaunch. This optional read is safe to probe; genuinely older Macs
         // return an RPC error and the UI keeps its contextual suggestions.
@@ -51,6 +52,11 @@ extension MobileShellComposite {
             }
             return .success(try MobileTaskDirectorySearchResponse.decode(data))
         } catch let error as MobileShellConnectionError {
+            handleMacAvailabilityFailureIfCurrent(
+                after: error,
+                expectedClient: client,
+                expectedGeneration: generation
+            )
             switch error {
             case let .rpcError(code, _) where [
                 "method_not_found",
@@ -70,6 +76,7 @@ extension MobileShellComposite {
             case .rpcError("cancelled", _):
                 return .failure(.cancelled)
             case .connectionClosed,
+                 .transportWriteTimedOut,
                  .insecureManualRoute,
                  .attachTicketExpired:
                 return .failure(.unavailable)

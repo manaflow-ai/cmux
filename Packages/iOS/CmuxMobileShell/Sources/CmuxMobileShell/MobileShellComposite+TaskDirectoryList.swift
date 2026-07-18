@@ -38,6 +38,7 @@ extension MobileShellComposite {
               let client = remoteClient else {
             return .failure(.cancelled)
         }
+        let generation = connectionGeneration
 
         do {
             let requestData = try MobileCoreRPCClient.requestData(
@@ -57,6 +58,11 @@ extension MobileShellComposite {
             }
             return .success(try MobileTaskDirectoryListResponse.decode(data))
         } catch let error as MobileShellConnectionError {
+            handleMacAvailabilityFailureIfCurrent(
+                after: error,
+                expectedClient: client,
+                expectedGeneration: generation
+            )
             switch error {
             case let .rpcError(code, _) where [
                 "method_not_found",
@@ -86,6 +92,7 @@ extension MobileShellComposite {
             case .rpcError("cancelled", _):
                 return .failure(.cancelled)
             case .connectionClosed,
+                 .transportWriteTimedOut,
                  .insecureManualRoute,
                  .attachTicketExpired:
                 return .failure(.unavailable)

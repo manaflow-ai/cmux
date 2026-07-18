@@ -2,7 +2,7 @@ import Foundation
 
 /// A transcript-derived path with de-duplicated provenance and its last position.
 public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identifiable {
-    /// Transcript path exactly as parsed.
+    /// Canonical display path when the file exists, otherwise its lexical path.
     public let path: String
     /// Highest-precedence provenance observed for the path.
     public let provenance: ChatArtifactProvenance
@@ -19,25 +19,28 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
         self.lastReferencedSeq = lastReferencedSeq
     }
 
-    /// Derives one record per normalized path from parsed transcript messages.
+    /// Derives one record per canonical path identity from parsed transcript messages.
     ///
     /// Agent edits outrank attachments, which outrank read-only references;
     /// every occurrence still advances the path's last-reference sequence.
-    /// Relative paths are lexically resolved against the session working
-    /// directory without accessing the filesystem.
+    /// Existing absolute paths resolve filesystem aliases after lexical
+    /// normalization. Missing paths stay lexical so deleted artifacts remain.
     ///
     /// - Parameters:
     ///   - messages: Parsed transcript messages to inspect.
     ///   - supplementalReferences: Raw pre-budget and artifacts-only parser
     ///     occurrences that are absent from the visible message stream.
     ///   - workingDirectory: Absolute session directory used for relative paths.
-    /// - Returns: De-duplicated artifact references with normalized paths.
+    ///   - canonicalizer: Filesystem identity operation used after lexical normalization.
+    /// - Returns: De-duplicated artifact references with canonical display paths.
     public static func derive(
         from messages: [ChatMessage],
         supplementalReferences: [ChatArtifactTranscriptReference] = [],
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        canonicalizer: ChatArtifactPathCanonicalizer = ChatArtifactPathCanonicalizer()
     ) -> [ChatArtifactIndexedReference] {
         var byPath: [String: ChatArtifactIndexedReference] = [:]
+        var canonicalPathByLexicalPath: [String: String] = [:]
         let detector = TerminalArtifactPathDetector()
         let normalizer = ChatArtifactPathNormalizer(workingDirectory: workingDirectory)
         for message in messages {
@@ -72,12 +75,26 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
                 guard let path = normalizer.structuredPath(rawPath) else {
                     continue
                 }
-                Self.merge(path: path, provenance: provenance, seq: message.seq, into: &byPath)
+                Self.merge(
+                    path: path,
+                    provenance: provenance,
+                    seq: message.seq,
+                    canonicalizer: canonicalizer,
+                    canonicalPathByLexicalPath: &canonicalPathByLexicalPath,
+                    into: &byPath
+                )
             }
             for rawPath in textOccurrences where
                 ChatArtifactPathNormalizer.isAbsoluteFreeTextCandidate(rawPath) {
                 guard let path = normalizer.freeTextPath(rawPath) else { continue }
-                Self.merge(path: path, provenance: .referenced, seq: message.seq, into: &byPath)
+                Self.merge(
+                    path: path,
+                    provenance: .referenced,
+                    seq: message.seq,
+                    canonicalizer: canonicalizer,
+                    canonicalPathByLexicalPath: &canonicalPathByLexicalPath,
+                    into: &byPath
+                )
             }
         }
         for reference in supplementalReferences {
@@ -92,6 +109,8 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
                 path: path,
                 provenance: reference.provenance,
                 seq: reference.seq,
+                canonicalizer: canonicalizer,
+                canonicalPathByLexicalPath: &canonicalPathByLexicalPath,
                 into: &byPath
             )
         }
@@ -102,11 +121,20 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
         path: String,
         provenance: ChatArtifactProvenance,
         seq: Int,
+        canonicalizer: ChatArtifactPathCanonicalizer,
+        canonicalPathByLexicalPath: inout [String: String],
         into byPath: inout [String: ChatArtifactIndexedReference]
     ) {
-        let previous = byPath[path]
-        byPath[path] = ChatArtifactIndexedReference(
-            path: path,
+        let canonicalPath: String
+        if let cached = canonicalPathByLexicalPath[path] {
+            canonicalPath = cached
+        } else {
+            canonicalPath = canonicalizer.canonicalPathKey(for: path)
+            canonicalPathByLexicalPath[path] = canonicalPath
+        }
+        let previous = byPath[canonicalPath]
+        byPath[canonicalPath] = ChatArtifactIndexedReference(
+            path: canonicalPath,
             provenance: Self.higherPrecedence(previous?.provenance, provenance),
             lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq)
         )
