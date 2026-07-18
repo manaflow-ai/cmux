@@ -98,6 +98,7 @@
 		A79701110000000000000003 /* AgentHookSessionStoreCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670520000000000000002 /* AgentHookSessionStoreCompletion.swift */; };
 		A78670240000000000000001 /* AgentHookSessionStoreModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670240000000000000002 /* AgentHookSessionStoreModels.swift */; };
 		A78670640000000000000001 /* AgentHookSessionStoreModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670240000000000000002 /* AgentHookSessionStoreModels.swift */; };
+		B7970F010000000000000001 /* AgentHookSessionStoreScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7970F010000000000000002 /* AgentHookSessionStoreScaleTests.swift */; };
 		0A1107110000000000000010 /* AgentNotificationDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000011 /* AgentNotificationDelivery.swift */; };
 		A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */; };
 		A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */; };
@@ -2312,6 +2313,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A78670180000000000000002 /* AgentHookSessionStateWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookSessionStateWriter.swift; sourceTree = "<group>"; };
 		A78670520000000000000002 /* AgentHookSessionStoreCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookSessionStoreCompletion.swift; sourceTree = "<group>"; };
 		A78670240000000000000002 /* AgentHookSessionStoreModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookSessionStoreModels.swift; sourceTree = "<group>"; };
+		B7970F010000000000000002 /* AgentHookSessionStoreScaleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookSessionStoreScaleTests.swift; sourceTree = "<group>"; };
 		0A1107110000000000000011 /* AgentNotificationDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationDelivery.swift; sourceTree = "<group>"; };
 		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
 		A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGateTests.swift; sourceTree = "<group>"; };
@@ -6009,6 +6011,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A51E000000000000000001 /* AgentChatSessionRegistryLifecycleTests.swift */,
 				C7A51D100000000000000001 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift */,
 				C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */,
+				B7970F010000000000000002 /* AgentHookSessionStoreScaleTests.swift */,
 				D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
 				D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */,
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
@@ -8506,6 +8509,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A79700100000000000000003 /* AgentHookSessionRegistryBridge.swift in Sources */,
 				A79701110000000000000003 /* AgentHookSessionStoreCompletion.swift in Sources */,
 				A78670640000000000000001 /* AgentHookSessionStoreModels.swift in Sources */,
+				B7970F010000000000000001 /* AgentHookSessionStoreScaleTests.swift in Sources */,
 				A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */,
 				79390003AA11BB22CC33DD03 /* AgentNotificationLiveRetargetTests.swift in Sources */,
 				7939000FAA11BB22CC33DD0F /* AgentNotificationMoveRaceTests.swift in Sources */,
