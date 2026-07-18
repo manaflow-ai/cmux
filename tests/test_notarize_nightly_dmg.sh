@@ -122,6 +122,16 @@ if [ "$(grep -c '^smoke ' "$LOG")" -ne 4 ]; then
   echo "FAIL: source and mounted apps must each run GUI and direct launch smokes" >&2
   exit 1
 fi
+for expected in \
+  "metadata $APP nightly" \
+  "licenses $APP" \
+  "metadata $TMP_DIR/cmux-nightly-mount/cmux NIGHTLY.app nightly" \
+  "licenses $TMP_DIR/cmux-nightly-mount/cmux NIGHTLY.app"; do
+  if ! grep -Fxq "$expected" "$LOG"; then
+    echo "FAIL: missing source or delivered-app validation: $expected" >&2
+    exit 1
+  fi
+done
 if [ "$(grep -c '^hdiutil detach ' "$LOG")" -ne 2 ]; then
   echo "FAIL: transient busy DMG detach must be retried" >&2
   exit 1
