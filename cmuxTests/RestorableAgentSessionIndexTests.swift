@@ -1959,6 +1959,51 @@ struct RestorableAgentSessionIndexTests {
         )
     }
 
+    @Test
+    func testLegacyOneShotProcessCaptureIsExcludedFromAppRestoreIndex() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-legacy-one-shot-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessionID = "legacy-one-shot"
+        var record = driftedAgentHookRecord(
+            launcher: "opencode",
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            panelId: panelID,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 10
+        )
+        record.removeValue(forKey: "isRestorable")
+        record["launchCommand"] = [
+            "launcher": "opencode",
+            "executablePath": "/usr/local/bin/opencode",
+            "arguments": ["/usr/local/bin/opencode", "run", "one-shot prompt"],
+            "workingDirectory": dir.path,
+            "capturedAt": 10,
+            // Records written before one-shot rejection used the ordinary
+            // process source and omitted the explicit restorable bit.
+            "source": "process",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "opencode-hook-sessions.json",
+            sessions: [sessionID: record]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceID, panelId: panelID),
+            "A legacy one-shot capture with no replay command must not survive in the app restore index."
+        )
+    }
+
     private func writeHookStore(
         root: URL,
         storeFilename: String,
