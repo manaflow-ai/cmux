@@ -53,62 +53,18 @@ extension SimulatorRemoteSurfaceView {
            let image = chromeImageCache.image(at: compositeURL) {
             image.draw(in: body)
         } else {
-            let left = profile.bezelInsets.leading
-            let right = profile.bezelInsets.trailing
-            let top = profile.bezelInsets.top
-            let bottom = profile.bezelInsets.bottom
-            drawAsset(
-                profile.assets["topLeft"],
-                in: CGRect(x: body.minX, y: body.maxY - top, width: left, height: top)
+            let images = profile.assets.compactMapValues { chromeImageCache.image(at: $0) }
+            let layout = SimulatorDeviceChromeAssetLayout(
+                body: body,
+                imageSizes: images.mapValues(\.size)
             )
-            drawAsset(
-                profile.assets["top"],
-                in: CGRect(
-                    x: body.minX + left,
-                    y: body.maxY - top,
-                    width: body.width - left - right,
-                    height: top
-                )
-            )
-            drawAsset(
-                profile.assets["topRight"],
-                in: CGRect(x: body.maxX - right, y: body.maxY - top, width: right, height: top)
-            )
-            drawAsset(
-                profile.assets["right"],
-                in: CGRect(
-                    x: body.maxX - right,
-                    y: body.minY + bottom,
-                    width: right,
-                    height: body.height - top - bottom
-                )
-            )
-            drawAsset(
-                profile.assets["bottomRight"],
-                in: CGRect(x: body.maxX - right, y: body.minY, width: right, height: bottom)
-            )
-            drawAsset(
-                profile.assets["bottom"],
-                in: CGRect(
-                    x: body.minX + left,
-                    y: body.minY,
-                    width: body.width - left - right,
-                    height: bottom
-                )
-            )
-            drawAsset(
-                profile.assets["bottomLeft"],
-                in: CGRect(x: body.minX, y: body.minY, width: left, height: bottom)
-            )
-            drawAsset(
-                profile.assets["left"],
-                in: CGRect(
-                    x: body.minX,
-                    y: body.minY + bottom,
-                    width: left,
-                    height: body.height - top - bottom
-                )
-            )
+            for name in [
+                "topLeft", "top", "topRight", "right",
+                "bottomRight", "bottom", "bottomLeft", "left",
+            ] {
+                guard let image = images[name], let rect = layout.rect(for: name) else { continue }
+                image.draw(in: rect)
+            }
         }
         drawButtons(profile.buttons.filter(\.onTop))
     }
