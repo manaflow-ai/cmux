@@ -67,20 +67,22 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         defer { surface.deallocate() }
 
         let didFree = await coordinator.freeRuntimeSurfaceForAgentHibernation(
-            id: UUID(),
-            workspaceId: UUID(),
-            reason: "test.hibernate",
-            surface: surface,
-            callbackContext: nil,
-            manualIOContext: nil,
-            byteTeeLease: lease,
-            finalValidation: {
-                recorder.record("validation")
-                return true
-            },
-            freeSurface: { _ in
-                recorder.record("surface.free")
-            }
+            TerminalSurfaceRuntimeTeardownRequest(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.hibernate",
+                surface: surface,
+                callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: lease,
+                finalValidation: {
+                    recorder.record("validation")
+                    return true
+                },
+                freeSurface: { _ in
+                    recorder.record("surface.free")
+                }
+            )
         )
 
         #expect(didFree)
@@ -95,20 +97,22 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         defer { surface.deallocate() }
 
         let didFree = await coordinator.freeRuntimeSurfaceForAgentHibernation(
-            id: UUID(),
-            workspaceId: UUID(),
-            reason: "test.hibernate.rejected",
-            surface: surface,
-            callbackContext: nil,
-            manualIOContext: nil,
-            byteTeeLease: lease,
-            finalValidation: {
-                recorder.record("validation")
-                return false
-            },
-            freeSurface: { _ in
-                recorder.record("surface.free")
-            }
+            TerminalSurfaceRuntimeTeardownRequest(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.hibernate.rejected",
+                surface: surface,
+                callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: lease,
+                finalValidation: {
+                    recorder.record("validation")
+                    return false
+                },
+                freeSurface: { _ in
+                    recorder.record("surface.free")
+                }
+            )
         )
 
         #expect(!didFree)

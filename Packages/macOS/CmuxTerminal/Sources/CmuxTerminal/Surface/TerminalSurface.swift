@@ -68,6 +68,30 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             runtimeSurfaceGeneration &+= 1
         }
     }
+
+    /// Temporarily transfers the native pointer without ending its lifetime.
+    ///
+    /// Agent hibernation must be able to restore a rejected teardown with the
+    /// same generation, so its provisional detach cannot use ``surface``'s
+    /// lifetime-ending setter.
+    func transferRuntimeSurfaceForAgentHibernation() -> ghostty_surface_t? {
+        let transferredSurface = runtimeSurface
+        runtimeSurface = nil
+        return transferredSurface
+    }
+
+    /// Restores a provisionally transferred native pointer without changing
+    /// its lifetime generation.
+    func restoreRuntimeSurfaceAfterRejectedAgentHibernation(_ restoredSurface: ghostty_surface_t) {
+        precondition(runtimeSurface == nil)
+        runtimeSurface = restoredSurface
+    }
+
+    /// Commits the end of a provisionally transferred native lifetime.
+    func commitTransferredRuntimeSurfaceTeardown() {
+        precondition(runtimeSurface == nil)
+        runtimeSurfaceGeneration &+= 1
+    }
     /// Monotonic lifetime identity for the native Ghostty surface.
     ///
     /// The generation advances whenever the runtime handle is installed or
@@ -259,6 +283,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var restoredRuntimeSurfaceStartQueued = false
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
+    var runtimeSurfaceHibernationTeardownInFlight = false
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var claudeCommandShim: ClaudeCommandShim?

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import Foundation
 import GhosttyKit
 import Testing
@@ -71,6 +72,7 @@ private actor HibernationValidationGate {
         let recorder = TeardownOrderRecorder()
         let surface = makeSurface()
         surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        let generation = surface.runtimeSurfaceGeneration
         surface.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
             recorder.record(.nativeFree)
@@ -88,6 +90,7 @@ private actor HibernationValidationGate {
         #expect(didSuspend)
         #expect(recorder.events == [.finalValidation, .nativeFree, .teeLeaseRelease])
         #expect(surface.surface == nil)
+        #expect(surface.runtimeSurfaceGeneration == generation &+ 1)
         #expect(surface.runtimeSurfaceSuspendedForAgentHibernation)
     }
 
@@ -105,6 +108,7 @@ private actor HibernationValidationGate {
         surface.surfaceCallbackContext = callbackContext
         surface.manualIOContext = manualIOContext
         surface.mobileByteTeeLease = teeLease
+        #expect(surface.portalLifecycleState == .live)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
             recorder.record(.nativeFree)
         }
@@ -119,6 +123,8 @@ private actor HibernationValidationGate {
         )
 
         #expect(!didSuspend)
+        #expect(surface.portalLifecycleState == .live)
+        #expect(surface.teardownRequestReason == nil)
         #expect(surface.surface == runtimeSurface)
         #expect(surface.runtimeSurfaceGeneration == generation)
         #expect(surface.surfaceCallbackContext?.toOpaque() == callbackContext.toOpaque())
@@ -164,6 +170,57 @@ private actor HibernationValidationGate {
         #expect(surface.runtimeSurfaceGeneration == generation &+ 1)
         #expect(!surface.runtimeSurfaceSuspendedForAgentHibernation)
         #expect(recorder.events == [.finalValidation, .nativeFree, .teeLeaseRelease])
+    }
+
+    @Test func resumeCannotReopenRuntimeUntilHibernationFreeCompletes() async {
+        let recorder = TeardownOrderRecorder()
+        let validationGate = HibernationValidationGate()
+        let surface = makeSurface()
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        surface.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        let suspension = Task { @MainActor in
+            await surface.suspendRuntimeSurfaceForAgentHibernation(
+                reason: "test.hibernate.resumeRace",
+                finalValidation: {
+                    recorder.record(.finalValidation)
+                    return await validationGate.validate()
+                }
+            )
+        }
+        await validationGate.waitUntilValidationStarts()
+
+        surface.prepareAgentHibernationResume(initialInput: "too early")
+        #expect(surface.nextRuntimeInitialInput == nil)
+
+        await validationGate.resolveValidation(true)
+        #expect(await suspension.value)
+        #expect(surface.runtimeSurfaceSuspendedForAgentHibernation)
+
+        surface.prepareAgentHibernationResume(initialInput: "after free")
+        #expect(!surface.runtimeSurfaceSuspendedForAgentHibernation)
+        #expect(surface.nextRuntimeInitialInput == "after free")
+        #expect(recorder.events == [.finalValidation, .nativeFree, .teeLeaseRelease])
+    }
+
+    @Test func restoredHibernationMarkerRequiresLiveModelWithoutNativeRuntime() {
+        let restoredSurface = makeSurface()
+
+        #expect(restoredSurface.markRuntimeSurfaceSuspendedForRestoredAgentHibernation())
+        #expect(restoredSurface.runtimeSurfaceSuspendedForAgentHibernation)
+
+        let liveSurface = makeSurface()
+        liveSurface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+
+        #expect(!liveSurface.markRuntimeSurfaceSuspendedForRestoredAgentHibernation())
+        #expect(!liveSurface.runtimeSurfaceSuspendedForAgentHibernation)
+
+        liveSurface.runtimeSurfaceFreedOutOfBandForTesting = true
+        liveSurface.teardownSurface()
     }
 
     @Test func deinitKeepsTeeLeaseUntilCoordinatorFree() async {

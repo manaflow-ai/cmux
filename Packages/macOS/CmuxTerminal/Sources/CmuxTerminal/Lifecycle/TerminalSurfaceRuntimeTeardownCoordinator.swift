@@ -22,6 +22,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private var pendingReasonsById: [UUID: String] = [:]
 #endif
     private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
+    private var queuedRequestReadIndex = 0
     private var isWorkerRunning = false
 
     /// Creates the process's teardown coordinator.
@@ -76,6 +77,28 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             byteTeeLease: nil,
             freeSurface: freeSurface
         )
+    }
+
+    /// Conditionally frees a hibernating runtime surface on the serialized
+    /// native teardown lane.
+    ///
+    /// The final validation runs after every earlier queued teardown and
+    /// immediately before the native free. When validation rejects, the
+    /// coordinator neither frees the surface nor releases its callback
+    /// userdata, allowing the caller to restore the exact live runtime.
+    ///
+    /// - Parameter request: The temporary native-runtime ownership transfer,
+    ///   including its final validation and free operation.
+    /// - Returns: `true` only after the native free and all userdata releases
+    ///   have completed; `false` when final validation rejected the request.
+    func freeRuntimeSurfaceForAgentHibernation(
+        _ request: TerminalSurfaceRuntimeTeardownRequest
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            var request = request
+            request.completion = continuation
+            enqueue(request)
+        }
     }
 
     /// Queues a native-surface free that also transports the surface's other
@@ -140,22 +163,35 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                     Task {
                         await self.observeTimeout(id: request.id)
                     }
-                    await Self.free(request)
+                    let didFree = await Self.free(request)
                     await self.complete(id: request.id)
+                    request.completion?.resume(returning: didFree)
                 }
             }
         }
     }
 
     private func nextRequestForWorker() -> TerminalSurfaceRuntimeTeardownRequest? {
-        guard !queuedRequests.isEmpty else {
+        guard queuedRequestReadIndex < queuedRequests.count else {
+            queuedRequests.removeAll(keepingCapacity: true)
+            queuedRequestReadIndex = 0
             isWorkerRunning = false
             return nil
         }
-        return queuedRequests.removeFirst()
+        let request = queuedRequests[queuedRequestReadIndex]
+        queuedRequestReadIndex += 1
+        if queuedRequestReadIndex == queuedRequests.count {
+            queuedRequests.removeAll(keepingCapacity: true)
+            queuedRequestReadIndex = 0
+        }
+        return request
     }
 
-    private nonisolated static func free(_ request: TerminalSurfaceRuntimeTeardownRequest) async {
+    private nonisolated static func free(_ request: TerminalSurfaceRuntimeTeardownRequest) async -> Bool {
+        if let finalValidation = request.finalValidation {
+            let isValid = await finalValidation()
+            guard isValid else { return false }
+        }
 #if DEBUG
         logDebugEvent(
             "surface.lifecycle.nativeFree.begin surface=\(request.surfaceToken) " +
@@ -183,6 +219,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             "workspace=\(request.workspaceToken) reason=\(request.reason)"
         )
 #endif
+        return true
     }
 
     private func complete(id: UUID) {
