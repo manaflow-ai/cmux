@@ -578,6 +578,7 @@ enum AgentHibernationTranscriptGuard {
                     externalURL: tempURL,
                     protectedSnapshot: snapshot,
                     expectedLiveStatus: protectedStatus,
+                    liveWasProtectedPrefix: liveIsProtectedPrefix,
                     candidateId: displacementCandidateId,
                     fileManager: fileManager
                 ) else {
@@ -882,6 +883,7 @@ enum AgentHibernationTranscriptGuard {
         externalURL: URL,
         protectedSnapshot: TeardownTranscriptSnapshot,
         expectedLiveStatus: stat,
+        liveWasProtectedPrefix: Bool,
         candidateId: String,
         fileManager: FileManager
     ) -> DisplacedTranscriptAuthority? {
@@ -977,10 +979,16 @@ enum AgentHibernationTranscriptGuard {
             transcriptURL.path,
             expectedExists: true,
             expectedStatus: expectedLiveStatus
-           ), transcriptContainsOnlyNonProtectiveMetadata(
-            atPath: transcriptURL.path,
-            fileManager: fileManager
-           ), let durablePointerVersion = stableRegularFileVersion(
+           ), (liveWasProtectedPrefix
+                ? file(
+                    atPath: protectedSnapshot.snapshotPath,
+                    stablyContainsPrefixAtPath: transcriptURL.path,
+                    fileManager: fileManager
+                  )
+                : transcriptContainsOnlyNonProtectiveMetadata(
+                    atPath: transcriptURL.path,
+                    fileManager: fileManager
+                  )), let durablePointerVersion = stableRegularFileVersion(
             atPath: pointerURL.path,
             fileManager: fileManager
            ) else {
