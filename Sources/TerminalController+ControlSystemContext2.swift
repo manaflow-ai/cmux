@@ -44,7 +44,7 @@ extension TerminalController {
             return .missingAction
         }
 
-        let resolvesMirroredTab = action == "rename" || action == "clear_name"
+        let resolvesMirroredTab = action == "rename"
         let workspace = resolvesMirroredTab
             ? resolveSurfaceWorkspace(routing: routing, tabManager: tabManager)
             : controlTabActionResolveWorkspace(routing: routing, tabManager: tabManager)
@@ -312,8 +312,8 @@ extension TerminalController {
         }
     }
 
-    /// Preserves the legacy workspace resolver for non-title tab actions.
-    /// Remote tmux projections are window-tab aliases only for rename/clear;
+    /// Preserves the legacy workspace resolver for non-rename tab actions.
+    /// Remote tmux projections are window-tab aliases only for rename;
     /// unrelated actions retain their existing workspace-panel semantics.
     private func controlTabActionResolveWorkspace(
         routing: ControlRoutingSelectors,

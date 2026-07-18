@@ -25,23 +25,25 @@ struct RemoteTmuxMirrorRenameTests {
         let containerID = try #require(containerIDs.first)
         #expect(containerIDs.allSatisfy { $0 == containerID })
 
-        let unrelatedAction = TerminalController.shared.controlTabAction(
-            routing: ControlRoutingSelectors(
-                hasWindowIDParam: false,
-                windowID: nil,
-                groupID: nil,
-                workspaceID: harness.workspace.id,
+        for action in ["clear_name", "mark_unread"] {
+            let unrelatedAction = TerminalController.shared.controlTabAction(
+                routing: ControlRoutingSelectors(
+                    hasWindowIDParam: false,
+                    windowID: nil,
+                    groupID: nil,
+                    workspaceID: harness.workspace.id,
+                    surfaceID: focusedSurface.surfaceID,
+                    paneID: nil
+                ),
+                actionKey: action,
+                title: nil,
+                rawURL: nil,
                 surfaceID: focusedSurface.surfaceID,
-                paneID: nil
-            ),
-            actionKey: "mark_unread",
-            title: nil,
-            rawURL: nil,
-            surfaceID: focusedSurface.surfaceID,
-            requestedFocus: false,
-            moveParams: [:]
-        )
-        #expect(unrelatedAction == .tabNotFound(surfaceID: focusedSurface.surfaceID))
+                requestedFocus: false,
+                moveParams: [:]
+            )
+            #expect(unrelatedAction == .tabNotFound(surfaceID: focusedSurface.surfaceID))
+        }
 
         for (index, surface) in initialSurfaces.enumerated() {
             let title = "dogfood-multi-renamed-\(index)"
