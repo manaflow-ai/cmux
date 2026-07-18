@@ -12,11 +12,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `11dd30a9b`. It adds indented hard-newline
+Current cmux pinned fork patch head: `b5c39a8f7`. It adds indented hard-newline
 link continuations on top of `bb30526cd` and is published through
 https://github.com/manaflow-ai/ghostty/pull/124.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11dd30a9b4e10169ea4a3ddfa7f6a51243f155fc-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b5c39a8f708ac1dfa200684e2caac890dabd0cc2-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Indented hard-newline link continuations
@@ -24,6 +24,8 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
 - Commits:
   - `a1d8997f8` (test: cover indented hard-newline path links)
   - `11dd30a9b` (fix: join indented hard-wrapped links)
+  - `6596607d1` (test: cover overlapping wrapped URL matchers)
+  - `b5c39a8f7` (fix: align hover matcher priority with clicks)
 - Files:
   - `src/Surface.zig`
   - `src/config/Config.zig`
@@ -38,6 +40,9 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
     sentence punctuation are excluded from the opened value and highlight.
   - Keeps custom matchers literal by default and preserves the existing
     semantic soft-wrap boundary for path matching.
+  - Resolves overlapping hover matchers in configuration order, matching
+    click behavior so a lower-priority path match cannot widen a URL's
+    underline to include trailing sentence punctuation.
   - Conflict note: future link matching or renderer string-map changes must
     keep candidate normalization, opened text, and highlighted coordinates on
     the same hard-wrap policy.
