@@ -12,8 +12,8 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Simulator panel theme", .serialized)
-struct SimulatorPanelThemeTests {
+@Suite("Simulator panel visibility", .serialized)
+struct SimulatorPanelVisibilityTests {
     @Test("A surviving Simulator host keeps framebuffer publication active")
     func survivingHostKeepsFramebufferActive() async throws {
         let device = SimulatorDevice(
@@ -83,6 +83,49 @@ struct SimulatorPanelThemeTests {
         #expect(!(await client.messages).contains(.setFramebufferPublishing(false)))
     }
 
+    private func content(panel: SimulatorPanel, background: NSColor) -> PanelContentView {
+        PanelContentView(
+            panel: panel,
+            workspaceId: UUID(),
+            paneId: PaneID(),
+            isFocused: true,
+            isSelectedInPane: true,
+            isVisibleInUI: true,
+            allowsPointerInput: true,
+            portalPriority: 0,
+            isSplit: false,
+            appearance: PanelAppearance(
+                backgroundColor: background,
+                foregroundColor: cmuxReadableForegroundNSColor(on: background, opacity: 1),
+                dividerColor: Color(nsColor: .separatorColor),
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0,
+                usesClearContentBackground: false
+            ),
+            windowAppearance: .rightSidebarPanelViewTestDefault,
+            customSidebarTabManager: nil,
+            hasUnreadNotification: false,
+            terminalAgentContext: "",
+            onFocus: {},
+            onRequestPanelFocus: {},
+            onResumeAgentHibernation: {},
+            onAutoResumeAgentHibernation: {},
+            onTriggerFlash: {}
+        )
+    }
+
+    private func settle(_ view: NSView) {
+        for _ in 0..<4 {
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+    }
+}
+
+@MainActor
+@Suite("Simulator panel theme", .serialized)
+struct SimulatorPanelThemeTests {
     @Test("Simulator pane renders the live Ghostty background")
     func rendersGhosttyBackground() throws {
         let monokai = try #require(NSColor(hex: "#272822"))
@@ -155,13 +198,6 @@ struct SimulatorPanelThemeTests {
         return bitmap.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB)?.hexString()
     }
 
-    private func settle(_ view: NSView) {
-        for _ in 0..<4 {
-            view.layoutSubtreeIfNeeded()
-            view.displayIfNeeded()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-        }
-    }
 }
 
 @MainActor
