@@ -50,7 +50,19 @@ extension CMUXCLI {
                     .appendingPathComponent(".cmuxterm", isDirectory: true)
                     .path
         )
-        let normalizedAgent = agentsTreeNormalized(agentFilter).map(agentsNormalizedAgentID)
+        let normalizedAgent: String?
+        if let agentFilter {
+            let value = agentsNormalizedAgentID(agentFilter)
+            guard !value.isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.agents.tree.error.agentRequiresValue",
+                    defaultValue: "agents tree: --agent requires a value"
+                ))
+            }
+            normalizedAgent = value
+        } else {
+            normalizedAgent = nil
+        }
         let normalizedSession = agentsTreeNormalized(sessionFilter)?.lowercased()
         let normalizedWorkspace = agentsTreeNormalizedID(workspaceFilter)?.lowercased()
         let normalizedSurface = agentsTreeNormalizedID(surfaceFilter)?.lowercased()
@@ -97,12 +109,31 @@ extension CMUXCLI {
         let providerID = normalizedAgent.flatMap {
             agentSessionProviderID(for: $0, terminalObservations: terminalObservations)
         }
+        if let normalizedAgent {
+            let hasMatchingObservation = terminalObservations.contains {
+                agentTerminalObservation($0, matchesAnyAgentID: [normalizedAgent])
+            }
+            guard providerID != nil || hasMatchingObservation else {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.agents.tree.error.unknownAgent",
+                        defaultValue: "agents tree: unknown agent '%@'"
+                    ),
+                    agentFilter ?? normalizedAgent
+                ))
+            }
+        }
         let selectedSpecifications = if let normalizedAgent {
             specifications.filter { $0.name.lowercased() == (providerID ?? normalizedAgent) }
         } else {
             specifications
         }
         let observationAgentIDs = Set([normalizedAgent, providerID].compactMap { $0 })
+        let homeDirectory = agentsTreeExpandedPath(processEnv["HOME"] ?? NSHomeDirectory())
+        let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
         let snapshots = AgentHookSessionRegistryBridge.snapshots(
             specifications: selectedSpecifications.map { (provider: $0.name, suffix: $0.suffix) },
             stateDirectory: stateDirectory,
@@ -138,15 +169,17 @@ extension CMUXCLI {
                 if let normalizedWorkspace, record.workspaceId.lowercased() != normalizedWorkspace { continue }
                 if let normalizedSurface, record.surfaceId.lowercased() != normalizedSurface { continue }
                 let runs = agentsTreeRuns(record: record, provider: specification.name)
+                let legacyRecordVisible = activeSessionIds.contains(record.sessionId)
+                    || agentHookRecordIsRestorable(
+                        agent: specification.name,
+                        record: record,
+                        claudeTranscriptLookup: claudeTranscriptLookup
+                    )
                 for run in runs {
-                    let legacyVisible = activeSessionIds.contains(record.sessionId)
-                        || record.isRestorable == true
-                        || record.transcriptPath != nil
-                        || record.launchCommand != nil
                     guard queryScope.includes(
                         recordRuntime: record.cmuxRuntime,
                         runRuntime: run.cmuxRuntime,
-                        legacyVisible: legacyVisible
+                        legacyVisible: legacyRecordVisible
                     ) else { continue }
                     let projection = AgentSessionStateProjection(record: record, run: run)
                     guard includesEndedRecords || queryScope.includes(projection: projection) else { continue }
