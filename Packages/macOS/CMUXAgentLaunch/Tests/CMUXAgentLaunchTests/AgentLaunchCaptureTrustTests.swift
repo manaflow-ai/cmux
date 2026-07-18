@@ -723,5 +723,27 @@ struct AgentLaunchCaptureTrustTests {
                 kind: "claude"
             ) == .interactive
         )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "acli",
+                arguments: [
+                    "acli", "rovodev", "run",
+                    "--prompt-interactive", "fix this",
+                    "--future-launch-mode",
+                ],
+                kind: "rovodev"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "acli",
+                arguments: [
+                    "acli", "rovodev", "run",
+                    "--prompt-interactive", "fix this",
+                    "--prompt", "one shot",
+                ],
+                kind: "rovodev"
+            ) == .unknown
+        )
     }
 }
