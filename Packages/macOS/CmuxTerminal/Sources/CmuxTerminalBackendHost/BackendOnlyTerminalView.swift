@@ -38,7 +38,6 @@ private final class BackendOnlyTerminalViewportHostView: NSView {
     }
 
     deinit {
-        stopObservingWindow()
         presentationLease?.detach()
     }
 
@@ -135,8 +134,6 @@ private final class BackendOnlyTerminalViewportHostView: NSView {
             NSWindow.didMiniaturizeNotification,
             NSWindow.didDeminiaturizeNotification,
             NSWindow.didChangeOcclusionStateNotification,
-            NSWindow.didOrderOnScreenNotification,
-            NSWindow.didOrderOffScreenNotification,
             NSWindow.didChangeBackingPropertiesNotification,
         ] {
             center.addObserver(
@@ -166,7 +163,7 @@ private final class BackendOnlyTerminalViewportHostView: NSView {
     }
 
     @objc private func windowPresentationStateChanged() {
-        if window?.backingScaleFactor != lastViewport?.xScale {
+        if window.map({ Double($0.backingScaleFactor) }) != lastViewport?.xScale {
             lastViewport = nil
             publishViewportIfChanged()
         }

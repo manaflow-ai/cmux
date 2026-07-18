@@ -44,10 +44,6 @@ final class BackendOnlyWindowMouseMovedEventsLease {
         window.acceptsMouseMovedEvents = true
     }
 
-    deinit {
-        invalidate()
-    }
-
     func invalidate() {
         guard let state else { return }
         self.state = nil
