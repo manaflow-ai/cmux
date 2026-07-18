@@ -1,6 +1,9 @@
+import AppKit
 import CmuxFoundation
+import CmuxTerminal
 import Darwin
 import Foundation
+import SQLite3
 import Testing
 
 #if canImport(cmux_DEV)
@@ -246,14 +249,18 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
         defer { _ = flock(descriptor, LOCK_UN) }
 
+        let targetSurfaceID = UUID()
         let elapsed = ContinuousClock().measure {
-            #expect(!AgentHookSessionStateWriter.recordRestoredHibernation(
-                agent: fixture.agent,
-                previousWorkspaceId: fixture.source.id,
-                previousSurfaceId: fixture.sourcePanelID,
-                workspaceId: UUID(),
-                surfaceId: UUID()
-            ))
+            let outcomes = AgentHookSessionStateWriter.recordRestoredHibernationOutcomes([
+                .init(
+                    agent: fixture.agent,
+                    previousWorkspaceId: fixture.source.id,
+                    previousSurfaceId: fixture.sourcePanelID,
+                    workspaceId: UUID(),
+                    surfaceId: targetSurfaceID
+                ),
+            ])
+            #expect(outcomes[targetSurfaceID] == .unavailable)
         }
         #expect(elapsed < .seconds(1))
         #expect(!FileManager.default.fileExists(atPath: registryURL.path))
@@ -603,7 +610,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
-    @Test func visibleClosedPanelRestoreCannotResumeBeforeOwnershipVerification() throws {
+    @Test func visibleClosedPanelRestoreRetriesAfterSQLiteOwnershipStoreRecovers() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-restored-closed-panel-locked-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -628,6 +635,10 @@ extension CMUXCLIErrorOutputRegressionTests {
             sessionID: "closed-panel-lock-session"
         )
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let activeSlot: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": 20.0,
+        ]
         try JSONSerialization.data(withJSONObject: [
             "version": 2,
             "sessions": [fixture.agent.sessionId: [
@@ -639,17 +650,21 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "startedAt": 10.0,
                 "updatedAt": 20.0,
             ]],
+            "activeSessionsByWorkspace": [fixture.source.id.uuidString: activeSlot],
+            "activeSessionsBySurface": [fixture.sourcePanelID.uuidString: activeSlot],
         ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
-        let descriptor = open(
-            stateURL.path + ".lock",
-            O_CREAT | O_RDWR,
-            mode_t(S_IRUSR | S_IWUSR)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        _ = try registry.snapshotImportingLegacy(
+            provider: "codex",
+            legacyURL: stateURL,
+            fileManager: .default
         )
-        #expect(descriptor >= 0)
-        guard descriptor >= 0 else { return }
-        defer { Darwin.close(descriptor) }
-        #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
-        defer { _ = flock(descriptor, LOCK_UN) }
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let lockedDatabase = try #require(database)
+        defer { sqlite3_close(lockedDatabase) }
+        #expect(sqlite3_exec(lockedDatabase, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) }
 
         let destination = Workspace()
         destination.setAgentHibernationAutoResumePresentationVisible(true)
@@ -666,11 +681,40 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let restoredPanelID = try #require(destination.restoreClosedPanel(entry))
         let restoredPanel = try #require(destination.terminalPanel(for: restoredPanelID))
-        #expect(!restoredPanel.isAgentHibernated)
-        #expect(destination.restoredAgentSnapshotForTesting(panelId: restoredPanelID) == nil)
+        #expect(restoredPanel.isAgentHibernated)
+        #expect(destination.restoredAgentSnapshotForTesting(panelId: restoredPanelID)?.sessionId == fixture.agent.sessionId)
         #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
         #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
-        #expect(!FileManager.default.fileExists(atPath: registryURL.path))
+
+        let lockedSnapshot = try registry.snapshot(provider: "codex")
+        let lockedRecord = try #require(
+            lockedSnapshot.records.first { $0.sessionID == fixture.agent.sessionId }
+        )
+        let lockedObject = try #require(
+            JSONSerialization.jsonObject(with: lockedRecord.json) as? [String: Any]
+        )
+        #expect(lockedObject["workspaceId"] as? String == fixture.source.id.uuidString)
+        #expect(lockedObject["surfaceId"] as? String == fixture.sourcePanelID.uuidString)
+
+        #expect(sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
+        destination.setAgentHibernationAutoResumePresentationVisible(true)
+
+        #expect(!restoredPanel.isAgentHibernated)
+        #expect(
+            restoredPanel.surface.debugInitialInputForTesting()
+                == (try #require(fixture.agent.resumeCommand)) + "\n"
+        )
+        #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
+        let adoptedSnapshot = try registry.snapshot(provider: "codex")
+        let adoptedRecord = try #require(
+            adoptedSnapshot.records.first { $0.sessionID == fixture.agent.sessionId }
+        )
+        let adoptedObject = try #require(
+            JSONSerialization.jsonObject(with: adoptedRecord.json) as? [String: Any]
+        )
+        #expect(adoptedObject["workspaceId"] as? String == destination.id.uuidString)
+        #expect(adoptedObject["surfaceId"] as? String == restoredPanelID.uuidString)
+        #expect(adoptedObject["sessionState"] as? String == "restoring")
     }
 
     @MainActor
@@ -880,13 +924,36 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let restored = Workspace()
         restored.setAgentHibernationAutoResumePresentationVisible(true)
-        let mapping = restored.restoreSessionSnapshot(fixture.snapshot)
+        let adoptionBatch = RestoredAgentHibernationAdoptionBatch()
+        let mapping = restored.restoreSessionSnapshot(
+            fixture.snapshot,
+            restoredAgentHibernationAdoptionBatch: adoptionBatch
+        )
         let restoredPanelID = try #require(mapping[fixture.sourcePanelID])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
         let expectedResumeInput = try #require(fixture.agent.resumeCommand) + "\n"
+        #expect(restoredPanel.isAgentHibernated)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView)
+        restoredPanel.hostedView.frame = contentView.bounds
+        contentView.addSubview(restoredPanel.hostedView)
+        restoredPanel.hostedView.setVisibleInUI(true)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        adoptionBatch.finalize()
 
         #expect(!restoredPanel.isAgentHibernated)
         #expect(restoredPanel.surface.debugInitialInputForTesting() == expectedResumeInput)
+        #expect(restoredPanel.surface.debugDesiredFocusState())
+        #expect(restoredPanel.hostedView.debugRenderStats().desiredFocus)
         let registry = try CmuxAgentSessionRegistry(url: registryURL).snapshot(provider: "codex")
         let record = try #require(registry.records.first { $0.sessionID == fixture.agent.sessionId })
         let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
@@ -896,6 +963,862 @@ extension CMUXCLIErrorOutputRegressionTests {
         restored.setAgentHibernationAutoResumePresentationVisible(true)
         #expect(restoredPanel.surface.debugInitialInputForTesting() == expectedResumeInput)
         #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
+    }
+
+    @MainActor
+    @Test func unavailableResumePreparationDoesNotConsumeDurableAuthority() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-resume-preflight-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "resume-preflight-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(root: root, sessionID: "resume-preflight-session")
+        let activeSlot: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": 20.0,
+        ]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [fixture.agent.sessionId: [
+                "sessionId": fixture.agent.sessionId,
+                "workspaceId": fixture.source.id.uuidString,
+                "surfaceId": fixture.sourcePanelID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+            "activeSessionsByWorkspace": [fixture.source.id.uuidString: activeSlot],
+            "activeSessionsBySurface": [fixture.sourcePanelID.uuidString: activeSlot],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let restored = Workspace()
+        let mapping = restored.restoreSessionSnapshot(fixture.snapshot)
+        let restoredPanelID = try #require(mapping[fixture.sourcePanelID])
+        let panel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(panel.isAgentHibernated)
+        panel.surface.beginPortalCloseLifecycle(reason: "test.resumePreflight")
+
+        #expect(!restored.resumeAgentHibernation(panelId: restoredPanelID, focus: false))
+        #expect(panel.isAgentHibernated)
+        #expect(!panel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
+        let registry = try CmuxAgentSessionRegistry(url: registryURL).snapshot(provider: "codex")
+        let record = try #require(registry.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        #expect(object["sessionState"] as? String == "hibernated")
+        #expect(object["workspaceId"] as? String == restored.id.uuidString)
+        #expect(object["surfaceId"] as? String == restoredPanelID.uuidString)
+    }
+
+    @MainActor
+    @Test func pendingInputImmediatelyResumesAfterDurableHibernationCommit() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-live-hibernation-immediate-resume-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let runtimeID = "live-hibernation-runtime"
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": runtimeID,
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let workspace = Workspace(workingDirectory: root.path)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        let sessionID = "live-hibernation-session"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: 10,
+                source: "agent-hook"
+            )
+        )
+        #expect(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: agent.kind.rawValue,
+                command: try #require(agent.resumeCommand),
+                cwd: root.path,
+                checkpointId: sessionID,
+                source: "agent-hook",
+                autoResume: false,
+                updatedAt: 20
+            ),
+            panelId: panelID
+        ))
+        let runtime: [String: Any] = ["id": runtimeID]
+        let record: [String: Any] = [
+            "sessionId": sessionID,
+            "workspaceId": workspace.id.uuidString,
+            "surfaceId": panelID.uuidString,
+            "sessionState": "active",
+            "restoreAuthority": true,
+            "activeRunId": "live-run",
+            "cmuxRuntime": runtime,
+            "runs": [[
+                "runId": "live-run",
+                "restoreAuthority": true,
+                "cmuxRuntime": runtime,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+            "startedAt": 10.0,
+            "updatedAt": 20.0,
+        ]
+        let slotObject: [String: Any] = ["sessionId": sessionID, "updatedAt": 20.0]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: record],
+            "activeSessionsByWorkspace": [workspace.id.uuidString: slotObject],
+            "activeSessionsBySurface": [panelID.uuidString: slotObject],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+        let slotJSON = try JSONSerialization.data(withJSONObject: slotObject, options: [.sortedKeys])
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(
+            provider: "codex",
+            records: [.init(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 20,
+                json: try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            )],
+            activeSlots: [
+                .init(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: workspace.id.uuidString,
+                    sessionID: sessionID,
+                    updatedAt: 20,
+                    json: slotJSON
+                ),
+                .init(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: panelID.uuidString,
+                    sessionID: sessionID,
+                    updatedAt: 20,
+                    json: slotJSON
+                ),
+            ]
+        )
+
+        panel.surface.installRuntimeSurfaceForTesting(
+            UnsafeMutableRawPointer(bitPattern: 0x7867)!
+        )
+        let nativeFreeStarted = AgentSessionAsyncGate()
+        let releaseNativeFree = DispatchSemaphore(value: 0)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            Task { await nativeFreeStarted.open() }
+            releaseNativeFree.wait()
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        let hibernation = Task { @MainActor in
+            await workspace.enterAgentHibernation(
+                panelId: panelID,
+                agent: agent,
+                lastActivityAt: Date(timeIntervalSince1970: 10),
+                finalValidation: { true }
+            )
+        }
+        await nativeFreeStarted.waitUntilOpen()
+        #expect(panel.surface.sendNamedKey("enter") == .queued)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 1)
+        releaseNativeFree.signal()
+
+        #expect(await hibernation.value)
+        #expect(!panel.isAgentHibernated)
+        #expect(panel.surface.debugInitialInputForTesting() == try #require(agent.resumeCommand) + "\n")
+        let saved = try registry.snapshot(provider: "codex")
+        let savedRecord = try #require(saved.records.first)
+        let savedObject = try #require(
+            JSONSerialization.jsonObject(with: savedRecord.json) as? [String: Any]
+        )
+        #expect(savedObject["sessionState"] as? String == "restoring")
+        #expect((savedObject["cmuxRuntime"] as? [String: Any])?["id"] as? String == runtimeID)
+    }
+
+    @MainActor
+    @Test func lockedDurableHibernationCommitRestoresExactLiveRuntime() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-live-hibernation-contention-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let runtimeID = "live-hibernation-contention-runtime"
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": runtimeID,
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeLiveHibernationAuthorityFixture(
+            root: root,
+            runtimeID: runtimeID,
+            sessionID: "live-hibernation-contention-session"
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        fixture.panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let nativeFreeCalled = AtomicBooleanGate(false)
+        let cleanupFinished = AgentSessionAsyncGate()
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { pointer in
+            nativeFreeCalled.storeRelease(true)
+            pointer.deallocate()
+            Task { await cleanupFinished.open() }
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let lockedDatabase = try #require(database)
+        defer { sqlite3_close(lockedDatabase) }
+        #expect(sqlite3_exec(lockedDatabase, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) }
+
+        let didHibernate = await fixture.workspace.enterAgentHibernation(
+            panelId: fixture.panelID,
+            agent: fixture.agent,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            finalValidation: { true }
+        )
+
+        #expect(!didHibernate)
+        #expect(!fixture.panel.isAgentHibernated)
+        #expect(fixture.panel.surface.surface == runtimeSurface)
+        #expect(!nativeFreeCalled.loadAcquire())
+        #expect(fixture.panel.surface.debugPendingSocketInputForTesting().items == 0)
+        let saved = try fixture.registry.snapshot(provider: "codex")
+        let savedRecord = try #require(saved.records.first)
+        let savedObject = try #require(
+            JSONSerialization.jsonObject(with: savedRecord.json) as? [String: Any]
+        )
+        #expect(savedObject["sessionState"] as? String == "active")
+
+        fixture.panel.surface.teardownSurface()
+        await cleanupFinished.waitUntilOpen()
+    }
+
+    @MainActor
+    @Test func transientRegistryContentionKeepsManualResumeRetryable() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-resume-contention-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "resume-contention-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(root: root, sessionID: "resume-contention-session")
+        let activeSlot: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": 20.0,
+        ]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [fixture.agent.sessionId: [
+                "sessionId": fixture.agent.sessionId,
+                "workspaceId": fixture.source.id.uuidString,
+                "surfaceId": fixture.sourcePanelID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+            "activeSessionsByWorkspace": [fixture.source.id.uuidString: activeSlot],
+            "activeSessionsBySurface": [fixture.sourcePanelID.uuidString: activeSlot],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let restored = Workspace()
+        let mapping = restored.restoreSessionSnapshot(fixture.snapshot)
+        let panelID = try #require(mapping[fixture.sourcePanelID])
+        let panel = try #require(restored.terminalPanel(for: panelID))
+        #expect(panel.isAgentHibernated)
+
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let lockedDatabase = try #require(database)
+        defer { sqlite3_close(lockedDatabase) }
+        #expect(sqlite3_exec(lockedDatabase, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) }
+
+        #expect(!restored.resumeAgentHibernation(panelId: panelID, focus: false))
+        #expect(panel.isAgentHibernated)
+        #expect(restored.restoredAgentSnapshotForTesting(panelId: panelID)?.sessionId == fixture.agent.sessionId)
+        #expect(!panel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
+    }
+
+    @MainActor
+    @Test func backgroundAdoptionCannotResumeAfterForeignTakeoverBeforeVisibility() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-hibernation-late-takeover-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "late-takeover-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "late-takeover-session"
+        )
+        let activeSlot: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": 20.0,
+        ]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [fixture.agent.sessionId: [
+                "sessionId": fixture.agent.sessionId,
+                "workspaceId": fixture.source.id.uuidString,
+                "surfaceId": fixture.sourcePanelID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+            "activeSessionsByWorkspace": [fixture.source.id.uuidString: activeSlot],
+            "activeSessionsBySurface": [fixture.sourcePanelID.uuidString: activeSlot],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let restored = Workspace()
+        let mapping = restored.restoreSessionSnapshot(fixture.snapshot)
+        let restoredPanelID = try #require(mapping[fixture.sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(restoredPanel.isAgentHibernated)
+
+        let foreignWorkspaceID = UUID().uuidString
+        let foreignSurfaceID = UUID().uuidString
+        let takeoverAt = Date().timeIntervalSince1970
+        let foreignRecord: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "workspaceId": foreignWorkspaceID,
+            "surfaceId": foreignSurfaceID,
+            "sessionState": "active",
+            "restoreAuthority": true,
+            "startedAt": 10.0,
+            "updatedAt": takeoverAt,
+        ]
+        let foreignSlot = try JSONSerialization.data(withJSONObject: [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": takeoverAt,
+        ], options: [.sortedKeys])
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(
+            provider: "codex",
+            records: [.init(
+                provider: "codex",
+                sessionID: fixture.agent.sessionId,
+                updatedAt: takeoverAt,
+                json: try JSONSerialization.data(withJSONObject: foreignRecord, options: [.sortedKeys])
+            )],
+            activeSlots: [
+                .init(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: foreignWorkspaceID,
+                    sessionID: fixture.agent.sessionId,
+                    updatedAt: takeoverAt,
+                    json: foreignSlot
+                ),
+                .init(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: foreignSurfaceID,
+                    sessionID: fixture.agent.sessionId,
+                    updatedAt: takeoverAt,
+                    json: foreignSlot
+                ),
+            ],
+            deletedSlots: [
+                CmuxAgentSessionRegistry.slotKey(scope: .workspace, scopeID: restored.id.uuidString),
+                CmuxAgentSessionRegistry.slotKey(scope: .surface, scopeID: restoredPanelID.uuidString),
+            ]
+        )
+
+        restored.setAgentHibernationAutoResumePresentationVisible(true)
+
+        #expect(!restoredPanel.isAgentHibernated)
+        #expect(restored.restoredAgentSnapshotForTesting(panelId: restoredPanelID) == nil)
+        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
+        let snapshot = try registry.snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        #expect(object["workspaceId"] as? String == foreignWorkspaceID)
+        #expect(object["surfaceId"] as? String == foreignSurfaceID)
+        #expect(object["sessionState"] as? String == "active")
+        #expect(Set(snapshot.activeSlots.map(\.scopeID)) == [foreignWorkspaceID, foreignSurfaceID])
+    }
+
+    @MainActor
+    @Test func sameBindingForeignRuntimeCannotResumeRestoredAgent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-foreign-runtime-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let currentRuntime = "same-binding-current-runtime"
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": currentRuntime,
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(root: root, sessionID: "same-binding-session")
+        let initialSlot: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": 20.0,
+        ]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [fixture.agent.sessionId: [
+                "sessionId": fixture.agent.sessionId,
+                "workspaceId": fixture.source.id.uuidString,
+                "surfaceId": fixture.sourcePanelID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+            "activeSessionsByWorkspace": [fixture.source.id.uuidString: initialSlot],
+            "activeSessionsBySurface": [fixture.sourcePanelID.uuidString: initialSlot],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let restored = Workspace()
+        let mapping = restored.restoreSessionSnapshot(fixture.snapshot)
+        let restoredPanelID = try #require(mapping[fixture.sourcePanelID])
+        let panel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(panel.isAgentHibernated)
+
+        let foreignRuntime: [String: Any] = ["id": "foreign-runtime"]
+        let takeoverAt = Date().timeIntervalSince1970 + 100
+        let foreignRecord: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "workspaceId": restored.id.uuidString,
+            "surfaceId": restoredPanelID.uuidString,
+            "sessionState": "hibernated",
+            "restoreAuthority": true,
+            "activeRunId": "foreign-run",
+            "cmuxRuntime": foreignRuntime,
+            "runs": [[
+                "runId": "foreign-run",
+                "restoreAuthority": true,
+                "cmuxRuntime": foreignRuntime,
+                "startedAt": 10.0,
+                "updatedAt": takeoverAt,
+            ]],
+            "startedAt": 10.0,
+            "updatedAt": takeoverAt,
+        ]
+        let foreignSlot = try JSONSerialization.data(withJSONObject: [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": takeoverAt,
+        ], options: [.sortedKeys])
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(
+            provider: "codex",
+            records: [.init(
+                provider: "codex",
+                sessionID: fixture.agent.sessionId,
+                updatedAt: takeoverAt,
+                json: try JSONSerialization.data(withJSONObject: foreignRecord, options: [.sortedKeys])
+            )],
+            activeSlots: [
+                .init(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: restored.id.uuidString,
+                    sessionID: fixture.agent.sessionId,
+                    updatedAt: takeoverAt,
+                    json: foreignSlot
+                ),
+                .init(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: restoredPanelID.uuidString,
+                    sessionID: fixture.agent.sessionId,
+                    updatedAt: takeoverAt,
+                    json: foreignSlot
+                ),
+            ]
+        )
+
+        restored.setAgentHibernationAutoResumePresentationVisible(true)
+
+        #expect(!panel.isAgentHibernated)
+        #expect(restored.restoredAgentSnapshotForTesting(panelId: restoredPanelID) == nil)
+        #expect(!panel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
+        let snapshot = try registry.snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        #expect(object["sessionState"] as? String == "hibernated")
+        #expect((object["cmuxRuntime"] as? [String: Any])?["id"] as? String == "foreign-runtime")
+        let runs = try #require(object["runs"] as? [[String: Any]])
+        #expect((runs.first?["cmuxRuntime"] as? [String: Any])?["id"] as? String == "foreign-runtime")
+        #expect(Set(snapshot.activeSlots.map(\.scopeID)) == [
+            restored.id.uuidString,
+            restoredPanelID.uuidString,
+        ])
+    }
+
+    @MainActor
+    @Test func resumeAuthorityClaimSurvivesWallClockRollback() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-clock-rollback-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let runtimeID = "clock-rollback-runtime"
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": runtimeID,
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "clock-rollback-session"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: 400,
+                source: "agent-hook"
+            )
+        )
+        let record: [String: Any] = [
+            "sessionId": sessionID,
+            "workspaceId": workspaceID.uuidString,
+            "surfaceId": surfaceID.uuidString,
+            "sessionState": "hibernated",
+            "restoreAuthority": true,
+            "cmuxRuntime": ["id": runtimeID],
+            "startedAt": 400.0,
+            "updatedAt": 500.0,
+        ]
+        let slot = try JSONSerialization.data(withJSONObject: [
+            "sessionId": sessionID,
+            "updatedAt": 500.0,
+        ], options: [.sortedKeys])
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(
+            provider: "codex",
+            records: [.init(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 500,
+                json: try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            )],
+            activeSlots: [.init(
+                provider: "codex",
+                scope: .surface,
+                scopeID: surfaceID.uuidString,
+                sessionID: sessionID,
+                updatedAt: 500,
+                json: slot
+            )]
+        )
+
+        #expect(AgentHookSessionStateWriter.acquireHibernatedResumeAuthority(
+            agent: agent,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            now: 100
+        ) == .acquired)
+
+        let snapshot = try registry.snapshot(provider: "codex")
+        let saved = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: saved.json) as? [String: Any])
+        let savedSlot = try #require(snapshot.activeSlots.first)
+        let slotObject = try #require(JSONSerialization.jsonObject(with: savedSlot.json) as? [String: Any])
+        #expect(object["sessionState"] as? String == "restoring")
+        #expect(saved.updatedAt == 500)
+        #expect(object["updatedAt"] as? TimeInterval == 500)
+        #expect(savedSlot.updatedAt == 500)
+        #expect(slotObject["updatedAt"] as? TimeInterval == 500)
+    }
+
+    @MainActor
+    @Test func windowRestoreBatchesManyContendedWorkspacesIntoOneAdoptionOperation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-many-workspaces-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "many-workspaces-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let workspaceCount = 32
+        let fixtures = try (0..<workspaceCount).map { index in
+            try makeHibernatedRestoreFixture(root: root, sessionID: "batched-\(index)")
+        }
+        _ = try CmuxAgentSessionRegistry(url: registryURL).snapshot(provider: "codex")
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let writer = try #require(database)
+        defer { sqlite3_close(writer) }
+        #expect(sqlite3_exec(writer, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(writer, "ROLLBACK", nil, nil, nil) }
+
+        var observedRequestCount = 0
+        let adoptionBatch = RestoredAgentHibernationAdoptionBatch { requests in
+            observedRequestCount = requests.count
+            return AgentHookSessionStateWriter.recordRestoredHibernationOutcomes(requests)
+        }
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let snapshot = SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: fixtures.map(\.snapshot)
+        )
+
+        _ = manager.restoreSessionSnapshot(
+            snapshot,
+            restoredAgentHibernationAdoptionBatch: adoptionBatch
+        )
+
+        #expect(adoptionBatch.adoptionOperationCount == 1)
+        #expect(observedRequestCount == workspaceCount)
+        #expect(manager.tabs.count == workspaceCount)
+        #expect(manager.tabs.allSatisfy { workspace in
+            guard let panelID = workspace.focusedPanelId,
+                  let panel = workspace.terminalPanel(for: panelID) else { return false }
+            return panel.isAgentHibernated
+                && !panel.surface.debugInitialInputMetadata().hasInitialInput
+                && panel.surface.debugPendingSocketInputForTesting().items == 0
+        })
+    }
+
+    @MainActor
+    @Test func visibleResumeBatchUsesOneClaimOperationDuringContention() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-visible-resume-batch-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "visible-resume-batch-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let panelCount = 16
+        let source = Workspace(workingDirectory: root.path)
+        let firstPanelID = try #require(source.focusedPanelId)
+        let paneID = try #require(source.paneId(forPanelId: firstPanelID))
+        while source.panels.count < panelCount {
+            _ = try #require(source.newTerminalSurface(inPane: paneID, focus: false))
+        }
+        var workspaceSnapshot = source.sessionSnapshot(includeScrollback: false)
+        var sessions: [String: Any] = [:]
+        var surfaceSlots: [String: Any] = [:]
+        var firstSessionID: String?
+        for index in workspaceSnapshot.panels.indices {
+            let panelID = workspaceSnapshot.panels[index].id
+            let sessionID = "visible-batch-\(index)"
+            if firstSessionID == nil { firstSessionID = sessionID }
+            let agent = SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: sessionID,
+                workingDirectory: root.path,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/usr/local/bin/codex",
+                    arguments: ["/usr/local/bin/codex"],
+                    workingDirectory: root.path,
+                    environment: nil,
+                    capturedAt: 10,
+                    source: "agent-hook"
+                )
+            )
+            var terminal = try #require(workspaceSnapshot.panels[index].terminal)
+            terminal.agent = agent
+            terminal.resumeBinding = SurfaceResumeBindingSnapshot(
+                kind: agent.kind.rawValue,
+                command: try #require(agent.resumeCommand),
+                cwd: root.path,
+                checkpointId: sessionID,
+                source: "agent-hook",
+                autoResume: false,
+                updatedAt: 20
+            )
+            terminal.hibernation = SessionAgentHibernationSnapshot(
+                hibernatedAt: 20,
+                lastActivityAt: 10
+            )
+            workspaceSnapshot.panels[index].terminal = terminal
+            sessions[sessionID] = [
+                "sessionId": sessionID,
+                "workspaceId": source.id.uuidString,
+                "surfaceId": panelID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]
+            surfaceSlots[panelID.uuidString] = [
+                "sessionId": sessionID,
+                "updatedAt": 20.0,
+            ]
+        }
+        let workspaceOwner = try #require(firstSessionID)
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": sessions,
+            "activeSessionsByWorkspace": [source.id.uuidString: [
+                "sessionId": workspaceOwner,
+                "updatedAt": 20.0,
+            ]],
+            "activeSessionsBySurface": surfaceSlots,
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let restored = Workspace()
+        let mapping = restored.restoreSessionSnapshot(workspaceSnapshot)
+        let restoredPanelIDs = Set(mapping.values)
+        #expect(restoredPanelIDs.count == panelCount)
+        #expect(restoredPanelIDs.allSatisfy {
+            restored.terminalPanel(for: $0)?.isAgentHibernated == true
+        })
+
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let lockedDatabase = try #require(database)
+        defer { sqlite3_close(lockedDatabase) }
+        #expect(sqlite3_exec(lockedDatabase, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) }
+
+        var claimOperationCount = 0
+        var observedRequestCount = 0
+        let didResume = restored.resumeVisibleAgentHibernationPanels(
+            panelIds: restoredPanelIDs,
+            authorityClaimHandler: { requests in
+                claimOperationCount += 1
+                observedRequestCount = requests.count
+                return AgentHookSessionStateWriter.acquireHibernatedResumeAuthorities(requests)
+            }
+        )
+
+        #expect(!didResume)
+        #expect(claimOperationCount == 1)
+        #expect(observedRequestCount == panelCount)
+        #expect(restoredPanelIDs.allSatisfy {
+            restored.terminalPanel(for: $0)?.isAgentHibernated == true
+        })
+        #expect(restoredPanelIDs.allSatisfy {
+            restored.terminalPanel(for: $0)?.surface.debugInitialInputMetadata().hasInitialInput == false
+        })
     }
 
     @MainActor
@@ -1657,25 +2580,31 @@ extension CMUXCLIErrorOutputRegressionTests {
             run["parentRunId"] = parentRunId
             run["parentSessionId"] = parentSessionId
             run["relationship"] = relationship
+            let storeURL = root.appendingPathComponent("\(provider)-hook-sessions.json")
+            var sessions: [String: Any] = [:]
+            if let existingData = try? Data(contentsOf: storeURL),
+               let existingStore = try? JSONSerialization.jsonObject(with: existingData) as? [String: Any],
+               let existingSessions = existingStore["sessions"] as? [String: Any] {
+                sessions = existingSessions
+            }
+            sessions[sessionId] = [
+                "sessionId": sessionId,
+                "workspaceId": "workspace",
+                "surfaceId": "surface",
+                "runId": runId,
+                "activeRunId": runId,
+                "restoreAuthority": restoreAuthority,
+                "cmuxRuntime": runtime,
+                "runs": [run],
+                "startedAt": startedAt,
+                "updatedAt": 300.0,
+            ]
             let store: [String: Any] = [
                 "version": 2,
-                "sessions": [
-                    sessionId: [
-                        "sessionId": sessionId,
-                        "workspaceId": "workspace",
-                        "surfaceId": "surface",
-                        "runId": runId,
-                        "activeRunId": runId,
-                        "restoreAuthority": restoreAuthority,
-                        "cmuxRuntime": runtime,
-                        "runs": [run],
-                        "startedAt": startedAt,
-                        "updatedAt": 300.0,
-                    ],
-                ],
+                "sessions": sessions,
             ]
             try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
-                .write(to: root.appendingPathComponent("\(provider)-hook-sessions.json"), options: .atomic)
+                .write(to: storeURL, options: .atomic)
         }
 
         // The child deliberately sorts before its parent in the flat node list.
@@ -1692,7 +2621,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             startedAt: 100.0
         )
         try writeStore(
-            provider: "codex",
+            provider: "claude",
             sessionId: "parent-session",
             runId: "parent-run",
             restoreAuthority: true,
@@ -1717,8 +2646,112 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.status == 0, Comment(rawValue: result.stdout))
         let lines = result.stdout.split(separator: "\n").map(String.init)
         #expect(lines.count == 2, Comment(rawValue: result.stdout))
-        #expect(lines.first?.hasPrefix("codex parent-session") == true, Comment(rawValue: result.stdout))
-        #expect(lines.last?.hasPrefix("└── claude child-session") == true, Comment(rawValue: result.stdout))
+        #expect(lines.first?.hasPrefix("claude parent-session") == true, Comment(rawValue: result.stdout))
+        #expect(lines.last?.hasPrefix("└── spawned claude child-session") == true, Comment(rawValue: result.stdout))
+    }
+
+    @MainActor
+    private func makeLiveHibernationAuthorityFixture(
+        root: URL,
+        runtimeID: String,
+        sessionID: String
+    ) throws -> (
+        workspace: Workspace,
+        panelID: UUID,
+        panel: TerminalPanel,
+        agent: SessionRestorableAgentSnapshot,
+        registry: CmuxAgentSessionRegistry
+    ) {
+        let workspace = Workspace(workingDirectory: root.path)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: 10,
+                source: "agent-hook"
+            )
+        )
+        #expect(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: agent.kind.rawValue,
+                command: try #require(agent.resumeCommand),
+                cwd: root.path,
+                checkpointId: sessionID,
+                source: "agent-hook",
+                autoResume: false,
+                updatedAt: 20
+            ),
+            panelId: panelID
+        ))
+        let runtime: [String: Any] = ["id": runtimeID]
+        let record: [String: Any] = [
+            "sessionId": sessionID,
+            "workspaceId": workspace.id.uuidString,
+            "surfaceId": panelID.uuidString,
+            "sessionState": "active",
+            "restoreAuthority": true,
+            "activeRunId": "live-run",
+            "cmuxRuntime": runtime,
+            "runs": [[
+                "runId": "live-run",
+                "restoreAuthority": true,
+                "cmuxRuntime": runtime,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+            "startedAt": 10.0,
+            "updatedAt": 20.0,
+        ]
+        let slotObject: [String: Any] = ["sessionId": sessionID, "updatedAt": 20.0]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: record],
+            "activeSessionsByWorkspace": [workspace.id.uuidString: slotObject],
+            "activeSessionsBySurface": [panelID.uuidString: slotObject],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+        let slotJSON = try JSONSerialization.data(withJSONObject: slotObject, options: [.sortedKeys])
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try registry.apply(
+            provider: "codex",
+            records: [.init(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 20,
+                json: try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            )],
+            activeSlots: [
+                .init(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: workspace.id.uuidString,
+                    sessionID: sessionID,
+                    updatedAt: 20,
+                    json: slotJSON
+                ),
+                .init(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: panelID.uuidString,
+                    sessionID: sessionID,
+                    updatedAt: 20,
+                    json: slotJSON
+                ),
+            ]
+        )
+        return (workspace, panelID, panel, agent, registry)
     }
 
     @MainActor
@@ -1735,6 +2768,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let sourcePanelID = try #require(source.focusedPanelId)
         let sourcePaneID = try #require(source.paneId(forPanelId: sourcePanelID))
         _ = try #require(source.newTerminalSurface(inPane: sourcePaneID, focus: true))
+        source.focusPanel(sourcePanelID)
         let agent = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: sessionID,
@@ -1753,6 +2787,15 @@ extension CMUXCLIErrorOutputRegressionTests {
         let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
         var terminal = try #require(snapshot.panels[panelIndex].terminal)
         terminal.agent = agent
+        terminal.resumeBinding = SurfaceResumeBindingSnapshot(
+            kind: agent.kind.rawValue,
+            command: try #require(agent.resumeCommand),
+            cwd: root.path,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: false,
+            updatedAt: 20
+        )
         terminal.hibernation = SessionAgentHibernationSnapshot(
             hibernatedAt: 20,
             lastActivityAt: 10
@@ -1767,4 +2810,24 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
+}
+
+private actor AgentSessionAsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        let waiters = waiters
+        self.waiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitUntilOpen() async {
+        if isOpen { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
 }

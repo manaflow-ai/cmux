@@ -319,6 +319,384 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(offlineRows.first?["session_id"] as? String, durableSessionID)
     }
 
+    func testSessionFilterDoesNotApplyActiveSiblingObservationToInactiveSession() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-filtered-shared-process-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketPath = makeSocketPath("agent-filtered-shared-process")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let runtimeID = "target-runtime"
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let inactiveSessionID = "inactive-session"
+        let activeSessionID = "active-session"
+        let filteredCWD = "/tmp/shared-process"
+        let pid = getpid()
+        var processInfo = kinfo_proc()
+        var processInfoSize = MemoryLayout<kinfo_proc>.stride
+        var processMIB: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        XCTAssertEqual(
+            sysctl(
+                &processMIB,
+                u_int(processMIB.count),
+                &processInfo,
+                &processInfoSize,
+                nil,
+                0
+            ),
+            0
+        )
+        let startSeconds = Int64(processInfo.kp_proc.p_un.__p_starttime.tv_sec)
+        let startMicroseconds = Int64(processInfo.kp_proc.p_un.__p_starttime.tv_usec)
+        let processStartedAt = TimeInterval(startSeconds)
+            + TimeInterval(startMicroseconds) / 1_000_000
+
+        func record(
+            sessionID: String,
+            runID: String,
+            cwd: String,
+            updatedAt: TimeInterval
+        ) -> [String: Any] {
+            [
+                "sessionId": sessionID,
+                "workspaceId": workspaceID.uuidString,
+                "surfaceId": surfaceID.uuidString,
+                "cwd": cwd,
+                "runId": runID,
+                "activeRunId": runID,
+                "restoreAuthority": true,
+                "cmuxRuntime": ["id": runtimeID],
+                "foregroundState": "idle",
+                "attentionState": "none",
+                "sessionState": "active",
+                "runs": [[
+                    "runId": runID,
+                    "pid": pid,
+                    "processStartedAt": processStartedAt,
+                    "restoreAuthority": true,
+                    "cmuxRuntime": ["id": runtimeID],
+                    "startedAt": 100.0,
+                    "updatedAt": updatedAt,
+                ]],
+                "startedAt": 100.0,
+                "updatedAt": updatedAt,
+            ]
+        }
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [
+                inactiveSessionID: record(
+                    sessionID: inactiveSessionID,
+                    runID: "inactive-run",
+                    cwd: filteredCWD,
+                    updatedAt: 200
+                ),
+                activeSessionID: record(
+                    sessionID: activeSessionID,
+                    runID: "active-run",
+                    cwd: "/tmp/active-persisted-cwd",
+                    updatedAt: 300
+                ),
+            ],
+            "activeSessionsByWorkspace": [workspaceID.uuidString: [
+                "sessionId": activeSessionID,
+                "updatedAt": 300.0,
+            ]],
+            "activeSessionsBySurface": [surfaceID.uuidString: [
+                "sessionId": activeSessionID,
+                "updatedAt": 300.0,
+            ]],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let observation = CmuxAgentTerminalObservation(
+            runtimeID: runtimeID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            surfaceGeneration: 1,
+            revision: 1,
+            familyID: "codex",
+            sessionProviderID: "codex",
+            lifecycleAuthoritative: false,
+            state: .blocked,
+            pid: pid,
+            processStartSeconds: startSeconds,
+            processStartMicroseconds: startMicroseconds,
+            cwd: filteredCWD,
+            publishedAt: 400
+        )
+        let observationObjects = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode([observation])) as? [Any]
+        )
+        let state = MockSocketServerState()
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 2
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "system.capabilities":
+                return self.v2Response(id: id, ok: true, result: [
+                    "runtime_id": runtimeID,
+                    "socket_path": socketPath,
+                    "bundle_identifier": "com.cmuxterm.app.debug.target",
+                    "methods": ["agents.observations"],
+                ])
+            case "agents.observations":
+                return self.v2Response(id: id, ok: true, result: [
+                    "runtime_id": runtimeID,
+                    "observations": observationObjects,
+                ])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unknown_method", "message": method]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+
+        for (subcommand, resultKey) in [("list", "sessions"), ("tree", "nodes")] {
+            var arguments = [
+                "agents", subcommand, "--session", inactiveSessionID,
+                "--json", "--state-dir", root.path,
+            ]
+            if subcommand == "list" {
+                arguments.append(contentsOf: ["--cwd", filteredCWD])
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+            )
+            let rows = try XCTUnwrap(payload[resultKey] as? [[String: Any]])
+            XCTAssertEqual(rows.count, 1, result.stdout)
+            let row = try XCTUnwrap(rows.first)
+            XCTAssertEqual(row["session_id"] as? String, inactiveSessionID)
+            XCTAssertEqual(row["effective_state"] as? String, "idle")
+            XCTAssertEqual(row["state_source"] as? String, "lifecycle")
+        }
+        wait(for: [serverHandled], timeout: 1)
+    }
+
+    func testWorkspaceFilterUsesLiveMovedSurfaceWorkspaceInListAndTree() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-live-moved-workspace-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketPath = makeSocketPath("agent-live-moved-workspace")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let runtimeID = "target-runtime"
+        let savedWorkspaceID = UUID()
+        let liveWorkspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "moved-workspace-session"
+        let pid = getpid()
+        var processInfo = kinfo_proc()
+        var processInfoSize = MemoryLayout<kinfo_proc>.stride
+        var processMIB: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        XCTAssertEqual(
+            sysctl(
+                &processMIB,
+                u_int(processMIB.count),
+                &processInfo,
+                &processInfoSize,
+                nil,
+                0
+            ),
+            0
+        )
+        let startSeconds = Int64(processInfo.kp_proc.p_un.__p_starttime.tv_sec)
+        let startMicroseconds = Int64(processInfo.kp_proc.p_un.__p_starttime.tv_usec)
+        let processStartedAt = TimeInterval(startSeconds)
+            + TimeInterval(startMicroseconds) / 1_000_000
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: [
+                "sessionId": sessionID,
+                "workspaceId": savedWorkspaceID.uuidString,
+                "surfaceId": surfaceID.uuidString,
+                "runId": "moved-workspace-run",
+                "activeRunId": "moved-workspace-run",
+                "restoreAuthority": true,
+                "cmuxRuntime": ["id": runtimeID],
+                "foregroundState": "idle",
+                "attentionState": "none",
+                "sessionState": "active",
+                "runs": [[
+                    "runId": "moved-workspace-run",
+                    "pid": pid,
+                    "processStartedAt": processStartedAt,
+                    "restoreAuthority": true,
+                    "cmuxRuntime": ["id": runtimeID],
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ]],
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+            "activeSessionsByWorkspace": [savedWorkspaceID.uuidString: [
+                "sessionId": sessionID,
+                "updatedAt": 200.0,
+            ]],
+            "activeSessionsBySurface": [surfaceID.uuidString: [
+                "sessionId": sessionID,
+                "updatedAt": 200.0,
+            ]],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let observation = CmuxAgentTerminalObservation(
+            runtimeID: runtimeID,
+            workspaceID: liveWorkspaceID,
+            surfaceID: surfaceID,
+            surfaceGeneration: 1,
+            revision: 1,
+            familyID: "codex",
+            sessionProviderID: "codex",
+            lifecycleAuthoritative: false,
+            state: .working,
+            pid: pid,
+            processStartSeconds: startSeconds,
+            processStartMicroseconds: startMicroseconds,
+            cwd: "/tmp/moved-workspace",
+            publishedAt: 400
+        )
+        let observationObjects = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode([observation])) as? [Any]
+        )
+        let state = MockSocketServerState()
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 16
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "system.capabilities":
+                return self.v2Response(id: id, ok: true, result: [
+                    "runtime_id": runtimeID,
+                    "socket_path": socketPath,
+                    "bundle_identifier": "com.cmuxterm.app.debug.target",
+                    "methods": ["agents.observations"],
+                ])
+            case "agents.observations":
+                return self.v2Response(id: id, ok: true, result: [
+                    "runtime_id": runtimeID,
+                    "observations": observationObjects,
+                ])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unknown_method", "message": method]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+
+        for subcommand in ["list", "tree"] {
+            let rowsKey = subcommand == "list" ? "sessions" : "nodes"
+            for includesSessionFilter in [false, true] {
+                for jsonOutput in [false, true] {
+                    for (workspaceID, shouldMatch) in [
+                        (savedWorkspaceID, false),
+                        (liveWorkspaceID, true),
+                    ] {
+                        var arguments = [
+                            "agents", subcommand,
+                            "--agent", "codex",
+                            "--workspace", workspaceID.uuidString,
+                            "--state-dir", root.path,
+                        ]
+                        if includesSessionFilter {
+                            arguments.append(contentsOf: ["--session", sessionID])
+                        }
+                        if jsonOutput { arguments.append("--json") }
+                        let result = runProcess(
+                            executablePath: cliPath,
+                            arguments: arguments,
+                            environment: environment,
+                            timeout: 5
+                        )
+                        XCTAssertFalse(result.timedOut, result.stderr)
+                        XCTAssertEqual(result.status, 0, result.stderr)
+                        if jsonOutput {
+                            let payload = try XCTUnwrap(
+                                JSONSerialization.jsonObject(with: Data(result.stdout.utf8))
+                                    as? [String: Any]
+                            )
+                            let rows = try XCTUnwrap(payload[rowsKey] as? [[String: Any]])
+                            XCTAssertEqual(rows.count, shouldMatch ? 1 : 0, result.stdout)
+                            if shouldMatch {
+                                let row = try XCTUnwrap(rows.first)
+                                XCTAssertEqual(row["session_id"] as? String, sessionID)
+                                XCTAssertEqual(row["workspace_id"] as? String, liveWorkspaceID.uuidString)
+                                XCTAssertEqual(row["identity_source"] as? String, "hook_session")
+                                XCTAssertEqual(row["state_source"] as? String, "terminal")
+                            }
+                        } else if shouldMatch {
+                            XCTAssertTrue(result.stdout.contains(sessionID), result.stdout)
+                            let workspaceLabel = subcommand == "list" ? "workspace=" : "workspace:"
+                            XCTAssertTrue(
+                                result.stdout.contains("\(workspaceLabel)\(liveWorkspaceID.uuidString)"),
+                                result.stdout
+                            )
+                        } else {
+                            XCTAssertFalse(result.stdout.contains(sessionID), result.stdout)
+                        }
+                    }
+                }
+            }
+        }
+        wait(for: [serverHandled], timeout: 2)
+    }
+
     func testAgentFamilyAliasesRetainDurableSessionsInListAndTree() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

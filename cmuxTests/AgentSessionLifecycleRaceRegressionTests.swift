@@ -445,6 +445,39 @@ extension CMUXCLIErrorOutputRegressionTests {
         ))
     }
 
+    @Test func hibernatedAndRestoringRowsRequireANewerProcessGenerationToActivate() {
+        let savedRun = AgentSessionRunRecord(
+            runId: "stable-run", pid: 123, processStartedAt: 100,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true, startedAt: 100, updatedAt: 200, endedAt: nil
+        )
+        let sameGeneration = AgentHookSessionLineage(
+            runId: savedRun.runId, pid: savedRun.pid,
+            processStartedAt: savedRun.processStartedAt,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true
+        )
+        let resumedGeneration = AgentHookSessionLineage(
+            runId: savedRun.runId, pid: 456, processStartedAt: 300,
+            parentRunId: nil, parentSessionId: nil, relationship: .resumed,
+            restoreAuthority: true
+        )
+
+        for state in [AgentSessionLifecycleState.hibernated, .restoring] {
+            let record = ClaudeHookSessionRecord(
+                sessionId: "protected-session", workspaceId: "workspace", surfaceId: "surface",
+                pid: savedRun.pid, startedAt: 100, updatedAt: 200, sessionState: state,
+                runs: [savedRun], activeRunId: savedRun.runId
+            )
+            #expect(!AgentHookSessionActivationPolicy().canActivate(
+                record: record, lineage: sameGeneration, hasIncomingPID: true
+            ))
+            #expect(AgentHookSessionActivationPolicy().canActivate(
+                record: record, lineage: resumedGeneration, hasIncomingPID: true
+            ))
+        }
+    }
+
     @Test func queuedLifecycleCannotOverwriteNewerRecordGeneration() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-lifecycle-fence-\(UUID().uuidString)", isDirectory: true)

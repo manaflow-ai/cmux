@@ -114,6 +114,61 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(merged.first(where: { $0.sessionId == "active-session" })?.effectiveState == .needsInput)
     }
 
+    @Test func exactSessionProcessCohortRejectsPIDReuseAndPreservesLegacyFallback() throws {
+        func record(processStartedAt: TimeInterval?) throws -> ClaudeHookSessionRecord {
+            var run: [String: Any] = [
+                "runId": "run-a",
+                "pid": 123,
+                "cmuxRuntime": ["id": "runtime-a"],
+                "restoreAuthority": true,
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]
+            if let processStartedAt { run["processStartedAt"] = processStartedAt }
+            let data = try JSONSerialization.data(withJSONObject: [
+                "version": 2,
+                "sessions": [
+                    "session-a": [
+                        "sessionId": "session-a",
+                        "workspaceId": "workspace-a",
+                        "surfaceId": "surface-a",
+                        "cmuxRuntime": ["id": "runtime-a"],
+                        "runs": [run],
+                        "startedAt": 100.0,
+                        "updatedAt": 200.0,
+                    ],
+                ],
+            ], options: [.sortedKeys])
+            return try #require(
+                JSONDecoder().decode(ClaudeHookSessionStoreFile.self, from: data)
+                    .sessions["session-a"]
+            )
+        }
+
+        let target = try record(processStartedAt: 1_000)
+        let sameGeneration = try record(processStartedAt: 1_000.0004)
+        let reusedPID = try record(processStartedAt: 2_000)
+        let legacy = try record(processStartedAt: nil)
+        var exactMatcher = AgentSessionProcessCohortMatcher()
+        exactMatcher.insert(provider: "codex", record: target, run: try #require(target.runs?.first))
+
+        #expect(exactMatcher.matches(
+            provider: "codex", record: sameGeneration, run: try #require(sameGeneration.runs?.first)
+        ))
+        #expect(!exactMatcher.matches(
+            provider: "codex", record: reusedPID, run: try #require(reusedPID.runs?.first)
+        ))
+        #expect(exactMatcher.matches(
+            provider: "codex", record: legacy, run: try #require(legacy.runs?.first)
+        ))
+
+        var legacyMatcher = AgentSessionProcessCohortMatcher()
+        legacyMatcher.insert(provider: "codex", record: legacy, run: try #require(legacy.runs?.first))
+        #expect(legacyMatcher.matches(
+            provider: "codex", record: reusedPID, run: try #require(reusedPID.runs?.first)
+        ))
+    }
+
     @Test func unmatchedObservationBecomesTerminalProcessNodeWithoutInventedSessionID() throws {
         let observation = makeTerminalObservation(state: .idle, lifecycleAuthoritative: false)
 
@@ -370,7 +425,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         })
     }
 
-    @Test func agentsListRejectsPartiallyDecodableRegistrySnapshot() throws {
+    @Test func agentsListAndTreeWarnWhenAuthoritativeSnapshotCannotDecode() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agents-partial-registry-\(UUID().uuidString)", isDirectory: true)
@@ -392,6 +447,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let registry = CmuxAgentSessionRegistry(
             url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
         )
+        let registryPath = root.appendingPathComponent(CmuxAgentSessionRegistry.filename).path
         _ = try registry.snapshotImportingLegacy(
             provider: "codex", legacyURL: stateURL, fileManager: .default
         )
@@ -413,32 +469,419 @@ extension CMUXCLIErrorOutputRegressionTests {
             ),
         ])
 
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        let commands: [(arguments: [String], rowsKey: String)] = [
+            ([
+                "agents", "list", "--agent", "codex", "--all", "--json",
+                "--state-dir", root.path, "--codex-home", root.path,
+            ], "sessions"),
+            ([
+                "agents", "tree", "--agent", "codex", "--all", "--json",
+                "--state-dir", root.path,
+            ], "nodes"),
+        ]
+        for command in commands {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: command.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            #expect(!result.timedOut, Comment(rawValue: result.stdout))
+            #expect(result.status == 0, Comment(rawValue: result.stdout))
+            let output = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+            )
+            let warnings = try #require(output["store_warnings"] as? [[String: Any]])
+            #expect(warnings.count == 1)
+            #expect(warnings.first?["provider"] as? String == "codex")
+            #expect(warnings.first?["path"] as? String == registryPath)
+            #expect(warnings.first?["code"] as? String == "authoritative_snapshot_decode_failed")
+            #expect(warnings.first?["fallback"] as? String == "legacy")
+            let rows = try #require(output[command.rowsKey] as? [[String: Any]])
+            #expect(rows.contains { $0["session_id"] as? String == legacySessionID })
+            #expect(
+                !rows.contains { $0["session_id"] as? String == registryOnlySessionID },
+                "One malformed registry record must reject the entire CLI projection instead of returning partial state."
+            )
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: [
+
+        for (index, arguments) in [
+            [
+                "agents", "list", "--agent", "codex", "--all",
+                "--state-dir", root.path, "--codex-home", root.path,
+            ],
+            [
+                "agents", "tree", "--agent", "codex", "--all",
+                "--state-dir", root.path,
+            ],
+        ].enumerated() {
+            let stderrURL = root.appendingPathComponent("warning-\(index).txt")
+            let command = ([cliPath] + arguments)
+                .map(shellQuoteAgentTreeArgument)
+                .joined(separator: " ")
+            let result = runProcess(
+                executablePath: "/bin/sh",
+                arguments: [
+                    "-c",
+                    "\(command) 2>\(shellQuoteAgentTreeArgument(stderrURL.path))",
+                ],
+                environment: environment,
+                timeout: 5
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stdout))
+            #expect(result.status == 0, Comment(rawValue: result.stdout))
+            #expect(!result.stdout.contains("authoritative_snapshot_decode_failed"))
+            #expect(result.stdout.contains(legacySessionID))
+            #expect(!result.stdout.contains(registryOnlySessionID))
+            let stderr = try String(contentsOf: stderrURL, encoding: .utf8)
+            #expect(stderr.contains("authoritative_snapshot_decode_failed"))
+            #expect(stderr.contains("codex"))
+            #expect(stderr.contains(registryPath))
+        }
+
+        try registry.apply(provider: "opencode", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "opencode", sessionID: "malformed-without-fallback", updatedAt: 600,
+                json: Data("{}".utf8)
+            ),
+        ])
+        for arguments in [
+            [
+                "agents", "list", "--agent", "opencode", "--all", "--json",
+                "--state-dir", root.path,
+            ],
+            [
+                "agents", "tree", "--agent", "opencode", "--all", "--json",
+                "--state-dir", root.path,
+            ],
+        ] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 5
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stdout))
+            #expect(result.status != 0, Comment(rawValue: result.stdout))
+            #expect(result.stdout.contains("authoritative_snapshot_decode_failed"))
+            #expect(result.stdout.contains("opencode"))
+            #expect(result.stdout.contains(registryPath))
+            #expect(!result.stdout.contains("NSCocoaErrorDomain"))
+        }
+    }
+
+    @Test func agentsListAndTreeFailClosedForMalformedLegacyWithoutRegistryFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-malformed-legacy-empty-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try Data("{ malformed".utf8).write(to: stateURL, options: .atomic)
+        let environment = isolatedAgentTreeEnvironment(home: root)
+
+        for arguments in [
+            [
                 "agents", "list", "--agent", "codex", "--all", "--json",
                 "--state-dir", root.path, "--codex-home", root.path,
             ],
-            environment: environment,
-            timeout: 5
-        )
+            [
+                "agents", "tree", "--agent", "codex", "--all", "--json",
+                "--state-dir", root.path,
+            ],
+        ] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 5
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stdout))
+            #expect(result.status != 0, Comment(rawValue: result.stdout))
+            #expect(result.stdout.contains("legacy_source_import_failed"))
+            #expect(result.stdout.contains("codex"))
+            #expect(result.stdout.contains(stateURL.path))
+            #expect(!result.stdout.contains("NSCocoaErrorDomain"))
+            #expect(!result.stdout.contains("JSON text did not start"))
+        }
+    }
 
-        #expect(!result.timedOut, Comment(rawValue: result.stdout))
-        #expect(result.status == 0, Comment(rawValue: result.stdout))
-        let output = try #require(
-            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+    @Test func agentsListAndTreeWarnWhenMalformedLegacyUsesRegistryFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-malformed-legacy-fallback-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registrySessionID = "registry-complete"
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
         )
-        let sessions = try #require(output["sessions"] as? [[String: Any]])
-        #expect(sessions.contains { $0["session_id"] as? String == legacySessionID })
-        #expect(
-            !sessions.contains { $0["session_id"] as? String == registryOnlySessionID },
-            "One malformed registry record must reject the entire CLI projection instead of returning partial state."
+        try registry.apply(provider: "codex", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex",
+                sessionID: registrySessionID,
+                updatedAt: 200,
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": registrySessionID,
+                    "workspaceId": "workspace-registry",
+                    "surfaceId": "surface-registry",
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ], options: [.sortedKeys])
+            ),
+        ])
+        try Data("{ malformed".utf8).write(to: stateURL, options: .atomic)
+        let environment = isolatedAgentTreeEnvironment(home: root)
+
+        for command in [
+            (arguments: [
+                "agents", "list", "--agent", "codex", "--all", "--json",
+                "--state-dir", root.path, "--codex-home", root.path,
+            ], rowsKey: "sessions"),
+            (arguments: [
+                "agents", "tree", "--agent", "codex", "--all", "--json",
+                "--state-dir", root.path,
+            ], rowsKey: "nodes"),
+        ] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: command.arguments,
+                environment: environment,
+                timeout: 5
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stdout))
+            #expect(result.status == 0, Comment(rawValue: result.stdout))
+            let output = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+            )
+            let warnings = try #require(output["store_warnings"] as? [[String: Any]])
+            #expect(warnings.count == 1)
+            #expect(warnings.first?["provider"] as? String == "codex")
+            #expect(warnings.first?["path"] as? String == stateURL.path)
+            #expect(warnings.first?["code"] as? String == "legacy_source_import_failed")
+            #expect(warnings.first?["fallback"] as? String == "registry")
+            let rows = try #require(output[command.rowsKey] as? [[String: Any]])
+            #expect(rows.count == 1)
+            #expect(rows.first?["session_id"] as? String == registrySessionID)
+        }
+    }
+
+    @Test func agentsListAndTreeFailClosedForLegacySessionIdentityMismatchWithoutRegistryFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-legacy-identity-empty-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [
+                "outer-session": [
+                    "sessionId": "inner-session",
+                    "workspaceId": "workspace-a",
+                    "surfaceId": "surface-a",
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ],
+            ],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let environment = isolatedAgentTreeEnvironment(home: root)
+
+        for arguments in [
+            [
+                "agents", "list", "--agent", "codex", "--all", "--json",
+                "--state-dir", root.path, "--codex-home", root.path,
+            ],
+            [
+                "agents", "tree", "--agent", "codex", "--all", "--json",
+                "--state-dir", root.path,
+            ],
+        ] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 15
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stdout))
+            #expect(result.status != 0, Comment(rawValue: result.stdout))
+            #expect(result.stdout.contains("legacy_source_import_failed"))
+            #expect(result.stdout.contains("codex"))
+            #expect(result.stdout.contains(stateURL.path))
+            #expect(!result.stdout.contains("outer-session"))
+            #expect(!result.stdout.contains("inner-session"))
+        }
+    }
+
+    @Test func agentsListAndTreeWarnWhenLegacySessionIdentityMismatchUsesRegistryFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-legacy-identity-fallback-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registrySessionID = "registry-complete"
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
         )
+        try registry.apply(provider: "codex", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex",
+                sessionID: registrySessionID,
+                updatedAt: 200,
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": registrySessionID,
+                    "workspaceId": "workspace-registry",
+                    "surfaceId": "surface-registry",
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ], options: [.sortedKeys])
+            ),
+        ])
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [
+                "outer-session": [
+                    "sessionId": "inner-session",
+                    "workspaceId": "workspace-a",
+                    "surfaceId": "surface-a",
+                    "startedAt": 300.0,
+                    "updatedAt": 400.0,
+                ],
+            ],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let environment = isolatedAgentTreeEnvironment(home: root)
+
+        for command in [
+            (arguments: [
+                "agents", "list", "--agent", "codex", "--all", "--json",
+                "--state-dir", root.path, "--codex-home", root.path,
+            ], rowsKey: "sessions"),
+            (arguments: [
+                "agents", "tree", "--agent", "codex", "--all", "--json",
+                "--state-dir", root.path,
+            ], rowsKey: "nodes"),
+        ] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: command.arguments,
+                environment: environment,
+                timeout: 15
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stdout))
+            #expect(result.status == 0, Comment(rawValue: result.stdout))
+            let output = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+            )
+            let warnings = try #require(output["store_warnings"] as? [[String: Any]])
+            #expect(warnings.count == 1)
+            #expect(warnings.first?["provider"] as? String == "codex")
+            #expect(warnings.first?["path"] as? String == stateURL.path)
+            #expect(warnings.first?["code"] as? String == "legacy_source_import_failed")
+            #expect(warnings.first?["fallback"] as? String == "registry")
+            let rows = try #require(output[command.rowsKey] as? [[String: Any]])
+            #expect(rows.count == 1)
+            #expect(rows.first?["session_id"] as? String == registrySessionID)
+            #expect(!result.stdout.contains("outer-session"))
+            #expect(!result.stdout.contains("inner-session"))
+        }
+    }
+
+    @Test func authoritativeDecodeDoesNotUseLegacySessionIdentityMismatchAsFallback() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-legacy-identity-decode-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [
+                "outer-session": [
+                    "sessionId": "inner-session",
+                    "workspaceId": "workspace-a",
+                    "surfaceId": "surface-a",
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ],
+            ],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let bridge = AgentHookSessionRegistryBridge(
+            provider: "codex",
+            statePath: stateURL.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path],
+            fileManager: .default
+        )
+        var loadFailure: AgentHookSessionStoreLoadFailure?
+        do {
+            _ = try bridge.loadForInspection(snapshot: CmuxAgentSessionRegistry.Snapshot(
+                records: [CmuxAgentSessionRegistry.Record(
+                    provider: "codex",
+                    sessionID: "malformed-registry-record",
+                    updatedAt: 300,
+                    json: Data("{}".utf8)
+                )],
+                activeSlots: []
+            ))
+        } catch let failure as AgentHookSessionStoreLoadFailure {
+            loadFailure = failure
+        }
+        let failure = try #require(loadFailure)
+        #expect(failure.provider == "codex")
+        #expect(failure.path == root.appendingPathComponent(CmuxAgentSessionRegistry.filename).path)
+        #expect(failure.code == .authoritativeSnapshotDecodeFailed)
+    }
+
+    @Test func authoritativeDecodeDoesNotUseLegacySlotIdentityMismatchAsFallback() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-legacy-slot-identity-decode-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [
+                "session-a": [
+                    "sessionId": "session-a",
+                    "workspaceId": "workspace-a",
+                    "surfaceId": "surface-a",
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                "workspace-b": [
+                    "sessionId": "session-a",
+                    "updatedAt": 200.0,
+                ],
+            ],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let bridge = AgentHookSessionRegistryBridge(
+            provider: "codex",
+            statePath: stateURL.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path],
+            fileManager: .default
+        )
+        var loadFailure: AgentHookSessionStoreLoadFailure?
+        do {
+            _ = try bridge.loadForInspection(snapshot: CmuxAgentSessionRegistry.Snapshot(
+                records: [CmuxAgentSessionRegistry.Record(
+                    provider: "codex",
+                    sessionID: "malformed-registry-record",
+                    updatedAt: 300,
+                    json: Data("{}".utf8)
+                )],
+                activeSlots: []
+            ))
+        } catch let failure as AgentHookSessionStoreLoadFailure {
+            loadFailure = failure
+        }
+        let failure = try #require(loadFailure)
+        #expect(failure.provider == "codex")
+        #expect(failure.path == root.appendingPathComponent(CmuxAgentSessionRegistry.filename).path)
+        #expect(failure.code == .authoritativeSnapshotDecodeFailed)
     }
 
     @Test func kimiHookProviderHasLifecycleRestoreAndHelpParity() throws {
@@ -622,10 +1065,10 @@ extension CMUXCLIErrorOutputRegressionTests {
             timeout: 5
         )
         #expect(textTree.status == 0, Comment(rawValue: textTree.stdout))
-        #expect(textTree.stdout.contains("└── codex fork-session"))
+        #expect(textTree.stdout.contains("└── forked codex fork-session"))
         let textLines = textTree.stdout.split(separator: "\n").map(String.init)
-        #expect(textLines.contains { $0.hasPrefix("├── codex child-session") })
-        #expect(textLines.contains { $0.hasPrefix("│   └── codex grandchild-session") })
+        #expect(textLines.contains { $0.hasPrefix("├── spawned codex child-session") })
+        #expect(textLines.contains { $0.hasPrefix("│   └── spawned codex grandchild-session") })
 
         let filteredTree = runProcess(
             executablePath: cliPath,
@@ -659,7 +1102,102 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(monitoringSessions.first?["session_id"] as? String == "root-session")
     }
 
-    @Test func agentsTreeHandlesDuplicateRunIdentifiersWithoutCrashing() throws {
+    @Test func agentsTreeTextLabelsEveryRelationshipAndMatchesRelationFilteredJSON() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-tree-relationship-labels-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var sessions: [String: Any] = [
+            "root-session": [
+                "sessionId": "root-session",
+                "workspaceId": "workspace-root",
+                "surfaceId": "surface-root",
+                "runId": "root-run",
+                "restoreAuthority": true,
+                "startedAt": 100.0,
+                "updatedAt": 100.0,
+            ],
+        ]
+        for (index, relationship) in ["spawned", "forked", "resumed"].enumerated() {
+            let sessionID = "\(relationship)-session"
+            sessions[sessionID] = [
+                "sessionId": sessionID,
+                "workspaceId": "workspace-\(relationship)",
+                "surfaceId": "surface-\(relationship)",
+                "runId": "\(relationship)-run",
+                "parentRunId": "root-run",
+                "parentSessionId": "root-session",
+                "relationship": relationship,
+                "restoreAuthority": relationship != "spawned",
+                "startedAt": 110.0 + Double(index),
+                "updatedAt": 110.0 + Double(index),
+            ]
+        }
+        try JSONSerialization.data(
+            withJSONObject: ["version": 2, "sessions": sessions],
+            options: [.sortedKeys]
+        ).write(to: root.appendingPathComponent("opencode-hook-sessions.json"), options: .atomic)
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        let baseArguments = [
+            "agents", "tree", "--agent", "opencode", "--all", "--state-dir", root.path,
+        ]
+
+        let unfilteredText = runProcess(
+            executablePath: cliPath,
+            arguments: baseArguments,
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!unfilteredText.timedOut, Comment(rawValue: unfilteredText.stdout))
+        #expect(unfilteredText.status == 0, Comment(rawValue: unfilteredText.stdout))
+        for relationship in ["spawned", "forked", "resumed"] {
+            #expect(
+                unfilteredText.stdout.contains("\(relationship) opencode \(relationship)-session"),
+                Comment(rawValue: unfilteredText.stdout)
+            )
+        }
+
+        for relationship in ["spawned", "forked", "resumed"] {
+            let filteredArguments = baseArguments + ["--relation", relationship]
+            let jsonResult = runProcess(
+                executablePath: cliPath,
+                arguments: filteredArguments + ["--json"],
+                environment: environment,
+                timeout: 5
+            )
+            let textResult = runProcess(
+                executablePath: cliPath,
+                arguments: filteredArguments,
+                environment: environment,
+                timeout: 5
+            )
+            #expect(!jsonResult.timedOut, Comment(rawValue: jsonResult.stdout))
+            #expect(!textResult.timedOut, Comment(rawValue: textResult.stdout))
+            #expect(jsonResult.status == 0, Comment(rawValue: jsonResult.stdout))
+            #expect(textResult.status == 0, Comment(rawValue: textResult.stdout))
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(jsonResult.stdout.utf8)) as? [String: Any]
+            )
+            let edges = try #require(payload["edges"] as? [[String: Any]])
+            #expect(edges.count == 1)
+            #expect(edges.first?["relationship"] as? String == relationship)
+            #expect(edges.first?["to_run_id"] as? String == "\(relationship)-run")
+            #expect(
+                textResult.stdout.contains("\(relationship) opencode \(relationship)-session"),
+                Comment(rawValue: textResult.stdout)
+            )
+            for other in ["spawned", "forked", "resumed"] where other != relationship {
+                #expect(
+                    !textResult.stdout.contains("\(other) opencode \(other)-session"),
+                    Comment(rawValue: textResult.stdout)
+                )
+            }
+        }
+    }
+
+    @Test func agentsListAndTreeCanonicalizeDuplicateRunsBeforeProjection() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agents-duplicate-run-\(UUID().uuidString)", isDirectory: true)
@@ -668,21 +1206,61 @@ extension CMUXCLIErrorOutputRegressionTests {
         let store: [String: Any] = [
             "version": 2,
             "sessions": [
+                "older-parent": [
+                    "sessionId": "older-parent",
+                    "workspaceId": "workspace-older-parent",
+                    "surfaceId": "surface-older-parent",
+                    "runId": "older-parent-run",
+                    "activeRunId": "older-parent-run",
+                    "restoreAuthority": true,
+                    "startedAt": 80.0,
+                    "updatedAt": 100.0,
+                    "runs": [[
+                        "runId": "older-parent-run",
+                        "restoreAuthority": true,
+                        "startedAt": 80.0,
+                        "updatedAt": 100.0,
+                    ]],
+                ],
+                "winning-parent": [
+                    "sessionId": "winning-parent",
+                    "workspaceId": "workspace-winning-parent",
+                    "surfaceId": "surface-winning-parent",
+                    "runId": "winning-parent-run",
+                    "activeRunId": "winning-parent-run",
+                    "restoreAuthority": true,
+                    "startedAt": 90.0,
+                    "updatedAt": 100.0,
+                    "runs": [[
+                        "runId": "winning-parent-run",
+                        "restoreAuthority": true,
+                        "startedAt": 90.0,
+                        "updatedAt": 100.0,
+                    ]],
+                ],
                 "duplicate-session": [
                     "sessionId": "duplicate-session",
                     "workspaceId": "workspace-a",
                     "surfaceId": "surface-a",
+                    "runId": "duplicate-run",
+                    "activeRunId": "duplicate-run",
                     "startedAt": 100.0,
                     "updatedAt": 120.0,
                     "runs": [
                         [
                             "runId": "duplicate-run",
+                            "parentRunId": "older-parent-run",
+                            "parentSessionId": "older-parent",
+                            "relationship": "spawned",
                             "restoreAuthority": false,
                             "startedAt": 100.0,
                             "updatedAt": 110.0,
                         ],
                         [
                             "runId": "duplicate-run",
+                            "parentRunId": "winning-parent-run",
+                            "parentSessionId": "winning-parent",
+                            "relationship": "forked",
                             "restoreAuthority": true,
                             "startedAt": 100.0,
                             "updatedAt": 120.0,
@@ -697,16 +1275,57 @@ extension CMUXCLIErrorOutputRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
 
-        let result = runProcess(
+        let jsonResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!jsonResult.timedOut)
+        #expect(jsonResult.status == 0, Comment(rawValue: jsonResult.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(jsonResult.stdout.utf8)) as? [String: Any]
+        )
+        let nodes = try #require(payload["nodes"] as? [[String: Any]])
+        let edges = try #require(payload["edges"] as? [[String: Any]])
+        #expect(nodes.filter { $0["session_id"] as? String == "duplicate-session" }.count == 1)
+        let childEdges = edges.filter { $0["to_run_id"] as? String == "duplicate-run" }
+        #expect(childEdges.count == 1)
+        #expect(childEdges.first?["from_run_id"] as? String == "winning-parent-run")
+        #expect(childEdges.first?["from_session_id"] as? String == "winning-parent")
+        #expect(childEdges.first?["relationship"] as? String == "forked")
+
+        let listResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "list", "--session", "duplicate-session", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!listResult.timedOut)
+        #expect(listResult.status == 0, Comment(rawValue: listResult.stdout))
+        let listPayload = try #require(
+            JSONSerialization.jsonObject(with: Data(listResult.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try #require(listPayload["sessions"] as? [[String: Any]])
+        #expect(sessions.count == 1)
+        #expect(sessions.first?["session_id"] as? String == "duplicate-session")
+        #expect(sessions.first?["run_id"] as? String == "duplicate-run")
+        #expect(sessions.first?["restore_authority"] as? Bool == true)
+
+        let textResult = runProcess(
             executablePath: cliPath,
             arguments: ["agents", "tree", "--all"],
             environment: environment,
             timeout: 5
         )
-
-        #expect(!result.timedOut)
-        #expect(result.status == 0, Comment(rawValue: result.stdout))
-        #expect(result.stdout.contains("duplicate-session"))
+        #expect(!textResult.timedOut)
+        #expect(textResult.status == 0, Comment(rawValue: textResult.stdout))
+        let lines = textResult.stdout.split(separator: "\n").map(String.init)
+        let winningParentIndex = try #require(lines.firstIndex { $0.contains("codex winning-parent ") })
+        let childIndex = try #require(lines.firstIndex { $0.contains("codex duplicate-session ") })
+        #expect(lines.filter { $0.contains("codex duplicate-session ") }.count == 1)
+        #expect(childIndex == winningParentIndex + 1)
+        #expect(lines[childIndex].hasPrefix("└── "))
     }
 
     @Test func agentsTreeTextPreservesDepthFirstOrderingAndGuideBytes() throws {
@@ -732,9 +1351,9 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let expected = [
             "opencode session-00000 IDLE restore-owner workspace:workspace-00000 surface:surface-00000",
-            "├── opencode session-00001 IDLE child workspace:workspace-00001 surface:surface-00001",
-            "│   └── opencode session-00002 IDLE child workspace:workspace-00002 surface:surface-00002",
-            "└── opencode session-00003 IDLE child workspace:workspace-00003 surface:surface-00003",
+            "├── spawned opencode session-00001 IDLE child workspace:workspace-00001 surface:surface-00001",
+            "│   └── spawned opencode session-00002 IDLE child workspace:workspace-00002 surface:surface-00002",
+            "└── spawned opencode session-00003 IDLE child workspace:workspace-00003 surface:surface-00003",
             "",
         ].joined(separator: "\n")
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -768,7 +1387,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ).makeIterator()
 
         #expect(iterator.next() == "opencode root IDLE restore-owner workspace:workspace-root surface:surface-root")
-        #expect(iterator.next() == "└── opencode child IDLE restore-owner workspace:workspace-child surface:surface-child")
+        #expect(iterator.next() == "└── spawned opencode child IDLE restore-owner workspace:workspace-child surface:surface-child")
         #expect(iterator.next() == nil)
     }
 

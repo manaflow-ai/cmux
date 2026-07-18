@@ -458,6 +458,103 @@ struct CmuxAgentSessionRegistryTests {
         #expect(!snapshot.activeSlots.contains(where: { $0.scopeID == newSurface }))
     }
 
+    @Test("resume claims require the current surface slot to still exist")
+    func resumeClaimRejectsMissingCurrentSurfaceSlot() throws {
+        let fixture = try Fixture()
+        let workspace = "11111111-1111-1111-1111-111111111111"
+        let surface = "22222222-2222-2222-2222-222222222222"
+        try fixture.registry.apply(provider: "codex", records: [
+            try fixture.record(
+                sessionID: "hibernated",
+                updatedAt: 10,
+                generation: 1,
+                extra: [
+                    "workspaceId": workspace,
+                    "surfaceId": surface,
+                    "sessionState": "hibernated",
+                    "restoreAuthority": true,
+                ]
+            ),
+        ])
+
+        let result = try fixture.registry.patchRecordRebindingActiveSlots(
+            provider: "codex",
+            sessionID: "hibernated",
+            updatedAt: 20,
+            previousSlots: [],
+            activeSlots: [.init(scope: .surface, scopeID: surface)],
+            requireExistingActiveSlots: true,
+            shouldMutate: { $0["sessionState"] as? String == "hibernated" }
+        ) { object in
+            object["sessionState"] = "restoring"
+            object["updatedAt"] = 20.0
+        }
+
+        #expect(result == .rejected)
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        #expect(object["sessionState"] as? String == "hibernated")
+        #expect(record.updatedAt == 10)
+        #expect(snapshot.activeSlots.isEmpty)
+    }
+
+    @Test("resume claims preserve owned timestamps across wall-clock rollback")
+    func resumeClaimUsesMonotonicOwnedTimestamp() throws {
+        let fixture = try Fixture()
+        let surface = "22222222-2222-2222-2222-222222222222"
+        try fixture.registry.apply(
+            provider: "codex",
+            records: [try fixture.record(
+                sessionID: "hibernated",
+                updatedAt: 500,
+                generation: 1,
+                extra: [
+                    "surfaceId": surface,
+                    "sessionState": "hibernated",
+                    "updatedAt": 500.0,
+                ]
+            )],
+            activeSlots: [try fixture.slot(
+                provider: "codex",
+                scope: .surface,
+                scopeID: surface,
+                sessionID: "hibernated",
+                updatedAt: 500
+            )]
+        )
+
+        let result = try fixture.registry.patchRecordRebindingActiveSlots(
+            provider: "codex",
+            sessionID: "hibernated",
+            updatedAt: 100,
+            previousSlots: [],
+            activeSlots: [.init(scope: .surface, scopeID: surface)],
+            requireExistingActiveSlots: true,
+            monotonicUpdatedAt: true,
+            shouldMutate: { $0["sessionState"] as? String == "hibernated" }
+        ) { object in
+            object["sessionState"] = "restoring"
+            object["updatedAt"] = 100.0
+        }
+
+        #expect(result == .patched)
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let recordObject = try #require(
+            JSONSerialization.jsonObject(with: record.json) as? [String: Any]
+        )
+        let slot = try #require(snapshot.activeSlots.first)
+        let slotObject = try #require(
+            JSONSerialization.jsonObject(with: slot.json) as? [String: Any]
+        )
+        #expect(record.updatedAt == 500)
+        #expect(recordObject["updatedAt"] as? TimeInterval == 500)
+        #expect(recordObject["sessionState"] as? String == "restoring")
+        #expect(slot.updatedAt == 500)
+        #expect(slotObject["updatedAt"] as? TimeInterval == 500)
+    }
+
     @Test("invalid siblings do not roll back valid members of a restore batch")
     func invalidRecordsAreIsolatedWithinRestoreBatch() throws {
         let fixture = try Fixture()
