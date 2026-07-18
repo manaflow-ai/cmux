@@ -114,6 +114,56 @@ import Testing
         #expect(connection.exited)
     }
 
+    /// Explicit detach of a mirror opened in its own window must close that
+    /// window when the mirror is its final workspace. Leaving a replacement
+    /// local workspace here strands the blank `--new-window` shell and makes a
+    /// subsequent socket `close-window` appear to succeed without removing the
+    /// observed window (#7992).
+    @Test func explicitDetachOfDedicatedLastMirrorClosesOwningWindow() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("remote-tmux-explicit-detach-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logURL = root.appendingPathComponent("ssh.log")
+        let sshURL = root.appendingPathComponent("ssh")
+        try writeExecutable(
+            at: sshURL,
+            contents: """
+            #!/bin/sh
+            for arg in "$@"; do
+              printf 'ARG=%s\\n' "$arg" >> "${CMUX_PR7264_SSH_LOG:?}"
+            done
+            exit 0
+            """
+        )
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        let previousLog = environmentValue(for: sshLogKey)
+        setenv(sshOverrideKey, sshURL.path, 1)
+        setenv(sshLogKey, logURL.path, 1)
+        defer {
+            restoreEnvironment(sshOverrideKey, previousValue: previousSSH)
+            restoreEnvironment(sshLogKey, previousValue: previousLog)
+        }
+
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let host = RemoteTmuxHost(destination: "explicit-detach-\(UUID().uuidString)@example.test")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        let controller = harness.controller
+        controller.cacheConnection(connection)
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
+        let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
+        #expect(harness.manager.tabs.map(\.id) == [mirrorWorkspace.id])
+
+        controller.detach(host: host, sessionName: "dev")
+
+        _ = try await waitForSSHArgument("exit", at: logURL)
+        #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
+        #expect(connection.exited)
+        #expect(harness.appDelegate.mainWindow(for: harness.windowId) == nil)
+    }
+
     /// The ordinary non-last tab-close route shares the same detach contract as
     /// socket/window close: removing the mirror from a mixed local window must
     /// stop its control client without issuing `tmux kill-session`.
