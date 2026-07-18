@@ -900,6 +900,175 @@ struct CLIHookNoResponseTests {
         #expect(Self.outboxSharedMemoryIsMissing(named: "/ch\(reservationToken)"))
     }
 
+    @Test func nativeCodexBusyOutboxLockNeverBlocksReserveCommitOrRelease() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-native-outbox-busy-lock-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        let outboxDirectory = root.appendingPathComponent("hook-outbox", isDirectory: true)
+        let reservedSignal = root.appendingPathComponent("publisher-reserved", isDirectory: false)
+        let socketPath = Self.makeSocketPath("outbox-busy-lock")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 4)
+        let socketRequests = CodexHookCapturedSocketCommands()
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxDirectory,
+            audience: "com.cmuxterm.test.outbox-busy-lock",
+            deliveryQueue: queue
+        ))
+        let outboxGeneration = try Self.outboxGeneration(at: outboxDirectory)
+        let outboxCapability = outbox.issueCapability()
+        let socketCapability = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x7c, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox-busy-lock.socket"
+        ).issueCapability()
+        let budgetDescriptor = Darwin.open(
+            outboxDirectory.appendingPathComponent(".quota-v1").path,
+            O_RDWR | O_NOFOLLOW | O_CLOEXEC
+        )
+        try #require(budgetDescriptor >= 0)
+        var budgetLocked = false
+        var publisher: Process?
+        defer {
+            if let publisher, publisher.isRunning {
+                Darwin.kill(publisher.processIdentifier, SIGKILL)
+                Darwin.kill(publisher.processIdentifier, SIGCONT)
+                publisher.waitUntilExit()
+            }
+            if budgetLocked {
+                _ = flock(budgetDescriptor, LOCK_UN)
+            }
+            Darwin.close(budgetDescriptor)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            Self.removeOutboxSharedMemory(at: outboxDirectory)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let hookPath = try #require(
+            FileManager.default
+                .contentsOfDirectory(at: hooksDirectory, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
+        )
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: socketRequests,
+            surfaceId: "22222222-2222-2222-2222-222222222222",
+            connectionLimit: 2
+        )
+
+        func environment(deliveryID: String) -> [String: String] {
+            [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_SOCKET_CAPABILITY": socketCapability,
+                "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY": outboxCapability,
+                "CMUX_AGENT_HOOK_OUTBOX_GENERATION": outboxGeneration,
+                "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
+                "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
+                "CMUX_BUNDLED_CLI_PATH": "/usr/bin/false",
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_AGENT_HOOK_DELIVERY_ID": deliveryID,
+            ]
+        }
+        let payload = #"{"session_id":"busy-lock","hook_event_name":"SessionStart"}"#
+
+        try #require(flock(budgetDescriptor, LOCK_EX | LOCK_NB) == 0)
+        budgetLocked = true
+        let reserveStarted = ContinuousClock().now
+        let reserveResult = runCodexHookProcess(
+            executablePath: hookPath.path,
+            arguments: [],
+            environment: environment(deliveryID: "native-busy-reserve"),
+            standardInput: payload,
+            timeout: 0.35
+        )
+        let reserveElapsed = reserveStarted.duration(to: .now)
+        #expect(!reserveResult.timedOut, Comment(rawValue: reserveResult.stderr))
+        #expect(reserveResult.status == 0, Comment(rawValue: reserveResult.stderr))
+        #expect(reserveResult.stdout == "{}\n")
+        #expect(reserveElapsed < .seconds(0.15), "Busy reserve took \(reserveElapsed)")
+        try #require(flock(budgetDescriptor, LOCK_UN) == 0)
+        budgetLocked = false
+
+        let process = Process()
+        let stdin = Pipe()
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.executableURL = hookPath
+        var commitEnvironment = environment(deliveryID: "native-busy-commit")
+        commitEnvironment["CMUX_TEST_HOOK_OUTBOX_STOP_AFTER_RESERVE_FILE"] = reservedSignal.path
+        process.environment = commitEnvironment
+        process.standardInput = stdin
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        publisher = process
+        stdin.fileHandleForWriting.write(Data(payload.utf8))
+        try stdin.fileHandleForWriting.close()
+        let reserved = waitForFile(reservedSignal, containing: "reserved", timeout: 1)
+        #expect(reserved)
+        guard reserved else { return }
+        let reservationToken = try #require(
+            String(contentsOf: reservedSignal, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: " ")
+                .last
+        )
+
+        try #require(flock(budgetDescriptor, LOCK_EX | LOCK_NB) == 0)
+        budgetLocked = true
+        let commitStarted = ContinuousClock().now
+        #expect(Darwin.kill(process.processIdentifier, SIGCONT) == 0)
+        let commitExited = waitForCondition(timeout: 0.35) { !process.isRunning }
+        let commitElapsed = commitStarted.duration(to: .now)
+        #expect(commitExited, "Busy commit/release did not fall through")
+        if !commitExited {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+            Darwin.kill(process.processIdentifier, SIGCONT)
+        }
+        process.waitUntilExit()
+        publisher = nil
+        let stdoutText = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let stderrText = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        if commitExited {
+            #expect(process.terminationStatus == 0, Comment(rawValue: stderrText))
+            #expect(stdoutText == "{}\n")
+            #expect(commitElapsed < .seconds(0.15), "Busy commit/release took \(commitElapsed)")
+        }
+        try #require(flock(budgetDescriptor, LOCK_UN) == 0)
+        budgetLocked = false
+
+        #expect(waitForCondition(timeout: 1) {
+            Set(socketRequests.snapshot().compactMap { command -> String? in
+                guard let request = codexHookJSONObject(command),
+                      request["method"] as? String == "agent.hook.enqueue",
+                      let params = request["params"] as? [String: Any] else { return nil }
+                return params["delivery_id"] as? String
+            }) == ["native-busy-reserve", "native-busy-commit"]
+        })
+        #expect(Self.outboxReadyMarkers(at: outboxDirectory).isEmpty)
+        #expect(Self.outboxPendingMarkers(at: outboxDirectory).isEmpty)
+        #expect(Self.outboxSharedMemoryIsMissing(named: "/ch\(reservationToken)"))
+    }
+
     @Test func nativeCodexAdmissionUsesBoundedEmergencyFallbackWhenForkFails() throws {
         let cliPath = try Self.bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
