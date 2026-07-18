@@ -58,6 +58,7 @@ final class WorkspaceChecklistAttachmentQuickLookController: NSObject, QLPreview
     }
 
     nonisolated func previewPanelWillClose(_ panel: QLPreviewPanel!) {
+        guard let panel else { return }
         objc_setAssociatedObject(
             panel,
             &workspaceChecklistAttachmentQuickLookControllerAssociationKey,
