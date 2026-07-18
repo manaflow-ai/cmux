@@ -26,6 +26,10 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   the nested helper under the tag-scoped
   `~/Library/Application Support/cmux/computer-use/helper/<scope>/` directory
   and launches that explicit app URL through LaunchServices.
+- The daemon socket is tag-scoped under
+  `/tmp/cmux-cua-<uid>/<scope>/cua.sock` so it always fits Darwin's Unix-socket
+  path limit. Session state stays under the tag-scoped cmux Application Support
+  runtime directory.
 - While Computer Use is enabled, the helper daemon starts quietly at cmux
   startup with its internal permission gate disabled. Starting cmux or an agent
   never requests access or shows onboarding.

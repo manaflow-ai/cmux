@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Filesystem paths shared by the app-owned Computer Use runtime and agent wrappers.
@@ -15,16 +16,21 @@ struct ComputerUseRuntimePaths: Sendable {
 
     init(
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        socketRootDirectoryURL: URL = URL(fileURLWithPath: "/tmp", isDirectory: true),
+        userIdentifier: uid_t = getuid(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         scope = Self.sanitizedScope(environment["CMUX_TAG"])
         computerUseDirectoryURL = homeDirectoryURL
             .appendingPathComponent("Library/Application Support/cmux/computer-use", isDirectory: true)
-        runtimeDirectoryURL = computerUseDirectoryURL
+        runtimeDirectoryURL = socketRootDirectoryURL
+            .appendingPathComponent("cmux-cua-\(userIdentifier)", isDirectory: true)
+            .appendingPathComponent(scope, isDirectory: true)
+        daemonSocketURL = runtimeDirectoryURL.appendingPathComponent("cua.sock")
+        stateDirectoryURL = computerUseDirectoryURL
             .appendingPathComponent("runtime", isDirectory: true)
             .appendingPathComponent(scope, isDirectory: true)
-        daemonSocketURL = runtimeDirectoryURL.appendingPathComponent("cua-daemon.sock")
-        stateDirectoryURL = runtimeDirectoryURL.appendingPathComponent("state", isDirectory: true)
+            .appendingPathComponent("state", isDirectory: true)
         installedHelperDirectoryURL = computerUseDirectoryURL
             .appendingPathComponent("helper", isDirectory: true)
             .appendingPathComponent(scope, isDirectory: true)
@@ -34,7 +40,9 @@ struct ComputerUseRuntimePaths: Sendable {
 
     private static func sanitizedScope(_ rawValue: String?) -> String {
         guard let rawValue, !rawValue.isEmpty else { return "default" }
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        let allowed = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+        )
         let scalars = rawValue.unicodeScalars.map { allowed.contains($0) ? Character(String($0)) : "-" }
         let candidate = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
         return candidate.isEmpty ? "default" : String(candidate.prefix(64))

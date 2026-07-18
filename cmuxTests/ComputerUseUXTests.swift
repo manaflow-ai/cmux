@@ -234,12 +234,12 @@ struct ComputerUseUXTests {
     @Test func taggedRuntimeKeepsHelperSocketAndStateIsolated() {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            userIdentifier: 501,
             environment: ["CMUX_TAG": "permission-owner-v2"]
         )
 
-        #expect(paths.daemonSocketURL.path.hasSuffix(
-            "/Library/Application Support/cmux/computer-use/runtime/permission-owner-v2/cua-daemon.sock"
-        ))
+        #expect(paths.daemonSocketURL.path == "/tmp/cmux-cua-501/permission-owner-v2/cua.sock")
         #expect(paths.stateDirectoryURL.path.hasSuffix(
             "/Library/Application Support/cmux/computer-use/runtime/permission-owner-v2/state"
         ))

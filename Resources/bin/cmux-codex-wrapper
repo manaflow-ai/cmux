@@ -236,12 +236,15 @@ cmux_codex_emit_computer_use_args() {
                 ;;
         esac
     done
-    local driver default_session runtime_scope cua_socket state_dir
+    local driver default_session runtime_scope runtime_uid cua_socket state_dir
     driver="$(cmux_computer_use_resolve_driver)" || return 1
     # Stable per-terminal session id so the branded cursor survives helper restarts.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     runtime_scope="${CMUX_TAG:-default}"
-    cua_socket="${CMUX_CUA_SOCKET_PATH:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/cua-daemon.sock}"
+    runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
+    [[ -n "$runtime_scope" ]] || runtime_scope="default"
+    runtime_uid="$(/usr/bin/id -u)"
+    cua_socket="${CMUX_CUA_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cua.sock}"
     state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state}"
     printf '%s\0' \
         "-c" \

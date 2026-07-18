@@ -926,11 +926,14 @@ cmux_computer_use_config() {
                 ;;
         esac
     done
-    local driver state_dir default_session cua_socket runtime_scope
+    local driver state_dir default_session cua_socket runtime_scope runtime_uid
     driver="$(cmux_computer_use_resolve_driver)" || return 1
     runtime_scope="${CMUX_TAG:-default}"
+    runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
+    [[ -n "$runtime_scope" ]] || runtime_scope="default"
+    runtime_uid="$(/usr/bin/id -u)"
     state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state}"
-    cua_socket="${CMUX_CUA_SOCKET_PATH:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/cua-daemon.sock}"
+    cua_socket="${CMUX_CUA_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cua.sock}"
     # Stable per-terminal session id so the branded agent cursor survives helper
     # restarts in the same surface.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"

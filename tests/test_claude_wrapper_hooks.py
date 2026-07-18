@@ -1115,6 +1115,12 @@ def expect_cua_driver_config(
         f"{context}: expected shared daemon proxy args, got {config}",
         failures,
     )
+    if len(args) == 3:
+        expect(
+            args[2].startswith("/tmp/cmux-cua-") and args[2].endswith("/default/cua.sock"),
+            f"{context}: expected short per-user daemon socket, got {args[2]!r}",
+            failures,
+        )
     expect(
         not isinstance(command, str) or "cmux Computer Use.app" not in Path(command).parts,
         f"{context}: proxy command must not execute from the helper app, got {command}",

@@ -321,6 +321,12 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
             f"expected shared daemon proxy args, got {mcp_args_raw}",
             failures,
         )
+        if len(mcp_args) == 3:
+            expect(
+                mcp_args[2].startswith("/tmp/cmux-cua-") and mcp_args[2].endswith("/default/cua.sock"),
+                f"expected short per-user daemon socket, got {mcp_args[2]!r}",
+                failures,
+            )
     expect_scrubbed_mcp_env(args, failures, "bundled cua-driver", helper_owned=True)
 
     computer_use_command_index = args.index("-c") if "-c" in args else -1
