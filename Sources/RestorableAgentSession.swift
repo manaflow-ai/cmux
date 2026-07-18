@@ -1199,6 +1199,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     registration: registration,
                     permissionMode: effectiveRecord.lastPermissionMode
                 )
+                // A legacy record can predate the explicit `isRestorable` and
+                // rejected-source fields while still carrying one-shot argv.
+                // Command generation is the final replay authority, so keep
+                // snapshots with no safe resume command out of every restore,
+                // hibernation, closed-history, and fork consumer.
+                guard snapshot.resumeCommand != nil else { continue }
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
