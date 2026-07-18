@@ -30,8 +30,8 @@ const localeFonts: Record<string, { name: string; url: string }> = {
     url: `${NOTO_CJK_BASE}/Korean/NotoSansCJKkr-Regular.otf`,
   },
   ar: {
-    name: "Noto Naskh Arabic",
-    url: `${NOTO_BASE}/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf`,
+    name: "Noto Sans Arabic UI",
+    url: `${NOTO_BASE}/NotoSansArabicUI/hinted/ttf/NotoSansArabicUI-Regular.ttf`,
   },
   th: {
     name: "Noto Sans Thai",
