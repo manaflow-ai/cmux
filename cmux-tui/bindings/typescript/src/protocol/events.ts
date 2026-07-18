@@ -61,6 +61,13 @@ export interface ClientChangedEvent {
   kind: string | null;
 }
 export interface ClientDetachedEvent { event: "client-detached"; client: Id }
+export interface TerminalRegistryChangedEvent {
+  event: "terminal-registry-changed";
+  registry_id: string;
+  generation: string;
+  terminal_revision: number;
+  refetch: "terminal-events-or-list-terminals";
+}
 export interface EmptyEvent { event: "empty" }
 
 export interface WorkspaceAddedEvent {
@@ -304,6 +311,7 @@ export type KnownSubscribeEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | TerminalRegistryChangedEvent
   | EmptyEvent
   | OverflowEvent;
 

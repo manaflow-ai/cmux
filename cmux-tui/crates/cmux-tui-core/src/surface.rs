@@ -616,13 +616,36 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_with_terminal_id(id, opts, mux, None)
+    }
+
+    pub(crate) fn spawn_with_terminal_id(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        terminal_id: Option<crate::terminal_host::TerminalId>,
+    ) -> anyhow::Result<Arc<Surface>> {
         #[cfg(unix)]
         if let Some(root) = opts.terminal_host_root.clone() {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-            let attachment =
-                crate::terminal_host_runtime::launch_terminal_host(&opts, &root, default_colors)?;
+            let attachment = match terminal_id {
+                Some(terminal_id) => {
+                    crate::terminal_host_runtime::launch_terminal_host_with_identity(
+                        &opts,
+                        &root,
+                        default_colors,
+                        terminal_id,
+                    )?
+                }
+                None => crate::terminal_host_runtime::launch_terminal_host(
+                    &opts,
+                    &root,
+                    default_colors,
+                )?,
+            };
             return Self::spawn_hosted(id, opts, mux, attachment);
         }
+        let _ = terminal_id;
         let pty = native_pty_system().openpty(PtySize {
             rows: opts.rows,
             cols: opts.cols,
@@ -1692,10 +1715,11 @@ impl Surface {
                             host.disconnect();
                             return;
                         }
+                        // The host owns record cleanup and removes it only
+                        // after the PTY process has actually exited. Unlinking
+                        // here would make a failed Terminate write turn a live
+                        // shell into an undiscoverable orphan.
                         let _ = host.terminate();
-                        crate::terminal_host_runtime::remove_terminal_host_record(
-                            &host.record_path,
-                        );
                     }
                 }
             }

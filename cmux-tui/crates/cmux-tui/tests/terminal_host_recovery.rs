@@ -170,7 +170,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
         serde_json::json!({
             "id": 22,
             "cmd": "resolve-terminal",
-            "terminal_id": "ffffffffffffffffffffffffffffffff",
+            "terminal_id": "ffffffffffff4fffbfffffffffffffff",
         }),
     );
     assert_eq!(missing["ok"], false);
@@ -376,7 +376,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
             "id": 10,
             "cmd": "close-terminal",
             "terminal_id": &terminal_id,
-            "terminal_incarnation": "00000000000000000000000000000000",
+            "terminal_incarnation": "00000000000040008000000000000000",
         }),
     );
     assert_eq!(stale_close["ok"], false);
@@ -402,9 +402,123 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
         &harness.socket,
         serde_json::json!({"id": 12, "cmd": "resolve-terminal", "terminal_id": &terminal_id}),
     );
-    assert_eq!(tombstoned["ok"], false);
-    assert_eq!(tombstoned["error"], "terminal_not_found");
+    assert_eq!(tombstoned["ok"], true);
+    assert_eq!(tombstoned["data"]["surface"], serde_json::Value::Null);
+    assert_eq!(tombstoned["data"]["lifecycle"], "tombstoned");
     wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn transient_startup_adoption_failure_retries_in_process_until_running() {
+    let mut harness = RecoveryHarness::start("retry-adopt");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,
+            "cmd":"run",
+            "argv":["/bin/cat"],
+            "new_workspace":true,
+            "cols":80,
+            "rows":24,
+        }),
+    );
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let records = wait_for_host_records(&harness.host_root(), 1);
+    let endpoint = PathBuf::from(&records[0].1.endpoint);
+    let held_endpoint = endpoint.with_extension("held-for-adoption-test");
+
+    harness.sigkill();
+    fs::rename(&endpoint, &held_endpoint).unwrap();
+    harness.restart();
+
+    let pending = request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_eq!(pending["surface"], serde_json::Value::Null);
+    assert_eq!(pending["lifecycle"], "adopting");
+
+    fs::rename(&held_endpoint, &endpoint).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "running"
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "terminal never completed in-process adoption");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+
+    let marker = format!("scheduled-adoption-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({"id":4,"cmd":"send","surface":surface,"text":format!("{marker}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+}
+
+#[test]
+fn client_reserved_create_retry_returns_original_binding_without_second_host() {
+    let harness = RecoveryHarness::start("reserved-create");
+    let workspace = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,
+            "cmd":"create-workspace",
+            "name":"Browser",
+            "key":"browser-workspace",
+            "origin":"browser",
+            "mutation_id":"workspace-create",
+            "expected_revision":0,
+        }),
+    );
+    let terminal_id = TerminalId::random().unwrap().to_hex();
+    let create = serde_json::json!({
+        "id":2,
+        "cmd":"create-terminal",
+        "key":"browser-workspace",
+        "argv":["/bin/cat"],
+        "terminal_id":terminal_id,
+        "origin":"browser",
+        "mutation_id":"terminal-create",
+        "expected_generation":workspace["generation"],
+        "expected_terminal_revision":0,
+        "cols":80,
+        "rows":24,
+    });
+    let first = request(&harness.socket, create.clone());
+    assert_eq!(first["terminal_id"], terminal_id);
+    assert_eq!(first["replayed"], false);
+    assert_eq!(wait_for_host_records(&harness.host_root(), 1).len(), 1);
+
+    let retry = request(&harness.socket, create);
+    assert_eq!(retry["replayed"], true);
+    assert_eq!(retry["terminal_id"], terminal_id);
+    assert_eq!(retry["surface"], first["surface"]);
+    assert_eq!(retry["pane"], first["pane"]);
+    assert_eq!(retry["screen"], first["screen"]);
+    assert_eq!(wait_for_host_records(&harness.host_root(), 1).len(), 1);
+
+    let mismatch = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id":3,
+            "cmd":"create-terminal",
+            "key":"browser-workspace",
+            "argv":["/bin/echo","different"],
+            "terminal_id":terminal_id,
+            "origin":"browser",
+            "mutation_id":"terminal-create",
+            "expected_terminal_revision":0,
+        }),
+    );
+    assert_eq!(mismatch["ok"], false);
+    assert!(mismatch["error"].as_str().unwrap().contains("different payload"));
 }
 
 #[test]
