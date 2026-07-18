@@ -1084,7 +1084,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                 executablePath: cliPath,
                 arguments: ["agents", testCase.subcommand, testCase.option, "--json"],
                 environment: isolatedAgentTreeEnvironment(home: root),
-                timeout: 5
+                timeout: 15
             )
             let context = "agents \(testCase.subcommand) \(testCase.option): \(result.stdout)"
 

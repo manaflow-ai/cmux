@@ -2,6 +2,11 @@ import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    enum AgentsValueOptionContext {
+        case list
+        case tree
+    }
+
     func runAgentsCommand(
         commandArgs: [String],
         jsonOutput: Bool,
@@ -138,5 +143,71 @@ extension CMUXCLI {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: "_", with: "-")
+    }
+
+    func parseAgentsValueOption(
+        _ arguments: [String],
+        name: String,
+        context: AgentsValueOptionContext
+    ) throws -> (String?, [String]) {
+        var remaining: [String] = []
+        var value: String?
+        var skipNext = false
+        var pastTerminator = false
+
+        for (index, argument) in arguments.enumerated() {
+            if skipNext {
+                skipNext = false
+                continue
+            }
+            if argument == "--" {
+                pastTerminator = true
+                remaining.append(argument)
+                continue
+            }
+            if !pastTerminator, argument.hasPrefix("\(name)=") {
+                let candidate = String(argument.dropFirst(name.count + 1))
+                guard !candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: agentsOptionRequiresValueMessage(name: name, context: context))
+                }
+                value = candidate
+                continue
+            }
+            if !pastTerminator, argument == name {
+                guard index + 1 < arguments.count else {
+                    throw CLIError(message: agentsOptionRequiresValueMessage(name: name, context: context))
+                }
+                let candidate = arguments[index + 1]
+                guard !candidate.hasPrefix("-"),
+                      !candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: agentsOptionRequiresValueMessage(name: name, context: context))
+                }
+                value = candidate
+                skipNext = true
+                continue
+            }
+            remaining.append(argument)
+        }
+
+        return (value, remaining)
+    }
+
+    private func agentsOptionRequiresValueMessage(
+        name: String,
+        context: AgentsValueOptionContext
+    ) -> String {
+        let agentMessage = switch context {
+        case .list:
+            String(
+                localized: "cli.sessions.error.agentRequiresValue",
+                defaultValue: "sessions list: --agent requires a value"
+            )
+        case .tree:
+            String(
+                localized: "cli.agents.tree.error.agentRequiresValue",
+                defaultValue: "agents tree: --agent requires a value"
+            )
+        }
+        return agentMessage.replacingOccurrences(of: "--agent", with: name)
     }
 }

@@ -26,17 +26,17 @@ extension CMUXCLI {
             ))
         }
 
-        let (agentRaw, rem0) = parseOption(args, name: "--agent")
-        let (sessionRaw, rem1) = parseOption(rem0, name: "--session")
-        let (workspaceRaw, rem2) = parseOption(rem1, name: "--workspace")
-        let (surfaceRaw, rem3) = parseOption(rem2, name: "--surface")
-        let (cwdRaw, rem4) = parseOption(rem3, name: "--cwd")
-        let (stateDirRaw, rem5) = parseOption(rem4, name: "--state-dir")
-        let (codexHomeRaw, rem6) = parseOption(rem5, name: "--codex-home")
-        let (limitRaw, rem7) = parseOption(rem6, name: "--limit")
-        let (stateRaw, rem8) = parseOption(rem7, name: "--state")
-        let (activityRaw, rem9) = parseOption(rem8, name: "--activity")
-        let (workKindRaw, rem10) = parseOption(rem9, name: "--work-kind")
+        let (agentRaw, rem0) = try parseAgentsValueOption(args, name: "--agent", context: .list)
+        let (sessionRaw, rem1) = try parseAgentsValueOption(rem0, name: "--session", context: .list)
+        let (workspaceRaw, rem2) = try parseAgentsValueOption(rem1, name: "--workspace", context: .list)
+        let (surfaceRaw, rem3) = try parseAgentsValueOption(rem2, name: "--surface", context: .list)
+        let (cwdRaw, rem4) = try parseAgentsValueOption(rem3, name: "--cwd", context: .list)
+        let (stateDirRaw, rem5) = try parseAgentsValueOption(rem4, name: "--state-dir", context: .list)
+        let (codexHomeRaw, rem6) = try parseAgentsValueOption(rem5, name: "--codex-home", context: .list)
+        let (limitRaw, rem7) = try parseAgentsValueOption(rem6, name: "--limit", context: .list)
+        let (stateRaw, rem8) = try parseAgentsValueOption(rem7, name: "--state", context: .list)
+        let (activityRaw, rem9) = try parseAgentsValueOption(rem8, name: "--activity", context: .list)
+        let (workKindRaw, rem10) = try parseAgentsValueOption(rem9, name: "--work-kind", context: .list)
 
         var includeAll = false
         var localJSONOutput = jsonOutput

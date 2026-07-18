@@ -9,16 +9,16 @@ extension CMUXCLI {
         fileManager: FileManager,
         terminalObservations: [CmuxAgentTerminalObservation]
     ) throws {
-        let (agentFilter, remainder0) = parseOption(commandArgs, name: "--agent")
-        let (sessionFilter, remainder1) = parseOption(remainder0, name: "--session")
-        let (workspaceFilter, remainder2) = parseOption(remainder1, name: "--workspace")
-        let (surfaceFilter, remainder3) = parseOption(remainder2, name: "--surface")
-        let (stateDirOverride, remainder4) = parseOption(remainder3, name: "--state-dir")
-        let (relationshipFilter, remainder5) = parseOption(remainder4, name: "--relation")
-        let (stateFilter, remainder6) = parseOption(remainder5, name: "--state")
-        let (activityFilter, remainder7) = parseOption(remainder6, name: "--activity")
-        let (workKindFilter, remainder8) = parseOption(remainder7, name: "--work-kind")
-        let (depthRaw, remainder9) = parseOption(remainder8, name: "--depth")
+        let (agentFilter, remainder0) = try parseAgentsValueOption(commandArgs, name: "--agent", context: .tree)
+        let (sessionFilter, remainder1) = try parseAgentsValueOption(remainder0, name: "--session", context: .tree)
+        let (workspaceFilter, remainder2) = try parseAgentsValueOption(remainder1, name: "--workspace", context: .tree)
+        let (surfaceFilter, remainder3) = try parseAgentsValueOption(remainder2, name: "--surface", context: .tree)
+        let (stateDirOverride, remainder4) = try parseAgentsValueOption(remainder3, name: "--state-dir", context: .tree)
+        let (relationshipFilter, remainder5) = try parseAgentsValueOption(remainder4, name: "--relation", context: .tree)
+        let (stateFilter, remainder6) = try parseAgentsValueOption(remainder5, name: "--state", context: .tree)
+        let (activityFilter, remainder7) = try parseAgentsValueOption(remainder6, name: "--activity", context: .tree)
+        let (workKindFilter, remainder8) = try parseAgentsValueOption(remainder7, name: "--work-kind", context: .tree)
+        let (depthRaw, remainder9) = try parseAgentsValueOption(remainder8, name: "--depth", context: .tree)
 
         var localJSONOutput = jsonOutput
         var includeAll = false
