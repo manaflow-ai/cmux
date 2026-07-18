@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 import CmuxFoundation
@@ -216,11 +217,16 @@ struct AgentHibernationTranscriptGuardTests {
                 )
             )
         )
-        let metadataURL = URL(fileURLWithPath: snapshot.snapshotPath + ".recovery.json")
-
-        #expect(FileManager.default.fileExists(atPath: metadataURL.path))
+        let metadataName = "com.cmux.agent-transcript-recovery"
+        let metadataSize = getxattr(snapshot.snapshotPath, metadataName, nil, 0, 0, 0)
+        #expect(metadataSize > 0)
+        var metadataData = Data(count: max(0, metadataSize))
+        let bytesRead = metadataData.withUnsafeMutableBytes { buffer in
+            getxattr(snapshot.snapshotPath, metadataName, buffer.baseAddress, buffer.count, 0, 0)
+        }
+        #expect(bytesRead == metadataSize)
         let metadata = try #require(
-            JSONSerialization.jsonObject(with: Data(contentsOf: metadataURL)) as? [String: Any]
+            JSONSerialization.jsonObject(with: metadataData) as? [String: Any]
         )
         #expect(metadata["version"] as? Int == 1)
         #expect(metadata["sessionId"] as? String == sessionId)
