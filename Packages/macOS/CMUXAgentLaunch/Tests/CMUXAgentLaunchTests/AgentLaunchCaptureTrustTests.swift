@@ -292,40 +292,68 @@ struct AgentLaunchCaptureTrustTests {
         )
     }
 
-    @Test func liveProcessLaunchRestorabilityUsesTheSharedProviderPolicies() {
+    @Test func liveProcessModeSeparatesOneShotInteractiveAndUnknownLaunches() {
         #expect(
-            AgentLaunchSanitizer.processLaunchIsRestorable(
+            AgentLaunchModeClassifier.processMode(
                 processName: "codex",
                 arguments: ["/opt/homebrew/bin/codex", "exec", "fix this"],
                 kind: "codex"
-            ) == false
+            ) == .oneShot
         )
         #expect(
-            AgentLaunchSanitizer.processLaunchIsRestorable(
+            AgentLaunchModeClassifier.processMode(
                 processName: "codex",
                 arguments: ["/opt/homebrew/bin/codex", "--model", "o3"],
                 kind: "codex"
-            ) == true
+            ) == .interactive
         )
         #expect(
-            AgentLaunchSanitizer.processLaunchIsRestorable(
+            AgentLaunchModeClassifier.processMode(
+                processName: "codex",
+                arguments: ["/opt/homebrew/bin/codex", "--future-launch-mode"],
+                kind: "codex"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
                 processName: "sleep",
                 arguments: ["/bin/sleep", "30"],
                 kind: "codex"
-            ) == nil
+            ) == .unknown
         )
         #expect(
-            AgentLaunchSanitizer.processLaunchIsRestorable(
+            AgentLaunchModeClassifier.processMode(
                 processName: "acme-agent",
                 arguments: ["/usr/local/bin/acme-agent", "--print", "fix this"],
                 kind: "acme-agent"
-            ) == nil
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "opencode",
+                arguments: ["opencode", "pr", "123"],
+                kind: "opencode"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "pi",
+                arguments: ["pi", "--no-session"],
+                kind: "pi"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "kimi",
+                arguments: ["kimi", "--prompt", "fix this"],
+                kind: "kimi"
+            ) == .interactive
         )
     }
 
     @Test func interpreterHostedLaunchRestorabilityStartsAfterTheAgentEntrypoint() {
         #expect(
-            AgentLaunchSanitizer.processLaunchIsRestorable(
+            AgentLaunchModeClassifier.processMode(
                 processName: "node",
                 arguments: [
                     "node",
@@ -335,10 +363,10 @@ struct AgentLaunchCaptureTrustTests {
                     "fix this",
                 ],
                 kind: "claude"
-            ) == false
+            ) == .oneShot
         )
         #expect(
-            AgentLaunchSanitizer.processLaunchIsRestorable(
+            AgentLaunchModeClassifier.processMode(
                 processName: "bun",
                 arguments: [
                     "bun",
@@ -347,10 +375,10 @@ struct AgentLaunchCaptureTrustTests {
                     "fix this",
                 ],
                 kind: "opencode"
-            ) == false
+            ) == .oneShot
         )
         #expect(
-            AgentLaunchSanitizer.processLaunchIsRestorable(
+            AgentLaunchModeClassifier.processMode(
                 processName: "deno",
                 arguments: [
                     "deno",
@@ -361,7 +389,7 @@ struct AgentLaunchCaptureTrustTests {
                     "fix this",
                 ],
                 kind: "campfire"
-            ) == false
+            ) == .oneShot
         )
     }
 }
