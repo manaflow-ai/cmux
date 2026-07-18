@@ -1291,6 +1291,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F11ED7AB0001000100010001 /* RemoteTmuxMirrorNewTabPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11ED7AB0002000200020002 /* RemoteTmuxMirrorNewTabPlacementTests.swift */; };
 		A2A2A2A2A2A2A2A2A2A20002 /* RemoteTmuxMirrorPaneInputMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B2B2B2B2B2B2B20002 /* RemoteTmuxMirrorPaneInputMappingTests.swift */; };
 		74060000000000000000000C /* RemoteTmuxMirrorPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74060000000000000000000B /* RemoteTmuxMirrorPlacementTests.swift */; };
+		838000000000000000000004 /* RemoteTmuxMirrorRenameHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838000000000000000000003 /* RemoteTmuxMirrorRenameHarness.swift */; };
+		838000000000000000000002 /* RemoteTmuxMirrorRenameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838000000000000000000001 /* RemoteTmuxMirrorRenameTests.swift */; };
 		7837E0037837E0037837E003 /* RemoteTmuxMirrorResizeRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837E0047837E0047837E004 /* RemoteTmuxMirrorResizeRoutingTests.swift */; };
 		D4F8A2E61C5B39707A8E6F12 /* RemoteTmuxMirrorSplitRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C4D2B3F09865E217D4C0 /* RemoteTmuxMirrorSplitRoutingTests.swift */; };
 		F861B8D7C62A0BCB252A523A /* RemoteTmuxMirrorTabActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC55CC7B42874062C64013A /* RemoteTmuxMirrorTabActivity.swift */; };
@@ -3325,6 +3327,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F11ED7AB0002000200020002 /* RemoteTmuxMirrorNewTabPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorNewTabPlacementTests.swift; sourceTree = "<group>"; };
 		B2B2B2B2B2B2B2B2B2B20002 /* RemoteTmuxMirrorPaneInputMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorPaneInputMappingTests.swift; sourceTree = "<group>"; };
 		74060000000000000000000B /* RemoteTmuxMirrorPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorPlacementTests.swift; sourceTree = "<group>"; };
+		838000000000000000000003 /* RemoteTmuxMirrorRenameHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorRenameHarness.swift; sourceTree = "<group>"; };
+		838000000000000000000001 /* RemoteTmuxMirrorRenameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorRenameTests.swift; sourceTree = "<group>"; };
 		7837E0047837E0047837E004 /* RemoteTmuxMirrorResizeRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorResizeRoutingTests.swift; sourceTree = "<group>"; };
 		A7E1C4D2B3F09865E217D4C0 /* RemoteTmuxMirrorSplitRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorSplitRoutingTests.swift; sourceTree = "<group>"; };
 		6FC55CC7B42874062C64013A /* RemoteTmuxMirrorTabActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorTabActivity.swift; sourceTree = "<group>"; };
@@ -6075,6 +6079,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					736200000000000000000005 /* RemoteTmuxMirrorLifecycleTests.swift */,
 					0DBAA681DEE6F9121D289ABE /* RemoteTmuxMirrorCloseDetachTests.swift */,
 					736200000000000000000007 /* RemoteTmuxMirrorTargetingTests.swift */,
+					838000000000000000000001 /* RemoteTmuxMirrorRenameTests.swift */,
+					838000000000000000000003 /* RemoteTmuxMirrorRenameHarness.swift */,
 					31FFFE3EFCDCCD6BDF405370 /* RemoteTmuxSessionSnapshotTests.swift */,
 					B8E2A4C1D5F3096871A2B3C4 /* RemoteTmuxNativeMirrorLayoutFuzzTests.swift */,
 					B8E2A4C1D5F3096871A2B4A2 /* RemoteTmuxBonsplitImpositionRenderTests.swift */,
@@ -8473,6 +8479,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F11ED7AB0001000100010001 /* RemoteTmuxMirrorNewTabPlacementTests.swift in Sources */,
 				A2A2A2A2A2A2A2A2A2A20002 /* RemoteTmuxMirrorPaneInputMappingTests.swift in Sources */,
 				74060000000000000000000C /* RemoteTmuxMirrorPlacementTests.swift in Sources */,
+				838000000000000000000004 /* RemoteTmuxMirrorRenameHarness.swift in Sources */,
+				838000000000000000000002 /* RemoteTmuxMirrorRenameTests.swift in Sources */,
 				7837E0037837E0037837E003 /* RemoteTmuxMirrorResizeRoutingTests.swift in Sources */,
 				D4F8A2E61C5B39707A8E6F12 /* RemoteTmuxMirrorSplitRoutingTests.swift in Sources */,
 				736200000000000000000008 /* RemoteTmuxMirrorTargetingTests.swift in Sources */,
