@@ -308,8 +308,17 @@ public struct AgentHookTransportEnvironmentPolicy: Sendable {
     ]
 
     private static let durableCredentialLocatorKeys: Set<String> = [
-        "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE",
+        "AWS_CONFIG_FILE",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+        "AWS_SHARED_CREDENTIALS_FILE",
+        "AWS_WEB_IDENTITY_TOKEN_FILE",
         "GOOGLE_APPLICATION_CREDENTIALS",
+    ]
+
+    private static let proxyURLKeys: Set<String> = [
+        "ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY",
+        "all_proxy", "https_proxy", "http_proxy",
     ]
 
     /// Provider families intentionally accepted here are narrowed again by the
@@ -358,7 +367,7 @@ public struct AgentHookTransportEnvironmentPolicy: Sendable {
                 selectedValue = value
             }
             guard !selectedValue.isEmpty else { continue }
-            if Self.isCredentialBearing(key) {
+            if Self.isCredentialBearing(key: key, value: selectedValue) {
                 ephemeral[key] = selectedValue
             } else {
                 durable[key] = selectedValue
@@ -371,9 +380,67 @@ public struct AgentHookTransportEnvironmentPolicy: Sendable {
         partitionedEnvironment(from: environment).merged
     }
 
-    private static func isCredentialBearing(_ key: String) -> Bool {
+    /// Removes credential-bearing values from an environment that an older
+    /// cmux version may already have written to durable storage. Unlike fresh
+    /// admission, this preserves unknown non-secret keys so migrations do not
+    /// silently remove historical routing inputs.
+    public func durableEnvironmentForPersistence(
+        from environment: [String: String]
+    ) -> [String: String] {
+        environment.filter { key, value in
+            !Self.isCredentialBearing(key: key, value: value)
+        }
+    }
+
+    private static func isCredentialBearing(key: String, value: String) -> Bool {
         if durableCredentialLocatorKeys.contains(key) { return false }
         let normalized = key.uppercased()
-        return credentialFragments.contains(where: normalized.contains)
+        if credentialFragments.contains(where: normalized.contains) {
+            return true
+        }
+        let components = normalized.split(separator: "_")
+        if components.contains("KEY") || components.contains("TOKEN") {
+            return true
+        }
+        return credentialURLContainsSecret(key: key, value: value)
+    }
+
+    private static func credentialURLContainsSecret(key: String, value: String) -> Bool {
+        let normalizedKey = key.uppercased()
+        guard proxyURLKeys.contains(key)
+                || normalizedKey.hasSuffix("_URL")
+                || normalizedKey.hasSuffix("_URI") else {
+            return false
+        }
+        guard let components = URLComponents(string: value) else { return false }
+        if components.user != nil || components.password != nil {
+            return true
+        }
+        if components.queryItems?.contains(where: { credentialURLFieldName($0.name) }) == true {
+            return true
+        }
+        guard let fragment = components.fragment,
+              let fragmentItems = URLComponents(string: "?\(fragment)")?.queryItems else {
+            return false
+        }
+        return fragmentItems.contains { credentialURLFieldName($0.name) }
+    }
+
+    private static func credentialURLFieldName(_ name: String) -> Bool {
+        let normalized = name.uppercased()
+        if credentialFragments.contains(where: normalized.contains) {
+            return true
+        }
+        let components = normalized.split { character in
+            !character.isLetter && !character.isNumber
+        }
+        return components.contains("AUTH")
+            || components.contains("AUTHORIZATION")
+            || components.contains("CREDENTIAL")
+            || components.contains("KEY")
+            || components.contains("PASSWORD")
+            || components.contains("SECRET")
+            || components.contains("SIGNATURE")
+            || components.contains("TOKEN")
     }
 }

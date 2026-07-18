@@ -1,4 +1,5 @@
 import Darwin
+import CMUXAgentLaunch
 import Foundation
 import OSLog
 import SQLite3
@@ -71,6 +72,7 @@ actor AgentHookDeliveryQueue {
     // synchronous so the socket cannot acknowledge before the committed insert.
     nonisolated(unsafe) private let database: OpaquePointer?
     nonisolated private let databaseInitializationError: String?
+    nonisolated private let admissionLock = NSLock()
     nonisolated private let ephemeralEnvironmentStore = AgentHookEphemeralEnvironmentStore()
     private let executableURLProvider: @Sendable () -> URL?
     private let processTimeout: TimeInterval
@@ -154,9 +156,42 @@ actor AgentHookDeliveryQueue {
             withJSONObject: event.durableEnvironment,
             options: [.sortedKeys]
         )
+        admissionLock.lock()
+        defer { admissionLock.unlock() }
+
+        if let storedDigest = try Self.storedDigest(for: event.deliveryID, database: database) {
+            guard storedDigest == event.contentDigest else {
+                throw Self.failure(
+                    "Delivery ID \(event.deliveryID) was reused for different hook contents.",
+                    code: 2
+                )
+            }
+            if try Self.storedDeliveryIsPending(for: event.deliveryID, database: database) {
+                ephemeralEnvironmentStore.replace(
+                    event.ephemeralEnvironment,
+                    for: event.deliveryID
+                )
+                do {
+                    if try !Self.storedDeliveryIsPending(for: event.deliveryID, database: database) {
+                        ephemeralEnvironmentStore.remove(deliveryID: event.deliveryID)
+                    }
+                } catch {
+                    ephemeralEnvironmentStore.remove(deliveryID: event.deliveryID)
+                    throw error
+                }
+            } else {
+                ephemeralEnvironmentStore.remove(deliveryID: event.deliveryID)
+            }
+            agentHookDeliveryLogger.debug("Accepted duplicate hook \(event.deliveryID, privacy: .public)")
+            Task { [weak self] in
+                await self?.deliveryAvailable()
+            }
+            return
+        }
+
         let now = Date().timeIntervalSince1970
         let insertSQL = """
-        INSERT OR IGNORE INTO agent_hook_deliveries (
+        INSERT INTO agent_hook_deliveries (
             delivery_id, ordering_key, content_digest, agent, subcommand, payload,
             socket_path, environment_json, accepted_at, next_attempt_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
@@ -188,30 +223,22 @@ actor AgentHookDeliveryQueue {
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind acceptance time") }
         status = sqlite3_bind_double(statement, 10, now)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind retry time") }
+
+        // Publish credentials before the committed row can become visible to
+        // an already-running drain. The admission lock serializes the
+        // preflight duplicate check with this publication/insert pair.
+        ephemeralEnvironmentStore.replace(
+            event.ephemeralEnvironment,
+            for: event.deliveryID
+        )
         status = sqlite3_step(statement)
         guard status == SQLITE_DONE else {
+            ephemeralEnvironmentStore.remove(deliveryID: event.deliveryID)
             throw Self.sqliteFailure(status, operation: "persist accepted delivery")
         }
 #if DEBUG
         afterDurableCommitForTesting?(event.deliveryID)
 #endif
-
-        let storedDigest = try Self.storedDigest(for: event.deliveryID, database: database)
-        guard storedDigest == event.contentDigest else {
-            throw Self.failure(
-                "Delivery ID \(event.deliveryID) was reused for different hook contents.",
-                code: 2
-            )
-        }
-
-        if try Self.storedDeliveryIsPending(for: event.deliveryID, database: database) {
-            ephemeralEnvironmentStore.replace(
-                event.ephemeralEnvironment,
-                for: event.deliveryID
-            )
-        } else {
-            ephemeralEnvironmentStore.remove(deliveryID: event.deliveryID)
-        }
 
         agentHookDeliveryLogger.debug("Accepted hook \(event.deliveryID, privacy: .public)")
         Task { [weak self] in
@@ -877,6 +904,9 @@ actor AgentHookDeliveryQueue {
             // stronger than the previous detached, memory-only delivery path.
             "PRAGMA synchronous = NORMAL;",
             "PRAGMA wal_autocheckpoint = 1000;",
+            // Credential migrations must overwrite removed values rather than
+            // leaving them in SQLite free blocks.
+            "PRAGMA secure_delete = ON;",
             """
             CREATE TABLE IF NOT EXISTS agent_hook_deliveries (
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -918,7 +948,11 @@ actor AgentHookDeliveryQueue {
             }
         }
         do {
+            let scrubbedCredentialRows = try scrubPersistedEnvironments(database: database)
             try backfillLegacyOrderingKeys(database: database)
+            if scrubbedCredentialRows {
+                try compactAfterCredentialScrub(database: database)
+            }
         } catch {
             sqlite3_close_v2(database)
             throw error
@@ -966,6 +1000,132 @@ actor AgentHookDeliveryQueue {
             throw sqliteFailure(stepStatus, operation: "read delivery schema")
         }
         return false
+    }
+
+    private nonisolated static func scrubPersistedEnvironments(
+        database: OpaquePointer
+    ) throws -> Bool {
+        var status = sqlite3_exec(database, "BEGIN IMMEDIATE;", nil, nil, nil)
+        guard status == SQLITE_OK else {
+            throw sqliteFailure(status, operation: "begin delivery credential scrub")
+        }
+        do {
+            var rows: [(sequence: Int64, environment: Data)] = []
+            do {
+                var statement: OpaquePointer?
+                status = sqlite3_prepare_v2(
+                    database,
+                    """
+                    SELECT sequence, environment_json
+                    FROM agent_hook_deliveries
+                    WHERE environment_json != X'7B7D'
+                    ORDER BY sequence ASC;
+                    """,
+                    -1,
+                    &statement,
+                    nil
+                )
+                guard status == SQLITE_OK else {
+                    throw sqliteFailure(status, operation: "prepare delivery credential scrub")
+                }
+                defer { sqlite3_finalize(statement) }
+                while true {
+                    status = sqlite3_step(statement)
+                    if status == SQLITE_DONE { break }
+                    guard status == SQLITE_ROW,
+                          let environmentData = columnData(statement, at: 1) else {
+                        throw sqliteFailure(status, operation: "read delivery credential scrub")
+                    }
+                    rows.append((
+                        sequence: sqlite3_column_int64(statement, 0),
+                        environment: environmentData
+                    ))
+                }
+            }
+
+            let policy = AgentHookTransportEnvironmentPolicy()
+            var scrubbedRows: [(sequence: Int64, environment: Data)] = []
+            scrubbedRows.reserveCapacity(rows.count)
+            for row in rows {
+                let decoded = (try? JSONSerialization.jsonObject(with: row.environment)) as? [String: String]
+                let scrubbed = policy.durableEnvironmentForPersistence(from: decoded ?? [:])
+                let scrubbedData = try JSONSerialization.data(withJSONObject: scrubbed, options: [.sortedKeys])
+                if scrubbedData != row.environment {
+                    scrubbedRows.append((sequence: row.sequence, environment: scrubbedData))
+                }
+            }
+
+            if !scrubbedRows.isEmpty {
+                var update: OpaquePointer?
+                status = sqlite3_prepare_v2(
+                    database,
+                    "UPDATE agent_hook_deliveries SET environment_json = ? WHERE sequence = ?;",
+                    -1,
+                    &update,
+                    nil
+                )
+                guard status == SQLITE_OK else {
+                    throw sqliteFailure(status, operation: "prepare scrubbed delivery environment update")
+                }
+                defer { sqlite3_finalize(update) }
+                for row in scrubbedRows {
+                    sqlite3_reset(update)
+                    sqlite3_clear_bindings(update)
+                    status = bind(row.environment, to: update, at: 1)
+                    guard status == SQLITE_OK else {
+                        throw sqliteFailure(status, operation: "bind scrubbed delivery environment")
+                    }
+                    status = sqlite3_bind_int64(update, 2, row.sequence)
+                    guard status == SQLITE_OK else {
+                        throw sqliteFailure(status, operation: "bind scrubbed delivery sequence")
+                    }
+                    status = sqlite3_step(update)
+                    guard status == SQLITE_DONE else {
+                        throw sqliteFailure(status, operation: "update scrubbed delivery environment")
+                    }
+                }
+            }
+
+            status = sqlite3_exec(database, "COMMIT;", nil, nil, nil)
+            guard status == SQLITE_OK else {
+                throw sqliteFailure(status, operation: "commit delivery credential scrub")
+            }
+            return !scrubbedRows.isEmpty
+        } catch {
+            sqlite3_exec(database, "ROLLBACK;", nil, nil, nil)
+            throw error
+        }
+    }
+
+    private nonisolated static func compactAfterCredentialScrub(
+        database: OpaquePointer
+    ) throws {
+        var logFrames: Int32 = 0
+        var checkpointedFrames: Int32 = 0
+        var status = sqlite3_wal_checkpoint_v2(
+            database,
+            nil,
+            SQLITE_CHECKPOINT_TRUNCATE,
+            &logFrames,
+            &checkpointedFrames
+        )
+        guard status == SQLITE_OK else {
+            throw sqliteFailure(status, operation: "checkpoint scrubbed delivery database")
+        }
+        status = sqlite3_exec(database, "VACUUM;", nil, nil, nil)
+        guard status == SQLITE_OK else {
+            throw sqliteFailure(status, operation: "compact scrubbed delivery database")
+        }
+        status = sqlite3_wal_checkpoint_v2(
+            database,
+            nil,
+            SQLITE_CHECKPOINT_TRUNCATE,
+            &logFrames,
+            &checkpointedFrames
+        )
+        guard status == SQLITE_OK else {
+            throw sqliteFailure(status, operation: "truncate scrubbed delivery WAL")
+        }
     }
 
     private nonisolated static func backfillLegacyOrderingKeys(database: OpaquePointer) throws {
