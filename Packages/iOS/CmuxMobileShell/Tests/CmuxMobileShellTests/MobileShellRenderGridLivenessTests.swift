@@ -563,8 +563,8 @@ import Testing
 }
 
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
-/// working: silence past the threshold plus a host that stops answering the
-/// probe must still tear down and re-subscribe.
+/// working: silence past the threshold plus a host that repeatedly stops
+/// answering independent probes must still tear down and re-subscribe.
 @MainActor
 @Test func watchdogStillResubscribesGenuinelyDeadStream() async throws {
     let clock = TestClock()
@@ -579,11 +579,19 @@ import Testing
     #expect(sawSubscribe, "listener must establish the push subscription")
     let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
 
-    // The host stops answering the next mobile.events.subscribe (the
-    // watchdog's re-assert probe), modeling a dead push path while the
-    // request had already left the phone.
+    // The host stops answering two independent mobile.events.subscribe probes,
+    // confirming a dead push path rather than a transient stall.
     await router.holdSubscribeRequest(number: 2)
+    await router.holdSubscribeRequest(number: 3)
     clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(
+        await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
+        "the first ambiguous probe failure must preserve the current listener"
+    )
+
     store.debugRunRenderGridLivenessCheckForTesting()
 
     // Recovery restarts the listener, which re-resolves capabilities. A new
