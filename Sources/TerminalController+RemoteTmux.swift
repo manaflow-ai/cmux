@@ -11,8 +11,9 @@ import os
 extension TerminalController {
     /// `remote.tmux.sessions` — list the tmux sessions on a host.
     ///
-    /// Params: `host` (required SSH destination/alias), optional `port` (Int),
-    /// optional `identity_file` (String).
+    /// Params: `host` (required SSH destination/alias) — or `local: true` for
+    /// this machine's tmux server — plus optional `port` (Int) and
+    /// `identity_file` (String) for SSH hosts.
     nonisolated func v2RemoteTmuxSessions(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
@@ -33,7 +34,13 @@ extension TerminalController {
         }
     }
 
-    /// Builds a ``RemoteTmuxHost`` from socket params (`host`, `port`, `identity_file`).
+    /// Builds a ``RemoteTmuxHost`` from socket params (`host`, `port`,
+    /// `identity_file` — or `local: true` for this machine's tmux server).
+    ///
+    /// `local: true` wins outright and ignores the SSH params: the local
+    /// endpoint has no destination/port/identity, and an explicit boolean can
+    /// never collide with a real `~/.ssh/config` alias that happens to be named
+    /// `local`.
     ///
     /// Rejects a destination (or identity file) beginning with `-`: even with the
     /// `--` end-of-options guard in the argv builders, a dash-prefixed
@@ -41,6 +48,7 @@ extension TerminalController {
     /// at the trust boundary is defense in depth against ssh option injection
     /// (`-oProxyCommand=…` → local command execution).
     nonisolated static func remoteTmuxHost(from params: [String: Any]) -> RemoteTmuxHost? {
+        if (params["local"] as? Bool) == true { return .local }
         guard let destination = (params["host"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !destination.isEmpty,
@@ -82,8 +90,9 @@ extension TerminalController {
 
     /// `remote.tmux.attach` — attach a `tmux -CC` control client to a session.
     ///
-    /// Params: `host` (required), `session` (required tmux session name),
-    /// optional `create` (Bool — attach-or-create). Returns the control surface id.
+    /// Params: `host` (required; or `local: true`), `session` (required tmux
+    /// session name), optional `create` (Bool — attach-or-create). Returns the
+    /// control surface id.
     nonisolated func v2RemoteTmuxAttach(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
@@ -120,8 +129,9 @@ extension TerminalController {
     }
 
     /// `remote.tmux.mirror` — mirror every tmux session on a host as its own
-    /// sidebar workspace in the resolved window. Params: `host` (required),
-    /// optional `port`, `identity_file`, `activate`, and routing selectors.
+    /// sidebar workspace in the resolved window. Params: `host` (required; or
+    /// `local: true`), optional `port`, `identity_file`, `activate`, and
+    /// routing selectors.
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
@@ -163,8 +173,8 @@ extension TerminalController {
     }
 
     /// `remote.tmux.window` — mirror every tmux session on a host into a
-    /// dedicated new window. Params: `host` (required), optional `port`,
-    /// `identity_file`, and `activate`.
+    /// dedicated new window. Params: `host` (required; or `local: true`),
+    /// optional `port`, `identity_file`, and `activate`.
     nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))

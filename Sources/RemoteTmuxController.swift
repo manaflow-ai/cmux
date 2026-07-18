@@ -447,6 +447,9 @@ final class RemoteTmuxController {
     func remoteUploadTarget(forSurfaceId surfaceId: UUID) -> TerminalRemoteUploadTarget? {
         for sessionMirror in sessionMirrors.values
         where !sessionMirror.connection.exited && sessionMirror.ownsSurface(surfaceId) {
+            // A local mirror's panes can read macOS paths directly — no upload,
+            // fall through to the normal local-path insertion.
+            guard !sessionMirror.host.isLocal else { return nil }
             return .detectedSSH(sessionMirror.host.detectedSSHSession())
         }
         return nil

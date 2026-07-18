@@ -1,7 +1,8 @@
 import Foundation
 
-/// Runs commands against a remote host's tmux server over a shared SSH
-/// ControlMaster connection.
+/// Runs commands against a host's tmux server — over a shared SSH
+/// ControlMaster connection, or directly when the host is
+/// ``RemoteTmuxHost/local``.
 ///
 /// This is the non-interactive half of the remote-tmux feature: session
 /// discovery (`tmux list-sessions`) and one-shot mutations (`new-session`,
@@ -10,6 +11,11 @@ import Foundation
 /// it gets a PTY. Both share the same ControlMaster socket
 /// (``RemoteTmuxHost/controlSocketPath``), so the first to connect authenticates
 /// and the rest are subsecond.
+///
+/// For the local endpoint every command execs directly (the tmux resolver argv
+/// for `tmux …`, `/usr/bin/env` otherwise); the ControlMaster lifecycle —
+/// warmup, `ssh -O check`, `ssh -O exit` — degenerates to a no-op, so callers
+/// need no local-vs-ssh branching of their own.
 ///
 /// Modeled as an `actor` because it owns the per-host connection lifecycle and
 /// serializes process launches; reads/writes are `async`.
@@ -163,6 +169,9 @@ actor RemoteTmuxSSHTransport {
     /// remote tmux resolver; other commands are treated as explicit remote argv.
     @discardableResult
     func run(_ remoteArgs: [String]) async throws -> RemoteTmuxCommandResult {
+        if host.isLocal {
+            return try await Self.runLocal(remoteArgs)
+        }
         try host.ensureControlSocketDirectory()
         let remoteCommand: String
         if remoteArgs.first == "tmux" {
@@ -178,6 +187,28 @@ actor RemoteTmuxSSHTransport {
             host.sshControlArguments(controlPersistSeconds: controlPersistSeconds, batchMode: true)
             + ["--", host.destination, remoteCommand]
         return try await Self.runProcess(executable: sshExecutablePath, arguments: sshArgs)
+    }
+
+    /// Runs a command directly on the local machine (the ``RemoteTmuxHost/local``
+    /// endpoint) — same contract as the ssh path in ``run(_:)``, minus the ssh.
+    ///
+    /// A leading literal `tmux` selects the shared tmux resolver
+    /// (``RemoteTmuxHost/tmuxLocalInvocation(arguments:)``), so a Homebrew/MacPorts
+    /// tmux is found even though a GUI app's PATH lacks those directories — and the
+    /// missing-tmux sentinel classification stays identical to the remote path.
+    /// Other commands exec via `/usr/bin/env`. No shell joins the arguments, so
+    /// nothing needs quoting.
+    private static func runLocal(_ args: [String]) async throws -> RemoteTmuxCommandResult {
+        let argv: [String]
+        if args.first == "tmux" {
+            argv = RemoteTmuxHost.tmuxLocalInvocation(arguments: Array(args.dropFirst()))
+        } else {
+            argv = ["/usr/bin/env"] + args
+        }
+        guard let executable = argv.first else {
+            throw RemoteTmuxError.launchFailed("empty local command")
+        }
+        return try await runProcess(executable: executable, arguments: Array(argv.dropFirst()))
     }
 
     /// Opens the shared SSH ControlMaster (if it isn't already up) and confirms it
@@ -216,6 +247,8 @@ actor RemoteTmuxSSHTransport {
     /// creating the dedicated window.
     @discardableResult
     func ensureMasterReady() async throws -> Bool {
+        // The local endpoint has no master to warm; it is always "ready".
+        if host.isLocal { return true }
         if let existing = readinessTask {
             return try await existing.value
         }
@@ -261,6 +294,7 @@ actor RemoteTmuxSSHTransport {
 
     /// Tears down the shared SSH master (e.g. when the user removes a host).
     func shutdownMaster() async {
+        guard !host.isLocal else { return }
         _ = try? await Self.runProcess(
             executable: sshExecutablePath,
             arguments: ["-O", "exit", "-o", "ControlPath=\(host.controlSocketPath)", "--", host.destination]
@@ -279,6 +313,7 @@ actor RemoteTmuxSSHTransport {
         host: RemoteTmuxHost,
         sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath()
     ) {
+        guard !host.isLocal else { return }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: sshExecutablePath)
         process.arguments = ["-O", "exit", "-o", "ControlPath=\(host.controlSocketPath)", "--", host.destination]

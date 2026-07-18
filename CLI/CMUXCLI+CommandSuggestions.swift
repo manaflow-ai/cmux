@@ -194,6 +194,7 @@ extension CMUXCLI {
         "swap-pane",
         "tab-action",
         "themes",
+        "tmux",
         "todo",
         "top",
         "tree",
