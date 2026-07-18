@@ -606,6 +606,185 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(sessionIDs, ["session-before-reload", "session-after-reload"])
     }
 
+    func testOpenCodeDisposedFactoryCanBeReusedFromSameModule() throws {
+        let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
+            "payload=\"$(cat)\"",
+            "case \"$payload\" in *session-after-reuse*) sleep 0.35 ;; esac",
+            "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
+        var environment = fixture.environment
+        environment["TEST_HOOK_CAPTURE"] = capture.path
+        let harness = fixture.root.appendingPathComponent("dispose-reuse.mjs", isDirectory: false)
+        try """
+        import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
+
+        const firstHooks = await plugin({ directory: process.cwd() });
+        const firstInfo = { id: "session-before-reuse", directory: process.cwd() };
+        await firstHooks.event({ event: { type: "session.created", properties: { info: firstInfo } } });
+        await firstHooks.dispose();
+
+        const secondHooks = await plugin({ directory: process.cwd() });
+        const secondInfo = { id: "session-after-reuse", directory: process.cwd() };
+        await secondHooks.event({ event: { type: "session.created", properties: { info: secondInfo } } });
+        const startedAt = performance.now();
+        await secondHooks.dispose();
+        const elapsedMilliseconds = performance.now() - startedAt;
+        console.log(String(elapsedMilliseconds));
+        """.write(to: harness, atomically: true, encoding: .utf8)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["node", harness.path],
+            environment: environment,
+            timeout: 3
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let elapsedMilliseconds = try XCTUnwrap(Double(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertGreaterThanOrEqual(elapsedMilliseconds, 250, "reused factory returned the first shutdown promise")
+        let sessionIDs = try String(contentsOf: capture, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { hookSessionID($0) }
+        XCTAssertEqual(sessionIDs, ["session-before-reuse", "session-after-reuse"])
+    }
+
+    func testOpenCodeShutdownPreservesDistinctSessionStopsAtQueueSaturation() throws {
+        let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
+            "payload=\"$(cat)\"",
+            "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+            "if [ \"$3\" = \"session-start\" ]; then sleep 1; fi",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
+        var environment = fixture.environment
+        environment["TEST_HOOK_CAPTURE"] = capture.path
+        let harness = fixture.root.appendingPathComponent("dispose-distinct-stops.mjs", isDirectory: false)
+        try """
+        import fs from "node:fs";
+        import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
+
+        const hooks = await plugin({ directory: process.cwd() });
+        const sessionIds = Array.from({ length: 130 }, (_, index) => `session-stop-${index}`);
+        const captureLines = () => fs.existsSync(process.env.TEST_HOOK_CAPTURE)
+          ? fs.readFileSync(process.env.TEST_HOOK_CAPTURE, "utf8").trim().split("\\n").filter(Boolean)
+          : [];
+        const waitForFourStarts = new Promise((resolve, reject) => {
+          if (captureLines().length >= 4) return resolve();
+          const watcher = fs.watch(\(javaScriptString(fixture.root.path)), () => {
+            if (captureLines().length < 4) return;
+            watcher.close();
+            clearTimeout(timeout);
+            resolve();
+          });
+          const timeout = setTimeout(() => {
+            watcher.close();
+            reject(new Error("four starts did not dispatch"));
+          }, 2000);
+        });
+        for (const sessionId of sessionIds) {
+          const info = { id: sessionId, directory: process.cwd() };
+          await hooks.event({ event: { type: "session.created", properties: { info } } });
+        }
+        await waitForFourStarts;
+        for (const sessionId of sessionIds) {
+          const info = { id: sessionId, directory: process.cwd() };
+          await hooks.event({ event: { type: "session.idle", properties: { info } } });
+        }
+        await hooks.dispose();
+        console.log(captureLines().join("\\n"));
+        """.write(to: harness, atomically: true, encoding: .utf8)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["node", harness.path],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        var commandsBySession: [String: [String]] = [:]
+        for line in result.stdout.split(separator: "\n") {
+            guard let separator = line.firstIndex(of: "|"),
+                  let sessionID = hookSessionID(line)
+            else { continue }
+            commandsBySession[sessionID, default: []].append(String(line[..<separator]))
+        }
+        XCTAssertEqual(commandsBySession.count, 130)
+        for index in 0..<130 {
+            let sessionID = "session-stop-\(index)"
+            XCTAssertEqual(commandsBySession[sessionID]?.last, "stop", "lost final stop for \(sessionID)")
+        }
+    }
+
+    func testOpenCodeStopWithoutPriorStartCreatesRestorableDurableRow() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-stop-only-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("opencode", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/usr/bin/yes", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+
+        let stateURL = root.appendingPathComponent("opencode-hook-sessions.json", isDirectory: false)
+        let registryURL = root.appendingPathComponent("sessions.sqlite3", isDirectory: false)
+        let environment = [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "opencode-stop-only-runtime",
+        ]
+        let launchCommand = AgentHookLaunchCommandRecord(
+            launcher: "opencode",
+            executablePath: executable.path,
+            arguments: [executable.path],
+            workingDirectory: root.path,
+            environment: nil,
+            capturedAt: Date().timeIntervalSince1970,
+            source: "process"
+        )
+        let store = ClaudeHookSessionStore(processEnv: environment, agentName: "opencode")
+        let stop = try store.recordPromptStop(
+            sessionId: "session-stop-only",
+            workspaceId: "workspace-stop-only",
+            surfaceId: "surface-stop-only",
+            cwd: root.path,
+            pid: Int(process.processIdentifier),
+            launchCommand: launchCommand,
+            agentLifecycle: .idle,
+            lastSubtitle: "Completed",
+            lastBody: "OpenCode session completed",
+            runtimeStatus: .idle,
+            updateRuntimeStatus: true
+        )
+
+        XCTAssertTrue(stop.accepted)
+        let record = try XCTUnwrap(try store.lookup(sessionId: "session-stop-only"))
+        XCTAssertEqual(record.sessionState, .active)
+        XCTAssertEqual(record.restoreAuthority, true)
+        XCTAssertEqual(record.agentLifecycle, .idle)
+        XCTAssertEqual(record.runtimeStatus, .idle)
+        XCTAssertEqual(record.launchCommand?.arguments, [executable.path])
+        XCTAssertTrue(CMUXCLI(args: []).agentHookRecordIsRestorable(
+            agent: "opencode",
+            record: record,
+            claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache(homeDirectory: root.path)
+        ))
+    }
+
     func testOpenCodeNaturalExitDrainsQueuedLifecycleHooks() throws {
         let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
             "payload=\"$(cat)\"",
@@ -760,6 +939,17 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: [value], options: [])
         let array = try XCTUnwrap(String(data: data, encoding: .utf8))
         return String(array.dropFirst().dropLast())
+    }
+
+    private func hookSessionID<S: StringProtocol>(_ line: S) -> String? {
+        guard let separator = line.firstIndex(of: "|") else { return nil }
+        let payload = line[line.index(after: separator)...]
+        guard let object = try? JSONSerialization.jsonObject(
+            with: Data(String(payload).utf8)
+        ) as? [String: Any] else {
+            return nil
+        }
+        return object["session_id"] as? String
     }
 
     private func runProcess(
