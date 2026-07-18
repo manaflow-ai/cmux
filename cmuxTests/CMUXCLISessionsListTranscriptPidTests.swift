@@ -295,6 +295,63 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_unavailable_reason"] as? String == "record_marked_non_restorable")
     }
 
+    @Test func testClaudeTranscriptLookupIndexesProjectDirectoriesOncePerInvocation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sessions-list-claude-scale-\(UUID().uuidString)", isDirectory: true)
+        let configRoot = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsRoot = configRoot.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectsRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let count = 128
+        for index in 0..<count {
+            try FileManager.default.createDirectory(
+                at: projectsRoot.appendingPathComponent("project-\(index)", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+
+        let fileManager = SessionsListCountingFileManager()
+        let lookup = SessionsListClaudeTranscriptLookupCache(
+            homeDirectory: root.path,
+            fileManager: fileManager
+        )
+        let cli = CMUXCLI(args: [])
+        let records = (0..<count).map { index in
+            ClaudeHookSessionRecord(
+                sessionId: String(format: "00000000-0000-4000-8000-%012d", index),
+                workspaceId: "workspace-\(index)",
+                surfaceId: "surface-\(index)",
+                cwd: "/benchmark/workspace-\(index)",
+                launchCommand: AgentHookLaunchCommandRecord(
+                    launcher: "claude",
+                    executablePath: "/usr/local/bin/claude",
+                    arguments: ["/usr/local/bin/claude"],
+                    workingDirectory: "/benchmark/workspace-\(index)",
+                    environment: ["CLAUDE_CONFIG_DIR": configRoot.path],
+                    capturedAt: 100,
+                    source: "test"
+                ),
+                isRestorable: true,
+                startedAt: 100,
+                updatedAt: 200
+            )
+        }
+
+        for record in records {
+            let resolved = cli.sessionsListResolvedClaudeWorkflowRecord(record, lookup: lookup)
+            let diagnostics = cli.sessionsListForkDiagnostics(
+                agent: "claude",
+                record: resolved,
+                claudeTranscriptLookup: lookup
+            )
+            #expect(diagnostics["hook_record_restorable"] as? Bool == false)
+        }
+
+        #expect(fileManager.directoryReadCount <= count + 2)
+        #expect(fileManager.existenceCheckCount <= (count * 4) + 8)
+    }
+
     @Test func testSessionsListIgnoresOutOfRangeStoredPID() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -494,5 +551,20 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_unavailable_reason"] as? String == "agent_has_no_fork_command")
         #expect(session["fork_startup_input_available"] as? Bool == false)
         #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == true)
+    }
+}
+
+private final class SessionsListCountingFileManager: FileManager {
+    private(set) var directoryReadCount = 0
+    private(set) var existenceCheckCount = 0
+
+    override func contentsOfDirectory(atPath path: String) throws -> [String] {
+        directoryReadCount += 1
+        return try super.contentsOfDirectory(atPath: path)
+    }
+
+    override func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
+        existenceCheckCount += 1
+        return super.fileExists(atPath: path, isDirectory: isDirectory)
     }
 }
