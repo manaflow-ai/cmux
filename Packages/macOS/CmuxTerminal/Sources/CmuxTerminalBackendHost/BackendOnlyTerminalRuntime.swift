@@ -154,6 +154,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private var uxRefreshTask: Task<Void, Never>?
     private var uxRefreshRequested = false
     private var latestUXContentSequence: UInt64?
+    private var hostControlState = BackendOnlyHostControlDrainState()
+    private var hostControlTask: Task<Void, Never>?
     private var hostViewportTask: Task<Void, Never>?
     private var pendingHostViewport: TerminalExternalViewport?
     private var accessibilityContinuations: [
@@ -213,6 +215,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         receiveTask?.cancel()
         accessibilityRefreshTask?.cancel()
         uxRefreshTask?.cancel()
+        hostControlTask?.cancel()
         hostViewportTask?.cancel()
     }
 
@@ -277,6 +280,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         presentationTask?.cancel()
         retired = true
         visible = false
+        hostControlState.cancel()
+        hostControlTask?.cancel()
         attachmentIDs.removeAll()
         invalidateRendererOperations()
         mutationContinuation.finish()
@@ -301,6 +306,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     /// Applies host lifecycle state through a non-droppable control path.
     public func setHostVisibility(_ value: Bool) {
         guard !retired else { return }
+        let shouldStartDrain = hostControlState.setVisibility(value)
         if !value {
             presentationTask?.cancel()
             visible = false
@@ -308,21 +314,60 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             hostViewportTask?.cancel()
             invalidateRendererOperations()
         }
-        Task { @MainActor [self] in
-            await withRendererOperationIgnoringCancellation {
-                await self.applySerialized(.visibility(value))
-            }
-        }
+        guard shouldStartDrain else { return }
+        startHostControlDrain()
     }
 
     /// Key-window focus is presentation state and must not be lost to input
     /// queue saturation.
     public func setHostFocus(_ value: Bool) {
         guard !retired else { return }
-        Task { @MainActor [self] in
-            await withRendererOperationIgnoringCancellation {
-                await self.applySerialized(.focus(value))
+        let shouldStartDrain = hostControlState.setFocus(value)
+        // Focus is desired renderer state. Publishing it immediately keeps
+        // presentation startup and in-flight configuration on the newest value.
+        focused = value
+        guard shouldStartDrain else { return }
+        startHostControlDrain()
+    }
+
+    private func startHostControlDrain() {
+        guard hostControlTask == nil else { return }
+        hostControlTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.hostControlTask = nil }
+
+            while !Task.isCancelled {
+                var shouldContinue = false
+                await self.withRendererOperationIgnoringCancellation {
+                    guard !self.retired,
+                          let target = self.hostControlState.latestTarget()
+                    else { return }
+                    await self.applyHostControl(target)
+                    shouldContinue = self.hostControlState.complete(target)
+                }
+                // A setter can run after completion marks the state idle but
+                // before this task resumes from the renderer-operation await.
+                // Keep this owner when that setter installed a fresh target.
+                guard shouldContinue
+                        || self.hostControlState.latestTarget() != nil
+                else { return }
             }
+        }
+    }
+
+    private func applyHostControl(
+        _ target: BackendOnlyHostControlDrainState.Target
+    ) async {
+        guard !retired, hostControlState.isCurrent(target) else { return }
+
+        if target.values.visible {
+            await applySerialized(.focus(target.values.focused))
+            guard !retired, hostControlState.isCurrent(target) else { return }
+            await applySerialized(.visibility(true))
+        } else {
+            await applySerialized(.visibility(false))
+            guard !retired, hostControlState.isCurrent(target) else { return }
+            await applySerialized(.focus(target.values.focused))
         }
     }
 
@@ -474,7 +519,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     await stopPresentation()
                 }
             case .focus(let value):
-                guard focused != value else { return }
+                guard focused != value || configuredFocus != value else { return }
                 focused = value
                 if visible, presentation != nil, let currentViewport {
                     try await configureRenderer(viewport: currentViewport)
@@ -758,6 +803,11 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             self.receiver = receiver
         }
         let preedit = currentPreedit
+        // Capture exactly what this RPC carries. Host focus may change while
+        // the daemon awaits the renderer, and configuredFocus must describe
+        // the acknowledged request so the control drain can publish a follow-up.
+        let requestedFocus = focused
+        let requestedCursorBlinkVisibility = requestedFocus && visible
         let receipt = try await session.configureRendererPresentation(
             id: presentation.id,
             expectedGeneration: presentation.generation,
@@ -773,8 +823,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 frameEndpointCapability: receiver.endpoint.capability,
                 resolvedConfigRevision: 0,
                 resolvedConfig: Data(),
-                focused: focused,
-                cursorBlinkVisible: focused && visible,
+                focused: requestedFocus,
+                cursorBlinkVisible: requestedCursorBlinkVisibility,
                 preedit: preedit?.text,
                 preeditSelectionStartUTF16: preedit?.selectionStartUTF16 ?? 0,
                 preeditSelectionLengthUTF16: preedit?.selectionLengthUTF16 ?? 0,
@@ -808,7 +858,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         }
         configuredPixelSize = (width, height)
         configuredViewport = viewport
-        configuredFocus = focused
+        configuredFocus = requestedFocus
         rendererDaemonInstanceID = receipt.daemonInstanceID.rawValue
         rendererEpoch = receipt.rendererEpoch
         rendererGeneration = receipt.rendererGeneration

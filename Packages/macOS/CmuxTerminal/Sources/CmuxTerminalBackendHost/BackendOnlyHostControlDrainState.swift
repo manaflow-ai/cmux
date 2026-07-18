@@ -17,6 +17,7 @@ struct BackendOnlyHostControlDrainState: Sendable {
         guard desired.visible != value else { return false }
         desired.visible = value
         advanceRevision()
+        guard !drainActive else { return false }
         drainActive = true
         return true
     }
@@ -25,6 +26,7 @@ struct BackendOnlyHostControlDrainState: Sendable {
         guard desired.focused != value else { return false }
         desired.focused = value
         advanceRevision()
+        guard !drainActive else { return false }
         drainActive = true
         return true
     }
@@ -36,9 +38,13 @@ struct BackendOnlyHostControlDrainState: Sendable {
 
     func isCurrent(_ target: Target) -> Bool {
         drainActive
+            && target.revision == revision
+            && target.values == desired
     }
 
     mutating func complete(_ target: Target) -> Bool {
+        guard drainActive else { return false }
+        guard isCurrent(target) else { return true }
         drainActive = false
         return false
     }
