@@ -1,4 +1,6 @@
+import CmuxControlSocket
 import CryptoKit
+import Darwin
 import Foundation
 import SQLite3
 import Testing
@@ -11,6 +13,223 @@ import Testing
 
 @Suite("Agent hook durable delivery", .serialized)
 struct AgentHookDeliveryQueueTests {
+    private struct OutboxTestRecord {
+        let markerURL: URL
+        let sharedMemoryName: String
+    }
+
+    @Test func authenticatedOutboxRecoveryPersistsEventAndScrubsSecrets() async throws {
+        let root = try temporaryDirectory(named: "outbox-recovery")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x31, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox-recovery"
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            capabilityAuthority: authority,
+            deliveryQueue: queue,
+            reconciliationInterval: 60
+        ))
+        let capability = authority.issueCapability()
+        let message = try outboxMessage(
+            deliveryID: "outbox-recovery",
+            payload: Data([0x00, 0xff, 0x0a]),
+            environment: testEnvironment(root: root).merging([
+                "OPENAI_API_KEY": "outbox-memory-only-secret",
+            ], uniquingKeysWith: { _, new in new })
+        )
+        let record = try publishOutboxRecord(
+            message: message,
+            capability: capability,
+            directoryURL: outboxURL,
+            order: 1
+        )
+        defer { shm_unlink(record.sharedMemoryName) }
+
+        await outbox.start()
+        #expect(try await queue.diagnosticStatus(for: "outbox-recovery")?["state"] == "pending")
+        #expect(!FileManager.default.fileExists(atPath: record.markerURL.path))
+        #expect(sharedMemoryIsMissing(record.sharedMemoryName))
+        let storedEnvironment = try storedEnvironmentJSON(
+            databaseURL: databaseURL,
+            deliveryID: "outbox-recovery"
+        )
+        #expect(!storedEnvironment.contains("outbox-memory-only-secret"))
+        for file in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            where file.lastPathComponent.hasPrefix("deliveries.sqlite3") {
+            let bytes = (try? Data(contentsOf: file)) ?? Data()
+            #expect(bytes.range(of: Data("outbox-memory-only-secret".utf8)) == nil)
+        }
+        await outbox.stop()
+    }
+
+    @Test func outboxRejectsWrongAudienceAndTamperedMessage() async throws {
+        let root = try temporaryDirectory(named: "outbox-auth-rejection")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x41, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox-expected"
+        )
+        let otherAuthority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x41, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox-other"
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            capabilityAuthority: authority,
+            deliveryQueue: queue,
+            reconciliationInterval: 60
+        ))
+        let original = try outboxMessage(
+            deliveryID: "outbox-tampered",
+            payload: Data("original".utf8),
+            environment: testEnvironment(root: root)
+        )
+        let wrongAudienceRecord = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-wrong-audience",
+                payload: Data("wrong-audience".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: otherAuthority.issueCapability(),
+            directoryURL: outboxURL,
+            order: 1
+        )
+        let tamperedRecord = try publishOutboxRecord(
+            message: Data(original.dropLast()) + Data(" \n".utf8),
+            authenticating: original,
+            capability: authority.issueCapability(),
+            directoryURL: outboxURL,
+            order: 2
+        )
+        defer {
+            shm_unlink(wrongAudienceRecord.sharedMemoryName)
+            shm_unlink(tamperedRecord.sharedMemoryName)
+        }
+
+        await outbox.reconcileForTesting()
+
+        #expect(try await queue.diagnosticStatus(for: "outbox-wrong-audience") == nil)
+        #expect(try await queue.diagnosticStatus(for: "outbox-tampered") == nil)
+        for record in [wrongAudienceRecord, tamperedRecord] {
+            #expect(!FileManager.default.fileExists(atPath: record.markerURL.path))
+            #expect(sharedMemoryIsMissing(record.sharedMemoryName))
+        }
+    }
+
+    @Test func outboxReplayAfterCommittedQueueInsertDeduplicatesAndCleansUp() async throws {
+        let root = try temporaryDirectory(named: "outbox-crash-replay")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x51, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox-replay"
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            capabilityAuthority: authority,
+            deliveryQueue: queue,
+            reconciliationInterval: 60
+        ))
+        let message = try outboxMessage(
+            deliveryID: "outbox-crash-replay",
+            payload: Data("same-event".utf8),
+            environment: testEnvironment(root: root)
+        )
+        let event = try #require(outboxEvent(from: message))
+        try queue.enqueue(event)
+        let record = try publishOutboxRecord(
+            message: message,
+            capability: authority.issueCapability(),
+            directoryURL: outboxURL,
+            order: 1
+        )
+        defer { shm_unlink(record.sharedMemoryName) }
+
+        await outbox.reconcileForTesting()
+
+        #expect(try storedDeliveryIDs(databaseURL: databaseURL) == ["outbox-crash-replay"])
+        #expect(!FileManager.default.fileExists(atPath: record.markerURL.path))
+        #expect(sharedMemoryIsMissing(record.sharedMemoryName))
+    }
+
+    @Test func outboxImportsReadyMarkersInPublicationOrder() async throws {
+        let root = try temporaryDirectory(named: "outbox-order")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x61, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox-order"
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            capabilityAuthority: authority,
+            deliveryQueue: queue,
+            reconciliationInterval: 60
+        ))
+        let capability = authority.issueCapability()
+        let second = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-second",
+                payload: Data("second".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: capability,
+            directoryURL: outboxURL,
+            order: 2
+        )
+        let first = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-first",
+                payload: Data("first".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: capability,
+            directoryURL: outboxURL,
+            order: 1
+        )
+        defer {
+            shm_unlink(first.sharedMemoryName)
+            shm_unlink(second.sharedMemoryName)
+        }
+
+        await outbox.reconcileForTesting()
+
+        #expect(try storedDeliveryIDs(databaseURL: databaseURL) == [
+            "outbox-first", "outbox-second",
+        ])
+    }
+
     @Test func encodedEventPreservesExactPayloadAndValidatedEnvironment() throws {
         let payload = Data([0x00, 0x7b, 0x22, 0xff, 0x0a])
         let event = try #require(makeEvent(
@@ -846,6 +1065,151 @@ struct AgentHookDeliveryQueueTests {
             "payload_b64": payload.base64EncodedString(),
             "environment_b64": environmentData.base64EncodedString(),
         ])
+    }
+
+    private func outboxMessage(
+        deliveryID: String,
+        payload: Data,
+        environment: [String: String],
+        subcommand: String = "session-start"
+    ) throws -> Data {
+        var environmentData = Data()
+        for key in environment.keys.sorted() {
+            environmentData.append(contentsOf: key.utf8)
+            environmentData.append(0)
+            environmentData.append(contentsOf: (environment[key] ?? "").utf8)
+            environmentData.append(0)
+        }
+        let request: [String: Any] = [
+            "id": "hook-\(deliveryID)",
+            "method": "agent.hook.enqueue",
+            "params": [
+                "delivery_id": deliveryID,
+                "agent": "codex",
+                "subcommand": subcommand,
+                "payload_b64": payload.base64EncodedString(),
+                "environment_b64": environmentData.base64EncodedString(),
+            ],
+        ]
+        var data = try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
+        data.append(0x0a)
+        return data
+    }
+
+    private func outboxEvent(from message: Data) -> AgentHookDeliveryEvent? {
+        guard let request = try? JSONSerialization.jsonObject(with: message) as? [String: Any],
+              request["method"] as? String == "agent.hook.enqueue",
+              let params = request["params"] as? [String: Any] else {
+            return nil
+        }
+        return AgentHookDeliveryEvent(params: params)
+    }
+
+    private func publishOutboxRecord(
+        message: Data,
+        authenticating authenticatedMessage: Data? = nil,
+        capability: String,
+        directoryURL: URL,
+        order: UInt64
+    ) throws -> OutboxTestRecord {
+        let authenticatedMessage = authenticatedMessage ?? message
+        let authentication = try #require(
+            SocketClientCapabilityOutboxAuthentication.make(
+                capability: capability,
+                message: authenticatedMessage
+            )
+        )
+        let random = UInt64.random(in: .min ... .max)
+        let sharedMemoryName = String(format: "/ch%016llx", random)
+        let descriptor = shm_open(
+            sharedMemoryName,
+            O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC,
+            0o600
+        )
+        guard descriptor >= 0 else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(errno))
+        }
+        var keepSharedMemory = false
+        defer {
+            Darwin.close(descriptor)
+            if !keepSharedMemory {
+                shm_unlink(sharedMemoryName)
+            }
+        }
+        guard ftruncate(descriptor, off_t(message.count)) == 0 else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(errno))
+        }
+        let mapping = mmap(
+            nil,
+            message.count,
+            PROT_READ | PROT_WRITE,
+            MAP_SHARED,
+            descriptor,
+            0
+        )
+        guard mapping != MAP_FAILED else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(errno))
+        }
+        message.copyBytes(to: mapping!.assumingMemoryBound(to: UInt8.self), count: message.count)
+        munmap(mapping, message.count)
+
+        let marker = """
+        \(sharedMemoryName)
+        \(authentication.nonce)
+        \(authentication.code.base64EncodedString())
+        \(message.count)
+
+        """
+        let markerURL = directoryURL.appendingPathComponent(
+            String(format: "ready-%016llx-%016llx", order, random),
+            isDirectory: false
+        )
+        try Data(marker.utf8).write(to: markerURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: markerURL.path
+        )
+        keepSharedMemory = true
+        return OutboxTestRecord(
+            markerURL: markerURL,
+            sharedMemoryName: sharedMemoryName
+        )
+    }
+
+    private func sharedMemoryIsMissing(_ name: String) -> Bool {
+        let descriptor = shm_open(name, O_RDONLY | O_CLOEXEC, 0)
+        guard descriptor < 0 else {
+            Darwin.close(descriptor)
+            return false
+        }
+        return errno == ENOENT
+    }
+
+    private func storedDeliveryIDs(databaseURL: URL) throws -> [String] {
+        var database: OpaquePointer?
+        let openStatus = sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil)
+        guard openStatus == SQLITE_OK, let database else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(openStatus))
+        }
+        defer { sqlite3_close(database) }
+        var statement: OpaquePointer?
+        let prepareStatus = sqlite3_prepare_v2(
+            database,
+            "SELECT delivery_id FROM agent_hook_deliveries ORDER BY sequence ASC;",
+            -1,
+            &statement,
+            nil
+        )
+        guard prepareStatus == SQLITE_OK, let statement else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(prepareStatus))
+        }
+        defer { sqlite3_finalize(statement) }
+        var deliveryIDs: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW,
+              let text = sqlite3_column_text(statement, 0) {
+            deliveryIDs.append(String(cString: text))
+        }
+        return deliveryIDs
     }
 
     private func testEnvironment(root: URL, surfaceID: String = "surface:test") -> [String: String] {
