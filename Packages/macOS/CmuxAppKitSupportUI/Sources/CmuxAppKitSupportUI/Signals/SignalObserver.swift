@@ -1,6 +1,12 @@
 @MainActor
+enum SignalObserverKind {
+    case memo
+    case effect
+}
+
+@MainActor
 protocol SignalObserver: AnyObject {
-    var schedulingPriority: Int { get }
+    var observerKind: SignalObserverKind { get }
 
     func observe(_ dependency: any SignalDependency)
     func run()

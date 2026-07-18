@@ -28,6 +28,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if !extendsSelection {
             self.previewSelection(workspaceId: workspaceId)
             context.onCleanup { [weak self] in
+                self?.selectionCoalescer.cancel()
                 self?.restoreAuthoritativeSelectionAppearance()
             }
         }
