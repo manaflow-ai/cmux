@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -47,6 +48,83 @@ struct SidebarWorkspaceTableDragTests {
         _ = window.makeFirstResponder(container.tableView)
         #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 1) != nil)
         #expect(draggedWorkspaceIds == [anchorId, workspaceId])
+    }
+
+    @Test
+    @MainActor
+    func bonsplitDropsAtGroupedEdgesStayOutsideTheCompleteGroupRun() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let groupId = UUID()
+        let beforeId = UUID()
+        let anchorId = UUID()
+        let firstMemberId = UUID()
+        let secondMemberId = UUID()
+        let afterId = UUID()
+        let workspaceIds = [beforeId, anchorId, firstMemberId, secondMemberId, afterId]
+        var receivedIndexes: [Int] = []
+        let actions = makeTableActions(moveBonsplitToNewWorkspace: { index, _ in
+            receivedIndexes.append(index)
+            return UUID()
+        })
+        let transfer = try JSONDecoder().decode(
+            BonsplitTabDragPayload.Transfer.self,
+            from: Data(
+                "{\"tab\":{\"id\":\"\(UUID())\"},\"sourcePaneId\":\"\(UUID())\",\"sourceProcessId\":0}".utf8
+            )
+        )
+
+        controller.apply(
+            rows: [
+                makeRowConfiguration(workspaceId: beforeId),
+                makeGroupConfiguration(
+                    groupId: groupId,
+                    anchorWorkspaceId: anchorId,
+                    memberCount: 3
+                ),
+                makeRowConfiguration(workspaceId: firstMemberId, groupId: groupId),
+                makeRowConfiguration(workspaceId: secondMemberId, groupId: groupId),
+                makeRowConfiguration(workspaceId: afterId),
+            ],
+            actions: actions,
+            workspaceIds: workspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        flushStagedTableMutations()
+
+        #expect(container.bonsplitDropView.performNewWorkspaceMove(
+            0, SidebarDropIndicator(tabId: anchorId, edge: .bottom), transfer
+        ))
+        #expect(container.bonsplitDropView.performNewWorkspaceMove(
+            2, SidebarDropIndicator(tabId: firstMemberId, edge: .top), transfer
+        ))
+        #expect(container.bonsplitDropView.performNewWorkspaceMove(
+            2, SidebarDropIndicator(tabId: firstMemberId, edge: .bottom), transfer
+        ))
+
+        controller.apply(
+            rows: [
+                makeRowConfiguration(workspaceId: beforeId),
+                makeGroupConfiguration(
+                    groupId: groupId,
+                    anchorWorkspaceId: anchorId,
+                    memberCount: 3,
+                    isCollapsed: true
+                ),
+                makeRowConfiguration(workspaceId: afterId),
+            ],
+            actions: actions,
+            workspaceIds: workspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        flushStagedTableMutations()
+
+        #expect(container.bonsplitDropView.performNewWorkspaceMove(
+            0, SidebarDropIndicator(tabId: anchorId, edge: .bottom), transfer
+        ))
+        #expect(receivedIndexes == [4, 1, 4, 4])
     }
 
     @Test
@@ -265,7 +343,9 @@ struct SidebarWorkspaceTableDragTests {
     @MainActor
     private func makeGroupConfiguration(
         groupId: UUID,
-        anchorWorkspaceId: UUID
+        anchorWorkspaceId: UUID,
+        memberCount: Int = 1,
+        isCollapsed: Bool = false
     ) -> SidebarWorkspaceTableRowConfiguration {
         let model = SidebarGroupHeaderRowModel(
             groupId: groupId,
@@ -273,10 +353,10 @@ struct SidebarWorkspaceTableDragTests {
             name: "Group",
             iconSymbol: "folder",
             tintHex: nil,
-            isCollapsed: false,
+            isCollapsed: isCollapsed,
             isPinned: false,
             isAnchorActive: false,
-            memberCount: 1,
+            memberCount: memberCount,
             anchorUnreadCount: 0,
             canMarkRead: false,
             canMarkUnread: false,
@@ -319,7 +399,8 @@ struct SidebarWorkspaceTableDragTests {
 
     @MainActor
     private func makeTableActions(
-        beginWorkspaceDrag: @escaping (UUID) -> Void = { _ in }
+        beginWorkspaceDrag: @escaping (UUID) -> Void = { _ in },
+        moveBonsplitToNewWorkspace: @escaping (Int, BonsplitTabDragPayload.Transfer) -> UUID? = { _, _ in nil }
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in },
@@ -338,7 +419,7 @@ struct SidebarWorkspaceTableDragTests {
             setWorkspaceDropTargetCollectionActive: { _ in },
             canPerformBonsplitAction: { _, _ in false },
             moveBonsplitToExistingWorkspace: { _, _ in false },
-            moveBonsplitToNewWorkspace: { _, _ in nil },
+            moveBonsplitToNewWorkspace: moveBonsplitToNewWorkspace,
             didMoveBonsplitToWorkspace: { _ in },
             updateDragAutoscroll: {},
             setBonsplitDropTargetCollectionActive: { _ in },
