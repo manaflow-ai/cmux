@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_WORKFLOW = ROOT / ".github/workflows/docs-deploy-reusable.yml"
+DOCS_VERCEL_CONFIG = ROOT / "web/vercel.docs-channel.json"
 HEALTH_WORKFLOW = ROOT / ".github/workflows/vercel-auth-health.yml"
 
 
@@ -15,6 +17,14 @@ class DocsDeployAuthGuardTests(unittest.TestCase):
         self.assertIn("bunx vercel@56.3.1 deploy", workflow)
         self.assertNotIn("bunx vercel deploy", workflow)
         self.assertNotIn("--token", workflow)
+
+    def test_docs_deploy_excludes_production_crons(self) -> None:
+        workflow = DEPLOY_WORKFLOW.read_text()
+        config = json.loads(DOCS_VERCEL_CONFIG.read_text())
+
+        self.assertIn("--local-config web/vercel.docs-channel.json", workflow)
+        self.assertNotIn("crons", config)
+        self.assertEqual(config["regions"], ["pdx1"])
 
     def test_vercel_auth_is_checked_daily(self) -> None:
         workflow = HEALTH_WORKFLOW.read_text()
