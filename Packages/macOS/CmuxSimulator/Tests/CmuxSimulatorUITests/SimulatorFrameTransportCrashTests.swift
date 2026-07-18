@@ -68,6 +68,19 @@ struct SimulatorFrameTransportCrashTests {
         #expect(await source.copyLatestFrame(after: previousSequence) == nil)
     }
 
+    @Test("Worker publication scales a native surface into the bounded host ring")
+    func framePublicationDownscales() async throws {
+        let producer = try SimulatorFramebufferSurfaceRing(width: 1, height: 1)
+        let source = try SimulatorFrameSurfaceSource(descriptor: producer.descriptor)
+
+        try producer.publish(makeInputSurface(pixel: 0xFF_44_33_22))
+
+        let snapshot = try #require(await source.copyLatestFrame(after: nil))
+        #expect(snapshot.width == 1)
+        #expect(snapshot.height == 1)
+        #expect(readFirstPixel(snapshot) == 0xFF_44_33_22)
+    }
+
     @Test("Concurrent slot reuse never publishes torn pixels")
     func concurrentSlotReuseRejectsTornFrames() async throws {
         let producer = try SimulatorFramebufferSurfaceRing(width: 512, height: 512)
