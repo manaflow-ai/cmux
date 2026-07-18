@@ -18,7 +18,9 @@ will exist for each visible terminal workspace, not for every dormant
 workspace. It will receive immutable render scenes, shape text, run shaders,
 submit Metal work, and publish IOSurfaces. The Swift process will import and
 composite those IOSurfaces without reading PTY output, parsing terminal bytes,
-shaping terminal text, or submitting terminal Metal commands.
+or shaping terminal text. It may submit exactly one full-surface Metal blit for
+each admitted visible frame. Every terminal render encoder, draw call, glyph
+atlas update, and shader pass remains in the renderer worker.
 
 The resulting cost in Swift is proportional to visible presentation area and
 refresh rate. It is independent of dormant terminal count. IOSurface sharing
@@ -399,6 +401,21 @@ after GPU completion and an explicit consumer release. The worker may drop an
 unpresented intermediate frame. It may never block terminal parsing waiting for
 Swift to consume a frame.
 
+The Swift host may import the completed IOSurface and submit exactly one
+full-surface Metal blit for each admitted visible frame. The host must not
+create a terminal render encoder, issue a terminal draw, shape text, or inspect
+terminal cells. It releases the exact worker surface only from the host Metal
+command buffer's completion handler, after the GPU has finished reading the
+source texture.
+
+Assigning an IOSurface directly to `CALayer.contents` is not an equivalent
+release fence. Core Animation exposes no public callback that proves its render
+server has stopped sampling that contents object. A `CATransaction` completion
+waits for animations, not render-server consumption. Remote Core Animation
+layers are public on macOS but documented as legacy. Either path may replace
+the explicit blit only after a public, deterministic consumer-completion and
+surface-reuse contract is proven.
+
 Frame metadata includes:
 
 - daemon instance ID
@@ -418,6 +435,16 @@ discarded before touching the layer.
 No control path may wait forever for a Mach right, worker connection, fence, or
 release acknowledgement. Deadlines are explicit and cancellation follows the
 presentation lifecycle.
+
+Metal System Trace evidence must contain both exact process IDs. The renderer
+PID must own command buffers labeled `cmux Ghostty worker semantic-scene
+render`, render encoders labeled `Ghostty terminal glyph render pass`, and
+textures labeled `Ghostty IOSurface terminal render target`. The Swift PID may
+own command buffers labeled `cmux host compositor: one IOSurface blit` and blit
+encoders labeled `cmux host compositor: no Ghostty rendering`; it must contain
+no Ghostty render encoder or draw call. Host blit count must equal the
+compositor's submitted-blit counter for the captured interval and must not
+exceed the number of admitted visible frames.
 
 ## Ghostty refactor
 
@@ -552,9 +579,11 @@ Exit gate: renderer kill and restart preserve the shell and recover pixels.
 - Replace local Ghostty views with remote presentation views.
 - Route input, IME, mouse, resize, scrolling, selection, search, copy, links,
   accessibility, and notifications through shared backend actions.
-- Remove local PTY, parser, terminal shaping, and terminal GPU submission.
+- Remove local PTY, parser, terminal shaping, terminal render encoders, and
+  terminal draw submission. Retain only the bounded compositor blit.
 
-Exit gate: process traces prove the Swift PID performs none of those operations.
+Exit gate: process traces prove the Swift PID performs none of the removed
+operations and submits at most one compositor blit per admitted visible frame.
 
 ### Stage 6: topology and persistence migration
 
@@ -590,7 +619,7 @@ Exit gate: all P0 acceptance checks pass and no evidence predates the PR head.
 | ID | Priority | Observable | Pass condition | Evidence |
 | --- | --- | --- | --- | --- |
 | PROC-1 | P0 | Swift terminal ownership | Swift PID has no PTY master owned for local terminals and no Ghostty canonical terminal allocation. | PID-scoped process inspection and allocation trace. |
-| PROC-2 | P0 | GPU ownership | Swift PID has no terminal CoreText shaping or terminal Metal command submission; worker PID has both. | Time Profiler plus Metal System Trace for exact PIDs. |
+| PROC-2 | P0 | GPU ownership | Swift PID has no terminal CoreText shaping, render encoder, or draw call and submits at most one labeled full-surface blit per admitted visible frame; worker PID owns shaping, terminal render encoders, and draws. | Time Profiler plus Metal System Trace for exact PIDs, stable labels, and frame-to-blit count correlation. |
 | PROC-3 | P0 | Frame provenance | Every accepted frame records worker audit identity, renderer epoch, presentation generation, and frame sequence. | Structured logs correlated with Metal trace. |
 | LIFE-1 | P0 | GUI restart persistence | Force-kill and relaunch Swift; shell PID, TTY, cwd, terminal ID, topology, scrollback sentinel, and unread activity remain identical. | Automated restart test plus before/after protocol snapshots. |
 | LIFE-2 | P0 | Renderer recovery | Kill a worker during output; shell PID remains alive, unrelated workspaces remain interactive, replacement worker shows a full snapshot, and no stale frame appears. | Failure-injection log, screenshots, and video. |

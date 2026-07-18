@@ -12,6 +12,45 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Renderer scene projection seam (feature integration)
+
+The cmux terminal-backend feature currently pins `066f7a3d4` on the fork branch
+`feat/cmux-render-scene`, two commits above the released fork `main` head
+`bb30526cd`. This feature integration is pushed to `manaflow-ai/ghostty`, but it
+is not merged into fork `main` and does not have a GhosttyKit release archive
+yet.
+
+- Commits:
+  - `6a1f7b257` (`renderer: split scene projection from terminal capture`)
+  - `066f7a3d4` (`renderer: complete isolated scene worker ABI`)
+- Files:
+  - `src/renderer/Scene.zig`
+  - `src/renderer.zig`
+  - `src/renderer/State.zig`
+  - `src/renderer/generic.zig`
+- Summary:
+  - Introduces a borrowed synchronous `Scene.Projection` containing the
+    renderer state, locked mouse snapshot, and preedit state required to
+    project one frame.
+  - Splits the renderer path into terminal capture followed by public
+    `projectScene`, so projection does not depend on a live `Terminal` or the
+    `renderer.State` lock.
+  - Passes captured render state into overlay, cell, row, and custom-shader
+    helpers. Regex-link projection uses the captured mouse state instead of
+    reading mutable state after its lock is released.
+  - Proves the lifetime boundary by deinitializing the source terminal before
+    reading captured render state in a focused test.
+  - Conflict note: future renderer refactors must preserve the single capture
+    boundary and keep `projectScene` independent of terminal and state locks.
+    The projection remains borrowed and synchronous; an owned semantic scene
+    and versioned codec are required before cross-process rendering.
+
+The second commit adds the owned scene codec, sparse terminal-authored color
+state, standalone IOSurface renderer, exact frame leases and metrics, resolved
+config serialization, and lib-vt selection/search APIs. Verified with Zig
+0.15.2, focused scene/config tests, a real Metal smoke, C header compilation,
+and a signed universal Swift renderer helper. This branch adds C ABI.
+
 Current cmux pinned fork head: `bb30526cd`. It advances the previous cmux pin
 `b4b6d69c8` through the already-merged theme, render-grid, and wrap-aware URL
 updates, then preserves authoritative sprite-font shaping runs. The commit is

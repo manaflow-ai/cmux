@@ -12,6 +12,8 @@
 #
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
+#   CMUX_TERMINAL_BACKEND_ENTITLEMENTS
+#                             (default: Resources/cmux-terminal-backend.entitlements)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
 #
 # Signs in the Apple-documented inside-out order:
@@ -37,6 +39,9 @@ APP_PATH="$1"
 APP_ENTITLEMENTS="$2"
 IDENTITY="$3"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-cmux-helper.entitlements}"
+TERMINAL_BACKEND_ENTITLEMENTS="${CMUX_TERMINAL_BACKEND_ENTITLEMENTS:-Resources/cmux-terminal-backend.entitlements}"
+TERMINAL_BACKEND_SIGNING_IDENTIFIER="com.cmuxterm.cmux-terminal-backend"
+TERMINAL_RENDERER_SIGNING_IDENTIFIER="com.cmuxterm.cmux-terminal-renderer"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "error: app bundle not found at $APP_PATH" >&2
@@ -48,6 +53,10 @@ if [[ ! -f "$APP_ENTITLEMENTS" ]]; then
 fi
 if [[ ! -f "$HELPER_ENTITLEMENTS" ]]; then
   echo "error: helper entitlements not found at $HELPER_ENTITLEMENTS" >&2
+  exit 1
+fi
+if [[ ! -f "$TERMINAL_BACKEND_ENTITLEMENTS" ]]; then
+  echo "error: terminal backend entitlements not found at $TERMINAL_BACKEND_ENTITLEMENTS" >&2
   exit 1
 fi
 
@@ -63,7 +72,19 @@ COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 for helper in "$APP_PATH/Contents/Resources/bin"/*; do
   [[ -f "$helper" && -x "$helper" ]] || continue
   echo "==> signing helper $(basename "$helper")"
-  /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+  helper_entitlements="$HELPER_ENTITLEMENTS"
+  helper_identifier=()
+  case "$(basename "$helper")" in
+    cmux-terminal-backend)
+      helper_entitlements="$TERMINAL_BACKEND_ENTITLEMENTS"
+      helper_identifier=(--identifier "$TERMINAL_BACKEND_SIGNING_IDENTIFIER")
+      ;;
+    cmux-terminal-renderer)
+      helper_entitlements="$TERMINAL_BACKEND_ENTITLEMENTS"
+      helper_identifier=(--identifier "$TERMINAL_RENDERER_SIGNING_IDENTIFIER")
+      ;;
+  esac
+  /usr/bin/codesign "${COMMON[@]}" "${helper_identifier[@]}" --entitlements "$helper_entitlements" "$helper"
 done
 
 # 2. Plugins
@@ -93,6 +114,12 @@ echo "==> verifying"
 "$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
   "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
   --require-signed
+"$SCRIPT_DIR/verify-terminal-backend-service-artifact.sh" \
+  --app-bundle "$APP_PATH" \
+  --require-signed \
+  --require-minimal-entitlements \
+  --require-disabled \
+  --smoke-headless
 
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"

@@ -16,6 +16,14 @@ let package = Package(
             name: "CmuxTerminalRenderTransport",
             targets: ["CmuxTerminalRenderTransport"]
         ),
+        .library(
+            name: "CmuxTerminalRendererControl",
+            targets: ["CmuxTerminalRendererControl"]
+        ),
+        .library(
+            name: "CmuxTerminalRenderCompositor",
+            targets: ["CmuxTerminalRenderCompositor"]
+        ),
     ],
     targets: [
         .target(
@@ -47,6 +55,33 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("IOSurface"),
                 .linkedFramework("Security"),
+            ]
+        ),
+        .target(
+            name: "CmuxTerminalRendererControl",
+            dependencies: ["CmuxTerminalRenderProtocol"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .target(
+            name: "CmuxTerminalRenderCompositor",
+            dependencies: [
+                "CmuxTerminalRenderProtocol",
+                "CmuxTerminalRenderTransport",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("IOSurface"),
+                .linkedFramework("Metal"),
+                .linkedFramework("QuartzCore"),
             ]
         ),
         .executableTarget(
@@ -81,6 +116,31 @@ let package = Package(
                 "CmuxTerminalRenderTransport",
                 "TerminalRenderMachIPCTestSupport",
                 "cmux-terminal-render-test-sender",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxTerminalRendererControlTests",
+            dependencies: [
+                "CmuxTerminalRendererControl",
+                "CmuxTerminalRenderProtocol",
+            ],
+            resources: [.copy("Fixtures")],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxTerminalRenderCompositorTests",
+            dependencies: [
+                "CmuxTerminalRenderCompositor",
+                "CmuxTerminalRenderProtocol",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

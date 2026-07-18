@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cmuxterm.app.terminal-backend</string>
+    <key>BundleProgram</key>
+    <string>Contents/Resources/bin/cmux-terminal-backend</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>cmux-terminal-backend</string>
+        <string>--headless</string>
+        <string>--app-service-layout</string>
+        <string>--session</string>
+        <string>cmux</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+    <key>Umask</key>
+    <integer>63</integer>
+</dict>
+</plist>

@@ -6,6 +6,9 @@ terminal-scene, input, topology, or worker-control messages.
 `CmuxTerminalRenderProtocol` is a Foundation-only target containing immutable
 IDs, metadata, a fixed-width codec, and latest-frame acceptance. The macOS
 `CmuxTerminalRenderTransport` target adds the IOSurface and Mach bridge.
+`CmuxTerminalRenderCompositor` is the deliberately small host path: it imports
+an authenticated IOSurface and commits one full-surface Metal blit. It owns no
+Ghostty terminal, parser, font grid, glyph atlas, shader pipeline, or PTY.
 
 The host creates a receiver before launching a renderer, gives the endpoint to
 the child, then binds the receiver to the launched PID and effective UID:
@@ -56,3 +59,20 @@ instead use `.sharedEvent`; its event handle remains outside this package, and
 the control plane must import and wait for it without blocking the main thread.
 Both modes require an explicit surface-release acknowledgement before the
 renderer reuses a pool slot.
+
+## Host composition
+
+Create one `TerminalRenderCompositorView` for one exact presentation fence.
+Its required release handler forwards `TerminalRenderFrameRelease` through the
+authenticated control plane after the host blit completes, or immediately
+when a pending frame is superseded without a blit. This prevents the worker
+from rewriting an IOSurface while the host GPU is still reading it.
+
+The view repeats the complete fence check to prevent accidental cross-terminal
+routing. It permits one in-flight blit and retains only the newest pending
+frame. Replacing the fence installs a new Metal layer, so a committed frame
+from the detached generation cannot become visible in the replacement view.
+
+Metal captures label host work `cmux host compositor: one IOSurface blit`.
+Ghostty draw commands must appear under the renderer-worker PID. The cmux app
+PID may show this copy command for an externally rendered terminal.
