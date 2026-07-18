@@ -45,6 +45,16 @@ struct FeedCoordinatorTests {
         #expect(FeedJumpResolver.parse("hermes-agent-")?.agent == nil)
     }
 
+    @Test func feedJumpResolverRejectsProviderPathTraversal() {
+        #expect(FeedJumpResolver.parse("../outside-session")?.agent == nil)
+        #expect(
+            FeedJumpResolver.parse(
+                "../outside-session",
+                source: "../outside"
+            )?.agent == nil
+        )
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 
