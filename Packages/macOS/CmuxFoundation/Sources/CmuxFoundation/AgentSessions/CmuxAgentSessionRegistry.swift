@@ -534,16 +534,12 @@ public struct CmuxAgentSessionRegistry: Sendable {
             if !changed.isEmpty {
                 try transaction(database) {
                     for item in changed {
-                        do {
-                            try replaceLegacy(
-                                database: database,
-                                provider: item.source.provider,
-                                stamp: item.stamp,
-                                payload: item.payload
-                            )
-                        } catch {
-                            throw HookLegacySourceImportError(provider: item.source.provider)
-                        }
+                        try replaceLegacy(
+                            database: database,
+                            provider: item.source.provider,
+                            stamp: item.stamp,
+                            payload: item.payload
+                        )
                     }
                 }
             }

@@ -456,6 +456,20 @@ extension CmuxAgentSessionRegistry {
     }
 
     func upsert(_ slot: ActiveSlot, database: OpaquePointer) throws {
+        let owner = try activeSlotOwnerProjection(
+            database: database,
+            provider: slot.provider,
+            sessionID: slot.sessionID
+        )
+        let storedSessionID = owner?.sessionID ?? slot.sessionID
+        let ownerScopeID: String?
+        switch slot.scope {
+        case .workspace:
+            ownerScopeID = owner?.workspaceID
+        case .surface:
+            ownerScopeID = owner?.surfaceID
+        }
+        let storedScopeID = ownerScopeID == slot.scopeID ? ownerScopeID ?? slot.scopeID : slot.scopeID
         let statement = try prepare(
             database,
             """
@@ -473,12 +487,76 @@ extension CmuxAgentSessionRegistry {
         defer { sqlite3_finalize(statement) }
         try bind(slot.provider, to: 1, in: statement)
         try bind(slot.scope.rawValue, to: 2, in: statement)
-        try bind(slot.scopeID, to: 3, in: statement)
-        try bind(slot.sessionID, to: 4, in: statement)
+        try bind(storedScopeID, to: 3, in: statement)
+        try bind(storedSessionID, to: 4, in: statement)
         sqlite3_bind_double(statement, 5, slot.updatedAt)
         sqlite3_bind_int64(statement, 6, sqlite3_int64(slot.writerGeneration))
         try bind(slot.json, to: 7, in: statement)
         try stepDone(statement, database: database, operation: "upsert active slot")
+    }
+
+    private func activeSlotOwnerProjection(
+        database: OpaquePointer,
+        provider: String,
+        sessionID: String
+    ) throws -> (sessionID: String, workspaceID: String?, surfaceID: String?)? {
+        do {
+            let exact = try prepare(
+                database,
+                """
+                SELECT session_id, workspace_id, surface_id
+                FROM agent_sessions
+                WHERE provider = ?1 AND session_id = ?2
+                """
+            )
+            defer { sqlite3_finalize(exact) }
+            try bind(provider, to: 1, in: exact)
+            try bind(sessionID, to: 2, in: exact)
+            if try stepRow(exact, database: database, operation: "read active slot owner") {
+                guard let storedSessionID = text(exact, column: 0) else {
+                    throw corruptRowError(operation: "read active slot owner")
+                }
+                return (
+                    storedSessionID,
+                    text(exact, column: 1),
+                    text(exact, column: 2)
+                )
+            }
+        }
+
+        // SQLite's default TEXT comparison is bytewise, while Swift String
+        // identity treats canonically equivalent Unicode forms as equal. This
+        // exceptional scan aligns the slot to the owner's exact stored bytes so
+        // indexed joins and pruning remain correct after the write.
+        let canonical = try prepare(
+            database,
+            """
+            SELECT session_id, workspace_id, surface_id
+            FROM agent_sessions WHERE provider = ?1
+            """
+        )
+        defer { sqlite3_finalize(canonical) }
+        try bind(provider, to: 1, in: canonical)
+        var match: (sessionID: String, workspaceID: String?, surfaceID: String?)?
+        while try stepRow(
+            canonical,
+            database: database,
+            operation: "resolve canonical active slot owner"
+        ) {
+            guard let storedSessionID = text(canonical, column: 0) else {
+                throw corruptRowError(operation: "resolve canonical active slot owner")
+            }
+            guard storedSessionID == sessionID else { continue }
+            guard match == nil else {
+                throw corruptRowError(operation: "resolve canonical active slot owner")
+            }
+            match = (
+                storedSessionID,
+                text(canonical, column: 1),
+                text(canonical, column: 2)
+            )
+        }
+        return match
     }
 
     func deleteSession(
