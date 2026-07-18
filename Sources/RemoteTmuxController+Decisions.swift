@@ -1,10 +1,5 @@
 import Foundation
 
-enum RemoteTmuxMirrorTeardownReason: Sendable, Equatable {
-    case sessionEnded
-    case explicitDetach
-}
-
 extension RemoteTmuxController {
     /// A split was requested on a mirror window-tab (the split button / any
     /// bonsplit-level split) → propagate to tmux `split-window`. Covers both
