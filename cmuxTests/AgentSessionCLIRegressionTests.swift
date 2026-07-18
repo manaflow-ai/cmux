@@ -287,6 +287,18 @@ extension CMUXCLIErrorOutputRegressionTests {
                     "startedAt": 115.0,
                     "updatedAt": 125.0,
                 ],
+                "grandchild-session": [
+                    "sessionId": "grandchild-session",
+                    "workspaceId": "workspace-a",
+                    "surfaceId": "surface-a",
+                    "runId": "grandchild-run",
+                    "parentRunId": "child-run",
+                    "parentSessionId": "child-session",
+                    "relationship": "spawned",
+                    "restoreAuthority": false,
+                    "startedAt": 118.0,
+                    "updatedAt": 121.0,
+                ],
             ],
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
@@ -312,7 +324,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(output["schema_version"] as? Int == 2)
         let nodes = try #require(output["nodes"] as? [[String: Any]])
         let edges = try #require(output["edges"] as? [[String: Any]])
-        #expect(nodes.count == 3)
+        #expect(nodes.count == 4)
         let rootNode = try #require(nodes.first { $0["run_id"] as? String == "root-run" })
         #expect(rootNode["node_id"] as? String == "codex\u{1F}root-session\u{1F}root-run")
         #expect(rootNode["restore_authority"] as? Bool == true)
@@ -323,7 +335,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let counts = try #require(activity["counts"] as? [String: Any])
         #expect(counts["monitor"] as? Int == 1)
         let subtree = try #require(rootNode["subtree_activity"] as? [String: Any])
-        #expect(subtree["total_descendants"] as? Int == 2)
+        #expect(subtree["total_descendants"] as? Int == 3)
         #expect(subtree["busy_descendants"] as? Int == 0)
         #expect(subtree["restore_owners"] as? Int == 1)
         #expect(nodes.first { $0["run_id"] as? String == "child-run" }?["restore_authority"] as? Bool == false)
@@ -346,6 +358,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         #expect(textTree.status == 0, Comment(rawValue: textTree.stdout))
         #expect(textTree.stdout.contains("└── codex fork-session"))
+        let textLines = textTree.stdout.split(separator: "\n").map(String.init)
+        #expect(textLines.contains { $0.hasPrefix("├── codex child-session") })
+        #expect(textLines.contains { $0.hasPrefix("│   └── codex grandchild-session") })
 
         let filteredTree = runProcess(
             executablePath: cliPath,
