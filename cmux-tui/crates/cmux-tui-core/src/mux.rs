@@ -2060,6 +2060,9 @@ impl Mux {
         let pane_id = self.next_id();
         let active_at = self.next_active_at();
         let mut changed_screen = None;
+        let mut changed_workspace = None;
+        let notifications = self.surface_notifications();
+        let mut delta = None;
         {
             let mut state = self.state.lock().unwrap();
             'outer: for ws in &mut state.workspaces {
@@ -2087,6 +2090,7 @@ impl Mux {
                     screen.zoomed_pane = None;
                     screen.zellij_auto_layout = Some(panes);
                     changed_screen = Some(screen.id);
+                    changed_workspace = Some(ws.id);
                     break 'outer;
                 }
             }
@@ -2101,6 +2105,23 @@ impl Mux {
                         active_at,
                     },
                 );
+                let screen = changed_screen.expect("new pane screen captured");
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::PaneAdded,
+                    pane_id,
+                )
+                .expect("new pane is present in tree snapshot");
+                delta = Some(TreeDelta {
+                    kind: TreeDeltaKind::PaneAdded,
+                    workspace: changed_workspace.expect("new pane workspace captured"),
+                    screen: Some(screen),
+                    pane: Some(pane_id),
+                    surface: None,
+                    index: Some(screen_pane_index(&state, screen, pane_id)),
+                    entity,
+                });
             } else {
                 state.surfaces.remove(&surface.id);
             }
@@ -2109,7 +2130,7 @@ impl Mux {
             surface.kill();
             anyhow::bail!("pane {target} not found");
         };
-        self.emit(MuxEvent::TreeChanged);
+        self.emit(MuxEvent::TreeDelta(delta.expect("successful new pane has a tree delta")));
         self.emit(MuxEvent::LayoutChanged(screen));
         self.reap_if_dead(&surface);
         Ok(surface)
