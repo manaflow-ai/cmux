@@ -332,7 +332,7 @@ fn resolve_opencode(
     cancellation: &TrajectoryCancellation,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
     cancellation.check()?;
-    let connection = open_read_only_database(&roots.opencode_database())?;
+    let connection = open_opencode_database(&roots.opencode_database())?;
     let repo_root = opencode_repository_from_connection(identity, &connection)?;
     cancellation.check()?;
     let user_message: String = connection
@@ -378,8 +378,19 @@ fn opencode_repository(
     identity: &AgentTurnIdentity,
     roots: &TrajectoryRoots,
 ) -> Result<PathBuf, TrajectoryError> {
-    let connection = open_read_only_database(&roots.opencode_database())?;
+    let connection = open_opencode_database(&roots.opencode_database())?;
     opencode_repository_from_connection(identity, &connection)
+}
+
+fn open_opencode_database(path: &Path) -> Result<Connection, TrajectoryError> {
+    let connection = open_read_only_database(path)?;
+    connection
+        .set_limit(
+            rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH,
+            i32::try_from(MAX_PATCH_BYTES).map_err(|_| TrajectoryError::Invalid)?,
+        )
+        .map_err(|_| TrajectoryError::Invalid)?;
+    Ok(connection)
 }
 
 fn opencode_repository_from_connection(
