@@ -109,6 +109,211 @@ struct TerminalClientCompositionTests {
         #expect(await client.releaseAttemptCount() == 2)
     }
 
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func sustainedSuccessfulFrameReleaseKeepsOneProcessWideRendererSubscription() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: UUID(),
+                surfaceID: UUID()
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry()
+        )
+        _ = runtime
+        await client.waitForRendererSubscriberCount(1)
+        let frame = try Self.makeRenderDiagnosticsFrame(sequence: 18)
+        let release = TerminalRenderFrameRelease(frame: frame)
+
+        for _ in 0..<256 {
+            #expect(await returnRendererFrameLease(client: client, release: release))
+        }
+        for _ in 0..<64 { await Task.yield() }
+
+        #expect(await client.releaseAttemptCount() == 256)
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        #expect(await client.peakRendererSubscriberCount() == 1)
+        #expect(await client.activeRendererSubscriberCount() == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func cancellingFrameReleaseRetryRemovesItsProcessWideLifecycleWaiter() async throws {
+        let client = RecordingPersistentTerminalBackendClient(releaseFailures: .max)
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: UUID(),
+                surfaceID: UUID()
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry()
+        )
+        await client.waitForRendererSubscriberCount(1)
+        let release = TerminalRenderFrameRelease(
+            frame: try Self.makeRenderDiagnosticsFrame(sequence: 19)
+        )
+        let retry = Task {
+            await returnRendererFrameLease(client: client, release: release)
+        }
+        await client.waitForReleaseCount(1)
+        for _ in 0..<32 { await Task.yield() }
+
+        retry.cancel()
+        #expect(await retry.value == false)
+        for _ in 0..<64 { await Task.yield() }
+
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        #expect(await client.peakRendererSubscriberCount() == 1)
+        #expect(await client.activeRendererSubscriberCount() == 1)
+        #expect(await runtime.debugFrontendLifecycleWaiterCountForTesting() == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func permanentFrameReleaseFailureDoesNotRetryOnUnrelatedWorkerLifecycle() async throws {
+        let client = RecordingPersistentTerminalBackendClient(
+            permanentReleaseFailure: true
+        )
+        let workspaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: UUID()
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry()
+        )
+        await client.waitForRendererSubscriberCount(1)
+        let release = TerminalRenderFrameRelease(
+            frame: try Self.makeRenderDiagnosticsFrame(sequence: 20)
+        )
+        let retry = Task {
+            await returnRendererFrameLease(client: client, release: release)
+        }
+        await client.waitForReleaseCount(1)
+        await client.publish(.workerChanged(try Self.rendererWorkerChange(
+            workspaceID: workspaceID,
+            priorRendererEpoch: 1,
+            rendererEpoch: 2,
+            state: .ready
+        )))
+        for _ in 0..<64 { await Task.yield() }
+
+        #expect(await client.releaseAttemptCount() == 1)
+        retry.cancel()
+        #expect(await retry.value == false)
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        #expect(await runtime.debugFrontendLifecycleWaiterCountForTesting() == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func blockedRendererRouteDoesNotBlockAnotherWorkspaceOrUpstreamIngestion() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let router = TerminalBackendFrontendEventRouter(client: client, configUpdates: nil)
+        let probe = FrontendRouterDeliveryProbe()
+        let gate = FrontendRouterTestGate()
+        let workspaceA = UUID()
+        let workspaceB = UUID()
+        let presentationA = UUID()
+        let presentationB = UUID()
+        await router.start()
+        await client.waitForRendererSubscriberCount(1)
+        let routeA = await router.register(
+            presentationID: presentationA,
+            workspaceID: workspaceA,
+            rendererHandler: { event in
+                await probe.recordRenderer(workspaceID: workspaceA, event: event)
+                await gate.wait()
+            },
+            rendererStreamEndedHandler: {
+                await probe.recordResync(workspaceID: workspaceA)
+            },
+            configHandler: { _ in }
+        )
+        let routeB = await router.register(
+            presentationID: presentationB,
+            workspaceID: workspaceB,
+            rendererHandler: { event in
+                await probe.recordRenderer(workspaceID: workspaceB, event: event)
+            },
+            rendererStreamEndedHandler: {
+                await probe.recordResync(workspaceID: workspaceB)
+            },
+            configHandler: { _ in }
+        )
+
+        await client.publish(.workerChanged(try Self.rendererWorkerChange(
+            workspaceID: workspaceA,
+            priorRendererEpoch: 0,
+            rendererEpoch: nil,
+            state: .starting
+        )))
+        await probe.waitForRendererCount(1, workspaceID: workspaceA)
+        await client.publish(.workerChanged(try Self.rendererWorkerChange(
+            workspaceID: workspaceB,
+            priorRendererEpoch: 0,
+            rendererEpoch: nil,
+            state: .starting
+        )))
+        for _ in 0..<128 { await Task.yield() }
+
+        #expect(await probe.rendererCount(workspaceID: workspaceB) == 1)
+        #expect(await client.rendererEventStreamStartCount() == 1)
+
+        await gate.open()
+        await router.unregister(routeA)
+        await router.unregister(routeB)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func routeMailboxOverflowCoalescesToOneAuthoritativeResync() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let router = TerminalBackendFrontendEventRouter(client: client, configUpdates: nil)
+        let probe = FrontendRouterDeliveryProbe()
+        let gate = FrontendRouterTestGate()
+        let workspaceID = UUID()
+        await router.start()
+        await client.waitForRendererSubscriberCount(1)
+        let route = await router.register(
+            presentationID: UUID(),
+            workspaceID: workspaceID,
+            rendererHandler: { event in
+                await probe.recordRenderer(workspaceID: workspaceID, event: event)
+                if await probe.rendererCount(workspaceID: workspaceID) == 1 {
+                    await gate.wait()
+                }
+            },
+            rendererStreamEndedHandler: {
+                await probe.recordResync(workspaceID: workspaceID)
+            },
+            configHandler: { _ in }
+        )
+        await client.publish(.workerChanged(try Self.rendererWorkerChange(
+            workspaceID: workspaceID,
+            priorRendererEpoch: 0,
+            rendererEpoch: nil,
+            state: .starting
+        )))
+        await probe.waitForRendererCount(1, workspaceID: workspaceID)
+        for epoch in 1...128 {
+            await client.publish(.workerChanged(try Self.rendererWorkerChange(
+                workspaceID: workspaceID,
+                priorRendererEpoch: UInt64(epoch - 1),
+                rendererEpoch: UInt64(epoch),
+                state: .ready
+            )))
+        }
+
+        await gate.open()
+        for _ in 0..<512 { await Task.yield() }
+
+        #expect(await probe.resyncCount(workspaceID: workspaceID) == 1)
+        #expect(await probe.rendererCount(workspaceID: workspaceID) <= 2)
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        await router.unregister(route)
+    }
+
     @Test
     func rendererExitLedgerFencesPIDReuseAndRejectsStaleIdentity() {
         let daemonInstanceID = UUID()
@@ -730,6 +935,157 @@ struct TerminalClientCompositionTests {
         #expect(router.rendererUpstreamSubscriptionCount == 1)
         #expect(await client.activeRendererSubscriberCount() == 1)
         #expect(renderConfigSource.debugActiveUpdateSubscriberCountForTesting() == 1)
+
+        leases.forEach { $0.detach() }
+        await client.waitForDetachCount(1_000)
+        for _ in 0..<128 { await Task.yield() }
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        #expect(await client.peakRendererSubscriberCount() == 1)
+        #expect(await client.activeRendererSubscriberCount() == 1)
+        #expect(await runtimes[0].debugFrontendLifecycleWaiterCountForTesting() == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func visibleReparentAtomicallyReindexesItsKeyedFrontendRoute() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let sourceWorkspaceID = UUID()
+        let destinationWorkspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: sourceWorkspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry(),
+            renderConfigSource: TerminalBackendRenderConfigSource {
+                Data("font-family = Menlo\n".utf8)
+            }
+        )
+        let lease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: sourceWorkspaceID
+        ))
+        defer { lease.detach() }
+        await client.waitForEnsureCount(1)
+        #expect(runtime.enqueue(.visibility(true)).accepted)
+        await runtime.debugWaitForFrontendEventRouteCountForTesting(1)
+
+        #expect(runtime.enqueue(.reparent(workspaceID: destinationWorkspaceID)).accepted)
+        await client.waitForMutationCount(1)
+        for _ in 0..<64 { await Task.yield() }
+
+        await client.publish(.workerChanged(try Self.rendererWorkerChange(
+            workspaceID: destinationWorkspaceID,
+            priorRendererEpoch: 0,
+            rendererEpoch: nil,
+            state: .starting
+        )))
+        for _ in 0..<128 { await Task.yield() }
+        var snapshot = await runtime.debugFrontendEventRouterSnapshotForTesting()
+        let presentationID = runtime.debugPresentationIDForTesting()
+        #expect(snapshot.activeRouteCount == 1)
+        #expect(snapshot.rendererDeliveryCounts[presentationID] == 1)
+
+        await client.publish(.workerChanged(try Self.rendererWorkerChange(
+            workspaceID: sourceWorkspaceID,
+            priorRendererEpoch: 0,
+            rendererEpoch: nil,
+            state: .starting
+        )))
+        for _ in 0..<128 { await Task.yield() }
+        snapshot = await runtime.debugFrontendEventRouterSnapshotForTesting()
+        #expect(snapshot.rendererDeliveryCounts[presentationID] == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func detachedRuntimeRejectsLateRendererApplyPublication() async throws {
+        let client = RecordingPersistentTerminalBackendClient(suspendMutations: true)
+        let registry = TerminalBackendPresentationRegistry()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: registry,
+            renderConfigSource: TerminalBackendRenderConfigSource {
+                Data("font-family = Menlo\n".utf8)
+            }
+        )
+        let lease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID
+        ))
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        #expect(registry.mountCompositor(surfaceID: surfaceID, in: host))
+        await client.waitForEnsureCount(1)
+        #expect(runtime.enqueue(.visibility(true)).accepted)
+        #expect(runtime.enqueue(.resize(TerminalExternalViewport(
+            widthPoints: 640,
+            heightPoints: 480,
+            widthPixels: 1_280,
+            heightPixels: 960,
+            xScale: 2,
+            yScale: 2,
+            proposedColumns: 160,
+            proposedRows: 48
+        ))).accepted)
+        await client.waitForMutationCount(1)
+
+        lease.detach()
+        await client.waitForDetachCount(1)
+        await client.resumeMutation(at: 0)
+        for _ in 0..<128 { await Task.yield() }
+
+        #expect(!runtime.debugBackendPresentationOpenForTesting())
+        #expect(!runtime.debugHasCurrentFrameReceiverForTesting())
+        #expect(!runtime.debugHasFrontendEventRouteForTesting())
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func unregisterPrunesBoundedRouteDeliveryDiagnostics() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let config = AsyncStream<TerminalBackendRenderConfigSnapshot>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let router = TerminalBackendFrontendEventRouter(
+            client: client,
+            configUpdates: config.stream
+        )
+        let workspaceID = UUID()
+        let presentationID = UUID()
+        await router.start()
+        await client.waitForRendererSubscriberCount(1)
+        let route = await router.register(
+            presentationID: presentationID,
+            workspaceID: workspaceID,
+            rendererHandler: { _ in },
+            rendererStreamEndedHandler: {},
+            configHandler: { _ in }
+        )
+        config.continuation.yield(TerminalBackendRenderConfigSnapshot(
+            revision: 1,
+            data: Data("font-family = Menlo\n".utf8)
+        ))
+        await client.publish(.workerChanged(try Self.rendererWorkerChange(
+            workspaceID: workspaceID,
+            priorRendererEpoch: 0,
+            rendererEpoch: nil,
+            state: .starting
+        )))
+        await router.waitForRendererDeliveryCount(1)
+        await router.waitForConfigDeliveryCount(1)
+        await router.unregister(route)
+
+        let snapshot = await router.snapshot()
+        #expect(snapshot.activeRouteCount == 0)
+        #expect(snapshot.rendererDeliveryCounts.isEmpty)
+        #expect(snapshot.configDeliveryCounts.isEmpty)
     }
 
     @Test @MainActor
@@ -4393,10 +4749,82 @@ private actor AccessibilityRuntimeBackendClient: TerminalBackendClient {
     }
 }
 
+private actor FrontendRouterTestGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        let pending = waiters
+        waiters.removeAll()
+        pending.forEach { $0.resume() }
+    }
+}
+
+private actor FrontendRouterDeliveryProbe {
+    private var rendererCounts: [UUID: Int] = [:]
+    private var resyncCounts: [UUID: Int] = [:]
+    private var rendererWaiters: [
+        UUID: [Int: [CheckedContinuation<Void, Never>]]
+    ] = [:]
+
+    func recordRenderer(
+        workspaceID: UUID,
+        event: TerminalBackendRendererEvent
+    ) {
+        _ = event
+        rendererCounts[workspaceID, default: 0] += 1
+        resumeRendererWaiters(workspaceID: workspaceID)
+    }
+
+    func recordResync(workspaceID: UUID) {
+        resyncCounts[workspaceID, default: 0] += 1
+    }
+
+    func rendererCount(workspaceID: UUID) -> Int {
+        rendererCounts[workspaceID, default: 0]
+    }
+
+    func resyncCount(workspaceID: UUID) -> Int {
+        resyncCounts[workspaceID, default: 0]
+    }
+
+    func waitForRendererCount(_ count: Int, workspaceID: UUID) async {
+        guard rendererCounts[workspaceID, default: 0] < count else { return }
+        await withCheckedContinuation { continuation in
+            rendererWaiters[workspaceID, default: [:]][count, default: []]
+                .append(continuation)
+        }
+    }
+
+    private func resumeRendererWaiters(workspaceID: UUID) {
+        let current = rendererCounts[workspaceID, default: 0]
+        let satisfied = rendererWaiters[workspaceID]?.keys.filter { $0 <= current } ?? []
+        for count in satisfied {
+            rendererWaiters[workspaceID]?
+                .removeValue(forKey: count)?
+                .forEach { $0.resume() }
+        }
+        if rendererWaiters[workspaceID]?.isEmpty == true {
+            rendererWaiters.removeValue(forKey: workspaceID)
+        }
+    }
+}
+
 private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     private let suspendEnsures: Bool
     private let suspendUXReads: Bool
+    private let suspendMutations: Bool
     private let failFirstMutation: Bool
+    private let permanentReleaseFailure: Bool
     private var detachFailuresRemaining: Int
     private var releaseFailuresRemaining: Int
     private var didFailMutation = false
@@ -4406,6 +4834,7 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
         UUID: AsyncStream<TerminalBackendRendererEvent>.Continuation
     ] = [:]
     private var rendererEventStreamStarts = 0
+    private var peakRendererSubscribers = 0
     private var ensureWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var mutationWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var rendererSubscriberWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
@@ -4418,6 +4847,9 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     private var uxReadContinuations: [
         Int: CheckedContinuation<TerminalBackendMutationOutcome, Never>
     ] = [:]
+    private var mutationContinuations: [
+        Int: CheckedContinuation<TerminalBackendMutationOutcome, Never>
+    ] = [:]
     private var uxReadWorkspaces: [UUID] = []
     private var detachedBindingWorkspaces: [UUID?] = []
     private var releaseAttempts = 0
@@ -4425,15 +4857,19 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     init(
         suspendEnsures: Bool = false,
         suspendUXReads: Bool = false,
+        suspendMutations: Bool = false,
         failFirstMutation: Bool = false,
         detachFailures: Int = 0,
-        releaseFailures: Int = 0
+        releaseFailures: Int = 0,
+        permanentReleaseFailure: Bool = false
     ) {
         self.suspendEnsures = suspendEnsures
         self.suspendUXReads = suspendUXReads
+        self.suspendMutations = suspendMutations
         self.failFirstMutation = failFirstMutation
         self.detachFailuresRemaining = detachFailures
         self.releaseFailuresRemaining = releaseFailures
+        self.permanentReleaseFailure = permanentReleaseFailure
     }
 
     func rendererEvents() async -> AsyncStream<TerminalBackendRendererEvent> {
@@ -4441,6 +4877,10 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
         let identifier = UUID()
         let pair = AsyncStream<TerminalBackendRendererEvent>.makeStream()
         rendererContinuations[identifier] = pair.continuation
+        peakRendererSubscribers = max(
+            peakRendererSubscribers,
+            rendererContinuations.count
+        )
         resumeSatisfiedWaiters(
             &rendererSubscriberWaiters,
             count: rendererContinuations.count
@@ -4485,6 +4925,11 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
         if failFirstMutation, !didFailMutation {
             didFailMutation = true
             throw BackendProtocolError.connectionClosed
+        }
+        if suspendMutations {
+            return await withCheckedContinuation { continuation in
+                mutationContinuations[recordedMutations.count - 1] = continuation
+            }
         }
         var outcome = TerminalBackendMutationOutcome()
         if case .reparent(let workspaceID) = mutation {
@@ -4548,6 +4993,9 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
         _ = release
         releaseAttempts += 1
         resumeSatisfiedWaiters(&releaseWaiters, count: releaseAttempts)
+        if permanentReleaseFailure {
+            throw TerminalBackendClientError.presentationUnavailable
+        }
         if releaseFailuresRemaining > 0 {
             releaseFailuresRemaining -= 1
             throw BackendProtocolError.connectionClosed
@@ -4620,6 +5068,13 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
         }
     }
 
+    func resumeMutation(
+        at index: Int,
+        returning outcome: TerminalBackendMutationOutcome = TerminalBackendMutationOutcome()
+    ) {
+        mutationContinuations.removeValue(forKey: index)?.resume(returning: outcome)
+    }
+
     func ensureRequests() -> [TerminalBackendTerminalRequest] { requests }
 
     func mutations() -> [RecordedPersistentTerminalMutation] { recordedMutations }
@@ -4637,6 +5092,8 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     func rendererEventStreamStartCount() -> Int { rendererEventStreamStarts }
 
     func activeRendererSubscriberCount() -> Int { rendererContinuations.count }
+
+    func peakRendererSubscriberCount() -> Int { peakRendererSubscribers }
 
     func publish(_ event: TerminalBackendRendererEvent) {
         for continuation in rendererContinuations.values {
