@@ -11,6 +11,7 @@
 mod accessibility;
 mod browser;
 pub mod build_identity;
+mod connection_security;
 mod event_bus;
 mod identity;
 mod model;

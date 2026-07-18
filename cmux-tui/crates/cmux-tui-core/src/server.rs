@@ -44,6 +44,10 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 
+use crate::connection_security::{
+    ConnectionAuthorization, ConnectionPermission, ConnectionRole, RegisteredClientKind,
+    TopologyMutationLease, TopologyMutationLeaseClaim,
+};
 use crate::model::{Screen, State};
 use crate::mux::{
     CanonicalMutationExpectation, CanonicalMutationReceipt, CanonicalSurfacePlacement,
@@ -176,6 +180,17 @@ struct CanonicalMutationWire {
     daemon_instance_id: DaemonInstanceId,
     session_id: crate::SessionId,
     expected_revision: u64,
+    topology_lease_id: uuid::Uuid,
+    topology_lease_generation: u64,
+}
+
+impl CanonicalMutationWire {
+    fn lease_claim(&self) -> TopologyMutationLeaseClaim {
+        TopologyMutationLeaseClaim {
+            id: self.topology_lease_id,
+            generation: self.topology_lease_generation,
+        }
+    }
 }
 
 impl From<CanonicalMutationWire> for CanonicalMutationExpectation {
@@ -267,6 +282,8 @@ enum Command {
         protocol_max: u32,
         client_uuid: uuid::Uuid,
         process_instance_uuid: uuid::Uuid,
+        #[serde(default)]
+        client_kind: Option<String>,
     },
     OpenPresentation {
         #[serde(default)]
@@ -1158,6 +1175,27 @@ enum Command {
     },
 }
 
+impl Command {
+    fn canonical_mutation_claim(&self) -> Option<TopologyMutationLeaseClaim> {
+        match self {
+            Self::CanonicalNewWorkspace { mutation, .. }
+            | Self::CanonicalNewTab { mutation, .. }
+            | Self::CanonicalSplitPane { mutation, .. }
+            | Self::CanonicalSplitTab { mutation, .. }
+            | Self::CanonicalClosePane { mutation, .. }
+            | Self::CanonicalCloseWorkspace { mutation, .. }
+            | Self::CanonicalRenameWorkspace { mutation, .. }
+            | Self::CanonicalRenameSurface { mutation, .. }
+            | Self::CanonicalMoveTab { mutation, .. }
+            | Self::CanonicalReorderTabs { mutation, .. }
+            | Self::CanonicalReorderWorkspaces { mutation, .. }
+            | Self::CanonicalMoveTabToNewWorkspace { mutation, .. }
+            | Self::CanonicalSetSplitRatio { mutation, .. } => Some(mutation.lease_claim()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 enum LayoutRequest {
@@ -1408,7 +1446,7 @@ impl Drop for InboundPermit {
 struct CommandAdmissionPolicy {
     wire_max: usize,
     decoded_max: usize,
-    trusted_local: bool,
+    permission: Option<ConnectionPermission>,
     protocol_v9: bool,
 }
 
@@ -1416,7 +1454,7 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
     let mut policy = CommandAdmissionPolicy {
         wire_max: STANDARD_COMMAND_MAX_BYTES,
         decoded_max: STANDARD_COMMAND_DECODE_MAX_BYTES,
-        trusted_local: false,
+        permission: None,
         protocol_v9: false,
     };
     match command {
@@ -1442,7 +1480,7 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
         }
         _ => {}
     }
-    policy.trusted_local = matches!(
+    if matches!(
         command,
         "ensure-terminal"
             | "ensure-terminals"
@@ -1460,6 +1498,90 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "canonical-reorder-workspaces"
             | "canonical-move-tab-to-new-workspace"
             | "canonical-set-split-ratio"
+            | "close-surface"
+            | "close-pane"
+            | "close-screen"
+            | "close-workspace"
+            | "acquire-terminal-control"
+            | "acquire-terminal-lease"
+            | "renew-terminal-lease"
+            | "release-terminal-control"
+            | "release-terminal-lease"
+            | "transfer-terminal-lease"
+            | "grant-terminal-input-delegation"
+            | "revoke-terminal-input-delegation"
+            | "terminal-input"
+            | "terminal-delegated-input"
+            | "terminal-geometry"
+            | "terminal-request-status"
+            | "acknowledge-terminal-request"
+            | "mark-terminal-seen"
+            | "apply-layout"
+            | "run"
+            | "send"
+            | "send-key"
+            | "terminal-key"
+            | "terminal-mouse"
+            | "terminal-binding-action"
+            | "terminal-selection"
+            | "terminal-copy-mode"
+            | "terminal-search"
+            | "terminal-scroll"
+            | "new-tab"
+            | "new-browser-tab"
+            | "new-workspace"
+            | "new-screen"
+            | "split"
+            | "set-ratio"
+            | "swap-pane"
+            | "zoom-pane"
+            | "move-tab"
+            | "move-workspace"
+            | "rename-pane"
+            | "rename-surface"
+            | "rename-screen"
+            | "rename-workspace"
+            | "resize-surface"
+            | "release-surface-size"
+            | "scroll-surface"
+            | "set-cell-pixels"
+            | "browser-mouse"
+            | "browser-wheel"
+            | "browser-key"
+            | "browser-insert-text"
+            | "browser-navigate"
+            | "browser-back"
+            | "browser-forward"
+            | "browser-reload"
+            | "browser-activate"
+            | "set-client-sizing"
+            | "detach-client"
+            | "reload-config"
+            | "set-window-title"
+            | "clear-window-title"
+            | "focus-pane"
+            | "select-tab"
+            | "select-screen"
+            | "select-workspace"
+            | "set-default-colors"
+            | "notify"
+            | "report-agent"
+            | "sidebar-plugin"
+    ) {
+        policy.permission = Some(ConnectionPermission::Control);
+    }
+    if matches!(
+        command,
+        "open-presentation"
+            | "close-presentation"
+            | "activate-terminal-presentation"
+            | "update-presentation"
+            | "list-presentations"
+            | "claim-projection-state"
+            | "update-projection-state"
+            | "update-projection-states"
+            | "release-projection-state"
+            | "list-projection-states"
             | "renderer-workers"
             | "configure-renderer-presentation"
             | "detach-renderer-presentation"
@@ -1468,8 +1590,12 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "terminal-accessibility-activate-link"
             | "terminal-link-at-cell"
             | "release-renderer-frame"
+            | "list-clients"
             | "pairing-response"
-    );
+            | "copy"
+    ) {
+        policy.permission = Some(ConnectionPermission::Frontend);
+    }
     policy.protocol_v9 = matches!(
         command,
         "activate-terminal-presentation"
@@ -1486,6 +1612,10 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "canonical-reorder-workspaces"
             | "canonical-move-tab-to-new-workspace"
             | "canonical-set-split-ratio"
+            | "close-surface"
+            | "close-pane"
+            | "close-screen"
+            | "close-workspace"
             | "claim-projection-state"
             | "update-projection-state"
             | "update-projection-states"
@@ -2235,6 +2365,7 @@ struct AttachedSurface {
 
 struct ClientRecord {
     transport: ClientTransport,
+    authorization: ConnectionAuthorization,
     connection_id: uuid::Uuid,
     connected_at: Instant,
     protocol: u32,
@@ -2246,6 +2377,14 @@ struct ClientRecord {
     announced_attached: bool,
     topology_subscribed: bool,
     writer: MessageWriter,
+}
+
+struct ClientRegistration {
+    protocol: u32,
+    connection_id: uuid::Uuid,
+    role: ConnectionRole,
+    kind: Option<RegisteredClientKind>,
+    topology_lease: Option<TopologyMutationLease>,
 }
 
 pub(crate) struct ClientRegistry {
@@ -2271,21 +2410,37 @@ impl ClientRegistry {
         self.inbound_budget.clone()
     }
 
-    fn admission_state(&self, client: u64) -> anyhow::Result<(ClientTransport, u32, bool)> {
+    fn admission_state(
+        &self,
+        client: u64,
+    ) -> anyhow::Result<(ClientTransport, u32, bool, ConnectionRole)> {
         self.clients
             .lock()
             .unwrap()
             .get(&client)
-            .map(|record| (record.transport, record.protocol, record.client_uuid.is_some()))
+            .map(|record| {
+                (
+                    record.transport,
+                    record.protocol,
+                    record.client_uuid.is_some(),
+                    record.authorization.role(),
+                )
+            })
             .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))
     }
 
-    fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
+    fn register_with_authorization(
+        &self,
+        transport: ClientTransport,
+        authorization: ConnectionAuthorization,
+        writer: MessageWriter,
+    ) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
         self.clients.lock().unwrap().insert(
             client,
             ClientRecord {
                 transport,
+                authorization,
                 connection_id: uuid::Uuid::new_v4(),
                 connected_at: Instant::now(),
                 protocol: PROTOCOL_VERSION,
@@ -2300,6 +2455,43 @@ impl ClientRegistry {
             },
         );
         client
+    }
+
+    fn register_unix(
+        &self,
+        peer_credentials: Option<transport::PeerCredentials>,
+        writer: MessageWriter,
+    ) -> u64 {
+        self.register_with_authorization(
+            ClientTransport::Unix,
+            ConnectionAuthorization::unix(peer_credentials),
+            writer,
+        )
+    }
+
+    fn register_websocket(&self, writer: MessageWriter) -> u64 {
+        self.register_with_authorization(
+            ClientTransport::WebSocket,
+            ConnectionAuthorization::websocket(),
+            writer,
+        )
+    }
+
+    #[cfg(test)]
+    fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
+        let authorization = match transport {
+            ClientTransport::Unix => {
+                ConnectionAuthorization::unix(platform::effective_user_id().map(|user_id| {
+                    transport::PeerCredentials {
+                        process_id: Some(std::process::id()),
+                        user_id,
+                        group_id: 1,
+                    }
+                }))
+            }
+            ClientTransport::WebSocket => ConnectionAuthorization::websocket(),
+        };
+        self.register_with_authorization(transport, authorization, writer)
     }
 
     fn lock_lifecycle(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
@@ -2317,7 +2509,8 @@ impl ClientRegistry {
         protocol_max: u32,
         client_uuid: uuid::Uuid,
         process_instance_uuid: uuid::Uuid,
-    ) -> anyhow::Result<(u32, uuid::Uuid)> {
+        client_kind: Option<&str>,
+    ) -> anyhow::Result<ClientRegistration> {
         if protocol_min > protocol_max {
             anyhow::bail!("bad request: protocol_min exceeds protocol_max");
         }
@@ -2337,10 +2530,17 @@ impl ClientRegistry {
         if record.client_uuid.is_some() {
             anyhow::bail!("connection already registered");
         }
+        record.authorization.register(common_max, client_kind)?;
         record.protocol = common_max;
         record.client_uuid = Some(client_uuid);
         record.process_instance_uuid = Some(process_instance_uuid);
-        Ok((record.protocol, record.connection_id))
+        Ok(ClientRegistration {
+            protocol: record.protocol,
+            connection_id: record.connection_id,
+            role: record.authorization.role(),
+            kind: record.authorization.registered_kind(),
+            topology_lease: record.authorization.topology_lease(),
+        })
     }
 
     fn protocol_identity(
@@ -2412,12 +2612,23 @@ impl ClientRegistry {
         self.clients.lock().unwrap().get(&client).map(|record| record.connection_id)
     }
 
-    fn is_unix(&self, client: u64) -> bool {
+    fn has_permission(&self, client: u64, permission: ConnectionPermission) -> bool {
         self.clients
             .lock()
             .unwrap()
             .get(&client)
-            .is_some_and(|record| matches!(record.transport, ClientTransport::Unix))
+            .is_some_and(|record| record.authorization.role().permits(permission))
+    }
+
+    fn require_topology_mutation(
+        &self,
+        client: u64,
+        claim: TopologyMutationLeaseClaim,
+    ) -> anyhow::Result<()> {
+        let clients = self.clients.lock().unwrap();
+        let record =
+            clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        record.authorization.require_topology_mutation(claim)
     }
 
     fn set_info(
@@ -2451,6 +2662,10 @@ impl ClientRegistry {
                         "protocol": record.protocol,
                         "client_uuid": record.client_uuid,
                         "process_instance_uuid": record.process_instance_uuid,
+                        "registered_kind": record.authorization.registered_kind().map(|kind| kind.as_str()),
+                        "role": record.authorization.role().as_str(),
+                        "peer_pid": record.authorization.peer_credentials().and_then(|peer| peer.process_id),
+                        "peer_uid": record.authorization.peer_credentials().map(|peer| peer.user_id),
                         "name": record.name,
                         "kind": record.kind,
                         "connected_seconds": record.connected_at.elapsed().as_secs(),
@@ -2633,20 +2848,7 @@ fn clamp_client_label(value: String) -> String {
 /// Bind the socket and serve connections on background threads.
 pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-        platform::restrict_directory(dir)?;
-    }
-    // Refuse to clobber a live socket; remove a stale one.
-    if path.exists() {
-        match transport::connect(&path) {
-            Ok(_) => anyhow::bail!(
-                "session socket {} is already in use (another instance running?)",
-                path.display()
-            ),
-            Err(_) => std::fs::remove_file(&path)?,
-        }
-    }
+    prepare_socket_path(&path)?;
     let listener = transport::listen(&path)?;
     platform::restrict_file(&path)?;
     let active_connections = Arc::new(AtomicU64::new(0));
@@ -2663,6 +2865,49 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
         }
     })?;
     Ok(path)
+}
+
+fn prepare_socket_path(path: &Path) -> anyhow::Result<()> {
+    let directory = path
+        .parent()
+        .filter(|directory| !directory.as_os_str().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("socket path must have a dedicated parent directory"))?;
+    platform::ensure_private_directory(directory)?;
+
+    // Refuse symlinks and ordinary files. Only an unreachable Unix socket in
+    // the already validated private directory is eligible for stale cleanup.
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                anyhow::bail!("refusing socket symbolic link: {}", path.display());
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileTypeExt;
+
+                if !metadata.file_type().is_socket() {
+                    anyhow::bail!("refusing non-socket path: {}", path.display());
+                }
+            }
+            #[cfg(not(unix))]
+            if !metadata.is_file() {
+                anyhow::bail!("refusing non-file socket path: {}", path.display());
+            }
+
+            // Refuse to clobber a live endpoint; remove only a stale endpoint
+            // whose type was checked without following links above.
+            match transport::connect(path) {
+                Ok(_) => anyhow::bail!(
+                    "session socket {} is already in use (another instance running?)",
+                    path.display()
+                ),
+                Err(_) => std::fs::remove_file(path)?,
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
 }
 
 /// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
@@ -2785,6 +3030,7 @@ fn sanitize_window_title(title: &str) -> String {
 }
 
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
+    let peer_credentials = stream.peer_credentials().ok().flatten();
     let Ok(mut write_half) = stream.try_clone_box() else { return };
     let Ok(control) = write_half.try_clone_box() else { return };
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
@@ -2813,7 +3059,7 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
         writer.close();
         return;
     };
-    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let client = mux.control_clients.register_unix(peer_credentials, writer.clone());
     let mut reader = BufReader::new(stream);
     let inbound_budget = mux.control_clients.inbound_budget();
     loop {
@@ -2927,7 +3173,7 @@ fn handle_websocket_connection(
         writer.close();
         return;
     };
-    let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    let client = mux.control_clients.register_websocket(writer.clone());
     let inbound_budget = mux.control_clients.inbound_budget();
     // The authentication read can leave bytes for the first control frame in
     // Tungstenite's private buffer, so the first read must be budgeted without
@@ -3131,12 +3377,12 @@ fn preflight_request(
         );
     }
 
-    let (transport, protocol, registered) = mux.control_clients.admission_state(client)?;
+    let (_transport, protocol, registered, role) = mux.control_clients.admission_state(client)?;
     if envelope.cmd == "register-client" && registered {
         anyhow::bail!("connection already registered");
     }
-    if policy.trusted_local && !matches!(transport, ClientTransport::Unix) {
-        anyhow::bail!("command {:?} requires a trusted local connection", envelope.cmd);
+    if let Some(permission) = policy.permission {
+        role.require_permission(permission, envelope.cmd)?;
     }
     if policy.protocol_v9 && (!registered || protocol < 9) {
         anyhow::bail!("command {:?} requires a registered protocol v9 capability", envelope.cmd);
@@ -3306,9 +3552,7 @@ fn parse_canonical_split_edge(dir: &str) -> anyhow::Result<(SplitDir, bool)> {
         "right" => Ok((SplitDir::Right, false)),
         "up" => Ok((SplitDir::Down, true)),
         "down" => Ok((SplitDir::Down, false)),
-        other => anyhow::bail!(
-            "bad dir {other:?} (want \"left\", \"right\", \"up\", or \"down\")"
-        ),
+        other => anyhow::bail!("bad dir {other:?} (want \"left\", \"right\", \"up\", or \"down\")"),
     }
 }
 
@@ -4601,6 +4845,17 @@ fn handle_command(
     cmd: Command,
     writer: &MessageWriter,
 ) -> anyhow::Result<Value> {
+    // Keep registration and its connection-bound lease live through the
+    // entire canonical state transaction. Disconnect takes the write side.
+    let topology_mutation_claim = cmd.canonical_mutation_claim();
+    let _topology_client_lifecycle = if let Some(claim) = topology_mutation_claim {
+        let lifecycle = mux.control_clients.read_lifecycle();
+        mux.control_clients.require_topology_mutation(client, claim)?;
+        Some(lifecycle)
+    } else {
+        None
+    };
+
     match cmd {
         Command::Identify => {
             let (topology_revision, canonical_topology_revision) = mux.topology_revisions();
@@ -4649,19 +4904,25 @@ fn handle_command(
             protocol_max,
             client_uuid,
             process_instance_uuid,
+            client_kind,
         } => {
-            let (protocol, connection_id) = mux.control_clients.register_protocol(
+            let registration = mux.control_clients.register_protocol(
                 client,
                 protocol_min,
                 protocol_max,
                 client_uuid,
                 process_instance_uuid,
+                client_kind.as_deref(),
             )?;
             Ok(json!({
-                "protocol": protocol,
-                "connection_id": connection_id,
+                "protocol": registration.protocol,
+                "connection_id": registration.connection_id,
                 "client_uuid": client_uuid,
                 "process_instance_uuid": process_instance_uuid,
+                "client_kind": registration.kind.map(RegisteredClientKind::as_str),
+                "role": registration.role.as_str(),
+                "topology_lease_id": registration.topology_lease.map(|lease| lease.id),
+                "topology_lease_generation": registration.topology_lease.map(|lease| lease.generation),
             }))
         }
         Command::OpenPresentation { view, zoom, scroll } => {
@@ -4842,7 +5103,7 @@ fn handle_command(
             cols,
             rows,
         } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Control) {
                 anyhow::bail!("ensure-terminal requires a trusted local connection");
             }
             let placement = mux.ensure_terminal(ensure_terminal_request(EnsureTerminalSpec {
@@ -4860,7 +5121,7 @@ fn handle_command(
             Ok(ensured_terminal_placement_json(placement))
         }
         Command::EnsureTerminals { terminals } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Control) {
                 anyhow::bail!("ensure-terminals requires a trusted local connection");
             }
             let requests = terminals
@@ -4875,7 +5136,7 @@ fn handle_command(
             ))
         }
         Command::ReparentTerminal { surface_uuid, workspace_uuid } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Control) {
                 anyhow::bail!("reparent-terminal requires a trusted local connection");
             }
             let placement = mux.reparent_terminal(surface_uuid, workspace_uuid)?;
@@ -4892,7 +5153,7 @@ fn handle_command(
             }))
         }
         Command::RendererWorkers => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
                 anyhow::bail!("renderer worker status requires a trusted local connection");
             }
             let (default_colors_revision, default_colors) = mux.default_colors_snapshot();
@@ -4925,7 +5186,7 @@ fn handle_command(
             preedit_caret_utf16,
         } => {
             let _client_lifecycle = mux.control_clients.lock_lifecycle();
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
                 anyhow::bail!(
                     "renderer presentation configuration requires a trusted local connection"
                 );
@@ -5006,7 +5267,7 @@ fn handle_command(
         }
         Command::DetachRendererPresentation { presentation_id, expected_generation } => {
             let _client_lifecycle = mux.control_clients.lock_lifecycle();
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
                 anyhow::bail!("renderer presentation detach requires a trusted local connection");
             }
             mux.detach_renderer_presentation(client, presentation_id, expected_generation)?;
@@ -5021,7 +5282,7 @@ fn handle_command(
             selection_length_utf16,
             caret_utf16,
         } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
                 anyhow::bail!("terminal preedit requires a trusted local connection");
             }
             if text.as_ref().is_some_and(|text| text.len() > TERMINAL_KEY_TEXT_MAX_BYTES) {
@@ -5043,7 +5304,7 @@ fn handle_command(
             expected_generation,
             expected_content_sequence,
         } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
                 anyhow::bail!("terminal accessibility requires a trusted local connection");
             }
             // Accessibility reads expose terminal contents. Require the
@@ -5070,7 +5331,7 @@ fn handle_command(
             viewport_revision,
             link_id,
         } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
                 anyhow::bail!(
                     "terminal accessibility link activation requires a trusted local connection"
                 );
@@ -5097,7 +5358,7 @@ fn handle_command(
             column,
             row,
         } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
                 anyhow::bail!("terminal hyperlink activation requires a trusted local connection");
             }
             let _ = mux.control_clients.protocol_identity(client, 9)?;
@@ -5643,7 +5904,7 @@ fn handle_command(
             frame_sequence,
             surface_id,
         } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
                 anyhow::bail!("renderer frame release requires a trusted local connection");
             }
             let forwarded = mux.release_renderer_frame(
@@ -5688,7 +5949,7 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::PairingResponse { request, approve } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
                 anyhow::bail!("pairing decisions require a trusted local connection");
             }
             if !mux.respond_pairing(request, approve) {
@@ -6394,19 +6655,10 @@ fn handle_command(
             cols,
             rows,
         } => {
-            let launch = terminal_launch_request(
-                cwd,
-                argv,
-                command,
-                env,
-                initial_input,
-                wait_after_command,
-            );
-            let surface = mux.new_tab_with_launch(
-                pane,
-                optional_surface_size(cols, rows),
-                launch,
-            )?;
+            let launch =
+                terminal_launch_request(cwd, argv, command, env, initial_input, wait_after_command);
+            let surface =
+                mux.new_tab_with_launch(pane, optional_surface_size(cols, rows), launch)?;
             surface_placement_json(mux, surface.id)
         }
         Command::NewBrowserTab { url, pane, cols, rows } => {
@@ -6530,19 +6782,10 @@ fn handle_command(
             cols,
             rows,
         } => {
-            let launch = terminal_launch_request(
-                cwd,
-                argv,
-                command,
-                env,
-                initial_input,
-                wait_after_command,
-            );
-            let surface = mux.new_workspace_with_launch(
-                name,
-                optional_surface_size(cols, rows),
-                launch,
-            )?;
+            let launch =
+                terminal_launch_request(cwd, argv, command, env, initial_input, wait_after_command);
+            let surface =
+                mux.new_workspace_with_launch(name, optional_surface_size(cols, rows), launch)?;
             surface_placement_json(mux, surface.id)
         }
         Command::CanonicalNewWorkspace {
@@ -6564,14 +6807,7 @@ fn handle_command(
             surface_uuid,
             name,
             optional_surface_size(cols, rows),
-            terminal_launch_request(
-                cwd,
-                argv,
-                command,
-                env,
-                initial_input,
-                wait_after_command,
-            ),
+            terminal_launch_request(cwd, argv, command, env, initial_input, wait_after_command),
         )?)),
         Command::CanonicalNewTab {
             mutation,
@@ -6590,14 +6826,7 @@ fn handle_command(
             pane_uuid,
             surface_uuid,
             optional_surface_size(cols, rows),
-            terminal_launch_request(
-                cwd,
-                argv,
-                command,
-                env,
-                initial_input,
-                wait_after_command,
-            ),
+            terminal_launch_request(cwd, argv, command, env, initial_input, wait_after_command),
         )?)),
         Command::CanonicalSplitPane {
             mutation,
@@ -6623,23 +6852,10 @@ fn handle_command(
                 insert_first,
                 ratio,
                 optional_surface_size(cols, rows),
-                terminal_launch_request(
-                    cwd,
-                    argv,
-                    command,
-                    env,
-                    initial_input,
-                    wait_after_command,
-                ),
+                terminal_launch_request(cwd, argv, command, env, initial_input, wait_after_command),
             )?))
         }
-        Command::CanonicalSplitTab {
-            mutation,
-            surface_uuid,
-            pane_uuid,
-            dir,
-            ratio,
-        } => {
+        Command::CanonicalSplitTab { mutation, surface_uuid, pane_uuid, dir, ratio } => {
             let (split_dir, insert_first) = parse_canonical_split_edge(&dir)?;
             Ok(canonical_surface_placement_json(mux.canonical_split_tab(
                 mutation.into(),
@@ -6650,68 +6866,61 @@ fn handle_command(
                 ratio,
             )?))
         }
-        Command::CanonicalClosePane { mutation, pane_uuid } => Ok(
-            canonical_mutation_receipt_json(mux.canonical_close_pane(
-                mutation.into(),
-                pane_uuid,
-            )?),
-        ),
-        Command::CanonicalCloseWorkspace { mutation, workspace_uuid } => Ok(
-            canonical_mutation_receipt_json(mux.canonical_close_workspace(
-                mutation.into(),
-                workspace_uuid,
-            )?),
-        ),
-        Command::CanonicalRenameWorkspace { mutation, workspace_uuid, name } => Ok(
-            canonical_mutation_receipt_json(mux.canonical_rename_workspace(
+        Command::CanonicalClosePane { mutation, pane_uuid } => Ok(canonical_mutation_receipt_json(
+            mux.canonical_close_pane(mutation.into(), pane_uuid)?,
+        )),
+        Command::CanonicalCloseWorkspace { mutation, workspace_uuid } => {
+            Ok(canonical_mutation_receipt_json(
+                mux.canonical_close_workspace(mutation.into(), workspace_uuid)?,
+            ))
+        }
+        Command::CanonicalRenameWorkspace { mutation, workspace_uuid, name } => {
+            Ok(canonical_mutation_receipt_json(mux.canonical_rename_workspace(
                 mutation.into(),
                 workspace_uuid,
                 name,
-            )?),
-        ),
-        Command::CanonicalRenameSurface { mutation, surface_uuid, name } => Ok(
-            canonical_mutation_receipt_json(mux.canonical_rename_surface(
+            )?))
+        }
+        Command::CanonicalRenameSurface { mutation, surface_uuid, name } => {
+            Ok(canonical_mutation_receipt_json(mux.canonical_rename_surface(
                 mutation.into(),
                 surface_uuid,
                 name,
-            )?),
-        ),
-        Command::CanonicalMoveTab { mutation, surface_uuid, pane_uuid, index } => Ok(
-            canonical_mutation_receipt_json(mux.canonical_move_tab(
+            )?))
+        }
+        Command::CanonicalMoveTab { mutation, surface_uuid, pane_uuid, index } => {
+            Ok(canonical_mutation_receipt_json(mux.canonical_move_tab(
                 mutation.into(),
                 surface_uuid,
                 pane_uuid,
                 index,
-            )?),
-        ),
-        Command::CanonicalReorderTabs { mutation, pane_uuid, surface_uuids } => Ok(
-            canonical_mutation_receipt_json(mux.canonical_reorder_tabs(
+            )?))
+        }
+        Command::CanonicalReorderTabs { mutation, pane_uuid, surface_uuids } => {
+            Ok(canonical_mutation_receipt_json(mux.canonical_reorder_tabs(
                 mutation.into(),
                 pane_uuid,
                 surface_uuids,
-            )?),
-        ),
-        Command::CanonicalReorderWorkspaces { mutation, workspace_uuids } => Ok(
-            canonical_mutation_receipt_json(mux.canonical_reorder_workspaces(
-                mutation.into(),
-                workspace_uuids,
-            )?),
-        ),
+            )?))
+        }
+        Command::CanonicalReorderWorkspaces { mutation, workspace_uuids } => {
+            Ok(canonical_mutation_receipt_json(
+                mux.canonical_reorder_workspaces(mutation.into(), workspace_uuids)?,
+            ))
+        }
         Command::CanonicalMoveTabToNewWorkspace {
             mutation,
             surface_uuid,
             workspace_uuid,
             name,
             index,
-        } => Ok(canonical_surface_placement_json(
-            mux.canonical_move_tab_to_new_workspace(
-                mutation.into(),
-                surface_uuid,
-                workspace_uuid,
-                name,
-                index,
-            )?,
-        )),
+        } => Ok(canonical_surface_placement_json(mux.canonical_move_tab_to_new_workspace(
+            mutation.into(),
+            surface_uuid,
+            workspace_uuid,
+            name,
+            index,
+        )?)),
         Command::CanonicalSetSplitRatio { mutation, pane_uuid, dir, ratio } => {
             let (split_dir, insert_first) = parse_canonical_split_edge(&dir)?;
             Ok(canonical_mutation_receipt_json(mux.canonical_set_split_ratio(
@@ -6746,14 +6955,7 @@ fn handle_command(
                 insert_first,
                 ratio.unwrap_or(0.5),
                 optional_surface_size(cols, rows),
-                terminal_launch_request(
-                    cwd,
-                    argv,
-                    command,
-                    env,
-                    initial_input,
-                    wait_after_command,
-                ),
+                terminal_launch_request(cwd, argv, command, env, initial_input, wait_after_command),
             )?;
             surface_placement_json(mux, surface.id)
         }
@@ -6843,34 +7045,12 @@ fn handle_command(
             mux.set_default_colors(colors);
             Ok(json!({}))
         }
-        Command::CloseSurface { surface } => {
-            let _client_lifecycle = mux.control_clients.lock_lifecycle();
-            get_surface(mux, surface)?;
-            mux.close_surface(surface);
-            Ok(json!({}))
-        }
-        Command::ClosePane { pane } => {
-            let _client_lifecycle = mux.control_clients.lock_lifecycle();
-            if !mux.with_state(|s| s.panes.contains_key(&pane)) {
-                anyhow::bail!("unknown pane {pane}");
-            }
-            mux.close_pane(pane);
-            Ok(json!({}))
-        }
-        Command::CloseScreen { screen } => {
-            let _client_lifecycle = mux.control_clients.lock_lifecycle();
-            if !mux.close_screen(screen) {
-                anyhow::bail!("unknown screen {screen}");
-            }
-            Ok(json!({}))
-        }
-        Command::CloseWorkspace { workspace } => {
-            let _client_lifecycle = mux.control_clients.lock_lifecycle();
-            if !mux.close_workspace(workspace) {
-                anyhow::bail!("unknown workspace {workspace}");
-            }
-            Ok(json!({}))
-        }
+        Command::CloseSurface { .. }
+        | Command::ClosePane { .. }
+        | Command::CloseScreen { .. }
+        | Command::CloseWorkspace { .. } => anyhow::bail!(
+            "legacy numeric close commands are disabled; use a canonical close command with stable UUID targets, expected authority/revision, and the connection topology lease"
+        ),
         Command::RenamePane { pane, name } => {
             if !mux.rename_pane(pane, name) {
                 anyhow::bail!("unknown pane {pane}");
@@ -6959,7 +7139,8 @@ fn handle_command(
                 other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
             };
             let events = mux.subscribe();
-            let trusted_pairing_client = mux.control_clients.is_unix(client);
+            let trusted_pairing_client =
+                mux.control_clients.has_permission(client, ConnectionPermission::Frontend);
             let pending_pairings =
                 if trusted_pairing_client { mux.pending_pairings() } else { Vec::new() };
             let writer = writer.clone();
@@ -7546,7 +7727,18 @@ mod tests {
     }
 
     fn register_v9_client(mux: &Arc<Mux>, writer: &MessageWriter) -> (u64, uuid::Uuid) {
-        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (client, client_uuid, _) =
+            register_v9_client_kind(mux, writer, ClientTransport::Unix, "swift-shell");
+        (client, client_uuid)
+    }
+
+    fn register_v9_client_kind(
+        mux: &Arc<Mux>,
+        writer: &MessageWriter,
+        transport: ClientTransport,
+        client_kind: &str,
+    ) -> (u64, uuid::Uuid, Value) {
+        let client = mux.control_clients.register(transport, writer.clone());
         let client_uuid = uuid::Uuid::new_v4();
         let result = handle_command(
             mux,
@@ -7556,13 +7748,74 @@ mod tests {
                 protocol_max: 9,
                 client_uuid,
                 process_instance_uuid: uuid::Uuid::new_v4(),
+                client_kind: Some(client_kind.to_owned()),
             },
             writer,
         )
         .unwrap();
         assert_eq!(result["protocol"], 9);
         uuid::Uuid::parse_str(result["connection_id"].as_str().unwrap()).unwrap();
-        (client, client_uuid)
+        (client, client_uuid, result)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_socket_path_requires_a_dedicated_private_parent_without_chmod() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-socket-boundary-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let unsafe_path = root.join("daemon.sock");
+        let error = prepare_socket_path(&unsafe_path).unwrap_err();
+        assert!(error.to_string().contains("found 0755"), "unexpected error: {error}");
+        assert_eq!(std::fs::symlink_metadata(&root).unwrap().permissions().mode() & 0o777, 0o755);
+        assert!(!unsafe_path.exists());
+
+        let private = root.join("private");
+        let safe_path = private.join("daemon.sock");
+        prepare_socket_path(&safe_path).unwrap();
+        assert_eq!(
+            std::fs::symlink_metadata(&private).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert!(!safe_path.exists());
+
+        std::fs::remove_dir(&private).unwrap();
+        std::fs::remove_dir(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_socket_path_rejects_symlink_without_touching_target() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-socket-symlink-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let private = root.join("private");
+        platform::ensure_private_directory(&private).unwrap();
+        let target = root.join("target");
+        std::fs::write(&target, b"caller-owned").unwrap();
+        let socket = private.join("daemon.sock");
+        symlink(&target, &socket).unwrap();
+
+        let error = prepare_socket_path(&socket).unwrap_err();
+        assert!(error.to_string().contains("symbolic link"), "unexpected error: {error}");
+        assert_eq!(std::fs::read(&target).unwrap(), b"caller-owned");
+        assert!(std::fs::symlink_metadata(&socket).unwrap().file_type().is_symlink());
+
+        std::fs::remove_file(&socket).unwrap();
+        std::fs::remove_file(&target).unwrap();
+        std::fs::remove_dir(&private).unwrap();
+        std::fs::remove_dir(&root).unwrap();
     }
 
     fn open_visible_terminal_presentation(
@@ -7773,6 +8026,32 @@ mod tests {
         );
     }
 
+    fn topology_lease(registration: &Value) -> TopologyMutationLease {
+        TopologyMutationLease {
+            id: registration["topology_lease_id"].as_str().unwrap().parse().unwrap(),
+            generation: registration["topology_lease_generation"].as_u64().unwrap(),
+        }
+    }
+
+    fn canonical_close_pane_message(
+        mux: &Mux,
+        lease: TopologyMutationLease,
+        request_id: uuid::Uuid,
+    ) -> String {
+        json!({
+            "id": 41,
+            "cmd": "canonical-close-pane",
+            "request_id": request_id,
+            "daemon_instance_id": mux.daemon_instance_id,
+            "session_id": mux.session_id,
+            "expected_revision": mux.canonical_topology_revision(),
+            "topology_lease_id": lease.id,
+            "topology_lease_generation": lease.generation,
+            "pane_uuid": crate::PaneUuid::new(),
+        })
+        .to_string()
+    }
+
     #[test]
     fn hostile_json_is_rejected_before_state_mutation_or_typed_tree_allocation() {
         let mux = test_mux();
@@ -7824,6 +8103,7 @@ mod tests {
                 protocol_max: 8,
                 client_uuid: uuid::Uuid::new_v4(),
                 process_instance_uuid: uuid::Uuid::new_v4(),
+                client_kind: None,
             },
             &writer,
         )
@@ -7841,16 +8121,100 @@ mod tests {
         let remote = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
         let remote_request = json!({"cmd": "ensure-terminals", "terminals": []}).to_string();
         assert!(handle_message(&mux, remote, &remote_request, &writer));
-        assert_rejected_response(&outbound, "trusted local connection");
+        assert_rejected_response(&outbound, "same-UID trusted frontend or automation");
         assert_eq!(mux.control_clients.inbound_budget().usage(), before_budget);
         assert_eq!(canonical_state_digest(&mux), before);
+    }
+
+    #[test]
+    fn web_unaffiliated_and_renderer_roles_cannot_mutate_topology_or_terminals() {
+        let mux = test_mux();
+        let before = canonical_state_digest(&mux);
+        let before_revision = mux.canonical_topology_revision();
+
+        let (web_writer, web_outbound) = test_writer_and_outbound();
+        let (web, _, web_registration) =
+            register_v9_client_kind(&mux, &web_writer, ClientTransport::WebSocket, "swift-shell");
+        assert_eq!(web_registration["role"], "remote-read-only");
+        assert!(web_registration["topology_lease_id"].is_null());
+        assert!(handle_message(
+            &mux,
+            web,
+            &json!({"cmd": "canonical-close-pane"}).to_string(),
+            &web_writer,
+        ));
+        assert_rejected_response(&web_outbound, "trusted frontend or automation");
+
+        let (unaffiliated_writer, unaffiliated_outbound) = test_writer_and_outbound();
+        let unaffiliated =
+            mux.control_clients.register(ClientTransport::Unix, unaffiliated_writer.clone());
+        assert!(handle_message(
+            &mux,
+            unaffiliated,
+            &json!({"cmd": "close-workspace"}).to_string(),
+            &unaffiliated_writer,
+        ));
+        assert_rejected_response(&unaffiliated_outbound, "trusted frontend or automation");
+
+        let (renderer_writer, renderer_outbound) = test_writer_and_outbound();
+        let (renderer, _, renderer_registration) = register_v9_client_kind(
+            &mux,
+            &renderer_writer,
+            ClientTransport::Unix,
+            "renderer-worker",
+        );
+        assert_eq!(renderer_registration["role"], "trusted-renderer");
+        assert!(renderer_registration["topology_lease_id"].is_null());
+        assert!(handle_message(
+            &mux,
+            renderer,
+            &json!({"cmd": "terminal-input"}).to_string(),
+            &renderer_writer,
+        ));
+        assert_rejected_response(&renderer_outbound, "trusted frontend or automation");
+
+        assert_eq!(canonical_state_digest(&mux), before);
+        assert_eq!(mux.canonical_topology_revision(), before_revision);
+    }
+
+    #[test]
+    fn canonical_topology_lease_is_connection_bound_and_generation_fenced() {
+        let mux = test_mux();
+        let before = canonical_state_digest(&mux);
+        let before_revision = mux.canonical_topology_revision();
+        let (first_writer, _) = test_writer_and_outbound();
+        let (_, _, first_registration) =
+            register_v9_client_kind(&mux, &first_writer, ClientTransport::Unix, "swift-shell");
+        let first_lease = topology_lease(&first_registration);
+
+        let (second_writer, second_outbound) = test_writer_and_outbound();
+        let (second, _, second_registration) =
+            register_v9_client_kind(&mux, &second_writer, ClientTransport::Unix, "swift-shell");
+        let second_lease = topology_lease(&second_registration);
+        assert_ne!(first_lease.id, second_lease.id);
+
+        let cross_connection =
+            canonical_close_pane_message(&mux, first_lease, uuid::Uuid::new_v4());
+        assert!(handle_message(&mux, second, &cross_connection, &second_writer));
+        assert_rejected_response(&second_outbound, "does not belong to this connection");
+
+        let stale_generation = canonical_close_pane_message(
+            &mux,
+            TopologyMutationLease { id: second_lease.id, generation: second_lease.generation + 1 },
+            uuid::Uuid::new_v4(),
+        );
+        assert!(handle_message(&mux, second, &stale_generation, &second_writer));
+        assert_rejected_response(&second_outbound, "stale canonical topology mutation lease");
+
+        assert_eq!(canonical_state_digest(&mux), before);
+        assert_eq!(mux.canonical_topology_revision(), before_revision);
     }
 
     #[test]
     fn legitimate_max_initial_input_survives_all_admission_bounds() {
         let mux = test_mux();
         let writer = test_writer();
-        let client = mux.control_clients.register(ClientTransport::Unix, writer);
+        let (client, _) = register_v9_client(&mux, &writer);
         let message = json!({
             "id": 1,
             "cmd": "ensure-terminal",
@@ -8526,6 +8890,7 @@ mod tests {
                 protocol_max: 9,
                 client_uuid: uuid::Uuid::nil(),
                 process_instance_uuid: uuid::Uuid::new_v4(),
+                client_kind: None,
             },
             &writer,
         )
@@ -8541,6 +8906,7 @@ mod tests {
                 protocol_max: 9,
                 client_uuid,
                 process_instance_uuid: uuid::Uuid::new_v4(),
+                client_kind: None,
             },
             &writer,
         )
@@ -8556,6 +8922,7 @@ mod tests {
                 protocol_max: 9,
                 client_uuid,
                 process_instance_uuid: uuid::Uuid::new_v4(),
+                client_kind: None,
             },
             &writer,
         )
@@ -8572,6 +8939,7 @@ mod tests {
                 protocol_max: 10,
                 client_uuid: uuid::Uuid::new_v4(),
                 process_instance_uuid: uuid::Uuid::new_v4(),
+                client_kind: None,
             },
             &writer,
         )
@@ -9092,6 +9460,7 @@ mod tests {
                 protocol_max: 9,
                 client_uuid: tui_uuid,
                 process_instance_uuid: uuid::Uuid::new_v4(),
+                client_kind: None,
             },
             &reconnect_writer,
         )
@@ -9199,7 +9568,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_surface_close_retires_v9_presentation_and_lease() {
+    fn legacy_numeric_surface_close_cannot_bypass_canonical_mutation_fences() {
         let mux = test_mux();
         mux.new_workspace(Some("leased".into()), Some((80, 24))).unwrap();
         let (surface_id, surface_uuid) = mux.with_state(|state| {
@@ -9225,12 +9594,16 @@ mod tests {
         let lease_id = lease["lease_id"].as_str().unwrap().parse().unwrap();
         let lease_generation = lease["lease_generation"].as_u64().unwrap();
 
-        handle_command(&mux, client, Command::CloseSurface { surface: surface_id }, &writer)
-            .unwrap();
+        let before = canonical_state_digest(&mux);
+        let close =
+            handle_command(&mux, client, Command::CloseSurface { surface: surface_id }, &writer)
+                .unwrap_err();
+        assert!(close.to_string().contains("legacy numeric close commands are disabled"));
 
-        assert!(mux.presentations.list_for_client(client).is_empty());
-        assert!(mux.surface(surface_id).is_none());
-        let release = handle_command(
+        assert_eq!(mux.presentations.list_for_client(client).len(), 1);
+        assert!(mux.surface(surface_id).is_some());
+        assert_eq!(canonical_state_digest(&mux), before);
+        handle_command(
             &mux,
             client,
             Command::ReleaseTerminalControl {
@@ -9242,8 +9615,7 @@ mod tests {
             },
             &writer,
         )
-        .unwrap_err();
-        assert!(release.to_string().contains("lease is missing"));
+        .unwrap();
     }
 
     #[test]
@@ -9567,6 +9939,7 @@ mod tests {
                 protocol_max: 9,
                 client_uuid: logical_client,
                 process_instance_uuid: uuid::Uuid::new_v4(),
+                client_kind: None,
             },
             &writer,
         )
@@ -9633,6 +10006,7 @@ mod tests {
                 protocol_max: 9,
                 client_uuid: logical_client,
                 process_instance_uuid: second_process,
+                client_kind: None,
             },
             &writer,
         )
