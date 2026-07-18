@@ -273,7 +273,7 @@ extension CMUXCLI {
             resolvedTargets.reserveCapacity(targets.count)
             for target in targets {
                 guard let surfaceRef = target["surface_ref"] as? String else {
-                    throw missingIOSSimulatorIdentifier()
+                    throw missingIOSSurfaceReference()
                 }
                 if let batchDeadline,
                    ProcessInfo.processInfo.systemUptime >= batchDeadline {
@@ -333,8 +333,7 @@ extension CMUXCLI {
                     "error": error,
                 ]
             }
-            guard let simulatorID = target["simulator_id"] as? String,
-                  let surfaceRef = target["surface_ref"] as? String else {
+            guard let simulatorID = target["simulator_id"] as? String else {
                 if all {
                     return [
                         "surface_ref": target["surface_ref"] ?? NSNull(),
@@ -342,6 +341,15 @@ extension CMUXCLI {
                     ]
                 }
                 throw missingIOSSimulatorIdentifier()
+            }
+            guard let surfaceRef = target["surface_ref"] as? String else {
+                if all {
+                    return [
+                        "surface_ref": NSNull(),
+                        "error": missingIOSSurfaceReference().message,
+                    ]
+                }
+                throw missingIOSSurfaceReference()
             }
             let destination: URL
             if let outputURL, !all, targets.count == 1 {
@@ -457,6 +465,13 @@ extension CMUXCLI {
         CLIError(message: String(
             localized: "cli.ios.error.missingSimulatorID",
             defaultValue: "The selected iOS pane has no Simulator identifier"
+        ))
+    }
+
+    private func missingIOSSurfaceReference() -> CLIError {
+        CLIError(message: String(
+            localized: "cli.ios.error.missingSurfaceReference",
+            defaultValue: "The selected iOS pane has no surface reference"
         ))
     }
 

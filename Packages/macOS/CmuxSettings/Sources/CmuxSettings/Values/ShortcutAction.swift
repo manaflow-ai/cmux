@@ -321,16 +321,22 @@ extension ShortcutAction {
         case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
              .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
             return .atom(.simulatorFocus)
-        case .canvasZoomReset:
+        case .canvasZoomIn, .canvasZoomOut, .canvasZoomReset:
             return .and(
                 .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
                 .and(
                     .not(.atom(.browserFocus)),
-                    .and(.not(.atom(.markdownFocus)), .not(.atom(.filePreviewTextEditorFocus)))
+                    .and(
+                        .not(.atom(.markdownFocus)),
+                        .and(
+                            .not(.atom(.filePreviewTextEditorFocus)),
+                            .not(.atom(.simulatorFocus))
+                        )
+                    )
                 )
             )
         case .canvasRevealFocusedPane, .canvasOverview,
-             .canvasZoomIn, .canvasZoomOut, .canvasTidy,
+             .canvasTidy,
              .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
              .canvasEqualizeWidths, .canvasEqualizeHeights,
              .canvasDistributeHorizontally, .canvasDistributeVertically:

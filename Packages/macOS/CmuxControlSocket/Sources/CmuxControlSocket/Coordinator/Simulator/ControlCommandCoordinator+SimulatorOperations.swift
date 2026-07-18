@@ -104,7 +104,7 @@ extension ControlCommandCoordinator {
             operation = .permissionsRead(bundleIdentifier: bundleIdentifier)
         case "simulator.permissions.set":
             guard let action = simulatorToken(request.params, "action"),
-                  let service = simulatorToken(request.params, "service"),
+                  let rawService = simulatorToken(request.params, "service"),
                   let bundleIdentifier = string(request.params, "bundle_id"),
                   simulatorBundleIdentifier(bundleIdentifier) else {
                 return invalidSimulatorOperation(
@@ -113,17 +113,17 @@ extension ControlCommandCoordinator {
             }
             operation = .permissionsSet(
                 action: action,
-                service: service,
+                service: simulatorPermissionService(rawService),
                 bundleIdentifier: bundleIdentifier
             )
         case "simulator.ui.status":
             operation = .interfaceStatus
         case "simulator.ui.set":
-            guard let option = simulatorToken(request.params, "option"),
+            guard let rawOption = simulatorToken(request.params, "option"),
                   let value = simulatorToken(request.params, "value") else {
                 return invalidSimulatorOperation("option and value are required")
             }
-            operation = .interfaceSet(option: option, value: value)
+            operation = .interfaceSet(option: simulatorInterfaceOption(rawOption), value: value)
         case "simulator.accessibility":
             operation = .accessibility
         case "simulator.foreground":
@@ -177,7 +177,10 @@ extension ControlCommandCoordinator {
                         localized: "cli.simulator.error.operationTimeout",
                         defaultValue: "The Simulator operation did not complete before the deadline"
                     ),
-                    data: nil
+                    data: .object([
+                        "surface_id": .string(surfaceID.uuidString),
+                        "surface_ref": outcome.surfaceRef ?? .null,
+                    ])
                 )
             }
             switch completion {
@@ -236,12 +239,7 @@ extension ControlCommandCoordinator {
         guard (x2 == nil) == (y2 == nil),
               x2.map(simulatorCoordinate) ?? true,
               y2.map(simulatorCoordinate) ?? true else { return nil }
-        let edge = string(fields, "edge")
-            ?? simulatorInt(fields, "edge").map(String.init)
-            ?? "none"
-        guard ["none", "left", "top", "bottom", "right", "0", "1", "2", "3", "4"].contains(edge) else {
-            return nil
-        }
+        guard let edge = simulatorTouchEdge(fields) else { return nil }
         return ControlSimulatorTouch(
             phase: phase, x: x, y: y, secondX: x2, secondY: y2, edge: edge
         )

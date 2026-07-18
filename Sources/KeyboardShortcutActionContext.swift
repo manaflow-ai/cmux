@@ -89,6 +89,7 @@ extension KeyboardShortcutSettings.Action {
                 return workspaceCanvasLayout
                     && !focusedBrowserPanel
                     && !focusedMarkdownPanel
+                    && !focusedSimulatorPanel
                     && !focusedFilePreviewTextEditor
             }
         }
@@ -136,7 +137,13 @@ extension KeyboardShortcutSettings.Action {
                     .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
                     .and(
                         .not(.atom(.browserFocus)),
-                        .and(.not(.atom(.markdownFocus)), .not(.atom(.filePreviewTextEditorFocus)))
+                        .and(
+                            .not(.atom(.markdownFocus)),
+                            .and(
+                                .not(.atom(.filePreviewTextEditorFocus)),
+                                .not(.atom(.simulatorFocus))
+                            )
+                        )
                     )
                 )
             }
@@ -184,7 +191,6 @@ extension KeyboardShortcutSettings.Action {
             if self == .simulatorPanel || other == .simulatorPanel {
                 let paired = self == .simulatorPanel ? other : self
                 return paired == .nonBrowserPanel || paired == .canvasLayout
-                    || paired == .canvasLayoutOutsideFocusedContent
             }
             return false
         }
@@ -231,9 +237,9 @@ extension KeyboardShortcutSettings.Action {
         case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
              .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
             return .simulatorPanel
-        case .canvasZoomReset:
+        case .canvasZoomIn, .canvasZoomOut, .canvasZoomReset:
             return .canvasLayoutOutsideFocusedContent
-        case .canvasRevealFocusedPane, .canvasOverview, .canvasZoomIn, .canvasZoomOut,
+        case .canvasRevealFocusedPane, .canvasOverview,
              .canvasTidy, .canvasAlignLeft, .canvasAlignRight,
              .canvasAlignTop, .canvasAlignBottom, .canvasEqualizeWidths,
              .canvasEqualizeHeights, .canvasDistributeHorizontally, .canvasDistributeVertically:
