@@ -26,7 +26,7 @@
       "id": "LIFE-1",
       "priority": "P0",
       "observable": "GUI restart persistence",
-      "pass_condition": "Force-killing and relaunching Swift preserves shell PID, TTY, cwd, terminal ID, topology, scrollback sentinel, and unread activity.",
+      "pass_condition": "Force-killing and relaunching Swift preserves shell PID, TTY, cwd, terminal ID, topology, scrollback sentinel, and daemon-derived unread activity for the same stable reader UUID.",
       "required_artifact_kinds": ["protocol", "process-census", "restart-transcript"]
     },
     {
@@ -47,14 +47,14 @@
       "id": "MULTI-1",
       "priority": "P0",
       "observable": "Geometry arbitration",
-      "pass_condition": "Concurrent GUI and TUI viewers at different sizes do not oscillate the PTY; only the geometry lease holder changes canonical dimensions.",
+      "pass_condition": "Concurrent GUI and TUI viewers at different sizes do not oscillate the PTY; the geometry lease is independent from input authority, at least one unauthorized resize is rejected, and attempted, prior, and resulting geometry prove that only the current holder changes canonical dimensions.",
       "required_artifact_kinds": ["lease-transcript", "pty-size-samples"]
     },
     {
       "id": "MULTI-2",
       "priority": "P0",
       "observable": "Input ordering",
-      "pass_condition": "Concurrent GUI, TUI, and automation input follows the specified total order without split paste, lost release, or duplicate command.",
+      "pass_condition": "Concurrent GUI, TUI, and explicitly delegated automation input for one canonical terminal shares one gap-free daemon-assigned global sequence; machine-derived source, event-type, and exact PTY-byte records prove paste batches and individual key and mouse events are atomic with no split paste, blocked key rollover, lost release, or duplicate command.",
       "required_artifact_kinds": ["input-transcript", "integration-test"]
     },
     {
@@ -68,35 +68,35 @@
       "id": "STATE-2",
       "priority": "P0",
       "observable": "No dual terminal authority",
-      "pass_condition": "Swift and browser renderer paths receive no raw PTY output and instantiate no second canonical parser.",
+      "pass_condition": "The Swift renderer and cmux-browser renderer consume the daemon semantic-scene endpoint, receive no raw PTY output, and instantiate no second canonical parser; byte-stream compatibility clients are identified separately and cannot claim canonical parity.",
       "required_artifact_kinds": ["protocol", "linkage-audit", "runtime-assertion"]
     },
     {
       "id": "FID-1",
       "priority": "P0",
       "observable": "Text parity",
-      "pass_condition": "Embedded and external rendering match for ASCII, ligatures, emoji, CJK, combining text, wide cells, styles, cursor, palette, and OSC colors within the documented tolerance.",
+      "pass_condition": "Distinct embedded and external builds and processes match a deterministic golden corpus for ASCII, ligatures, emoji, CJK, combining text, wide cells, styles, cursor, palette, and OSC colors under identical commit, font, config, and geometry provenance, with distinct capture paths and hashes, zero geometry differences, maximum per-channel delta at most 2, and mean absolute error at most 0.25.",
       "required_artifact_kinds": ["golden-image", "image-diff"]
     },
     {
       "id": "FID-2",
       "priority": "P0",
       "observable": "Advanced parity",
-      "pass_condition": "Links, selection, search, Kitty images, custom shaders, synchronized output, and IME match the embedded terminal behavior.",
+      "pass_condition": "Named machine-derived subcases prove link targets and activation, selection drag autoscroll, all search highlights, static and animated Kitty images, custom shaders, synchronized-output hold and timeout, and IME marked-text selection and caret attributes match embedded behavior; the exact runner, selected test list, exit code, stdout, JUnit, binary hash, and binary source commit are bound to the receipt.",
       "required_artifact_kinds": ["integration-test", "screenshot", "video"]
     },
     {
       "id": "PERF-1",
       "priority": "P0",
       "observable": "Sidebar responsiveness",
-      "pass_condition": "Sustained active and background output causes no visible sidebar hitch and stays within the approved interaction-latency budget.",
+      "pass_condition": "On the same Apple Silicon host, OS build, and display configuration, independently hashed 60-second baseline and branch runs use the same workload script hash, seed, and duration with 100 workspaces and eight continuous-output terminals; the verifier derives p95 improvement from a baseline built at the recorded current-main commit and branch measurements, requires at most 16.7 ms p95, 33.4 ms p99, and 50 ms maximum, and requires at least 25 percent p95 improvement plus PID-scoped Time Profiler and Metal System Trace evidence.",
       "required_artifact_kinds": ["baseline", "time-profiler", "latency-distribution", "video"]
     },
     {
       "id": "PERF-2",
       "priority": "P0",
       "observable": "Dormant scale",
-      "pass_condition": "One hundred dormant workspaces create no renderer workers; worker count follows visible terminal workspaces.",
+      "pass_condition": "A commit-bound live collector with a hashed executable, PID/start identity, command, host, OS, and chronological phase samples proves one thousand dormant workspaces create no renderer workers; making 100 distinct workspaces visible creates exactly 100 identity-bound workers, multiple presentations of one workspace still use one worker, and returning all workspaces to dormant retires every worker within the bounded lifecycle deadline.",
       "required_artifact_kinds": ["process-census", "memory-report"]
     },
     {
@@ -117,21 +117,21 @@
       "id": "COMPAT-1",
       "priority": "P0",
       "observable": "Upgrade behavior",
-      "pass_condition": "Compatible protocol ranges reconnect; incompatible ranges fail read-only with an actionable error and unchanged state.",
+      "pass_condition": "Compatible protocol ranges reconnect read-write; incompatible ranges and missing mutation capabilities remain connected in identify-first read-only mode, expose both ranges and an upgrade action, reject every mutation before dispatch, and leave the canonical state digest unchanged.",
       "required_artifact_kinds": ["version-matrix", "state-hash"]
     },
     {
       "id": "A11Y-1",
       "priority": "P0",
       "observable": "Accessibility",
-      "pass_condition": "VoiceOver text, cursor, selection, links, and focus match canonical terminal state while rendering is remote.",
+      "pass_condition": "Revision-fenced VoiceOver text, UTF-16 cursor and selection ranges, OSC 8 link targets and actions, range bounds, and focus match canonical terminal state while rendering is remote.",
       "required_artifact_kinds": ["accessibility-tree", "ax-query", "video"]
     },
     {
       "id": "CLEAN-1",
       "priority": "P0",
       "observable": "Legacy removal",
-      "pass_condition": "Each supported launch mode has one terminal authority, and backend mode has no local fallback capable of owning the same terminal.",
+      "pass_condition": "Each supported launch mode has one required production composition root; backend mode cannot construct a local Ghostty surface, parser, PTY, or bootstrap fallback capable of owning the same terminal.",
       "required_artifact_kinds": ["linkage-audit", "runtime-assertion"]
     }
   ]

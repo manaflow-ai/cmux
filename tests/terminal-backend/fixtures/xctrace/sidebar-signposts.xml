@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<trace-query-result>
+  <node xpath="fixture/os-signpost">
+    <schema name="os-signpost">
+      <col><mnemonic>time</mnemonic></col>
+      <col><mnemonic>thread</mnemonic></col>
+      <col><mnemonic>process</mnemonic></col>
+      <col><mnemonic>event-type</mnemonic></col>
+      <col><mnemonic>identifier</mnemonic></col>
+      <col><mnemonic>name</mnemonic></col>
+      <col><mnemonic>subsystem</mnemonic></col>
+    </schema>
+    <row>
+      <event-time id="1">1000000</event-time>
+      <thread id="2" fmt="Main Thread (cmux DEV trace, pid: 1001)"><process id="3"><pid id="4">1001</pid></process></thread>
+      <process ref="3"/>
+      <event-type id="5">IntervalBegin</event-type>
+      <os-signpost-identifier id="6">900</os-signpost-identifier>
+      <signpost-name id="7">sidebar-selection-event-to-visible-state</signpost-name>
+      <subsystem id="8">com.cmux.sidebar</subsystem>
+    </row>
+    <row>
+      <event-time>11000000</event-time><thread ref="2"/><process ref="3"/>
+      <event-type>IntervalEnd</event-type><os-signpost-identifier ref="6"/>
+      <signpost-name ref="7"/><subsystem ref="8"/>
+    </row>
+    <row>
+      <event-time>20000000</event-time><thread ref="2"/><process ref="3"/>
+      <event-type ref="5"/><os-signpost-identifier id="9">901</os-signpost-identifier>
+      <signpost-name ref="7"/><subsystem ref="8"/>
+    </row>
+    <row>
+      <event-time>40000000</event-time><thread ref="2"/><process ref="3"/>
+      <event-type>IntervalEnd</event-type><os-signpost-identifier ref="9"/>
+      <signpost-name ref="7"/><subsystem ref="8"/>
+    </row>
+  </node>
+</trace-query-result>

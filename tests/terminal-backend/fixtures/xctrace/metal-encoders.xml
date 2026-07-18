@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<trace-query-result>
+  <node xpath="fixture/metal-application-encoders-list">
+    <schema name="metal-application-encoders-list">
+      <col><mnemonic>process</mnemonic></col>
+      <col><mnemonic>cmdbuffer-label</mnemonic></col>
+      <col><mnemonic>encoder-label</mnemonic></col>
+    </schema>
+    <row>
+      <process id="1" fmt="cmux DEV trace (1001)"><pid id="2">1001</pid></process>
+      <metal-object-label id="3">cmux host compositor: one IOSurface blit</metal-object-label>
+      <metal-object-label id="4">cmux host compositor: no Ghostty rendering</metal-object-label>
+    </row>
+    <row><process ref="1"/><metal-object-label ref="3"/><metal-object-label ref="4"/></row>
+    <row>
+      <process id="5" fmt="cmux-terminal-renderer (1003)"><pid id="6">1003</pid></process>
+      <metal-object-label id="7">cmux Ghostty worker semantic-scene render</metal-object-label>
+      <metal-object-label id="8">Ghostty terminal glyph render pass</metal-object-label>
+    </row>
+    <row><process ref="5"/><metal-object-label ref="7"/><metal-object-label ref="8"/></row>
+    <row><process ref="5"/><metal-object-label ref="7"/><metal-object-label ref="8"/></row>
+    <row><process ref="1"/><metal-object-label>SwiftUI command buffer</metal-object-label><metal-object-label>SwiftUI render encoder</metal-object-label></row>
+  </node>
+</trace-query-result>

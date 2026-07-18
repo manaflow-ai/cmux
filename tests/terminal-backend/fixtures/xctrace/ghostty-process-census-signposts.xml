@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<trace-query-result>
+  <node xpath="fixture/os-signpost">
+    <schema name="os-signpost">
+      <col><mnemonic>time</mnemonic></col>
+      <col><mnemonic>process</mnemonic></col>
+      <col><mnemonic>event-type</mnemonic></col>
+      <col><mnemonic>identifier</mnemonic></col>
+      <col><mnemonic>name</mnemonic></col>
+      <col><mnemonic>subsystem</mnemonic></col>
+    </schema>
+    <row>
+      <event-time id="1">1000000</event-time>
+      <process id="2"><pid id="3">1003</pid></process>
+      <event-type id="4">Event</event-type>
+      <os-signpost-identifier id="5">18446744073709551614</os-signpost-identifier>
+      <signpost-name id="6">ghostty-canonical-surface-constructor</signpost-name>
+      <subsystem id="7">com.cmux.ghostty.process-census</subsystem>
+    </row>
+    <row>
+      <event-time>2000000</event-time>
+      <process id="8"><pid id="9">1001</pid></process>
+      <event-type>IntervalBegin</event-type>
+      <os-signpost-identifier id="10">900</os-signpost-identifier>
+      <signpost-name id="11">ghostty-process-census-snapshot</signpost-name>
+      <subsystem ref="7"/>
+    </row>
+    <row>
+      <event-time>3000000</event-time><process ref="8"/><event-type ref="4"/>
+      <os-signpost-identifier ref="10"/>
+      <signpost-name id="12">ghostty-process-census-schema-v1</signpost-name>
+      <subsystem ref="7"/>
+    </row>
+    <row>
+      <event-time>4000000</event-time><process ref="8"/><event-type>IntervalEnd</event-type>
+      <os-signpost-identifier ref="10"/><signpost-name ref="11"/><subsystem ref="7"/>
+    </row>
+  </node>
+</trace-query-result>
