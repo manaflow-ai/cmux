@@ -169,6 +169,21 @@ struct CmuxAgentSessionRegistryTests {
         #expect(snapshot.records.map(\.sessionID) == ["committed"])
     }
 
+    @Test("registry storage repairs an existing state directory to owner-only access")
+    func registryRepairsStateDirectoryPermissions() throws {
+        let fixture = try Fixture()
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o755))],
+            ofItemAtPath: fixture.directory.path
+        )
+
+        _ = try fixture.registry.snapshot(provider: "codex")
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: fixture.directory.path)
+        let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
+        #expect(permissions.intValue & 0o777 == 0o700)
+    }
+
     private struct Fixture {
         let directory: URL
         let registry: CmuxAgentSessionRegistry
