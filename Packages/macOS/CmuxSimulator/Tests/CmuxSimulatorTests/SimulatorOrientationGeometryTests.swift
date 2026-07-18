@@ -20,11 +20,11 @@ struct SimulatorOrientationGeometryTests {
         #expect(landscapeRight.presentationRotationDegrees == 90)
         expectEqual(
             landscapeLeft.rawPoint(for: SimulatorPoint(x: 0.2, y: 0.3)),
-            SimulatorPoint(x: 0.7, y: 0.2)
+            SimulatorPoint(x: 0.3, y: 0.8)
         )
         expectEqual(
             landscapeRight.rawPoint(for: SimulatorPoint(x: 0.2, y: 0.3)),
-            SimulatorPoint(x: 0.3, y: 0.8)
+            SimulatorPoint(x: 0.7, y: 0.2)
         )
     }
 
@@ -45,11 +45,25 @@ struct SimulatorOrientationGeometryTests {
         #expect(landscapeRight.presentationRotationDegrees == 90)
         expectEqual(
             landscapeLeft.rawPoint(for: SimulatorPoint(x: 0.2, y: 0.3)),
-            SimulatorPoint(x: 0.7, y: 0.2)
+            SimulatorPoint(x: 0.3, y: 0.8)
         )
         expectEqual(
             landscapeRight.rawPoint(for: SimulatorPoint(x: 0.2, y: 0.3)),
-            SimulatorPoint(x: 0.3, y: 0.8)
+            SimulatorPoint(x: 0.7, y: 0.2)
+        )
+    }
+
+    @Test("A visible landscape icon maps back into Simulator's portrait digitizer space")
+    func landscapeDigitizerUsesPortraitSpace() {
+        let geometry = SimulatorOrientationGeometry(
+            rawWidth: 2_064,
+            rawHeight: 2_752,
+            requestedOrientation: .landscapeRight
+        )
+
+        expectEqual(
+            geometry.rawPoint(for: SimulatorPoint(x: 0.427, y: 0.534)),
+            SimulatorPoint(x: 0.466, y: 0.427)
         )
     }
 
@@ -155,9 +169,9 @@ private let cases: [GeometryCase] = [
         name: "left, raw portrait",
         rawWidth: 400, rawHeight: 800, orientation: .landscapeLeft,
         needsTransform: true, rotationDegrees: -90, displayWidth: 800, displayHeight: 400,
-        primary: SimulatorPoint(x: 0.7, y: 0.2),
-        secondary: SimulatorPoint(x: 0.2, y: 0.7),
-        delta: SimulatorInputDelta(x: -0.2, y: 0.1), edge: .left
+        primary: SimulatorPoint(x: 0.3, y: 0.8),
+        secondary: SimulatorPoint(x: 0.8, y: 0.3),
+        delta: SimulatorInputDelta(x: 0.2, y: -0.1), edge: .right
     ),
     GeometryCase(
         name: "left, already landscape",
@@ -171,9 +185,9 @@ private let cases: [GeometryCase] = [
         name: "right, raw portrait",
         rawWidth: 400, rawHeight: 800, orientation: .landscapeRight,
         needsTransform: true, rotationDegrees: 90, displayWidth: 800, displayHeight: 400,
-        primary: SimulatorPoint(x: 0.3, y: 0.8),
-        secondary: SimulatorPoint(x: 0.8, y: 0.3),
-        delta: SimulatorInputDelta(x: 0.2, y: -0.1), edge: .right
+        primary: SimulatorPoint(x: 0.7, y: 0.2),
+        secondary: SimulatorPoint(x: 0.2, y: 0.7),
+        delta: SimulatorInputDelta(x: -0.2, y: 0.1), edge: .left
     ),
     GeometryCase(
         name: "right, already landscape",
