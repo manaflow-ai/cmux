@@ -340,12 +340,14 @@ extension CMUXCLIErrorOutputRegressionTests {
                 .appendingPathComponent("cmux-agent-live-one-shot-\(index)-\(UUID().uuidString)", isDirectory: true)
             let executable = root.appendingPathComponent(launch.executable, isDirectory: false)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+            try FileManager.default.copyItem(atPath: "/usr/bin/yes", toPath: executable.path)
             defer { try? FileManager.default.removeItem(at: root) }
 
             let process = Process()
             process.executableURL = executable
-            process.arguments = ["30"]
+            process.arguments = launch.arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
             try process.run()
             defer {
                 if process.isRunning { process.terminate() }
@@ -428,12 +430,14 @@ extension CMUXCLIErrorOutputRegressionTests {
                 .appendingPathComponent("cmux-agent-live-interactive-\(index)-\(UUID().uuidString)", isDirectory: true)
             let executable = root.appendingPathComponent(launch.executable, isDirectory: false)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+            try FileManager.default.copyItem(atPath: "/usr/bin/yes", toPath: executable.path)
             defer { try? FileManager.default.removeItem(at: root) }
 
             let process = Process()
             process.executableURL = executable
-            process.arguments = ["30"]
+            process.arguments = []
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
             try process.run()
             defer {
                 if process.isRunning { process.terminate() }
