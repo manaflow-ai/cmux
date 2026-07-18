@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <CommonCrypto/CommonHMAC.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -12,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/un.h>
@@ -46,6 +48,15 @@ typedef struct {
     size_t count;
     size_t capacity;
 } CMUXBuffer;
+
+static void cmux_secure_zero(void *bytes, size_t count) {
+    volatile unsigned char *cursor = bytes;
+    while (count > 0) {
+        *cursor = 0;
+        cursor += 1;
+        count -= 1;
+    }
+}
 
 static const char *const cmux_hook_environment_keys[] = {
     "HOME",
@@ -395,30 +406,299 @@ static bool cmux_capability_is_valid(const char *capability) {
     return true;
 }
 
-static bool cmux_build_request(
-    CMUXBuffer *request,
+static bool cmux_build_command(
+    CMUXBuffer *command,
     const char *delivery_id,
     const char *subcommand,
     const char *payload_base64,
-    const char *environment_base64,
+    const char *environment_base64
+) {
+    return cmux_buffer_append_string(command, "{\"id\":\"hook-")
+        && cmux_buffer_append_string(command, delivery_id)
+        && cmux_buffer_append_string(
+            command,
+            "\",\"method\":\"agent.hook.enqueue\",\"params\":{\"delivery_id\":\""
+        )
+        && cmux_buffer_append_string(command, delivery_id)
+        && cmux_buffer_append_string(command, "\",\"agent\":\"codex\",\"subcommand\":\"")
+        && cmux_buffer_append_string(command, subcommand)
+        && cmux_buffer_append_string(command, "\",\"payload_b64\":\"")
+        && cmux_buffer_append_string(command, payload_base64)
+        && cmux_buffer_append_string(command, "\",\"environment_b64\":\"")
+        && cmux_buffer_append_string(command, environment_base64)
+        && cmux_buffer_append_string(command, "\"}}\n");
+}
+
+static bool cmux_build_socket_request(
+    CMUXBuffer *request,
+    const CMUXBuffer *command,
     const char *capability
 ) {
     return cmux_buffer_append_string(request, "_cmux_capability_v1 ")
         && cmux_buffer_append_string(request, capability)
-        && cmux_buffer_append_string(request, " {\"id\":\"hook-")
-        && cmux_buffer_append_string(request, delivery_id)
-        && cmux_buffer_append_string(
-            request,
-            "\",\"method\":\"agent.hook.enqueue\",\"params\":{\"delivery_id\":\""
-        )
-        && cmux_buffer_append_string(request, delivery_id)
-        && cmux_buffer_append_string(request, "\",\"agent\":\"codex\",\"subcommand\":\"")
-        && cmux_buffer_append_string(request, subcommand)
-        && cmux_buffer_append_string(request, "\",\"payload_b64\":\"")
-        && cmux_buffer_append_string(request, payload_base64)
-        && cmux_buffer_append_string(request, "\",\"environment_b64\":\"")
-        && cmux_buffer_append_string(request, environment_base64)
-        && cmux_buffer_append_string(request, "\"}}\n");
+        && cmux_buffer_append_string(request, " ")
+        && cmux_buffer_append(request, command->bytes, command->count);
+}
+
+static int cmux_base64url_digit(unsigned char byte) {
+    if (byte >= 'A' && byte <= 'Z') {
+        return byte - 'A';
+    }
+    if (byte >= 'a' && byte <= 'z') {
+        return byte - 'a' + 26;
+    }
+    if (byte >= '0' && byte <= '9') {
+        return byte - '0' + 52;
+    }
+    if (byte == '-') {
+        return 62;
+    }
+    if (byte == '_') {
+        return 63;
+    }
+    return -1;
+}
+
+static bool cmux_base64url_decode_exact(
+    const char *input,
+    size_t input_count,
+    unsigned char *output,
+    size_t output_count
+) {
+    uint32_t accumulator = 0;
+    int available_bits = 0;
+    size_t output_index = 0;
+    for (size_t index = 0; index < input_count; index += 1) {
+        const int digit = cmux_base64url_digit((unsigned char)input[index]);
+        if (digit < 0) {
+            return false;
+        }
+        accumulator = (accumulator << 6) | (uint32_t)digit;
+        available_bits += 6;
+        while (available_bits >= 8) {
+            available_bits -= 8;
+            if (output_index >= output_count) {
+                return false;
+            }
+            output[output_index++] = (unsigned char)(accumulator >> available_bits);
+            if (available_bits == 0) {
+                accumulator = 0;
+            } else {
+                accumulator &= ((uint32_t)1 << available_bits) - 1;
+            }
+        }
+    }
+    return output_index == output_count && (available_bits == 0 || accumulator == 0);
+}
+
+static bool cmux_outbox_authentication(
+    const char *capability,
+    const CMUXBuffer *command,
+    char nonce[65],
+    unsigned char code[CC_SHA256_DIGEST_LENGTH]
+) {
+    static const char version[] = "v1.";
+    if (capability == NULL || strncmp(capability, version, sizeof(version) - 1) != 0) {
+        return false;
+    }
+    const char *nonce_start = capability + sizeof(version) - 1;
+    const char *separator = strchr(nonce_start, '.');
+    if (separator == NULL || strchr(separator + 1, '.') != NULL) {
+        return false;
+    }
+    const size_t nonce_count = (size_t)(separator - nonce_start);
+    const char *signature_start = separator + 1;
+    const size_t signature_count = strlen(signature_start);
+    if (nonce_count == 0 || nonce_count >= 65 || signature_count == 0) {
+        return false;
+    }
+    unsigned char signature[CC_SHA256_DIGEST_LENGTH] = {0};
+    if (!cmux_base64url_decode_exact(
+            signature_start,
+            signature_count,
+            signature,
+            sizeof(signature))) {
+        return false;
+    }
+    memcpy(nonce, nonce_start, nonce_count);
+    nonce[nonce_count] = '\0';
+
+    static const unsigned char domain[] = "cmux.agent-hook-outbox.v1";
+    CCHmacContext context;
+    CCHmacInit(&context, kCCHmacAlgSHA256, signature, sizeof(signature));
+    CCHmacUpdate(&context, domain, sizeof(domain));
+    CCHmacUpdate(&context, command->bytes, command->count);
+    CCHmacFinal(&context, code);
+    cmux_secure_zero(signature, sizeof(signature));
+    return true;
+}
+
+static bool cmux_pwrite_all(
+    int descriptor,
+    const unsigned char *bytes,
+    size_t count
+) {
+    size_t offset = 0;
+    while (offset < count) {
+        const ssize_t written = pwrite(
+            descriptor,
+            bytes + offset,
+            count - offset,
+            (off_t)offset
+        );
+        if (written > 0) {
+            offset += (size_t)written;
+            continue;
+        }
+        if (written < 0 && errno == EINTR) {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+static int cmux_open_private_outbox_directory(const char *path) {
+    if (path == NULL || path[0] != '/') {
+        return -1;
+    }
+    const int descriptor = open(
+        path,
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+    );
+    if (descriptor < 0) {
+        return -1;
+    }
+    struct stat status = {0};
+    if (fstat(descriptor, &status) != 0
+        || !S_ISDIR(status.st_mode)
+        || status.st_uid != geteuid()
+        || (status.st_mode & 0077) != 0) {
+        close(descriptor);
+        return -1;
+    }
+    return descriptor;
+}
+
+static uint64_t cmux_monotonic_nanoseconds(void) {
+    struct timespec time = {0};
+    if (clock_gettime(CLOCK_MONOTONIC, &time) != 0) {
+        return 0;
+    }
+    return (uint64_t)time.tv_sec * 1000 * 1000 * 1000 + (uint64_t)time.tv_nsec;
+}
+
+static bool cmux_publish_outbox(
+    const char *directory_path,
+    const char *capability,
+    const CMUXBuffer *command
+) {
+    char nonce[65] = {0};
+    unsigned char code[CC_SHA256_DIGEST_LENGTH] = {0};
+    if (!cmux_outbox_authentication(capability, command, nonce, code)) {
+        return false;
+    }
+    char *encoded_code = cmux_base64_encode(code, sizeof(code));
+    cmux_secure_zero(code, sizeof(code));
+    if (encoded_code == NULL) {
+        return false;
+    }
+
+    const int directory = cmux_open_private_outbox_directory(directory_path);
+    if (directory < 0) {
+        free(encoded_code);
+        return false;
+    }
+
+    bool published = false;
+    for (int attempt = 0; attempt < 8 && !published; attempt += 1) {
+        uint64_t random = 0;
+        arc4random_buf(&random, sizeof(random));
+        const uint64_t timestamp = cmux_monotonic_nanoseconds();
+        char shared_memory_name[32];
+        char pending_name[96];
+        char ready_name[96];
+        snprintf(
+            shared_memory_name,
+            sizeof(shared_memory_name),
+            "/ch%016llx",
+            (unsigned long long)random
+        );
+        snprintf(
+            pending_name,
+            sizeof(pending_name),
+            "pending-%016llx-%016llx",
+            (unsigned long long)timestamp,
+            (unsigned long long)random
+        );
+        snprintf(
+            ready_name,
+            sizeof(ready_name),
+            "ready-%016llx-%016llx",
+            (unsigned long long)timestamp,
+            (unsigned long long)random
+        );
+
+        const int shared_memory = shm_open(
+            shared_memory_name,
+            O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC,
+            0600
+        );
+        if (shared_memory < 0) {
+            continue;
+        }
+        bool record_ready = fchmod(shared_memory, 0600) == 0
+            && ftruncate(shared_memory, (off_t)command->count) == 0
+            && cmux_pwrite_all(shared_memory, command->bytes, command->count);
+        close(shared_memory);
+        if (!record_ready) {
+            shm_unlink(shared_memory_name);
+            continue;
+        }
+
+        char marker[512];
+        const int marker_count = snprintf(
+            marker,
+            sizeof(marker),
+            "%s\n%s\n%s\n%zu\n",
+            shared_memory_name,
+            nonce,
+            encoded_code,
+            command->count
+        );
+        if (marker_count <= 0 || (size_t)marker_count >= sizeof(marker)) {
+            shm_unlink(shared_memory_name);
+            continue;
+        }
+        const int marker_descriptor = openat(
+            directory,
+            pending_name,
+            O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC,
+            0600
+        );
+        if (marker_descriptor < 0) {
+            shm_unlink(shared_memory_name);
+            continue;
+        }
+        record_ready = fchmod(marker_descriptor, 0600) == 0
+            && cmux_pwrite_all(
+                marker_descriptor,
+                (const unsigned char *)marker,
+                (size_t)marker_count
+            );
+        close(marker_descriptor);
+        if (!record_ready
+            || renameat(directory, pending_name, directory, ready_name) != 0) {
+            unlinkat(directory, pending_name, 0);
+            shm_unlink(shared_memory_name);
+            continue;
+        }
+        published = true;
+    }
+
+    close(directory);
+    free(encoded_code);
+    return published;
 }
 
 static int64_t cmux_monotonic_milliseconds(void) {
@@ -1098,6 +1378,7 @@ int main(int argument_count, char **arguments) {
     const char *socket_path = getenv("CMUX_SOCKET_PATH");
     const char *capability = getenv("CMUX_SOCKET_CAPABILITY");
     const char *queue_protocol = getenv("CMUX_AGENT_HOOK_ENQUEUE_V1");
+    const char *outbox_directory = getenv("CMUX_AGENT_HOOK_OUTBOX_DIR");
     const bool queue_protocol_advertised = queue_protocol != NULL
         && strcmp(queue_protocol, "1") == 0;
     // An older app never exports this capability. Skip the new socket method
@@ -1106,20 +1387,29 @@ int main(int argument_count, char **arguments) {
     CMUXSubmissionResult submission = queue_protocol_advertised
         ? CMUX_SUBMISSION_RETRYABLE
         : CMUX_SUBMISSION_UNSUPPORTED;
+    CMUXBuffer command = {0};
     CMUXBuffer request = {0};
-    if (queue_protocol_advertised
-        && payload_base64 != NULL
+    const bool command_built = payload_base64 != NULL
         && environment_base64 != NULL
-        && socket_path != NULL
-        && cmux_capability_is_valid(capability)
-        && cmux_build_request(
-            &request,
+        && cmux_build_command(
+            &command,
             delivery_id,
             subcommand,
             payload_base64,
-            environment_base64,
-            capability
-        )) {
+            environment_base64
+        );
+    if (queue_protocol_advertised
+        && command_built
+        && cmux_capability_is_valid(capability)
+        && outbox_directory != NULL
+        && outbox_directory[0] != '\0'
+        && cmux_publish_outbox(outbox_directory, capability, &command)) {
+        submission = CMUX_SUBMISSION_QUEUED;
+    } else if (queue_protocol_advertised
+        && command_built
+        && socket_path != NULL
+        && cmux_capability_is_valid(capability)
+        && cmux_build_socket_request(&request, &command, capability)) {
         submission = cmux_submit_request(
             socket_path,
             &request,
@@ -1158,6 +1448,7 @@ int main(int argument_count, char **arguments) {
     }
 
     cmux_buffer_destroy(&request);
+    cmux_buffer_destroy(&command);
     free(environment_base64);
     free(payload_base64);
     cmux_buffer_destroy(&environment);
