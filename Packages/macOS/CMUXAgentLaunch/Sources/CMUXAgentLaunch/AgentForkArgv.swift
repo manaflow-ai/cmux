@@ -89,7 +89,7 @@ public struct AgentForkArgv: Sendable, Equatable {
             guard let preserved = preservedCodexForkArguments(
                 args: parts.tail,
                 preservePromptTags: true,
-                stripCmuxHooks: parts.executable == "codex"
+                stripCmuxHooks: true
             ) else {
                 return nil
             }
@@ -97,7 +97,10 @@ public struct AgentForkArgv: Sendable, Equatable {
                 capturedExecutable: parts.executable,
                 launchTail: parts.tail
             )
-            return [replayExecutable, "fork", sessionId] + preserved
+            return AgentResumeArgv.codexWrapperRoutedArgv(
+                capturedExecutable: replayExecutable,
+                arguments: ["fork", sessionId] + preserved
+            )
         case "opencode":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "opencode")
             if parts.tail.first == "run" {

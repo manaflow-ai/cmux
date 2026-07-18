@@ -239,16 +239,15 @@ struct AgentResumeArgvTests {
         )
     }
 
-    @Test("Captured executable path overrides the fallback executable")
+    @Test("Captured Codex executable is preserved through the wrapper")
     func executablePathOverridesFallback() {
-        // Non-claude kinds replay the captured executable path verbatim.
         #expect(
             AgentResumeArgv().builtInKind(
                 kind: "codex",
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex"]
-            ) == ["/opt/bin/codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
         )
     }
 

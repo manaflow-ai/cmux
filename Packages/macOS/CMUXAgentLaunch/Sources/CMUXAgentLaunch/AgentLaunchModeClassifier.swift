@@ -30,6 +30,9 @@ public enum AgentLaunchModeClassifier {
     static func mode(kind: String, arguments: [String]) -> AgentProcessLaunchMode {
         let kind = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard var policy = policy(for: kind) else { return .unknown }
+        if containsOption(nonSessionOptions(for: kind), in: arguments, policy: policy) {
+            return .nonSession
+        }
         if let protocolMode = longLivedProtocolMode(kind: kind, arguments: arguments, policy: policy) {
             return protocolMode
         }
@@ -48,12 +51,14 @@ public enum AgentLaunchModeClassifier {
            containsOption(["--query", "-q"], in: Array(arguments.dropFirst()), policy: policy) {
             return .oneShot
         }
+        if kind == "hermes-agent",
+           let command = firstPositional(in: arguments, policy: policy),
+           command != "chat" {
+            return .nonSession
+        }
         let arguments = normalizedArguments(kind: kind, arguments: arguments)
         if kind == "opencode",
-           containsRawOption(interactiveOptions(for: kind), in: arguments) {
-            guard firstPositional(in: arguments, policy: policy) == "run" else {
-                return .unknown
-            }
+           firstPositional(in: arguments, policy: policy) == "run" {
             policy = AgentLaunchSanitizer.openCodeInteractiveRunPolicy
         }
         let hasOneShotOption = containsOption(oneShotOptions(for: kind), in: arguments, policy: policy)
@@ -111,65 +116,143 @@ public enum AgentLaunchModeClassifier {
         arguments: [String],
         policy: AgentLaunchSanitizer.Policy
     ) -> AgentProcessLaunchMode? {
+        let requestsHelp = containsOption(["--help", "-h"], in: arguments, policy: policy)
+        let commandLocation = firstPositionalLocation(in: arguments, policy: policy)
         let positionals = positionalValues(in: arguments, policy: policy, limit: 3)
-        let command = positionals.first
+        let command = commandLocation?.value
         switch kind {
         case "claude":
             if optionValue("--input-format", in: arguments) == "stream-json" {
-                return .interactive
+                return requestsHelp ? .nonSession : .interactive
             }
         case "pi":
             if optionValue("--mode", in: arguments) == "rpc" {
-                return .interactive
+                return requestsHelp ? .nonSession : .interactive
             }
         case "omp":
             if ["rpc", "rpc-ui"].contains(optionValue("--mode", in: arguments)) || command == "acp" {
-                return .interactive
+                return requestsHelp ? .nonSession : .interactive
             }
         case "campfire":
             if optionValue("--mode", in: arguments) == "rpc" {
-                return .interactive
+                return requestsHelp ? .nonSession : .interactive
             }
         case "factory":
             if command == "exec",
                optionValue("--input-format", in: arguments) == "stream-jsonrpc",
                optionValue("--output-format", in: arguments) == "stream-jsonrpc" {
-                return .interactive
+                return requestsHelp ? .nonSession : .interactive
             }
         case "kimi":
             if containsRawOption(["--acp", "--wire"], in: arguments)
                 || ["acp", "term", "web"].contains(command)
                 || optionValue("--input-format", in: arguments) == "stream-json" {
-                return .interactive
+                return requestsHelp ? .nonSession : .interactive
             }
         case "hermes-agent":
-            if ["acp", "gateway"].contains(command) {
+            if command == "acp" {
+                if containsRawOption(
+                    ["--check", "--help", "-h", "--setup", "--setup-browser", "--version"],
+                    in: arguments
+                ) {
+                    return .nonSession
+                }
                 return .interactive
             }
+            if command == "gateway" {
+                return positionals.dropFirst().first == "run" && !requestsHelp
+                    ? .interactive
+                    : .nonSession
+            }
         case "grok":
-            if positionals.first == "agent",
-               positionals.count > 1,
-               ["stdio", "serve", "leader", "headless"].contains(positionals[1]) {
-                return .interactive
+            if command == "agent",
+               let commandIndex = commandLocation?.index,
+               let agentCommand = nestedSubcommand(
+                   in: arguments,
+                   after: commandIndex,
+                   valueOptions: [
+                       "--agent-profile", "--cli-chat-proxy-base-url", "--debug-file",
+                       "--grok-ws-origin", "--grok-ws-url", "--leader-socket", "--model", "-m",
+                       "--plugin-dir", "--reasoning-effort", "--xai-api-base-url",
+                   ]
+               ),
+               ["stdio", "serve", "leader", "headless"].contains(agentCommand) {
+                return requestsHelp ? .nonSession : .interactive
             }
         case "opencode":
             if ["acp", "serve", "web"].contains(command) {
-                return .interactive
+                return requestsHelp ? .nonSession : .interactive
             }
         case "qoder":
             if containsRawOption(["--acp"], in: arguments)
                 || optionValue("--input-format", in: arguments) == "stream-json" {
-                return .interactive
+                return requestsHelp ? .nonSession : .interactive
             }
         case "codex":
-            if ["app-server", "mcp-server", "exec-server"].contains(command) {
-                return .interactive
+            if command == "app-server" {
+                guard !requestsHelp else { return .nonSession }
+                let appServerCommand = commandLocation.flatMap {
+                    codexAppServerSubcommand(in: arguments, after: $0.index)
+                }
+                switch appServerCommand {
+                case nil, "proxy":
+                    return .interactive
+                case "daemon", "generate-ts", "generate-json-schema", "help":
+                    return .nonSession
+                default:
+                    return .unknown
+                }
+            }
+            if ["mcp-server", "exec-server"].contains(command) {
+                return requestsHelp ? .nonSession : .interactive
             }
             if ["app", "mcp"].contains(command) {
                 return .unknown
             }
         default:
             break
+        }
+        return nil
+    }
+
+    /// `app-server` has its own option grammar. Parse its optional nested command without
+    /// letting an option value such as `--listen ws://...` masquerade as that command.
+    private static func codexAppServerSubcommand(
+        in arguments: [String],
+        after appServerIndex: Int
+    ) -> String? {
+        nestedSubcommand(
+            in: arguments,
+            after: appServerIndex,
+            valueOptions: [
+                "--config", "-c", "--disable", "--enable", "--listen", "--ws-audience",
+                "--ws-auth", "--ws-issuer", "--ws-max-clock-skew-seconds",
+                "--ws-shared-secret-file", "--ws-token-file", "--ws-token-sha256",
+            ]
+        )
+    }
+
+    private static func nestedSubcommand(
+        in arguments: [String],
+        after parentCommandIndex: Int,
+        valueOptions: Set<String>
+    ) -> String? {
+        var index = arguments.index(after: parentCommandIndex)
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if argument == "--" {
+                let next = arguments.index(after: index)
+                return next < arguments.endIndex ? arguments[next] : nil
+            }
+            if argument.hasPrefix("-"), argument != "-" {
+                let name = optionName(argument)
+                index = arguments.index(after: index)
+                if !argument.contains("="), valueOptions.contains(name), index < arguments.endIndex {
+                    index = arguments.index(after: index)
+                }
+                continue
+            }
+            return argument
         }
         return nil
     }
@@ -218,7 +301,8 @@ public enum AgentLaunchModeClassifier {
         case "claude": AgentLaunchSanitizer.claudePolicy
         case "codex": AgentLaunchSanitizer.codexPolicy
         case "grok": AgentLaunchSanitizer.grokPolicy
-        case "pi", "omp": AgentLaunchSanitizer.piPolicy
+        case "pi": AgentLaunchSanitizer.piPolicy
+        case "omp": AgentLaunchSanitizer.ompPolicy
         case "campfire": AgentLaunchSanitizer.campfirePolicy
         case "amp": AgentLaunchSanitizer.ampPolicy
         case "gemini": AgentLaunchSanitizer.geminiPolicy
@@ -280,11 +364,16 @@ public enum AgentLaunchModeClassifier {
 
     private static func oneShotCommands(for kind: String) -> Set<String> {
         switch kind {
+        case "claude": ["ultrareview"]
         case "codex": ["exec", "e", "review"]
         case "opencode": ["run"]
         case "factory": ["exec"]
         default: []
         }
+    }
+
+    private static func nonSessionOptions(for kind: String) -> Set<String> {
+        AgentLaunchSanitizer.nonSessionMetadataOptions(kind: kind)
     }
 
     private static func oneShotCommandAllowsUnknownTrailingOptions(

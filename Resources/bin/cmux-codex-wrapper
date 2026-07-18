@@ -106,8 +106,8 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
-# The interactive session, `exec`/`e`, and `resume` entrypoints all START a
-# Codex session, so all three must receive cmux's hook injection; everything
+# The interactive session, `exec`/`e`, `resume`, and `fork` entrypoints all START a
+# Codex session, so all four must receive cmux's hook injection; everything
 # else (review, login, mcp, doctor, --help, --version, ...) passes through
 # untouched. `resume` is critical: cmux auto-resumes a session as `codex resume
 # <id>` after a Mac relaunch, and without hooks the resumed process fires no
@@ -118,10 +118,10 @@ resolve_hook_cmux_bin() {
 # `--dangerously-bypass-hook-trust` / `-c hooks.X=...` flags before the `resume`
 # subcommand, so prepending them is safe. Mirrors should_inject_claude_hooks: a
 # leading non-option token that is a known Codex subcommand means "not a session"
-# unless it is exec or resume.
+# unless it is exec, resume, or fork.
 codex_subcommand_starts_session() {
     case "$1" in
-        exec|e|resume) return 0 ;;
+        exec|e|resume|fork) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -144,7 +144,17 @@ codex_known_subcommand() {
 codex_option_consumes_value() {
     case "$1" in
         -c|--config|-m|--model|-p|--profile|-C|--cd|--remote|-a|--ask-for-approval|\
-        -s|--sandbox|--output-last-message|--enable|--disable)
+        -s|--sandbox|--output-last-message|--enable|--disable|\
+        --remote-auth-token-env|--local-provider|--add-dir)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+codex_option_consumes_variadic_values() {
+    case "$1" in
+        -i|--image)
             return 0
             ;;
     esac
@@ -163,17 +173,37 @@ codex_passthrough_option_flag() {
 # Decide whether this invocation is a Codex SESSION entrypoint we should inject
 # hooks into. Bare `codex` (no args) and `codex [prompt]` are interactive
 # sessions; `codex exec ...` is a non-interactive session; `codex resume ...`
-# (picker, <id>, --last, --all <id>) resumes a session; any other leading
+# and `codex fork ...` resume or fork a session; any other leading
 # subcommand is not.
 should_inject_codex_hooks() {
     (( $# == 0 )) && return 0
 
+    # Clap accepts global help/version flags after prompts, subcommands, and
+    # variadic image values. They always win over session entrypoint detection.
+    # Tokens after `--` are prompt text and deliberately do not participate.
+    local candidate
+    for candidate in "$@"; do
+        [[ "$candidate" == "--" ]] && break
+        case "$candidate" in
+            --help|-h|--version|-V)
+                return 1
+                ;;
+        esac
+    done
+
     local arg
     local skip_next=false
+    local skip_variadic_values=false
     for arg in "$@"; do
         if [[ "$skip_next" == true ]]; then
             skip_next=false
             continue
+        fi
+        if [[ "$skip_variadic_values" == true ]]; then
+            if [[ "$arg" != -* ]]; then
+                continue
+            fi
+            skip_variadic_values=false
         fi
         case "$arg" in
             --)
@@ -182,6 +212,11 @@ should_inject_codex_hooks() {
             -*)
                 if codex_passthrough_option_flag "$arg"; then
                     return 1
+                fi
+                local option_name="${arg%%=*}"
+                if codex_option_consumes_variadic_values "$option_name"; then
+                    skip_variadic_values=true
+                    continue
                 fi
                 if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg"; then
                     skip_next=true

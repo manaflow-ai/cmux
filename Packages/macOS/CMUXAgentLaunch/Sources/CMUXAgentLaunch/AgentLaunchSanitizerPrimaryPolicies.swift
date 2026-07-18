@@ -18,7 +18,6 @@ extension AgentLaunchSanitizer {
             "--effort",
             "--fallback-model",
             "--file",
-            "--from-pr",
             "--input-format",
             "--json-schema",
             "--max-budget-usd",
@@ -31,22 +30,24 @@ extension AgentLaunchSanitizer {
             "--plugin-dir",
             "--plugin-url",
             "--remote-control-session-name-prefix",
-            "--resume",
-            "-r",
             "--session-id",
             "--setting-sources",
             "--settings",
             "--system-prompt",
             "--system-prompt-file",
             "--teammate-mode",
-            "--tmux",
-            "--tools",
-            "--worktree",
-            "-w"
+            "--tools"
         ],
         optionalValueOptions: [
             "--debug",
-            "-d"
+            "-d",
+            "--from-pr",
+            "--prompt-suggestions",
+            "--remote-control",
+            "--resume",
+            "-r",
+            "--worktree",
+            "-w",
         ],
         // Claude booleans (from `claude --help`) pinned to width 1 so a following
         // one-word prompt is never inferred as the flag's value and replayed on
@@ -76,6 +77,7 @@ extension AgentLaunchSanitizer {
             "--replay-user-messages",
             "--safe-mode",
             "--strict-mcp-config",
+            "--tmux",
             "--verbose"
         ],
         variadicOptions: [
@@ -97,15 +99,18 @@ extension AgentLaunchSanitizer {
             "api-key",
             "config",
             "doctor",
+            "gateway",
             "install",
             "mcp",
             "plugin",
             "plugins",
+            "project",
             "rc",
             "remote-control",
             "setup-token",
             "update",
-            "upgrade"
+            "upgrade",
+            "ultrareview",
         ],
         droppedOptions: [
             // Replaying --bg/--background would turn an interactive pane restore
@@ -165,11 +170,22 @@ extension AgentLaunchSanitizer {
             "--enable",
             "--disable"
         ],
+        booleanOptions: [
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--dangerously-bypass-hook-trust",
+            "--no-alt-screen",
+            "--oss",
+            "--search",
+            "--strict-config",
+        ],
         variadicOptions: [
             "--image",
             "-i"
         ],
         nonRestorableCommands: [
+            "archive",
+            "delete",
+            "doctor",
             "exec",
             "e",
             "review",
@@ -180,6 +196,8 @@ extension AgentLaunchSanitizer {
             "app-server",
             "app",
             "completion",
+            "plugin",
+            "remote-control",
             "sandbox",
             "debug",
             "apply",
@@ -188,7 +206,9 @@ extension AgentLaunchSanitizer {
             "cloud",
             "exec-server",
             "features",
-            "help"
+            "help",
+            "unarchive",
+            "update"
         ],
         droppedOptions: [
             "--last",
@@ -217,15 +237,40 @@ extension AgentLaunchSanitizer {
             "--provider",
             "--resume",
             "--session",
+            "--session-id",
             "--session-dir",
             "--skill",
             "--system-prompt",
             "--theme",
             "--thinking",
             "--tools",
+            "--exclude-tools",
+            "--name",
             "-e",
+            "-n",
             "-r",
             "-t"
+        ],
+        booleanOptions: [
+            "--approve",
+            "-a",
+            "--no-approve",
+            "-na",
+            "--no-builtin-tools",
+            "-nbt",
+            "--no-context-files",
+            "-nc",
+            "--no-extensions",
+            "-ne",
+            "--no-prompt-templates",
+            "-np",
+            "--no-skills",
+            "-ns",
+            "--no-themes",
+            "--no-tools",
+            "-nt",
+            "--offline",
+            "--verbose",
         ],
         nonRestorableCommands: [
             "config",
@@ -244,6 +289,7 @@ extension AgentLaunchSanitizer {
             "--fork",
             "--resume",
             "--session",
+            "--session-id",
             "-c",
             "-r"
         ],
@@ -251,7 +297,8 @@ extension AgentLaunchSanitizer {
             "--api-key=",
             "--fork=",
             "--resume=",
-            "--session="
+            "--session=",
+            "--session-id="
         ],
         rejectOptions: [
             "--export",
@@ -266,6 +313,43 @@ extension AgentLaunchSanitizer {
             "-v"
         ]
     )
+
+    /// OMP forwards Pi-compatible options but has additional model/profile controls whose
+    /// values must not be interpreted as prompts. Keep these widths out of Pi/Campfire because
+    /// Pi extensions may define the same spellings with different arity.
+    static let ompPolicy: Policy = {
+        var policy = piPolicy
+        policy.valueOptions.formUnion([
+            "--approval-mode",
+            "--config",
+            "--cwd",
+            "--hook",
+            "--max-time",
+            "--plan",
+            "--plugin-dir",
+            "--profile",
+            "--skills",
+            "--slow",
+            "--smol",
+        ])
+        policy.booleanOptions.formUnion([
+            "--advisor",
+            "--allow-home",
+            "--auto-approve",
+            "--hide-thinking",
+            "--no-extensions",
+            "--no-lsp",
+            "--no-pty",
+            "--no-rules",
+            "--no-skills",
+            "--no-title",
+            "--no-tools",
+            "--print-thoughts",
+        ])
+        policy.valueOptions.insert("--alias")
+        policy.rejectOptions.insert("--alias")
+        return policy
+    }()
 
     /// Campfire embeds vanilla pi and forwards unrecognized flags to it, so its
     /// policy is pi's plus the campfire-only surface. `--relay` is safe to
@@ -298,6 +382,18 @@ extension AgentLaunchSanitizer {
             "--visibility",
             "-l",
             "-m"
+        ],
+        optionalValueOptions: [
+            "--plugin-ready-timeout",
+        ],
+        booleanOptions: [
+            "--color",
+            "--ide",
+            "--no-archive-after-execute",
+            "--no-color",
+            "--no-ide",
+            "--no-notifications",
+            "--notifications",
         ],
         nonRestorableCommands: [
             "login",
@@ -335,8 +431,6 @@ extension AgentLaunchSanitizer {
         valueOptions: [
             "--model",
             "-m",
-            "--sandbox",
-            "-s",
             "--approval-mode",
             "--policy",
             "--admin-policy",
@@ -349,8 +443,6 @@ extension AgentLaunchSanitizer {
             "-r",
             "--session-file",
             "--session-id",
-            "--worktree",
-            "-w",
             "--prompt",
             "-p",
             "--prompt-interactive",
@@ -361,7 +453,19 @@ extension AgentLaunchSanitizer {
         ],
         optionalValueOptions: [
             "--resume",
-            "-r"
+            "-r",
+            "--worktree",
+            "-w",
+        ],
+        booleanOptions: [
+            "--debug",
+            "-d",
+            "--sandbox",
+            "-s",
+            "--screen-reader",
+            "--skip-trust",
+            "--yolo",
+            "-y",
         ],
         variadicOptions: [
             "--policy",
@@ -452,12 +556,14 @@ extension AgentLaunchSanitizer {
 
     static let cursorPolicy = Policy(
         valueOptions: [
+            "--add-dir",
             "--api-key",
             "-H",
             "--header",
             "--mode",
             "--model",
             "--output-format",
+            "--plugin-dir",
             "--resume",
             "--sandbox",
             "--workspace",
@@ -469,6 +575,15 @@ extension AgentLaunchSanitizer {
             "-w",
             "--resume",
             "--worktree"
+        ],
+        booleanOptions: [
+            "--approve-mcps",
+            "--auto-review",
+            "--force",
+            "-f",
+            "--skip-worktree-setup",
+            "--trust",
+            "--yolo",
         ],
         nonRestorableCommands: [
             "about",
@@ -532,7 +647,16 @@ extension AgentLaunchSanitizer {
             "--session",
             "-s",
             "--prompt",
-            "--agent"
+            "--agent",
+            "--replay-limit"
+        ],
+        booleanOptions: [
+            "--auto",
+            "--mdns",
+            "--mini",
+            "--no-replay",
+            "--print-logs",
+            "--pure",
         ],
         variadicOptions: [
             "--cors"

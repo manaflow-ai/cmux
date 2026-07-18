@@ -456,19 +456,30 @@ extension AgentLaunchSanitizer {
             "--profile",
             "-p",
             "--provider",
+            "--query",
+            "-q",
             "--resume",
             "-r",
             "--skills",
             "-s",
             "--source",
             "--toolsets",
-            "-t",
-            "--worktree",
-            "-w"
+            "-t"
         ],
         optionalValueOptions: [
             "--continue",
             "-c"
+        ],
+        booleanOptions: [
+            "--accept-hooks",
+            "--dev",
+            "--ignore-rules",
+            "--ignore-user-config",
+            "--pass-session-id",
+            "--tui",
+            "--worktree",
+            "-w",
+            "--yolo",
         ],
         nonRestorableCommands: [],
         droppedOptions: [
@@ -503,7 +514,9 @@ extension AgentLaunchSanitizer {
             "--quiet",
             "-Q",
             "--list-tools",
-            "--list-toolsets"
+            "--list-toolsets",
+            "--version",
+            "-V",
         ]
     )
 }

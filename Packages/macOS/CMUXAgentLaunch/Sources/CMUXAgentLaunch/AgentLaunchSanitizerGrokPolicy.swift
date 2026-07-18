@@ -8,8 +8,11 @@ extension AgentLaunchSanitizer {
             "--allow",
             "--cwd",
             "--deny",
+            "--debug-file",
             "--disallowed-tools",
             "--effort",
+            "--json-schema",
+            "--leader-socket",
             "--max-turns",
             "--model",
             "-m",
@@ -23,6 +26,7 @@ extension AgentLaunchSanitizer {
             "--system-prompt-override",
             "--tools",
             "--worktree",
+            "--worktree-ref",
             "-w"
         ],
         optionalValueOptions: [
@@ -31,16 +35,35 @@ extension AgentLaunchSanitizer {
             "--worktree",
             "-w"
         ],
+        booleanOptions: [
+            "--always-approve",
+            "--debug",
+            "--disable-web-search",
+            "--experimental-memory",
+            "--fullscreen",
+            "--minimal",
+            "--no-alt-screen",
+            "--no-memory",
+            "--no-plan",
+            "--no-subagents",
+            "--oauth",
+            "--verbatim",
+        ],
         nonRestorableCommands: [
             "agent",
+            "completions",
+            "dashboard",
+            "export",
             "help",
             "import",
             "inspect",
             "leader",
             "login",
+            "logout",
             "mcp",
             "memory",
             "models",
+            "plugin",
             "sessions",
             "setup",
             "share",
@@ -49,7 +72,8 @@ extension AgentLaunchSanitizer {
             "update",
             "version",
             "v",
-            "worktree"
+            "worktree",
+            "wrap"
         ],
         droppedOptions: [
             "--continue",
@@ -60,6 +84,7 @@ extension AgentLaunchSanitizer {
             "--fork-session",
             "--session-id",
             "--worktree",
+            "--worktree-ref",
             "-w"
         ],
         droppedOptionPrefixes: [
@@ -68,6 +93,7 @@ extension AgentLaunchSanitizer {
             "--fork-session=",
             "--session-id=",
             "--worktree=",
+            "--worktree-ref=",
             "-w="
         ],
         rejectOptions: [

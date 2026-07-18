@@ -203,9 +203,12 @@ struct AgentPromptStopLineagePolicy: Sendable {
     private func liveGenerationDecision(
         _ lineage: AgentHookSessionLineage
     ) -> AgentPromptStopLineageDecision {
-        lineage.processLaunchMode == .oneShot
-            ? .completeRecordedGeneration(.terminalLaunch)
-            : .apply
+        switch lineage.processLaunchMode {
+        case .oneShot, .nonSession:
+            return .completeRecordedGeneration(.terminalLaunch)
+        case .interactive, .unknown:
+            return .apply
+        }
     }
 }
 

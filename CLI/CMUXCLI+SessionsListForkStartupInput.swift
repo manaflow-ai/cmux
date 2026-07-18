@@ -32,7 +32,11 @@ extension CMUXCLI {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
         }
-        commandParts.append(contentsOf: arguments)
+        if commandParts.first == "env", arguments.first == "env" {
+            commandParts.append(contentsOf: arguments.dropFirst())
+        } else {
+            commandParts.append(contentsOf: arguments)
+        }
 
         let workingDirectory = sessionsListNormalized(launchCommand?.workingDirectory ?? record.cwd)
         let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(

@@ -54,6 +54,14 @@ public enum AgentLaunchSanitizer {
     ) -> [String]? {
         guard let executable = arguments.first, !executable.isEmpty else { return nil }
         var tail = Array(arguments.dropFirst())
+        let metadataKind: String
+        switch launcher {
+        case "claudeTeams": metadataKind = "claude"
+        case "codexTeams": metadataKind = "codex"
+        case "omo": metadataKind = "opencode"
+        default: metadataKind = fallbackKind
+        }
+        guard !containsNonSessionMetadataOption(kind: metadataKind, args: tail) else { return nil }
 
         switch launcher {
         case "claudeTeams":
@@ -104,6 +112,7 @@ public enum AgentLaunchSanitizer {
     }
 
     public static func preservedArguments(kind: String, args: [String]) -> [String]? {
+        guard !containsNonSessionMetadataOption(kind: kind, args: args) else { return nil }
         switch kind {
         case "claude":
             return ClaudeLaunchArgumentsPreserver().preservedArguments(args: args)
@@ -113,8 +122,10 @@ public enum AgentLaunchSanitizer {
         case "codex-fork-restore": return preservedCodexForkArguments(args: args, preservePromptTags: false)
         case "grok":
             return preserveOptions(args, policy: grokPolicy)
-        case "pi", "omp":
+        case "pi":
             return preserveOptions(args, policy: piPolicy)
+        case "omp":
+            return preserveOptions(args, policy: ompPolicy)
         case "campfire":
             return preserveOptions(args, policy: campfirePolicy)
         case "amp":
@@ -254,7 +265,38 @@ public enum AgentLaunchSanitizer {
     }
 
     /// Preserves restorable `claude-teams` `args` with the Teams policy, keeping routing flags while dropping `--tmux` prompt payloads; returns `nil` for unsafe replay shapes.
-    public static func preservedClaudeTeamsLaunchArguments(args: [String]) -> [String]? { preserveOptions(args, policy: claudeTeamsPolicy) }
+    public static func preservedClaudeTeamsLaunchArguments(args: [String]) -> [String]? {
+        guard !containsNonSessionMetadataOption(kind: "claude", args: args) else { return nil }
+        return preserveOptions(args, policy: claudeTeamsPolicy)
+    }
+
+    static func nonSessionMetadataOptions(kind: String) -> Set<String> {
+        var options: Set<String> = ["--help", "-h", "--version"]
+        switch kind {
+        case "claude":
+            options.insert("-v")
+        case "codex", "codex-fork-replay", "codex-fork-restore":
+            options.insert("-V")
+        case "grok", "pi", "omp", "campfire", "opencode", "cursor":
+            options.insert("-v")
+        case "amp", "hermes-agent":
+            options.insert("-V")
+        default:
+            break
+        }
+        return options
+    }
+
+    static func containsNonSessionMetadataOption(kind: String, args: [String]) -> Bool {
+        let options = nonSessionMetadataOptions(kind: kind)
+        for argument in args {
+            if argument == "--" { return false }
+            guard argument.hasPrefix("-"), argument != "-" else { continue }
+            let name = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
+            if options.contains(name) { return true }
+        }
+        return false
+    }
 
     /// Whether `option` appears as a real Claude *option* in claude-teams launch
     /// `args`. Unlike restore preservation, this does NOT stop at the first

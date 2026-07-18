@@ -19,7 +19,7 @@ struct AgentForkArgvTests {
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex", "--model", "gpt-5"]
-            ) == ["/opt/bin/codex", "fork", "SID", "--model", "gpt-5"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "SID", "--model", "gpt-5"]
         )
         #expect(
             AgentForkArgv().builtInKind(
@@ -131,7 +131,7 @@ struct AgentForkArgvTests {
                     "--model",
                     "gpt-5"
                 ]
-            ) == ["/opt/bin/codex", "fork", "CHILD", "tag-one", "tag two", "--model", "gpt-5"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "CHILD", "tag-one", "tag two", "--model", "gpt-5"]
         )
     }
 
@@ -154,7 +154,7 @@ struct AgentForkArgvTests {
                     "--model",
                     "gpt-5"
                 ]
-            ) == ["/opt/bin/codex", "fork", "CHILD", "exec", "review", "help", "fork", "resume", "--model", "gpt-5"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "CHILD", "exec", "review", "help", "fork", "resume", "--model", "gpt-5"]
         )
     }
 
@@ -171,7 +171,7 @@ struct AgentForkArgvTests {
                     "gpt-5",
                     "initial prompt should not replay",
                 ]
-            ) == ["/opt/bin/codex", "fork", "CHILD", "--model", "gpt-5"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "CHILD", "--model", "gpt-5"]
         )
     }
 
@@ -190,7 +190,7 @@ struct AgentForkArgvTests {
                     "--sandbox",
                     "danger-full-access",
                 ]
-            ) == ["/opt/bin/codex", "fork", "CHILD", "tag-one", "--sandbox", "danger-full-access"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "CHILD", "tag-one", "--sandbox", "danger-full-access"]
         )
     }
 

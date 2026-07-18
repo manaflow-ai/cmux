@@ -1,6 +1,9 @@
 import Foundation
 
 func preservedCodexLaunchArguments(args: [String], stripCmuxHooks: Bool = true) -> [String]? {
+    guard !AgentLaunchSanitizer.containsNonSessionMetadataOption(kind: "codex", args: args) else {
+        return nil
+    }
     let args = stripCmuxHooks ? removingCmuxInjectedCodexHookArguments(args) : args
     if let forkCommand = codexForkCommand(in: args) {
         return CodexForkLaunchCapture(
@@ -18,6 +21,9 @@ func preservedCodexForkArguments(
     preservePromptTags: Bool,
     stripCmuxHooks: Bool = true
 ) -> [String]? {
+    guard !AgentLaunchSanitizer.containsNonSessionMetadataOption(kind: "codex", args: args) else {
+        return nil
+    }
     func dropForkPositionals(_ args: [String], forkCommand: CodexForkCommand) -> [String] {
         var result: [String] = []
         var index = 0

@@ -392,7 +392,11 @@ enum AgentResumeCommandBuilder {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
         }
-        commandParts.append(contentsOf: argv)
+        if commandParts.first == "env", argv.first == "env" {
+            commandParts.append(contentsOf: argv.dropFirst())
+        } else {
+            commandParts.append(contentsOf: argv)
+        }
 
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil

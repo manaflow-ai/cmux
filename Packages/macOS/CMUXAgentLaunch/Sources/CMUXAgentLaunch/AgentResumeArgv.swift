@@ -236,6 +236,23 @@ public struct AgentResumeArgv: Sendable, Equatable {
         }
     }
 
+    /// Routes a Codex replay through cmux's logical `codex` wrapper while retaining the
+    /// exact captured real binary. The wrapper validates the custom path and falls back to
+    /// PATH when it moved or is no longer executable.
+    public static func codexWrapperRoutedArgv(
+        capturedExecutable: String,
+        arguments: [String]
+    ) -> [String] {
+        guard capturedExecutable != "codex" else {
+            return ["codex"] + arguments
+        }
+        return [
+            "env",
+            "CMUX_CUSTOM_CODEX_PATH=\(capturedExecutable)",
+            "codex",
+        ] + arguments
+    }
+
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
     /// style launchers cmux injects), checked before the per-kind verb.
     public enum LauncherResolution: Sendable, Equatable {
@@ -331,14 +348,17 @@ public struct AgentResumeArgv: Sendable, Equatable {
             guard let preserved = preservedCodexForkArguments(
                 args: parts.tail,
                 preservePromptTags: false,
-                stripCmuxHooks: parts.executable == "codex"
+                stripCmuxHooks: true
             ) else { return nil }
             let replayExecutable = codexReplayExecutable(
                 capturedExecutable: parts.executable,
                 launchTail: parts.tail
             )
-            return [replayExecutable, "resume", sessionId]
-                + codexResumeConfigOverrides(preserved: preserved) + preserved
+            return Self.codexWrapperRoutedArgv(
+                capturedExecutable: replayExecutable,
+                arguments: ["resume", sessionId]
+                    + codexResumeConfigOverrides(preserved: preserved) + preserved
+            )
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "pi":

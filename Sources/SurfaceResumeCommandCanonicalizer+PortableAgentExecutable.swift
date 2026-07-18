@@ -118,10 +118,14 @@ extension SurfaceResumeCommandCanonicalizer {
                 for: kind,
                 executableBasename: executableBasename
               ),
-              executableBasename == executableName,
-              isPATHManagedAgentExecutablePath(executable, executableName: executableName) else {
+              executableBasename == executableName else {
             return command
         }
+        let isPATHManaged = isPATHManagedAgentExecutablePath(
+            executable,
+            executableName: executableName
+        )
+        guard executableName == "codex" || isPATHManaged else { return command }
         if executableName == "claude" {
             // A live PATH-managed executable still must not be invoked directly.
             // Surface restoration otherwise bypasses the per-surface wrapper shim,
@@ -147,7 +151,8 @@ extension SurfaceResumeCommandCanonicalizer {
                 executableName: "codex",
                 wrapperToken: AgentResumeArgv.codexWrapperShellExecutableToken,
                 renderPortable: { AgentResumeArgv.renderedPortableCodexResumeShellCommand(parts: $0, quote: $1) },
-                wrapInPortableShell: { AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: $0) }
+                wrapInPortableShell: { AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: $0) },
+                customExecutableEnvironmentVariable: "CMUX_CUSTOM_CODEX_PATH"
             )
         } else {
             return replacingExecutableOnly(
@@ -241,7 +246,8 @@ extension SurfaceResumeCommandCanonicalizer {
         executableName: String,
         wrapperToken: String,
         renderPortable: ([String], (String) -> String) -> String,
-        wrapInPortableShell: (String) -> String
+        wrapInPortableShell: (String) -> String,
+        customExecutableEnvironmentVariable: String? = nil
     ) -> String {
         let commandStartIndex = commandStartWordIndex(in: words)
         guard commandStartIndex < words.count,
@@ -260,7 +266,8 @@ extension SurfaceResumeCommandCanonicalizer {
                 commandStartIndex: commandStartIndex,
                 executableIndex: executableIndex,
                 wrapperToken: wrapperToken,
-                wrapInPortableShell: wrapInPortableShell
+                wrapInPortableShell: wrapInPortableShell,
+                customExecutableEnvironmentVariable: customExecutableEnvironmentVariable
             )
         }
         guard canRenderCommandAsPortableArgv(
@@ -275,10 +282,20 @@ extension SurfaceResumeCommandCanonicalizer {
                 commandStartIndex: commandStartIndex,
                 executableIndex: executableIndex,
                 wrapperToken: wrapperToken,
-                wrapInPortableShell: wrapInPortableShell
+                wrapInPortableShell: wrapInPortableShell,
+                customExecutableEnvironmentVariable: customExecutableEnvironmentVariable
             )
         }
-        parts[executableIndex - commandStartIndex] = executableName
+        let relativeExecutableIndex = executableIndex - commandStartIndex
+        parts[relativeExecutableIndex] = executableName
+        if let customExecutableEnvironmentVariable {
+            let assignment = "\(customExecutableEnvironmentVariable)=\(words[executableIndex].value)"
+            if parts.first == "env" || parts.first == "/usr/bin/env" {
+                parts.insert(assignment, at: relativeExecutableIndex)
+            } else {
+                parts.insert(contentsOf: ["env", assignment], at: relativeExecutableIndex)
+            }
+        }
         let renderedCommand = renderPortable(parts, shellQuoted)
         let commandStart = words[commandStartIndex].range.lowerBound
         return String(command[..<commandStart]) + renderedCommand
@@ -290,10 +307,21 @@ extension SurfaceResumeCommandCanonicalizer {
         commandStartIndex: Int,
         executableIndex: Int,
         wrapperToken: String,
-        wrapInPortableShell: (String) -> String
+        wrapInPortableShell: (String) -> String,
+        customExecutableEnvironmentVariable: String?
     ) -> String {
+        let hasEnvCommand = words[commandStartIndex..<executableIndex].contains {
+            $0.value == "env" || $0.value == "/usr/bin/env"
+        }
         let renderedParts = words[commandStartIndex...].indices.map { index in
             if index == executableIndex {
+                if let customExecutableEnvironmentVariable {
+                    let assignment = shellQuoted(
+                        "\(customExecutableEnvironmentVariable)=\(words[executableIndex].value)"
+                    )
+                    let envPrefix = hasEnvCommand ? "" : shellQuoted("env") + " "
+                    return envPrefix + assignment + " " + wrapperToken
+                }
                 return wrapperToken
             }
             return renderedPortableShellWord(words[index], in: command)
