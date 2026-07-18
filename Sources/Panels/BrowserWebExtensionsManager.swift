@@ -83,7 +83,10 @@ final class BrowserWebExtensionsManager: NSObject {
           if (namespace.webNavigation && !namespace.webNavigation.onCreatedNavigationTarget) {
             try {
               Object.defineProperty(namespace.webNavigation, 'onCreatedNavigationTarget', {
-                configurable: true,
+                // Browser polyfills normalize API namespaces by deleting
+                // configurable properties before copying them. This host API
+                // must survive that pass so background startup can finish.
+                configurable: false,
                 enumerable: true,
                 value: makeEvent()
               });
@@ -93,6 +96,11 @@ final class BrowserWebExtensionsManager: NSObject {
       };
       install();
       queueMicrotask(install);
+      if (document.readyState === 'loading') {
+        document.addEventListener('readystatechange', () => {
+          if (document.readyState !== 'loading') install();
+        }, { once: true });
+      }
     })();
     """#
 
