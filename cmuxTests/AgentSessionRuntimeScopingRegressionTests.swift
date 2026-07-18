@@ -2436,7 +2436,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
-    @Test func sameBindingForeignRuntimeCannotResumeRestoredAgent() throws {
+    @Test func sameBindingUnknownForeignRuntimeKeepsRestoredAgentInert() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hibernation-foreign-runtime-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -2540,8 +2540,11 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         restored.setAgentHibernationAutoResumePresentationVisible(true)
 
-        #expect(!panel.isAgentHibernated)
-        #expect(restored.restoredAgentSnapshotForTesting(panelId: restoredPanelID) == nil)
+        #expect(panel.isAgentHibernated)
+        #expect(
+            restored.restoredAgentSnapshotForTesting(panelId: restoredPanelID)?.sessionId
+                == fixture.agent.sessionId
+        )
         #expect(!panel.surface.debugInitialInputMetadata().hasInitialInput)
         #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
         let snapshot = try registry.snapshot(provider: "codex")
