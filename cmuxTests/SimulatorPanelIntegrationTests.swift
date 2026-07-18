@@ -430,6 +430,71 @@ struct SimulatorPanelIntegrationTests {
         #expect(await client.discoveryCount == 1)
     }
 
+    @Test("Context reads persisted identity without starting a stopped Simulator")
+    func contextReadsPersistedIdentityWithoutStartingDevice() async throws {
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+        let previousOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            workspace.teardownAllPanels()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let device = SimulatorDevice(
+            id: "persisted-ipad",
+            name: "Persisted iPad",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "type",
+            family: .iPad,
+            state: .shutdown,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let client = SimulatorFeatureFlagPaneClient(devices: [device])
+        let panel = SimulatorPanel(
+            preferredDeviceID: device.id,
+            preferredRuntimeIdentifier: device.runtimeIdentifier,
+            preferredDeviceTypeIdentifier: device.deviceTypeIdentifier,
+            client: client
+        )
+        workspace.panels[panel.id] = panel
+
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: workspace.id,
+            surfaceID: panel.id,
+            paneID: nil
+        )
+        guard case let .started(_, _, receipt) = TerminalController.shared.controlSimulatorBeginOperation(
+            routing: routing,
+            operation: .context
+        ) else {
+            Issue.record("Expected context operation to start")
+            return
+        }
+
+        let completion = await Task.detached {
+            receipt.wait(timeout: 2)
+        }.value
+        guard case let .success(.object(payload)) = completion else {
+            Issue.record("Expected context to return persisted identity")
+            return
+        }
+        #expect(payload["simulator_id"] == .string(device.id))
+        #expect(payload["runtime_id"] == .string(device.runtimeIdentifier))
+        #expect(payload["device_type_id"] == .string(device.deviceTypeIdentifier))
+        #expect(await client.discoveryCount == 0)
+        #expect(await client.activationCount == 0)
+    }
+
     @Test("Control gestures map logical touches and edges through every orientation")
     func controlGestureOrientationMapping() throws {
         let touch = ControlSimulatorTouch(
@@ -506,6 +571,7 @@ private actor SimulatorFeatureFlagPaneClient: SimulatorPaneClient {
         onTermination: {}
     )
     private(set) var discoveryCount = 0
+    private(set) var activationCount = 0
     private(set) var stopCount = 0
     private let blockStop: Bool
     private let devices: [SimulatorDevice]
@@ -524,7 +590,9 @@ private actor SimulatorFeatureFlagPaneClient: SimulatorPaneClient {
     func synchronizeOrientation(
         _ orientation: SimulatorOrientation
     ) async throws -> SimulatorDisplayMetadata? { nil }
-    func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {}
+    func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {
+        activationCount += 1
+    }
     func shutdownDevice(id: String) async throws {}
     func subscribe() async -> SimulatorWorkerEventStream { events.stream }
     func send(_ message: SimulatorWorkerInbound) async {}

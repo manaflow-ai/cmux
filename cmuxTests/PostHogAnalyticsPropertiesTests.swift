@@ -6,6 +6,25 @@ import Testing
 
 @Suite(.serialized)
 struct PostHogAnalyticsPropertiesTests {
+    @MainActor
+    @Test("feature flag control plane starts its injected remote loader")
+    func featureFlagControlPlaneStartsInjectedRemoteLoader() async throws {
+        let suiteName = "cmux.feature.flags.loader.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let probe = FeatureFlagRemoteLoaderProbe()
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil },
+            remoteFlagLoader: { await probe.load() }
+        )
+
+        flags.start()
+        await probe.waitUntilCalled()
+
+        #expect(await probe.callCount == 1)
+    }
+
     @Test("feature flag control plane uses a product-wide non-analytics identity")
     func featureFlagControlPlaneRespectsTelemetryConsent() throws {
         let request = try #require(CmuxFeatureFlags.postHogControlPlaneRequest())
@@ -412,6 +431,23 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(flushReturned.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
         flushCanReturn.signal()
         #expect(flushReturned.wait(timeout: .now() + .seconds(1)) == .success)
+    }
+}
+
+private actor FeatureFlagRemoteLoaderProbe {
+    private(set) var callCount = 0
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func load() -> [String: Bool]? {
+        callCount += 1
+        waiter?.resume()
+        waiter = nil
+        return [:]
+    }
+
+    func waitUntilCalled() async {
+        if callCount > 0 { return }
+        await withCheckedContinuation { waiter = $0 }
     }
 }
 #endif

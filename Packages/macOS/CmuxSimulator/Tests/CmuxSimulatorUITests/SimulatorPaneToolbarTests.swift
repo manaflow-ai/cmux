@@ -28,6 +28,30 @@ struct SimulatorPaneToolbarTests {
         ) == "iPad Pro · Shut Down")
     }
 
+    @Test("Device picker snapshots stay independent from later coordinator updates")
+    func devicePickerSnapshotIsImmutable() {
+        var devices = [
+            device(id: "A", runtime: "iOS 26.5", state: .booted),
+            device(id: "B", name: "iPad Pro", runtime: "iOS 26.5", state: .shutdown),
+        ]
+        let snapshot = simulatorDevicePickerSnapshot(
+            devices: devices,
+            selectedDeviceID: "A",
+            localizedState: { $0 == .booted ? "Booted" : "Shut Down" }
+        )
+
+        devices[0] = device(id: "A", runtime: "iOS 26.5", state: .shutdown)
+
+        #expect(snapshot.selectedDeviceName == "iPhone 17 Pro")
+        #expect(snapshot.selectedDeviceSymbol == "iphone")
+        #expect(snapshot.rows.map(\.id) == ["A", "B"])
+        #expect(snapshot.rows.map(\.isSelected) == [true, false])
+        #expect(snapshot.rows.map(\.label) == [
+            "iPhone 17 Pro · Booted",
+            "iPad Pro · Shut Down",
+        ])
+    }
+
     private func device(
         id: String,
         name: String = "iPhone 17 Pro",
