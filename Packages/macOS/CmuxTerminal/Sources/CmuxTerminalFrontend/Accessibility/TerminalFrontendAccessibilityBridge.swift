@@ -165,7 +165,7 @@ final class TerminalFrontendAccessibilityBridge {
             let frameInParentSpace = cellRect(
                 row: link.row,
                 column: link.startColumn,
-                columnSpan: max(link.endColumn - link.startColumn, 1),
+                columnSpan: max(link.endColumn - link.startColumn + 1, 1),
                 snapshot: snapshot
             )
             else { return nil }

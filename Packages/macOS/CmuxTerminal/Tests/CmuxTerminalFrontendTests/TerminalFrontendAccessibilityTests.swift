@@ -194,7 +194,7 @@ import Testing
                 utf16Range: TerminalAccessibilityRange(location: 0, length: 5),
                 row: 40,
                 startColumn: 0,
-                endColumn: 5
+                endColumn: 4
             )]
         )
         let second = makeAccessibilitySnapshot(
@@ -206,7 +206,7 @@ import Testing
                 utf16Range: TerminalAccessibilityRange(location: 0, length: 6),
                 row: 40,
                 startColumn: 0,
-                endColumn: 6
+                endColumn: 5
             )]
         )
         let runtime = FakeTerminalExternalRuntime()
@@ -229,6 +229,7 @@ import Testing
         )
         #expect(staleChild.accessibilityRole() == .link)
         #expect(staleChild.accessibilityLabel() == "first")
+        #expect(staleChild.accessibilityFrame().width == 50)
 
         runtime.snapshot = makeRuntimeSnapshot(accessibility: second)
         #expect(view.accessibilityValue() as? String == "second")
