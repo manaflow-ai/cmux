@@ -326,6 +326,7 @@ ARTIFACT_REQUIRED_METRICS: dict[str, set[str]] = {
         "renderer_pid_count",
         "swift_pty_master_count",
         "backend_pty_master_count",
+        "renderer_pty_master_count",
     },
     "protocol": {"request_count", "response_count", "error_count"},
     "pty-size-samples": {
@@ -530,6 +531,7 @@ ZERO_ON_PASS_METRICS = {
     "swift_terminal_draw_count",
     "state_mutation_count",
     "swift_pty_master_count",
+    "renderer_pty_master_count",
     "blocked_parser_count",
     "blocked_topology_count",
     "other_client_failure_count",
@@ -1093,6 +1095,9 @@ def validate_metric_invariants(
             raise AcceptanceError(f"{label} must contain four live collector samples")
         if numeric_metric(metrics, "phase_provenance_count", label) != 4:
             raise AcceptanceError(f"{label} lacks per-phase live collector provenance")
+    elif criterion_id == "PROC-1" and artifact_kind == "process-census":
+        if numeric_metric(metrics, "backend_pty_master_count", label) < 1:
+            raise AcceptanceError(f"{label} backend must own at least one live PTY master")
     elif criterion_id == "FLOW-1" and artifact_kind == "queue-metrics":
         if numeric_metric(metrics, "maximum_retained_bytes", label) > numeric_metric(
             metrics, "retained_byte_budget", label
@@ -2875,6 +2880,9 @@ def derive_structured_metrics(
             "renderer_pid_count": len(roles["renderer-worker"]),
             "swift_pty_master_count": len(roles["swift-host"][0]["pty_master_fds"]),
             "backend_pty_master_count": len(roles["terminal-backend"][0]["pty_master_fds"]),
+            "renderer_pty_master_count": sum(
+                len(record["pty_master_fds"]) for record in roles["renderer-worker"]
+            ),
         }
         if criterion_id == "PERF-2":
             collector = _raw_dict(context.get("collector"), f"{label} collector")

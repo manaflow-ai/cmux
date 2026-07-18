@@ -441,6 +441,45 @@ class AcceptanceToolTests(unittest.TestCase):
                 expected_pass=True,
             )
 
+    def test_proc1_census_requires_only_backend_to_own_pty_masters(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            create_process_census_receipt(
+                root,
+                criterion_id="PROC-1",
+                command=["collect-census"],
+                timestamp="2026-07-17T12:00:00Z",
+                pids=[1001, 1002, 1003],
+            )
+            payload = root / "proc-1-process-census-raw.json"
+            raw = json.loads(payload.read_text(encoding="utf-8"))
+
+            raw["records"][1]["pty_master_fds"] = []
+            payload.write_text(json.dumps(raw), encoding="utf-8")
+            metrics = acceptance.derive_payload_metrics(
+                "PROC-1", "process-census", payload, "missing backend PTY ownership"
+            )
+            assert metrics is not None
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "backend must own"):
+                acceptance.validate_metric_invariants(
+                    "PROC-1", "process-census", metrics, "missing backend PTY ownership"
+                )
+
+            raw["records"][1]["pty_master_fds"] = ["4:/dev/ptmx"]
+            raw["records"][2]["pty_master_fds"] = ["9:/dev/ptmx"]
+            payload.write_text(json.dumps(raw), encoding="utf-8")
+            metrics = acceptance.derive_payload_metrics(
+                "PROC-1", "process-census", payload, "renderer PTY ownership"
+            )
+            assert metrics is not None
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError,
+                "renderer_pty_master_count must be zero",
+            ):
+                acceptance.validate_metric_invariants(
+                    "PROC-1", "process-census", metrics, "renderer PTY ownership"
+                )
+
     def test_raw_json_rejects_embedded_self_authored_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = pathlib.Path(temporary) / "raw.json"
