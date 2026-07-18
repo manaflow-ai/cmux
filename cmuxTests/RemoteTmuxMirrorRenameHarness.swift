@@ -21,7 +21,7 @@ final class RemoteTmuxMirrorRenameHarness {
     let pipe: Pipe
     let workspace: Workspace
 
-    init() throws {
+    init(includeSecondWindow: Bool = false) throws {
         let appDelegate = try #require(AppDelegate.shared)
         windowID = appDelegate.createMainWindow()
         let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
@@ -49,21 +49,25 @@ final class RemoteTmuxMirrorRenameHarness {
         )
         workspace = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
 
+        var windowLines = [
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} "
+                + "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] main",
+        ]
+        if includeSecondWindow {
+            windowLines.append("@3 efgh,80x24,0,0,6 efgh,80x24,0,0,6 [] logs")
+        }
         connection.handleMessageForTesting(.commandResult(
             commandNumber: 1,
-            lines: [
-                "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} "
-                    + "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] main",
-            ],
+            lines: windowLines,
             isError: false
         ))
         while let kind = connection.pendingCommandKindsForTesting.first {
             let lines: [String]
-            if case .paneRects = kind {
-                lines = [
+            if case let .paneRects(windowID, _) = kind {
+                lines = windowID == 2 ? [
                     "%4 0 0 60 40 1 off :0 \"remote-host\"",
                     "%5 61 0 59 40 0 off :1 \"remote-host\"",
-                ]
+                ] : ["%6 0 0 80 24 1 off :0 \"remote-host\""]
             } else {
                 lines = []
             }

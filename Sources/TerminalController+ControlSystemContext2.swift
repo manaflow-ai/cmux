@@ -51,6 +51,9 @@ extension TerminalController {
         let resolvedSurfaceId: UUID?
         if let surfaceID {
             resolvedSurfaceId = surfaceID
+        } else if let paneID = routing.paneID,
+                  let location = workspace.remoteTmuxControlPane(paneID: paneID) {
+            resolvedSurfaceId = location.pane.panel.id
         } else {
             resolvedSurfaceId = workspace.focusedPanelId.flatMap {
                 workspace.controlSurfaceProjection(forContainerPanelID: $0)?.surfaceID

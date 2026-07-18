@@ -95,4 +95,42 @@ struct RemoteTmuxMirrorRenameTests {
             "rename-window -t @2 'dogfood-multi-renamed-focused'",
         ])
     }
+
+    @Test func routedRemotePaneRenamesItsWindowInsteadOfTheFocusedWindow() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness(includeSecondWindow: true)
+        defer { harness.tearDown() }
+
+        let surfaces = try harness.surfaces()
+        #expect(surfaces.map(\.title) == ["main", "main [1]", "logs"])
+        let logs = try #require(surfaces.first(where: { $0.title == "logs" }))
+        let logsPaneID = try #require(logs.paneID)
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: nil,
+            surfaceID: nil,
+            paneID: logsPaneID
+        )
+        let resolution = TerminalController.shared.controlTabAction(
+            routing: routing,
+            actionKey: "rename",
+            title: "dogfood-pane-routed",
+            rawURL: nil,
+            surfaceID: nil,
+            requestedFocus: false,
+            moveParams: [:]
+        )
+
+        guard case .completed(let outcome) = resolution else {
+            Issue.record("Expected a completed pane-routed rename, got \(resolution)")
+            return
+        }
+        #expect(outcome.surfaceID == logs.surfaceID)
+        #expect(outcome.paneID == logsPaneID)
+        let renameCommands = try harness.finishCommands().filter {
+            $0.hasPrefix("rename-window ")
+        }
+        #expect(renameCommands == ["rename-window -t @3 'dogfood-pane-routed'"])
+    }
 }
