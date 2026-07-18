@@ -331,6 +331,22 @@ struct CLICodexHookTimeoutRegressionTests {
                 ]],
             ]]
         }
+        let expectedFeedEvents: Set<String> = [
+            "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact",
+            "PostCompact", "SubagentStart", "SubagentStop",
+        ]
+        for agentEvent in expectedFeedEvents {
+            let previousPath = hooksDirectory
+                .appendingPathComponent("cmux-codex-hook-persistent-feed-\(agentEvent).sh")
+            try makeCodexHookExecutableShellFile(at: previousPath, lines: ["#!/bin/sh", "exit 0"])
+            installedHooks[agentEvent] = [[
+                "hooks": [[
+                    "command": previousPath.path,
+                    "timeout": 10,
+                    "type": "command",
+                ]],
+            ]]
+        }
         let userCommand = "printf 'keep-user-hook'"
         var sessionStart = try #require(installedHooks["SessionStart"] as? [[String: Any]])
         sessionStart.append([
@@ -374,16 +390,15 @@ struct CLICodexHookTimeoutRegressionTests {
             )
             #expect(codexHookExecutableIsMachO(nativeEntry.command))
         }
-        let expectedFeedEvents: Set<String> = [
-            "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact",
-            "PostCompact", "SubagentStart", "SubagentStop",
-        ]
         let feedHooks = hooks.filter { $0.body.contains("hooks feed --source codex") }
         let installedFeedEvents = Set(feedHooks.compactMap { hook in
             expectedFeedEvents.first { hook.body.contains("--event \($0)") }
         })
         #expect(feedHooks.count == expectedFeedEvents.count)
         #expect(installedFeedEvents == expectedFeedEvents)
+        for agentEvent in expectedFeedEvents {
+            #expect(hooks.filter { $0.eventName == agentEvent }.count == 1)
+        }
     }
 
     @Test func codexHookGenerationFallsBackToPortableShellWithoutNativeClient() throws {
