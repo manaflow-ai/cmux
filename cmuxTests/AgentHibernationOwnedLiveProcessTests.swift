@@ -106,7 +106,7 @@ struct AgentHibernationOwnedLiveProcessTests {
         let identity = processIdentity(startSeconds: 100)
         let owned = AgentHibernationLiveProcessEvidence.ownedIdleRestorableSession(
             processIDs: [pid],
-            agentProcessIdentities: [pid: identity]
+            processIdentities: [pid: identity]
         )
         let unverified = AgentHibernationLiveProcessEvidence.unverified(processIDs: [pid])
         let settings = AgentHibernationSettings.Values(
@@ -159,24 +159,24 @@ struct AgentHibernationOwnedLiveProcessTests {
         let originalFingerprint = AgentHibernationController.scrollbackFingerprint(
             tail: "stable tail",
             processIDs: [pid],
-            agentProcessIdentities: [pid: original]
+            processIdentities: [pid: original]
         )
         let reusedFingerprint = AgentHibernationController.scrollbackFingerprint(
             tail: "stable tail",
             processIDs: [pid],
-            agentProcessIdentities: [pid: reused]
+            processIdentities: [pid: reused]
         )
 
         #expect(originalFingerprint != reusedFingerprint)
-        #expect(AgentHibernationController.agentProcessIdentitiesStillMatch(
+        #expect(AgentHibernationController.processIdentitiesStillMatch(
             [pid: original],
             currentIdentity: { _ in original }
         ))
-        #expect(!AgentHibernationController.agentProcessIdentitiesStillMatch(
+        #expect(!AgentHibernationController.processIdentitiesStillMatch(
             [pid: original],
             currentIdentity: { _ in reused }
         ))
-        #expect(!AgentHibernationController.agentProcessIdentitiesStillMatch(
+        #expect(!AgentHibernationController.processIdentitiesStillMatch(
             [pid: original],
             currentIdentity: { _ in nil }
         ))
@@ -224,6 +224,44 @@ struct AgentHibernationOwnedLiveProcessTests {
         #expect(!recorded.matchesPostSnapshot(observation: addedProcess, agent: agent))
     }
 
+    @Test
+    func nonAgentScopedPIDReuseFailsPostSnapshotAndImmediateChecks() {
+        let agent = snapshot(sessionId: "scoped-child-reuse")
+        let childPID = pid + 1
+        let root = processIdentity(startSeconds: 100)
+        let child = processIdentity(pid: childPID, startSeconds: 100)
+        let reusedChild = processIdentity(pid: childPID, startSeconds: 101)
+        let recordedObservation = entry(
+            snapshot: agent,
+            lifecycle: .idle,
+            hasHookRestoreAuthority: true,
+            processIDs: [pid, childPID],
+            agentProcessIdentities: [pid: root],
+            processIdentities: [pid: root, childPID: child]
+        )
+        let recorded = AgentHibernationLiveProcessEvidence.resolve(
+            observation: recordedObservation,
+            agent: agent
+        )
+        let reusedObservation = entry(
+            snapshot: agent,
+            lifecycle: .idle,
+            hasHookRestoreAuthority: true,
+            processIDs: [pid, childPID],
+            agentProcessIdentities: [pid: root],
+            processIdentities: [pid: root, childPID: reusedChild]
+        )
+
+        #expect(recorded.ownership == .ownedIdleRestorableSession)
+        #expect(!recorded.matchesPostSnapshot(observation: reusedObservation, agent: agent))
+        #expect(!AgentHibernationController.processIdentitiesStillMatch(
+            recorded.processIdentities,
+            currentIdentity: { candidate in
+                candidate == pid_t(self.pid) ? root : reusedChild
+            }
+        ))
+    }
+
     private func snapshot(sessionId: String) -> SessionRestorableAgentSnapshot {
         SessionRestorableAgentSnapshot(
             kind: .codex,
@@ -233,9 +271,9 @@ struct AgentHibernationOwnedLiveProcessTests {
         )
     }
 
-    private func processIdentity(startSeconds: Int64) -> AgentPIDProcessIdentity {
+    private func processIdentity(pid: Int? = nil, startSeconds: Int64) -> AgentPIDProcessIdentity {
         AgentPIDProcessIdentity(
-            pid: pid_t(pid),
+            pid: pid_t(pid ?? self.pid),
             startSeconds: startSeconds,
             startMicroseconds: 500
         )
@@ -246,7 +284,8 @@ struct AgentHibernationOwnedLiveProcessTests {
         lifecycle: AgentHibernationLifecycleState,
         hasHookRestoreAuthority: Bool,
         processIDs: Set<Int>,
-        agentProcessIdentities: [Int: AgentPIDProcessIdentity]
+        agentProcessIdentities: [Int: AgentPIDProcessIdentity],
+        processIdentities: [Int: AgentPIDProcessIdentity]? = nil
     ) -> RestorableAgentSessionIndex.Entry {
         RestorableAgentSessionIndex.Entry(
             snapshot: snapshot,
@@ -255,6 +294,7 @@ struct AgentHibernationOwnedLiveProcessTests {
             processIDs: processIDs,
             agentProcessIDs: [pid],
             agentProcessIdentities: agentProcessIdentities,
+            processIdentities: processIdentities ?? agentProcessIdentities,
             hasHookRestoreAuthority: hasHookRestoreAuthority
         )
     }

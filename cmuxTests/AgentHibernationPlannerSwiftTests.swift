@@ -214,7 +214,7 @@ struct AgentHibernationPlannerSwiftTests {
                     isLive: true,
                     liveProcessEvidence: .ownedIdleRestorableSession(
                         processIDs: [42],
-                        agentProcessIdentities: [42: processIdentity]
+                        processIdentities: [42: processIdentity]
                     ),
                     isProtected: false,
                     lifecycle: .idle,
