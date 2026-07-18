@@ -89,14 +89,14 @@ mod tests {
     }
 
     #[test]
-    fn foreign_viewport_hints_are_catalog_backed() {
+    fn foreign_viewport_hints_describe_state_without_promising_input_takeover() {
         assert_eq!(
             ENGLISH.foreign_viewport.hint(12, 5),
-            "sized by another client (12x5), type to take over"
+            "sized by another client (12x5)"
         );
         assert_eq!(
             JAPANESE.foreign_viewport.hint(12, 5),
-            "別のクライアントがサイズを決定中 (12x5)。入力すると引き継ぎます"
+            "別のクライアントがサイズを決定中 (12x5)"
         );
     }
 }
