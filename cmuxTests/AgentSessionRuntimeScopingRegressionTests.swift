@@ -3836,6 +3836,99 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(pendingReleaseURLs().isEmpty)
     }
 
+    @MainActor
+    @Test func pendingReleaseStartupPassIsBoundedAndQuarantinesInvalidFiles() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-bounded-\(UUID().uuidString)", isDirectory: true)
+        let queueDirectory = root.appendingPathComponent(
+            "pending-closed-history-releases-v1",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: queueDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename).path,
+            "CMUX_RUNTIME_ID": "closed-history-bounded-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        for index in 0..<63 {
+            try Data("{}".utf8).write(
+                to: queueDirectory.appendingPathComponent("malformed-\(index).json"),
+                options: .atomic
+            )
+        }
+        try Data(repeating: 0, count: 512 * 1_024 + 1).write(
+            to: queueDirectory.appendingPathComponent("oversized.json"),
+            options: .atomic
+        )
+        let rawRequest: [String: Any] = [
+            "provider": "codex",
+            "sessionId": "too-many-entries",
+            "workspaceId": UUID().uuidString,
+            "surfaceId": UUID().uuidString,
+            "expectedRecordUpdatedAt": 20.0,
+            "recordFingerprint": NSNull(),
+        ]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "requests": Array(repeating: rawRequest, count: 513),
+        ], options: [.sortedKeys]).write(
+            to: queueDirectory.appendingPathComponent("too-many.json"),
+            options: .atomic
+        )
+
+        func pendingJSONCount() -> Int {
+            ((try? FileManager.default.contentsOfDirectory(
+                at: queueDirectory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )) ?? []).filter { $0.pathExtension == "json" }.count
+        }
+        let quarantineDirectory = queueDirectory.appendingPathComponent(
+            "quarantine",
+            isDirectory: true
+        )
+        func quarantinedCount() -> Int {
+            ((try? FileManager.default.contentsOfDirectory(
+                at: quarantineDirectory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )) ?? []).filter { $0.pathExtension == "invalid" }.count
+        }
+
+        let schedulingElapsed = ContinuousClock().measure {
+            AgentHookSessionStateWriter.resumePendingClosedHistoryHibernationReleases(now: 30)
+        }
+        #expect(schedulingElapsed < .milliseconds(100))
+        let clock = ContinuousClock()
+        let firstPassDeadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < firstPassDeadline, quarantinedCount() < 64 {
+            try await clock.sleep(for: .milliseconds(10))
+        }
+        #expect(quarantinedCount() == 64)
+        #expect(pendingJSONCount() == 1)
+
+        AgentHookSessionStateWriter.resumePendingClosedHistoryHibernationReleases(now: 31)
+        let secondPassDeadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < secondPassDeadline, pendingJSONCount() != 0 {
+            try await clock.sleep(for: .milliseconds(10))
+        }
+        #expect(pendingJSONCount() == 0)
+        #expect(quarantinedCount() == 65)
+    }
+
     @Test func agentsTreeDefaultsToTheCallingCmuxRuntimeWhileAllIncludesHistory() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
