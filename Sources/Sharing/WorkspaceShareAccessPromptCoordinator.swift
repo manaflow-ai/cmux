@@ -82,7 +82,7 @@ final class WorkspaceShareAccessPromptCoordinator {
         )
         let format = String(
             localized: "workspaceShare.access.message",
-            defaultValue: "Display name: %@\nVerified email: %@\n\nAllow access to this workspace?"
+            defaultValue: "Display name: %@\nVerified email: %@\n\nAllow access? This lets them view the full workspace and type or run commands in every shared terminal."
         )
         alert.informativeText = String(
             format: format,

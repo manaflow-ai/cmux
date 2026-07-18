@@ -4626,6 +4626,7 @@
     "send": "送信",
     "participants": "ワークスペースの参加者",
     "terminalWaiting": "ターミナルデータを待っています…",
+    "terminalInputLabel": "共有ターミナル入力",
     "browserWaiting": "ブラウザプレビューを待っています…",
     "unsupportedPanel": "このパネルのウェブ表示はまだ利用できません。",
     "textBoxLabel": "共同編集 TextBox",

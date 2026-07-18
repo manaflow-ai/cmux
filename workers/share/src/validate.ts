@@ -10,7 +10,11 @@ export const MAX_TEXT_IDENTIFIER_CLOCK = 999_999_999;
 export const MAX_TERMINAL_DIMENSION = 1_000;
 export const MAX_TERMINAL_CELLS = 200_000;
 export const MAX_TERMINAL_VT_BYTES = 1_500_000;
+export const MAX_TERMINAL_INPUT_BYTES = 4_096;
 const MAX_TERMINAL_VT_BASE64_CHARACTERS = Math.ceil(MAX_TERMINAL_VT_BYTES / 3) * 4;
+const MAX_WORKSPACE_PANES = 64;
+const MAX_PANE_SURFACES = 128;
+const MAX_WORKSPACE_SURFACES = 4_096;
 
 export async function readBoundedJson(
   request: Request,
@@ -144,6 +148,57 @@ export function validTerminalVTPayload(payload: Record<string, unknown>): boolea
     validBoundedBase64(payload.dataB64);
 }
 
+export function validTerminalInputPayload(payload: Record<string, unknown>): boolean {
+  if (!exactKeys(payload, ["surfaceId", "layoutRevision", "kind", "data"]) ||
+      !validSurfaceId(payload.surfaceId) ||
+      !boundedInteger(payload.layoutRevision, Number.MAX_SAFE_INTEGER) ||
+      typeof payload.data !== "string") return false;
+  if (payload.kind === "key") return validTerminalInputKey(payload.data);
+  return payload.kind === "text" && validTerminalInputText(payload.data);
+}
+
+export function selectedTerminalTargetsFromWorkspacePayload(
+  payload: Record<string, unknown>,
+): { readonly layoutRevision: number; readonly surfaceIds: readonly string[] } | null {
+  const sceneValue = Object.hasOwn(payload, "scene") ? payload.scene : payload;
+  if (!sceneValue || typeof sceneValue !== "object" || Array.isArray(sceneValue)) return null;
+  const scene = sceneValue as Record<string, unknown>;
+  if (!boundedInteger(scene.layoutRevision, Number.MAX_SAFE_INTEGER) ||
+      !Array.isArray(scene.panes) || scene.panes.length > MAX_WORKSPACE_PANES) return null;
+
+  const paneIds = new Set<string>();
+  const surfaceIds = new Set<string>();
+  const selectedTerminalIds: string[] = [];
+  let surfaceCount = 0;
+  for (const paneValue of scene.panes) {
+    if (!paneValue || typeof paneValue !== "object" || Array.isArray(paneValue)) return null;
+    const pane = paneValue as Record<string, unknown>;
+    const paneId = normalizedString(pane.id, 128);
+    const selectedSurfaceId = typeof pane.selectedSurfaceId === "string" ? pane.selectedSurfaceId : null;
+    if (!paneId || paneIds.has(paneId) || !selectedSurfaceId || !Array.isArray(pane.surfaces) ||
+        pane.surfaces.length < 1 || pane.surfaces.length > MAX_PANE_SURFACES) return null;
+    paneIds.add(paneId);
+    surfaceCount += pane.surfaces.length;
+    if (surfaceCount > MAX_WORKSPACE_SURFACES) return null;
+
+    let selectedKind: unknown;
+    for (const surfaceValue of pane.surfaces) {
+      if (!surfaceValue || typeof surfaceValue !== "object" || Array.isArray(surfaceValue)) return null;
+      const surface = surfaceValue as Record<string, unknown>;
+      if (!validSurfaceId(surface.id) || surfaceIds.has(surface.id as string) ||
+          !["terminal", "textbox", "browser", "unsupported"].includes(String(surface.kind))) return null;
+      surfaceIds.add(surface.id as string);
+      if (surface.id === selectedSurfaceId) selectedKind = surface.kind;
+    }
+    if (selectedKind === undefined) return null;
+    if (selectedKind === "terminal" || selectedKind === "textbox") selectedTerminalIds.push(selectedSurfaceId);
+  }
+  return {
+    layoutRevision: scene.layoutRevision as number,
+    surfaceIds: selectedTerminalIds,
+  };
+}
+
 function normalizedString(value: unknown, maxCharacters: number): string | null {
   if (typeof value !== "string") return null;
   const result = value.trim();
@@ -175,6 +230,26 @@ function validBoundedBase64(value: unknown): boolean {
   const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
   const decodedBytes = value.length / 4 * 3 - padding;
   return decodedBytes > 0 && decodedBytes <= MAX_TERMINAL_VT_BYTES;
+}
+
+function validTerminalInputText(value: string): boolean {
+  if (!value || new TextEncoder().encode(value).byteLength > MAX_TERMINAL_INPUT_BYTES) return false;
+  return [...value].every((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return code > 0x1F && !(code >= 0x7F && code <= 0x9F);
+  });
+}
+
+function validTerminalInputKey(value: string): boolean {
+  return [
+    "enter", "backspace", "tab", "shift-tab", "escape", "up", "down", "left", "right",
+    "home", "end", "delete",
+  ].includes(value) || /^ctrl-[a-z\\]$/u.test(value);
+}
+
+function validSurfaceId(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value);
 }
 
 function identifier(value: unknown): value is string {

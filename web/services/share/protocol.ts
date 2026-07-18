@@ -112,9 +112,16 @@ export function normalizeWorkspaceScene(value: unknown): WorkspaceScene | null {
     scene.panes.length > 64
   ) return null;
   const panes: WorkspacePane[] = [];
+  const paneIds = new Set<string>();
+  const surfaceIds = new Set<string>();
   for (const value of scene.panes) {
-    const pane = normalizePane(value);
-    if (!pane) return null;
+    const pane = normalizePane(value, scene.width, scene.height);
+    if (!pane || paneIds.has(pane.id)) return null;
+    paneIds.add(pane.id);
+    for (const surface of pane.surfaces) {
+      if (surfaceIds.has(surface.id)) return null;
+      surfaceIds.add(surface.id);
+    }
     panes.push(pane);
   }
   return {
@@ -144,13 +151,13 @@ export function normalizeTerminalVtFrame(value: unknown): TerminalVtFrame | null
   return frame as unknown as TerminalVtFrame;
 }
 
-function normalizePane(value: unknown): WorkspacePane | null {
+function normalizePane(value: unknown, sceneWidth: number, sceneHeight: number): WorkspacePane | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const pane = value as Record<string, unknown>;
   if (
     !shortString(pane.id, 128) ||
     !shortString(pane.selectedSurfaceId, 128) ||
-    !validFrame(pane.frame) ||
+    !validFrame(pane.frame, sceneWidth, sceneHeight) ||
     !Array.isArray(pane.surfaces) ||
     pane.surfaces.length < 1 ||
     pane.surfaces.length > 128
@@ -161,6 +168,7 @@ function normalizePane(value: unknown): WorkspacePane | null {
     if (!surface) return null;
     surfaces.push(surface);
   }
+  if (!surfaces.some((surface) => surface.id === pane.selectedSurfaceId)) return null;
   return {
     id: pane.id,
     frame: pane.frame,
@@ -197,10 +205,13 @@ function validTerminalBase64(value: unknown): value is string {
   return decodedBytes > 0 && decodedBytes <= 1_500_000;
 }
 
-function validFrame(value: unknown): value is WorkspaceFrame {
+function validFrame(value: unknown, sceneWidth: number, sceneHeight: number): value is WorkspaceFrame {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const frame = value as Record<string, unknown>;
-  return finiteNumber(frame.x) && finiteNumber(frame.y) && positiveNumber(frame.width) && positiveNumber(frame.height);
+  return nonnegativeNumber(frame.x) && nonnegativeNumber(frame.y) &&
+    positiveNumber(frame.width) && positiveNumber(frame.height) &&
+    frame.x + frame.width <= sceneWidth + Number.EPSILON * Math.max(1, sceneWidth) * 16 &&
+    frame.y + frame.height <= sceneHeight + Number.EPSILON * Math.max(1, sceneHeight) * 16;
 }
 
 function shortString(value: unknown, max: number): value is string {
@@ -213,6 +224,10 @@ function finiteNumber(value: unknown): value is number {
 
 function positiveNumber(value: unknown): value is number {
   return finiteNumber(value) && value > 0;
+}
+
+function nonnegativeNumber(value: unknown): value is number {
+  return finiteNumber(value) && value >= 0;
 }
 
 function nonnegativeInteger(value: unknown): value is number {

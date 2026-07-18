@@ -23,6 +23,11 @@ import {
   type TextCompositionSnapshot,
   type TextDocumentView,
 } from "../../../services/share/textDocument";
+import {
+  terminalCommandsFromText,
+  terminalInputPayload,
+  type TerminalInputCommand,
+} from "../../../services/share/terminalInput";
 
 export type ShareConnectionStatus =
   | "connecting"
@@ -67,6 +72,7 @@ export class ShareWorkspaceConnection {
   private readonly compositions = new Map<string, TextCompositionSnapshot>();
   private readonly terminalRenderer = new GhosttyTerminalRenderer();
   private terminalSurfaceIds: ReadonlySet<string> = new Set();
+  private terminalInputSurfaceIds: ReadonlySet<string> = new Set();
   private state = initialShareWorkspaceViewState;
   private socket: WebSocket | null = null;
   private abortController: AbortController | null = null;
@@ -102,6 +108,17 @@ export class ShareWorkspaceConnection {
   chat(text: string): void {
     const normalized = text.trim();
     if (normalized) this.send("chat.message", { text: normalized });
+  }
+
+  terminalText(surfaceId: string, text: string): void {
+    for (const command of terminalCommandsFromText(text)) this.terminalInput(surfaceId, command);
+  }
+
+  terminalInput(surfaceId: string, command: TerminalInputCommand): void {
+    const scene = this.state.scene;
+    if (!scene || !this.terminalInputSurfaceIds.has(surfaceId)) return;
+    const payload = terminalInputPayload(surfaceId, scene.layoutRevision, command);
+    if (payload) this.send("terminal.input", payload);
   }
 
   selection(docId: string, anchorUTF16: number, headUTF16: number): void {
@@ -220,6 +237,7 @@ export class ShareWorkspaceConnection {
       if (scene) {
         const terminalSurfaceIds = terminalVtSurfaceIdsForScene(scene);
         this.terminalSurfaceIds = terminalSurfaceIds;
+        this.terminalInputSurfaceIds = terminalInputSurfaceIdsForScene(scene);
         void this.terminalRenderer.retainSurfaces(terminalSurfaceIds);
         const terminals = new Map(
           [...this.state.terminals].filter(([surfaceId]) => terminalSurfaceIds.has(surfaceId)),
@@ -410,6 +428,13 @@ export function terminalVtSurfaceIdsForScene(scene: WorkspaceScene): ReadonlySet
   return new Set(scene.panes.flatMap((pane) => pane.surfaces
     .filter((surface) => surface.kind === "terminal" || surface.kind === "textbox")
     .map((surface) => surface.id)));
+}
+
+export function terminalInputSurfaceIdsForScene(scene: WorkspaceScene): ReadonlySet<string> {
+  return new Set(scene.panes.flatMap((pane) => {
+    const selected = pane.surfaces.find((surface) => surface.id === pane.selectedSurfaceId);
+    return selected && (selected.kind === "terminal" || selected.kind === "textbox") ? [selected.id] : [];
+  }));
 }
 
 function normalizeTicket(value: unknown): TicketResponse | null {

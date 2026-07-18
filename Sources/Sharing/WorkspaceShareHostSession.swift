@@ -176,6 +176,10 @@ final class WorkspaceShareHostSession {
                     await send(type: "textbox.document", payload: payload)
                 }
             }
+        case "terminal.input.request":
+            guard let request = try? frame.payload.decode(TerminalInputRequestPayload.self),
+                  request.participant.role == "viewer" else { return }
+            _ = exporter?.applyRemoteTerminalInput(request.input)
         case "textbox.selection":
             guard let selection = try? frame.payload.decode(WorkspaceShareTextSelection.self) else { return }
             exporter?.updateRemoteTextSelection(selection)
@@ -210,6 +214,11 @@ private struct AccessDecisionPayload: Encodable, Sendable {
 
 private struct TextOperationRequestPayload: Decodable, Sendable {
     let operation: WorkspaceShareTextOperation
+    let participant: WorkspaceShareRemotePointer.Participant
+}
+
+private struct TerminalInputRequestPayload: Decodable, Sendable {
+    let input: WorkspaceShareTerminalInput
     let participant: WorkspaceShareRemotePointer.Participant
 }
 

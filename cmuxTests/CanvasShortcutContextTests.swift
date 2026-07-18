@@ -171,6 +171,10 @@ struct WorkspaceShareCanvasTopologyTests {
             height: 160
         ))
         #expect(frontPaneID != frontTab)
+        #expect(topology.containsSelectedSurface(selectedBackTab))
+        #expect(topology.containsSelectedSurface(frontTab))
+        #expect(!topology.containsSelectedSurface(backTab))
+        #expect(!topology.containsSelectedSurface(UUID()))
     }
 
     @Test func convertsPointerYIntoTopDownCoordinatesForFlippedAndUnflippedViews() {

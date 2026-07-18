@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   MAX_TERMINAL_VT_BYTES,
+  MAX_TERMINAL_INPUT_BYTES,
+  selectedTerminalTargetsFromWorkspacePayload,
   validPointerPayload,
   validResyncPayload,
   validTextOperationPayload,
   validTextSelectionPayload,
+  validTerminalInputPayload,
   validTerminalVTPayload,
 } from "../src/validate";
 
@@ -115,5 +118,59 @@ describe("viewer collaboration payloads", () => {
     const maximumDataB64 = "AAAA".repeat(MAX_TERMINAL_VT_BYTES / 3);
     expect(validTerminalVTPayload({ ...payload, dataB64: maximumDataB64 })).toBe(true);
     expect(validTerminalVTPayload({ ...payload, dataB64: `${maximumDataB64}AAAA` })).toBe(false);
+  });
+
+  test("accepts only bounded terminal text and known keys for an exact surface and revision", () => {
+    const base = {
+      surfaceId: "72C552A7-8F75-4DF3-AC47-3750D01D0C18",
+      layoutRevision: 7,
+    };
+    expect(validTerminalInputPayload({ ...base, kind: "text", data: "echo hello" })).toBe(true);
+    expect(validTerminalInputPayload({ ...base, kind: "key", data: "enter" })).toBe(true);
+    expect(validTerminalInputPayload({ ...base, kind: "key", data: "ctrl-c" })).toBe(true);
+    expect(validTerminalInputPayload({ ...base, kind: "text", data: "\n" })).toBe(false);
+    expect(validTerminalInputPayload({ ...base, kind: "text", data: "🙂".repeat(MAX_TERMINAL_INPUT_BYTES / 4 + 1) })).toBe(false);
+    expect(validTerminalInputPayload({ ...base, kind: "key", data: "command-enter" })).toBe(false);
+    expect(validTerminalInputPayload({ ...base, kind: "key", data: "enter", participant: {} })).toBe(false);
+    expect(validTerminalInputPayload({ ...base, surfaceId: "terminal", kind: "key", data: "enter" })).toBe(false);
+  });
+
+  test("derives terminal input membership from selected surfaces in every split", () => {
+    const selectedA = "72C552A7-8F75-4DF3-AC47-3750D01D0C18";
+    const hiddenA = "3C819442-134F-486E-8CB8-D408FA65A549";
+    const selectedB = "8489FC65-5D32-4012-8200-6FC9DAB557B5";
+    const browser = "CB3ABF39-47FE-4196-A01D-1B2E286B153C";
+    expect(selectedTerminalTargetsFromWorkspacePayload({ scene: {
+      layoutRevision: 12,
+      panes: [
+        {
+          id: "left",
+          selectedSurfaceId: selectedA,
+          surfaces: [
+            { id: hiddenA, kind: "terminal" },
+            { id: selectedA, kind: "textbox" },
+          ],
+        },
+        {
+          id: "right",
+          selectedSurfaceId: selectedB,
+          surfaces: [{ id: selectedB, kind: "terminal" }],
+        },
+        {
+          id: "bottom",
+          selectedSurfaceId: browser,
+          surfaces: [{ id: browser, kind: "browser" }],
+        },
+      ],
+    } })).toEqual({ layoutRevision: 12, surfaceIds: [selectedA, selectedB] });
+
+    expect(selectedTerminalTargetsFromWorkspacePayload({ scene: {
+      layoutRevision: 12,
+      panes: [{
+        id: "left",
+        selectedSurfaceId: selectedA,
+        surfaces: [{ id: hiddenA, kind: "terminal" }],
+      }],
+    } })).toBeNull();
   });
 });

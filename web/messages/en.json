@@ -4716,6 +4716,7 @@
     "send": "Send",
     "participants": "Workspace participants",
     "terminalWaiting": "Waiting for terminal data…",
+    "terminalInputLabel": "Shared terminal input",
     "browserWaiting": "Waiting for the browser preview…",
     "unsupportedPanel": "This panel does not have a web renderer yet.",
     "textBoxLabel": "Collaborative TextBox",

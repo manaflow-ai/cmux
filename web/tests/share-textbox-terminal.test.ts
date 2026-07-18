@@ -27,7 +27,7 @@ describe("shared TextBox terminal composition", () => {
     ]);
 
     expect(source).toContain('<div className="share-terminal-textbox-surface">');
-    expect(source).toContain("<GhosttyTerminal terminal={terminal} embedded />");
+    expect(source).toMatch(/<GhosttyTerminal\s+terminal=\{terminal\}\s+embedded\s+/u);
     expect(source).toContain("compact");
     expect(source).not.toContain("useEffect(");
     expect(css).toMatch(/\.share-terminal-textbox-surface\s*\{[^}]*display: flex;[^}]*flex-direction: column;/u);

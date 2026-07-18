@@ -200,6 +200,26 @@ body {
   user-select: text;
 }
 
+.share-terminal:focus,
+.share-terminal:focus-within {
+  outline: 1px solid #5c5e56;
+  outline-offset: -1px;
+}
+
+.share-terminal-input-proxy {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .share-terminal-textbox-surface {
   height: calc(100% - 27px);
   min-height: 0;

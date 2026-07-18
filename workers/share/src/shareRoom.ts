@@ -31,9 +31,11 @@ import {
 import {
   normalizedChat,
   parseMessage,
+  selectedTerminalTargetsFromWorkspacePayload,
   validAccessDecisionPayload,
   validPointerPayload,
   validResyncPayload,
+  validTerminalInputPayload,
   validTextOperationPayload,
   validTextSelectionPayload,
   validTerminalVTPayload,
@@ -52,6 +54,7 @@ const RESYNC_INTERVAL_MS = 2_000;
 const MAX_SOCKET_BUFFERED_BYTES = 2 * 1_024 * 1_024;
 const VIEWER_REALTIME_EVENTS_PER_SECOND = 240;
 const HOST_BROADCAST_EVENTS_PER_SECOND = 120;
+const VIEWER_TERMINAL_INPUT_EVENTS_PER_SECOND = 240;
 const HOST_BUDGETED_BROADCAST_TYPES = new Set([
   "workspace.snapshot",
   "workspace.layout",
@@ -93,6 +96,8 @@ type SocketAttachment = Principal & {
   readonly messageWindowStartedAt: number;
   readonly messageCount: number;
   readonly messageBytes: number;
+  readonly sharedLayoutRevision?: number;
+  readonly sharedTerminalSurfaceIds?: readonly string[];
 };
 
 type ChatMessage = {
@@ -108,6 +113,7 @@ export class ShareRoom extends DurableObject<ShareRoomEnv> {
   private serverSeq = Date.now() * 1_000;
   private hostAvailabilityDeadline: number | null | undefined;
   private viewerRealtimeWindow: EventWindow = { startedAt: 0, count: 0 };
+  private viewerTerminalInputWindow: EventWindow = { startedAt: 0, count: 0 };
   private hostBroadcastWindow: EventWindow = { startedAt: 0, count: 0 };
 
   async create(input: CreateRoomInput): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -209,6 +215,9 @@ export class ShareRoom extends DurableObject<ShareRoomEnv> {
     if (attachment.role === "viewer" && envelope.type === "textbox.operation") {
       if (!validTextOperationPayload(envelope.payload, attachment.connectionId)) return;
     }
+    if (attachment.role === "viewer" && envelope.type === "terminal.input") {
+      if (!validTerminalInputPayload(envelope.payload) || !this.isCurrentTerminalInputTarget(envelope.payload)) return;
+    }
     if (attachment.role === "viewer" && envelope.type === "workspace.resync.request") {
       if (!validResyncPayload(envelope.payload) || now - attachment.lastResyncAt < RESYNC_INTERVAL_MS) return;
       nextAttachment = { ...nextAttachment, lastResyncAt: now };
@@ -219,6 +228,19 @@ export class ShareRoom extends DurableObject<ShareRoomEnv> {
         !validTerminalVTPayload(envelope.payload)) {
       closeSocket(ws, 4002, "invalid_terminal_stream");
       return;
+    }
+    if (attachment.role === "host" &&
+        (envelope.type === "workspace.snapshot" || envelope.type === "workspace.layout")) {
+      const targets = selectedTerminalTargetsFromWorkspacePayload(envelope.payload);
+      if (!targets) {
+        closeSocket(ws, 4002, "invalid_workspace_scene");
+        return;
+      }
+      nextAttachment = {
+        ...nextAttachment,
+        sharedLayoutRevision: targets.layoutRevision,
+        sharedTerminalSurfaceIds: targets.surfaceIds,
+      };
     }
     if (attachment.role === "host" && envelope.type === "share.end") {
       if (Object.keys(envelope.payload).length !== 0) return;
@@ -260,6 +282,17 @@ export class ShareRoom extends DurableObject<ShareRoomEnv> {
       }
       this.sendToHosts("textbox.operation.request", {
         ...envelope.payload,
+        participant: participantFrom(attachment),
+      });
+      return;
+    }
+    if (attachment.role === "viewer" && envelope.type === "terminal.input") {
+      if (!this.consumeViewerTerminalInput(now)) {
+        closeSocket(ws, 4008, "terminal_input_rate_limited");
+        return;
+      }
+      this.sendToHosts("terminal.input.request", {
+        input: envelope.payload,
         participant: participantFrom(attachment),
       });
       return;
@@ -636,6 +669,28 @@ export class ShareRoom extends DurableObject<ShareRoomEnv> {
     if (!result.ok) return false;
     this.viewerRealtimeWindow = result.window;
     return true;
+  }
+
+  private consumeViewerTerminalInput(now: number): boolean {
+    const result = consumeEventBudget(
+      this.viewerTerminalInputWindow,
+      VIEWER_TERMINAL_INPUT_EVENTS_PER_SECOND,
+      now,
+    );
+    if (!result.ok) return false;
+    this.viewerTerminalInputWindow = result.window;
+    return true;
+  }
+
+  private isCurrentTerminalInputTarget(payload: Record<string, unknown>): boolean {
+    const surfaceId = payload.surfaceId;
+    const layoutRevision = payload.layoutRevision;
+    if (typeof surfaceId !== "string" || typeof layoutRevision !== "number") return false;
+    return this.ctx.getWebSockets().some((socket) => {
+      const host = socketAttachment(socket);
+      return host?.role === "host" && host.sharedLayoutRevision === layoutRevision &&
+        host.sharedTerminalSurfaceIds?.includes(surfaceId) === true;
+    });
   }
 
   private consumeHostBroadcast(now: number): boolean {

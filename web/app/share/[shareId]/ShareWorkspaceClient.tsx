@@ -7,11 +7,16 @@ import {
   type CSSProperties,
   type CompositionEvent,
   type FormEvent,
+  type KeyboardEvent,
   type PointerEvent,
 } from "react";
 import type { ShareParticipant, TextSelectionAwareness, WorkspaceSurface } from "../../../services/share/protocol";
 import type { RenderedGhosttyTerminal } from "../../../services/share/ghosttyTerminal";
 import type { TextDocumentView } from "../../../services/share/textDocument";
+import {
+  terminalCommandForKeyboardEvent,
+  type TerminalInputCommand,
+} from "../../../services/share/terminalInput";
 import {
   initialShareWorkspaceViewState,
   ShareWorkspaceConnection,
@@ -36,6 +41,7 @@ export type ShareWorkspaceCopy = {
   readonly send: string;
   readonly participants: string;
   readonly terminalWaiting: string;
+  readonly terminalInputLabel: string;
   readonly browserWaiting: string;
   readonly unsupportedPanel: string;
   readonly textBoxLabel: string;
@@ -143,6 +149,8 @@ export function ShareWorkspaceClient({
                     onCompositionStart={() => selected.docId && connection.current?.beginTextComposition(selected.docId)}
                     onCompositionEnd={(text) => selected.docId && connection.current?.commitTextComposition(selected.docId, text)}
                     onSelection={(anchor, head) => selected.docId && connection.current?.selection(selected.docId, anchor, head)}
+                    onTerminalInput={(command) => connection.current?.terminalInput(selected.id, command)}
+                    onTerminalText={(text) => connection.current?.terminalText(selected.id, text)}
                   />
                 </article>
               );
@@ -211,6 +219,8 @@ function SurfaceView({
   onCompositionStart,
   onCompositionEnd,
   onSelection,
+  onTerminalInput,
+  onTerminalText,
 }: {
   surface: WorkspaceSurface;
   terminal?: RenderedGhosttyTerminal;
@@ -221,9 +231,13 @@ function SurfaceView({
   onCompositionStart: () => void;
   onCompositionEnd: (text: string) => void;
   onSelection: (anchor: number, head: number) => void;
+  onTerminalInput: (command: TerminalInputCommand) => void;
+  onTerminalText: (text: string) => void;
 }) {
   if (surface.kind === "terminal") {
-    return terminal ? <GhosttyTerminal terminal={terminal} /> : <PanelWaiting text={copy.terminalWaiting} />;
+    return terminal
+      ? <GhosttyTerminal terminal={terminal} inputLabel={copy.terminalInputLabel} onInput={onTerminalInput} onText={onTerminalText} />
+      : <PanelWaiting text={copy.terminalWaiting} />;
   }
   if (surface.kind === "browser") {
     return surface.imageDataUrl
@@ -250,7 +264,13 @@ function SurfaceView({
     if (mode === "combined" && terminal && document) {
       return (
         <div className="share-terminal-textbox-surface">
-          <GhosttyTerminal terminal={terminal} embedded />
+          <GhosttyTerminal
+            terminal={terminal}
+            embedded
+            inputLabel={copy.terminalInputLabel}
+            onInput={onTerminalInput}
+            onText={onTerminalText}
+          />
           <CollaborativeTextBox
             document={document}
             selections={selections}
@@ -265,7 +285,9 @@ function SurfaceView({
       );
     }
     if (mode === "textbox" && textBox) return textBox;
-    if (mode === "terminal" && terminal) return <GhosttyTerminal terminal={terminal} />;
+    if (mode === "terminal" && terminal) {
+      return <GhosttyTerminal terminal={terminal} inputLabel={copy.terminalInputLabel} onInput={onTerminalInput} onText={onTerminalText} />;
+    }
     return <PanelWaiting text={copy.workspaceWaiting} />;
   }
   return <PanelWaiting text={copy.unsupportedPanel} />;
@@ -284,12 +306,20 @@ export function sharedTextBoxSurfaceMode(
 function GhosttyTerminal({
   terminal,
   embedded = false,
+  inputLabel,
+  onInput,
+  onText,
 }: {
   terminal: RenderedGhosttyTerminal;
   embedded?: boolean;
+  inputLabel: string;
+  onInput: (command: TerminalInputCommand) => void;
+  onText: (text: string) => void;
 }) {
   const [scale, setScale] = useState(1);
   const resizeObserver = useRef<ResizeObserver | null>(null);
+  const inputProxy = useRef<HTMLTextAreaElement | null>(null);
+  const composing = useRef(false);
   const mount = useCallback((node: HTMLDivElement | null) => {
     resizeObserver.current?.disconnect();
     resizeObserver.current = null;
@@ -311,6 +341,14 @@ function GhosttyTerminal({
       resizeObserver.current.observe(grid);
     }
   }, []);
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const command = terminalCommandForKeyboardEvent(event.nativeEvent);
+    if (!command) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onInput(command);
+  };
+  const focusInput = () => inputProxy.current?.focus({ preventScroll: true });
   const cursor = terminal.cursor;
   const cursorColumn = cursor ? Math.max(0, cursor.column - (cursor.wide ? 1 : 0)) : 0;
   return (
@@ -318,8 +356,41 @@ function GhosttyTerminal({
       ref={mount}
       className={embedded ? "share-terminal share-terminal-embedded" : "share-terminal"}
       data-share-target={terminal.surfaceId}
+      role="application"
+      aria-label={inputLabel}
+      tabIndex={0}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) focusInput();
+      }}
+      onPointerDown={(event) => {
+        if (event.button === 0) focusInput();
+      }}
+      onKeyDown={handleKeyDown}
       style={{ background: terminal.background, color: terminal.foreground } as CSSProperties}
     >
+      <textarea
+        ref={inputProxy}
+        className="share-terminal-input-proxy"
+        aria-label={inputLabel}
+        tabIndex={-1}
+        autoCapitalize="none"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        onCompositionStart={() => { composing.current = true; }}
+        onCompositionEnd={(event) => {
+          composing.current = false;
+          const value = event.currentTarget.value || event.data;
+          event.currentTarget.value = "";
+          if (value) onText(value);
+        }}
+        onInput={(event) => {
+          if (composing.current) return;
+          const value = event.currentTarget.value;
+          event.currentTarget.value = "";
+          if (value) onText(value);
+        }}
+      />
       <div
         className="share-terminal-scale"
         data-ghostty-grid

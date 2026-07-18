@@ -8,6 +8,7 @@ describe("share protocol", () => {
       "workspace.snapshot",
       "presence.pointer",
       "chat.message",
+      "terminal.input",
       "textbox.operation",
     ]) {
       expect(allowedClientType("viewer", false, type)).toBe(false);
@@ -18,6 +19,7 @@ describe("share protocol", () => {
   test("viewers cannot publish host-owned workspace frames after approval", () => {
     expect(allowedClientType("viewer", true, "workspace.snapshot")).toBe(false);
     expect(allowedClientType("viewer", true, "textbox.operation")).toBe(true);
+    expect(allowedClientType("viewer", true, "terminal.input")).toBe(true);
     expect(allowedClientType("host", true, "workspace.snapshot")).toBe(true);
     expect(allowedClientType("host", true, "terminal.vt")).toBe(true);
     expect(allowedClientType("host", true, "terminal.grid")).toBe(false);

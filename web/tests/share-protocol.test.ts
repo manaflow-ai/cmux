@@ -32,6 +32,31 @@ describe("share workspace scene", () => {
       }],
     })).toBeNull();
   });
+
+  test("rejects ambiguous or out-of-bounds scene membership", () => {
+    expect(normalizeWorkspaceScene({
+      ...baseScene,
+      panes: [{ ...baseScene.panes[0], selectedSurfaceId: "missing" }],
+    })).toBeNull();
+    expect(normalizeWorkspaceScene({
+      ...baseScene,
+      panes: [baseScene.panes[0], { ...baseScene.panes[0] }],
+    })).toBeNull();
+    expect(normalizeWorkspaceScene({
+      ...baseScene,
+      panes: [{
+        ...baseScene.panes[0],
+        frame: { x: 900, y: 0, width: 200, height: 700 },
+      }],
+    })).toBeNull();
+    expect(normalizeWorkspaceScene({
+      ...baseScene,
+      panes: [{
+        ...baseScene.panes[0],
+        frame: { x: Number.NaN, y: 0, width: 1_000, height: 700 },
+      }],
+    })).toBeNull();
+  });
 });
 
 describe("share terminal VT protocol", () => {

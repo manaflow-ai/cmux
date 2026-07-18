@@ -58,6 +58,7 @@ export default async function ShareWorkspacePage({
     send: t("send"),
     participants: t("participants"),
     terminalWaiting: t("terminalWaiting"),
+    terminalInputLabel: t("terminalInputLabel"),
     browserWaiting: t("browserWaiting"),
     unsupportedPanel: t("unsupportedPanel"),
     textBoxLabel: t("textBoxLabel"),

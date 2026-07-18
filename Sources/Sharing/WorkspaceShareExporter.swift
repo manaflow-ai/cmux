@@ -180,6 +180,21 @@ final class WorkspaceShareExporter {
         return .accepted(operation: operation, revision: document.revision)
     }
 
+    func applyRemoteTerminalInput(_ input: WorkspaceShareTerminalInput) -> Bool {
+        guard input.layoutRevision == layoutRevision,
+              let panelID = UUID(uuidString: input.surfaceId),
+              let workspace,
+              let topology = shareTopology(workspace: workspace),
+              topology.containsSelectedSurface(panelID),
+              let panel = workspace.terminalPanel(for: panelID) else { return false }
+        switch input.kind {
+        case .text:
+            return panel.sendText(input.data)
+        case .key:
+            return panel.sendNamedKeyResult(input.data).accepted
+        }
+    }
+
     func textSnapshot(docID: String) -> WorkspaceShareTextSnapshot? {
         guard let panelID = UUID(uuidString: docID),
               let panel = workspace?.terminalPanel(for: panelID),
@@ -367,8 +382,12 @@ final class WorkspaceShareExporter {
             guard snapshot.containerFrame.width > 1, snapshot.containerFrame.height > 1 else { return }
             let point = contentView.convert(event.locationInWindow, from: nil)
             let x = (Double(point.x) - snapshot.containerFrame.x) / snapshot.containerFrame.width
-            let flippedY = Double(contentView.bounds.height - point.y)
-            let y = (flippedY - snapshot.containerFrame.y) / snapshot.containerFrame.height
+            let topDownY = Self.topDownY(
+                pointY: Double(point.y),
+                height: Double(contentView.bounds.height),
+                isFlipped: contentView.isFlipped
+            )
+            let y = (topDownY - snapshot.containerFrame.y) / snapshot.containerFrame.height
             guard (0...1).contains(x), (0...1).contains(y) else { return }
             let targetID = snapshot.panes.first(where: { pane in
                 let localX = snapshot.containerFrame.x + x * snapshot.containerFrame.width
@@ -837,6 +856,10 @@ final class WorkspaceShareExporter {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return String((trimmed.isEmpty ? fallback : trimmed).prefix(160))
     }
+
+    nonisolated static func topDownY(pointY: Double, height: Double, isFlipped: Bool) -> Double {
+        isFlipped ? pointY : height - pointY
+    }
 }
 
 struct WorkspaceShareTopology: Equatable, Sendable {
@@ -930,6 +953,12 @@ struct WorkspaceShareTopology: Equatable, Sendable {
             },
             canvasBounds: bounds
         )
+    }
+
+    func containsSelectedSurface(_ surfaceID: UUID) -> Bool {
+        panes.contains { pane in
+            pane.selectedSurfaceID == surfaceID && pane.surfaceIDs.contains(surfaceID)
+        }
     }
 }
 

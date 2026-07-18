@@ -37,6 +37,7 @@ const HOST_TYPES = new Set([
 const VIEWER_TYPES = new Set([
   "presence.pointer",
   "chat.message",
+  "terminal.input",
   "textbox.operation",
   "textbox.selection",
   "workspace.resync.request",
