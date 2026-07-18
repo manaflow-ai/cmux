@@ -29,6 +29,9 @@ public struct BackendServiceDescriptor: Equatable, Sendable {
     /// The relative path to the backend executable inside the app bundle.
     public let executableRelativePath: String
 
+    /// The exact sibling filename resolved by the backend worker supervisor.
+    public let rendererExecutableName: String
+
     /// The cmux-tui session name passed to the backend process.
     public let sessionName: String
 
@@ -66,6 +69,7 @@ public struct BackendServiceDescriptor: Equatable, Sendable {
         self.serviceLabel = serviceLabel
         self.propertyListName = "\(serviceLabel).plist"
         self.executableRelativePath = "Contents/Resources/bin/cmux-terminal-backend"
+        rendererExecutableName = "cmux-terminal-renderer"
         self.sessionName = sessionName
         self.socketFileName = "\(sessionName).sock"
         self.stateNamespace = sessionName

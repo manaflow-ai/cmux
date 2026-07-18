@@ -10,7 +10,9 @@ actor ControllableReadinessChecker: BackendServiceReadinessChecking {
         self.readiness = readiness
     }
 
-    func checkReadiness() async throws -> BackendServiceReadiness {
+    func checkReadiness(
+        trustedPair _: BackendServiceInstalledPair
+    ) async throws -> BackendServiceReadiness {
         started = true
         for waiter in startedWaiters { waiter.resume() }
         startedWaiters.removeAll()

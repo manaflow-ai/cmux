@@ -22,6 +22,52 @@ struct BackendServiceBootstrapCoordinatorTests {
         #expect(await coordinator.currentState() == .ready(Self.readinessProof))
     }
 
+    @Test("readiness trusts the validated active vN instead of staged vN plus one")
+    func readinessUsesActiveInstalledPair() async throws {
+        let fixture = try Fixture()
+        let active = FakeRegistration.pair(nibble: "a")
+        let prepared = FakeRegistration.pair(nibble: "b")
+        let registration = FakeRegistration(
+            status: .enabled,
+            preparedPair: prepared,
+            activePair: active
+        )
+        let readiness = FakeReadinessChecker()
+        let coordinator = makeCoordinator(
+            fixture: fixture,
+            registration: registration,
+            readiness: readiness
+        )
+
+        #expect(try await coordinator.ensureRegistered() == .ready(Self.readinessProof))
+        #expect(await readiness.trustedPair == active)
+    }
+
+    @Test("missing current bundle cannot block a validated active daemon")
+    func activeDaemonSurvivesMissingBundle() async throws {
+        let fixture = try Fixture(createExecutable: false)
+        let registration = FakeRegistration(status: .enabled, blockPrepare: true)
+        let coordinator = makeCoordinator(fixture: fixture, registration: registration)
+
+        #expect(try await coordinator.ensureRegistered() == .ready(Self.readinessProof))
+        await registration.waitUntilPrepareStarted()
+        #expect(await coordinator.currentState() == .ready(Self.readinessProof))
+        #expect(await registration.registerCount == 0)
+        await registration.releasePrepare()
+    }
+
+    @Test("current bundle staging failure cannot downgrade active readiness")
+    func activeDaemonSurvivesStagingFailure() async throws {
+        let fixture = try Fixture()
+        let registration = FakeRegistration(status: .enabled, failPrepare: true)
+        let coordinator = makeCoordinator(fixture: fixture, registration: registration)
+
+        #expect(try await coordinator.ensureRegistered() == .ready(Self.readinessProof))
+        await registration.waitUntilPrepareStarted()
+        #expect(await coordinator.currentState() == .ready(Self.readinessProof))
+        #expect(await registration.registerCount == 0)
+    }
+
     @Test("missing service is registered exactly once")
     func registerOnce() async throws {
         let fixture = try Fixture()
@@ -81,6 +127,17 @@ struct BackendServiceBootstrapCoordinatorTests {
             return
         }
         #expect(url.lastPathComponent == "cmux-terminal-backend")
+        #expect(await registration.registerCount == 0)
+    }
+
+    @Test("first registration fails closed when mandatory staging fails")
+    func firstRegistrationRequiresStagedPair() async throws {
+        let fixture = try Fixture()
+        let registration = FakeRegistration(status: .notRegistered, failPrepare: true)
+        let coordinator = makeCoordinator(fixture: fixture, registration: registration)
+
+        #expect(try await coordinator.ensureRegistered() == .backendUnavailable)
+        #expect(await coordinator.currentState() == .unavailable(.pairValidationFailed))
         #expect(await registration.registerCount == 0)
     }
 
@@ -230,38 +287,88 @@ struct BackendServiceBootstrapCoordinatorTests {
 
 private actor FakeReadinessChecker: BackendServiceReadinessChecking {
     private(set) var checkCount = 0
+    private(set) var trustedPair: BackendServiceInstalledPair?
 
-    func checkReadiness() -> BackendServiceReadiness {
+    func checkReadiness(
+        trustedPair: BackendServiceInstalledPair
+    ) -> BackendServiceReadiness {
         checkCount += 1
+        self.trustedPair = trustedPair
         return BackendServiceBootstrapCoordinatorTests.readinessProof
     }
 }
 
 private actor FakeRegistration: BackendServiceRegistration {
+    private enum Failure: Error { case preparation }
+
     private var storedStatus: BackendServiceStatus
     private let statusAfterRegister: BackendServiceStatus
     private(set) var registerCount = 0
     private(set) var unregisterCount = 0
     private(set) var openSettingsCount = 0
+    private var preparedPair: BackendServiceInstalledPair
+    private var activePair: BackendServiceInstalledPair?
     private let blockRegister: Bool
+    private let blockPrepare: Bool
+    private let failPrepare: Bool
+    private(set) var prepareCount = 0
+    private var prepareStartedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var prepareReleaseContinuation: CheckedContinuation<Void, Never>?
     private var registerStartedWaiters: [CheckedContinuation<Void, Never>] = []
     private var registerReleaseContinuation: CheckedContinuation<Void, Never>?
 
     init(
         status: BackendServiceStatus,
         statusAfterRegister: BackendServiceStatus? = nil,
-        blockRegister: Bool = false
+        blockRegister: Bool = false,
+        blockPrepare: Bool = false,
+        failPrepare: Bool = false,
+        preparedPair: BackendServiceInstalledPair = FakeRegistration.defaultPair,
+        activePair: BackendServiceInstalledPair? = nil
     ) {
         storedStatus = status
         self.statusAfterRegister = statusAfterRegister ?? status
         self.blockRegister = blockRegister
+        self.blockPrepare = blockPrepare
+        self.failPrepare = failPrepare
+        self.preparedPair = preparedPair
+        self.activePair = activePair ?? (status == .enabled ? Self.defaultPair : nil)
+    }
+
+    func prepareBundledPair() async throws -> BackendServiceInstalledPair {
+        prepareCount += 1
+        for waiter in prepareStartedWaiters { waiter.resume() }
+        prepareStartedWaiters.removeAll()
+        if blockPrepare {
+            await withCheckedContinuation { continuation in
+                prepareReleaseContinuation = continuation
+            }
+        }
+        if failPrepare { throw Failure.preparation }
+        return preparedPair
+    }
+
+    func waitUntilPrepareStarted() async {
+        if prepareCount > 0 { return }
+        await withCheckedContinuation { continuation in
+            prepareStartedWaiters.append(continuation)
+        }
+    }
+
+    func releasePrepare() {
+        prepareReleaseContinuation?.resume()
+        prepareReleaseContinuation = nil
     }
 
     func status() -> BackendServiceStatus {
         storedStatus
     }
 
-    func register() async {
+    func activeInstalledPair() -> BackendServiceInstalledPair? {
+        activePair
+    }
+
+    func register(_ pair: BackendServiceInstalledPair) async {
         registerCount += 1
         for waiter in registerStartedWaiters { waiter.resume() }
         registerStartedWaiters.removeAll()
@@ -271,6 +378,20 @@ private actor FakeRegistration: BackendServiceRegistration {
             }
         }
         storedStatus = statusAfterRegister
+        if statusAfterRegister == .enabled || statusAfterRegister == .notRegistered {
+            activePair = pair
+        }
+    }
+
+    func activateIfServiceStopped(
+        _ pair: BackendServiceInstalledPair
+    ) -> BackendServicePairActivationResult {
+        if let activePair {
+            return .deferred(active: activePair)
+        }
+        self.activePair = pair
+        storedStatus = .enabled
+        return .activated(pair)
     }
 
     func waitUntilRegisterStarted() async {
@@ -288,10 +409,30 @@ private actor FakeRegistration: BackendServiceRegistration {
     func unregister() {
         unregisterCount += 1
         storedStatus = .notRegistered
+        activePair = nil
     }
 
     func openSystemSettingsLoginItems() {
         openSettingsCount += 1
+    }
+
+    private static let defaultPair: BackendServiceInstalledPair = {
+        pair(nibble: "a")
+    }()
+
+    static func pair(nibble: Character) -> BackendServiceInstalledPair {
+        let buildID = String(repeating: String(nibble), count: 64)
+        let directory = URL(
+            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/terminal-backend/test/versions/\(buildID)",
+            isDirectory: true
+        )
+        return BackendServiceInstalledPair(
+            buildID: buildID,
+            installationDirectoryURL: directory,
+            backendExecutableURL: directory.appendingPathComponent("cmux-terminal-backend"),
+            rendererExecutableURL: directory.appendingPathComponent("cmux-terminal-renderer"),
+            manifestURL: directory.appendingPathComponent("pair-manifest.json")
+        )
     }
 }
 
@@ -322,6 +463,24 @@ private struct Fixture {
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o700],
                 ofItemAtPath: executable.path
+            )
+            let renderer = executable.deletingLastPathComponent()
+                .appendingPathComponent(descriptor.rendererExecutableName)
+            try Data("renderer".utf8).write(to: renderer)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: renderer.path
+            )
+            let buildID = String(repeating: "a", count: 64) + "\n"
+            try buildID.write(
+                to: URL(fileURLWithPath: executable.path + ".build-id"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try buildID.write(
+                to: URL(fileURLWithPath: renderer.path + ".build-id"),
+                atomically: true,
+                encoding: .utf8
             )
         }
         inspection = BackendServiceBundleInspection(

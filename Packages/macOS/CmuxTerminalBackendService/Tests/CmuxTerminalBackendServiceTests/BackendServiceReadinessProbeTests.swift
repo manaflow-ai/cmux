@@ -373,7 +373,6 @@ struct BackendServiceReadinessProbeTests {
             timeout: timeout,
             expectedUserID: 501,
             clientProcessID: clientProcessID,
-            trustedExecutableURL: URL(fileURLWithPath: "/Applications/cmux.app/backend"),
             trustVerifier: trustVerifier,
             transportFactory: { transport }
         )
@@ -399,7 +398,6 @@ struct BackendServiceReadinessProbeTests {
             retryPolicy: retryPolicy,
             expectedUserID: 501,
             clientProcessID: clientProcessID,
-            trustedExecutableURL: URL(fileURLWithPath: "/Applications/cmux.app/backend"),
             trustVerifier: trustVerifier,
             transportFactory: transportFactory
         )
@@ -467,6 +465,24 @@ struct BackendServiceReadinessProbeTests {
                     processID: peerProcessID,
                     userID: peerUserID
                 )
+            )
+        )
+    }
+}
+
+private extension BackendServiceReadinessProbe {
+    func checkReadiness() async throws -> BackendServiceReadiness {
+        let directory = URL(
+            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/terminal-backend/test/versions/\(String(repeating: "a", count: 64))",
+            isDirectory: true
+        )
+        return try await checkReadiness(
+            trustedPair: BackendServiceInstalledPair(
+                buildID: String(repeating: "a", count: 64),
+                installationDirectoryURL: directory,
+                backendExecutableURL: directory.appendingPathComponent("cmux-terminal-backend"),
+                rendererExecutableURL: directory.appendingPathComponent("cmux-terminal-renderer"),
+                manifestURL: directory.appendingPathComponent("pair-manifest.json")
             )
         )
     }

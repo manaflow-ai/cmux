@@ -23,5 +23,13 @@ struct BackendServiceRuntimePathsTests {
             paths.stateDirectoryURL.path
                 == "/Users/tester/Library/Application Support/cmux-tui/state"
         )
+        #expect(
+            paths.serviceInstallationRootURL.path
+                == "/Users/tester/Library/Application Support/cmux/terminal-backend/com.cmuxterm.app.debug.renderer-a"
+        )
+        #expect(
+            paths.launchAgentPropertyListURL.path
+                == "/Users/tester/Library/LaunchAgents/com.cmuxterm.app.debug.renderer-a.terminal-backend.plist"
+        )
     }
 }

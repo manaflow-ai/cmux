@@ -9,6 +9,9 @@ public enum BackendServiceUnavailableReason: Equatable, Sendable {
     /// ServiceManagement rejected registration.
     case registrationFailed
 
+    /// The bundled or installed daemon-renderer pair failed integrity validation.
+    case pairValidationFailed
+
     /// ServiceManagement rejected unregistration.
     case unregistrationFailed
 

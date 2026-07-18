@@ -1,6 +1,6 @@
 internal import Darwin
 public import CmuxTerminalBackend
-public import Foundation
+internal import Foundation
 
 /// Performs a bounded identify and lightweight authority handshake over the backend socket.
 public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sendable {
@@ -15,7 +15,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
     private let retryPolicy: BackendServiceReadinessRetryPolicy
     private let expectedUserID: UInt32
     private let clientProcessID: UInt32
-    private let trustVerifier: any BackendPeerTrustVerifying
+    private let trustVerifierOverride: (any BackendPeerTrustVerifying)?
     private let trustVerificationScopeID: UUID
     private let transportFactory: @Sendable () -> any BackendPeerIdentityTransport
 
@@ -32,7 +32,6 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
     ///     `nil` to use the current process's effective user.
     ///   - clientProcessID: The app PID that the backend must differ from, or
     ///     `nil` to use the current process identifier.
-    ///   - trustedExecutableURL: The backend executable embedded in this app bundle.
     ///   - trustVerifier: An injectable live-process code-signing verifier.
     ///   - transportFactory: An injectable credential-bearing transport factory.
     public init(
@@ -43,7 +42,6 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
         retryPolicy: BackendServiceReadinessRetryPolicy = .launchdStartup,
         expectedUserID: UInt32? = nil,
         clientProcessID: UInt32? = nil,
-        trustedExecutableURL: URL,
         trustVerifier: (any BackendPeerTrustVerifying)? = nil,
         transportFactory: (@Sendable () -> any BackendPeerIdentityTransport)? = nil
     ) {
@@ -54,9 +52,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
         self.retryPolicy = retryPolicy
         self.expectedUserID = expectedUserID ?? UInt32(geteuid())
         self.clientProcessID = clientProcessID ?? UInt32(getpid())
-        self.trustVerifier = trustVerifier ?? SystemBackendPeerTrustVerifier(
-            expectedExecutableURL: trustedExecutableURL
-        )
+        trustVerifierOverride = trustVerifier
         trustVerificationScopeID = UUID()
         self.transportFactory = transportFactory ?? {
             UnixBackendTransport(path: runtimePaths.socketURL.path)
@@ -71,7 +67,9 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
     ///
     /// - Returns: Identity, compatibility, and revision evidence from the running daemon.
     /// - Throws: A transport, protocol, identity, or deadline error.
-    public func checkReadiness() async throws -> BackendServiceReadiness {
+    public func checkReadiness(
+        trustedPair: BackendServiceInstalledPair
+    ) async throws -> BackendServiceReadiness {
         let clock = ContinuousClock()
         let absoluteDeadline = clock.now.advanced(by: timeout)
         var retryDelay = retryPolicy.initialDelay
@@ -85,6 +83,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
             do {
                 return try await runAttempt(
                     transport: transportFactory(),
+                    trustedPair: trustedPair,
                     clock: clock,
                     absoluteDeadline: absoluteDeadline
                 )
@@ -110,6 +109,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
 
     private func runAttempt(
         transport: any BackendPeerIdentityTransport,
+        trustedPair: BackendServiceInstalledPair,
         clock: ContinuousClock,
         absoluteDeadline: ContinuousClock.Instant
     ) async throws -> BackendServiceReadiness {
@@ -132,7 +132,10 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
                             processID: clientProcessID
                         )
                     }
-                    let peerTrust = try await verifyPeerTrust(peer)
+                    let peerTrust = try await verifyPeerTrust(
+                        peer,
+                        trustedPair: trustedPair
+                    )
                     let identify = try await client.identify()
                     let compatibility = try policy.validate(identify)
                     guard identify.processID == peer.processID else {
@@ -255,12 +258,16 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
     /// bounded trust executor. Cancelling this wait ends the probe at its
     /// deadline even if an operating-system call has not returned yet.
     private func verifyPeerTrust(
-        _ identity: BackendPeerIdentity
+        _ identity: BackendPeerIdentity,
+        trustedPair: BackendServiceInstalledPair
     ) async throws -> BackendPeerTrustEvidence {
-        try await BackendPeerTrustVerificationBroker.shared.verify(
+        let verifier = trustVerifierOverride ?? SystemBackendPeerTrustVerifier(
+            expectedExecutableURL: trustedPair.backendExecutableURL
+        )
+        return try await BackendPeerTrustVerificationBroker.shared.verify(
             scopeID: trustVerificationScopeID,
             identity: identity,
-            using: trustVerifier
+            using: verifier
         )
     }
 }

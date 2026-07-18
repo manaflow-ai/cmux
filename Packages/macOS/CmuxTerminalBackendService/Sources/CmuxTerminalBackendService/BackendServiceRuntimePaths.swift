@@ -8,6 +8,12 @@ public struct BackendServiceRuntimePaths: Equatable, Sendable {
     /// The persistent cmux-tui state directory for the current macOS user.
     public let stateDirectoryURL: URL
 
+    /// Private root containing immutable backend and renderer versions.
+    public let serviceInstallationRootURL: URL
+
+    /// Per-user launch-agent descriptor installed for this app identity.
+    public let launchAgentPropertyListURL: URL
+
     /// Derives environment-independent macOS paths for one app identity.
     ///
     /// The socket root matches cmux-tui's short Darwin runtime layout. The
@@ -30,5 +36,13 @@ public struct BackendServiceRuntimePaths: Equatable, Sendable {
             .appendingPathComponent("Library/Application Support", isDirectory: true)
             .appendingPathComponent("cmux-tui", isDirectory: true)
             .appendingPathComponent("state", isDirectory: true)
+        serviceInstallationRootURL = homeDirectoryURL
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("terminal-backend", isDirectory: true)
+            .appendingPathComponent(descriptor.bundleIdentifier, isDirectory: true)
+        launchAgentPropertyListURL = homeDirectoryURL
+            .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+            .appendingPathComponent(descriptor.propertyListName, isDirectory: false)
     }
 }

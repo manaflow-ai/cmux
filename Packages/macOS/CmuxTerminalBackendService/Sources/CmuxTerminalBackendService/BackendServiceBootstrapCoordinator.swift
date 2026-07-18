@@ -15,6 +15,7 @@ public actor BackendServiceBootstrapCoordinator {
     private var currentOperationID = UUID()
     private var ensureOperationID: UUID?
     private var ensureTask: Task<BackendServiceBootstrapResult, any Error>?
+    private var bestEffortStagingTask: Task<Void, Never>?
     private var unregistering = false
 
     /// Creates a testable backend bootstrap coordinator.
@@ -89,16 +90,15 @@ public actor BackendServiceBootstrapCoordinator {
         }
 
         try publish(.checking, operationID: operationID)
-        if let missing = inspection.firstMissingItem() {
-            try publish(.unavailable(.missingBundleItem(missing)), operationID: operationID)
-            return .missingBundleItem(missing)
-        }
-
-        let initialStatus = await registration.status()
+        let initialStatus = try await registration.status()
         try requireCurrent(operationID)
         switch initialStatus {
         case .enabled:
-            return try await verifyReadiness(operationID: operationID)
+            let result = try await verifyReadinessForActivePair(operationID: operationID)
+            if case .ready = result {
+                beginBestEffortCurrentBundleStaging()
+            }
+            return result
         case .requiresApproval:
             try publish(.requiresApproval, operationID: operationID)
             return .requiresApproval
@@ -106,19 +106,32 @@ public actor BackendServiceBootstrapCoordinator {
             try publish(.unavailable(.serviceNotFound), operationID: operationID)
             return .serviceNotFound
         case .notRegistered:
+            if let missing = inspection.firstMissingItem() {
+                try publish(.unavailable(.missingBundleItem(missing)), operationID: operationID)
+                return .missingBundleItem(missing)
+            }
+
+            let preparedPair: BackendServiceInstalledPair
             do {
-                try await registration.register()
+                preparedPair = try await registration.prepareBundledPair()
+            } catch {
+                try requireCurrent(operationID)
+                try publish(.unavailable(.pairValidationFailed), operationID: operationID)
+                return .backendUnavailable
+            }
+            do {
+                try await registration.register(preparedPair)
             } catch {
                 try requireCurrent(operationID)
                 try publish(.unavailable(.registrationFailed), operationID: operationID)
                 throw error
             }
             try requireCurrent(operationID)
-            let registeredStatus = await registration.status()
+            let registeredStatus = try await registration.status()
             try requireCurrent(operationID)
             switch registeredStatus {
             case .enabled:
-                return try await verifyReadiness(operationID: operationID)
+                return try await verifyReadinessForActivePair(operationID: operationID)
             case .requiresApproval:
                 try publish(.requiresApproval, operationID: operationID)
                 return .requiresApproval
@@ -128,7 +141,10 @@ public actor BackendServiceBootstrapCoordinator {
             case .notRegistered:
                 // Status propagation can lag registration. Probe the socket
                 // instead of treating launch eligibility as protocol health.
-                return try await verifyReadiness(operationID: operationID)
+                return try await verifyReadiness(
+                    trustedPair: preparedPair,
+                    operationID: operationID
+                )
             }
         }
     }
@@ -150,7 +166,7 @@ public actor BackendServiceBootstrapCoordinator {
         let operationID = UUID()
         currentOperationID = operationID
 
-        let status = await registration.status()
+        let status = try await registration.status()
         guard currentOperationID == operationID else { throw CancellationError() }
         switch status {
         case .notRegistered:
@@ -196,12 +212,35 @@ public actor BackendServiceBootstrapCoordinator {
         continuations.removeValue(forKey: identifier)
     }
 
+    private func verifyReadinessForActivePair(
+        operationID: UUID
+    ) async throws -> BackendServiceBootstrapResult {
+        do {
+            guard let activePair = try await registration.activeInstalledPair() else {
+                try publish(.unavailable(.pairValidationFailed), operationID: operationID)
+                return .backendUnavailable
+            }
+            return try await verifyReadiness(
+                trustedPair: activePair,
+                operationID: operationID
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            try publish(.unavailable(.pairValidationFailed), operationID: operationID)
+            return .backendUnavailable
+        }
+    }
+
     private func verifyReadiness(
+        trustedPair: BackendServiceInstalledPair,
         operationID: UUID
     ) async throws -> BackendServiceBootstrapResult {
         try publish(.launching, operationID: operationID)
         do {
-            let readiness = try await readinessChecker.checkReadiness()
+            let readiness = try await readinessChecker.checkReadiness(
+                trustedPair: trustedPair
+            )
             try publish(.ready(readiness), operationID: operationID)
             return .ready(readiness)
         } catch is CancellationError {
@@ -221,5 +260,19 @@ public actor BackendServiceBootstrapCoordinator {
         guard ensureOperationID == operationID else { return }
         ensureTask = nil
         ensureOperationID = nil
+    }
+
+    private func beginBestEffortCurrentBundleStaging() {
+        guard bestEffortStagingTask == nil else { return }
+        let registration = registration
+        let task = Task { [weak self] in
+            _ = try? await registration.prepareBundledPair()
+            await self?.clearBestEffortStagingTask()
+        }
+        bestEffortStagingTask = task
+    }
+
+    private func clearBestEffortStagingTask() {
+        bestEffortStagingTask = nil
     }
 }

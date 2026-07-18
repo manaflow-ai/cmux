@@ -4,5 +4,7 @@ public protocol BackendServiceReadinessChecking: Sendable {
     ///
     /// - Returns: A proof tied to the running daemon and topology snapshot.
     /// - Throws: A transport, protocol, identity, or deadline error.
-    func checkReadiness() async throws -> BackendServiceReadiness
+    func checkReadiness(
+        trustedPair: BackendServiceInstalledPair
+    ) async throws -> BackendServiceReadiness
 }

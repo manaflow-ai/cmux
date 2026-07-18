@@ -1,4 +1,5 @@
 public import Foundation
+internal import Darwin
 
 /// Validates the launch-agent files embedded in an app bundle before registration.
 public struct BackendServiceBundleInspection: Sendable {
@@ -33,6 +34,22 @@ public struct BackendServiceBundleInspection: Sendable {
         bundleURL.appendingPathComponent(descriptor.executableRelativePath, isDirectory: false)
     }
 
+    /// The renderer that must remain an exact sibling of the installed backend.
+    public var rendererExecutableURL: URL {
+        executableURL.deletingLastPathComponent()
+            .appendingPathComponent(descriptor.rendererExecutableName, isDirectory: false)
+    }
+
+    /// The backend's packaged build-ID sidecar.
+    public var backendBuildIDURL: URL {
+        URL(fileURLWithPath: executableURL.path + ".build-id", isDirectory: false)
+    }
+
+    /// The renderer's packaged build-ID sidecar.
+    public var rendererBuildIDURL: URL {
+        URL(fileURLWithPath: rendererExecutableURL.path + ".build-id", isDirectory: false)
+    }
+
     /// Returns the first unusable required item, or `nil` when the bundle is ready.
     ///
     /// - Returns: The first missing item in registration order.
@@ -44,6 +61,36 @@ public struct BackendServiceBundleInspection: Sendable {
         guard fileManager.isExecutableFile(atPath: executableURL.path) else {
             return .executable(executableURL)
         }
+        guard isSafeRegularFile(executableURL, requireExecutable: true) else {
+            return .invalidArtifact(executableURL)
+        }
+        guard fileManager.isExecutableFile(atPath: rendererExecutableURL.path) else {
+            return .rendererExecutable(rendererExecutableURL)
+        }
+        guard isSafeRegularFile(rendererExecutableURL, requireExecutable: true) else {
+            return .invalidArtifact(rendererExecutableURL)
+        }
+        guard fileManager.isReadableFile(atPath: backendBuildIDURL.path) else {
+            return .backendBuildID(backendBuildIDURL)
+        }
+        guard isSafeRegularFile(backendBuildIDURL, requireExecutable: false) else {
+            return .invalidArtifact(backendBuildIDURL)
+        }
+        guard fileManager.isReadableFile(atPath: rendererBuildIDURL.path) else {
+            return .rendererBuildID(rendererBuildIDURL)
+        }
+        guard isSafeRegularFile(rendererBuildIDURL, requireExecutable: false) else {
+            return .invalidArtifact(rendererBuildIDURL)
+        }
         return nil
+    }
+
+    private func isSafeRegularFile(_ url: URL, requireExecutable: Bool) -> Bool {
+        var status = stat()
+        guard lstat(url.path, &status) == 0,
+              status.st_mode & S_IFMT == S_IFREG,
+              status.st_mode & (S_IWGRP | S_IWOTH) == 0
+        else { return false }
+        return !requireExecutable || status.st_mode & S_IXUSR != 0
     }
 }

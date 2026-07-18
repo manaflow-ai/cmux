@@ -14,6 +14,7 @@ struct BackendServiceDescriptorTests {
         #expect(descriptor.sessionName == "cmux")
         #expect(descriptor.socketFileName == "cmux.sock")
         #expect(descriptor.stateNamespace == "cmux")
+        #expect(descriptor.rendererExecutableName == "cmux-terminal-renderer")
         #expect(
             descriptor.terminalClientUUID.uuidString.lowercased()
                 == "73149cb2-e047-5bbb-a769-3658299fdf10"
