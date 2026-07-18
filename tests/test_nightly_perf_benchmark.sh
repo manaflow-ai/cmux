@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/nightly-perf-benchmark.yml"
 RUNNER="$ROOT_DIR/scripts/ci/benchmark-nightly-build.sh"
+NIGHTLY="$ROOT_DIR/.github/workflows/nightly.yml"
 
 if [ ! -f "$WORKFLOW" ] || [ ! -x "$RUNNER" ]; then
   echo "FAIL: nightly performance benchmark workflow and executable runner are required" >&2
@@ -42,6 +43,18 @@ for requirement in \
   'smoke-launch-macos-app.sh'; do
   if ! grep -Fq "$requirement" "$RUNNER"; then
     echo "FAIL: benchmark runner missing safety or measurement check: $requirement" >&2
+    exit 1
+  fi
+done
+
+for requirement in \
+  'notarization_mode:' \
+  'DMG_ONLY_EXPERIMENT' \
+  'DMG-only notarization experiment is forbidden on main' \
+  'if [ "$DMG_ONLY_EXPERIMENT" != "true" ]' \
+  'xcrun stapler staple "$app_path"'; do
+  if ! grep -Fq "$requirement" "$NIGHTLY"; then
+    echo "FAIL: nightly DMG-only notarization experiment missing safety check: $requirement" >&2
     exit 1
   fi
 done
