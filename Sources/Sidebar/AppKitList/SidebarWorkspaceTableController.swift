@@ -338,6 +338,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func workspaceDragSessionDidBegin() {
+        // A drag consumes the press: the click action never fires, so no
+        // authoritative selection apply will reconcile the optimistic press
+        // highlight painted in previewSelection — without this rollback a
+        // fast drag leaves the grabbed row painted selected and every other
+        // visible row peeled. Drop the queued selection and restore visible
+        // cells from their stored models before drop targets paint.
+        selectionCoalescer.cancel()
+        if let table = containerView?.tableView {
+            let visible = table.rows(in: table.visibleRect)
+            if visible.length > 0 {
+                reconfigureVisibleRows(
+                    IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
+                )
+            }
+        }
         if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
             positionAppKitDropIndicator()
         }

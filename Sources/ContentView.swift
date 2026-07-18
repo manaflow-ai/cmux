@@ -11108,6 +11108,46 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             }
         }
+        // Workspace publisher observations and the snapshot refresh feed BOTH
+        // list implementations, so they live on the shared parent. They
+        // previously hung off the legacy subtree only, which the AppKit flag
+        // unmounts — leaving workspaceSnapshotsById permanently empty, so
+        // renames, colors, pins, and descriptions never invalidated the
+        // sidebar and only painted when an unrelated change rebuilt the rows.
+        .sidebarProcessTitleObservations(
+            ids: renderContext.workspaceIds,
+            models: renderContext.tabs.map(\.sidebarProcessTitleObservation)
+        ) { workspaceId in
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+        }
+        .sidebarAgentRuntimeObservations(
+            ids: renderContext.workspaceIds,
+            models: renderContext.tabs.map(\.sidebarAgentRuntimeObservation)
+        ) { workspaceId in
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+        }
+        .sidebarWorkspaceObservations(
+            ids: renderContext.workspaceIds,
+            workspaces: renderContext.tabs,
+            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
+        ) { workspaceId in
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+        }
+        .onAppear {
+            refreshWorkspaceSnapshots()
+        }
+        .onChange(of: renderContext.workspaceIds) { _, _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onChange(of: renderContext.tabItemSettings) { _, _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onChange(of: renderContext.showsAgentActivity) { _, _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onDisappear {
+            workspaceSnapshotRefreshCoalescer.cancel()
+        }
     }
 
     private func legacyWorkspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -11236,40 +11276,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 }
             }
         }
-        }
-        .sidebarProcessTitleObservations(
-            ids: renderContext.workspaceIds,
-            models: renderContext.tabs.map(\.sidebarProcessTitleObservation)
-        ) { workspaceId in
-            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
-        }
-        .sidebarAgentRuntimeObservations(
-            ids: renderContext.workspaceIds,
-            models: renderContext.tabs.map(\.sidebarAgentRuntimeObservation)
-        ) { workspaceId in
-            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
-        }
-        .sidebarWorkspaceObservations(
-            ids: renderContext.workspaceIds,
-            workspaces: renderContext.tabs,
-            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
-        ) { workspaceId in
-            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
-        }
-        .onAppear {
-            refreshWorkspaceSnapshots()
-        }
-        .onChange(of: renderContext.workspaceIds) { _, _ in
-            refreshWorkspaceSnapshots()
-        }
-        .onChange(of: renderContext.tabItemSettings) { _, _ in
-            refreshWorkspaceSnapshots()
-        }
-        .onChange(of: renderContext.showsAgentActivity) { _, _ in
-            refreshWorkspaceSnapshots()
-        }
-        .onDisappear {
-            workspaceSnapshotRefreshCoalescer.cancel()
         }
     }
 
