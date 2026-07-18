@@ -882,6 +882,52 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(lineage.parentRunId == nil)
     }
 
+    @Test func nestedCustomAgentCannotClaimRootRestoreAuthority() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-custom-agent-ancestry-\(UUID().uuidString)", isDirectory: true)
+        let customAgent = root.appendingPathComponent("local-agent")
+        let pidFile = root.appendingPathComponent("child-pid")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/bin/sh", toPath: customAgent.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let parent = Process()
+        parent.executableURL = customAgent
+        parent.arguments = [
+            "-c",
+            "\(customAgent.path) -c 'sleep 30 & wait' & echo $! > \(pidFile.path); wait",
+        ]
+        try parent.run()
+        defer {
+            if parent.isRunning { parent.terminate() }
+            parent.waitUntilExit()
+        }
+
+        let deadline = Date().addingTimeInterval(2)
+        var childPID: Int?
+        repeat {
+            if let contents = try? String(contentsOf: pidFile, encoding: .utf8) {
+                childPID = Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            if childPID != nil { break }
+            usleep(10_000)
+        } while Date() < deadline
+        let resolvedChildPID = try #require(childPID)
+        defer { kill(pid_t(resolvedChildPID), SIGTERM) }
+
+        let lineage = AgentHookSessionLineageResolver().resolve(
+            agentName: "local-agent",
+            sessionId: "nested-custom-session",
+            pid: resolvedChildPID,
+            environment: [:]
+        )
+
+        #expect(lineage.processDescribesAgent)
+        #expect(lineage.processLaunchMode == .unknown)
+        #expect(!lineage.restoreAuthority)
+        #expect(lineage.relationship == .spawned)
+    }
+
     private func installProtectedLifecycleAuthority(
         root: URL,
         runtimeID: String,
