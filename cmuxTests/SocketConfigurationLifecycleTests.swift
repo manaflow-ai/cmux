@@ -349,7 +349,7 @@ extension SocketACLReloadRegressionTests {
                 accessMode: .cmuxOnly,
                 preferredSocketPath: socketPath
             ),
-            preferredTabManager: tabManager,
+            routingFallbackTabManager: tabManager,
             source: "test.headless_attach"
         )
 

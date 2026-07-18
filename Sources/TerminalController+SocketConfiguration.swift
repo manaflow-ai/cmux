@@ -34,11 +34,14 @@ extension TerminalController {
     /// until normal window registration supplies their routing target.
     func reconcileSocketConfiguration(
         _ configuration: SocketControlServerConfiguration,
-        preferredTabManager: TabManager? = nil,
+        routingFallbackTabManager: TabManager? = nil,
         source: String
     ) {
-        if let preferredTabManager {
-            self.tabManager = preferredTabManager
+        // Listener configuration is transport state, not focus intent. A window
+        // registered in the background may seed routing only when no active
+        // manager exists; afterward key-window and explicit-focus paths own it.
+        if tabManager == nil, let routingFallbackTabManager {
+            tabManager = routingFallbackTabManager
         }
         let previousMode = socketServer.accessMode
         let wasRunning = socketServer.isRunning
@@ -54,7 +57,7 @@ extension TerminalController {
             startSocketTransport(
                 configuration,
                 socketPath: configuration.preferredSocketPath,
-                preferredTabManager: preferredTabManager
+                routingFallbackTabManager: routingFallbackTabManager
             )
         } else if wasRunning {
             let reconfigured = socketServer.reconfigure(accessMode: configuration.accessMode)
@@ -62,14 +65,14 @@ extension TerminalController {
                 startSocketTransport(
                     configuration,
                     socketPath: configuration.preferredSocketPath,
-                    preferredTabManager: preferredTabManager
+                    routingFallbackTabManager: routingFallbackTabManager
                 )
             }
         } else {
             startSocketTransport(
                 configuration,
                 socketPath: activeSocketPath(preferredPath: configuration.preferredSocketPath),
-                preferredTabManager: preferredTabManager
+                routingFallbackTabManager: routingFallbackTabManager
             )
         }
 
@@ -91,10 +94,10 @@ extension TerminalController {
     func startSocketTransport(
         _ configuration: SocketControlServerConfiguration,
         socketPath: String,
-        preferredTabManager: TabManager? = nil,
+        routingFallbackTabManager: TabManager? = nil,
         preserveAcceptFailureStreak: Bool = false
     ) {
-        if let manager = preferredTabManager ?? tabManager {
+        if let manager = tabManager ?? routingFallbackTabManager {
             start(
                 tabManager: manager,
                 socketPath: socketPath,

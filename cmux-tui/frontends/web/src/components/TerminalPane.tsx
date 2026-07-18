@@ -1,10 +1,11 @@
 import { useCallback, useReducer, useRef, useState } from "react";
-import type { CmuxClient, Id, LivePane, Tab } from "cmux/browser";
+import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/browser";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
 import { layoutToViewModel } from "../lib/layout";
 import type { ScreenView } from "../lib/tree";
 import { contextMenuReducer } from "../lib/contextMenu";
+import { clientSizingMenuItems, paneClientSummary } from "../lib/clientSizing";
 import { renameCanCommit, renameReducer } from "../lib/rename";
 import { splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../lib/splitDrag";
 import { useContextTrigger } from "../hooks/useContextTrigger";
@@ -15,7 +16,13 @@ import { RenderTerminal } from "./RenderTerminal";
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
+  clients: ClientInfo[];
   screen: ScreenView | null;
+  onRefreshClients(): void;
+  onSetClientSizing(client: Id, enabled: boolean): void;
+  onUseOnlyClientSizing(client: Id): void;
+  onUseAllClientSizing(): void;
+  onDetachClient(client: Id): void;
   onSelectTab(pane: Id, index: number, surface: Id): void;
   onNewTab(pane: Id): void;
   onSplit(pane: Id, dir: "right" | "down"): void;
@@ -93,6 +100,7 @@ interface PaneLeafProps extends Omit<TerminalPaneProps, "screen" | "onSetRatio">
 
 function PaneLeaf({
   client,
+  clients,
   pane,
   paneId,
   active,
@@ -106,10 +114,19 @@ function PaneLeaf({
   onCloseSurface,
   onRenamePane,
   onRenameSurface,
+  onRefreshClients,
+  onSetClientSizing,
+  onUseOnlyClientSizing,
+  onUseAllClientSizing,
+  onDetachClient,
 }: PaneLeafProps) {
   const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
+  const [clientMenu, dispatchClientMenu] = useReducer(contextMenuReducer, { open: false });
   const [rename, dispatchRename] = useReducer(renameReducer, null);
-  const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
+  const trigger = useContextTrigger((point) => {
+    dispatchMenu({ type: "open", point });
+    onRefreshClients();
+  });
   const { onPointerDown: startLongPress, ...contextTrigger } = trigger;
   const [errorState, setErrorState] = useState<{
     client: CmuxClient | null;
@@ -118,6 +135,13 @@ function PaneLeaf({
   } | null>(null);
   const tab = pane?.tabs[pane.active_tab] ?? null;
   const surface = tab?.kind === "pty" && !tab.dead ? tab.surface : null;
+  const clientSummary = paneClientSummary(clients, surface);
+  const clientItems = clientSummary ? clientSizingMenuItems(clientSummary, {
+    setParticipation: onSetClientSizing,
+    useOnly: onUseOnlyClientSizing,
+    useAll: onUseAllClientSizing,
+    detach: onDetachClient,
+  }) : [];
   const reportError = useCallback(
     (error: Error) => setErrorState({ client, surface, message: error.message }),
     [client, surface],
@@ -196,11 +220,33 @@ function PaneLeaf({
         </div>
         <span className="pane-side" aria-hidden="true" />
       </div>
-      <div className="pane-bottom" aria-hidden="true">
-        <span className="pane-corner">└</span>
+      <div className="pane-bottom">
+        <span className="pane-corner" aria-hidden="true">└</span>
+        {clientSummary && (
+          <button
+            aria-expanded={clientMenu.open}
+            aria-haspopup="menu"
+            className="pane-clients-trigger"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              dispatchClientMenu({ type: "open", point: { x: rect.left, y: rect.bottom } });
+              onRefreshClients();
+            }}
+            type="button"
+          >
+            {clientSummary.label}
+          </button>
+        )}
         <span className="pane-rule" />
-        <span className="pane-corner">┘</span>
+        <span className="pane-corner" aria-hidden="true">┘</span>
       </div>
+      {clientMenu.open && clientSummary && (
+        <ContextMenu
+          point={clientMenu.point}
+          onClose={() => dispatchClientMenu({ type: "close" })}
+          items={clientItems}
+        />
+      )}
       {menu.open && (
         <ContextMenu
           point={menu.point}
@@ -213,6 +259,7 @@ function PaneLeaf({
               onSelect: () => dispatchRename({ type: "begin", target: { kind: "pane", id: paneId, value: pane?.name || "" } }),
             },
             { label: zoomed ? t("restorePane") : t("zoomPane"), onSelect: () => onZoomPane(paneId) },
+            ...(clientSummary ? [{ label: clientSummary.label, children: clientItems }] : []),
             { label: t("closePane"), danger: true, onSelect: () => onClosePane(paneId) },
           ]}
         />
