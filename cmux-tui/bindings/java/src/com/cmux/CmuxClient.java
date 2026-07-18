@@ -194,6 +194,7 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public void setSplitRatio(long split, double ratio) throws CmuxException {
+        requireProtocol(7, "set-split-ratio");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("split", split);
         params.put("ratio", ratio);

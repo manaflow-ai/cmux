@@ -1657,7 +1657,10 @@ impl OrderedSession {
     }
 
     pub fn new_pane(&self, pane: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_routing("create pane", move |session| session.new_pane(pane, size));
+        self.enqueue_with_completion("create pane", true, move |session| {
+            let surface = session.new_pane(pane, size)?;
+            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
+        });
         Ok(())
     }
 

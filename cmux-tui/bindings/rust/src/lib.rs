@@ -454,6 +454,7 @@ impl CmuxClient {
     }
 
     pub fn set_split_ratio(&mut self, split: u64, ratio: f32) -> Result<()> {
+        self.require_protocol(7, "set-split-ratio")?;
         let mut params = Map::new();
         params.insert("split".to_string(), Value::from(split));
         params.insert("ratio".to_string(), Value::from(ratio));

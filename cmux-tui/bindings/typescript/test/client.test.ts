@@ -172,6 +172,21 @@ test("newPane rejects servers older than protocol 8", async () => {
   await client.close();
 });
 
+test("setSplitRatio rejects servers older than protocol 7", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.equal(request.cmd, "identify");
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+    });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(client.setSplitRatio(1, 0.5), /set-split-ratio requires protocol 7/);
+  await client.close();
+});
+
 test("attachSurface decodes VT colors, output, and resized payloads", async () => {
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");
@@ -468,14 +483,22 @@ test("generic request preserves exact wire command and typed result", async () =
 test("setSplitRatio sends the stable split id", async () => {
   let sent: Record<string, unknown> | undefined;
   const transport = new ScriptedTransport((request, connection) => {
-    sent = request;
-    connection.emit({ id: request.id, ok: true, data: {} });
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 8, session: "main", pid: 1 },
+      });
+    } else {
+      sent = request;
+      connection.emit({ id: request.id, ok: true, data: {} });
+    }
   });
   const client = new CmuxClient({ transport });
 
   await client.setSplitRatio(42, 0.65);
 
-  assert.deepEqual(sent, { id: 1, cmd: "set-split-ratio", split: 42, ratio: 0.65 });
+  assert.deepEqual(sent, { id: 2, cmd: "set-split-ratio", split: 42, ratio: 0.65 });
   await client.close();
 });
 

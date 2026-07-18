@@ -442,6 +442,7 @@ class CmuxClient:
         return EmptyResult()
 
     def set_split_ratio(self, split: int, ratio: float) -> EmptyResult:
+        self._require_protocol(7, "set-split-ratio")
         self._request("set-split-ratio", split=split, ratio=ratio)
         return EmptyResult()
 

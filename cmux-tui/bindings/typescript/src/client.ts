@@ -454,7 +454,8 @@ export class CmuxClient {
   setRatio(pane: Id, dir: SplitDirection, ratio: number): Promise<EmptyResult> {
     return this.request("set-ratio", { pane, dir, ratio });
   }
-  setSplitRatio(split: Id, ratio: number): Promise<EmptyResult> {
+  async setSplitRatio(split: Id, ratio: number): Promise<EmptyResult> {
+    await this.requireProtocol(7, "set-split-ratio");
     return this.request("set-split-ratio", { split, ratio });
   }
   paneNeighbor(pane: Id, dir: PaneDirection): Promise<PaneNeighborResult> {

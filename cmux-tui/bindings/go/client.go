@@ -299,6 +299,9 @@ func (c *Client) SetRatio(ctx context.Context, pane uint64, dir string, ratio fl
 }
 
 func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32) error {
+	if err := c.requireProtocol(ctx, 7, "set-split-ratio"); err != nil {
+		return err
+	}
 	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
 }
 

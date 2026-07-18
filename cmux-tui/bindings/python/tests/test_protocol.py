@@ -31,6 +31,13 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "new-pane requires protocol 8"):
             client.new_pane(1)
 
+    def test_set_split_ratio_rejects_servers_older_than_protocol_seven(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 6
+
+        with self.assertRaisesRegex(ProtocolError, "set-split-ratio requires protocol 7"):
+            client.set_split_ratio(1, 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()
