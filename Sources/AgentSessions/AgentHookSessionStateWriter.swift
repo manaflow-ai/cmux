@@ -3,6 +3,36 @@ import CmuxControlSocket
 import CmuxSettings
 import Darwin
 import Foundation
+import os
+
+/// Process-wide access to the package listener's lock-backed read mirror.
+/// The server is installed once by TerminalController and exposes only
+/// nonisolated snapshot reads here, so hook writes never hop to the main actor.
+enum AgentHookRuntimeSocketState {
+    private nonisolated static let socketServer = OSAllocatedUnfairLock<SocketControlServer?>(
+        initialState: nil
+    )
+
+    @MainActor
+    static func install(socketServer: SocketControlServer) {
+        self.socketServer.withLock { $0 = socketServer }
+    }
+
+    nonisolated static func resolve(
+        preferredPath: String
+    ) -> (activePath: String, pathOwnedByCurrentListener: Bool) {
+        guard let server = socketServer.withLock({ $0 }) else {
+            return (preferredPath, false)
+        }
+        let activePath = server.activeSocketPath(preferredPath: preferredPath)
+        return (
+            activePath,
+            server.listenerHealth(
+                expectedSocketPath: activePath
+            ).socketPathOwnedByListener
+        )
+    }
+}
 
 /// Completes a hook-store session after cmux observes the root TUI return to its
 /// shell prompt. Work runs on a utility-priority task and uses the same sidecar lock as
@@ -198,28 +228,33 @@ struct AgentHookSessionStateWriter: Sendable {
     typealias CurrentSocketStateResolver = @Sendable (
         _ preferredPath: String
     ) -> (activePath: String, pathOwnedByCurrentListener: Bool)
+    typealias ProcessIdentityResolver = @Sendable (pid_t) -> AgentPIDProcessIdentity?
     private let homeDirectory: String
     private let environment: [String: String]
     private let currentSocketStateResolver: CurrentSocketStateResolver
+    private let processIdentityResolver: ProcessIdentityResolver
 
     init(
         homeDirectory: String = NSHomeDirectory(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        currentSocketStateResolver: @escaping CurrentSocketStateResolver = { preferredPath in
-            let activePath = TerminalController.shared.activeSocketPath(
-                preferredPath: preferredPath
-            )
-            return (
-                activePath,
-                TerminalController.shared.socketListenerHealth(
-                    expectedSocketPath: activePath
-                ).socketPathOwnedByListener
-            )
-        }
+        currentSocketStateResolver: CurrentSocketStateResolver? = nil,
+        processIdentityResolver: @escaping ProcessIdentityResolver = { AgentPIDProcessIdentity(pid: $0) }
     ) {
         self.homeDirectory = homeDirectory
         self.environment = environment
-        self.currentSocketStateResolver = currentSocketStateResolver
+        self.currentSocketStateResolver = currentSocketStateResolver ?? {
+            AgentHookRuntimeSocketState.resolve(preferredPath: $0)
+        }
+        self.processIdentityResolver = processIdentityResolver
+    }
+
+    private static func productionWriter() -> AgentHookSessionStateWriter {
+        var environment = ProcessInfo.processInfo.environment
+        if environment["CMUX_BUNDLE_ID"] == nil,
+           let bundleIdentifier = Bundle.main.bundleIdentifier {
+            environment["CMUX_BUNDLE_ID"] = bundleIdentifier
+        }
+        return AgentHookSessionStateWriter(environment: environment)
     }
 
     static func rootExitCandidate(
@@ -239,7 +274,7 @@ struct AgentHookSessionStateWriter: Sendable {
         guard let kindValue = binding?.kind,
               let kind = RestorableAgentKind(rawValue: kindValue),
               let sessionId = binding?.checkpointId else { return }
-        AgentHookSessionStateWriter().schedule(
+        productionWriter().schedule(
             kind: kind,
             sessionId: sessionId,
             expectedRecordUpdatedAt: binding?.updatedAt
@@ -251,7 +286,7 @@ struct AgentHookSessionStateWriter: Sendable {
         state: AgentSessionLifecycleState
     ) {
         guard let agent else { return }
-        AgentHookSessionStateWriter().scheduleLifecycle(
+        productionWriter().scheduleLifecycle(
             kind: agent.kind,
             sessionId: agent.sessionId,
             state: state
@@ -290,7 +325,7 @@ struct AgentHookSessionStateWriter: Sendable {
         _ requests: [RestoredHibernationAdoptionRequest],
         now: TimeInterval = Date().timeIntervalSince1970
     ) -> [UUID: RestoredHibernationAdoptionOutcome] {
-        AgentHookSessionStateWriter().recordRestoredHibernationOutcomesSynchronously(
+        productionWriter().recordRestoredHibernationOutcomesSynchronously(
             requests,
             now: now
         )
@@ -307,7 +342,7 @@ struct AgentHookSessionStateWriter: Sendable {
         legacyReadLockWaitWillBegin: @escaping @Sendable () -> Void = {}
     ) async -> [UUID: RestoredHibernationAdoptionOutcome] {
         guard !requests.isEmpty else { return [:] }
-        let writer = AgentHookSessionStateWriter()
+        let writer = productionWriter()
         let cancellationSignal = LegacyLockCancellationSignal()
         let operation = Task.detached(priority: .utility) {
             writer.recordRestoredHibernationOutcomesSynchronously(
@@ -337,7 +372,7 @@ struct AgentHookSessionStateWriter: Sendable {
         now: TimeInterval = Date().timeIntervalSince1970
     ) async {
         guard !requests.isEmpty else { return }
-        let writer = AgentHookSessionStateWriter()
+        let writer = productionWriter()
         await Task.detached(priority: .utility) {
             writer.releaseCanceledRestoredHibernationsSynchronously(
                 requests,
@@ -372,7 +407,7 @@ struct AgentHookSessionStateWriter: Sendable {
         _ requests: [HibernatedResumeAuthorityRequest],
         now: TimeInterval = Date().timeIntervalSince1970
     ) -> [UUID: HibernatedResumeAuthorityOutcome] {
-        AgentHookSessionStateWriter().acquireHibernatedResumeAuthoritiesSynchronously(
+        productionWriter().acquireHibernatedResumeAuthoritiesSynchronously(
             requests,
             now: now
         )
@@ -386,7 +421,7 @@ struct AgentHookSessionStateWriter: Sendable {
         surfaceId: UUID,
         now: TimeInterval = Date().timeIntervalSince1970
     ) -> HibernatedResumeAuthorityOutcome {
-        AgentHookSessionStateWriter().establishHibernatedAuthoritySynchronously(
+        productionWriter().establishHibernatedAuthoritySynchronously(
             request: HibernatedResumeAuthorityRequest(
                 agent: agent,
                 workspaceId: workspaceId,
@@ -1299,11 +1334,22 @@ struct AgentHookSessionStateWriter: Sendable {
         guard let id = environment["CMUX_RUNTIME_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !id.isEmpty else { return nil }
         var payload: [String: Any] = ["id": id]
-        if let socketPath = environment["CMUX_SOCKET_PATH"], !socketPath.isEmpty {
+        let preferredSocketPath = SocketControlSettings.socketPath(
+            environment: environment,
+            bundleIdentifier: normalized(environment["CMUX_BUNDLE_ID"])
+        )
+        let socketState = currentSocketStateResolver(preferredSocketPath)
+        if socketState.pathOwnedByCurrentListener,
+           let socketPath = normalized(socketState.activePath) {
             payload["socketPath"] = socketPath
         }
         if let bundleIdentifier = environment["CMUX_BUNDLE_ID"], !bundleIdentifier.isEmpty {
             payload["bundleIdentifier"] = bundleIdentifier
+        }
+        if let processIdentity = processIdentityResolver(getpid()) {
+            payload["processId"] = Int(processIdentity.pid)
+            payload["processStartSeconds"] = processIdentity.startSeconds
+            payload["processStartMicroseconds"] = processIdentity.startMicroseconds
         }
         return payload
     }
@@ -1373,6 +1419,8 @@ struct AgentHookSessionStateWriter: Sendable {
         }()
         var result: [String: RestoredHibernationOwnerPreflight] = [:]
         var foreignSocketLiveness: [String: Bool] = [:]
+        var foreignProcessIdentities: [pid_t: AgentPIDProcessIdentity] = [:]
+        var unavailableForeignProcessIdentities: Set<pid_t> = []
         var currentSocketState: (
             activePath: String,
             pathOwnedByCurrentListener: Bool
@@ -1402,7 +1450,9 @@ struct AgentHookSessionStateWriter: Sendable {
                 hasProvablyLiveForeignRuntime: recordHasProvablyLiveForeignRuntime(
                     record,
                     currentSocketState: &currentSocketState,
-                    foreignSocketLiveness: &foreignSocketLiveness
+                    foreignSocketLiveness: &foreignSocketLiveness,
+                    foreignProcessIdentities: &foreignProcessIdentities,
+                    unavailableForeignProcessIdentities: &unavailableForeignProcessIdentities
                 )
             )
         }
@@ -1417,16 +1467,18 @@ struct AgentHookSessionStateWriter: Sendable {
     /// Stable workspace and surface UUIDs survive an app restart, so matching
     /// those identifiers alone cannot distinguish a stale saved owner from a
     /// second cmux process that is still serving the same restored binding.
-    /// Only a successful non-blocking connection is treated as proof that the
-    /// foreign runtime remains live. Missing, refused, or legacy socket metadata
-    /// stays eligible for normal app-restart adoption.
+    /// An exact PID/start-generation match or a successful non-blocking socket
+    /// connection proves that the foreign runtime remains live. Dead/reused PIDs,
+    /// refused sockets, and legacy metadata remain eligible for restart adoption.
     private func recordHasProvablyLiveForeignRuntime(
         _ record: [String: Any],
         currentSocketState: inout (
             activePath: String,
             pathOwnedByCurrentListener: Bool
         )?,
-        foreignSocketLiveness: inout [String: Bool]
+        foreignSocketLiveness: inout [String: Bool],
+        foreignProcessIdentities: inout [pid_t: AgentPIDProcessIdentity],
+        unavailableForeignProcessIdentities: inout Set<pid_t>
     ) -> Bool {
         let currentRuntimeId = normalized(environment["CMUX_RUNTIME_ID"])
         var runtimes: [[String: Any]] = []
@@ -1446,8 +1498,28 @@ struct AgentHookSessionStateWriter: Sendable {
         let socketTransport = SocketTransport()
         for runtime in runtimes {
             guard let runtimeId = normalized(runtime["id"] as? String),
-                  runtimeId != currentRuntimeId,
-                  let socketPath = normalized(runtime["socketPath"] as? String),
+                  runtimeId != currentRuntimeId else {
+                continue
+            }
+            if let expectedProcessIdentity = runtimeProcessIdentity(runtime) {
+                let pid = expectedProcessIdentity.pid
+                let currentProcessIdentity: AgentPIDProcessIdentity?
+                if let cached = foreignProcessIdentities[pid] {
+                    currentProcessIdentity = cached
+                } else if unavailableForeignProcessIdentities.contains(pid) {
+                    currentProcessIdentity = nil
+                } else if let resolved = processIdentityResolver(pid) {
+                    foreignProcessIdentities[pid] = resolved
+                    currentProcessIdentity = resolved
+                } else {
+                    unavailableForeignProcessIdentities.insert(pid)
+                    currentProcessIdentity = nil
+                }
+                if currentProcessIdentity == expectedProcessIdentity {
+                    return true
+                }
+            }
+            guard let socketPath = normalized(runtime["socketPath"] as? String),
                   probedSocketPaths.insert(socketPath).inserted else {
                 continue
             }
@@ -1455,7 +1527,6 @@ struct AgentHookSessionStateWriter: Sendable {
                 let preferredSocketPath = SocketControlSettings.socketPath(
                     environment: environment,
                     bundleIdentifier: normalized(environment["CMUX_BUNDLE_ID"])
-                        ?? Bundle.main.bundleIdentifier
                 )
                 currentSocketState = currentSocketStateResolver(preferredSocketPath)
             }
@@ -1476,6 +1547,24 @@ struct AgentHookSessionStateWriter: Sendable {
             }
         }
         return false
+    }
+
+    private func runtimeProcessIdentity(_ runtime: [String: Any]) -> AgentPIDProcessIdentity? {
+        guard let pidValue = (runtime["processId"] as? NSNumber)?.int64Value,
+              pidValue > 0,
+              pidValue <= Int64(Int32.max),
+              let startSeconds = (runtime["processStartSeconds"] as? NSNumber)?.int64Value,
+              startSeconds >= 0,
+              let startMicroseconds = (runtime["processStartMicroseconds"] as? NSNumber)?.int64Value,
+              startMicroseconds >= 0,
+              startMicroseconds < 1_000_000 else {
+            return nil
+        }
+        return AgentPIDProcessIdentity(
+            pid: pid_t(pidValue),
+            startSeconds: startSeconds,
+            startMicroseconds: startMicroseconds
+        )
     }
 
     private func assigningRuntime(

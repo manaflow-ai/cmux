@@ -383,6 +383,7 @@ class TerminalController {
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
         self.socketServer = socketServer
+        AgentHookRuntimeSocketState.install(socketServer: socketServer)
         // Single consumer of the accepted-connection stream, detached so
         // accepts never funnel through the main actor. Each connection still
         // gets a dedicated thread: command bodies block (main-thread sync
