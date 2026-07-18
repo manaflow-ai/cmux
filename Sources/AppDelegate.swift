@@ -8732,7 +8732,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             terminalClientComposition: terminalClientComposition,
-            pullRequestProbeService: self.tabManager?.pullRequestProbeService
+            pullRequestProbeService: self.tabManager?.pullRequestProbeService,
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

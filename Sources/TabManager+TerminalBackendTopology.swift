@@ -303,7 +303,8 @@ extension TabManager: TerminalBackendTopologyProjecting {
                     initialDetachedSurface: transfer,
                     terminalClientComposition: terminalClientComposition,
                     initialTerminalPaneID: firstPane.uuid.rawValue,
-                    isCanonicalTopologyProjection: true
+                    isCanonicalTopologyProjection: true,
+                    nativeSSHConnectionBroker: nativeSSHConnectionBroker
                 )
                 if let panel = transfer.panel as? TerminalPanel {
                     guard let origin = state.terminalMovementOrigins[panel.id] else {
@@ -340,7 +341,8 @@ extension TabManager: TerminalBackendTopologyProjecting {
                         terminalClientComposition: terminalClientComposition,
                         initialTerminalSurfaceID: firstSurface.uuid.rawValue,
                         initialTerminalPaneID: firstPane.uuid.rawValue,
-                        isCanonicalTopologyProjection: true
+                        isCanonicalTopologyProjection: true,
+                        nativeSSHConnectionBroker: nativeSSHConnectionBroker
                     )
                     if let panel = workspace.panels[firstSurface.uuid.rawValue] as? TerminalPanel {
                         state.terminalCreations.append(.init(
@@ -363,7 +365,8 @@ extension TabManager: TerminalBackendTopologyProjecting {
                         initialCanonicalBrowserPanel: panel,
                         terminalClientComposition: terminalClientComposition,
                         initialTerminalPaneID: firstPane.uuid.rawValue,
-                        isCanonicalTopologyProjection: true
+                        isCanonicalTopologyProjection: true,
+                        nativeSSHConnectionBroker: nativeSSHConnectionBroker
                     )
                     guard workspace.panels[panel.id] === panel else {
                         panel.close()

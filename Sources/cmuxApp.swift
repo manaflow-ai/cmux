@@ -231,7 +231,6 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-
         let bundleID = Bundle.main.bundleIdentifier
         let terminalBackendDescriptor = Self.terminalBackendDescriptor(
             bundleIdentifier: bundleID
@@ -307,7 +306,8 @@ struct cmuxApp: App {
         }
         self.terminalClientComposition = terminalClientComposition
         let tabManager = TabManager(
-            terminalClientComposition: terminalClientComposition
+            terminalClientComposition: terminalClientComposition,
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         _tabManager = StateObject(wrappedValue: tabManager)
         let terminalBackendTopologyProjectionRegistry =

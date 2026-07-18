@@ -2366,16 +2366,11 @@ final class Workspace: Identifiable, ObservableObject {
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
     private static let remoteNotificationCooldown: TimeInterval = 5 * 60
-    private static let sshControlMasterCleanupQueue = DispatchQueue(
-        label: "com.cmux.remote-ssh.control-master-cleanup",
-        qos: .utility
-    )
     private static let remoteHeartbeatDateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
-    nonisolated(unsafe) static var runSSHControlMasterCommandOverrideForTesting: (([String]) -> Void)?
 #if DEBUG
     /// XCTest seam: assign before `configureRemoteConnection` to script the
     /// session coordinator's subprocess results. Instance-scoped injection of
@@ -2394,6 +2389,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
+    let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -2932,13 +2928,15 @@ final class Workspace: Identifiable, ObservableObject {
         terminalClientComposition: TerminalClientComposition,
         initialTerminalSurfaceID: UUID? = nil,
         initialTerminalPaneID: UUID? = nil,
-        isCanonicalTopologyProjection: Bool = false
+        isCanonicalTopologyProjection: Bool = false,
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.id = id
         self.terminalClientComposition = terminalClientComposition
         self.isApplyingCanonicalTopologyProjection = isCanonicalTopologyProjection
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
+        self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
@@ -5361,7 +5359,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
-        let configuration = configuration.scopedToOwnerWorkspace(id)
+        var configuration = configuration.scopedToOwnerWorkspace(id)
+        configuration = nativeSSHConnectionBroker.retainWorkspace(configuration)
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
         let previousPresentedDirectory = presentedCurrentDirectory
@@ -5418,6 +5417,8 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController = nil
         if let previousController, let previousControllerID, let previousConfiguration {
             remoteSessionCleanupControllers[previousControllerID] = (previousController, previousConfiguration)
+        } else if let previousConfiguration, previousConfiguration != configuration {
+            requestSSHControlMasterCleanupIfNeeded(configuration: previousConfiguration)
         }
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
@@ -5528,7 +5529,7 @@ final class Workspace: Identifiable, ObservableObject {
         recomputeListeningPorts()
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: clearedRemoteDirectoryTrust)
         if let configurationForCleanup {
-            Self.requestSSHControlMasterCleanupIfNeeded(configuration: configurationForCleanup)
+            requestSSHControlMasterCleanupIfNeeded(configuration: configurationForCleanup)
         }
     }
 
@@ -6281,7 +6282,7 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
-        Self.requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
+        requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
         return true
     }
 
@@ -6367,87 +6368,13 @@ final class Workspace: Identifiable, ObservableObject {
                 !skipControlMasterCleanupAfterDetachedRemoteTransfer
             disconnectRemoteConnectionAfterTerminalExit()
             if shouldCleanupControlMaster {
-                Self.requestSSHControlMasterCleanupIfNeeded(configuration: configuration)
+                requestSSHControlMasterCleanupIfNeeded(configuration: configuration)
             }
         }
     }
 
     func teardownRemoteConnection() {
         disconnectRemoteConnection(clearConfiguration: true)
-    }
-
-    static func requestSSHControlMasterCleanupIfNeeded(configuration: WorkspaceRemoteConfiguration) {
-        guard let arguments = sshControlMasterCleanupArguments(configuration: configuration) else { return }
-        if let override = runSSHControlMasterCommandOverrideForTesting {
-            override(arguments)
-            return
-        }
-
-        sshControlMasterCleanupQueue.async {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            process.arguments = arguments
-            process.environment = configuration.sshProcessEnvironment
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            let exitSemaphore = DispatchSemaphore(value: 0)
-            process.terminationHandler = { _ in
-                exitSemaphore.signal()
-            }
-
-            do {
-                try process.run()
-                if exitSemaphore.wait(timeout: .now() + 5) == .timedOut {
-                    if process.isRunning {
-                        process.terminate()
-                    }
-                    _ = exitSemaphore.wait(timeout: .now() + 1)
-                }
-            } catch {
-                return
-            }
-        }
-    }
-
-    private static func sshControlMasterCleanupArguments(configuration: WorkspaceRemoteConfiguration) -> [String]? {
-        let sshOptions = normalizedSSHControlCleanupOptions(configuration.sshOptions)
-        var arguments: [String] = [
-            "-o", "BatchMode=yes",
-            "-o", "ControlMaster=no",
-        ]
-        if let port = configuration.port {
-            arguments += ["-p", String(port)]
-        }
-        if let identityFile = configuration.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !identityFile.isEmpty {
-            arguments += ["-i", identityFile]
-        }
-        for option in sshOptions {
-            arguments += ["-o", option]
-        }
-        arguments += ["-O", "exit", configuration.destination]
-        return arguments
-    }
-
-    private static func normalizedSSHControlCleanupOptions(_ options: [String]) -> [String] {
-        let disallowedKeys: Set<String> = ["controlmaster", "controlpersist"]
-        return options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            guard let key = sshOptionKeyForControlCleanup(trimmed) else { return nil }
-            return disallowedKeys.contains(key) ? nil : trimmed
-        }
-    }
-
-    private static func sshOptionKeyForControlCleanup(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
     }
 
     func applyRemoteConnectionStateUpdate(
@@ -12328,7 +12255,7 @@ extension Workspace: BonsplitDelegate {
         recomputeListeningPorts()
         clearRemoteConfigurationIfWorkspaceBecameLocal()
         if !isDetaching, let cleanupConfiguration = closedRemoteCleanupConfiguration {
-            Self.requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
+            requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
         }
 
         if panels.isEmpty {
