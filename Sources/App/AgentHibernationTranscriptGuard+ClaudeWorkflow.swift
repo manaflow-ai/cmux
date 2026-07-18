@@ -1,6 +1,60 @@
+import Darwin
 import Foundation
 
 extension AgentHibernationTranscriptGuard {
+    private static let maximumClaudeWorkflowScanEntries = 16_384
+    private static let maximumClaudeWorkflowScanBytes: UInt64 = 64 * 1_024 * 1_024
+
+    private struct ClaudeWorkflowScanBudget {
+        var remainingEntries = maximumClaudeWorkflowScanEntries
+        var remainingBytes = maximumClaudeWorkflowScanBytes
+
+        mutating func consumeEntry() -> Bool {
+            guard remainingEntries > 0 else { return false }
+            remainingEntries -= 1
+            return true
+        }
+
+        mutating func consumeFile(byteCount: UInt64) -> Bool {
+            guard byteCount <= remainingBytes else { return false }
+            remainingBytes -= byteCount
+            return true
+        }
+    }
+
+    private struct ClaudeTranscriptCandidateAccumulator {
+        private(set) var conversationPath: String?
+        private(set) var metadataOnlyPath: String?
+        private(set) var isUnsafeOrAmbiguous = false
+
+        mutating func inspect(path: String, fileManager: FileManager) {
+            guard !isUnsafeOrAmbiguous else { return }
+            if transcriptHasConversationTurns(atPath: path, fileManager: fileManager) {
+                guard conversationPath == nil else {
+                    isUnsafeOrAmbiguous = true
+                    return
+                }
+                conversationPath = path
+                return
+            }
+            if transcriptContainsOnlyNonProtectiveMetadata(atPath: path, fileManager: fileManager) {
+                if let current = metadataOnlyPath {
+                    metadataOnlyPath = min(current, path)
+                } else {
+                    metadataOnlyPath = path
+                }
+                return
+            }
+            isUnsafeOrAmbiguous = true
+        }
+    }
+
+    private enum ClaudeRegularFileProbe {
+        case absentOrUnsupported
+        case unsafe
+        case regular(byteCount: UInt64)
+    }
+
     static func resolveClaudeTranscriptPath(
         agent: SessionRestorableAgentSnapshot,
         panelKey: AgentHibernationPanelKey?,
@@ -27,6 +81,16 @@ extension AgentHibernationTranscriptGuard {
             return (resolution.path, resolution.shouldStop)
         }
 
+        func inspectWorkflowCandidate(
+            _ path: String,
+            accumulator: inout ClaudeTranscriptCandidateAccumulator
+        ) -> Bool {
+            let standardized = (path as NSString).standardizingPath
+            guard seenCandidates.insert(standardized).inserted else { return true }
+            accumulator.inspect(path: path, fileManager: fileManager)
+            return !accumulator.isUnsafeOrAmbiguous
+        }
+
         let recordedTranscript = recordedTranscriptPath(
             agent: agent,
             panelKey: panelKey,
@@ -44,42 +108,88 @@ extension AgentHibernationTranscriptGuard {
         }
 
         let configRoots = claudeConfigRoots(for: agent, homeDirectory: homeDirectory, fileManager: fileManager)
+        var exactProjectRoots: [String] = []
         if let workingDirectory = normalized(agent.workingDirectory) {
             var standardCandidates: [String] = []
-            var workflowCandidates: [String] = []
             for configRoot in configRoots {
                 let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
                 let projectRoot = (projectsRoot as NSString)
                     .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory))
+                exactProjectRoots.append(projectRoot)
                 for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
                     appendCandidate(candidate, to: &standardCandidates)
-                }
-                for candidate in workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
-                    appendCandidate(candidate, to: &workflowCandidates)
                 }
             }
             let standardResolution = resolve(standardCandidates, requireUniqueConversation: true)
             if standardResolution.shouldStop { return standardResolution.path }
-            let workflowResolution = resolve(workflowCandidates, requireUniqueConversation: true)
-            if workflowResolution.shouldStop { return workflowResolution.path }
         }
 
-        var fallbackCandidates: [String] = []
-        for configRoot in configRoots {
-            let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
-            guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { continue }
-            for projectDir in projectDirs.sorted() {
-                let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
-                for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
-                    appendCandidate(candidate, to: &fallbackCandidates)
+        var workflowBudget = ClaudeWorkflowScanBudget()
+        if !exactProjectRoots.isEmpty {
+            var exactWorkflowResolution = ClaudeTranscriptCandidateAccumulator()
+            for projectRoot in exactProjectRoots {
+                let completed = scanClaudeWorkflowTranscripts(
+                    projectRoot: projectRoot,
+                    sessionId: agent.sessionId,
+                    budget: &workflowBudget
+                ) { candidate in
+                    inspectWorkflowCandidate(candidate, accumulator: &exactWorkflowResolution)
                 }
-                for candidate in workflowTranscriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId, fileManager: fileManager) {
-                    appendCandidate(candidate, to: &fallbackCandidates)
-                }
+                guard completed else { return nil }
+            }
+            metadataOnlyCandidate = metadataOnlyCandidate ?? exactWorkflowResolution.metadataOnlyPath
+            if exactWorkflowResolution.isUnsafeOrAmbiguous { return nil }
+            if let conversationPath = exactWorkflowResolution.conversationPath {
+                return conversationPath
             }
         }
-        let fallbackResolution = resolve(fallbackCandidates, requireUniqueConversation: true)
-        if fallbackResolution.shouldStop { return fallbackResolution.path }
+
+        var fallbackProjectRoots: [String] = []
+        for configRoot in configRoots {
+            let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
+            guard collectClaudeProjectDirectories(
+                projectsRoot: projectsRoot,
+                budget: &workflowBudget,
+                into: &fallbackProjectRoots
+            ) else {
+                return nil
+            }
+        }
+        let exactProjectRootSet = Set(exactProjectRoots.map { ($0 as NSString).standardizingPath })
+        fallbackProjectRoots.removeAll { exactProjectRootSet.contains(($0 as NSString).standardizingPath) }
+
+        var fallbackResolution = ClaudeTranscriptCandidateAccumulator()
+        for projectRoot in fallbackProjectRoots {
+            for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
+                let standardized = (candidate as NSString).standardizingPath
+                guard seenCandidates.insert(standardized).inserted else { continue }
+                switch probeClaudeRegularFile(atPath: candidate) {
+                case .absentOrUnsupported:
+                    continue
+                case .unsafe:
+                    return nil
+                case .regular(let byteCount):
+                    guard workflowBudget.consumeFile(byteCount: byteCount) else { return nil }
+                }
+                fallbackResolution.inspect(path: candidate, fileManager: fileManager)
+                if fallbackResolution.isUnsafeOrAmbiguous { return nil }
+            }
+        }
+        for projectRoot in fallbackProjectRoots {
+            let completed = scanClaudeWorkflowTranscripts(
+                projectRoot: projectRoot,
+                sessionId: agent.sessionId,
+                budget: &workflowBudget
+            ) { candidate in
+                inspectWorkflowCandidate(candidate, accumulator: &fallbackResolution)
+            }
+            guard completed else { return nil }
+        }
+        metadataOnlyCandidate = metadataOnlyCandidate ?? fallbackResolution.metadataOnlyPath
+        if fallbackResolution.isUnsafeOrAmbiguous { return nil }
+        if let conversationPath = fallbackResolution.conversationPath {
+            return conversationPath
+        }
         return metadataOnlyCandidate
     }
 
@@ -100,7 +210,11 @@ extension AgentHibernationTranscriptGuard {
                 continue
             }
             if transcriptContainsOnlyNonProtectiveMetadata(atPath: candidate, fileManager: fileManager) {
-                metadataOnlyPath = metadataOnlyPath ?? candidate
+                if let current = metadataOnlyPath {
+                    metadataOnlyPath = min(current, candidate)
+                } else {
+                    metadataOnlyPath = candidate
+                }
                 continue
             }
             return (nil, metadataOnlyPath, true)
@@ -109,95 +223,152 @@ extension AgentHibernationTranscriptGuard {
         return (nil, metadataOnlyPath, false)
     }
 
-    static func workflowTranscriptCandidates(
+    private static func probeClaudeRegularFile(atPath path: String) -> ClaudeRegularFileProbe {
+        var pathStatus = stat()
+        guard lstat(path, &pathStatus) == 0 else { return .absentOrUnsupported }
+        guard pathStatus.st_mode & S_IFMT == S_IFREG else {
+            return pathStatus.st_mode & S_IFMT == S_IFLNK ? .unsafe : .absentOrUnsupported
+        }
+        let descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return .unsafe }
+        defer { Darwin.close(descriptor) }
+        var descriptorStatus = stat()
+        guard fstat(descriptor, &descriptorStatus) == 0,
+              descriptorStatus.st_mode & S_IFMT == S_IFREG,
+              descriptorStatus.st_dev == pathStatus.st_dev,
+              descriptorStatus.st_ino == pathStatus.st_ino else {
+            return .unsafe
+        }
+        guard descriptorStatus.st_size > 0 else { return .absentOrUnsupported }
+        return .regular(byteCount: UInt64(descriptorStatus.st_size))
+    }
+
+    private static func collectClaudeProjectDirectories(
+        projectsRoot: String,
+        budget: inout ClaudeWorkflowScanBudget,
+        into projectRoots: inout [String]
+    ) -> Bool {
+        let descriptor = open(projectsRoot, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { return true }
+        guard let stream = fdopendir(descriptor) else {
+            Darwin.close(descriptor)
+            return true
+        }
+        defer { closedir(stream) }
+
+        while true {
+            errno = 0
+            guard let entry = readdir(stream) else { return errno == 0 }
+            let name = claudeDirectoryEntryName(entry)
+            guard name != ".", name != ".." else { continue }
+            guard budget.consumeEntry() else { return false }
+            let childDescriptor = name.withCString {
+                openat(dirfd(stream), $0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            }
+            guard childDescriptor >= 0 else { continue }
+            Darwin.close(childDescriptor)
+            projectRoots.append((projectsRoot as NSString).appendingPathComponent(name))
+        }
+    }
+
+    private static func scanClaudeWorkflowTranscripts(
         projectRoot: String,
         sessionId: String,
-        fileManager: FileManager
-    ) -> [String] {
+        budget: inout ClaudeWorkflowScanBudget,
+        visit: (String) -> Bool
+    ) -> Bool {
+        let descriptor = open(projectRoot, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { return true }
+        guard let stream = fdopendir(descriptor) else {
+            Darwin.close(descriptor)
+            return true
+        }
         let targetName = "\(sessionId).jsonl"
         let directPath = (projectRoot as NSString).appendingPathComponent(targetName)
         let nestedPath = (((projectRoot as NSString).appendingPathComponent(sessionId) as NSString)
             .appendingPathComponent("messages") as NSString)
             .appendingPathComponent(targetName)
-        let standardPaths = Set([directPath, nestedPath].map { ($0 as NSString).standardizingPath })
-        var matches: [String] = []
-        var hasMetadataOnlyMatch = false
-        var protectiveMatchCount = 0
-        collectWorkflowTranscriptCandidates(
-            inDirectory: projectRoot,
+        let excludedPaths = Set([directPath, nestedPath].map { ($0 as NSString).standardizingPath })
+        return scanClaudeWorkflowDirectory(
+            stream: stream,
+            directoryPath: projectRoot,
             targetName: targetName,
-            excludedPaths: standardPaths,
+            excludedPaths: excludedPaths,
             remainingDirectoryDepth: 4,
-            fileManager: fileManager,
-            matches: &matches,
-            hasMetadataOnlyMatch: &hasMetadataOnlyMatch,
-            protectiveMatchCount: &protectiveMatchCount
+            budget: &budget,
+            visit: visit
         )
-        return matches
     }
 
-    private static func collectWorkflowTranscriptCandidates(
-        inDirectory directory: String,
+    private static func scanClaudeWorkflowDirectory(
+        stream: UnsafeMutablePointer<DIR>,
+        directoryPath: String,
         targetName: String,
         excludedPaths: Set<String>,
         remainingDirectoryDepth: Int,
-        fileManager: FileManager,
-        matches: inout [String],
-        hasMetadataOnlyMatch: inout Bool,
-        protectiveMatchCount: inout Int
-    ) {
-        guard protectiveMatchCount < 2,
-              let children = try? fileManager.contentsOfDirectory(atPath: directory) else {
-            return
-        }
-        for child in children.sorted() {
-            guard protectiveMatchCount < 2 else { return }
-            let childPath = (directory as NSString).appendingPathComponent(child)
-            if child == targetName {
+        budget: inout ClaudeWorkflowScanBudget,
+        visit: (String) -> Bool
+    ) -> Bool {
+        defer { closedir(stream) }
+        while true {
+            errno = 0
+            guard let entry = readdir(stream) else { return errno == 0 }
+            let name = claudeDirectoryEntryName(entry)
+            guard name != ".", name != ".." else { continue }
+            guard budget.consumeEntry() else { return false }
+            let childPath = (directoryPath as NSString).appendingPathComponent(name)
+
+            if name == targetName {
                 let standardized = (childPath as NSString).standardizingPath
-                guard !excludedPaths.contains(standardized),
-                      workflowRegularNonEmptyFileExists(atPath: childPath, fileManager: fileManager) else {
+                guard !excludedPaths.contains(standardized) else { continue }
+                let fileDescriptor = name.withCString {
+                    openat(dirfd(stream), $0, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+                }
+                guard fileDescriptor >= 0 else { continue }
+                var status = stat()
+                let statusRead = fstat(fileDescriptor, &status)
+                Darwin.close(fileDescriptor)
+                guard statusRead == 0,
+                      status.st_mode & S_IFMT == S_IFREG,
+                      status.st_size > 0 else {
                     continue
                 }
-                if transcriptContainsOnlyNonProtectiveMetadata(atPath: childPath, fileManager: fileManager) {
-                    if !hasMetadataOnlyMatch {
-                        matches.append(childPath)
-                        hasMetadataOnlyMatch = true
-                    }
-                    continue
+                guard budget.consumeFile(byteCount: UInt64(status.st_size)),
+                      visit(childPath) else {
+                    return false
                 }
-                matches.append(childPath)
-                protectiveMatchCount += 1
-            } else if remainingDirectoryDepth > 0,
-                      workflowDirectoryExists(atPath: childPath, fileManager: fileManager) {
-                collectWorkflowTranscriptCandidates(
-                    inDirectory: childPath,
-                    targetName: targetName,
-                    excludedPaths: excludedPaths,
-                    remainingDirectoryDepth: remainingDirectoryDepth - 1,
-                    fileManager: fileManager,
-                    matches: &matches,
-                    hasMetadataOnlyMatch: &hasMetadataOnlyMatch,
-                    protectiveMatchCount: &protectiveMatchCount
-                )
+                continue
+            }
+
+            guard remainingDirectoryDepth > 0 else { continue }
+            let childDescriptor = name.withCString {
+                openat(dirfd(stream), $0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            }
+            guard childDescriptor >= 0 else { continue }
+            guard let childStream = fdopendir(childDescriptor) else {
+                Darwin.close(childDescriptor)
+                continue
+            }
+            guard scanClaudeWorkflowDirectory(
+                stream: childStream,
+                directoryPath: childPath,
+                targetName: targetName,
+                excludedPaths: excludedPaths,
+                remainingDirectoryDepth: remainingDirectoryDepth - 1,
+                budget: &budget,
+                visit: visit
+            ) else {
+                return false
             }
         }
     }
 
-    private static func workflowRegularNonEmptyFileExists(atPath path: String, fileManager: FileManager) -> Bool {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
-              !isDirectory.boolValue,
-              let attributes = try? fileManager.attributesOfItem(atPath: path),
-              let fileType = attributes[.type] as? FileAttributeType,
-              fileType == .typeRegular else {
-            return false
+    private static func claudeDirectoryEntryName(_ entry: UnsafeMutablePointer<dirent>) -> String {
+        withUnsafePointer(to: &entry.pointee.d_name) { namePointer in
+            namePointer.withMemoryRebound(
+                to: CChar.self,
+                capacity: Int(entry.pointee.d_namlen) + 1
+            ) { String(cString: $0) }
         }
-        return ((attributes[.size] as? NSNumber)?.int64Value ?? 0) > 0
-    }
-
-    private static func workflowDirectoryExists(atPath path: String, fileManager: FileManager) -> Bool {
-        var isDirectory: ObjCBool = false
-        return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 }
