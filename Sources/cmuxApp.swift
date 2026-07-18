@@ -951,20 +951,21 @@ struct cmuxApp: App {
                     NSSound.beep()
                 }
             }
-
             splitCommandButton(title: String(localized: "menu.view.showJSConsole", defaultValue: "Show JavaScript Console"), shortcut: menuShortcut(for: .showBrowserJavaScriptConsole)) {
                 let manager = activeTabManager
                 if !manager.showJavaScriptConsoleFocusedBrowser() {
                     NSSound.beep()
                 }
             }
-
             splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: menuShortcut(for: .toggleReactGrab)) {
                 if !activeTabManager.toggleReactGrabFromCurrentFocus() {
                     NSSound.beep()
                 }
             }
-
+            splitCommandButton(title: String(localized: "menu.view.toggleDesignMode", defaultValue: "Toggle Design Mode"), shortcut: menuShortcut(for: .toggleBrowserDesignMode)) {
+                guard let panel = activeTabManager.focusedBrowserPanel else { NSSound.beep(); return }
+                Task { @MainActor in _ = await panel.toggleDesignMode(reason: "viewMenu") }
+            }
             let browserFocusModeMenu = browserFocusModeMenuSnapshot
             Button(browserFocusModeMenu.title) {
                 if !activeTabManager.toggleBrowserFocusModeForFocusedBrowser(reason: "viewMenu") {
@@ -972,7 +973,6 @@ struct cmuxApp: App {
                 }
             }
             .disabled(!browserFocusModeMenu.canToggle)
-
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                 _ = activeTabManager.zoomInFocusedBrowserOrTextFilePreview()
             }

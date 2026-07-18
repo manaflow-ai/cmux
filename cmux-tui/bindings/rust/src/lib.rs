@@ -497,6 +497,10 @@ impl CmuxClient {
         self.request("resize-surface", params)
     }
 
+    pub fn release_surface_size(&mut self, surface: u64) -> Result<()> {
+        self.request::<Empty>("release-surface-size", surface_params(surface)).map(|_| ())
+    }
+
     pub fn focus_pane(&mut self, pane: u64) -> Result<()> {
         let mut params = Map::new();
         params.insert("pane".to_string(), Value::from(pane));

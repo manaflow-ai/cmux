@@ -71,6 +71,15 @@ impl TreeView {
         self.workspaces.get(self.active_workspace)
     }
 
+    pub fn active_workspace_mut(&mut self) -> Option<&mut WorkspaceView> {
+        self.workspaces.get_mut(self.active_workspace)
+    }
+
+    pub fn active_workspace_mut_screen(&mut self) -> Option<&mut ScreenView> {
+        let workspace = self.workspaces.get_mut(self.active_workspace)?;
+        workspace.screens.get_mut(workspace.active_screen)
+    }
+
     /// The active screen of the active workspace.
     pub fn active_screen(&self) -> Option<&ScreenView> {
         self.active_workspace()?.active_screen_ref()
@@ -82,6 +91,14 @@ impl TreeView {
             .flat_map(|ws| ws.screens.iter())
             .flat_map(|screen| screen.panes.iter())
             .find(|p| p.id == id)
+    }
+
+    pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneView> {
+        self.workspaces
+            .iter_mut()
+            .flat_map(|workspace| workspace.screens.iter_mut())
+            .flat_map(|screen| screen.panes.iter_mut())
+            .find(|pane| pane.id == id)
     }
 
     /// The active surface of the active pane of the active screen.

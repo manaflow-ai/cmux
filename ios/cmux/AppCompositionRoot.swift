@@ -1,16 +1,13 @@
 import CMUXMobileCore
 import CmuxMobileAnalytics
 import CmuxMobileCrashReporting
+import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
 import SwiftUI
 import cmuxFeature
-
-#if DEBUG
-import CmuxMobileDiagnostics
-#endif
 
 /// Holds the de-singletonized graph the `cmuxApp` builds once at launch.
 ///
@@ -42,20 +39,18 @@ final class AppCompositionRoot {
     /// turned off mid-session).
     let crashRevocationWatcher = MobileCrashReporter.RevocationWatcher()
 
-    #if DEBUG
-    /// The structured diagnostic log, built once here and injected into the
-    /// shell store. DEBUG-only: it backs the DEV dogfood feedback round-trip and
-    /// is not present in release builds. Its export header is stamped with the
-    /// same build identity as the string debug log so a submitted bundle proves
-    /// which reload it came from.
+    /// The bounded, structured connection log shared by the Iroh runtime and
+    /// mobile shell. It is present in release builds, but its schema accepts
+    /// only fixed categories and integer magnitudes, never terminal contents,
+    /// credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
-    #endif
 
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         iroh: MobileIrohRuntimeComposition,
-        reachability: any ReachabilityProviding
+        reachability: any ReachabilityProviding,
+        diagnosticLog: DiagnosticLog
     ) {
         #if DEBUG
         // Arm the durable debug log at launch: `.shared` is lazy, and without
@@ -67,6 +62,7 @@ final class AppCompositionRoot {
         self.auth = auth
         self.iroh = iroh
         self.reachability = reachability
+        self.diagnosticLog = diagnosticLog
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
         if Self.crashReportingEnabled {
             MobileCrashReporter().startIfEnabled(
@@ -102,6 +98,7 @@ final class AppCompositionRoot {
                         )
                     }
                 }
+                await diagnosticLog.clear()
             }
         }
         self.displaySettings = MobileDisplaySettings()
@@ -118,9 +115,16 @@ final class AppCompositionRoot {
             forceSeen: bypassOnboarding
         )
         self.tailscaleStatusMonitor = TailscaleStatusMonitorAdapter(monitor: TailscaleStatusMonitor())
-        #if DEBUG
-        self.diagnosticLog = DiagnosticLog(buildStamp: MobileDebugLog.buildStamp)
-        #endif
+    }
+
+    /// Bundle-owned build identity used in explicit diagnostic exports.
+    /// Values come only from signed app metadata, never user input.
+    static var diagnosticBuildStamp: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let name = info["CFBundleName"] as? String ?? "cmux"
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "\(name) \(version) (\(build))"
     }
 
     private static var crashReportingEnabled: Bool {
