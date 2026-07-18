@@ -134,13 +134,15 @@ describe("split drag", () => {
     expect(splitDividerTarget(view.second)).toEqual({ split: 22 });
   });
 
-  it("does not map an outer split when both sides cross a same-direction split", () => {
+  it("targets an outer split exactly across same-direction descendants", () => {
     const view = layoutToViewModel({
       type: "split",
+      split: 30,
       dir: "right",
       ratio: 0.5,
       a: {
         type: "split",
+        split: 31,
         dir: "right",
         ratio: 0.5,
         a: { type: "leaf", pane: 1 },
@@ -148,6 +150,7 @@ describe("split drag", () => {
       },
       b: {
         type: "split",
+        split: 32,
         dir: "right",
         ratio: 0.5,
         a: { type: "leaf", pane: 3 },
@@ -156,7 +159,7 @@ describe("split drag", () => {
     });
     expect(view.type).toBe("group");
     if (view.type !== "group") throw new Error("expected group");
-    expect(splitDividerTarget(view)).toBeNull();
+    expect(splitDividerTarget(view)).toEqual({ split: 30 });
   });
 
   it("skips a set-ratio commit when the ratio is unchanged", () => {

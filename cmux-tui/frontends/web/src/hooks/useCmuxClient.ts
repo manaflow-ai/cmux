@@ -378,8 +378,8 @@ export function useCmuxClient() {
     zoomPane: (pane: Id) => runMutation((client) => client.zoomPane({ pane, mode: "toggle" })),
     swapPane: (pane: Id, dir: "left" | "right" | "up" | "down") =>
       runMutation((client) => client.swapPane({ pane, dir })),
-    setRatio: (pane: Id, dir: "right" | "down", ratio: number) =>
-      runMutation((client) => client.setRatio(pane, dir, ratio)),
+    setSplitRatio: (split: Id, ratio: number) =>
+      runMutation((client) => client.setSplitRatio(split, ratio)),
     setClientSizing: (clientId: Id, enabled: boolean) => runMutation(async (client) => {
       await client.setClientSizing(clientId, enabled);
     }),
