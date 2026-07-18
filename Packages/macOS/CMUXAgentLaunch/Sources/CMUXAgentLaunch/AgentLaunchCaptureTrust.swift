@@ -174,9 +174,10 @@ public enum AgentLaunchCaptureTrust {
         guard hostBases.contains(where: isInterpreterHost) else {
             return Array(arguments.dropFirst())
         }
-        guard let entrypointIndex = arguments.indices.dropFirst().first(where: {
-            scriptArgument(arguments[$0], describes: normalizedKind)
-        }) else {
+        guard let entrypointIndex = interpreterScriptEntrypointIndex(
+            processName: processName,
+            arguments: arguments
+        ), scriptArgument(arguments[entrypointIndex], describes: normalizedKind) else {
             return nil
         }
         return Array(arguments[arguments.index(after: entrypointIndex)...])
@@ -194,10 +195,13 @@ public enum AgentLaunchCaptureTrust {
         childArguments: [String],
         kind: String
     ) -> Bool {
-        guard parentArguments.count >= 2,
+        guard !parentArguments.isEmpty,
               let parentExecutable = processBasename(parentArguments.first),
               isInterpreterHost(parentExecutable),
-              !parentArguments[1].hasPrefix("-"),
+              let parentEntrypointIndex = interpreterScriptEntrypointIndex(
+                  processName: parentProcessName,
+                  arguments: parentArguments
+              ),
               nativeProcessDescribesKind(
                   processName: parentProcessName,
                   arguments: parentArguments,
@@ -211,16 +215,31 @@ public enum AgentLaunchCaptureTrust {
             return false
         }
 
-        let forwardedArguments = parentArguments.dropFirst()
+        let forwardedArguments = parentArguments[parentEntrypointIndex...]
         let childHosts = Set([
             processBasename(childProcessName),
             processBasename(childArguments.first),
         ].compactMap { $0 })
         if !childHosts.contains(where: isInterpreterHost) {
+            // Codex's JavaScript package entrypoint is a known thin shim for
+            // its native worker. Other interpreter-hosted providers may be the
+            // real interactive agent, so treating their native descendants as
+            // relays would hide a nested same-provider session.
+            guard normalizedAgentName(kind) == "codex",
+                  directScriptArgument(parentArguments[parentEntrypointIndex], describes: "codex") else {
+                return false
+            }
             return true
         }
-        guard childArguments.count > forwardedArguments.count else { return false }
-        return childArguments.suffix(forwardedArguments.count).elementsEqual(forwardedArguments)
+        guard normalizedAgentName(kind) == "gemini",
+              let childEntrypointIndex = interpreterScriptEntrypointIndex(
+                  processName: childProcessName,
+                  arguments: childArguments
+              ),
+              childEntrypointIndex > childArguments.startIndex + 1 else {
+            return false
+        }
+        return childArguments[childEntrypointIndex...].elementsEqual(forwardedArguments)
     }
 
     /// True when a process is running a script but its argv cannot identify a
@@ -256,7 +275,14 @@ public enum AgentLaunchCaptureTrust {
         if hostBases.contains(where: isInterpreterHost) {
             let knownNames = Set(nativeProcessAliasesByKind.keys)
                 .union(nativeProcessAliasesByKind.values.flatMap { $0 })
-            for argument in arguments.dropFirst() where looksLikeScriptPath(argument) {
+            guard let entrypointIndex = interpreterScriptEntrypointIndex(
+                processName: processName,
+                arguments: arguments
+            ) else {
+                return descriptors
+            }
+            let argument = arguments[entrypointIndex]
+            if looksLikeScriptPath(argument) {
                 let normalizedPath = "/" + argument
                     .replacingOccurrences(of: "\\", with: "/")
                     .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -302,6 +328,167 @@ public enum AgentLaunchCaptureTrust {
         interpreterHostBases.contains(basename) || basename.hasPrefix("python3.")
     }
 
+    /// Returns the script token interpreted by a runtime, excluding runtime
+    /// flags and their values. Only this token can establish agent identity:
+    /// later argv may be a prompt, input file, or unrelated executable path.
+    private static func interpreterScriptEntrypointIndex(
+        processName: String?,
+        arguments: [String]
+    ) -> Int? {
+        guard !arguments.isEmpty else { return nil }
+        let argumentHost = processBasename(arguments.first)
+        let host = [argumentHost, processBasename(processName)]
+            .compactMap { $0 }
+            .first(where: isInterpreterHost)
+        guard let host else { return nil }
+
+        var index = argumentHost.map(isInterpreterHost) == true ? 1 : 0
+        switch normalizedInterpreterHost(host) {
+        case "node":
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: ["-c", "--check", "-e", "--eval", "-i", "--interactive", "-p", "--print"],
+                valueOptions: [
+                    "-C", "--conditions", "--diagnostic-dir", "--icu-data-dir", "--import",
+                    "--inspect-port", "--loader", "--openssl-config", "-r", "--require",
+                    "--snapshot-blob", "--test-name-pattern", "--test-reporter",
+                    "--test-reporter-destination", "--title", "--experimental-loader",
+                ],
+                booleanOptions: [
+                    "--enable-source-maps", "--experimental-strip-types",
+                    "--experimental-transform-types", "--no-addons", "--no-deprecation",
+                    "--no-warnings", "--preserve-symlinks", "--preserve-symlinks-main",
+                    "--test", "--trace-deprecation", "--trace-warnings", "--use-bundled-ca",
+                    "--use-openssl-ca", "--use-system-ca", "--watch",
+                ]
+            )
+        case "bun":
+            if index < arguments.count, arguments[index] == "run" { index += 1 }
+            guard index >= arguments.count || !["build", "create", "install", "test", "x"].contains(arguments[index]) else {
+                return nil
+            }
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: ["-e", "--eval", "-p", "--print"],
+                valueOptions: ["--config", "--cwd", "--env-file", "--preload", "-r", "--require", "--title"],
+                booleanOptions: [
+                    "--bun", "--hot", "--no-clear-screen", "--no-install", "--silent",
+                    "--smol", "--watch",
+                ]
+            )
+        case "deno":
+            while index < arguments.count {
+                let argument = arguments[index]
+                if argument == "run" {
+                    index += 1
+                    break
+                }
+                if !argument.hasPrefix("-") {
+                    return looksLikeScriptPath(argument) ? index : nil
+                }
+                guard let width = runtimeOptionWidth(
+                    argument,
+                    evaluationOptions: ["eval"],
+                    valueOptions: ["--config", "--import-map", "--location", "--lock", "--node-modules-dir", "--seed"],
+                    booleanOptions: ["--no-config", "--no-lock", "--quiet", "-q", "--unstable"]
+                ) else { return nil }
+                index += width
+            }
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: [],
+                valueOptions: ["--cert", "--config", "--env-file", "--import-map", "--location", "--lock", "--seed"],
+                booleanOptions: [
+                    "-A", "--allow-all", "--allow-env", "--allow-ffi", "--allow-hrtime",
+                    "--allow-net", "--allow-read", "--allow-run", "--allow-sys", "--allow-write",
+                    "--cached-only", "--no-check", "--no-config", "--no-lock", "--quiet", "-q",
+                    "--reload", "--unstable", "--watch",
+                ]
+            )
+        case "python":
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: ["-c", "-m"],
+                valueOptions: ["-W", "-X"],
+                booleanOptions: ["-B", "-b", "-bb", "-d", "-E", "-I", "-i", "-O", "-OO", "-q", "-s", "-S", "-u", "-v", "-V"]
+            )
+        case "ruby":
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: ["-e", "-S"],
+                valueOptions: ["-C", "-I", "-r"],
+                booleanOptions: ["-d", "-w", "-W0", "-W1", "-W2"]
+            )
+        case "ts-node", "tsx":
+            if index < arguments.count, arguments[index] == "watch" { index += 1 }
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: ["-e", "--eval", "-i", "--interactive", "-p", "--print"],
+                valueOptions: ["--compiler", "--compiler-options", "--cwd", "--project", "-P", "--require", "-r", "--swc"],
+                booleanOptions: ["--esm", "--files", "--skip-project", "--transpile-only", "-T", "--type-check"]
+            )
+        default:
+            return nil
+        }
+    }
+
+    private static func normalizedInterpreterHost(_ host: String) -> String {
+        host.hasPrefix("python3.") || host == "python3" ? "python" : host
+    }
+
+    private static func scriptIndex(
+        in arguments: [String],
+        startingAt startIndex: Int,
+        evaluationOptions: Set<String>,
+        valueOptions: Set<String>,
+        booleanOptions: Set<String>
+    ) -> Int? {
+        var index = startIndex
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                let scriptIndex = index + 1
+                return scriptIndex < arguments.count ? scriptIndex : nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return argument == "-" ? nil : index
+            }
+            guard let width = runtimeOptionWidth(
+                argument,
+                evaluationOptions: evaluationOptions,
+                valueOptions: valueOptions,
+                booleanOptions: booleanOptions
+            ), index + width <= arguments.count else {
+                return nil
+            }
+            index += width
+        }
+        return nil
+    }
+
+    /// Unknown split-form runtime options fail closed because the following
+    /// path could be their value rather than the executed script. Equals-form
+    /// options are self-contained and cannot shift the entrypoint boundary.
+    private static func runtimeOptionWidth(
+        _ argument: String,
+        evaluationOptions: Set<String>,
+        valueOptions: Set<String>,
+        booleanOptions: Set<String>
+    ) -> Int? {
+        let name = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
+        if evaluationOptions.contains(name) { return nil }
+        if argument.contains("=") { return 1 }
+        if valueOptions.contains(name) { return 2 }
+        if booleanOptions.contains(name) { return 1 }
+        return nil
+    }
+
     private static func looksLikeScriptPath(_ argument: String) -> Bool {
         guard !argument.hasPrefix("-") else { return false }
         let normalized = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
@@ -321,6 +508,12 @@ public enum AgentLaunchCaptureTrust {
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             .lowercased()
         return scriptPathMarkersByKind[kind]?.contains(where: normalizedPath.contains) == true
+    }
+
+    private static func directScriptArgument(_ argument: String, describes kind: String) -> Bool {
+        guard let basename = scriptDescriptorBasename(argument) else { return false }
+        let aliases = nativeProcessAliasesByKind[kind] ?? []
+        return basename == kind || aliases.contains(basename) || basename == "\(kind)-cli"
     }
 
     private static func scriptDescriptorBasename(_ argument: String) -> String? {

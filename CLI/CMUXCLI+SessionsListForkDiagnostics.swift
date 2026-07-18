@@ -400,7 +400,8 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord,
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> Bool {
-        guard sessionsListNormalized(record.launchCommand?.source)?.lowercased() != "rejected" else {
+        guard record.restoreAuthority != false,
+              sessionsListNormalized(record.launchCommand?.source)?.lowercased() != "rejected" else {
             return false
         }
         if agent == "gemini" {

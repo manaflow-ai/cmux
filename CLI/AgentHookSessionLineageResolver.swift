@@ -174,7 +174,8 @@ struct AgentHookSessionLineageResolver: Sendable {
                 processName: identity.executableName,
                 arguments: identity.arguments
             ) {
-                if AgentLaunchCaptureTrust.nativeProcessIsSameAgentLauncherRelay(
+                if identity.pid == descendant.parentPID,
+                   AgentLaunchCaptureTrust.nativeProcessIsSameAgentLauncherRelay(
                     parentProcessName: identity.executableName,
                     parentArguments: identity.arguments,
                     childProcessName: descendant.executableName,

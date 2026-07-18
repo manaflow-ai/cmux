@@ -24,12 +24,14 @@ extension AgentLaunchSanitizer {
             "--session", "--resume", "-S", "-r",
             "--continue", "-C",
             "--prompt", "--command", "-p", "-c",
+            "--config", "--mcp-config",
             "--acp", "--wire",
             "--input-format", "--output-format", "--final-message-only",
         ],
         droppedOptionPrefixes: [
             "--session=", "--resume=", "-S=", "-r=",
             "--prompt=", "--command=", "-p=", "-c=",
+            "--config=", "--mcp-config=",
             "--input-format=", "--output-format=",
         ],
         rejectOptions: [

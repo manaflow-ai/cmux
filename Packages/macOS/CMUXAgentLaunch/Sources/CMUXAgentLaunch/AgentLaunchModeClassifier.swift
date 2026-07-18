@@ -29,7 +29,7 @@ public enum AgentLaunchModeClassifier {
 
     static func mode(kind: String, arguments: [String]) -> AgentProcessLaunchMode {
         let kind = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard let policy = policy(for: kind) else { return .unknown }
+        guard var policy = policy(for: kind) else { return .unknown }
         if let protocolMode = longLivedProtocolMode(kind: kind, arguments: arguments, policy: policy) {
             return protocolMode
         }
@@ -49,20 +49,28 @@ public enum AgentLaunchModeClassifier {
             return .oneShot
         }
         let arguments = normalizedArguments(kind: kind, arguments: arguments)
+        if kind == "opencode",
+           containsRawOption(interactiveOptions(for: kind), in: arguments) {
+            guard firstPositional(in: arguments, policy: policy) == "run" else {
+                return .unknown
+            }
+            policy = AgentLaunchSanitizer.openCodeInteractiveRunPolicy
+        }
         let hasOneShotOption = containsOption(oneShotOptions(for: kind), in: arguments, policy: policy)
         let hasInteractiveOption = containsOption(interactiveOptions(for: kind), in: arguments, policy: policy)
         let hasExplicitUnknownOption = containsOption(unknownOptions(for: kind), in: arguments, policy: policy)
+        let hasUnknownOption = containsUnknownOption(in: arguments, policy: policy)
         if hasOneShotOption && (hasInteractiveOption || hasExplicitUnknownOption) {
             return .unknown
         }
         if hasInteractiveOption {
-            return .interactive
+            return hasUnknownOption ? .unknown : .interactive
         }
         if hasExplicitUnknownOption {
             return .unknown
         }
         if hasOneShotOption {
-            return containsUnknownOption(in: arguments, policy: policy) ? .unknown : .oneShot
+            return hasUnknownOption ? .unknown : .oneShot
         }
 
         let commandLocation = firstPositionalLocation(in: arguments, policy: policy)
@@ -86,7 +94,7 @@ public enum AgentLaunchModeClassifier {
                 return .interactive
             }
         }
-        if containsUnknownOption(in: arguments, policy: policy) {
+        if hasUnknownOption {
             return .unknown
         }
         if let command, policy.nonRestorableCommands.contains(command) {
