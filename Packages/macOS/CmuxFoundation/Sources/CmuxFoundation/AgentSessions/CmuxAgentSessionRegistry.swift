@@ -489,6 +489,23 @@ public struct CmuxAgentSessionRegistry: Sendable {
         }
     }
 
+    /// Returns whether an exact compatibility revision has already been
+    /// imported or quarantined after canonical restore-owner verification.
+    /// Canonical rebinds may skip either state; projection readers still use
+    /// `legacySourceIsCurrent` so a quarantined sidecar is repaired normally.
+    public func legacySourceCanBeSkippedForCanonicalRebind(
+        provider: String,
+        stamp: LegacyStamp
+    ) throws -> Bool {
+        try withDatabase { database in
+            try legacySourceCanBeSkippedForCanonicalRebind(
+                database: database,
+                provider: provider,
+                stamp: stamp
+            )
+        }
+    }
+
     /// Imports a complete compatibility snapshot. Generation-zero rows may
     /// replace only other generation-zero rows. Current or future rows win.
     public func importLegacy(

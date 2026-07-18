@@ -1352,11 +1352,11 @@ struct AgentHookSessionStateWriter: Sendable {
         let legacyStamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path)
         let legacyWillRefresh: Bool
         if let legacyStamp {
-            guard let isCurrent = try? registry.legacySourceIsCurrent(
+            guard let canSkip = try? registry.legacySourceCanBeSkippedForCanonicalRebind(
                 provider: provider,
                 stamp: legacyStamp
             ) else { return nil }
-            legacyWillRefresh = !isCurrent
+            legacyWillRefresh = !canSkip
         } else {
             legacyWillRefresh = false
         }

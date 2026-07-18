@@ -121,6 +121,72 @@ struct CmuxAgentSessionRegistryTests {
         #expect(try fixture.registry.snapshot(provider: "claude").records.isEmpty)
     }
 
+    @Test("canonical rebind skips only the exact quarantined legacy revision")
+    func canonicalRebindSkipsExactQuarantinedRevision() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let legacyURL = fixture.directory.appendingPathComponent("codex-hook-sessions.json")
+        let sessionID = "canonical-hibernation"
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let context = CmuxAgentSessionRegistry.RestoreOwnerContext(
+            provider: "codex",
+            sessionID: sessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        try fixture.registry.apply(
+            provider: "codex",
+            records: [try fixture.record(
+                sessionID: sessionID,
+                updatedAt: 20,
+                generation: CmuxAgentSessionRegistry.currentWriterGeneration,
+                extra: [
+                    "sessionState": "hibernated",
+                    "restoreAuthority": true,
+                ]
+            )],
+            activeSlots: [try fixture.slot(
+                provider: "codex",
+                scope: .surface,
+                scopeID: surfaceID,
+                sessionID: sessionID,
+                updatedAt: 20
+            )]
+        )
+        try Data("{broken".utf8).write(to: legacyURL, options: .atomic)
+        let quarantinedStamp = try #require(
+            CmuxAgentSessionRegistry.LegacyStamp.read(path: legacyURL.path)
+        )
+
+        let result = try fixture.registry.refreshLegacySources(
+            [.init(provider: "codex", url: legacyURL)],
+            preservingCanonicalRestoreOwners: [context]
+        )
+
+        #expect(result.failedProviders == ["codex"])
+        #expect(result.verifiedCanonicalRestoreOwners == [context])
+        #expect(try !fixture.registry.legacySourceIsCurrent(
+            provider: "codex",
+            stamp: quarantinedStamp
+        ))
+        #expect(try fixture.registry.legacySourceCanBeSkippedForCanonicalRebind(
+            provider: "codex",
+            stamp: quarantinedStamp
+        ))
+
+        try fixture.legacyStore(sessions: [
+            sessionID: fixture.object(sessionID: sessionID, updatedAt: 21),
+        ]).write(to: legacyURL, options: .atomic)
+        let changedStamp = try #require(
+            CmuxAgentSessionRegistry.LegacyStamp.read(path: legacyURL.path)
+        )
+        #expect(try !fixture.registry.legacySourceCanBeSkippedForCanonicalRebind(
+            provider: "codex",
+            stamp: changedStamp
+        ))
+    }
+
     @Test("restore preflight imports ten thousand legacy rows within a bounded interval")
     func restorePreflightPerformance() throws {
         let fixture = try Fixture()
