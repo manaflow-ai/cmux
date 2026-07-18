@@ -1536,6 +1536,21 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func extensionCanOpenTabFromToolbarAction() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        let selector = NSSelectorFromString(
+            "webExtensionController:openNewTabUsingConfiguration:forExtensionContext:completionHandler:"
+        )
+
+        #expect(manager.responds(to: selector))
+    }
+
+    @available(macOS 15.4, *)
     @Test func userPopupActionPresentsWithoutWaitingForWebKitDelegate() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
