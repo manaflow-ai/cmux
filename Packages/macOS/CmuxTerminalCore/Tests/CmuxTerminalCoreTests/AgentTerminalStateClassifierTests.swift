@@ -90,7 +90,7 @@ struct AgentTerminalStateClassifierTests {
     func wrappedPromptTextCannotImpersonateAnAgent() {
         let wrapped = process(
             executable: "node",
-            arguments: ["node", "/app/tool.js", "--prompt", "please run codex next"]
+            arguments: ["node", "/app/tool.js", "--prompt", "please run @openai/codex next"]
         )
 
         #expect(classifier.recognize(wrapped) == nil)
