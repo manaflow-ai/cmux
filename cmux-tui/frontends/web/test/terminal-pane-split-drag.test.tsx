@@ -54,6 +54,7 @@ function screenView(ratio: number, zoomedPane: number | null = null): ScreenView
     panes: [],
     layout: {
       type: "split",
+      split: 42,
       dir: "right",
       ratio,
       a: { type: "leaf", pane: 1 },
@@ -65,7 +66,7 @@ function screenView(ratio: number, zoomedPane: number | null = null): ScreenView
   };
 }
 
-function terminalPaneProps(onSetRatio: (pane: number, dir: "right" | "down", ratio: number) => Promise<boolean>) {
+function terminalPaneProps(onSetSplitRatio: (split: number, ratio: number) => Promise<boolean>) {
   return {
     client: null as CmuxClient | null,
     clients: [] as ClientInfo[],
@@ -77,7 +78,7 @@ function terminalPaneProps(onSetRatio: (pane: number, dir: "right" | "down", rat
     onSelectTab: vi.fn(),
     onNewTab: vi.fn(),
     onSplit: vi.fn(),
-    onSetRatio,
+    onSetSplitRatio,
     onSelectPane: vi.fn(),
     onZoomPane: vi.fn(),
     onClosePane: vi.fn(),
@@ -118,8 +119,8 @@ describe("TerminalPane split dividers", () => {
   });
 
   it("previews pointer movement, commits once, and reconciles to server layout", async () => {
-    const onSetRatio = vi.fn(async () => true);
-    const props = terminalPaneProps(onSetRatio);
+    const onSetSplitRatio = vi.fn(async () => true);
+    const props = terminalPaneProps(onSetSplitRatio);
     const { getByRole, container, rerender } = render(
       <TerminalPane {...props} screen={screenView(0.5)} />,
     );
@@ -147,8 +148,8 @@ describe("TerminalPane split dividers", () => {
     expect(container.querySelector<HTMLElement>(".pane-leaf")?.style.flex).toContain("75%");
     fireEvent.pointerUp(divider, { pointerId: 7, pointerType: "touch", clientX: 400, clientY: 100 });
 
-    await waitFor(() => expect(onSetRatio).toHaveBeenCalledTimes(1));
-    expect(onSetRatio).toHaveBeenCalledWith(1, "right", 0.75);
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
+    expect(onSetSplitRatio).toHaveBeenCalledWith(42, 0.75);
 
     rerender(<TerminalPane {...props} screen={screenView(0.75)} />);
     rerender(<TerminalPane {...props} screen={screenView(0.6)} />);
@@ -156,8 +157,8 @@ describe("TerminalPane split dividers", () => {
   });
 
   it("rolls the preview back when set-ratio fails", async () => {
-    const onSetRatio = vi.fn(async () => false);
-    const props = terminalPaneProps(onSetRatio);
+    const onSetSplitRatio = vi.fn(async () => false);
+    const props = terminalPaneProps(onSetSplitRatio);
     const { getByRole, container } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
     const divider = getByRole("separator");
     const group = divider.parentElement as HTMLDivElement;
@@ -181,7 +182,7 @@ describe("TerminalPane split dividers", () => {
     fireEvent.pointerUp(divider, { pointerId: 8, pointerType: "mouse", button: 0, clientX: 300 });
 
     await waitFor(() => {
-      expect(onSetRatio).toHaveBeenCalledTimes(1);
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
       expect(container.querySelector<HTMLElement>(".pane-leaf")?.style.flex).toContain("50%");
     });
   });
