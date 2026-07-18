@@ -50,6 +50,12 @@ struct SimulatorFrameTransportCrashTests {
             var snapshot: SimulatorFrameSnapshot? = await source.copyLatestFrame(
                 after: previousSequence
             )
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(2))
+            while snapshot == nil, clock.now < deadline {
+                try await clock.sleep(for: .milliseconds(1))
+                snapshot = await source.copyLatestFrame(after: previousSequence)
+            }
             do {
                 let frame = try #require(snapshot)
                 #expect(frame.sequence == expectedSequence)
