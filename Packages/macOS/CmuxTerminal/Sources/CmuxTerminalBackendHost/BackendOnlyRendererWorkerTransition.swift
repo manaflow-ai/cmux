@@ -15,7 +15,10 @@ struct BackendOnlyRendererWorkerTransition: Sendable {
         state: BackendRendererWorkerState?
     ) -> BackendOnlyRendererWorkerTransitionAction {
         guard currentRendererEpoch == priorRendererEpoch else { return .ignore }
-        return .restart
+        guard rendererEpoch == currentRendererEpoch, state == .ready else {
+            return .restart
+        }
+        return .ignore
     }
 
     static func requiresReceiverRotation(
@@ -27,6 +30,18 @@ struct BackendOnlyRendererWorkerTransition: Sendable {
         effectiveUserID: UInt32?,
         processInstanceToken: BackendRendererProcessInstanceToken?
     ) -> Bool {
-        false
+        guard let currentWorker else { return false }
+        guard currentWorker.daemonInstanceID == daemonInstanceID,
+              currentWorker.rendererEpoch == rendererEpoch,
+              state == .ready,
+              let processID,
+              let signedProcessID = pid_t(exactly: processID),
+              let effectiveUserID,
+              let processInstanceToken else {
+            return true
+        }
+        return currentWorker.processID != signedProcessID
+            || currentWorker.effectiveUserID != effectiveUserID
+            || currentWorker.processInstanceToken != processInstanceToken
     }
 }

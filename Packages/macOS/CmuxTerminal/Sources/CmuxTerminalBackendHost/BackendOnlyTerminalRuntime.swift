@@ -792,6 +792,9 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
               receipt.height == height else {
             throw BackendOnlyHostConnectionError.backendUnavailable
         }
+        // Worker authorization and the endpoint capability are write-once. Let
+        // serialized recovery retire this presentation, then configure the
+        // replacement worker with a fresh receiver and capability.
         if BackendOnlyRendererWorkerTransition.requiresReceiverRotation(
             currentWorker: workerIdentity,
             daemonInstanceID: receipt.daemonInstanceID.rawValue,

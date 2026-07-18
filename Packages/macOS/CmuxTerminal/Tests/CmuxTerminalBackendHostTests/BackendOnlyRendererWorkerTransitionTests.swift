@@ -39,7 +39,9 @@ struct BackendOnlyRendererWorkerTransitionTests {
 
     @Test("authenticated replacement requires a fresh write-once receiver")
     func replacementWorkerRequiresReceiverRotation() {
-        let daemonInstanceID = UUID(uuidString: "10000000-0000-0000-0000-000000000001")!
+        let daemonInstanceID = UUID(
+            uuidString: "10000000-0000-0000-0000-000000000001"
+        )!
         let currentToken = BackendRendererProcessInstanceToken(
             startTimeSeconds: 10,
             startTimeMicroseconds: 20
@@ -77,7 +79,25 @@ struct BackendOnlyRendererWorkerTransitionTests {
             currentWorker: current,
             daemonInstanceID: daemonInstanceID,
             rendererEpoch: 7,
+            state: .ready,
+            processID: 42,
+            effectiveUserID: 501,
+            processInstanceToken: currentToken
+        ))
+        #expect(BackendOnlyRendererWorkerTransition.requiresReceiverRotation(
+            currentWorker: current,
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: 7,
             state: .backoff,
+            processID: nil,
+            effectiveUserID: nil,
+            processInstanceToken: nil
+        ))
+        #expect(!BackendOnlyRendererWorkerTransition.requiresReceiverRotation(
+            currentWorker: nil,
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: 8,
+            state: .starting,
             processID: nil,
             effectiveUserID: nil,
             processInstanceToken: nil
