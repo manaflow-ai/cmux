@@ -4,6 +4,72 @@ import Testing
 
 @Suite(.serialized)
 struct CLICodexHookTimeoutRegressionTests {
+    @Test func codexPromptSubmitDelegatesTranscriptMonitoringToTheApp() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-app-monitor-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("custom codex home", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("custom hook state", isDirectory: true)
+        let transcript = root.appendingPathComponent("transcript.jsonl", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("appmon")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let sessionID = "33333333-3333-3333-3333-333333333333"
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        try #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"turn-1","last_agent_message":"done"}}"#
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceID,
+            connectionLimit: 16
+        )
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: [
+                "HOME": root.path,
+                "CODEX_HOME": codexHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+                "CMUX_AGENT_HOOK_STATE_DIR": stateDirectory.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"session_id":"\#(sessionID)","turn_id":"turn-1","cwd":"\#(root.path)","transcript_path":"\#(transcript.path)","hook_event_name":"UserPromptSubmit","prompt":"test"}"#,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        let request = try #require(commands.snapshot().compactMap(codexHookJSONObject).first {
+            $0["method"] as? String == "agent.sidecar.start"
+        })
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["kind"] as? String == "codex_transcript_monitor")
+        #expect(params["session_id"] as? String == sessionID)
+        #expect(params["turn_id"] as? String == "turn-1")
+        #expect(params["workspace_id"] as? String == workspaceID)
+        #expect(params["surface_id"] as? String == surfaceID)
+        #expect(params["transcript_path"] as? String == transcript.path)
+        let environment = try #require(params["environment"] as? [String: Any])
+        #expect(environment["HOME"] as? String == root.path)
+        #expect(environment["CODEX_HOME"] as? String == codexHome.path)
+        #expect(environment["CMUX_AGENT_HOOK_STATE_DIR"] as? String == stateDirectory.path)
+    }
+
     @Test func codexWrapperUsesOneNativeClientForAllQueuedEvents() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
