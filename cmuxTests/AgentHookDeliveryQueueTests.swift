@@ -1178,6 +1178,7 @@ struct AgentHookDeliveryQueueTests {
             if [ -e "$TMPDIR/first-descendant-active" ]; then
               : > "$TMPDIR/later-started-before-descendant-exit"
             fi
+            : > "$TMPDIR/release-first-descendant"
             printf '%s\n' "$CMUX_AGENT_HOOK_DELIVERY_ID" >> "$TMPDIR/leaders-finished"
             """
         )
@@ -1195,7 +1196,14 @@ struct AgentHookDeliveryQueueTests {
             #!/bin/sh
             printf '%s' "$$" > "$TMPDIR/descendant.pid"
             : > "$TMPDIR/first-descendant-active"
-            /bin/sleep 0.8
+            attempts=0
+            while [ ! -e "$TMPDIR/release-first-descendant" ] && [ "$attempts" -lt 200 ]; do
+              /bin/sleep 0.01
+              attempts=$((attempts + 1))
+            done
+            if [ ! -e "$TMPDIR/release-first-descendant" ]; then
+              : > "$TMPDIR/descendant-release-failsafe"
+            fi
             /bin/rm -f "$TMPDIR/first-descendant-active"
             """
         )
@@ -1203,7 +1211,7 @@ struct AgentHookDeliveryQueueTests {
             databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
             executableURLProvider: { scriptURL },
             processTimeout: 2,
-            lingeringProcessGroupTimeout: 2,
+            lingeringProcessGroupTimeout: 3,
             terminationGrace: 0.05,
             retryBaseDelay: 60,
             retryMaximumDelay: 60,
@@ -1222,22 +1230,20 @@ struct AgentHookDeliveryQueueTests {
 
         try queue.enqueue(first)
         let firstLeaderCompleted = await waitUntil(timeout: .seconds(2)) {
-            FileManager.default.fileExists(
+            let state = try? await queue.diagnosticStatus(for: first.deliveryID)?["state"]
+            return FileManager.default.fileExists(
                 atPath: root.appendingPathComponent("first-descendant-active").path
-            ) && (try? await queue.diagnosticStatus(for: first.deliveryID)?["state"]) == "delivered"
+            ) && state == "delivered"
         }
         #expect(firstLeaderCompleted)
         try queue.enqueue(later)
-        let laterStartedDuringDescendant = await waitUntil(timeout: .seconds(0.4)) {
-            FileManager.default.fileExists(
-                atPath: root.appendingPathComponent("later-started-before-descendant-exit").path
-            )
-        }
-        #expect(laterStartedDuringDescendant)
         await queue.waitUntilCurrentDrainFinishes()
 
         #expect(FileManager.default.fileExists(
             atPath: root.appendingPathComponent("later-started-before-descendant-exit").path
+        ))
+        #expect(!FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("descendant-release-failsafe").path
         ))
         #expect(try lines(at: root.appendingPathComponent("leaders-finished")) == ["lane-later"])
         let descendantPID = try #require(Int32(
@@ -1373,8 +1379,9 @@ struct AgentHookDeliveryQueueTests {
 
         try queue.enqueue(event)
         let permitTransferred = await waitUntil(timeout: .seconds(2)) {
-            FileManager.default.fileExists(atPath: descendantPIDFile.path)
-                && (try? await queue.diagnosticStatus(for: event.deliveryID)?["state"]) == "delivered"
+            let state = try? await queue.diagnosticStatus(for: event.deliveryID)?["state"]
+            return FileManager.default.fileExists(atPath: descendantPIDFile.path)
+                && state == "delivered"
         }
         #expect(permitTransferred)
         await queue.cancelCurrentDrainForTesting()
