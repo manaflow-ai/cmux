@@ -41,6 +41,12 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
+        /// Panes in spatial order. Empty when an older Mac omits hierarchy data.
+        public let panes: [Pane]
+        /// Stable identity of the focused pane, when reported.
+        public let focusedPaneID: String?
+        /// Stable identity of the selected terminal, when reported.
+        public let selectedTerminalID: String?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -55,6 +61,30 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case terminals
+            case panes
+            case focusedPaneID = "focused_pane_id"
+            case selectedTerminalID = "selected_terminal_id"
+        }
+
+        /// Decodes a workspace while preserving compatibility with Macs that
+        /// predate pane hierarchy fields.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
+            title = try container.decode(String.self, forKey: .title)
+            currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+            isSelected = try container.decode(Bool.self, forKey: .isSelected)
+            isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
+            groupID = try container.decodeIfPresent(String.self, forKey: .groupID)
+            preview = try container.decodeIfPresent(String.self, forKey: .preview)
+            previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
+            lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
+            hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
+            terminals = try container.decode([Terminal].self, forKey: .terminals)
+            panes = try container.decodeIfPresent([Pane].self, forKey: .panes) ?? []
+            focusedPaneID = try container.decodeIfPresent(String.self, forKey: .focusedPaneID)
+            selectedTerminalID = try container.decodeIfPresent(String.self, forKey: .selectedTerminalID)
         }
     }
 
@@ -100,6 +130,12 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let isFocused: Bool
         /// Whether the terminal surface is ready, if reported.
         public let isReady: Bool?
+        /// Stable identity of the pane that owns the terminal, if reported.
+        public let paneID: String?
+        /// Whether the Mac currently permits closing this terminal.
+        public let canClose: Bool?
+        /// Whether the close consequence must be confirmed before mutation.
+        public let requiresCloseConfirmation: Bool?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -107,6 +143,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case currentDirectory = "current_directory"
             case isFocused = "is_focused"
             case isReady = "is_ready"
+            case paneID = "pane_id"
+            case canClose = "can_close"
+            case requiresCloseConfirmation = "requires_close_confirmation"
         }
     }
 

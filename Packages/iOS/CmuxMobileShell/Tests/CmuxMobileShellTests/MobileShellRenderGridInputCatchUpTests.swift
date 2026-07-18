@@ -284,20 +284,37 @@ import Testing
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
 
     let surfaceID = "live-terminal"
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: surfaceID)
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold-attach replay response must settle before replacing its barrier"
+    )
+    let mountReplaySettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(mountReplaySettled, "the cold-attach replay must leave the store's in-flight set")
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
 
+    await router.holdNextReplayResponses()
     let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
     let droppedOutputAccepted = store.deliverTerminalBytes(Data("live-during-barrier".utf8), surfaceID: surfaceID)
     #expect(!droppedOutputAccepted)
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: surfaceID)
     let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
     #expect(inputSent)
+    let pendingInputRecorded = try await pollUntil {
+        store.pendingTerminalByteEndSeqBySurfaceID[surfaceID] == 100
+    }
+    #expect(pendingInputRecorded, "the input acknowledgement must install its sequence fence before replay is released")
 
     try await router.enqueueReplayRenderGridFrames([
         renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-replay"),
@@ -305,6 +322,7 @@ import Testing
     ])
     store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
+    await router.releaseAllHeld()
     let retryRequested = await router.waitForCount(
         of: "mobile.terminal.replay",
         atLeast: replayCountAfterMount + 2,

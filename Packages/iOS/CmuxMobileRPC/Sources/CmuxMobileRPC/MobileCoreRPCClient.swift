@@ -455,6 +455,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "mobile.terminal.create", "terminal.create":
             return false
+        case "mobile.terminal.close", "terminal.close",
+             "mobile.terminal.reorder", "terminal.reorder":
+            return !ticketCoverage.ticketCoversTerminalRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",

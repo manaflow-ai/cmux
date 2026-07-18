@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 
 struct CloseOtherTabsConfirmationPrompt: Sendable {
@@ -41,6 +42,83 @@ struct CloseOtherTabsConfirmationPrompt: Sendable {
 }
 
 extension Workspace {
+    nonisolated static func resolveCloseConfirmation(
+        remoteMirrorHasActiveCommand: Bool? = nil,
+        shellActivityState: PanelShellActivityState?,
+        fallbackNeedsConfirmClose: () -> Bool
+    ) -> Bool {
+        if let remoteMirrorHasActiveCommand {
+            return remoteMirrorHasActiveCommand
+        }
+        switch shellActivityState ?? .unknown {
+        case .promptIdle:
+            return false
+        case .commandRunning:
+            return true
+        case .unknown:
+            return fallbackNeedsConfirmClose()
+        }
+    }
+
+    nonisolated static func resolveCloseConfirmation(
+        shellActivityState: PanelShellActivityState?,
+        fallbackNeedsConfirmClose: Bool
+    ) -> Bool {
+        resolveCloseConfirmation(
+            shellActivityState: shellActivityState,
+            fallbackNeedsConfirmClose: { fallbackNeedsConfirmClose }
+        )
+    }
+
+    /// Mobile remote-tmux closes require the live close-time answer. The cache
+    /// is diagnostic context only: a missing live answer must keep the terminal
+    /// until the user explicitly confirms the destructive close.
+    nonisolated static func resolveMobileRemoteCloseConfirmation(
+        cachedHasActiveCommand _: Bool?,
+        liveHasActiveCommand: Bool?
+    ) -> Bool {
+        liveHasActiveCommand ?? true
+    }
+
+    /// Closure overload for hot paths that already have a terminal fallback.
+    /// Known shell activity resolves without touching Ghostty process state.
+    func panelNeedsConfirmClose(
+        panelId: UUID,
+        fallbackNeedsConfirmClose: () -> Bool
+    ) -> Bool {
+        // Mirrored remote tmux window-tabs have manual-I/O surfaces, so their
+        // local fallback cannot tell whether a remote command is active. The
+        // subscription-fed mirror cache is authoritative when available.
+        let remoteMirrorHasActiveCommand = isRemoteTmuxMirror
+            ? AppDelegate.shared?.remoteTmuxController
+                .cachedMirrorTabActivity(workspaceId: id, panelId: panelId)?
+                .hasActiveCommand
+            : nil
+        return Self.resolveCloseConfirmation(
+            remoteMirrorHasActiveCommand: remoteMirrorHasActiveCommand,
+            shellActivityState: panelShellActivityStates[panelId],
+            fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
+        )
+    }
+
+    func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
+        panelNeedsConfirmClose(
+            panelId: panelId,
+            fallbackNeedsConfirmClose: { fallbackNeedsConfirmClose }
+        )
+    }
+
+    func panelNeedsConfirmClose(panelId: UUID) -> Bool {
+        guard let panel = panels[panelId] else { return false }
+        if let terminalPanel = panel as? TerminalPanel {
+            return panelNeedsConfirmClose(
+                panelId: panelId,
+                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+            )
+        }
+        return panel.isDirty
+    }
+
     func closeTabsFromContextMenu(_ tabIds: [TabID], skipPinned: Bool = true) {
         let confirmationManager = owningTabManager
             ?? AppDelegate.shared?.tabManagerFor(tabId: id)

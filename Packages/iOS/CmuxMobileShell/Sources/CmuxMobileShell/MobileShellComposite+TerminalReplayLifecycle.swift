@@ -248,12 +248,21 @@ extension MobileShellComposite {
         token: UUID? = nil,
         reason: String
     ) -> Bool {
-        if let token, terminalReplayBarrierTokensBySurfaceID[surfaceID] != token {
+        let activeReplayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID]
+        if let token, activeReplayBarrierToken != token {
             return false
         }
-        guard terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil else {
+        guard let activeReplayBarrierToken else {
             return false
         }
+        // Retry exhaustion fails open inside prepareTerminalReplayFailureRetry,
+        // before its caller can classify the barrier. Capture the markers
+        // before cleanup so a failed cold/missing-baseline replay cannot
+        // immediately re-arm from the next partial live frame.
+        let wasColdAttachBarrier =
+            terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] == activeReplayBarrierToken
+        let wasMissingBaselineBarrier =
+            terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] == activeReplayBarrierToken
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -267,6 +276,13 @@ extension MobileShellComposite {
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
+        if (wasColdAttachBarrier || wasMissingBaselineBarrier),
+           deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil {
+            // A later full frame establishes the missing baseline and clears
+            // this budget through markTerminalBytesDelivered.
+            terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] =
+                Self.maxTerminalReplayFailureRetries
+        }
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_fail_open surface=\(surfaceID) reason=\(reason)")

@@ -8,7 +8,10 @@ struct WorkspaceRow: View {
 
     let workspace: MobileWorkspacePreview
     let connectionStatus: MobileMacConnectionStatus
-    let isSelected: Bool
+    /// Active Mac workspace identity, rendered in every navigation style.
+    let isCurrent: Bool
+    /// Persistent list selection styling, available only in sidebar layouts.
+    let isSidebarSelected: Bool
     /// When `true`, the workspace title wraps onto multiple lines instead of
     /// truncating to one (driven by the "Wrap Workspace Titles" setting).
     let wrapWorkspaceTitles: Bool
@@ -47,8 +50,12 @@ struct WorkspaceRow: View {
 
                     Text(workspace.name)
                         .font(.headline)
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                        .foregroundStyle(isSidebarSelected ? Color.accentColor : Color.primary)
                         .lineLimit(wrapWorkspaceTitles ? nil : 1)
+
+                    if isCurrent {
+                        CurrentWorkspaceBadge()
+                    }
 
                     Spacer(minLength: 8)
 
@@ -66,9 +73,9 @@ struct WorkspaceRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
-        .padding(.horizontal, isSelected ? 10 : 0)
+        .padding(.horizontal, isSidebarSelected ? 10 : 0)
         .background {
-            if isSelected {
+            if isSidebarSelected {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color.accentColor.opacity(0.14))
             }
@@ -88,6 +95,21 @@ struct WorkspaceRow: View {
 
     private var avatarTextLayoutGap: CGFloat {
         max(0, Self.avatarTextVisualGap - CGFloat(profilePictureLeftShift))
+    }
+}
+
+struct CurrentWorkspaceBadge: View {
+    var body: some View {
+        Label(
+            L10n.string("mobile.workspace.current", defaultValue: "Current"),
+            systemImage: "checkmark.circle.fill"
+        )
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(Color.accentColor)
+        .fixedSize(horizontal: true, vertical: false)
+        // The row exposes the state once through its explicit accessibility
+        // value, so VoiceOver does not announce this visual badge twice.
+        .accessibilityHidden(true)
     }
 }
 

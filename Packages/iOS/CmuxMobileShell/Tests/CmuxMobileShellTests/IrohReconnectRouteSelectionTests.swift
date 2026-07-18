@@ -966,12 +966,11 @@ extension ReconnectRouteSelectionTests {
         clock.advance(by: 61)
         store.resumeForegroundRefresh()
 
-        let recovered = try await pollUntil(attempts: 100) {
-            guard let current = box.get() else { return false }
-            return current !== firstTransport
-                && store.connectionState == .connected
-        }
-        #expect(recovered)
+        let recoveryTask = try #require(store.foregroundConnectionRecoveryTask)
+        await recoveryTask.value
+        let currentTransport = try #require(box.get())
+        #expect(currentTransport !== firstTransport)
+        #expect(store.connectionState == .connected)
         #expect(store.activeRoute?.kind == .iroh)
     }
 

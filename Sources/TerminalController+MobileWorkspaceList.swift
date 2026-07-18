@@ -190,22 +190,31 @@ extension TerminalController {
         windowID: UUID? = nil,
         isSelected: Bool,
         requestedTerminalID: UUID?,
-        notificationStore: TerminalNotificationStore? = nil
+        notificationStore: TerminalNotificationStore? = nil,
+        fallbackNeedsConfirmClose _: ((UUID) -> Bool)? = nil
     ) -> [String: Any] {
-        let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
-            if let requestedTerminalID, terminal.id != requestedTerminalID {
+        let projection = MobileWorkspaceHierarchyProjection(workspace: workspace)
+        let panePayloads: [[String: Any]] = projection.panes.map { pane in
+            return [
+                "id": pane.id.uuidString,
+                "spatial_index": pane.spatialIndex,
+                "is_focused": pane.isFocused,
+                "terminal_ids": pane.terminalIDs.map(\.uuidString),
+            ]
+        }
+        let terminals = projection.terminals.compactMap { terminal -> [String: Any]? in
+            if let requestedTerminalID, terminal.list.id != requestedTerminalID {
                 return nil
             }
-            let terminalDirectory = workspace.effectivePanelDirectory(
-                panelId: terminal.id,
-                localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
-            )
             return [
-                "id": terminal.id.uuidString,
-                "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
-                "current_directory": v2OrNull(terminalDirectory),
-                "is_ready": terminal.surface.surface != nil,
-                "is_focused": terminal.id == workspace.focusedPanelId
+                "id": terminal.list.id.uuidString,
+                "title": terminal.list.title,
+                "current_directory": v2OrNull(terminal.list.currentDirectory),
+                "pane_id": v2OrNull(terminal.list.paneID?.uuidString),
+                "can_close": terminal.list.canClose,
+                "requires_close_confirmation": terminal.list.requiresCloseConfirmation,
+                "is_ready": terminal.list.isReady,
+                "is_focused": terminal.isFocused,
             ]
         }
 
@@ -216,7 +225,7 @@ extension TerminalController {
             "id": workspace.id.uuidString,
             "window_id": v2OrNull(windowID?.uuidString),
             "title": workspace.title,
-            "current_directory": v2OrNull(workspace.presentedCurrentDirectory),
+            "current_directory": v2OrNull(projection.list.currentDirectory),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,
             // Group membership so the phone can fold contiguous same-group
@@ -237,7 +246,10 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
-            "terminals": terminals
+            "terminals": terminals,
+            "panes": panePayloads,
+            "focused_pane_id": v2OrNull(projection.focus.focusedPaneID?.uuidString),
+            "selected_terminal_id": v2OrNull(projection.focus.selectedTerminalID?.uuidString),
         ]
     }
 

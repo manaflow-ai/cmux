@@ -774,9 +774,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
-    /// Strongly-held observers for every active TabManager. Each observer owns
-    /// Combine subscriptions that publish workspace.updated to mobile clients.
-    private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
+    /// Owns per-TabManager mobile observers and their host-wide focus ordering.
+    private let mobileWorkspaceObserverRegistry = MobileWorkspaceObserverRegistry()
     private let agentChatTranscriptService = AgentChatTranscriptService()
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
@@ -4477,17 +4476,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func ensureMobileWorkspaceListObserver(for tabManager: TabManager) {
-        let id = ObjectIdentifier(tabManager)
-        if mobileWorkspaceListObservers[id] == nil {
-            mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(tabManager: tabManager, notificationStore: notificationStore)
-        }
+        mobileWorkspaceObserverRegistry.ensureObserver(
+            for: tabManager,
+            notificationStore: notificationStore
+        )
     }
 
     private func removeMobileWorkspaceListObserverIfUnused(for tabManager: TabManager) {
         guard !mainWindowContexts.values.contains(where: { $0.tabManager === tabManager }) else {
             return
         }
-        mobileWorkspaceListObservers.removeValue(forKey: ObjectIdentifier(tabManager))
+        mobileWorkspaceObserverRegistry.removeObserver(for: tabManager)
     }
 
     /// Register a terminal window with the AppDelegate so menu commands and socket control

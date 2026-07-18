@@ -75,6 +75,12 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
+    /// Panes in spatial order, with ordered terminal membership.
+    public var panes: [MobilePanePreview]
+    /// Stable identity of the focused pane, when reported by the Mac.
+    public var focusedPaneID: MobilePanePreview.ID?
+    /// Stable identity of the selected terminal, when reported by the Mac.
+    public var selectedTerminalID: MobileTerminalPreview.ID?
     /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
     /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
     /// share one avatar color and different Macs are guaranteed distinct. `nil`
@@ -113,6 +119,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - lastActivityAt: When the workspace last had activity. Defaults to `nil`.
     ///   - hasUnread: Whether the workspace has unread activity. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
+    ///   - panes: Stable panes in spatial order with terminal membership.
+    ///   - focusedPaneID: Stable identity of the focused pane, when reported.
+    ///   - selectedTerminalID: Stable identity of the selected terminal, when reported.
     public init(
         id: ID,
         macDeviceID: String? = nil,
@@ -125,7 +134,10 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
-        terminals: [MobileTerminalPreview]
+        terminals: [MobileTerminalPreview],
+        panes: [MobilePanePreview] = [],
+        focusedPaneID: MobilePanePreview.ID? = nil,
+        selectedTerminalID: MobileTerminalPreview.ID? = nil
     ) {
         self.id = id
         self.remoteWorkspaceID = nil
@@ -140,5 +152,55 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
         self.terminals = terminals
+        self.panes = panes
+        self.focusedPaneID = focusedPaneID
+        self.selectedTerminalID = selectedTerminalID
+    }
+
+    /// Pane snapshots suitable for UI grouping, including a compatibility pane
+    /// for older Macs that only report the flat terminal list.
+    public var resolvedPanes: [MobilePanePreview] {
+        guard panes.isEmpty else { return panes.sorted { $0.spatialIndex < $1.spatialIndex } }
+        guard !terminals.isEmpty else { return [] }
+        let fallbackID = MobilePanePreview.ID(rawValue: "\(rpcWorkspaceID.rawValue)-legacy-pane")
+        return [
+            MobilePanePreview(
+                id: fallbackID,
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: terminals.map(\.id)
+            ),
+        ]
+    }
+
+    /// The pane that should receive a top-right New Terminal action.
+    public var terminalCreationPaneID: MobilePanePreview.ID? {
+        focusedPaneID
+            ?? resolvedPanes.first(where: \.isFocused)?.id
+            ?? resolvedPanes.first?.id
+    }
+
+    /// Returns the ordered terminals belonging to `paneID`.
+    public func terminals(in paneID: MobilePanePreview.ID) -> [MobileTerminalPreview] {
+        guard let pane = resolvedPanes.first(where: { $0.id == paneID }) else { return [] }
+        var terminalsByID: [MobileTerminalPreview.ID: MobileTerminalPreview] = [:]
+        for terminal in terminals {
+            terminalsByID[terminal.id] = terminal
+        }
+        return pane.terminalIDs.compactMap { terminalsByID[$0] }
+    }
+
+    /// Returns the terminal's unambiguous pane membership, accepting either a
+    /// matching terminal owner or the pane hierarchy's reported membership.
+    /// - Parameter terminal: The terminal whose pane membership should be resolved.
+    /// - Returns: The owning pane id, or `nil` when membership is absent or ambiguous.
+    public func paneID(containing terminal: MobileTerminalPreview) -> MobilePanePreview.ID? {
+        let membershipPanes = resolvedPanes.filter { $0.terminalIDs.contains(terminal.id) }
+        if let explicitPaneID = terminal.paneID,
+           membershipPanes.contains(where: { $0.id == explicitPaneID }) {
+            return explicitPaneID
+        }
+        guard membershipPanes.count == 1 else { return nil }
+        return membershipPanes[0].id
     }
 }

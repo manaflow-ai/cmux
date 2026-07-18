@@ -3,17 +3,39 @@ import Foundation
 
 extension Workspace {
     @discardableResult
-    func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
+    func reorderSurface(
+        panelId: UUID,
+        toIndex index: Int,
+        focus: Bool = true,
+        remoteVerificationToken: UUID? = nil,
+        onRemoteVerification: ((RemoteTmuxMutationOutcome) -> Void)? = nil
+    ) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil
-        let reordered: Bool
-        if let mirrorPaneId {
-            reordered = performRemoteTmuxMirrorOrderMutation(in: mirrorPaneId) {
-                bonsplitController.reorderTab(tabId, toIndex: index)
+        let reorder: () -> Bool = { [self] in
+            if let mirrorPaneId {
+                return performRemoteTmuxMirrorOrderMutation(
+                    in: mirrorPaneId,
+                    verificationToken: remoteVerificationToken,
+                    onVerification: onRemoteVerification
+                ) {
+                    bonsplitController.reorderTab(tabId, toIndex: index)
+                }
             }
-        } else {
             guard !isRemoteTmuxMirror else { return false }
-            reordered = bonsplitController.reorderTab(tabId, toIndex: index)
+            return bonsplitController.reorderTab(tabId, toIndex: index)
+        }
+        let reordered: Bool
+        if focus {
+            reordered = reorder()
+        } else {
+            // Bonsplit selects and focuses the moved tab even for a pure reorder.
+            // Keep the shared mutation transaction active so its snapshot restores
+            // every pane selection and the original focused pane before callbacks
+            // can redirect keyboard input.
+            reordered = performRemoteTmuxMirrorMutation {
+                reorder()
+            }
         }
         guard reordered else { return false }
         if focus, let paneId = paneId(forPanelId: panelId) {
@@ -29,19 +51,37 @@ extension Workspace {
     func performRemoteTmuxMirrorOrderMutation(
         in paneId: PaneID,
         beforeRollback: () -> Void = {},
-        onVerification: ((Bool) -> Void)? = nil,
+        verificationToken: UUID? = nil,
+        onVerification: ((RemoteTmuxMutationOutcome) -> Void)? = nil,
         _ mutation: () -> Bool
     ) -> Bool {
         let tabs = bonsplitController.tabs(inPane: paneId)
         let previousPanelOrder = tabs.compactMap { panelIdFromSurfaceId($0.id) }
-        guard previousPanelOrder.count == tabs.count, remoteTmuxWindowOrderSync != nil else { return false }
+        guard previousPanelOrder.count == tabs.count,
+              remoteTmuxWindowOrderSyncWithToken != nil || remoteTmuxWindowOrderSync != nil else {
+            return false
+        }
         return performRemoteTmuxMirrorMutation {
             guard mutation() else { return false }
             let desiredPanelOrder = bonsplitController.tabs(inPane: paneId).compactMap {
                 panelIdFromSurfaceId($0.id)
             }
-            guard desiredPanelOrder.count == tabs.count,
-                  remoteTmuxWindowOrderSync?(desiredPanelOrder, onVerification) == true else {
+            guard desiredPanelOrder.count == tabs.count else {
+                beforeRollback()
+                _ = reorderRemoteTmuxMirrorTabs(toPanelOrder: previousPanelOrder)
+                return false
+            }
+            let synchronized: Bool
+            if let remoteTmuxWindowOrderSyncWithToken {
+                synchronized = remoteTmuxWindowOrderSyncWithToken(
+                    desiredPanelOrder,
+                    verificationToken,
+                    onVerification
+                )
+            } else {
+                synchronized = remoteTmuxWindowOrderSync?(desiredPanelOrder, onVerification) == true
+            }
+            guard synchronized else {
                 beforeRollback()
                 _ = reorderRemoteTmuxMirrorTabs(toPanelOrder: previousPanelOrder)
                 return false

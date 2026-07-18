@@ -105,9 +105,9 @@ struct MobileWorkspaceListFidelityTests {
         #expect(ordered.count == 3)
 
         let versionBefore = workspace.paneLayoutVersion
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
-            selectedTabID: workspace.id
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
         )
 
         // Move the first terminal to the end. Same panel set, different spatial order.
@@ -126,9 +126,9 @@ struct MobileWorkspaceListFidelityTests {
             "a pure reorder must bump paneLayoutVersion so the observer re-evaluates"
         )
 
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
-            selectedTabID: workspace.id
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
         )
         #expect(before != after, "a pure reorder must change the mobile summary hash")
     }
@@ -137,9 +137,9 @@ struct MobileWorkspaceListFidelityTests {
         let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 2)
         let panelId = try #require(ordered.first)
 
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
-            selectedTabID: workspace.id
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
         )
 
         // A terminal rename sets panelCustomTitles (not panelTitles); the observer
@@ -148,9 +148,9 @@ struct MobileWorkspaceListFidelityTests {
         workspace.setPanelCustomTitle(panelId: panelId, title: "Renamed Terminal")
         #expect(workspace.panelTitle(panelId: panelId) == "Renamed Terminal")
 
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
-            selectedTabID: workspace.id
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
         )
         #expect(before != after, "a terminal rename must change the mobile summary hash")
     }
@@ -158,18 +158,18 @@ struct MobileWorkspaceListFidelityTests {
     @Test func renamingWorkspaceChangesObserverHashAndDisplayedTitle() throws {
         let (workspace, _) = try makeWorkspaceWithTabTerminals(count: 1)
 
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
-            selectedTabID: workspace.id
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
         )
 
         workspace.setCustomTitle("Renamed Workspace")
         // The mobile workspace.list response sends workspace.title.
         #expect(workspace.title == "Renamed Workspace")
 
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
-            selectedTabID: workspace.id
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
         )
         #expect(before != after, "a workspace rename must change the mobile summary hash")
     }
@@ -187,19 +187,19 @@ struct MobileWorkspaceListFidelityTests {
         let groupId = try #require(manager.createWorkspaceGroup(name: "Group A"))
         #expect(member.groupId == nil)
 
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
             groups: manager.workspaceGroups,
-            selectedTabID: manager.selectedTabId
+            selectedTabID: manager.selectedTabId, previewSignatures: [:]
         )
 
         // Move the workspace into the group: only `groupId` changes.
         member.groupId = groupId
 
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
             groups: manager.workspaceGroups,
-            selectedTabID: manager.selectedTabId
+            selectedTabID: manager.selectedTabId, previewSignatures: [:]
         )
         #expect(before != after, "a pure group-membership move must change the mobile summary hash")
     }
@@ -212,22 +212,22 @@ struct MobileWorkspaceListFidelityTests {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
 
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
             groups: manager.workspaceGroups,
             selectedTabID: manager.selectedTabId,
             previewSignatures: [:]
         )
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
             groups: manager.workspaceGroups,
             selectedTabID: manager.selectedTabId,
             previewSignatures: [workspace.id: 42]
         )
         #expect(before != after, "a preview-signature change must change the mobile summary hash")
 
-        let changed = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
+        let changed = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
             groups: manager.workspaceGroups,
             selectedTabID: manager.selectedTabId,
             previewSignatures: [workspace.id: 43]
@@ -249,9 +249,9 @@ struct MobileWorkspaceListFidelityTests {
         let configuration = sshRemoteConfiguration()
         workspace.configureRemoteConnection(configuration, autoConnect: false)
 
-        let untrustedHash = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
-            selectedTabID: manager.selectedTabId
+        let untrustedHash = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs, groups: [],
+            selectedTabID: manager.selectedTabId, previewSignatures: [:]
         )
         let untrustedPayload = TerminalController.shared.mobileWorkspacePayload(
             workspace: workspace,
@@ -264,9 +264,9 @@ struct MobileWorkspaceListFidelityTests {
         #expect(untrustedTerminal["current_directory"] is NSNull)
 
         workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
-        let trustedHash = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
-            selectedTabID: manager.selectedTabId
+        let trustedHash = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs, groups: [],
+            selectedTabID: manager.selectedTabId, previewSignatures: [:]
         )
         #expect(untrustedHash != trustedHash, "trusting a remote cwd must refresh the mobile list")
         let trustedPayload = TerminalController.shared.mobileWorkspacePayload(
@@ -290,9 +290,9 @@ struct MobileWorkspaceListFidelityTests {
         #expect(try #require(disconnectedTerminals.first)["current_directory"] is NSNull)
 
         workspace.configureRemoteConnection(configuration, autoConnect: false)
-        let clearedHash = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
-            selectedTabID: manager.selectedTabId
+        let clearedHash = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs, groups: [],
+            selectedTabID: manager.selectedTabId, previewSignatures: [:]
         )
         #expect(clearedHash != trustedHash, "clearing remote cwd trust must refresh the mobile list")
         let clearedPayload = TerminalController.shared.mobileWorkspacePayload(
@@ -323,17 +323,17 @@ struct MobileWorkspaceListFidelityTests {
         #expect(workspace.reportedPanelDirectory(panelId: trustedPanelId) == remoteDirectory)
         #expect(workspace.reportedPanelDirectory(panelId: untrustedPanel.id) == nil)
 
-        let trustedFocusHash = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
-            selectedTabID: manager.selectedTabId
+        let trustedFocusHash = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs, groups: [],
+            selectedTabID: manager.selectedTabId, previewSignatures: [:]
         )
         workspace.focusPanel(untrustedPanel.id)
         #expect(workspace.focusedPanelId == untrustedPanel.id)
         #expect(workspace.presentedCurrentDirectory == nil)
 
-        let untrustedFocusHash = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
-            selectedTabID: manager.selectedTabId
+        let untrustedFocusHash = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs, groups: [],
+            selectedTabID: manager.selectedTabId, previewSignatures: [:]
         )
         #expect(
             trustedFocusHash != untrustedFocusHash,
@@ -344,9 +344,9 @@ struct MobileWorkspaceListFidelityTests {
             try #require(workspace.remoteConfiguration),
             autoConnect: false
         )
-        let clearedTrustHash = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
-            selectedTabID: manager.selectedTabId
+        let clearedTrustHash = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs, groups: [],
+            selectedTabID: manager.selectedTabId, previewSignatures: [:]
         )
         #expect(
             untrustedFocusHash != clearedTrustHash,

@@ -28,6 +28,7 @@ struct WorkspaceShellView: View {
     @State var workspaceActionToast: WorkspaceActionToastContent?
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
+    @State private var interactionProfilingSignposts = MobileInteractionProfilingSignposts()
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -71,6 +72,7 @@ struct WorkspaceShellView: View {
                 .accessibilityIdentifier("MobileWorkspaceActionToast")
             }
         }
+        .environment(\.mobileInteractionProfilingSignposts, interactionProfilingSignposts)
     }
 
     private var layoutContent: some View {

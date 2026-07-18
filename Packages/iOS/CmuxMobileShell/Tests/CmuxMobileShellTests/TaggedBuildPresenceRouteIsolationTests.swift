@@ -181,10 +181,11 @@ import Testing
         #expect(try await storedInstanceTag(in: pairedStore) == "default")
         #expect(await pairedStore.currentUpsertCount() == 1)
         #expect(try await storedRoutes(in: pairedStore) == [defaultRoute])
-        let recoveryRan = try await pollUntil(attempts: 50) {
-            store.isRecoveringConnection || store.connectionRecoveryFailed
-        }
-        #expect(recoveryRan)
+        let recoveryTask = try #require(store.recoveryTask)
+        await recoveryTask.value
+        #expect(store.storedMacReconnectGenerationForTesting() == 1)
+        #expect(store.connectionState == .disconnected)
+        #expect(store.connectionRecoveryFailed)
     }
 
     @Test func explicitEmptyRoutesClearRegistryWithoutErasingPersistedRoutes() async throws {

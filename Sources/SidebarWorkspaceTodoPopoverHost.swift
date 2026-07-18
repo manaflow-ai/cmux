@@ -406,10 +406,10 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
             let fitting = hostingController.view.fittingSize
             guard fitting.width > 0, fitting.height > 0 else { return }
             guard let popover else { return }
-            CmuxPopoverMutation.setContentSize(NSSize(
+            popover.cmuxSetContentSize(NSSize(
                 width: ceil(max(fitting.width, minWidth)),
                 height: ceil(min(fitting.height, maxHeight))
-            ), on: popover)
+            ))
         }
     }
 }

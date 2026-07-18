@@ -91,7 +91,18 @@ public struct UITestConfig {
             || workspaceDetailDelayedTerminalPreviewEnabled
             || workspaceDetailCreateDelayedTerminalPreviewEnabled
             || Self.workspaceDetailRefreshingTerminalMenuPreviewEnabled
+            || terminalHierarchyPreviewEnabled
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the standalone pane-grouped terminal hierarchy is enabled.
+    public static var terminalHierarchyPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_HIERARCHY_PREVIEW"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_TERMINAL_HIERARCHY_PREVIEW=1")
         #else
         return false
         #endif

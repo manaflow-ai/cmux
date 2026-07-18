@@ -87,6 +87,51 @@ import Testing
         #expect(store.registryDevices.isEmpty)
     }
 
+    @Test func currentTeamDidChangeEvictsSecondaryHierarchyOwnerAndPreservesForeground() throws {
+        let store = MobileShellComposite.preview()
+        let foregroundWorkspace = MobileWorkspacePreview(
+            id: "workspace-shared",
+            macDeviceID: "mac-foreground",
+            name: "Foreground",
+            terminals: []
+        )
+        let secondaryWorkspace = MobileWorkspacePreview(
+            id: "workspace-shared",
+            macDeviceID: "mac-old-team",
+            name: "Old team",
+            terminals: []
+        )
+        store.setWorkspaceStatesForTesting(
+            [
+                "mac-foreground": MacWorkspaceState(
+                    macDeviceID: "mac-foreground",
+                    workspaces: [foregroundWorkspace]
+                ),
+                "mac-old-team": MacWorkspaceState(
+                    macDeviceID: "mac-old-team",
+                    workspaces: [secondaryWorkspace]
+                ),
+            ],
+            foregroundMacDeviceID: "mac-foreground"
+        )
+        let foregroundRowID = try #require(
+            store.workspaces.first(where: { $0.macDeviceID == "mac-foreground" })?.id
+        )
+        let secondaryRowID = try #require(
+            store.workspaces.first(where: { $0.macDeviceID == "mac-old-team" })?.id
+        )
+        store.terminalReorderGate.requireRefresh(workspaceID: foregroundRowID)
+        store.terminalReorderGate.requireRefresh(workspaceID: secondaryRowID)
+
+        store.currentTeamDidChange()
+
+        #expect(store.workspaces.map(\.macDeviceID) == ["mac-foreground"])
+        #expect(store.terminalReorderGate.requiresRefresh(workspaceID: foregroundRowID))
+        #expect(!store.terminalReorderGate.canMutate(workspaceID: foregroundRowID))
+        #expect(!store.terminalReorderGate.requiresRefresh(workspaceID: secondaryRowID))
+        #expect(store.terminalReorderGate.canMutate(workspaceID: secondaryRowID))
+    }
+
     @Test func staleTeamLoadsDoNotClearCurrentTeamLists() async throws {
         let team = MutableTeamID("team-a")
         let pairedStore = DelayedTeamPairedMacStore(

@@ -412,38 +412,6 @@ extension MobileShellComposite {
         await loadRegistryDevices()
     }
 
-    /// Re-fetch the authoritative workspace list from the connected Mac and apply
-    /// it, awaiting the round-trip to completion.
-    @discardableResult
-    func reloadWorkspaceListFromMac(
-        timeoutNanoseconds: UInt64? = nil
-    ) async -> Bool {
-        guard let client = remoteClient else { return false }
-        do {
-            let request = try MobileCoreRPCClient.requestData(
-                method: "mobile.workspace.list",
-                params: [:]
-            )
-            let data = try await client.sendRequest(
-                request,
-                timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
-            )
-            let response = try MobileSyncWorkspaceListResponse.decode(data)
-            guard remoteClient === client, connectionState == .connected else { return false }
-            applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
-            syncSelectedTerminalForWorkspace()
-            return true
-        } catch {
-            mobileShellLog.error(
-                "workspace list event refresh failed: \(String(describing: error), privacy: .private)"
-            )
-            if remoteClient === client {
-                _ = disconnectForAuthorizationFailureIfNeeded(error)
-            }
-            return false
-        }
-    }
-
     /// - Parameter pairedMacDeviceID: the REAL paired-Mac device id when the caller
     ///   knows it (switch/reconnect/device-row paths). A manual host whose Mac lacks
     ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;

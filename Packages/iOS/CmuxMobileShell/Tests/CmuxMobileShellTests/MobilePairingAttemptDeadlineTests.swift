@@ -27,7 +27,7 @@ import Testing
         #expect(store.connectionError?.contains("127.0.0.1") == true)
     }
 
-    @Test func immediatePairingRetryDoesNotStartSecondStuckConnect() async throws {
+    @Test func repeatedPairingRetriesCapAbandonedConnectFallbacksAtTwo() async throws {
         let transport = CountingSlowIgnoringCancellationTransport()
         let runtime = PairingDeadlineRuntime(
             transportFactory: CountingSlowIgnoringCancellationTransportFactory(transport: transport)
@@ -37,12 +37,17 @@ import Testing
         let pairingURL = try Self.pairingURL()
         let first = await store.connectPairingURLResult(pairingURL)
         let second = await store.connectPairingURLResult(pairingURL)
+        let third = await store.connectPairingURLResult(pairingURL)
         let connectCount = await transport.connectCount()
         await transport.releaseStuckConnects()
 
         #expect(first == .failed)
         #expect(second == .failed)
-        #expect(connectCount == 1)
+        #expect(third == .failed)
+        #expect(
+            connectCount <= 2,
+            "cleanup may release one abandoned route lease for a bounded fallback, but the second abandonment must hard-gate further connects"
+        )
         #expect(store.connectionState == .disconnected)
     }
 

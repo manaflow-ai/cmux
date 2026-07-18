@@ -17,8 +17,8 @@ struct WorkspaceGroupHeaderRow: View {
     /// sidebar header badge so collapsing a group never hides activity.
     let hasUnread: Bool
     let navigationStyle: WorkspaceNavigationStyle
-    /// Whether the anchor workspace is the current selection (sidebar style only).
-    let isAnchorSelected: Bool
+    /// Whether the anchor workspace is active on its Mac in any navigation style.
+    let isAnchorCurrent: Bool
     /// Select the anchor workspace in sidebar layouts.
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Create a new workspace inside this group. Hidden when `nil`.
@@ -86,6 +86,9 @@ struct WorkspaceGroupHeaderRow: View {
                 .font(.system(size: 15, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
+            if isAnchorCurrent {
+                CurrentWorkspaceBadge()
+            }
             if group.isPinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 11, weight: .semibold))
@@ -126,11 +129,7 @@ struct WorkspaceGroupHeaderRow: View {
             anchorTarget
                 // The dot itself is accessibility-hidden; VoiceOver hears the
                 // unread state on the anchor target, like workspace rows.
-                .accessibilityValue(
-                    hasUnread
-                        ? L10n.string("mobile.workspace.unread", defaultValue: "Unread")
-                        : ""
-                )
+                .accessibilityValue(anchorAccessibilityValue)
         }
         .padding(.vertical, 2)
         .padding(.horizontal, 4)
@@ -138,7 +137,7 @@ struct WorkspaceGroupHeaderRow: View {
             // Sidebar style highlights the active anchor's header, mirroring the
             // desktop header background when its anchor is selected. Push style
             // has no persistent selection, so it stays clear.
-            (navigationStyle == .sidebar && isAnchorSelected)
+            (navigationStyle == .sidebar && isAnchorCurrent)
                 ? Color.primary.opacity(0.08)
                 : Color.clear
         )
@@ -182,6 +181,17 @@ struct WorkspaceGroupHeaderRow: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceGroupHeader-\(group.id.rawValue)")
+    }
+
+    private var anchorAccessibilityValue: String {
+        var parts: [String] = []
+        if isAnchorCurrent {
+            parts.append(L10n.string("mobile.workspace.current.a11y", defaultValue: "Current workspace"))
+        }
+        if hasUnread {
+            parts.append(L10n.string("mobile.workspace.unread", defaultValue: "Unread"))
+        }
+        return parts.joined(separator: ", ")
     }
 
     @ViewBuilder

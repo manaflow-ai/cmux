@@ -5,11 +5,16 @@ import Foundation
 actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var recordsByTeam: [String: [MobilePairedMac]]
     private let blockedTeams: Set<String>
+    private var releasedTeams: Set<String> = []
     private var startedTeams: Set<String> = []
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
     private var upsertCount = 0
     private var loadAllCount = 0
+    private var gatedLoadAllOrdinals: Set<Int> = []
+    private var startedLoadAllOrdinals: Set<Int> = []
+    private var loadAllStartWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private var loadAllBlockers: [Int: CheckedContinuation<Void, Never>] = [:]
     private var recordReplacement: (
         afterLoadAllCount: Int,
         teamKey: String,
@@ -140,9 +145,18 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         loadAllCount += 1
+        let ordinal = loadAllCount
+        if gatedLoadAllOrdinals.contains(ordinal) {
+            startedLoadAllOrdinals.insert(ordinal)
+            let waiters = loadAllStartWaiters.removeValue(forKey: ordinal) ?? []
+            for waiter in waiters { waiter.resume() }
+            await withCheckedContinuation { continuation in
+                loadAllBlockers[ordinal] = continuation
+            }
+        }
         let key = teamID ?? ""
         markStarted(key)
-        if blockedTeams.contains(key) {
+        if blockedTeams.contains(key), !releasedTeams.contains(key) {
             await withCheckedContinuation { continuation in
                 blockers[key] = continuation
             }
@@ -220,6 +234,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func release(teamID: String?) {
         let key = teamID ?? ""
+        releasedTeams.insert(key)
         blockers.removeValue(forKey: key)?.resume()
     }
 
@@ -248,6 +263,21 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func currentLoadAllCount() -> Int {
         loadAllCount
+    }
+
+    func gateLoadAll(number: Int) {
+        gatedLoadAllOrdinals.insert(number)
+    }
+
+    func waitUntilLoadAllStarted(number: Int) async {
+        if startedLoadAllOrdinals.contains(number) { return }
+        await withCheckedContinuation { continuation in
+            loadAllStartWaiters[number, default: []].append(continuation)
+        }
+    }
+
+    func releaseLoadAll(number: Int) {
+        loadAllBlockers.removeValue(forKey: number)?.resume()
     }
 
     func gateUpsert(macDeviceID: String) {

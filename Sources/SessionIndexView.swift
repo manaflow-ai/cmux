@@ -2070,9 +2070,8 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
 
         private func updatePopoverSize() {
             guard let popover else { return }
-            CmuxPopoverMutation.setContentSize(
-                NSSize(width: sizeModel.size.width, height: sizeModel.size.height),
-                on: popover
+            popover.cmuxSetContentSize(
+                NSSize(width: sizeModel.size.width, height: sizeModel.size.height)
             )
         }
     }

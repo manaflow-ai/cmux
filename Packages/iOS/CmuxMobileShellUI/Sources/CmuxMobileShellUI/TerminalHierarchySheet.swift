@@ -1,0 +1,646 @@
+import CmuxMobileShell
+import CmuxMobileShellModel
+import CmuxMobileSupport
+import Foundation
+import SwiftUI
+#if canImport(UIKit)
+@preconcurrency import UIKit
+#endif
+
+struct TerminalHierarchySheet: View {
+    let snapshot: TerminalHierarchySnapshot
+    let createTerminal: (
+        @escaping @MainActor (Result<Void, MobileWorkspaceMutationFailure>) -> Void
+    ) -> Void
+    let selectTerminal: (MobileTerminalPreview.ID) -> Void
+    let reorderGate: MobileTerminalReorderGate
+    let reorderTerminal: (
+        MobileTerminalReorderIntent,
+        MobileTerminalReorderReservation
+    ) async -> Result<Void, MobileWorkspaceMutationFailure>
+    let closeTerminal: (
+        MobileTerminalPreview.ID,
+        Bool,
+        MobileTerminalReorderReservation
+    ) async -> Result<Void, MobileWorkspaceMutationFailure>
+    let refreshTerminals: () async -> Bool
+    let presentationProfilingGeneration: UUID?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.mobileInteractionProfilingSignposts) private var interactionProfilingSignposts
+    @State private var pendingClose: TerminalHierarchyRowSnapshot?
+    @State private var closeConfirmationIncludesRunningProcess = false
+    @State private var isCloseConfirmationPresented = false
+    @State private var mutationFailed = false
+    @State private var mutationProtected = false
+    @State private var closeProtected = false
+    @State private var mutationResultUnknownRefreshed = false
+    @State private var closeUnavailable = false
+    @State private var moveUnavailable = false
+    @State private var showRefreshAlert = false
+    @State private var refreshResultIsUnknown = false
+    @State private var refreshStateWasStale = false
+    @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
+    @State private var pendingMutationProfiling: TerminalHierarchyMutationProfilingPending?
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    LabeledContent(
+                        L10n.string("mobile.terminal.hierarchy.workspace", defaultValue: "Workspace"),
+                        value: snapshot.workspaceName
+                    )
+                    .accessibilityIdentifier("MobileTerminalHierarchyWorkspace")
+                    if snapshot.connectionStatus != .connected {
+                        Label(
+                            connectionLabel,
+                            systemImage: snapshot.connectionStatus == .reconnecting
+                                ? "arrow.trianglehead.2.clockwise.rotate.90"
+                                : "wifi.slash"
+                        )
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("MobileTerminalHierarchyConnection")
+                    }
+                    if snapshot.requiresReorderRefresh
+                        || reorderGate.requiresRefresh(workspaceID: snapshot.workspaceID) {
+                        Button(action: recoverHierarchy) {
+                            Label(
+                                L10n.string(
+                                    "mobile.terminal.hierarchy.refreshAction",
+                                    defaultValue: "Refresh Terminal List"
+                                ),
+                                systemImage: "arrow.clockwise"
+                            )
+                        }
+                        .disabled(reorderGate.isActive(workspaceID: snapshot.workspaceID))
+                        .accessibilityIdentifier("MobileTerminalHierarchyRefresh")
+                    }
+                }
+                if snapshot.panes.isEmpty {
+                    emptyState
+                } else {
+                    ForEach(snapshot.panes) { pane in
+                        terminalSection(presentedPane(pane))
+                    }
+                }
+            }
+            .accessibilityIdentifier("MobileTerminalHierarchyList")
+            .navigationTitle(L10n.string("mobile.terminal.hierarchy.title", defaultValue: "Terminals"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { hierarchyToolbar }
+            .confirmationDialog(
+                L10n.string("mobile.terminal.hierarchy.closeTitle", defaultValue: "Close Terminal?"),
+                isPresented: closeConfirmationIsPresented,
+                titleVisibility: .visible,
+                presenting: pendingCloseConfirmation
+            ) { confirmation in
+                Button(
+                    L10n.string("mobile.terminal.hierarchy.closeAction", defaultValue: "Close Terminal"),
+                    role: .destructive,
+                    action: confirmation.action(confirmPendingClose)
+                )
+                .accessibilityIdentifier(
+                    "MobileTerminalHierarchyCloseConfirm-\(confirmation.row.id.rawValue)"
+                )
+                Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                    clearPendingClose()
+                }
+            } message: { confirmation in
+                Text(confirmation.row.closeConsequence(
+                    requiresProcessConfirmation: confirmation.confirmed
+                ))
+            }
+            .alert(
+                L10n.string("mobile.terminal.hierarchy.errorTitle", defaultValue: "Couldn't Update Terminals"),
+                isPresented: $mutationFailed
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+            } message: {
+                Text(
+                    L10n.string(
+                        "mobile.terminal.hierarchy.errorMessage",
+                        defaultValue: "The Mac kept the previous terminal state. Check the connection and try again."
+                    )
+                )
+            }
+            .alert(
+                refreshAlertTitle,
+                isPresented: $showRefreshAlert
+            ) {
+                Button(L10n.string("mobile.common.refresh", defaultValue: "Refresh")) {
+                    recoverHierarchy()
+                }
+                Button(L10n.string("mobile.common.later", defaultValue: "Later"), role: .cancel) {}
+            } message: {
+                Text(refreshAlertMessage)
+            }
+            .alert(
+                L10n.string("mobile.terminal.hierarchy.protectedTitle", defaultValue: "Pinned Order Protected"),
+                isPresented: $mutationProtected
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+            } message: {
+                Text(
+                    L10n.string(
+                        "mobile.terminal.hierarchy.protectedMessage",
+                        defaultValue: "Pinned terminals stay before unpinned terminals. Move this terminal without crossing a pinned terminal."
+                    )
+                )
+            }
+            .alert(
+                L10n.string(
+                    "mobile.terminal.hierarchy.closeProtectedTitle",
+                    defaultValue: "Pinned Terminal Protected"
+                ),
+                isPresented: $closeProtected
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+                    .accessibilityIdentifier("MobileTerminalHierarchyCloseProtectedOK")
+            } message: {
+                Text(
+                    L10n.string(
+                        "mobile.terminal.hierarchy.closeProtectedMessage",
+                        defaultValue: "Unpin this terminal on the Mac before closing it."
+                    )
+                )
+                .accessibilityIdentifier("MobileTerminalHierarchyCloseProtectedMessage")
+            }
+            .terminalHierarchyResultUnknownRefreshedAlert(isPresented: $mutationResultUnknownRefreshed)
+            .terminalHierarchyCloseUnavailableAlert(isPresented: $closeUnavailable)
+            .terminalHierarchyMoveUnavailableAlert(isPresented: $moveUnavailable)
+        }
+        .accessibilityIdentifier("MobileTerminalHierarchySheet")
+        .background {
+            if let interactionProfilingSignposts,
+               interactionProfilingSignposts.isActive {
+                MobileInteractionPresentationDidAppearProbe {
+                    interactionProfilingSignposts.endTerminalHierarchyOpen(
+                        workspaceID: snapshot.workspaceID.rawValue,
+                        generation: presentationProfilingGeneration
+                    )
+                }
+                .id(presentationProfilingGeneration)
+                .frame(width: 0, height: 0)
+            }
+            if let pendingMutationProfiling {
+                MobileInteractionLayoutDisplayCommitProbe(
+                    generation: pendingMutationProfiling.generation,
+                    isReady: pendingMutationProfiling.isReady(in: snapshot),
+                    onCommitted: settleProfilingMutation
+                )
+                .id(pendingMutationProfiling.generation)
+                .frame(width: 0, height: 0)
+            }
+        }
+        .onDisappear {
+            finishPendingProfilingMutation(outcome: .cancelled)
+        }
+    }
+
+    private var emptyState: some View {
+        ContentUnavailableView(
+            L10n.string("mobile.terminal.hierarchy.emptyTitle", defaultValue: "No Terminals"),
+            systemImage: "terminal",
+            description: Text(
+                L10n.string(
+                    "mobile.terminal.hierarchy.emptyMessage",
+                    defaultValue: "Create a terminal in the focused pane to get started."
+                )
+            )
+        )
+        .accessibilityIdentifier("MobileTerminalHierarchyEmpty")
+    }
+
+    private func terminalSection(_ pane: TerminalHierarchyPaneSnapshot) -> some View {
+        let canMutate = mutationAffordancePolicy.canMutate
+        return TerminalHierarchyPaneSection(
+            pane: pane,
+            closeEnabled: canMutate,
+            canReorder: snapshot.canReorder && canMutate,
+            select: select,
+            requestClose: requestClose,
+            reorderAction: { rowIndex, destination in
+                reorderAction(rowIndex: rowIndex, destination: destination, in: pane)
+            },
+            move: { source, destination in
+                move(source: source, destination: destination, in: pane)
+            }
+        )
+    }
+
+    @ToolbarContentBuilder
+    private var hierarchyToolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                dismiss()
+            }
+            .accessibilityIdentifier("MobileTerminalHierarchyDone")
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+            if snapshot.canReorder, snapshot.panes.contains(where: { $0.rows.count > 1 }) {
+                EditButton()
+                    .disabled(!mutationAffordancePolicy.canMutate)
+                    .accessibilityIdentifier("MobileTerminalHierarchyEdit")
+            }
+            Button(action: createAndAnnounce) {
+                Label(
+                    L10n.string("mobile.terminal.new", defaultValue: "New Terminal"),
+                    systemImage: "plus"
+                )
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 44, minHeight: 44)
+            }
+            .disabled(
+                snapshot.connectionStatus != .connected
+                    || !mutationAffordancePolicy.canMutate
+            )
+            .accessibilityIdentifier("MobileTerminalHierarchyNewTerminal")
+        }
+    }
+
+    private var pendingCloseConfirmation: TerminalHierarchyCloseConfirmation? {
+        pendingClose.map {
+            TerminalHierarchyCloseConfirmation(
+                row: $0,
+                confirmed: closeConfirmationIncludesRunningProcess
+            )
+        }
+    }
+
+    private var closeConfirmationIsPresented: Binding<Bool> {
+        Binding(
+            get: { isCloseConfirmationPresented },
+            set: {
+                isCloseConfirmationPresented = $0
+                if !$0 { clearPendingClose() }
+            }
+        )
+    }
+
+    private var connectionLabel: String {
+        snapshot.connectionStatus == .reconnecting
+            ? L10n.string("mobile.terminal.hierarchy.reconnecting", defaultValue: "Reconnecting…")
+            : L10n.string("mobile.terminal.hierarchy.disconnected", defaultValue: "Mac Disconnected")
+    }
+
+    private var mutationAffordancePolicy: TerminalHierarchyMutationAffordancePolicy {
+        TerminalHierarchyMutationAffordancePolicy(
+            reorderGateCanMutate: reorderGate.canMutate(workspaceID: snapshot.workspaceID),
+            interactionProfilingIsActive: interactionProfilingSignposts?.isActive == true,
+            hasPendingMutationProfiling: pendingMutationProfiling != nil
+        )
+    }
+
+    private func select(_ row: TerminalHierarchyRowSnapshot) {
+        if let selectionKind = snapshot.profilingSelectionKind(for: row.id) {
+            interactionProfilingSignposts?.beginTerminalSelection(
+                workspaceID: snapshot.workspaceID.rawValue,
+                terminalID: row.id.rawValue,
+                paneSwitch: selectionKind == .paneSwitch
+            )
+        }
+        selectTerminal(row.id)
+        announce(
+            String(
+                format: L10n.string(
+                    "mobile.terminal.hierarchy.switchedAnnouncement",
+                    defaultValue: "Switched to %@"
+                ),
+                locale: Locale.current,
+                row.title
+            )
+        )
+        dismiss()
+    }
+
+    private func createAndAnnounce() {
+        guard mutationAffordancePolicy.canMutate else { return }
+        let profilingGeneration = beginProfilingMutation(
+            .create(baselineTerminalIDs: Set(snapshot.panes.flatMap(\.rows).map(\.id)))
+        )
+        createTerminal { result in
+            let presentation = TerminalHierarchyCreationResultPresentation(result)
+            switch presentation {
+            case .created:
+                break
+            case .appliedNeedsRefresh:
+                presentRefreshRequired(resultIsUnknown: false)
+            case .resultUnknownNeedsRefresh:
+                presentRefreshRequired(resultIsUnknown: true)
+            case .resultUnknownRefreshed:
+                mutationResultUnknownRefreshed = true
+            case .failed:
+                mutationFailed = true
+            }
+            if presentation == .created {
+                markProfilingMutationAuthoritativelySuccessful(generation: profilingGeneration)
+            } else {
+                finishPendingProfilingMutation(
+                    generation: profilingGeneration,
+                    outcome: .failed
+                )
+            }
+        }
+        announce(L10n.string("mobile.terminal.hierarchy.createdAnnouncement", defaultValue: "Creating terminal"))
+    }
+
+    private func move(
+        source: IndexSet,
+        destination: Int,
+        in pane: TerminalHierarchyPaneSnapshot
+    ) {
+        guard mutationAffordancePolicy.canMutate else { return }
+        guard source.count == 1,
+              let sourceIndex = source.first,
+              pane.rows.indices.contains(sourceIndex) else {
+            mutationFailed = true
+            return
+        }
+        if destination == sourceIndex || destination == sourceIndex + 1 { return }
+        guard let action = TerminalHierarchyMoveAction(
+            source: source,
+            destination: destination,
+            pane: pane
+        ) else {
+            mutationFailed = true
+            return
+        }
+        let profilingGeneration = beginProfilingMutation(
+            .reorder(
+                paneID: pane.id,
+                expectedTerminalIDs: action.optimisticOrder
+            )
+        )
+        action.perform(
+            workspaceID: snapshot.workspaceID,
+            reorderGate: reorderGate,
+            reorderTerminal: reorderTerminal,
+            updateOptimisticOrder: { optimisticTerminalIDsByPane[pane.id] = $0 }
+        ) { outcome in
+            presentMoveOutcome(outcome)
+            if TerminalHierarchyMoveResultPresentation(outcome) == .reordered {
+                markProfilingMutationAuthoritativelySuccessful(generation: profilingGeneration)
+            } else {
+                finishPendingProfilingMutation(
+                    generation: profilingGeneration,
+                    outcome: .failed
+                )
+            }
+        }
+    }
+
+    private func presentMoveOutcome(_ outcome: TerminalHierarchyMoveActionOutcome) {
+        switch TerminalHierarchyMoveResultPresentation(outcome) {
+        case .unavailable:
+            moveUnavailable = true
+        case .reordered:
+            announce(L10n.string("mobile.terminal.hierarchy.reorderedAnnouncement", defaultValue: "Terminal order updated"))
+        case .appliedNeedsRefresh:
+            presentRefreshRequired(resultIsUnknown: false)
+        case .resultUnknownNeedsRefresh:
+            presentRefreshRequired(resultIsUnknown: true)
+        case .resultUnknownRefreshed:
+            mutationResultUnknownRefreshed = true
+        case .staleStateNeedsRefresh:
+            presentRefreshRequired(stateWasStale: true)
+        case .protected:
+            mutationProtected = true
+        case .failed:
+            mutationFailed = true
+        }
+    }
+    private func presentedPane(_ pane: TerminalHierarchyPaneSnapshot) -> TerminalHierarchyPaneSnapshot {
+        guard let optimisticIDs = optimisticTerminalIDsByPane[pane.id] else { return pane }
+        let rowsByID = Dictionary(
+            pane.rows.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return TerminalHierarchyPaneSnapshot(
+            id: pane.id,
+            spatialIndex: pane.spatialIndex,
+            isFocused: pane.isFocused,
+            rows: optimisticIDs.compactMap { rowsByID[$0] },
+            pane: pane.pane
+        )
+    }
+
+    private func reorderAction(
+        rowIndex: Int?,
+        destination: Int?,
+        in pane: TerminalHierarchyPaneSnapshot
+    ) -> (() -> Void)? {
+        guard snapshot.canReorder,
+              mutationAffordancePolicy.canMutate,
+              let rowIndex,
+              let destination,
+              destination >= 0,
+              destination <= pane.rows.count,
+              destination != rowIndex,
+              destination != rowIndex + 1 else {
+            return nil
+        }
+        return { move(source: IndexSet(integer: rowIndex), destination: destination, in: pane) }
+    }
+
+    private func confirmPendingClose(_ confirmation: TerminalHierarchyCloseConfirmation) {
+        guard mutationAffordancePolicy.canMutate else {
+            presentCloseUnavailable()
+            return
+        }
+        let pendingClose = confirmation.row
+        let decision = TerminalHierarchyCloseReservationDecision(
+            terminalID: pendingClose.id,
+            snapshot: snapshot,
+            reorderGate: reorderGate
+        )
+        guard case .reserved(let reservation) = decision else {
+            presentCloseUnavailable()
+            return
+        }
+        let profilingGeneration: UUID?
+        if let operation = TerminalHierarchyMutationProfilingPending.Operation(
+            closing: pendingClose.id,
+            snapshot: snapshot
+        ) {
+            profilingGeneration = beginProfilingMutation(operation)
+        } else {
+            profilingGeneration = nil
+        }
+        clearPendingClose()
+        Task { @MainActor in
+            let result = await closeTerminal(pendingClose.id, confirmation.confirmed, reservation)
+            let presentation = TerminalHierarchyCloseResultPresentation(result)
+            switch presentation {
+            case .closed:
+                announce(L10n.string("mobile.terminal.hierarchy.closedAnnouncement", defaultValue: "Terminal closed"))
+            case .confirmationRequired:
+                self.pendingClose = pendingClose
+                closeConfirmationIncludesRunningProcess = true
+                isCloseConfirmationPresented = true
+            case .appliedNeedsRefresh:
+                presentRefreshRequired(resultIsUnknown: false)
+            case .resultUnknownNeedsRefresh:
+                presentRefreshRequired(resultIsUnknown: true)
+            case .resultUnknownRefreshed:
+                mutationResultUnknownRefreshed = true
+            case .staleStateNeedsRefresh:
+                presentRefreshRequired(stateWasStale: true)
+            case .protected:
+                closeProtected = true
+            case .failed:
+                mutationFailed = true
+            }
+            if presentation == .closed {
+                markProfilingMutationAuthoritativelySuccessful(generation: profilingGeneration)
+            } else {
+                finishPendingProfilingMutation(
+                    generation: profilingGeneration,
+                    outcome: .failed
+                )
+            }
+        }
+    }
+
+    private func beginProfilingMutation(
+        _ operation: TerminalHierarchyMutationProfilingPending.Operation
+    ) -> UUID? {
+        finishPendingProfilingMutation(outcome: .superseded)
+        guard let interactionProfilingSignposts else { return nil }
+        let interval: MobileInteractionProfilingSignposts.Interval?
+        switch operation {
+        case .create:
+            interval = interactionProfilingSignposts.beginTerminalCreate()
+        case .reorder:
+            interval = interactionProfilingSignposts.beginTerminalReorder()
+        case .close:
+            interval = interactionProfilingSignposts.beginTerminalClose()
+        }
+        guard let interval else { return nil }
+        let generation = UUID()
+        pendingMutationProfiling = TerminalHierarchyMutationProfilingPending(
+            generation: generation,
+            interval: interval,
+            operation: operation
+        )
+        return generation
+    }
+
+    private func markProfilingMutationAuthoritativelySuccessful(generation: UUID?) {
+        guard var pendingMutationProfiling,
+              pendingMutationProfiling.generation == generation else { return }
+        pendingMutationProfiling.authoritativeSuccess = true
+        self.pendingMutationProfiling = pendingMutationProfiling
+    }
+
+    private func settleProfilingMutation(generation: UUID) {
+        guard pendingMutationProfiling?.generation == generation,
+              pendingMutationProfiling?.isReady(in: snapshot) == true else { return }
+        finishPendingProfilingMutation(generation: generation, outcome: .settled)
+    }
+
+    private func finishPendingProfilingMutation(
+        generation: UUID? = nil,
+        outcome: MobileInteractionProfilingSignposts.Outcome
+    ) {
+        guard let pendingMutationProfiling,
+              generation == nil || pendingMutationProfiling.generation == generation else { return }
+        switch pendingMutationProfiling.operation {
+        case .create:
+            interactionProfilingSignposts?.endTerminalCreate(
+                pendingMutationProfiling.interval,
+                outcome: outcome
+            )
+        case .reorder:
+            interactionProfilingSignposts?.endTerminalReorder(
+                pendingMutationProfiling.interval,
+                outcome: outcome
+            )
+        case .close:
+            interactionProfilingSignposts?.endTerminalClose(
+                pendingMutationProfiling.interval,
+                outcome: outcome
+            )
+        }
+        self.pendingMutationProfiling = nil
+    }
+
+    private func requestClose(_ row: TerminalHierarchyRowSnapshot) {
+        guard mutationAffordancePolicy.canMutate else { return }
+        pendingClose = row
+        closeConfirmationIncludesRunningProcess = row.requiresCloseConfirmation
+        isCloseConfirmationPresented = true
+    }
+
+    private func presentCloseUnavailable() {
+        clearPendingClose()
+        closeUnavailable = true
+    }
+
+    private func clearPendingClose() {
+        isCloseConfirmationPresented = false
+        pendingClose = nil
+        closeConfirmationIncludesRunningProcess = false
+    }
+
+    private func recoverHierarchy() {
+        if snapshot.requiresReorderRefresh {
+            reorderGate.requireRefresh(workspaceID: snapshot.workspaceID)
+        }
+        guard reorderGate.beginRecovery(workspaceID: snapshot.workspaceID) else { return }
+        Task { @MainActor in
+            let succeeded = await refreshTerminals()
+            reorderGate.finishRecovery(workspaceID: snapshot.workspaceID, succeeded: succeeded)
+            showRefreshAlert = !succeeded
+        }
+    }
+
+    private var refreshAlertTitle: String {
+        if refreshStateWasStale {
+            return L10n.string(
+                "mobile.terminal.hierarchy.staleStateTitle",
+                defaultValue: "Terminal List Out of Date"
+            )
+        }
+        if refreshResultIsUnknown {
+            return L10n.string(
+                "mobile.terminal.hierarchy.resultUnknownTitle",
+                defaultValue: "Terminal State Unknown"
+            )
+        }
+        return L10n.string("mobile.terminal.hierarchy.refreshTitle", defaultValue: "Change Applied")
+    }
+
+    private var refreshAlertMessage: String {
+        if refreshStateWasStale {
+            return L10n.string(
+                "mobile.terminal.hierarchy.staleStateMessage",
+                defaultValue: "The Mac rejected the change because this terminal list is out of date. Refresh before making another change."
+            )
+        }
+        if refreshResultIsUnknown {
+            return L10n.string(
+                "mobile.terminal.hierarchy.resultUnknownMessage",
+                defaultValue: "The Mac may have applied the change. Refresh before making another change."
+            )
+        }
+        return L10n.string(
+            "mobile.terminal.hierarchy.refreshMessage",
+            defaultValue: "The Mac applied the change, but this list could not refresh. Refresh before making another change."
+        )
+    }
+
+    private func presentRefreshRequired(
+        resultIsUnknown: Bool = false,
+        stateWasStale: Bool = false
+    ) {
+        reorderGate.requireRefresh(workspaceID: snapshot.workspaceID)
+        refreshResultIsUnknown = resultIsUnknown
+        refreshStateWasStale = stateWasStale
+        showRefreshAlert = true
+    }
+
+    private func announce(_ message: String) {
+        #if canImport(UIKit)
+        UIAccessibility.post(notification: .announcement, argument: message)
+        #endif
+    }
+}

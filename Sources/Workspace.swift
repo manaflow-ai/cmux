@@ -2528,20 +2528,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     var processTitle: String
 
-    nonisolated static func resolveCloseConfirmation(
-        shellActivityState: PanelShellActivityState?,
-        fallbackNeedsConfirmClose: Bool
-    ) -> Bool {
-        switch shellActivityState ?? .unknown {
-        case .promptIdle:
-            return false
-        case .commandRunning:
-            return true
-        case .unknown:
-            return fallbackNeedsConfirmClose
-        }
-    }
-
     nonisolated private static func makeSessionRestorePolicyService(
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
@@ -4010,7 +3996,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func normalizePinnedTabs(
         in paneId: PaneID,
         beforeMirrorRollback: () -> Void = {},
-        onMirrorVerification: ((Bool) -> Void)? = nil
+        onMirrorVerification: ((RemoteTmuxMutationOutcome) -> Void)? = nil
     ) -> Bool {
         guard !isNormalizingPinnedTabOrder else { return true }
         isNormalizingPinnedTabOrder = true
@@ -4046,7 +4032,7 @@ final class Workspace: Identifiable, ObservableObject {
                 _ = bonsplitController.reorderTab(desiredTab.id, toIndex: index)
             }
         }
-        onMirrorVerification?(true)
+        onMirrorVerification?(.applied)
         return true
     }
 
@@ -4218,12 +4204,16 @@ final class Workspace: Identifiable, ObservableObject {
             if wasPinned { self.pinnedPanelIds.insert(panelId) } else { self.pinnedPanelIds.remove(panelId) }
             self.bonsplitController.updateTab(tabId, isPinned: wasPinned)
         }
-        let handleVerification: (Bool) -> Void = { [weak self] succeeded in
+        let handleVerification: (RemoteTmuxMutationOutcome) -> Void = { [weak self] outcome in
             guard let self,
                   self.pinMutationTokensByPanelId[panelId] == mutationToken else { return }
-            if succeeded {
+            switch outcome {
+            case .applied, .unknown:
+                // An unknown remote result cannot safely roll back a pin whose
+                // corresponding reorder may have landed. Reconnect topology
+                // will reconcile the order; a later user choice owns a new token.
                 self.pinMutationTokensByPanelId.removeValue(forKey: panelId)
-            } else {
+            case .rejected:
                 restorePinState()
             }
         }
@@ -4693,34 +4683,6 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceResumeBindingsByPanelId[panelId]
     }
 
-    func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
-        Self.resolveCloseConfirmation(
-            shellActivityState: panelShellActivityStates[panelId],
-            fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
-        )
-    }
-
-    func panelNeedsConfirmClose(panelId: UUID) -> Bool {
-        guard let panel = panels[panelId] else { return false }
-        // Mirrored remote tmux window-tab: closing it kills the remote window,
-        // and its manual-I/O surface has no local child process for the ghostty
-        // fallback (which reports "needs confirm" whenever the cursor isn't at a
-        // marked prompt — i.e. always, for a mirror). Ask the control connection
-        // whether any of the window's panes is running an active command instead.
-        if isRemoteTmuxMirror,
-           let activity = AppDelegate.shared?.remoteTmuxController
-               .cachedMirrorTabActivity(workspaceId: id, panelId: panelId) {
-            return activity.hasActiveCommand
-        }
-        if let terminalPanel = panel as? TerminalPanel {
-            return panelNeedsConfirmClose(
-                panelId: panelId,
-                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
-            )
-        }
-        return panel.isDirty
-    }
-
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
         let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
         let existing = panelGitBranches[panelId]
@@ -5048,7 +5010,14 @@ final class Workspace: Identifiable, ObservableObject {
     var isRemoteTmuxMirror: Bool = false
     weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
     /// Bound action for this mirror's outbound window-order mutation boundary.
-    var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
+    var remoteTmuxWindowOrderSync: (([UUID], ((RemoteTmuxMutationOutcome) -> Void)?) -> Bool)?
+    /// Tokenized variant used by cancellable mobile RPCs. The token scopes
+    /// cancellation to the exact verification generation it created.
+    var remoteTmuxWindowOrderSyncWithToken: ((
+        [UUID],
+        UUID?,
+        ((RemoteTmuxMutationOutcome) -> Void)?
+    ) -> Bool)?
 
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]

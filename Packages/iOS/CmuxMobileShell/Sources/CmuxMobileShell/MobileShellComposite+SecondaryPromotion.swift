@@ -35,10 +35,17 @@ extension MobileShellComposite {
             secondaryMacSubscriptions[macID] = nil
             return false
         }
+        let refreshStartedGeneration = sub.refreshStartedGeneration
+        let listStartedAtMutationRevision = sub.hierarchyMutationRevision
         guard let previews = await fetchSecondaryWorkspaces(
                   on: sub.client, macDeviceID: macID
               ),
-              secondaryMacSubscriptions[macID] === sub,
+              secondaryListReadIsCurrent(
+                  macDeviceID: macID,
+                  subscription: sub,
+                  refreshStartedGeneration: refreshStartedGeneration,
+                  listStartedAtMutationRevision: listStartedAtMutationRevision
+              ),
               isCurrentMacSwitchAttempt(switchAttemptID),
               let refreshed = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID, teamID: scope.teamID
@@ -49,6 +56,12 @@ extension MobileShellComposite {
                           sub.storedInstanceTag
                       )
               }),
+              secondaryListReadIsCurrent(
+                  macDeviceID: macID,
+                  subscription: sub,
+                  refreshStartedGeneration: refreshStartedGeneration,
+                  listStartedAtMutationRevision: listStartedAtMutationRevision
+              ),
               secondaryMacSubscriptions[macID] === sub,
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   refreshed.instanceTag, sub.storedInstanceTag
@@ -89,11 +102,10 @@ extension MobileShellComposite {
             statusMacAppVersion: nil,
             macDeviceID: macID
         )
-        workspacesByMac[macID] = MacWorkspaceState(
-            macDeviceID: macID,
+        installAuthoritativeSecondaryWorkspaceState(
+            macID: macID,
             displayName: displayName,
             workspaces: previews,
-            status: .connected,
             actionCapabilities: sub.actionCapabilities
         )
         dropStalePreviousForeground(previousForegroundKey)

@@ -40,11 +40,35 @@ extension WorkspaceShellView {
         }
     }
 
-    private func workspaceActionFailureMessage(
+    func workspaceActionFailureMessage(
         action: WorkspaceActionToastAction,
         failure: MobileWorkspaceMutationFailure
     ) -> String {
-        String.localizedStringWithFormat(
+        if case .appliedNeedsRefresh = failure {
+            return L10n.string(
+                "mobile.workspaceAction.failure.appliedNeedsRefresh",
+                defaultValue: "Change applied. Refresh to load the latest state."
+            )
+        }
+        if case .resultUnknownNeedsRefresh = failure {
+            return L10n.string(
+                "mobile.workspaceAction.failure.resultUnknownNeedsRefresh",
+                defaultValue: "The result is unknown. Refresh to load the latest state."
+            )
+        }
+        if case .resultUnknownRefreshed = failure {
+            return L10n.string(
+                "mobile.workspaceAction.failure.resultUnknownRefreshed",
+                defaultValue: "Latest workspace state loaded. Verify the change."
+            )
+        }
+        if case .staleStateNeedsRefresh = failure {
+            return L10n.string(
+                "mobile.workspaceAction.failure.staleStateNeedsRefresh",
+                defaultValue: "The Mac rejected the change because this workspace is out of date. Refresh to load the latest state."
+            )
+        }
+        return String.localizedStringWithFormat(
             L10n.string(
                 "mobile.workspaceAction.failure.message",
                 defaultValue: "Couldn't %@: %@."
@@ -91,6 +115,26 @@ extension WorkspaceShellView {
 
     private func workspaceActionFailureReasonText(_ failure: MobileWorkspaceMutationFailure) -> String {
         switch failure {
+        case .appliedNeedsRefresh:
+            return L10n.string(
+                "mobile.workspaceAction.failure.appliedNeedsRefresh",
+                defaultValue: "Change applied. Refresh to load the latest state."
+            )
+        case .resultUnknownNeedsRefresh:
+            return L10n.string(
+                "mobile.workspaceAction.failure.resultUnknownNeedsRefresh",
+                defaultValue: "The result is unknown. Refresh to load the latest state."
+            )
+        case .resultUnknownRefreshed:
+            return L10n.string(
+                "mobile.workspaceAction.failure.resultUnknownRefreshed",
+                defaultValue: "Latest workspace state loaded. Verify the change."
+            )
+        case .staleStateNeedsRefresh:
+            return L10n.string(
+                "mobile.workspaceAction.failure.staleStateNeedsRefresh",
+                defaultValue: "The Mac rejected the change because this workspace is out of date. Refresh to load the latest state."
+            )
         case let .notConnected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(
@@ -147,7 +191,9 @@ extension WorkspaceShellView {
                 "mobile.workspaceAction.failure.reason.busy.generic",
                 defaultValue: "another workspace action is still finishing"
             )
-        case let .rejected(hostDisplayName):
+        case let .confirmationRequired(hostDisplayName),
+             let .protected(hostDisplayName),
+             let .rejected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(
                     L10n.string(

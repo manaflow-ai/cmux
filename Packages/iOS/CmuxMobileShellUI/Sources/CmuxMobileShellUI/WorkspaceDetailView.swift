@@ -21,7 +21,18 @@ struct WorkspaceDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
-    let createTerminal: () -> Void
+    let createTerminal: (
+        @escaping @MainActor (Result<Void, MobileWorkspaceMutationFailure>) -> Void
+    ) -> Void
+    let reorderTerminal: (
+        MobileTerminalReorderIntent,
+        MobileTerminalReorderReservation
+    ) async -> Result<Void, MobileWorkspaceMutationFailure>
+    let closeTerminal: (
+        MobileTerminalPreview.ID,
+        Bool,
+        MobileTerminalReorderReservation
+    ) async -> Result<Void, MobileWorkspaceMutationFailure>
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     /// Close this workspace on the Mac. When `nil`, the close affordance is
@@ -33,6 +44,7 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
+    @Environment(\.mobileInteractionProfilingSignposts) var interactionProfilingSignposts
     @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
@@ -52,6 +64,12 @@ struct WorkspaceDetailView: View {
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
+    @State var isTerminalHierarchyPresented = false
+    @State var terminalHierarchyProfilingGeneration: UUID?
+    @State var terminalCreationResultUnknownRefreshed = false
+    @State var terminalCreationFailed = false
+    @State var terminalCreationNeedsRefresh = false
+    @State var terminalCreationRefreshResultIsUnknown = false
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -119,16 +137,84 @@ struct WorkspaceDetailView: View {
                 confirm: confirmCloseWorkspaceFromMenu
             )
             .sheet(isPresented: $isFeedbackComposerPresented) {
-                feedbackComposer
+                WorkspaceFeedbackComposer(
+                    isPresented: $isFeedbackComposerPresented,
+                    text: $feedbackText,
+                    email: $feedbackEmail,
+                    isSubmitting: $isSubmittingFeedback,
+                    routesToAgent: feedbackRoutesToAgent,
+                    explanation: feedbackComposerExplanation,
+                    errorMessage: feedbackErrorMessage,
+                    canSubmit: isFeedbackSubmittable,
+                    submit: submitFeedbackFromComposer
+                )
             }
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+            }
+            .sheet(isPresented: $isTerminalHierarchyPresented, onDismiss: {
+                interactionProfilingSignposts?.cancelTerminalHierarchyOpen(
+                    workspaceID: workspace.id.rawValue,
+                    generation: terminalHierarchyProfilingGeneration
+                )
+                interactionProfilingSignposts?.endTerminalSelection(
+                    workspaceID: workspace.id.rawValue,
+                    selectedTerminalID: store.selectedTerminalID?.rawValue
+                )
+                terminalHierarchyProfilingGeneration = nil
+            }) {
+                TerminalHierarchySheet(
+                    snapshot: TerminalHierarchySnapshot(
+                        workspace: workspace,
+                        selectedTerminalID: store.selectedTerminalID
+                    ),
+                    createTerminal: { completion in
+                        browserStore.closeBrowser(for: workspace.id.rawValue)
+                        createTerminal(completion)
+                    },
+                    selectTerminal: selectTerminalFromPicker,
+                    reorderGate: store.terminalReorderGate,
+                    reorderTerminal: reorderTerminal,
+                    closeTerminal: closeTerminal,
+                    refreshTerminals: {
+                        await store.refreshTerminalHierarchy(workspaceID: workspace.id)
+                    },
+                    presentationProfilingGeneration: terminalHierarchyProfilingGeneration
+                )
             }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
+            .terminalHierarchyResultUnknownRefreshedAlert(
+                isPresented: $terminalCreationResultUnknownRefreshed
+            )
+            .alert(
+                L10n.string(
+                    "mobile.terminal.hierarchy.errorTitle",
+                    defaultValue: "Couldn't Update Terminals"
+                ),
+                isPresented: $terminalCreationFailed
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+            } message: {
+                Text(L10n.string(
+                    "mobile.terminal.hierarchy.errorMessage",
+                    defaultValue: "The Mac kept the previous terminal state. Check the connection and try again."
+                ))
+            }
+            .alert(
+                terminalCreationRefreshAlertTitle,
+                isPresented: $terminalCreationNeedsRefresh
+            ) {
+                Button(L10n.string("mobile.common.refresh", defaultValue: "Refresh")) {
+                    createTerminalFromToolbar()
+                }
+                Button(L10n.string("mobile.common.later", defaultValue: "Later"), role: .cancel) {}
+            } message: {
+                Text(terminalCreationRefreshAlertMessage)
+            }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         content
@@ -174,7 +260,8 @@ struct WorkspaceDetailView: View {
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
             hasChatToggle: shouldShowChatToggle,
-            isEnabled: hasTitleMenuActions,
+            hasTerminalAdd: true,
+            isEnabled: true,
             menuContent: { titleMenuContent }
         ) {
             toolbarTitleLabel
@@ -395,6 +482,7 @@ struct WorkspaceDetailView: View {
         }
     }
 
+    @ViewBuilder
     var titleMenuContent: some View {
         WorkspaceTitleMenuContent(
             workspace: workspace,
@@ -405,6 +493,46 @@ struct WorkspaceDetailView: View {
             toggleReadState: toggleWorkspaceReadStateFromMenu,
             requestClose: requestCloseWorkspaceFromMenu
         )
+        Section {
+            Button(action: createWorkspaceFromToolbar) {
+                Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
+            }
+            .disabled(!canCreateWorkspace)
+            .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
+            Button(action: openBrowserFromToolbar) {
+                Label(
+                    L10n.string("mobile.browser.new", defaultValue: "New Browser"),
+                    systemImage: activeBrowser == nil ? "globe" : "checkmark.circle.fill"
+                )
+            }
+            .accessibilityIdentifier("MobileNewBrowserMenuItem")
+        }
+        Section {
+            if activeBrowser == nil && !isChatMode {
+                Button(action: openTextSheetFromMenu) {
+                    Label(
+                        L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
+                        systemImage: "doc.plaintext"
+                    )
+                }
+                .accessibilityIdentifier("MobileViewAsTextMenuItem")
+            }
+
+            #if DEBUG
+            Button(action: copyDebugLogsFromMenu) {
+                Label(L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"), systemImage: "doc.on.clipboard")
+            }
+            .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
+            #endif
+
+            Button(action: openFeedbackComposerFromMenu) {
+                Label(
+                    L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"),
+                    systemImage: "paperplane"
+                )
+            }
+            .accessibilityIdentifier("MobileSendFeedbackMenuItem")
+        }
     }
 
     #endif
@@ -492,62 +620,6 @@ struct WorkspaceDetailView: View {
         store.currentFeedbackRoute == .privilegedAgent
     }
 
-    // Release-safe Send Feedback composer. Privileged @manaflow.ai users on an
-    // active connection ship a diagnostic bundle straight to the paired Mac's
-    // agent sink; everyone else emails the feedback inbox. Either way the
-    // submission is stamped with build type + version + device.
-    private var feedbackComposer: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(feedbackComposerExplanation)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                TextField(
-                    L10n.string("mobile.feedback.placeholder", defaultValue: "What happened?"),
-                    text: $feedbackText,
-                    axis: .vertical
-                )
-                .lineLimit(3...8)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("MobileFeedbackComposerField")
-                if !feedbackRoutesToAgent {
-                    TextField(
-                        L10n.string("mobile.feedback.emailPlaceholder", defaultValue: "Your email"),
-                        text: $feedbackEmail
-                    )
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("MobileFeedbackComposerEmailField")
-                }
-                if let feedbackErrorMessage {
-                    Text(feedbackErrorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("MobileFeedbackComposerError")
-                }
-                Spacer()
-            }
-            .padding(16)
-            .navigationTitle(L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.string("mobile.feedback.cancel", defaultValue: "Cancel")) {
-                        isFeedbackComposerPresented = false
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.string("mobile.feedback.sendAction", defaultValue: "Send"), action: submitFeedbackFromComposer)
-                        .disabled(isSubmittingFeedback || !isFeedbackSubmittable)
-                        .accessibilityIdentifier("MobileFeedbackComposerSend")
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-
     private var feedbackComposerExplanation: String {
         if feedbackRoutesToAgent {
             // Intentionally does not promise the structured event log: that log
@@ -611,12 +683,6 @@ struct WorkspaceDetailView: View {
     }
     #endif
 
-    private func createWorkspaceFromToolbar() {
-        guard canCreateWorkspace else { return }
-        dismissTerminalKeyboardForChrome()
-        createWorkspace()
-    }
-
     /// Arms the close-workspace confirmation. The actual close runs only after
     /// the user confirms, matching the workspace list's destructive-action UX.
     private func requestCloseWorkspaceFromMenu() {
@@ -652,15 +718,6 @@ struct WorkspaceDetailView: View {
         renameWorkspace?(id, trimmed)
     }
     #endif
-
-    private func createTerminalFromToolbar() {
-        dismissTerminalKeyboardForChrome()
-        // Creating a terminal from the (shared) chrome must surface it. If a
-        // browser pane is up, close it so `body` leaves the browser branch and
-        // shows the new terminal instead of staying on the browser.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
-        createTerminal()
-    }
 
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()

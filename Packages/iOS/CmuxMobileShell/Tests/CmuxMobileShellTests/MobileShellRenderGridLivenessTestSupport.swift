@@ -36,6 +36,7 @@ actor LivenessHostRouter {
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
+    private var subscribeResponseCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
     private var replayRequestCount = 0
@@ -75,6 +76,10 @@ actor LivenessHostRouter {
 
     func replayResponsesServed() -> Int {
         replayResponseCount
+    }
+
+    func subscribeResponsesServed() -> Int {
+        subscribeResponseCount
     }
 
     @discardableResult
@@ -318,6 +323,7 @@ actor LivenessHostRouter {
             }
             let alreadySubscribed = hasActiveSubscription
             hasActiveSubscription = true
+            subscribeResponseCount += 1
             return try? Self.resultFrame(id: id, result: [
                 "stream_id": "test-stream",
                 "topics": ["workspace.updated", "terminal.render_grid"],
@@ -602,6 +608,18 @@ func waitForReplayResponsesServed(
 ) async throws {
     let settled = try await pollUntil {
         await router.replayResponsesServed() >= expectedCount
+    }
+    #expect(settled, "\(message)")
+}
+
+@MainActor
+func waitForSubscribeResponsesServed(
+    _ expectedCount: Int,
+    router: LivenessHostRouter,
+    _ message: String
+) async throws {
+    let settled = try await pollUntil {
+        await router.subscribeResponsesServed() >= expectedCount
     }
     #expect(settled, "\(message)")
 }
