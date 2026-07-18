@@ -223,6 +223,65 @@ struct TerminalClientCompositionTests {
     }
 
     @Test @MainActor
+    func backendModeRemotePTYReattachFailsClosedAndPreservesExistingTerminal() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        var failures: [String] = []
+        let composition = TerminalClientComposition.persistent(
+            backendClient: client,
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            topologyFailureReporter: { failures.append($0) }
+        )
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let authorizationGate = try #require(composition.terminalBackendTopologyAuthorizationGate)
+        await authorizationGate.authorize([
+            TerminalBackendTopologyPlacement(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+        ])
+        let workspace = Workspace(
+            id: workspaceID,
+            terminalClientComposition: composition,
+            initialTerminalSurfaceID: surfaceID
+        )
+        defer { workspace.teardownAllPanels() }
+
+        let original = try #require(workspace.focusedTerminalPanel)
+        await client.waitForEnsureCount(1)
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-backend-test",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-backend-lifecycle-test.sock",
+                terminalStartupCommand: "ssh cmux-backend-test",
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "backend-lifecycle-test"
+            ),
+            autoConnect: false
+        )
+        workspace.markPersistentRemotePTYAttachFailed(surfaceId: surfaceID)
+
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to backend lifecycle test",
+            target: "cmux-backend-test"
+        )
+
+        #expect(workspace.terminalPanel(for: surfaceID) === original)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(surfaceID))
+        #expect((await client.ensureRequests()).count == 1)
+        #expect(!(await client.mutations()).contains { $0.mutation == .closeCanonicalTerminal })
+        #expect(failures.count == 1)
+    }
+
+    @Test @MainActor
     func canonicalLastSurfaceRemovalDoesNotCreateSwiftReplacementOrEchoClose() async throws {
         let client = RecordingPersistentTerminalBackendClient()
         let composition = TerminalClientComposition.persistent(
