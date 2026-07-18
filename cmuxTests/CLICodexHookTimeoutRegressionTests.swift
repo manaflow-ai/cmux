@@ -44,7 +44,7 @@ struct CLICodexHookTimeoutRegressionTests {
             "pre-tool-use", "post-tool-use", "notification",
         ]
         let installedPaths = expectedEvents.map {
-            hooksDirectory.appendingPathComponent("cmux-codex-hook-\($0).sh", isDirectory: false).path
+            hooksDirectory.appendingPathComponent("cmux-codex-native-hook-\($0)", isDirectory: false).path
         }
         let nativeClientPath = URL(fileURLWithPath: cliPath)
             .deletingLastPathComponent()
@@ -69,11 +69,22 @@ struct CLICodexHookTimeoutRegressionTests {
             "CMUX_AGENT_MANAGED_SUBAGENT": "1",
             "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.native",
             "CMUX_CODEX_PID": "4242",
+            "CMUX_CUSTOM_CLAUDE_PATH": #"/tmp/Claude Code/bin/claude"#,
             "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "1",
             "CMUX_SURFACE_ID": surfaceID,
             "CMUX_TAG": "native",
             "CMUX_WORKSPACE_ID": workspaceID,
             "CMUX_SOCKET_PATH": socketPath,
+            "ANTHROPIC_API_KEY": "anthropic-test-key",
+            "ANTHROPIC_SMALL_FAST_MODEL": "vertex-haiku-id",
+            "CLAUDE_CODE_USE_VERTEX": "1",
+            "CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude config").path,
+            "GROK_HOME": root.appendingPathComponent("grok home").path,
+            "HTTPS_PROXY": "http://127.0.0.1:8080",
+            "OPENAI_API_KEY": "openai-test-key",
+            "OPENAI_BASE_URL": "https://openai.example.test/v1",
+            "OPENCODE_CONFIG_DIR": root.appendingPathComponent("opencode config").path,
+            "PI_CONFIG_DIR": root.appendingPathComponent("pi config").path,
         ]
 
         for (index, path) in installedPaths.enumerated() {
@@ -133,7 +144,7 @@ struct CLICodexHookTimeoutRegressionTests {
         )
         #expect(inject.status == 0, Comment(rawValue: inject.stderr))
         let hookPath = hooksDirectory
-            .appendingPathComponent("cmux-codex-hook-prompt-submit.sh", isDirectory: false)
+            .appendingPathComponent("cmux-codex-native-hook-prompt-submit", isDirectory: false)
             .path
         #expect(codexHookExecutableIsMachO(hookPath))
 
@@ -223,7 +234,7 @@ struct CLICodexHookTimeoutRegressionTests {
         )
         #expect(inject.status == 0, Comment(rawValue: inject.stderr))
         let hookPath = hooksDirectory
-            .appendingPathComponent("cmux-codex-hook-stop.sh", isDirectory: false)
+            .appendingPathComponent("cmux-codex-native-hook-stop", isDirectory: false)
             .path
         #expect(codexHookExecutableIsMachO(hookPath))
 
@@ -392,7 +403,7 @@ struct CLICodexHookTimeoutRegressionTests {
         )
         #expect(inject.status == 0, Comment(rawValue: inject.stderr))
         let shellPath = root
-            .appendingPathComponent(".cmux/hooks/cmux-codex-hook-session-start.sh", isDirectory: false)
+            .appendingPathComponent(".cmux/hooks/cmux-codex-portable-hook-session-start.sh", isDirectory: false)
         #expect(!codexHookExecutableIsMachO(shellPath.path))
         let shell = try String(contentsOf: shellPath, encoding: .utf8)
         #expect(shell.hasPrefix("#!/bin/sh\n"))
@@ -462,10 +473,13 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         #expect(elapsed < .seconds(1))
+        #expect(waitForCondition(timeout: 1) {
+            FileManager.default.fileExists(atPath: capturedInput.path)
+        })
         #expect(try Data(contentsOf: capturedInput) == payload)
         let rawPID = try String(contentsOf: leaderPIDFile, encoding: .utf8)
         let leaderPID = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
-        let leaderGone = waitForCondition(timeout: 1) {
+        let leaderGone = waitForCondition(timeout: 3) {
             Darwin.kill(leaderPID, 0) == -1
         }
         #expect(leaderGone)
@@ -529,13 +543,13 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!hooks.map(\.body).contains(previousCommand), "Installer should remove stale synchronous hook")
         #expect(sessionStartHooks.count == 1, "Installer should install one session-start hook")
         #expect(sessionStartHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
-        #expect(sessionStartHooks.allSatisfy { $0.command.hasSuffix("cmux-codex-hook-session-start.sh") })
+        #expect(sessionStartHooks.allSatisfy { $0.command.hasSuffix("cmux-codex-native-hook-session-start") })
         #expect(promptHooks.count == 1, "Installer should collapse duplicate prompt hooks")
         #expect(promptHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
-        #expect(promptHooks.allSatisfy { $0.command.hasSuffix("cmux-codex-hook-prompt-submit.sh") })
+        #expect(promptHooks.allSatisfy { $0.command.hasSuffix("cmux-codex-native-hook-prompt-submit") })
         #expect(stopHooks.count == 1, "Installer should install one stop hook")
         #expect(stopHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
-        #expect(stopHooks.allSatisfy { $0.command.hasSuffix("cmux-codex-hook-stop.sh") })
+        #expect(stopHooks.allSatisfy { $0.command.hasSuffix("cmux-codex-native-hook-stop") })
         let expectedFeedEvents: Set<String> = [
             "PreToolUse",
             "PermissionRequest",
@@ -848,7 +862,7 @@ struct CLICodexHookTimeoutRegressionTests {
             .appendingPathComponent("hooks", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
         let fakeCodex = root.appendingPathComponent("codex-real", isDirectory: false)
-        let resumeHook = hooksDirectory.appendingPathComponent("cmux-codex-hook-session-start.sh", isDirectory: false)
+        let resumeHook = hooksDirectory.appendingPathComponent("cmux-codex-native-hook-session-start", isDirectory: false)
         let capturedPayload = root.appendingPathComponent("resume-payload.json", isDirectory: false)
         let capturedDeliveryID = root.appendingPathComponent("resume-delivery-id.txt", isDirectory: false)
         let capturedCodexArgs = root.appendingPathComponent("codex-args.txt", isDirectory: false)

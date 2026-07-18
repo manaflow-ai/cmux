@@ -18,13 +18,25 @@ struct AgentHookDeliveryQueueTests {
             environment: [
                 "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
                 "CMUX_AGENT_LAUNCH_CWD": "/tmp/project with spaces",
+                "CMUX_CUSTOM_CLAUDE_PATH": "/tmp/Claude Code/bin/claude",
                 "CMUX_TAG": "test-tag",
+                "ANTHROPIC_SMALL_FAST_MODEL": "vertex-haiku-id",
+                "HTTPS_PROXY": "http://127.0.0.1:8080",
+                "OPENAI_API_KEY": "openai-test-key",
+                "OPENCODE_CONFIG_DIR": "/tmp/opencode config",
+                "PI_CONFIG_DIR": "/tmp/pi config",
             ]
         ))
 
         #expect(event.payload == payload)
         #expect(event.socketPath == "/tmp/cmux-test.sock")
         #expect(event.environment["CMUX_AGENT_LAUNCH_CWD"] == "/tmp/project with spaces")
+        #expect(event.environment["CMUX_CUSTOM_CLAUDE_PATH"] == "/tmp/Claude Code/bin/claude")
+        #expect(event.environment["ANTHROPIC_SMALL_FAST_MODEL"] == "vertex-haiku-id")
+        #expect(event.environment["HTTPS_PROXY"] == "http://127.0.0.1:8080")
+        #expect(event.environment["OPENAI_API_KEY"] == "openai-test-key")
+        #expect(event.environment["OPENCODE_CONFIG_DIR"] == "/tmp/opencode config")
+        #expect(event.environment["PI_CONFIG_DIR"] == "/tmp/pi config")
 
         for subcommand in [
             "session-start", "prompt-submit", "stop",
@@ -48,14 +60,16 @@ struct AgentHookDeliveryQueueTests {
             environment: ["CMUX_SOCKET_PATH": "/tmp/cmux-test.sock"]
         ) == nil)
 
-        #expect(makeEvent(
+        let sanitizedUnknownEnvironment = makeEvent(
             deliveryID: "unknown-environment",
             payload: payload,
             environment: [
                 "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
                 "UNTRUSTED_KEY": "value",
             ]
-        ) == nil)
+        )
+        #expect(sanitizedUnknownEnvironment != nil)
+        #expect(sanitizedUnknownEnvironment?.environment["UNTRUSTED_KEY"] == nil)
         #expect(makeEvent(
             deliveryID: "missing-socket",
             payload: payload,
