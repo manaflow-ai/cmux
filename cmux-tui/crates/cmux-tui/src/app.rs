@@ -3964,7 +3964,8 @@ impl App {
             AppEvent::Mux(
                 MuxEvent::ClientAttached { .. }
                 | MuxEvent::ClientChanged { .. }
-                | MuxEvent::ClientDetached(_),
+                | MuxEvent::ClientDetached(_)
+                | MuxEvent::ClientListInvalidated,
             ) => {
                 self.session.refresh_clients_background();
                 Ok(RenderAction::Draw)
@@ -9033,6 +9034,17 @@ mod tests {
         app.handle(AppEvent::MuxRecoveryComplete { recovery_generation: 1 }).unwrap();
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 0);
         assert!(app.routing_refresh_pending);
+    }
+
+    #[test]
+    fn remote_subscription_recovery_signal_refreshes_client_snapshot() {
+        let mux = Mux::new("client-list-recovery-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let before = app.session.client_refresh_generation();
+
+        app.handle(AppEvent::Mux(MuxEvent::ClientListInvalidated)).unwrap();
+
+        assert!(app.session.client_refresh_generation() > before);
     }
 
     #[test]

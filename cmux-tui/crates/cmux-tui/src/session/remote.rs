@@ -736,6 +736,7 @@ impl RemoteSession {
                     self.emit(MuxEvent::ClientDetached(client));
                 }
             }
+            Some("client-list-invalidated") => self.emit(MuxEvent::ClientListInvalidated),
             Some("pairing-requested") => {
                 let challenge = PairingChallenge {
                     id: value.get("request").and_then(Value::as_u64).unwrap_or_default(),
@@ -779,6 +780,7 @@ impl RemoteSession {
                             "event subscription overflowed; resubscribed".to_string(),
                         ));
                         session.emit(MuxEvent::TreeChanged);
+                        session.emit(MuxEvent::ClientListInvalidated);
                     }
                     Err(error) => {
                         session.emit(MuxEvent::Status(format!(
@@ -1723,7 +1725,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn subscription_overflow_resubscribes_and_invalidates_tree() {
+    fn subscription_overflow_resubscribes_and_invalidates_authoritative_snapshots() {
         let (client, server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
         let events = session.subscribe();
@@ -1741,10 +1743,13 @@ mod tests {
         session.handle_line(json!({"id": command["id"], "ok": true, "data": {}}));
         assert!(session.tree_is_stale());
         let mut saw_status = false;
-        loop {
+        let mut saw_tree = false;
+        let mut saw_clients = false;
+        while !saw_tree || !saw_clients {
             match events.recv_timeout(Duration::from_secs(1)).unwrap() {
                 MuxEvent::Status(_) => saw_status = true,
-                MuxEvent::TreeChanged => break,
+                MuxEvent::TreeChanged => saw_tree = true,
+                MuxEvent::ClientListInvalidated => saw_clients = true,
                 _ => {}
             }
         }

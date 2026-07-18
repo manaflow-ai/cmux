@@ -106,6 +106,9 @@ pub enum MuxEvent {
     },
     /// A control connection ended.
     ClientDetached(u64),
+    /// A recovered event subscription may have missed client lifecycle
+    /// events, so consumers must reload the authoritative client list.
+    ClientListInvalidated,
     /// An unauthenticated browser is waiting for a trusted TUI decision.
     PairingRequested(PairingChallenge),
     /// A pairing request was approved, denied, disconnected, or expired.

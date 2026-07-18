@@ -3213,6 +3213,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::ClientDetached(client) => {
             json!({"event": "client-detached", "client": client})
         }
+        MuxEvent::ClientListInvalidated => json!({"event": "client-list-invalidated"}),
         MuxEvent::PairingRequested(challenge) => json!({
             "event": "pairing-requested",
             "request": challenge.id,
