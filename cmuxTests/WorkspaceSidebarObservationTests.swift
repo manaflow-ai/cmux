@@ -136,6 +136,34 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func sidebarManualTitleObservationReadsCommittedTitle() throws {
+        let workspace = Workspace(title: "Before Rename")
+        let defaultsName = "WorkspaceSidebarObservationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+
+        var observedTitles: [String] = []
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            observedTitles.append(
+                SidebarWorkspaceSnapshotFactory(
+                    workspace: workspace,
+                    settings: settings,
+                    showsAgentActivity: false
+                ).makeSnapshot().title
+            )
+        }
+        defer { cancellable.cancel() }
+        observedTitles.removeAll()
+
+        workspace.setCustomTitle("After Rename")
+
+        #expect(
+            observedTitles == ["After Rename"],
+            "The synchronous sidebar rename event must expose the committed display title, never the pre-rename title from an intermediate model state."
+        )
+    }
+
     @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() {
         let workspace = Workspace()
 
