@@ -53,12 +53,16 @@ import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
 import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
-import { createDiffWorkerPoolOptions } from "./worker-pool";
+import { createDiffWorkerPoolRuntime, type DiffWorkerPoolRuntime } from "./worker-pool";
 import {
   advanceWorkerRenderOptionsSyncState,
   synchronizeWorkerRenderOptions,
   type WorkerRenderOptionsSyncState,
 } from "./worker-render-options-sync";
+import {
+  initializeWorkerRenderer,
+  type WorkerRendererPhase,
+} from "./worker-renderer-lifecycle";
 
 type ConfigProps = {
   config: DiffViewerConfig;
@@ -89,6 +93,7 @@ type AppState = {
   metrics: StreamMetrics | null;
   options: DiffViewerOptions;
   optionsOpen: boolean;
+  rendererPhase: WorkerRendererPhase;
   status: DiffViewerStatus;
   treeSource: FileTreeSource | null;
 };
@@ -109,6 +114,7 @@ type AppAction =
   | { type: "set-metrics"; metrics: StreamMetrics }
   | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
   | { type: "set-options-open"; open: boolean }
+  | { type: "set-renderer-phase"; phase: WorkerRendererPhase }
   | { type: "set-status"; status: DiffViewerStatus }
   | { type: "set-tree-source"; source: FileTreeSource }
   | { type: "upsert-comment"; comment: DiffCommentRecord };
@@ -118,6 +124,15 @@ const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78
 const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
 const persistedLayoutKey = "cmux.diffViewer.layout";
 type DiffViewerLayout = DiffViewerOptions["layout"];
+
+function registerDiffViewerThemes(appearance: ReturnType<typeof resolveDiffViewerAppearance>): void {
+  for (const theme of [appearance.themes.light, appearance.themes.dark]) {
+    if (theme.name && !registeredCustomThemeNames.has(theme.name)) {
+      registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme, appearance)));
+      registeredCustomThemeNames.add(theme.name);
+    }
+  }
+}
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
@@ -145,6 +160,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
       wordWrap: false,
     } as DiffViewerOptions,
     optionsOpen: false,
+    rendererPhase: "initializing",
     status: initialStatus,
     treeSource: null,
   };
@@ -246,6 +262,8 @@ function reducer(state: AppState, action: AppAction): AppState {
     return { ...state, options: { ...state.options, [action.key]: action.value } };
   case "set-options-open":
     return { ...state, optionsOpen: action.open };
+  case "set-renderer-phase":
+    return { ...state, rendererPhase: action.phase };
   case "set-status":
     return { ...state, status: action.status };
   case "set-tree-source": {
@@ -302,8 +320,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
-  const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
+  const rendererExpected = !isStatusOnlyPayload(payload, transport, activeSessionSource);
   const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
   const commentSource = resolvedSessionSource ?? activeSessionSource;
   const commentRepoRoot = resolvedSessionRepoRoot
@@ -319,6 +337,9 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
+  const presentedStatus = state.items.length > 0 && state.rendererPhase === "initializing"
+    ? createDiffViewerStatus(label("loadingRenderer"), { loading: true })
+    : state.status;
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
@@ -354,7 +375,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     setResolvedSessionRepoRoot(repoRoot ?? diffSourceRepoRoot(source));
   }, []);
 
-  usePageDataAttributes(state);
+  usePageDataAttributes(state, presentedStatus);
   usePendingReplacement(payload, label, dispatch, transport);
   useRenderDiff(
     config,
@@ -508,48 +529,57 @@ export function App({ config, initialStatus }: ConfigProps) {
         dispatch={dispatch}
         state={state}
       />
-      <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
-        <FilesSidebarBackdrop
-          label={label}
-          onClose={() => closeFileSearch(dispatch)}
-          open={state.fileSearchOpen}
-        />
-        <FilesSidebar
-          commentEntries={commentEntries}
-          commentLabels={commentLabels}
-          hasDraft={state.draft != null}
-          label={label}
-          onSelectComment={selectCommentEntry}
-          onSelectItem={scrollToItem}
-          selectedPath={selectedTreePath}
-          dispatch={dispatch}
-          state={state}
-        />
-        <main id="viewer" aria-label={label("diffViewer")}>
-          {state.items.length > 0 ? (
-            <WorkerPoolContextProvider
-              poolOptions={workerPoolOptions}
-              highlighterOptions={highlighterOptions}
-            >
-              <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
-              <CodeView
-                ref={codeViewRef}
-                className="code-view-root"
-                containerRef={viewerContainerRef}
-                items={state.items}
-                onScroll={handleCodeViewScroll}
-                options={renderedCodeViewOptions}
-                renderHeaderMetadata={(item) => (
-                  <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
-                )}
-                renderAnnotation={(annotation, item) =>
-                  renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
-              />
-            </WorkerPoolContextProvider>
-          ) : null}
-        </main>
-        <LoadingLayer label={label} status={state.status} />
-      </section>
+      <DiffRendererProvider
+        dispatch={dispatch}
+        enabled={rendererExpected}
+        appearance={appearance}
+        highlighterOptions={highlighterOptions}
+        workerModuleURL={workerModuleURL}
+      >
+        <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
+          <FilesSidebarBackdrop
+            label={label}
+            onClose={() => closeFileSearch(dispatch)}
+            open={state.fileSearchOpen}
+          />
+          <FilesSidebar
+            commentEntries={commentEntries}
+            commentLabels={commentLabels}
+            hasDraft={state.draft != null}
+            label={label}
+            onSelectComment={selectCommentEntry}
+            onSelectItem={scrollToItem}
+            selectedPath={selectedTreePath}
+            dispatch={dispatch}
+            state={state}
+          />
+          <main id="viewer" aria-label={label("diffViewer")}>
+            {state.items.length > 0 && state.rendererPhase !== "initializing" ? (
+              <>
+                {state.rendererPhase === "ready" ? (
+                  <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
+                ) : null}
+                <CodeView
+                  key={state.rendererPhase}
+                  ref={codeViewRef}
+                  className="code-view-root"
+                  containerRef={viewerContainerRef}
+                  disableWorkerPool={state.rendererPhase === "failed"}
+                  items={state.items}
+                  onScroll={handleCodeViewScroll}
+                  options={renderedCodeViewOptions}
+                  renderHeaderMetadata={(item) => (
+                    <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
+                  )}
+                  renderAnnotation={(annotation, item) =>
+                    renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
+                />
+              </>
+            ) : null}
+          </main>
+          <LoadingLayer label={label} status={presentedStatus} />
+        </section>
+      </DiffRendererProvider>
       <textarea
         ref={copyFallbackRef}
         aria-hidden="true"
@@ -732,6 +762,48 @@ function WorkerRenderOptionsSync({
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>;
 }) {
   useWorkerRenderOptionsSync(highlighterOptions, codeViewRef);
+  return null;
+}
+
+function DiffRendererProvider({
+  appearance,
+  children,
+  dispatch,
+  enabled,
+  highlighterOptions,
+  workerModuleURL,
+}: {
+  appearance: ReturnType<typeof resolveDiffViewerAppearance>;
+  children: React.ReactNode;
+  dispatch: React.Dispatch<AppAction>;
+  enabled: boolean;
+  highlighterOptions: ReturnType<typeof workerHighlighterOptions>;
+  workerModuleURL: URL;
+}) {
+  const [runtime] = useState<DiffWorkerPoolRuntime>(() => {
+    registerDiffViewerThemes(appearance);
+    return createDiffWorkerPoolRuntime(workerModuleURL);
+  });
+  if (!enabled) return children;
+  return (
+    <WorkerPoolContextProvider
+      poolOptions={runtime.poolOptions}
+      highlighterOptions={highlighterOptions}
+    >
+      <WorkerRendererLifecycle dispatch={dispatch} workerFailure={runtime.failure} />
+      {children}
+    </WorkerPoolContextProvider>
+  );
+}
+
+function WorkerRendererLifecycle({
+  dispatch,
+  workerFailure,
+}: {
+  dispatch: React.Dispatch<AppAction>;
+  workerFailure: Promise<unknown>;
+}) {
+  useWorkerRendererLifecycle(dispatch, workerFailure);
   return null;
 }
 
@@ -1557,6 +1629,32 @@ function useWorkerRenderOptionsSync(
   }, [codeViewRef, highlighterOptions, workerPool]);
 }
 
+function useWorkerRendererLifecycle(
+  dispatch: React.Dispatch<AppAction>,
+  workerFailure: Promise<unknown>,
+): void {
+  const workerPool = useWorkerPool();
+  useEffect(() => {
+    if (!workerPool) return;
+    let active = true;
+    let phase: WorkerRendererPhase = "initializing";
+    dispatch({ type: "set-renderer-phase", phase: "initializing" });
+    const updatePhase = (result: Awaited<ReturnType<typeof initializeWorkerRenderer>>) => {
+      if (!active || phase === result.phase) return;
+      phase = result.phase;
+      if (result.phase === "failed") {
+        console.warn("cmux diff worker renderer initialization failed; using main-thread fallback", result.error);
+      }
+      dispatch({ type: "set-renderer-phase", phase: result.phase });
+    };
+    void initializeWorkerRenderer(workerPool, workerFailure).then(updatePhase);
+    void workerFailure.then((error) => updatePhase({ phase: "failed", error }));
+    return () => {
+      active = false;
+    };
+  }, [dispatch, workerFailure, workerPool]);
+}
+
 function sameWorkerHighlighterOptions(
   previous: ReturnType<typeof workerHighlighterOptions>,
   next: ReturnType<typeof workerHighlighterOptions>,
@@ -1669,12 +1767,7 @@ function useRenderDiff(
     }
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
-    for (const theme of [appearance.themes.light, appearance.themes.dark]) {
-      if (theme.name && !registeredCustomThemeNames.has(theme.name)) {
-        registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme, appearance)));
-        registeredCustomThemeNames.add(theme.name);
-      }
-    }
+    registerDiffViewerThemes(appearance);
     let cancelled = false;
     const streamAbortController = new AbortController();
     const handlePageHide = () => {
@@ -1970,10 +2063,10 @@ function usePendingReplacement(
   }, [dispatch, label, payload, transport]);
 }
 
-function usePageDataAttributes(state: AppState) {
+function usePageDataAttributes(state: AppState, status: DiffViewerStatus) {
   useEffect(() => {
     document.body.dataset.filesHidden = state.filesVisible ? "false" : "true";
-    document.body.dataset.loading = state.status.loading ? "true" : "false";
+    document.body.dataset.loading = status.loading ? "true" : "false";
     document.documentElement.dataset.layout = state.options.layout;
     document.documentElement.dataset.wordWrap = String(state.options.wordWrap);
     document.documentElement.dataset.diffIndicators = state.options.diffIndicators;
@@ -1987,8 +2080,8 @@ function usePageDataAttributes(state: AppState) {
         document.body.dataset.streamElapsedMs = String(Math.round(state.metrics.completedAt - state.metrics.startedAt));
       }
     }
-    applyDiffViewerStatusToDocument(state.status);
-  }, [state]);
+    applyDiffViewerStatusToDocument(status);
+  }, [state, status]);
 }
 
 function useNativeViewerNavigation(
