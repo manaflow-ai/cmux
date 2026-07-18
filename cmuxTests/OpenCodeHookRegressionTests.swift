@@ -91,6 +91,82 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(invocations.count, 1, "session.updated repeated session-start: \(invocations)")
     }
 
+    func testOpenCodeLifecycleHooksStayOrderedPerSessionWhileOtherSessionsDispatch() throws {
+        let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
+            "payload=\"$(cat)\"",
+            "printf '%s|%s\\n' \"$*\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+            "case \"$payload\" in",
+            "  *session-ordered*)",
+            "    if [ \"$3\" = \"session-start\" ]; then cat \"$TEST_HOOK_RELEASE_FIFO\" >/dev/null; fi",
+            "    ;;",
+            "esac",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
+        let releaseFIFO = fixture.root.appendingPathComponent("release.fifo", isDirectory: false)
+        XCTAssertEqual(mkfifo(releaseFIFO.path, S_IRUSR | S_IWUSR), 0)
+        var environment = fixture.environment
+        environment["TEST_HOOK_CAPTURE"] = capture.path
+        environment["TEST_HOOK_RELEASE_FIFO"] = releaseFIFO.path
+        environment["CMUX_OPENCODE_HOOK_TESTING"] = "1"
+
+        let harness = fixture.root.appendingPathComponent("ordered.mjs", isDirectory: false)
+        try """
+        import fs from "node:fs";
+        import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
+
+        const hooks = await plugin({ directory: process.cwd() });
+        const orderedInfo = { id: "session-ordered", directory: process.cwd() };
+        const otherInfo = { id: "session-other", directory: process.cwd() };
+        const waitForCapture = (needle) => new Promise((resolve, reject) => {
+          const ready = () => fs.existsSync(process.env.TEST_HOOK_CAPTURE)
+            && fs.readFileSync(process.env.TEST_HOOK_CAPTURE, "utf8").includes(needle);
+          if (ready()) return resolve();
+          const watcher = fs.watch(\(javaScriptString(fixture.root.path)), () => {
+            if (!ready()) return;
+            watcher.close();
+            clearTimeout(timeout);
+            resolve();
+          });
+          const timeout = setTimeout(() => {
+            watcher.close();
+            reject(new Error(`hook capture did not contain ${needle}`));
+          }, 2000);
+        });
+
+        await hooks.event({ event: { type: "session.created", properties: { info: orderedInfo } } });
+        await waitForCapture("session-ordered");
+
+        await hooks.event({ event: { type: "session.idle", properties: { info: orderedInfo } } });
+        await hooks.event({ event: { type: "session.idle", properties: { info: orderedInfo } } });
+        await hooks.event({ event: { type: "session.deleted", properties: { info: orderedInfo } } });
+        await hooks.event({ event: { type: "session.created", properties: { info: orderedInfo } } });
+        await hooks.event({ event: { type: "session.created", properties: { info: otherInfo } } });
+        await waitForCapture("session-other");
+
+        console.log(JSON.stringify(hooks.cmuxHookDispatcherSnapshot()));
+        fs.writeFileSync(process.env.TEST_HOOK_RELEASE_FIFO, "release");
+        """.write(to: harness, atomically: true, encoding: .utf8)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["node", harness.path],
+            environment: environment,
+            timeout: 4
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let snapshot = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(snapshot["activeSessionIds"] as? [String], ["session-ordered"])
+        let pending = try XCTUnwrap(snapshot["pending"] as? [[String: String]])
+        XCTAssertEqual(pending.compactMap { $0["sessionId"] }, ["session-ordered", "session-ordered", "session-ordered"])
+        XCTAssertEqual(pending.compactMap { $0["subcommand"] }, ["stop", "session-end", "session-start"])
+    }
+
     func testOpenCodeInstallHooksIsIdempotentForLegacySetupAlias() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-hooks-\(UUID().uuidString)", isDirectory: true)
