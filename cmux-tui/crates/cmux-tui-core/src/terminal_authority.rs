@@ -729,6 +729,7 @@ impl TerminalAuthorityRegistry {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn begin_input(
         &self,
         surface_uuid: SurfaceUuid,
@@ -1562,6 +1563,33 @@ mod tests {
             .unwrap()
     }
 
+    fn execute_delegated_input(
+        registry: &TerminalAuthorityRegistry,
+        surface: SurfaceUuid,
+        reference: TerminalDelegationReference,
+        sequence: u64,
+        fingerprint: u8,
+    ) -> TerminalOperationReceipt {
+        let permit = match registry
+            .begin_delegated_input(
+                surface,
+                reference,
+                AutomationInputScope::Text,
+                sequence,
+                Uuid::new_v4(),
+                RequestFingerprint([fingerprint; 32]),
+                None,
+            )
+            .unwrap()
+        {
+            BeginTerminalOperation::Execute(permit) => permit,
+            BeginTerminalOperation::Replay(_) => panic!("new request unexpectedly replayed"),
+        };
+        registry
+            .complete_operation(permit, TerminalOperationOutcome::InputApplied { encoded_bytes: 1 })
+            .unwrap()
+    }
+
     #[test]
     fn input_and_geometry_leases_are_independent() {
         let (_, registry, surface, gui) = fixture();
@@ -1842,6 +1870,145 @@ mod tests {
                 .unwrap_err(),
             TerminalAuthorityError::DelegationScopeDenied
         );
+    }
+
+    #[test]
+    fn direct_and_two_phone_delegates_share_order_but_not_authority() {
+        let (_, registry, surface, mac) = fixture();
+        let phone_a = TerminalConnectionClaim {
+            connection: 9,
+            client_uuid: uuid("50000000-0000-4000-8000-000000000003"),
+            process_instance_uuid: uuid("60000000-0000-4000-8000-000000000003"),
+        };
+        let phone_b = TerminalConnectionClaim {
+            connection: 10,
+            client_uuid: uuid("50000000-0000-4000-8000-000000000004"),
+            process_instance_uuid: uuid("60000000-0000-4000-8000-000000000004"),
+        };
+        let input_lease = registry.acquire(surface, TerminalLeaseKind::Input, mac, 5_000).unwrap();
+        let geometry_lease =
+            registry.acquire(surface, TerminalLeaseKind::Geometry, mac, 5_000).unwrap();
+        let phone_a_delegation = registry
+            .grant_input_delegation(
+                surface,
+                reference(mac, &input_lease),
+                phone_a,
+                2_000,
+                BTreeSet::from([AutomationInputScope::Text]),
+            )
+            .unwrap();
+        let phone_b_delegation = registry
+            .grant_input_delegation(
+                surface,
+                reference(mac, &input_lease),
+                phone_b,
+                2_000,
+                BTreeSet::from([AutomationInputScope::Text]),
+            )
+            .unwrap();
+        assert_eq!(phone_a_delegation.next_client_sequence, 1);
+        assert_eq!(phone_b_delegation.next_client_sequence, 1);
+
+        let phone_a_reference = TerminalDelegationReference {
+            connection: phone_a.connection,
+            client_uuid: phone_a.client_uuid,
+            process_instance_uuid: phone_a.process_instance_uuid,
+            delegation_id: phone_a_delegation.delegation_id,
+            delegation_generation: phone_a_delegation.delegation_generation,
+        };
+        let phone_b_reference = TerminalDelegationReference {
+            connection: phone_b.connection,
+            client_uuid: phone_b.client_uuid,
+            process_instance_uuid: phone_b.process_instance_uuid,
+            delegation_id: phone_b_delegation.delegation_id,
+            delegation_generation: phone_b_delegation.delegation_generation,
+        };
+
+        let mac_first =
+            execute_input(&registry, surface, reference(mac, &input_lease), 1, 20, None);
+        assert_eq!(mac_first.sequence, 1);
+        assert_eq!(mac_first.ordered_input_sequence, Some(1));
+
+        for (phone, delegated, fingerprint) in
+            [(phone_a, phone_a_reference, 21), (phone_b, phone_b_reference, 22)]
+        {
+            for scope in [AutomationInputScope::Key, AutomationInputScope::Mouse] {
+                assert_eq!(
+                    registry
+                        .begin_delegated_input(
+                            surface,
+                            delegated,
+                            scope,
+                            1,
+                            Uuid::new_v4(),
+                            RequestFingerprint([fingerprint; 32]),
+                            None,
+                        )
+                        .unwrap_err(),
+                    TerminalAuthorityError::DelegationScopeDenied
+                );
+            }
+            let forged_geometry = TerminalLeaseReference {
+                connection: phone.connection,
+                client_uuid: phone.client_uuid,
+                process_instance_uuid: phone.process_instance_uuid,
+                presentation_id: mac.presentation_id,
+                presentation_generation: mac.presentation_generation,
+                lease_id: geometry_lease.lease_id,
+                lease_generation: geometry_lease.lease_generation,
+            };
+            assert_eq!(
+                registry
+                    .begin_geometry(
+                        surface,
+                        forged_geometry,
+                        1,
+                        Uuid::new_v4(),
+                        RequestFingerprint([fingerprint + 1; 32]),
+                    )
+                    .unwrap_err(),
+                TerminalAuthorityError::LeaseMismatch(TerminalLeaseKind::Geometry)
+            );
+        }
+
+        let phone_a_first = execute_delegated_input(&registry, surface, phone_a_reference, 1, 30);
+        assert_eq!(phone_a_first.sequence, 1);
+        assert_eq!(phone_a_first.ordered_input_sequence, Some(2));
+        let phone_b_first = execute_delegated_input(&registry, surface, phone_b_reference, 1, 31);
+        assert_eq!(phone_b_first.sequence, 1);
+        assert_eq!(phone_b_first.ordered_input_sequence, Some(3));
+
+        registry
+            .revoke_input_delegation(
+                surface,
+                reference(mac, &input_lease),
+                phone_a_delegation.delegation_id,
+                phone_a_delegation.delegation_generation,
+            )
+            .unwrap();
+        assert_eq!(
+            registry
+                .begin_delegated_input(
+                    surface,
+                    phone_a_reference,
+                    AutomationInputScope::Text,
+                    2,
+                    Uuid::new_v4(),
+                    RequestFingerprint([32; 32]),
+                    None,
+                )
+                .unwrap_err(),
+            TerminalAuthorityError::DelegationMissing
+        );
+
+        let mac_second =
+            execute_input(&registry, surface, reference(mac, &input_lease), 2, 33, None);
+        assert_eq!(mac_second.sequence, 2);
+        assert_eq!(mac_second.ordered_input_sequence, Some(4));
+
+        let phone_b_second = execute_delegated_input(&registry, surface, phone_b_reference, 2, 34);
+        assert_eq!(phone_b_second.sequence, 2);
+        assert_eq!(phone_b_second.ordered_input_sequence, Some(5));
     }
 
     #[test]

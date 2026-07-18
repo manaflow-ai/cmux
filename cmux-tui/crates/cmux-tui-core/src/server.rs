@@ -69,6 +69,7 @@ use crate::remote_tmux_producer::{
     RemoteTmuxProducerSourceUpdateReceipt,
 };
 use crate::renderer_control::{RendererColorSpace, RendererFrameRelease, RendererPixelFormat};
+use crate::renderer_supervisor::RendererProcessInstanceToken;
 use crate::surface::{
     AttachLifecycle, ExternalTerminalClaimReceipt, ExternalTerminalOutputReceipt,
     ExternalTerminalOwner, MouseSelectionAutoscrollDirection, TerminalInteractionSnapshot,
@@ -396,6 +397,15 @@ enum Command {
         preedit_selection_length_utf16: u32,
         #[serde(default)]
         preedit_caret_utf16: u32,
+    },
+    ActivateRendererPresentation {
+        presentation_id: PresentationId,
+        expected_generation: u64,
+        renderer_generation: u64,
+        renderer_epoch: u64,
+        worker_pid: u32,
+        worker_process_start_time_seconds: u64,
+        worker_process_start_time_microseconds: u64,
     },
     DetachRendererPresentation {
         presentation_id: PresentationId,
@@ -1822,6 +1832,7 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "list-projection-states"
             | "renderer-workers"
             | "configure-renderer-presentation"
+            | "activate-renderer-presentation"
             | "detach-renderer-presentation"
             | "terminal-preedit"
             | "terminal-accessibility-snapshot"
@@ -1842,9 +1853,19 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
     ) {
         policy.permission = Some(ConnectionPermission::Frontend);
     }
+    if matches!(
+        command,
+        "terminal-delegated-input" | "terminal-request-status" | "acknowledge-terminal-request"
+    ) {
+        // This lane can exercise only a delegation that cmuxd bound to this
+        // exact connection claim. It never inherits presentation, renderer,
+        // geometry, direct-input, or topology authority.
+        policy.permission = Some(ConnectionPermission::InputDelegate);
+    }
     policy.protocol_v9 = matches!(
         command,
         "activate-terminal-presentation"
+            | "activate-renderer-presentation"
             | "canonical-new-workspace"
             | "canonical-new-tab"
             | "canonical-materialize-terminal"
@@ -2756,6 +2777,27 @@ impl ClientRegistry {
         self.register_with_authorization(transport, authorization, writer)
     }
 
+    #[cfg(test)]
+    pub(crate) fn register_frontend_for_test(&self) -> u64 {
+        let client = self.register(
+            ClientTransport::Unix,
+            MessageWriter::new(QueuedSink {
+                outbound: Arc::new(BoundedOutbound::default()),
+                control: None,
+            }),
+        );
+        self.register_protocol(
+            client,
+            9,
+            9,
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            Some("swift-shell"),
+        )
+        .expect("test frontend registration");
+        client
+    }
+
     fn lock_lifecycle(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
         self.lifecycle.write().unwrap()
     }
@@ -3563,7 +3605,7 @@ fn authenticate_websocket(
 }
 
 fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
-    let _client_lifecycle = mux.control_clients.lock_lifecycle();
+    let client_lifecycle = mux.control_clients.lock_lifecycle();
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
@@ -3573,7 +3615,9 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     mux.terminal_authority.revoke_connection(client);
     mux.projection_states.release_connection(record.connection_id);
     mux.release_private_runtime_connection(client);
-    for presentation_id in mux.presentations.remove_client(client) {
+    let presentations = mux.presentations.remove_client(client);
+    drop(client_lifecycle);
+    for presentation_id in presentations {
         let _ = mux.remove_renderer_presentation(presentation_id);
     }
     if send_detached {
@@ -5322,22 +5366,17 @@ fn handle_command(
                 mux.presentations.remove_client(client);
                 anyhow::bail!("unknown client {client}");
             }
-            if let Err(error) = mux.set_renderer_presentation_workspace(
-                presentation.presentation_id,
-                presentation.view.workspace_uuid,
-            ) {
-                let _ = mux.presentations.close(client, presentation.presentation_id);
-                return Err(error.into());
-            }
             Ok(serde_json::to_value(presentation)?)
         }
         Command::ClosePresentation { presentation_id } => {
-            let _client_lifecycle = mux.control_clients.lock_lifecycle();
-            if !mux.control_clients.contains(client) {
-                anyhow::bail!("unknown client {client}");
+            {
+                let _client_lifecycle = mux.control_clients.lock_lifecycle();
+                if !mux.control_clients.contains(client) {
+                    anyhow::bail!("unknown client {client}");
+                }
+                mux.presentations.close(client, presentation_id)?;
+                mux.terminal_authority.revoke_presentation(presentation_id);
             }
-            mux.presentations.close(client, presentation_id)?;
-            mux.terminal_authority.revoke_presentation(presentation_id);
             mux.remove_renderer_presentation(presentation_id)?;
             Ok(json!({}))
         }
@@ -5405,12 +5444,13 @@ fn handle_command(
             })?;
             if presentation.generation != expected_generation {
                 mux.terminal_authority.revoke_presentation(presentation.presentation_id);
-                mux.invalidate_renderer_presentation(presentation.presentation_id);
+                if mux.invalidate_renderer_presentation(presentation.presentation_id) {
+                    mux.set_renderer_presentation_workspace(
+                        presentation.presentation_id,
+                        presentation.view.workspace_uuid,
+                    )?;
+                }
             }
-            mux.set_renderer_presentation_workspace(
-                presentation.presentation_id,
-                presentation.view.workspace_uuid,
-            )?;
             Ok(serde_json::to_value(presentation)?)
         }
         Command::ListPresentations => {
@@ -5573,6 +5613,11 @@ fn handle_command(
                     "renderer presentation configuration requires a trusted local connection"
                 );
             }
+            // Hold the terminal lifecycle fence across the last canonical
+            // lookup, runtime insertion, and visibility publication. A child
+            // exit or close cannot retire the surface between those phases
+            // and leave stale renderer demand behind after this RPC fails.
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
             let configuration = RendererPresentationConfiguration {
                 width,
                 height,
@@ -5602,11 +5647,6 @@ fn handle_command(
                 expected_generation,
                 configuration,
             )?;
-            // A child-exit close can originate outside the control connection.
-            // Fence the final presentation lookup and visibility publication
-            // so canonical retirement cannot finish and then be followed by a
-            // stale visible-authority insertion.
-            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
             let presentation = mux.presentations.get_for_client(client, presentation_id)?;
             let surface_uuid = presentation
                 .view
@@ -5619,17 +5659,20 @@ fn handle_command(
                 presentation_generation: presentation.generation,
                 surface_uuid,
             })?;
-            let worker_ready = receipt.worker.state == crate::RendererWorkerState::Ready;
-            let worker_pid = worker_ready.then_some(receipt.worker.pid).flatten();
-            let worker_effective_user_id =
-                worker_ready.then_some(receipt.worker.effective_user_id).flatten();
             Ok(json!({
                 "daemon_instance_id": receipt.daemon_instance_id,
                 "workspace_uuid": receipt.worker.workspace_uuid,
                 "renderer_epoch": receipt.worker.renderer_epoch,
                 "worker_state": receipt.worker.state,
-                "worker_pid": worker_pid,
-                "worker_effective_user_id": worker_effective_user_id,
+                // Swift must bind NOTE_EXIT while this exact process identity
+                // is current. Starting remains non-attachable because metrics
+                // stay null until the authenticated Ready handshake.
+                "worker_pid": receipt.worker.pid,
+                "worker_process_start_time_seconds": receipt.worker.process_start_time_seconds,
+                "worker_process_start_time_microseconds": receipt
+                    .worker
+                    .process_start_time_microseconds,
+                "worker_effective_user_id": receipt.worker.effective_user_id,
                 "scene_capabilities": receipt.worker.scene_capabilities,
                 "terminal_id": receipt.terminal_id,
                 "terminal_epoch": receipt.terminal_epoch,
@@ -5647,10 +5690,46 @@ fn handle_command(
                 "color_space": renderer_color_space_name(receipt.color_space),
             }))
         }
-        Command::DetachRendererPresentation { presentation_id, expected_generation } => {
+        Command::ActivateRendererPresentation {
+            presentation_id,
+            expected_generation,
+            renderer_generation,
+            renderer_epoch,
+            worker_pid,
+            worker_process_start_time_seconds,
+            worker_process_start_time_microseconds,
+        } => {
             let _client_lifecycle = mux.control_clients.lock_lifecycle();
             if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
-                anyhow::bail!("renderer presentation detach requires a trusted local connection");
+                anyhow::bail!("renderer activation requires a trusted local connection");
+            }
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            mux.activate_renderer_presentation(
+                client,
+                presentation_id,
+                expected_generation,
+                renderer_generation,
+                renderer_epoch,
+                worker_pid,
+                RendererProcessInstanceToken {
+                    start_time_seconds: worker_process_start_time_seconds,
+                    start_time_microseconds: worker_process_start_time_microseconds,
+                },
+            )?;
+            Ok(json!({}))
+        }
+        Command::DetachRendererPresentation { presentation_id, expected_generation } => {
+            {
+                // Detach may wait for an exact worker acknowledgement and
+                // process-reap proof. Hold only the shared admission fence for
+                // the permission check so one wedged renderer cannot stall
+                // terminal input in unrelated workspaces.
+                let _client_lifecycle = mux.control_clients.read_lifecycle();
+                if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
+                    anyhow::bail!(
+                        "renderer presentation detach requires a trusted local connection"
+                    );
+                }
             }
             mux.detach_renderer_presentation(client, presentation_id, expected_generation)?;
             mux.terminal_authority.hide_presentation(client, presentation_id);
@@ -8297,6 +8376,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             workspace_uuid,
             prior_renderer_epoch,
             prior_process_id,
+            prior_process_instance_token,
             status,
             reason,
         } => json!({
@@ -8304,8 +8384,18 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "workspace_uuid": workspace_uuid,
             "prior_renderer_epoch": prior_renderer_epoch,
             "prior_process_id": prior_process_id,
+            "prior_process_start_time_seconds": prior_process_instance_token
+                .map(|token| token.start_time_seconds),
+            "prior_process_start_time_microseconds": prior_process_instance_token
+                .map(|token| token.start_time_microseconds),
             "renderer_epoch": status.as_ref().map(|status| status.renderer_epoch),
             "pid": status.as_ref().and_then(|status| status.pid),
+            "process_start_time_seconds": status
+                .as_ref()
+                .and_then(|status| status.process_start_time_seconds),
+            "process_start_time_microseconds": status
+                .as_ref()
+                .and_then(|status| status.process_start_time_microseconds),
             "effective_user_id": status.as_ref().and_then(|status| status.effective_user_id),
             "scene_capabilities": status.as_ref().and_then(|status| status.scene_capabilities),
             "state": status.as_ref().map(|status| status.state),
@@ -8319,6 +8409,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             workspace_uuid,
             renderer_epoch,
             process_id,
+            process_instance_token,
             effective_user_id,
             metrics,
         } => json!({
@@ -8326,6 +8417,9 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "workspace_uuid": workspace_uuid,
             "renderer_epoch": renderer_epoch,
             "worker_pid": process_id,
+            "worker_process_start_time_seconds": process_instance_token.start_time_seconds,
+            "worker_process_start_time_microseconds": process_instance_token
+                .start_time_microseconds,
             "worker_effective_user_id": effective_user_id,
             "terminal_id": metrics.terminal_id,
             "terminal_epoch": metrics.terminal_epoch,
@@ -8812,10 +8906,20 @@ mod tests {
                 "{command}"
             );
         }
+        for command in
+            ["terminal-delegated-input", "terminal-request-status", "acknowledge-terminal-request"]
+        {
+            assert_eq!(
+                command_admission_policy(command).permission,
+                Some(ConnectionPermission::InputDelegate),
+                "{command}"
+            );
+        }
         for command in [
             "open-presentation",
             "renderer-workers",
             "configure-renderer-presentation",
+            "activate-renderer-presentation",
             "list-clients",
             "pairing-response",
             "claim-external-terminal",
@@ -8961,6 +9065,171 @@ mod tests {
 
         assert_eq!(canonical_state_digest(&mux), before);
         assert_eq!(mux.canonical_topology_revision(), before_revision);
+    }
+
+    #[test]
+    fn mobile_compatibility_role_is_limited_to_delegated_input_and_its_receipt() {
+        let mux = test_mux();
+        mux.new_workspace(Some("delegated-mobile".into()), Some((80, 24))).unwrap();
+        let surface_uuid = mux.with_state(|state| {
+            let surface_id = *state.panes.values().next().unwrap().tabs.first().unwrap();
+            state.surfaces[&surface_id].uuid
+        });
+
+        let owner_writer = test_writer();
+        let (owner, _) = register_v9_client(&mux, &owner_writer);
+        let (presentation_id, presentation_generation) =
+            open_visible_terminal_presentation(&mux, &owner_writer, owner, surface_uuid);
+        let lease = handle_command(
+            &mux,
+            owner,
+            Command::AcquireTerminalLease {
+                kind: "input".into(),
+                surface_uuid,
+                presentation_id,
+                presentation_generation,
+                ttl_ms: 5_000,
+            },
+            &owner_writer,
+        )
+        .unwrap();
+        let lease_id = lease["lease_id"].as_str().unwrap().parse().unwrap();
+        let lease_generation = lease["lease_generation"].as_u64().unwrap();
+
+        let (mobile_writer, mobile_outbound) = test_writer_and_outbound();
+        let (mobile, mobile_uuid, registration) = register_v9_client_kind(
+            &mux,
+            &mobile_writer,
+            ClientTransport::Unix,
+            "mobile-compatibility",
+        );
+        assert_eq!(registration["client_kind"], "mobile-compatibility");
+        assert_eq!(registration["role"], "trusted-input-delegate");
+        assert!(registration["topology_lease_id"].is_null());
+        assert!(registration["topology_lease_generation"].is_null());
+
+        let before = canonical_state_digest(&mux);
+        let before_revision = mux.canonical_topology_revision();
+        for command in ["open-presentation", "update-presentation", "renderer-workers"] {
+            assert!(handle_message(
+                &mux,
+                mobile,
+                &json!({"cmd": command}).to_string(),
+                &mobile_writer,
+            ));
+            assert_rejected_response(&mobile_outbound, "trusted frontend");
+        }
+        for command in [
+            "acquire-terminal-lease",
+            "grant-terminal-input-delegation",
+            "revoke-terminal-input-delegation",
+            "terminal-input",
+            "terminal-geometry",
+            "canonical-new-workspace",
+        ] {
+            assert!(handle_message(
+                &mux,
+                mobile,
+                &json!({"cmd": command}).to_string(),
+                &mobile_writer,
+            ));
+            assert_rejected_response(&mobile_outbound, "trusted frontend or automation");
+        }
+        assert_eq!(canonical_state_digest(&mux), before);
+        assert_eq!(mux.canonical_topology_revision(), before_revision);
+
+        let delegation = handle_command(
+            &mux,
+            owner,
+            Command::GrantTerminalInputDelegation {
+                surface_uuid,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+                delegate_client_uuid: mobile_uuid,
+                ttl_ms: 2_000,
+                scopes: vec!["text".into()],
+            },
+            &owner_writer,
+        )
+        .unwrap();
+        let delegation_id = delegation["delegation_id"].as_str().unwrap();
+        let delegation_generation = delegation["delegation_generation"].as_u64().unwrap();
+        let request_id = uuid::Uuid::new_v4();
+        assert!(handle_message(
+            &mux,
+            mobile,
+            &json!({
+                "id": 51,
+                "cmd": "terminal-delegated-input",
+                "surface_uuid": surface_uuid,
+                "delegation_id": delegation_id,
+                "delegation_generation": delegation_generation,
+                "sequence": 1,
+                "request_id": request_id,
+                "input": {"type": "text", "text": "phone", "paste": false},
+            })
+            .to_string(),
+            &mobile_writer,
+        ));
+        let applied: Value = serde_json::from_str(&mobile_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(applied["id"], 51);
+        assert_eq!(applied["ok"], true);
+        assert_eq!(applied["data"]["status"], "applied");
+        assert_eq!(applied["data"]["sequence"], 1);
+
+        assert!(handle_message(
+            &mux,
+            mobile,
+            &json!({
+                "id": 52,
+                "cmd": "terminal-request-status",
+                "surface_uuid": surface_uuid,
+                "request_id": request_id,
+            })
+            .to_string(),
+            &mobile_writer,
+        ));
+        let status: Value = serde_json::from_str(&mobile_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(status["data"]["status"], "applied");
+        assert_eq!(status["data"]["request_id"], request_id.to_string());
+        assert_eq!(status["data"]["replayed"], true);
+
+        assert!(handle_message(
+            &mux,
+            mobile,
+            &json!({
+                "id": 53,
+                "cmd": "acknowledge-terminal-request",
+                "surface_uuid": surface_uuid,
+                "request_id": request_id,
+            })
+            .to_string(),
+            &mobile_writer,
+        ));
+        let acknowledged: Value =
+            serde_json::from_str(&mobile_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(acknowledged["data"]["request_id"], request_id.to_string());
+        assert_eq!(acknowledged["data"]["acknowledged"], true);
+
+        assert!(handle_message(
+            &mux,
+            mobile,
+            &json!({
+                "id": 54,
+                "cmd": "terminal-delegated-input",
+                "surface_uuid": surface_uuid,
+                "delegation_id": delegation_id,
+                "delegation_generation": delegation_generation,
+                "sequence": 2,
+                "request_id": uuid::Uuid::new_v4(),
+                "input": {"type": "named-key", "key": "enter"},
+            })
+            .to_string(),
+            &mobile_writer,
+        ));
+        assert_rejected_response(&mobile_outbound, "scope denied");
     }
 
     #[test]
@@ -11318,6 +11587,97 @@ mod tests {
         let remaining = handle_command(&mux, client, Command::ListPresentations, &writer).unwrap();
         assert_eq!(remaining.as_array().unwrap().len(), 1);
         assert_eq!(remaining[0]["presentation_id"], second["presentation_id"]);
+    }
+
+    #[test]
+    fn input_only_presentations_create_no_renderer_demand_until_configured() {
+        const PRESENTATION_COUNT: usize = 32;
+
+        let mux = test_mux();
+        mux.install_renderer_supervisor(crate::renderer_supervisor::RendererSupervisorConfig {
+            executable: PathBuf::from("/usr/bin/true"),
+            daemon_instance_id: mux.daemon_instance_id,
+            initial_restart_delay: Duration::from_secs(60),
+            maximum_restart_delay: Duration::from_secs(60),
+        })
+        .unwrap();
+        mux.new_workspace(Some("renderer-demand".into()), None).unwrap();
+        let (workspace_uuid, screen_uuid, pane_uuid, surface_uuid) = mux.with_state(|state| {
+            let workspace = &state.workspaces[0];
+            let screen = &workspace.screens[0];
+            let pane = state.panes.get(&screen.active_pane).unwrap();
+            let surface = state.surfaces.get(&pane.tabs[0]).unwrap();
+            (workspace.uuid, screen.uuid, pane.uuid, surface.uuid)
+        });
+        let writer = test_writer();
+        let (client, _) = register_v9_client(&mux, &writer);
+        let view = PresentationView {
+            workspace_uuid: Some(workspace_uuid),
+            screen_uuid: Some(screen_uuid),
+            pane_uuid: Some(pane_uuid),
+            surface_uuid: Some(surface_uuid),
+            ..PresentationView::default()
+        };
+        let mut presentation_ids = Vec::with_capacity(PRESENTATION_COUNT);
+
+        for _ in 0..PRESENTATION_COUNT {
+            let opened = handle_command(
+                &mux,
+                client,
+                Command::OpenPresentation {
+                    view: view.clone(),
+                    zoom: PresentationZoom::default(),
+                    scroll: PresentationScroll::default(),
+                },
+                &writer,
+            )
+            .unwrap();
+            let presentation_id = opened["presentation_id"].as_str().unwrap().parse().unwrap();
+            handle_command(
+                &mux,
+                client,
+                Command::ActivateTerminalPresentation { presentation_id, expected_generation: 1 },
+                &writer,
+            )
+            .unwrap();
+            presentation_ids.push(presentation_id);
+        }
+
+        assert!(mux.renderer_worker_statuses().is_empty());
+
+        handle_command(
+            &mux,
+            client,
+            Command::ConfigureRendererPresentation {
+                presentation_id: presentation_ids[0],
+                expected_generation: 1,
+                width: 800,
+                height: 600,
+                backing_scale_factor: 2.0,
+                columns: 80,
+                rows: 24,
+                pixel_format: "bgra8-unorm".into(),
+                color_space: "srgb".into(),
+                frame_endpoint_service: "test.renderer.endpoint".into(),
+                frame_endpoint_capability: base64::engine::general_purpose::STANDARD
+                    .encode([0x5a; 32]),
+                resolved_config_revision: 1,
+                resolved_config: String::new(),
+                focused: true,
+                cursor_blink_visible: true,
+                preedit: None,
+                preedit_selection_start_utf16: 0,
+                preedit_selection_length_utf16: 0,
+                preedit_caret_utf16: 0,
+            },
+            &writer,
+        )
+        .unwrap();
+
+        let statuses = mux.renderer_worker_statuses();
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].workspace_uuid, workspace_uuid);
+        assert_eq!(statuses[0].visible_presentation_count, 1);
     }
 
     #[test]

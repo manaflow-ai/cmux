@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -34,8 +34,8 @@ use crate::renderer_control::{
     RendererPresentationReady, RendererPresentationRemoval, RendererSemanticScene,
 };
 use crate::renderer_supervisor::{
-    RendererSupervisor, RendererSupervisorConfig, RendererSupervisorError, RendererSupervisorEvent,
-    RendererWorkerState, RendererWorkerStatus,
+    RendererProcessInstanceToken, RendererSupervisor, RendererSupervisorConfig,
+    RendererSupervisorError, RendererSupervisorEvent, RendererWorkerState, RendererWorkerStatus,
 };
 use crate::semantic_scene::{
     SemanticSceneAttachmentOptions, SemanticSceneCaptureOptions, SemanticSceneControl,
@@ -72,6 +72,7 @@ pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const TERMINAL_INITIAL_INPUT_DEADLINE: Duration = Duration::from_secs(30);
 const RENDERER_PRESENTATION_REMOVAL_TIMEOUT: Duration = Duration::from_secs(2);
+const RENDERER_EVENT_DISPATCH_CAPACITY: usize = 256;
 
 fn terminal_initial_input_deadline() -> Duration {
     #[cfg(test)]
@@ -139,6 +140,7 @@ pub enum MuxEvent {
         workspace_uuid: WorkspaceUuid,
         prior_renderer_epoch: u64,
         prior_process_id: Option<u32>,
+        prior_process_instance_token: Option<RendererProcessInstanceToken>,
         status: Option<RendererWorkerStatus>,
         reason: Option<Arc<str>>,
     },
@@ -146,6 +148,7 @@ pub enum MuxEvent {
         workspace_uuid: WorkspaceUuid,
         renderer_epoch: u64,
         process_id: u32,
+        process_instance_token: RendererProcessInstanceToken,
         effective_user_id: u32,
         metrics: RendererPresentationReady,
     },
@@ -1478,6 +1481,278 @@ struct RendererSceneBinding {
     renderer_epoch: u64,
 }
 
+struct RendererScenePumpStart {
+    sender: Sender<RendererSceneDispatchCommand>,
+    identity: SemanticScenePresentationIdentity,
+    armed: Arc<AtomicBool>,
+    registered: Arc<AtomicBool>,
+    active: bool,
+}
+
+enum RendererSceneDispatchCommand {
+    Wake(SemanticScenePresentationIdentity),
+    Stop,
+}
+
+struct RendererSceneDispatchEntry {
+    runtime: Arc<RendererPresentationRuntime>,
+    events: SemanticSceneReceiver,
+    canceled: Arc<AtomicBool>,
+    armed: Arc<AtomicBool>,
+    registered: Arc<AtomicBool>,
+}
+
+struct RendererSceneDispatchLane {
+    sender: Sender<RendererSceneDispatchCommand>,
+    entries: Arc<Mutex<HashMap<RendererPresentationLifetime, RendererSceneDispatchEntry>>>,
+    stopping: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+struct RendererSceneDispatcher {
+    lanes: Vec<RendererSceneDispatchLane>,
+}
+
+struct RendererEventDispatcher {
+    sender: Option<std::sync::mpsc::SyncSender<RendererSupervisorEvent>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl RendererEventDispatcher {
+    fn start(mux: std::sync::Weak<Mux>) -> std::io::Result<Self> {
+        let (sender, events) = std::sync::mpsc::sync_channel(RENDERER_EVENT_DISPATCH_CAPACITY);
+        let thread = std::thread::Builder::new()
+            .name("cmux-renderer-event-dispatch".to_owned())
+            .spawn(move || {
+                while let Ok(event) = events.recv() {
+                    let Some(mux) = mux.upgrade() else { return };
+                    mux.handle_renderer_supervisor_event(event);
+                }
+            })?;
+        Ok(Self { sender: Some(sender), thread: Some(thread) })
+    }
+
+    fn sender(&self) -> std::sync::mpsc::SyncSender<RendererSupervisorEvent> {
+        self.sender.as_ref().expect("live dispatcher has sender").clone()
+    }
+
+    fn shutdown(&mut self) {
+        self.sender.take();
+        let Some(thread) = self.thread.take() else { return };
+        if thread.thread().id() != std::thread::current().id() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for RendererEventDispatcher {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+impl RendererScenePumpStart {
+    fn arm(mut self) -> Result<(), std::sync::mpsc::SendError<RendererSceneDispatchCommand>> {
+        self.armed.store(true, Ordering::Release);
+        self.sender.send(RendererSceneDispatchCommand::Wake(self.identity))?;
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl Drop for RendererScenePumpStart {
+    fn drop(&mut self) {
+        if self.active {
+            self.registered.store(false, Ordering::Release);
+            let _ = self.sender.send(RendererSceneDispatchCommand::Wake(self.identity));
+        }
+    }
+}
+
+impl RendererSceneDispatcher {
+    fn start(mux: std::sync::Weak<Mux>) -> std::io::Result<Self> {
+        let mut dispatcher = Self { lanes: Vec::with_capacity(RENDERER_SCENE_DISPATCH_LANES) };
+        for lane_index in 0..RENDERER_SCENE_DISPATCH_LANES {
+            let (sender, commands) = std::sync::mpsc::channel();
+            let entries = Arc::new(Mutex::new(HashMap::<
+                RendererPresentationLifetime,
+                RendererSceneDispatchEntry,
+            >::new()));
+            let stopping = Arc::new(AtomicBool::new(false));
+            let thread_entries = entries.clone();
+            let thread_stopping = stopping.clone();
+            let thread_mux = mux.clone();
+            let thread = std::thread::Builder::new()
+                .name(format!("cmux-renderer-scene-{lane_index}"))
+                .spawn(move || {
+                    while let Ok(command) = commands.recv() {
+                        let identity = match command {
+                            RendererSceneDispatchCommand::Wake(identity) => identity,
+                            RendererSceneDispatchCommand::Stop => break,
+                        };
+                        let lifetime = RendererPresentationLifetime {
+                            presentation_id: identity.presentation_id.as_uuid(),
+                            presentation_generation: identity.generation,
+                        };
+                        let Some(entry) = thread_entries.lock().unwrap().remove(&lifetime) else {
+                            continue;
+                        };
+                        if thread_stopping.load(Ordering::Acquire)
+                            || !entry.registered.load(Ordering::Acquire)
+                            || entry.canceled.load(Ordering::Acquire)
+                            || entry.events.is_detached()
+                        {
+                            entry.events.detach();
+                            #[cfg(test)]
+                            if let Some(mux) = thread_mux.upgrade() {
+                                mux.renderer_scene_pump_exits.fetch_add(1, Ordering::Release);
+                            }
+                            continue;
+                        }
+                        if !entry.armed.load(Ordering::Acquire) {
+                            thread_entries.lock().unwrap().insert(lifetime, entry);
+                            continue;
+                        }
+
+                        let mut keep = true;
+                        loop {
+                            match entry.events.try_recv() {
+                                Ok(SemanticSceneEvent::Scene(frame)) => {
+                                    let Some(mux) = thread_mux.upgrade() else {
+                                        keep = false;
+                                        break;
+                                    };
+                                    #[cfg(test)]
+                                    mux.renderer_scene_pump_received_events
+                                        .fetch_add(1, Ordering::Relaxed);
+                                    if !mux.forward_renderer_scene(&entry.runtime, frame) {
+                                        keep = false;
+                                        break;
+                                    }
+                                }
+                                Ok(SemanticSceneEvent::Failed(_))
+                                | Err(TryRecvError::Disconnected) => {
+                                    if !entry.canceled.load(Ordering::Acquire)
+                                        && let Some(mux) = thread_mux.upgrade()
+                                    {
+                                        mux.fail_renderer_runtime_if_current(&entry.runtime);
+                                    }
+                                    keep = false;
+                                    break;
+                                }
+                                Err(TryRecvError::Empty) => break,
+                            }
+                        }
+                        if keep
+                            && entry.registered.load(Ordering::Acquire)
+                            && !entry.canceled.load(Ordering::Acquire)
+                            && !entry.events.is_detached()
+                            && !thread_stopping.load(Ordering::Acquire)
+                        {
+                            thread_entries.lock().unwrap().insert(lifetime, entry);
+                        } else {
+                            entry.events.detach();
+                            #[cfg(test)]
+                            if let Some(mux) = thread_mux.upgrade() {
+                                mux.renderer_scene_pump_exits.fetch_add(1, Ordering::Release);
+                            }
+                        }
+                    }
+                    for (_, entry) in std::mem::take(&mut *thread_entries.lock().unwrap()) {
+                        entry.events.detach();
+                    }
+                })?;
+            dispatcher.lanes.push(RendererSceneDispatchLane {
+                sender,
+                entries,
+                stopping,
+                thread: Some(thread),
+            });
+        }
+        Ok(dispatcher)
+    }
+
+    fn lane_index(identity: SemanticScenePresentationIdentity) -> usize {
+        let value = identity.presentation_id.as_uuid().as_u128() ^ u128::from(identity.generation);
+        usize::try_from(value % RENDERER_SCENE_DISPATCH_LANES as u128).unwrap_or(0)
+    }
+
+    fn consumer_wake(
+        &self,
+        identity: SemanticScenePresentationIdentity,
+    ) -> Arc<dyn Fn(SemanticScenePresentationIdentity) + Send + Sync + 'static> {
+        let sender = self.lanes[Self::lane_index(identity)].sender.clone();
+        Arc::new(move |identity| {
+            let _ = sender.send(RendererSceneDispatchCommand::Wake(identity));
+        })
+    }
+
+    fn register(
+        &self,
+        runtime: Arc<RendererPresentationRuntime>,
+        events: SemanticSceneReceiver,
+        canceled: Arc<AtomicBool>,
+    ) -> anyhow::Result<RendererScenePumpStart> {
+        let identity = SemanticScenePresentationIdentity {
+            presentation_id: presentation_id_from_uuid(runtime.attachment.presentation_id),
+            generation: runtime.attachment.presentation_generation,
+        };
+        let lane = &self.lanes[Self::lane_index(identity)];
+        let lifetime = RendererPresentationLifetime {
+            presentation_id: runtime.attachment.presentation_id,
+            presentation_generation: runtime.attachment.presentation_generation,
+        };
+        let armed = Arc::new(AtomicBool::new(false));
+        let registered = Arc::new(AtomicBool::new(true));
+        let mut entries = lane.entries.lock().unwrap();
+        if entries.contains_key(&lifetime) {
+            events.detach();
+            anyhow::bail!("renderer scene lifetime is already registered");
+        }
+        entries.insert(
+            lifetime,
+            RendererSceneDispatchEntry {
+                runtime,
+                events,
+                canceled,
+                armed: armed.clone(),
+                registered: registered.clone(),
+            },
+        );
+        drop(entries);
+        Ok(RendererScenePumpStart {
+            sender: lane.sender.clone(),
+            identity,
+            armed,
+            registered,
+            active: true,
+        })
+    }
+
+    fn shutdown(&mut self) {
+        for lane in &mut self.lanes {
+            lane.stopping.store(true, Ordering::Release);
+            for entry in lane.entries.lock().unwrap().values() {
+                entry.registered.store(false, Ordering::Release);
+                entry.events.detach();
+            }
+            let _ = lane.sender.send(RendererSceneDispatchCommand::Stop);
+        }
+        for lane in &mut self.lanes {
+            let Some(thread) = lane.thread.take() else { continue };
+            if thread.thread().id() != std::thread::current().id() {
+                let _ = thread.join();
+            }
+        }
+    }
+}
+
+impl Drop for RendererSceneDispatcher {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 struct RendererPresentationRuntime {
     client: u64,
     workspace_uuid: WorkspaceUuid,
@@ -1485,9 +1760,58 @@ struct RendererPresentationRuntime {
     attachment: RendererPresentationAttachment,
     capture: SemanticSceneCaptureOptions,
     preedit: Mutex<Option<RendererPreedit>>,
-    scene: Mutex<RendererSceneBinding>,
-    bound_renderer_epoch: Mutex<u64>,
+    /// Orders exact worker publication against every local retirement path.
+    /// A worker observes either Publish then Remove, or no Publish at all.
+    operation: Mutex<()>,
+    scene: Mutex<Option<RendererSceneBinding>>,
+    activation: Mutex<RendererActivationState>,
+    /// The exact worker lifetime that observed UpsertPresentation. This is
+    /// independent of the local scene binding because rollback may detach the
+    /// producer before the worker acknowledges RemovePresentation.
+    published_epoch: Mutex<Option<u64>>,
     removal_pending: AtomicBool,
+}
+
+#[derive(Debug, Default)]
+struct RendererActivationState {
+    last_committed_epoch: u64,
+    activating_epoch: Option<u64>,
+    active_epoch: Option<u64>,
+}
+
+struct RendererActivationClaim<'a> {
+    state: &'a Mutex<RendererActivationState>,
+    removal_pending: Option<&'a AtomicBool>,
+    renderer_epoch: u64,
+    committed: bool,
+}
+
+impl RendererActivationClaim<'_> {
+    fn commit(mut self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if self.removal_pending.is_some_and(|pending| pending.load(Ordering::Acquire))
+            || state.activating_epoch != Some(self.renderer_epoch)
+        {
+            return false;
+        }
+        state.activating_epoch = None;
+        state.active_epoch = Some(self.renderer_epoch);
+        state.last_committed_epoch = self.renderer_epoch;
+        self.committed = true;
+        true
+    }
+}
+
+impl Drop for RendererActivationClaim<'_> {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        let mut state = self.state.lock().unwrap();
+        if state.activating_epoch == Some(self.renderer_epoch) {
+            state.activating_epoch = None;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1541,31 +1865,125 @@ impl PendingRendererPresentationRemoval {
 impl RendererPresentationRuntime {
     /// Linearizes the configure path with an asynchronous WorkerReady event.
     /// Exactly one caller may bind a presentation to a given worker epoch.
-    fn claim_renderer_epoch(&self, renderer_epoch: u64) -> Option<MutexGuard<'_, u64>> {
-        if self.removal_pending.load(Ordering::Acquire) {
+    fn claim_renderer_epoch(&self, renderer_epoch: u64) -> Option<RendererActivationClaim<'_>> {
+        if renderer_epoch == 0 {
             return None;
         }
-        let claim = claim_new_renderer_epoch(&self.bound_renderer_epoch, renderer_epoch)?;
-        if self.removal_pending.load(Ordering::Acquire) {
+        let mut state = self.activation.lock().unwrap();
+        if self.removal_pending.load(Ordering::Acquire)
+            || self
+                .published_epoch()
+                .is_some_and(|published_epoch| published_epoch != renderer_epoch)
+            || state.last_committed_epoch >= renderer_epoch
+            || state.activating_epoch.is_some()
+        {
             return None;
         }
-        Some(claim)
+        state.activating_epoch = Some(renderer_epoch);
+        drop(state);
+        Some(RendererActivationClaim {
+            state: &self.activation,
+            removal_pending: Some(&self.removal_pending),
+            renderer_epoch,
+            committed: false,
+        })
+    }
+
+    fn revoke_renderer_epoch(&self, renderer_epoch: u64) {
+        let mut activation = self.activation.lock().unwrap();
+        if activation.active_epoch == Some(renderer_epoch) {
+            activation.active_epoch = None;
+        }
+        if activation.activating_epoch == Some(renderer_epoch) {
+            activation.activating_epoch = None;
+        }
+    }
+
+    fn is_renderer_epoch_active(&self, renderer_epoch: u64) -> bool {
+        self.activation.lock().unwrap().active_epoch == Some(renderer_epoch)
+    }
+
+    fn record_published_epoch(&self, renderer_epoch: u64) {
+        let mut published = self.published_epoch.lock().unwrap();
+        debug_assert!(published.is_none() || *published == Some(renderer_epoch));
+        *published = Some(renderer_epoch);
+    }
+
+    fn published_epoch(&self) -> Option<u64> {
+        *self.published_epoch.lock().unwrap()
+    }
+
+    fn clear_published_epoch(&self, renderer_epoch: u64) {
+        let mut published = self.published_epoch.lock().unwrap();
+        if *published == Some(renderer_epoch) {
+            *published = None;
+        }
+    }
+
+    fn take_scene_if_epoch(&self, renderer_epoch: u64) -> Option<RendererSceneBinding> {
+        let mut scene = self.scene.lock().unwrap();
+        if !scene.as_ref().is_some_and(|scene| scene.renderer_epoch == renderer_epoch) {
+            return None;
+        }
+        scene.take()
+    }
+
+    /// Revokes activation and takes the local scene under one lock order. An
+    /// in-flight activation can either publish a scene before this point or
+    /// observe removal, but it cannot install a scene after retirement starts.
+    fn begin_removal(&self) -> Option<RendererSceneBinding> {
+        let mut activation = self.activation.lock().unwrap();
+        self.removal_pending.store(true, Ordering::Release);
+        activation.activating_epoch = None;
+        activation.active_epoch = None;
+        self.scene.lock().unwrap().take()
+    }
+
+    fn install_scene_for_activation(
+        &self,
+        renderer_epoch: u64,
+        scene: RendererSceneBinding,
+    ) -> Result<(), RendererSceneBinding> {
+        let activation = self.activation.lock().unwrap();
+        if self.removal_pending.load(Ordering::Acquire)
+            || activation.activating_epoch != Some(renderer_epoch)
+        {
+            return Err(scene);
+        }
+        *self.scene.lock().unwrap() = Some(scene);
+        Ok(())
+    }
+
+    fn removal(&self) -> RendererPresentationRemoval {
+        RendererPresentationRemoval {
+            terminal_id: self.attachment.terminal_id,
+            terminal_epoch: self.attachment.terminal_epoch,
+            presentation_id: self.attachment.presentation_id,
+            presentation_generation: self.attachment.presentation_generation,
+        }
     }
 }
 
+#[cfg(test)]
 fn claim_new_renderer_epoch(
-    bound_renderer_epoch: &Mutex<u64>,
+    activation: &Mutex<RendererActivationState>,
     renderer_epoch: u64,
-) -> Option<MutexGuard<'_, u64>> {
+) -> Option<RendererActivationClaim<'_>> {
     if renderer_epoch == 0 {
         return None;
     }
-    let mut current = bound_renderer_epoch.lock().unwrap();
-    if *current >= renderer_epoch {
+    let mut state = activation.lock().unwrap();
+    if state.last_committed_epoch >= renderer_epoch || state.activating_epoch.is_some() {
         return None;
     }
-    *current = renderer_epoch;
-    Some(current)
+    state.activating_epoch = Some(renderer_epoch);
+    drop(state);
+    Some(RendererActivationClaim {
+        state: activation,
+        removal_pending: None,
+        renderer_epoch,
+        committed: false,
+    })
 }
 
 #[derive(Default)]
@@ -1593,6 +2011,19 @@ impl RendererPresentationWorkspaceIndex {
 
     fn get(&self, workspace_uuid: WorkspaceUuid) -> Option<&BTreeSet<crate::PresentationId>> {
         self.presentation_ids.get(&workspace_uuid)
+    }
+
+    fn admits(
+        &self,
+        presentation_id: crate::PresentationId,
+        workspace_uuid: WorkspaceUuid,
+        previous_workspace_uuid: Option<WorkspaceUuid>,
+    ) -> bool {
+        previous_workspace_uuid == Some(workspace_uuid)
+            || self.presentation_ids.get(&workspace_uuid).is_none_or(|presentations| {
+                presentations.contains(&presentation_id)
+                    || presentations.len() < MAXIMUM_RENDERER_PRESENTATIONS_PER_WORKSPACE
+            })
     }
 
     fn presentation_ids_for_rehydration(
@@ -1625,6 +2056,18 @@ struct RendererPresentationRuntimes {
 }
 
 impl RendererPresentationRuntimes {
+    fn admits(
+        &self,
+        presentation_id: crate::PresentationId,
+        workspace_uuid: WorkspaceUuid,
+    ) -> bool {
+        self.by_workspace.admits(
+            presentation_id,
+            workspace_uuid,
+            self.by_id.get(&presentation_id).map(|runtime| runtime.workspace_uuid),
+        )
+    }
+
     fn insert(
         &mut self,
         presentation_id: crate::PresentationId,
@@ -1702,9 +2145,9 @@ impl RendererPresentationRuntimes {
     }
 }
 
+const MAXIMUM_RENDERER_PRESENTATIONS_PER_WORKSPACE: usize = 256;
 const MAX_RENDERER_RELEASE_ROUTES: usize = 8_192;
-const RENDERER_SCENE_PUMP_POLL: Duration = Duration::from_millis(100);
-
+const RENDERER_SCENE_DISPATCH_LANES: usize = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct RendererReleaseRouteKey {
     presentation_id: crate::PresentationId,
@@ -1736,6 +2179,11 @@ impl RendererReleaseRoutes {
                 self.values.remove(&retired);
             }
         }
+    }
+
+    fn remove(&mut self, key: RendererReleaseRouteKey) {
+        self.values.remove(&key);
+        self.insertion_order.retain(|existing| *existing != key);
     }
 }
 
@@ -1882,6 +2330,118 @@ fn ensure_terminal_workspace_location(
     }))
 }
 
+trait RendererSupervisorServing: Send + Sync {
+    fn set_presentation_workspace(
+        &self,
+        presentation_id: crate::PresentationId,
+        workspace_uuid: Option<WorkspaceUuid>,
+    ) -> Result<(), RendererSupervisorError>;
+    fn remove_presentation(
+        &self,
+        presentation_id: crate::PresentationId,
+    ) -> Result<(), RendererSupervisorError>;
+    fn statuses(&self) -> Vec<RendererWorkerStatus>;
+    fn workspace_status(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+    ) -> Result<Option<RendererWorkerStatus>, RendererSupervisorError>;
+    fn send(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+        message: RendererControlMessage,
+    ) -> Result<(), RendererSupervisorError>;
+    fn send_if_epoch(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+        renderer_epoch: u64,
+        messages: Vec<RendererControlMessage>,
+    ) -> Result<(), RendererSupervisorError>;
+    fn publish_if_epoch(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+        renderer_epoch: u64,
+        messages: Vec<RendererControlMessage>,
+    ) -> Result<RendererWorkerStatus, RendererSupervisorError>;
+    fn retire_if_epoch(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+        renderer_epoch: u64,
+    ) -> Result<bool, RendererSupervisorError>;
+    fn retain_workspaces(
+        &self,
+        workspace_uuids: BTreeSet<WorkspaceUuid>,
+    ) -> Result<(), RendererSupervisorError>;
+}
+
+impl RendererSupervisorServing for RendererSupervisor {
+    fn set_presentation_workspace(
+        &self,
+        presentation_id: crate::PresentationId,
+        workspace_uuid: Option<WorkspaceUuid>,
+    ) -> Result<(), RendererSupervisorError> {
+        RendererSupervisor::set_presentation_workspace(self, presentation_id, workspace_uuid)
+    }
+
+    fn remove_presentation(
+        &self,
+        presentation_id: crate::PresentationId,
+    ) -> Result<(), RendererSupervisorError> {
+        RendererSupervisor::remove_presentation(self, presentation_id)
+    }
+
+    fn statuses(&self) -> Vec<RendererWorkerStatus> {
+        RendererSupervisor::statuses(self)
+    }
+
+    fn workspace_status(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+    ) -> Result<Option<RendererWorkerStatus>, RendererSupervisorError> {
+        RendererSupervisor::workspace_status(self, workspace_uuid)
+    }
+
+    fn send(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+        message: RendererControlMessage,
+    ) -> Result<(), RendererSupervisorError> {
+        RendererSupervisor::send(self, workspace_uuid, message)
+    }
+
+    fn send_if_epoch(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+        renderer_epoch: u64,
+        messages: Vec<RendererControlMessage>,
+    ) -> Result<(), RendererSupervisorError> {
+        RendererSupervisor::send_if_epoch(self, workspace_uuid, renderer_epoch, messages)
+    }
+
+    fn publish_if_epoch(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+        renderer_epoch: u64,
+        messages: Vec<RendererControlMessage>,
+    ) -> Result<RendererWorkerStatus, RendererSupervisorError> {
+        RendererSupervisor::publish_if_epoch(self, workspace_uuid, renderer_epoch, messages)
+    }
+
+    fn retire_if_epoch(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+        renderer_epoch: u64,
+    ) -> Result<bool, RendererSupervisorError> {
+        RendererSupervisor::retire_if_epoch(self, workspace_uuid, renderer_epoch)
+    }
+
+    fn retain_workspaces(
+        &self,
+        workspace_uuids: BTreeSet<WorkspaceUuid>,
+    ) -> Result<(), RendererSupervisorError> {
+        RendererSupervisor::retain_workspaces(self, workspace_uuids)
+    }
+}
+
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     state: Mutex<CanonicalState>,
@@ -1907,12 +2467,30 @@ pub struct Mux {
     pub(crate) presentations: PresentationRegistry,
     pub(crate) projection_states: ProjectionStateRegistry,
     pub(crate) terminal_authority: TerminalAuthorityRegistry,
-    renderer_supervisor: Mutex<Option<Arc<RendererSupervisor>>>,
+    renderer_supervisor: Mutex<Option<Arc<dyn RendererSupervisorServing>>>,
+    renderer_event_dispatcher: Mutex<Option<RendererEventDispatcher>>,
+    renderer_scene_dispatcher: Mutex<Option<RendererSceneDispatcher>>,
     renderer_presentations: Mutex<RendererPresentationRuntimes>,
     renderer_presentation_generations: Mutex<BTreeMap<crate::PresentationId, u64>>,
     renderer_release_routes: Mutex<RendererReleaseRoutes>,
     renderer_removal_waiters:
         Mutex<HashMap<RendererPresentationLifetime, Arc<PendingRendererPresentationRemoval>>>,
+    #[cfg(test)]
+    renderer_activation_fail_semantic_attach: AtomicBool,
+    #[cfg(test)]
+    renderer_activation_after_scene_install: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    renderer_activation_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    renderer_scene_before_send: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    renderer_scene_pump_fail_spawn: AtomicBool,
+    #[cfg(test)]
+    renderer_scene_pump_received_events: AtomicU64,
+    #[cfg(test)]
+    renderer_scene_pump_exits: AtomicU64,
+    #[cfg(test)]
+    renderer_removal_before_map_erase: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     ensure_terminal_lock: Mutex<()>,
     pairing: PairingBroker,
     #[cfg(test)]
@@ -2079,10 +2657,28 @@ impl Mux {
             projection_states: ProjectionStateRegistry::new(),
             terminal_authority: TerminalAuthorityRegistry::new(),
             renderer_supervisor: Mutex::new(None),
+            renderer_event_dispatcher: Mutex::new(None),
+            renderer_scene_dispatcher: Mutex::new(None),
             renderer_presentations: Mutex::new(RendererPresentationRuntimes::default()),
             renderer_presentation_generations: Mutex::new(BTreeMap::new()),
             renderer_release_routes: Mutex::new(RendererReleaseRoutes::default()),
             renderer_removal_waiters: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            renderer_activation_fail_semantic_attach: AtomicBool::new(false),
+            #[cfg(test)]
+            renderer_activation_after_scene_install: Mutex::new(None),
+            #[cfg(test)]
+            renderer_activation_before_commit: Mutex::new(None),
+            #[cfg(test)]
+            renderer_scene_before_send: Mutex::new(None),
+            #[cfg(test)]
+            renderer_scene_pump_fail_spawn: AtomicBool::new(false),
+            #[cfg(test)]
+            renderer_scene_pump_received_events: AtomicU64::new(0),
+            #[cfg(test)]
+            renderer_scene_pump_exits: AtomicU64::new(0),
+            #[cfg(test)]
+            renderer_removal_before_map_erase: Mutex::new(None),
             ensure_terminal_lock: Mutex::new(()),
             pairing: PairingBroker::new(),
             #[cfg(test)]
@@ -3780,12 +4376,19 @@ impl Mux {
     }
 
     pub fn shutdown(&self) {
-        for runtime in self.renderer_presentations.lock().unwrap().take_all() {
-            let scene = runtime.scene.lock().unwrap();
-            scene.canceled.store(true, Ordering::Release);
-            scene.control.detach();
+        let renderer_presentations = self.renderer_presentations.lock().unwrap().take_all();
+        for runtime in renderer_presentations {
+            let _operation = runtime.operation.lock().unwrap();
+            if let Some(scene) = runtime.begin_removal() {
+                scene.canceled.store(true, Ordering::Release);
+                scene.control.detach();
+            }
         }
+        // Drop the producer first so the lossless dispatcher channel closes,
+        // then join its one owned consumer before tearing down surface state.
+        self.renderer_scene_dispatcher.lock().unwrap().take();
         self.renderer_supervisor.lock().unwrap().take();
+        self.renderer_event_dispatcher.lock().unwrap().take();
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
             surface.kill();
@@ -3802,19 +4405,29 @@ impl Mux {
         config: RendererSupervisorConfig,
     ) -> anyhow::Result<()> {
         let mut slot = self.renderer_supervisor.lock().unwrap();
-        if slot.is_some() {
+        let mut dispatcher_slot = self.renderer_event_dispatcher.lock().unwrap();
+        if slot.is_some() || dispatcher_slot.is_some() {
             anyhow::bail!("renderer supervisor is already installed");
         }
+        let dispatcher = RendererEventDispatcher::start(Arc::downgrade(self))?;
         let supervisor = Arc::new(RendererSupervisor::start(config)?);
-        let mux = Arc::downgrade(self);
+        let sender = dispatcher.sender();
         supervisor.set_event_handler(Arc::new(move |event| {
-            let Some(mux) = mux.upgrade() else { return };
-            let _ = std::thread::Builder::new()
-                .name("cmux-renderer-event".to_owned())
-                .spawn(move || mux.handle_renderer_supervisor_event(event));
+            // Blocking preserves every event and its coordinator order. The
+            // dedicated consumer performs no supervisor RPC, so saturation
+            // applies bounded backpressure without a callback deadlock.
+            let _ = sender.send(event);
         }));
+        *dispatcher_slot = Some(dispatcher);
         *slot = Some(supervisor);
         Ok(())
+    }
+
+    #[cfg(test)]
+    fn install_renderer_supervisor_for_test(&self, supervisor: Arc<dyn RendererSupervisorServing>) {
+        let mut slot = self.renderer_supervisor.lock().unwrap();
+        assert!(slot.is_none(), "renderer supervisor is already installed");
+        *slot = Some(supervisor);
     }
 
     pub(crate) fn set_renderer_presentation_workspace(
@@ -3834,14 +4447,99 @@ impl Mux {
     pub(crate) fn remove_renderer_presentation(
         &self,
         presentation_id: crate::PresentationId,
-    ) -> Result<(), RendererSupervisorError> {
-        self.invalidate_renderer_presentation(presentation_id);
-        self.renderer_presentation_generations.lock().unwrap().remove(&presentation_id);
+    ) -> anyhow::Result<()> {
+        self.remove_renderer_presentation_with_timeout(
+            presentation_id,
+            RENDERER_PRESENTATION_REMOVAL_TIMEOUT,
+        )
+    }
+
+    fn remove_renderer_presentation_with_timeout(
+        &self,
+        presentation_id: crate::PresentationId,
+        removal_timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let runtime = self.renderer_presentations.lock().unwrap().remove(&presentation_id);
         let supervisor = self.renderer_supervisor.lock().unwrap().clone();
-        match supervisor {
-            Some(supervisor) => supervisor.remove_presentation(presentation_id),
+        let retirement = runtime.as_ref().map_or(Ok(()), |runtime| {
+            self.retire_renderer_runtime_for_close(runtime, supervisor.as_deref(), removal_timeout)
+        });
+        self.renderer_presentation_generations.lock().unwrap().remove(&presentation_id);
+        let visibility = match supervisor {
+            Some(supervisor) => {
+                supervisor.remove_presentation(presentation_id).map_err(anyhow::Error::from)
+            }
             None => Ok(()),
+        };
+        retirement?;
+        visibility
+    }
+
+    fn retire_renderer_runtime_for_close(
+        &self,
+        runtime: &RendererPresentationRuntime,
+        supervisor: Option<&dyn RendererSupervisorServing>,
+        removal_timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let _operation = runtime.operation.lock().unwrap();
+        let scene = runtime.begin_removal();
+        let removal = runtime.removal();
+        let lifetime = RendererPresentationLifetime {
+            presentation_id: removal.presentation_id,
+            presentation_generation: removal.presentation_generation,
+        };
+        let retained_pending =
+            self.renderer_removal_waiters.lock().unwrap().get(&lifetime).cloned();
+        let renderer_epoch = match (&retained_pending, &scene, runtime.published_epoch()) {
+            (Some(pending), _, _) => pending.renderer_epoch,
+            (None, Some(scene), _) => scene.renderer_epoch,
+            (None, None, Some(renderer_epoch)) => renderer_epoch,
+            (None, None, None) => return Ok(()),
+        };
+        let Some(supervisor) = supervisor else {
+            if let Some(scene) = scene {
+                scene.canceled.store(true, Ordering::Release);
+                scene.control.detach();
+            }
+            return Ok(());
+        };
+        let Some((_, pending)) = self.renderer_removal_waiter(runtime, renderer_epoch)? else {
+            if let Some(scene) = scene {
+                scene.canceled.store(true, Ordering::Release);
+                scene.control.detach();
+            }
+            return Ok(());
+        };
+        if let Some(scene) = scene.as_ref() {
+            scene.canceled.store(true, Ordering::Release);
         }
+        let send_result = if pending.is_quiesced() {
+            Ok(())
+        } else {
+            supervisor.send_if_epoch(
+                runtime.workspace_uuid,
+                renderer_epoch,
+                vec![RendererControlMessage::RemovePresentation(removal)],
+            )
+        };
+        if let Some(scene) = scene {
+            scene.control.detach();
+        }
+        let mut quiesced = pending.wait_until_quiesced(removal_timeout);
+        if !quiesced {
+            quiesced = supervisor.retire_if_epoch(runtime.workspace_uuid, renderer_epoch)?;
+            if quiesced {
+                self.complete_renderer_removal(lifetime, &pending);
+            }
+        }
+        if !quiesced {
+            if let Err(error) = send_result {
+                return Err(error.into());
+            }
+            anyhow::bail!("renderer presentation removal did not reach exact quiescence");
+        }
+        self.complete_renderer_removal(lifetime, &pending);
+        Ok(())
     }
 
     pub fn renderer_worker_statuses(&self) -> Vec<RendererWorkerStatus> {
@@ -3862,6 +4560,149 @@ impl Mux {
             Some(supervisor) => supervisor.workspace_status(workspace_uuid),
             None => Ok(None),
         }
+    }
+
+    fn complete_renderer_removal(
+        &self,
+        lifetime: RendererPresentationLifetime,
+        pending: &Arc<PendingRendererPresentationRemoval>,
+    ) {
+        let presentation_id = presentation_id_from_uuid(lifetime.presentation_id);
+        let runtime = self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&presentation_id)
+            .filter(|runtime| {
+                runtime.attachment.presentation_generation == lifetime.presentation_generation
+            })
+            .cloned();
+        // Keep the publication proof locked until the waiter disappears. A
+        // retry therefore sees either both old facts or both new facts and
+        // cannot recreate a waiter after an acknowledgement.
+        let mut published = runtime.as_ref().map(|runtime| runtime.published_epoch.lock().unwrap());
+        #[cfg(test)]
+        if let Some(before_map_erase) =
+            self.renderer_removal_before_map_erase.lock().unwrap().take()
+        {
+            before_map_erase();
+        }
+        let removed = {
+            let mut removals = self.renderer_removal_waiters.lock().unwrap();
+            if removals.get(&lifetime).is_some_and(|current| Arc::ptr_eq(current, pending)) {
+                removals.remove(&lifetime)
+            } else {
+                None
+            }
+        };
+        if let Some(removed) = removed {
+            self.renderer_release_routes.lock().unwrap().remove(RendererReleaseRouteKey {
+                presentation_id,
+                presentation_generation: lifetime.presentation_generation,
+                renderer_epoch: removed.renderer_epoch,
+            });
+            if let Some(published) = published.as_mut()
+                && **published == Some(removed.renderer_epoch)
+            {
+                **published = None;
+            }
+            removed.mark_quiesced();
+        }
+    }
+
+    fn renderer_removal_waiter(
+        &self,
+        runtime: &RendererPresentationRuntime,
+        renderer_epoch: u64,
+    ) -> anyhow::Result<
+        Option<(RendererPresentationLifetime, Arc<PendingRendererPresentationRemoval>)>,
+    > {
+        let removal = runtime.removal();
+        let lifetime = RendererPresentationLifetime {
+            presentation_id: removal.presentation_id,
+            presentation_generation: removal.presentation_generation,
+        };
+        let published = runtime.published_epoch.lock().unwrap();
+        if *published != Some(renderer_epoch) {
+            return Ok(None);
+        }
+        let mut removals = self.renderer_removal_waiters.lock().unwrap();
+        if let Some(pending) = removals.get(&lifetime) {
+            if !pending.matches(
+                runtime.workspace_uuid,
+                renderer_epoch,
+                removal.terminal_id,
+                removal.terminal_epoch,
+            ) {
+                anyhow::bail!("renderer presentation removal lifetime is already pending");
+            }
+            return Ok(Some((lifetime, pending.clone())));
+        }
+        let pending = Arc::new(PendingRendererPresentationRemoval {
+            workspace_uuid: runtime.workspace_uuid,
+            renderer_epoch,
+            terminal_id: removal.terminal_id,
+            terminal_epoch: removal.terminal_epoch,
+            quiesced: Mutex::new(false),
+            changed: std::sync::Condvar::new(),
+        });
+        removals.insert(lifetime, pending.clone());
+        Ok(Some((lifetime, pending)))
+    }
+
+    fn complete_renderer_removals_for_worker(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+        renderer_epoch: u64,
+    ) {
+        let pending = self
+            .renderer_removal_waiters
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(lifetime, pending)| {
+                (pending.workspace_uuid == workspace_uuid
+                    && pending.renderer_epoch == renderer_epoch)
+                    .then_some((*lifetime, pending.clone()))
+            })
+            .collect::<Vec<_>>();
+        for (lifetime, pending) in pending {
+            self.complete_renderer_removal(lifetime, &pending);
+        }
+    }
+
+    fn require_renderer_removal_quiescence(
+        &self,
+        presentation_id: crate::PresentationId,
+        supervisor: &dyn RendererSupervisorServing,
+    ) -> anyhow::Result<()> {
+        let pending = self
+            .renderer_removal_waiters
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(lifetime, pending)| {
+                (lifetime.presentation_id == presentation_id.as_uuid())
+                    .then_some((*lifetime, pending.clone()))
+            })
+            .collect::<Vec<_>>();
+        for (lifetime, pending) in pending {
+            let quiesced = pending.is_quiesced()
+                || supervisor.retire_if_epoch(pending.workspace_uuid, pending.renderer_epoch)?;
+            if quiesced {
+                self.complete_renderer_removal(lifetime, &pending);
+            }
+        }
+        if self
+            .renderer_removal_waiters
+            .lock()
+            .unwrap()
+            .keys()
+            .any(|lifetime| lifetime.presentation_id == presentation_id.as_uuid())
+        {
+            anyhow::bail!("renderer presentation replacement is blocked by an unquiesced removal");
+        }
+        Ok(())
     }
 
     pub(crate) fn configure_renderer_presentation(
@@ -3915,16 +4756,20 @@ impl Mux {
             .semantic_scene_terminal_identity()
             .ok_or_else(|| anyhow::anyhow!("browser surfaces have no terminal renderer"))?;
 
+        if !self.renderer_presentations.lock().unwrap().admits(presentation_id, workspace_uuid) {
+            anyhow::bail!(
+                "workspace renderer presentation limit reached (maximum {})",
+                MAXIMUM_RENDERER_PRESENTATIONS_PER_WORKSPACE
+            );
+        }
+
         let supervisor = self
             .renderer_supervisor
             .lock()
             .unwrap()
             .clone()
             .ok_or_else(|| anyhow::anyhow!("renderer supervisor is not installed"))?;
-        supervisor.set_presentation_workspace(presentation_id, Some(workspace_uuid))?;
-        let worker = supervisor
-            .workspace_status(workspace_uuid)?
-            .ok_or_else(|| anyhow::anyhow!("renderer worker was not created"))?;
+        self.require_renderer_removal_quiescence(presentation_id, supervisor.as_ref())?;
 
         self.apply_renderer_configuration_size(
             surface_id,
@@ -3976,23 +4821,7 @@ impl Mux {
         scene_options.preedit = configuration.preedit.as_ref().map(RendererPreedit::semantic);
         let scene_attachment = surface.attach_semantic_scene(scene_options)?;
         let minimum_content_sequence = scene_attachment.initial.content_sequence;
-        let initial = renderer_semantic_scene(&scene_attachment.initial);
-        let canceled = Arc::new(AtomicBool::new(false));
-        let runtime = Arc::new(RendererPresentationRuntime {
-            client,
-            workspace_uuid,
-            surface: surface.clone(),
-            attachment: attachment.clone(),
-            capture,
-            preedit: Mutex::new(configuration.preedit),
-            scene: Mutex::new(RendererSceneBinding {
-                control: scene_attachment.control,
-                canceled: canceled.clone(),
-                renderer_epoch: worker.renderer_epoch,
-            }),
-            bound_renderer_epoch: Mutex::new(0),
-            removal_pending: AtomicBool::new(false),
-        });
+        scene_attachment.control.detach();
 
         // Recheck connection ownership after the potentially expensive full
         // capture so a racing disconnect cannot install an orphan runtime.
@@ -4000,8 +4829,52 @@ impl Mux {
         if current.generation != presentation.generation {
             anyhow::bail!("presentation changed while its renderer was attaching");
         }
-        let previous =
-            self.renderer_presentations.lock().unwrap().insert(presentation_id, runtime.clone());
+        let retained_workspace = self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&presentation_id)
+            .map(|runtime| runtime.workspace_uuid);
+        supervisor.set_presentation_workspace(presentation_id, Some(workspace_uuid))?;
+        match supervisor.workspace_status(workspace_uuid) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                supervisor.set_presentation_workspace(presentation_id, retained_workspace)?;
+                anyhow::bail!("renderer worker was not created");
+            }
+            Err(error) => {
+                supervisor.set_presentation_workspace(presentation_id, retained_workspace)?;
+                return Err(error.into());
+            }
+        };
+        self.require_renderer_removal_quiescence(presentation_id, supervisor.as_ref())?;
+        let runtime = Arc::new(RendererPresentationRuntime {
+            client,
+            workspace_uuid,
+            surface: surface.clone(),
+            attachment: attachment.clone(),
+            capture,
+            preedit: Mutex::new(configuration.preedit),
+            operation: Mutex::new(()),
+            scene: Mutex::new(None),
+            activation: Mutex::new(RendererActivationState::default()),
+            published_epoch: Mutex::new(None),
+            removal_pending: AtomicBool::new(false),
+        });
+        let previous = {
+            let mut runtimes = self.renderer_presentations.lock().unwrap();
+            if !runtimes.admits(presentation_id, workspace_uuid) {
+                let retained_workspace =
+                    runtimes.get(&presentation_id).map(|runtime| runtime.workspace_uuid);
+                drop(runtimes);
+                supervisor.set_presentation_workspace(presentation_id, retained_workspace)?;
+                anyhow::bail!(
+                    "workspace renderer presentation limit reached (maximum {})",
+                    MAXIMUM_RENDERER_PRESENTATIONS_PER_WORKSPACE
+                );
+            }
+            runtimes.insert(presentation_id, runtime.clone())
+        };
         let focus_changed = previous.as_ref().map_or(configuration.focused, |previous| {
             previous.capture.focused != configuration.focused
         });
@@ -4015,11 +4888,9 @@ impl Mux {
         if let Some(previous) = previous {
             self.retire_renderer_runtime(&previous);
         }
-        // Re-read worker state only after publishing the runtime. WorkerReady
-        // may race anywhere in this interval, but claim_renderer_epoch makes
-        // either this path or rehydrate_renderer_workspace the sole binder for
-        // the observed epoch. A Ready event that ran before insertion is
-        // recovered by this exact coordinator snapshot.
+        // Publish only the worker identity here. The renderer cannot receive
+        // the endpoint or a semantic scene until Swift acknowledges that it
+        // installed both NOTE_EXIT and Mach audit-token fences for this epoch.
         let worker = match supervisor.workspace_status(workspace_uuid) {
             Ok(Some(worker)) => worker,
             Ok(None) => {
@@ -4031,25 +4902,6 @@ impl Mux {
                 return Err(error.into());
             }
         };
-        if worker.state == RendererWorkerState::Ready {
-            if let Some(_epoch_claim) = runtime.claim_renderer_epoch(worker.renderer_epoch) {
-                runtime.scene.lock().unwrap().renderer_epoch = worker.renderer_epoch;
-                self.remember_renderer_release_route(&runtime, worker.renderer_epoch);
-                if let Err(error) = supervisor.send_if_epoch(
-                    workspace_uuid,
-                    worker.renderer_epoch,
-                    vec![
-                        RendererControlMessage::UpsertPresentation(attachment),
-                        RendererControlMessage::SemanticScene(initial),
-                    ],
-                ) {
-                    self.remove_renderer_runtime_if_current(&runtime);
-                    return Err(error.into());
-                }
-            }
-        }
-        self.spawn_renderer_scene_pump(runtime, scene_attachment.events, canceled);
-
         Ok(RendererPresentationReceipt {
             daemon_instance_id: self.daemon_instance_id,
             worker,
@@ -4258,12 +5110,9 @@ impl Mux {
             );
         }
         *runtime.preedit.lock().unwrap() = preedit.clone();
-        runtime
-            .scene
-            .lock()
-            .unwrap()
-            .control
-            .set_preedit_state(preedit.as_ref().map(RendererPreedit::semantic));
+        if let Some(scene) = runtime.scene.lock().unwrap().as_ref() {
+            scene.control.set_preedit_state(preedit.as_ref().map(RendererPreedit::semantic));
+        }
         Ok(())
     }
 
@@ -4272,6 +5121,21 @@ impl Mux {
         client: u64,
         presentation_id: crate::PresentationId,
         expected_generation: u64,
+    ) -> anyhow::Result<()> {
+        self.detach_renderer_presentation_with_timeout(
+            client,
+            presentation_id,
+            expected_generation,
+            RENDERER_PRESENTATION_REMOVAL_TIMEOUT,
+        )
+    }
+
+    fn detach_renderer_presentation_with_timeout(
+        &self,
+        client: u64,
+        presentation_id: crate::PresentationId,
+        expected_generation: u64,
+        removal_timeout: Duration,
     ) -> anyhow::Result<()> {
         let presentation = self.presentations.get_for_client(client, presentation_id)?;
         if presentation.generation != expected_generation {
@@ -4285,103 +5149,97 @@ impl Mux {
         if runtime.client != client {
             anyhow::bail!("presentation {presentation_id} is owned by another client");
         }
+        let _operation = runtime.operation.lock().unwrap();
         // Once removal begins, a replacement worker must never rehydrate this
         // presentation. The old ingress remains alive only to return queued
         // IOSurface leases until the exact removal acknowledgement arrives.
-        runtime.removal_pending.store(true, Ordering::Release);
-        let (renderer_epoch, removal) = {
-            let scene = runtime.scene.lock().unwrap();
-            scene.canceled.store(true, Ordering::Release);
-            scene.control.detach();
-            (
-                scene.renderer_epoch,
-                RendererPresentationRemoval {
-                    terminal_id: runtime.attachment.terminal_id,
-                    terminal_epoch: runtime.attachment.terminal_epoch,
-                    presentation_id: runtime.attachment.presentation_id,
-                    presentation_generation: runtime.attachment.presentation_generation,
-                },
-            )
-        };
-        let lifetime = RendererPresentationLifetime {
-            presentation_id: removal.presentation_id,
-            presentation_generation: removal.presentation_generation,
-        };
+        let scene = runtime.begin_removal();
         let supervisor = self
             .renderer_supervisor
             .lock()
             .unwrap()
             .clone()
             .ok_or_else(|| anyhow::anyhow!("renderer supervisor is not installed"))?;
-        let pending = {
-            let mut removals = self.renderer_removal_waiters.lock().unwrap();
-            if let Some(pending) = removals.get(&lifetime) {
-                if !pending.matches(
-                    runtime.workspace_uuid,
-                    renderer_epoch,
-                    removal.terminal_id,
-                    removal.terminal_epoch,
-                ) {
-                    anyhow::bail!("renderer presentation removal lifetime is already pending");
-                }
-                pending.clone()
-            } else {
-                let pending = Arc::new(PendingRendererPresentationRemoval {
-                    workspace_uuid: runtime.workspace_uuid,
-                    renderer_epoch,
-                    terminal_id: removal.terminal_id,
-                    terminal_epoch: removal.terminal_epoch,
-                    quiesced: Mutex::new(false),
-                    changed: std::sync::Condvar::new(),
-                });
-                removals.insert(lifetime, pending.clone());
-                pending
+        let removal = runtime.removal();
+        let lifetime = RendererPresentationLifetime {
+            presentation_id: removal.presentation_id,
+            presentation_generation: removal.presentation_generation,
+        };
+        let retained_pending =
+            self.renderer_removal_waiters.lock().unwrap().get(&lifetime).cloned();
+        let renderer_epoch = match (&retained_pending, &scene, runtime.published_epoch()) {
+            (Some(pending), _, _) => pending.renderer_epoch,
+            (None, Some(scene), _) => scene.renderer_epoch,
+            (None, None, Some(renderer_epoch)) => renderer_epoch,
+            (None, None, None) => {
+                // No exact publication exists and no prior removal is waiting.
+                // This runtime can be dropped without fabricating a worker ack.
+                supervisor.remove_presentation(presentation_id)?;
+                self.renderer_presentations
+                    .lock()
+                    .unwrap()
+                    .remove_if_current(presentation_id, &runtime);
+                return Ok(());
             }
+        };
+        let Some((_, pending)) = self.renderer_removal_waiter(&runtime, renderer_epoch)? else {
+            if let Some(scene) = scene {
+                scene.canceled.store(true, Ordering::Release);
+                scene.control.detach();
+            }
+            supervisor.remove_presentation(presentation_id)?;
+            self.renderer_presentations
+                .lock()
+                .unwrap()
+                .remove_if_current(presentation_id, &runtime);
+            return Ok(());
         };
         // A retry deliberately re-sends removal while the exact lifetime is
         // still pending. This recovers when the worker consumed the first
         // request but its acknowledgement was lost with the control session.
-        if !pending.is_quiesced()
-            && let Err(error) = supervisor.send_if_epoch(
+        if let Some(scene) = scene.as_ref() {
+            scene.canceled.store(true, Ordering::Release);
+        }
+        let removal_send = if pending.is_quiesced() {
+            Ok(())
+        } else {
+            supervisor.send_if_epoch(
                 runtime.workspace_uuid,
                 renderer_epoch,
                 vec![RendererControlMessage::RemovePresentation(removal)],
             )
-        {
-            let worker_died =
-                supervisor.workspace_status(runtime.workspace_uuid)?.is_none_or(|status| {
-                    status.renderer_epoch != renderer_epoch
-                        || status.state != RendererWorkerState::Ready
-                });
-            if worker_died {
-                pending.mark_quiesced();
+        };
+        // Publication retirement is ordered before local scene detachment.
+        // A renderer that accepted the batch can no longer retain an endpoint
+        // after Swift/Rust has already torn down its semantic producer.
+        if let Some(scene) = scene {
+            scene.control.detach();
+        }
+        if let Err(error) = removal_send {
+            if supervisor.retire_if_epoch(runtime.workspace_uuid, renderer_epoch)? {
+                self.complete_renderer_removal(lifetime, &pending);
             } else {
                 // Keep both the runtime and generation-keyed waiter. A later
-                // call can re-send, and a late exact acknowledgement remains
-                // observable rather than becoming a false "already removed".
+                // call can re-check the exact reaper ledger, and a late exact
+                // acknowledgement remains observable.
                 return Err(error.into());
             }
         }
 
-        let mut quiesced = pending.wait_until_quiesced(RENDERER_PRESENTATION_REMOVAL_TIMEOUT);
+        let mut quiesced = pending.wait_until_quiesced(removal_timeout);
         if !quiesced {
-            quiesced = supervisor.workspace_status(runtime.workspace_uuid)?.is_none_or(|status| {
-                status.renderer_epoch != renderer_epoch
-                    || status.state != RendererWorkerState::Ready
-            });
+            quiesced = supervisor.retire_if_epoch(runtime.workspace_uuid, renderer_epoch)?;
             if quiesced {
-                pending.mark_quiesced();
+                self.complete_renderer_removal(lifetime, &pending);
             }
         }
         if !quiesced {
             anyhow::bail!("renderer presentation removal was not acknowledged before deadline");
         }
+        self.complete_renderer_removal(lifetime, &pending);
 
+        supervisor.remove_presentation(presentation_id)?;
         self.renderer_presentations.lock().unwrap().remove_if_current(presentation_id, &runtime);
-        let mut removals = self.renderer_removal_waiters.lock().unwrap();
-        if removals.get(&lifetime).is_some_and(|value| Arc::ptr_eq(value, &pending)) {
-            removals.remove(&lifetime);
-        }
         Ok(())
     }
 
@@ -4435,41 +5293,116 @@ impl Mux {
         Ok(true)
     }
 
-    pub(crate) fn invalidate_renderer_presentation(&self, presentation_id: crate::PresentationId) {
-        if let Some(runtime) = self.renderer_presentations.lock().unwrap().remove(&presentation_id)
-        {
+    pub(crate) fn invalidate_renderer_presentation(
+        &self,
+        presentation_id: crate::PresentationId,
+    ) -> bool {
+        // Drop the global runtime-map guard before taking the presentation's
+        // operation lock. Activation takes those locks in the opposite phase,
+        // so extending the temporary guard through retirement can deadlock an
+        // activation racing canonical invalidation.
+        let runtime = self.renderer_presentations.lock().unwrap().remove(&presentation_id);
+        if let Some(runtime) = runtime {
             self.retire_renderer_runtime(&runtime);
+            return true;
         }
+        false
     }
 
     fn retire_renderer_runtime(&self, runtime: &RendererPresentationRuntime) {
-        let scene = runtime.scene.lock().unwrap();
-        scene.canceled.store(true, Ordering::Release);
-        scene.control.detach();
+        let _operation = runtime.operation.lock().unwrap();
+        let renderer_epoch = runtime
+            .published_epoch()
+            .or_else(|| runtime.scene.lock().unwrap().as_ref().map(|scene| scene.renderer_epoch));
+        if let Some(renderer_epoch) = renderer_epoch
+            && let Some(supervisor) = self.renderer_supervisor.lock().unwrap().clone()
+        {
+            let _ = self.rollback_renderer_publication_locked(
+                runtime,
+                supervisor.as_ref(),
+                renderer_epoch,
+            );
+            return;
+        }
+        if let Some(scene) = runtime.begin_removal() {
+            scene.canceled.store(true, Ordering::Release);
+            scene.control.detach();
+        }
+    }
+
+    fn rollback_renderer_publication_locked(
+        &self,
+        runtime: &RendererPresentationRuntime,
+        supervisor: &dyn RendererSupervisorServing,
+        renderer_epoch: u64,
+    ) -> anyhow::Result<()> {
+        let scene = runtime.begin_removal();
+        let Some((lifetime, pending)) = self.renderer_removal_waiter(runtime, renderer_epoch)?
+        else {
+            if let Some(scene) = scene {
+                scene.canceled.store(true, Ordering::Release);
+                scene.control.detach();
+            }
+            return Ok(());
+        };
+        if let Some(scene) = scene.as_ref() {
+            scene.canceled.store(true, Ordering::Release);
+        }
+        let send_result = supervisor.send_if_epoch(
+            runtime.workspace_uuid,
+            renderer_epoch,
+            vec![RendererControlMessage::RemovePresentation(runtime.removal())],
+        );
+        if let Some(scene) = scene {
+            scene.control.detach();
+        }
+        if let Err(error) = send_result {
+            if supervisor.retire_if_epoch(runtime.workspace_uuid, renderer_epoch)? {
+                self.complete_renderer_removal(lifetime, &pending);
+            } else {
+                return Err(error.into());
+            }
+        }
+        Ok(())
+    }
+
+    fn fail_renderer_runtime_if_current(&self, runtime: &Arc<RendererPresentationRuntime>) {
+        let presentation_id = presentation_id_from_uuid(runtime.attachment.presentation_id);
+        if !self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&presentation_id)
+            .is_some_and(|current| Arc::ptr_eq(current, runtime))
+        {
+            return;
+        }
+        let _operation = runtime.operation.lock().unwrap();
+        let Some(renderer_epoch) = runtime.published_epoch() else {
+            drop(_operation);
+            self.remove_renderer_runtime_if_current(runtime);
+            return;
+        };
         if let Some(supervisor) = self.renderer_supervisor.lock().unwrap().clone() {
-            let _ = supervisor.send_if_epoch(
-                runtime.workspace_uuid,
-                scene.renderer_epoch,
-                vec![RendererControlMessage::RemovePresentation(RendererPresentationRemoval {
-                    terminal_id: runtime.attachment.terminal_id,
-                    terminal_epoch: runtime.attachment.terminal_epoch,
-                    presentation_id: runtime.attachment.presentation_id,
-                    presentation_generation: runtime.attachment.presentation_generation,
-                })],
+            let _ = self.rollback_renderer_publication_locked(
+                runtime,
+                supervisor.as_ref(),
+                renderer_epoch,
             );
         }
     }
 
     fn remove_renderer_runtime_if_current(&self, runtime: &Arc<RendererPresentationRuntime>) {
+        let presentation_id = presentation_id_from_uuid(runtime.attachment.presentation_id);
         let removed = {
             let mut runtimes = self.renderer_presentations.lock().unwrap();
-            runtimes.remove_if_current(
-                presentation_id_from_uuid(runtime.attachment.presentation_id),
-                runtime,
-            )
+            runtimes.remove_if_current(presentation_id, runtime)
         };
         if let Some(removed) = removed {
             self.retire_renderer_runtime(&removed);
+            if let Some(supervisor) = self.renderer_supervisor.lock().unwrap().clone() {
+                let _ = supervisor.remove_presentation(presentation_id);
+            }
         }
     }
 
@@ -4498,28 +5431,28 @@ impl Mux {
         runtime: Arc<RendererPresentationRuntime>,
         events: SemanticSceneReceiver,
         canceled: Arc<AtomicBool>,
-    ) {
-        let mux = Arc::downgrade(self);
-        let _ =
-            std::thread::Builder::new().name("cmux-renderer-scene".to_owned()).spawn(move || {
-                while !canceled.load(Ordering::Acquire) {
-                    match events.recv_timeout(RENDERER_SCENE_PUMP_POLL) {
-                        Ok(SemanticSceneEvent::Scene(frame)) => {
-                            let Some(mux) = mux.upgrade() else { break };
-                            if !mux.forward_renderer_scene(&runtime, frame) {
-                                break;
-                            }
-                        }
-                        Ok(SemanticSceneEvent::Failed(_)) | Err(RecvTimeoutError::Disconnected) => {
-                            if let Some(mux) = mux.upgrade() {
-                                mux.remove_renderer_runtime_if_current(&runtime);
-                            }
-                            break;
-                        }
-                        Err(RecvTimeoutError::Timeout) => {}
-                    }
-                }
-            });
+    ) -> anyhow::Result<RendererScenePumpStart> {
+        #[cfg(test)]
+        if self.renderer_scene_pump_fail_spawn.swap(false, Ordering::AcqRel) {
+            anyhow::bail!("injected renderer scene pump spawn failure");
+        }
+        let mut dispatcher = self.renderer_scene_dispatcher.lock().unwrap();
+        if dispatcher.is_none() {
+            *dispatcher = Some(RendererSceneDispatcher::start(Arc::downgrade(self))?);
+        }
+        dispatcher.as_ref().unwrap().register(runtime, events, canceled)
+    }
+
+    fn renderer_scene_consumer_wake(
+        self: &Arc<Self>,
+        identity: SemanticScenePresentationIdentity,
+    ) -> anyhow::Result<Arc<dyn Fn(SemanticScenePresentationIdentity) + Send + Sync + 'static>>
+    {
+        let mut dispatcher = self.renderer_scene_dispatcher.lock().unwrap();
+        if dispatcher.is_none() {
+            *dispatcher = Some(RendererSceneDispatcher::start(Arc::downgrade(self))?);
+        }
+        Ok(dispatcher.as_ref().unwrap().consumer_wake(identity))
     }
 
     fn forward_renderer_scene(
@@ -4527,6 +5460,7 @@ impl Mux {
         runtime: &Arc<RendererPresentationRuntime>,
         frame: SemanticSceneFrame,
     ) -> bool {
+        let operation = runtime.operation.lock().unwrap();
         let presentation_id = presentation_id_from_uuid(runtime.attachment.presentation_id);
         if !self
             .renderer_presentations
@@ -4542,21 +5476,33 @@ impl Mux {
         {
             return false;
         }
-        let renderer_epoch = runtime.scene.lock().unwrap().renderer_epoch;
+        let renderer_epoch = match runtime.scene.lock().unwrap().as_ref() {
+            Some(scene) => scene.renderer_epoch,
+            None => return false,
+        };
         let Some(supervisor) = self.renderer_supervisor.lock().unwrap().clone() else {
             return false;
         };
-        if supervisor
+        #[cfg(test)]
+        if let Some(before_send) = self.renderer_scene_before_send.lock().unwrap().take() {
+            before_send();
+        }
+        let sent = supervisor
             .send_if_epoch(
                 runtime.workspace_uuid,
                 renderer_epoch,
                 vec![RendererControlMessage::SemanticScene(renderer_semantic_scene(&frame))],
             )
-            .is_err()
-        {
-            self.remove_renderer_runtime_if_current(runtime);
+            .is_ok();
+        if !sent {
+            let _ = self.rollback_renderer_publication_locked(
+                runtime,
+                supervisor.as_ref(),
+                renderer_epoch,
+            );
             return false;
         }
+        drop(operation);
         true
     }
 
@@ -4566,17 +5512,18 @@ impl Mux {
                 workspace_uuid,
                 renderer_epoch,
                 process_id,
+                process_instance_token,
+                status,
                 ..
             } => {
-                let status = self.renderer_worker_status(workspace_uuid).ok().flatten();
                 self.emit(MuxEvent::RendererWorkerChanged {
                     workspace_uuid,
                     prior_renderer_epoch: renderer_epoch,
                     prior_process_id: Some(process_id),
-                    status,
+                    prior_process_instance_token: Some(process_instance_token),
+                    status: Some(status),
                     reason: None,
                 });
-                self.rehydrate_renderer_workspace(workspace_uuid, renderer_epoch);
             }
             RendererSupervisorEvent::NeedsFullScene { workspace_uuid, renderer_epoch, request } => {
                 let presentation_id = presentation_id_from_uuid(request.presentation_id);
@@ -4584,6 +5531,7 @@ impl Mux {
                     self.renderer_presentations.lock().unwrap().get(&presentation_id).cloned();
                 let Some(runtime) = runtime else { return };
                 let scene = runtime.scene.lock().unwrap();
+                let Some(scene) = scene.as_ref() else { return };
                 if runtime.workspace_uuid == workspace_uuid
                     && scene.renderer_epoch == renderer_epoch
                     && runtime.attachment.terminal_id == request.terminal_id
@@ -4597,29 +5545,50 @@ impl Mux {
                 workspace_uuid,
                 renderer_epoch,
                 process_id,
+                process_instance_token,
+                status,
+                quiesced,
                 reason,
             } => {
-                let pending = self
-                    .renderer_removal_waiters
+                let runtimes = self
+                    .renderer_presentations
                     .lock()
                     .unwrap()
-                    .values()
-                    .filter(|pending| {
-                        pending.workspace_uuid == workspace_uuid
-                            && pending.renderer_epoch == renderer_epoch
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for pending in pending {
-                    // Synchronous supervisor retirement is an equally strong
-                    // quiescence proof: the old process can no longer publish.
-                    pending.mark_quiesced();
+                    .runtimes_for_workspace(workspace_uuid);
+                for runtime in runtimes {
+                    {
+                        let mut scene = runtime.scene.lock().unwrap();
+                        if scene
+                            .as_ref()
+                            .is_some_and(|scene| scene.renderer_epoch == renderer_epoch)
+                        {
+                            let scene = scene.take().unwrap();
+                            scene.canceled.store(true, Ordering::Release);
+                            scene.control.detach();
+                        }
+                    }
+                    runtime.revoke_renderer_epoch(renderer_epoch);
+                    if quiesced {
+                        runtime.clear_published_epoch(renderer_epoch);
+                        self.renderer_release_routes.lock().unwrap().remove(
+                            RendererReleaseRouteKey {
+                                presentation_id: presentation_id_from_uuid(
+                                    runtime.attachment.presentation_id,
+                                ),
+                                presentation_generation: runtime.attachment.presentation_generation,
+                                renderer_epoch,
+                            },
+                        );
+                    }
                 }
-                let status = self.renderer_worker_status(workspace_uuid).ok().flatten();
+                if quiesced {
+                    self.complete_renderer_removals_for_worker(workspace_uuid, renderer_epoch);
+                }
                 self.emit(MuxEvent::RendererWorkerChanged {
                     workspace_uuid,
                     prior_renderer_epoch: renderer_epoch,
                     prior_process_id: process_id,
+                    prior_process_instance_token: process_instance_token,
                     status,
                     reason: Some(reason.into()),
                 });
@@ -4634,22 +5603,30 @@ impl Mux {
                     presentation_id: removal.presentation_id,
                     presentation_generation: removal.presentation_generation,
                 };
-                let pending = self.renderer_removal_waiters.lock().unwrap().get(&lifetime).cloned();
-                if let Some(pending) = pending
-                    && pending.matches(
-                        workspace_uuid,
-                        renderer_epoch,
-                        removal.terminal_id,
-                        removal.terminal_epoch,
-                    )
-                {
-                    pending.mark_quiesced();
+                let pending = {
+                    let removals = self.renderer_removal_waiters.lock().unwrap();
+                    removals
+                        .get(&lifetime)
+                        .filter(|pending| {
+                            pending.matches(
+                                workspace_uuid,
+                                renderer_epoch,
+                                removal.terminal_id,
+                                removal.terminal_epoch,
+                            )
+                        })
+                        .cloned()
+                };
+                if let Some(pending) = pending {
+                    self.complete_renderer_removal(lifetime, &pending);
                 }
             }
             RendererSupervisorEvent::PresentationReady {
                 workspace_uuid,
                 renderer_epoch,
                 process_id,
+                process_instance_token,
+                effective_user_id,
                 metrics,
             } => {
                 let presentation_id = presentation_id_from_uuid(metrics.presentation_id);
@@ -4660,24 +5637,20 @@ impl Mux {
                     || runtime.attachment.terminal_id != metrics.terminal_id
                     || runtime.attachment.terminal_epoch != metrics.terminal_epoch
                     || runtime.attachment.presentation_generation != metrics.presentation_generation
-                    || runtime.scene.lock().unwrap().renderer_epoch != renderer_epoch
+                    || !runtime
+                        .scene
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .is_some_and(|scene| scene.renderer_epoch == renderer_epoch)
                 {
                     return;
                 }
-                let Some(status) =
-                    self.renderer_worker_status(workspace_uuid).ok().flatten().filter(|status| {
-                        status.renderer_epoch == renderer_epoch
-                            && status.state == RendererWorkerState::Ready
-                            && status.pid == Some(process_id)
-                    })
-                else {
-                    return;
-                };
-                let Some(effective_user_id) = status.effective_user_id else { return };
                 self.emit(MuxEvent::RendererPresentationReady {
                     workspace_uuid,
                     renderer_epoch,
                     process_id,
+                    process_instance_token,
                     effective_user_id,
                     metrics,
                 });
@@ -4685,76 +5658,224 @@ impl Mux {
         }
     }
 
-    fn rehydrate_renderer_workspace(
+    pub(crate) fn activate_renderer_presentation(
         self: &Arc<Self>,
-        workspace_uuid: WorkspaceUuid,
+        client: u64,
+        presentation_id: crate::PresentationId,
+        expected_generation: u64,
+        renderer_generation: u64,
         renderer_epoch: u64,
-    ) {
-        let runtimes =
-            self.renderer_presentations.lock().unwrap().runtimes_for_workspace(workspace_uuid);
-        for runtime in runtimes {
-            let Some(_epoch_claim) = runtime.claim_renderer_epoch(renderer_epoch) else { continue };
-            let terminal = runtime.surface.semantic_scene_terminal_identity();
-            let Some(terminal) = terminal else {
-                self.remove_renderer_runtime_if_current(&runtime);
-                continue;
-            };
-            let mut options = SemanticSceneAttachmentOptions::new(
-                terminal,
-                SemanticScenePresentationIdentity {
-                    presentation_id: presentation_id_from_uuid(runtime.attachment.presentation_id),
-                    generation: runtime.attachment.presentation_generation,
-                },
+        process_id: u32,
+        process_instance_token: RendererProcessInstanceToken,
+    ) -> anyhow::Result<RendererWorkerStatus> {
+        let presentation = self.presentations.get_for_client(client, presentation_id)?;
+        if presentation.generation != expected_generation {
+            anyhow::bail!(
+                "stale presentation generation {expected_generation}; current generation is {}",
+                presentation.generation
             );
-            options.capture = runtime.capture;
-            options.preedit =
-                runtime.preedit.lock().unwrap().as_ref().map(RendererPreedit::semantic);
-            let Ok(attachment) = runtime.surface.attach_semantic_scene(options) else {
-                self.remove_renderer_runtime_if_current(&runtime);
-                continue;
-            };
-            if !self
-                .renderer_presentations
+        }
+        let runtime = self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&presentation_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("renderer presentation is not configured"))?;
+        if runtime.client != client || runtime.removal_pending.load(Ordering::Acquire) {
+            anyhow::bail!("renderer presentation authority changed");
+        }
+        if runtime.attachment.presentation_generation != renderer_generation {
+            anyhow::bail!(
+                "stale renderer presentation generation {renderer_generation}; current generation is {}",
+                runtime.attachment.presentation_generation
+            );
+        }
+        let _operation = runtime.operation.lock().unwrap();
+        let supervisor = self
+            .renderer_supervisor
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("renderer supervisor is not installed"))?;
+        let exact_worker = || -> anyhow::Result<RendererWorkerStatus> {
+            let status = supervisor
+                .workspace_status(runtime.workspace_uuid)?
+                .ok_or_else(|| anyhow::anyhow!("renderer worker is unavailable"))?;
+            if status.renderer_epoch != renderer_epoch
+                || status.state != RendererWorkerState::Ready
+                || status.pid != Some(process_id)
+                || status.process_start_time_seconds
+                    != Some(process_instance_token.start_time_seconds)
+                || status.process_start_time_microseconds
+                    != Some(process_instance_token.start_time_microseconds)
+            {
+                anyhow::bail!("renderer activation worker identity is stale");
+            }
+            Ok(status)
+        };
+        let worker = exact_worker()?;
+        if runtime.is_renderer_epoch_active(renderer_epoch)
+            && runtime
+                .scene
                 .lock()
                 .unwrap()
-                .get(&presentation_id_from_uuid(runtime.attachment.presentation_id))
-                .is_some_and(|current| Arc::ptr_eq(current, &runtime))
-            {
-                attachment.control.detach();
-                continue;
-            }
-            let initial = renderer_semantic_scene(&attachment.initial);
-            let canceled = Arc::new(AtomicBool::new(false));
-            {
-                let mut scene = runtime.scene.lock().unwrap();
-                scene.canceled.store(true, Ordering::Release);
-                scene.control.detach();
-                *scene = RendererSceneBinding {
-                    control: attachment.control,
-                    canceled: canceled.clone(),
-                    renderer_epoch,
-                };
-            }
-            self.remember_renderer_release_route(&runtime, renderer_epoch);
-            let Some(supervisor) = self.renderer_supervisor.lock().unwrap().clone() else {
-                return;
-            };
-            if supervisor
-                .send_if_epoch(
-                    workspace_uuid,
-                    renderer_epoch,
-                    vec![
-                        RendererControlMessage::UpsertPresentation(runtime.attachment.clone()),
-                        RendererControlMessage::SemanticScene(initial),
-                    ],
-                )
-                .is_err()
-            {
-                self.remove_renderer_runtime_if_current(&runtime);
-                continue;
-            }
-            self.spawn_renderer_scene_pump(runtime.clone(), attachment.events, canceled);
+                .as_ref()
+                .is_some_and(|scene| scene.renderer_epoch == renderer_epoch)
+        {
+            return Ok(worker);
         }
+        let Some(activation_claim) = runtime.claim_renderer_epoch(renderer_epoch) else {
+            anyhow::bail!("renderer activation epoch is stale");
+        };
+        let terminal = runtime
+            .surface
+            .semantic_scene_terminal_identity()
+            .ok_or_else(|| anyhow::anyhow!("renderer surface is not a terminal"))?;
+        let scene_identity = SemanticScenePresentationIdentity {
+            presentation_id,
+            generation: runtime.attachment.presentation_generation,
+        };
+        let mut options = SemanticSceneAttachmentOptions::new(terminal, scene_identity);
+        options.capture = runtime.capture;
+        options.preedit = runtime.preedit.lock().unwrap().as_ref().map(RendererPreedit::semantic);
+        options.consumer_wake = Some(self.renderer_scene_consumer_wake(scene_identity)?);
+        #[cfg(test)]
+        if self.renderer_activation_fail_semantic_attach.swap(false, Ordering::AcqRel) {
+            anyhow::bail!("injected semantic scene attachment failure");
+        }
+        let attachment = runtime.surface.attach_semantic_scene(options)?;
+        if !self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&presentation_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &runtime))
+            || runtime.removal_pending.load(Ordering::Acquire)
+        {
+            attachment.control.detach();
+            anyhow::bail!("renderer presentation changed during activation");
+        }
+        if let Err(error) = exact_worker() {
+            attachment.control.detach();
+            return Err(error);
+        }
+        let initial = renderer_semantic_scene(&attachment.initial);
+        let canceled = Arc::new(AtomicBool::new(false));
+        if let Err(scene) = runtime.install_scene_for_activation(
+            renderer_epoch,
+            RendererSceneBinding {
+                control: attachment.control,
+                canceled: canceled.clone(),
+                renderer_epoch,
+            },
+        ) {
+            scene.control.detach();
+            anyhow::bail!("renderer presentation changed during activation");
+        }
+        #[cfg(test)]
+        if let Some(after_scene_install) =
+            self.renderer_activation_after_scene_install.lock().unwrap().take()
+        {
+            after_scene_install();
+        }
+        let scene_pump = match self.spawn_renderer_scene_pump(
+            runtime.clone(),
+            attachment.events,
+            canceled.clone(),
+        ) {
+            Ok(scene_pump) => scene_pump,
+            Err(error) => {
+                if let Some(scene) = runtime.take_scene_if_epoch(renderer_epoch) {
+                    scene.canceled.store(true, Ordering::Release);
+                    scene.control.detach();
+                }
+                return Err(error);
+            }
+        };
+        self.remember_renderer_release_route(&runtime, renderer_epoch);
+        let published_worker = match supervisor.publish_if_epoch(
+            runtime.workspace_uuid,
+            renderer_epoch,
+            vec![
+                RendererControlMessage::UpsertPresentation(runtime.attachment.clone()),
+                RendererControlMessage::SemanticScene(initial),
+            ],
+        ) {
+            Ok(worker) => worker,
+            Err(error) => {
+                if matches!(
+                    &error,
+                    RendererSupervisorError::PublicationUncertain {
+                        workspace_uuid,
+                        renderer_epoch: uncertain_epoch,
+                        ..
+                    } if *workspace_uuid == runtime.workspace_uuid
+                        && *uncertain_epoch == renderer_epoch
+                ) {
+                    // The worker may have observed any prefix of the activation
+                    // batch. Treat this epoch as published until an exact
+                    // Remove acknowledgement or process-quiescence proof.
+                    runtime.record_published_epoch(renderer_epoch);
+                    self.rollback_renderer_publication_locked(
+                        &runtime,
+                        supervisor.as_ref(),
+                        renderer_epoch,
+                    )?;
+                } else {
+                    if let Some(scene) = runtime.take_scene_if_epoch(renderer_epoch) {
+                        scene.canceled.store(true, Ordering::Release);
+                        scene.control.detach();
+                    }
+                    self.renderer_release_routes.lock().unwrap().remove(RendererReleaseRouteKey {
+                        presentation_id,
+                        presentation_generation: runtime.attachment.presentation_generation,
+                        renderer_epoch,
+                    });
+                }
+                return Err(error.into());
+            }
+        };
+        runtime.record_published_epoch(renderer_epoch);
+        if published_worker.renderer_epoch != renderer_epoch
+            || published_worker.state != RendererWorkerState::Ready
+            || published_worker.pid != Some(process_id)
+            || published_worker.process_start_time_seconds
+                != Some(process_instance_token.start_time_seconds)
+            || published_worker.process_start_time_microseconds
+                != Some(process_instance_token.start_time_microseconds)
+        {
+            self.rollback_renderer_publication_locked(
+                &runtime,
+                supervisor.as_ref(),
+                renderer_epoch,
+            )?;
+            anyhow::bail!("renderer publication receipt identity is stale");
+        }
+        #[cfg(test)]
+        if let Some(before_commit) = self.renderer_activation_before_commit.lock().unwrap().take() {
+            before_commit();
+        }
+        if !activation_claim.commit() {
+            // Upsert and the initial full scene reached this exact renderer.
+            // Retract that exact presentation before detaching the local
+            // semantic source so retirement never leaves an orphan endpoint.
+            self.rollback_renderer_publication_locked(
+                &runtime,
+                supervisor.as_ref(),
+                renderer_epoch,
+            )?;
+            anyhow::bail!("renderer activation was revoked during publication");
+        }
+        if scene_pump.arm().is_err() {
+            self.rollback_renderer_publication_locked(
+                &runtime,
+                supervisor.as_ref(),
+                renderer_epoch,
+            )?;
+            anyhow::bail!("renderer scene pump terminated before activation");
+        }
+        Ok(published_worker)
     }
 
     fn reconcile_renderer_workspaces(&self) {
@@ -10537,8 +11658,9 @@ fn move_tab_in_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{PresentationScroll, PresentationView, PresentationZoom};
     use ghostty_vt::Rgb;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
     use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 
     const LARGE_INITIAL_INPUT_PREFIX: &str = "\u{1b}[200~日本語🙂";
@@ -10559,6 +11681,164 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    #[derive(Default)]
+    struct TestRendererSupervisorState {
+        desired: BTreeMap<crate::PresentationId, WorkspaceUuid>,
+        status: Option<RendererWorkerStatus>,
+        scripted_statuses: VecDeque<Option<RendererWorkerStatus>>,
+        sent: Vec<(WorkspaceUuid, u64, Vec<RendererControlMessage>)>,
+        retire_quiesced: bool,
+        retire_requests: Vec<(WorkspaceUuid, u64)>,
+    }
+
+    #[derive(Default)]
+    struct TestRendererSupervisor {
+        state: Mutex<TestRendererSupervisorState>,
+    }
+
+    impl TestRendererSupervisor {
+        fn set_status(&self, status: RendererWorkerStatus) {
+            self.state.lock().unwrap().status = Some(status);
+        }
+
+        fn script_statuses(&self, statuses: impl IntoIterator<Item = RendererWorkerStatus>) {
+            self.state.lock().unwrap().scripted_statuses = statuses.into_iter().map(Some).collect();
+        }
+
+        fn sent_messages(&self) -> Vec<RendererControlMessage> {
+            self.state
+                .lock()
+                .unwrap()
+                .sent
+                .iter()
+                .flat_map(|(_, _, messages)| messages.clone())
+                .collect()
+        }
+
+        fn set_retire_quiesced(&self, quiesced: bool) {
+            self.state.lock().unwrap().retire_quiesced = quiesced;
+        }
+
+        fn retire_requests(&self) -> Vec<(WorkspaceUuid, u64)> {
+            self.state.lock().unwrap().retire_requests.clone()
+        }
+    }
+
+    impl RendererSupervisorServing for TestRendererSupervisor {
+        fn set_presentation_workspace(
+            &self,
+            presentation_id: crate::PresentationId,
+            workspace_uuid: Option<WorkspaceUuid>,
+        ) -> Result<(), RendererSupervisorError> {
+            let mut state = self.state.lock().unwrap();
+            match workspace_uuid {
+                Some(workspace_uuid) => {
+                    state.desired.insert(presentation_id, workspace_uuid);
+                }
+                None => {
+                    state.desired.remove(&presentation_id);
+                }
+            }
+            Ok(())
+        }
+
+        fn remove_presentation(
+            &self,
+            presentation_id: crate::PresentationId,
+        ) -> Result<(), RendererSupervisorError> {
+            self.state.lock().unwrap().desired.remove(&presentation_id);
+            Ok(())
+        }
+
+        fn statuses(&self) -> Vec<RendererWorkerStatus> {
+            self.state.lock().unwrap().status.clone().into_iter().collect()
+        }
+
+        fn workspace_status(
+            &self,
+            workspace_uuid: WorkspaceUuid,
+        ) -> Result<Option<RendererWorkerStatus>, RendererSupervisorError> {
+            let mut state = self.state.lock().unwrap();
+            let status = match state.scripted_statuses.pop_front() {
+                Some(status) => status,
+                None => state.status.clone(),
+            };
+            Ok(status.filter(|status| status.workspace_uuid == workspace_uuid))
+        }
+
+        fn send(
+            &self,
+            workspace_uuid: WorkspaceUuid,
+            message: RendererControlMessage,
+        ) -> Result<(), RendererSupervisorError> {
+            let renderer_epoch = self
+                .state
+                .lock()
+                .unwrap()
+                .status
+                .as_ref()
+                .map_or(0, |status| status.renderer_epoch);
+            self.send_if_epoch(workspace_uuid, renderer_epoch, vec![message])
+        }
+
+        fn send_if_epoch(
+            &self,
+            workspace_uuid: WorkspaceUuid,
+            renderer_epoch: u64,
+            messages: Vec<RendererControlMessage>,
+        ) -> Result<(), RendererSupervisorError> {
+            let mut state = self.state.lock().unwrap();
+            state.sent.push((workspace_uuid, renderer_epoch, messages));
+            Ok(())
+        }
+
+        fn publish_if_epoch(
+            &self,
+            workspace_uuid: WorkspaceUuid,
+            renderer_epoch: u64,
+            messages: Vec<RendererControlMessage>,
+        ) -> Result<RendererWorkerStatus, RendererSupervisorError> {
+            let mut state = self.state.lock().unwrap();
+            let status = state
+                .status
+                .clone()
+                .filter(|status| {
+                    status.workspace_uuid == workspace_uuid
+                        && status.renderer_epoch == renderer_epoch
+                        && status.state == RendererWorkerState::Ready
+                })
+                .ok_or(RendererSupervisorError::WorkerNotReady(workspace_uuid))?;
+            state.sent.push((workspace_uuid, renderer_epoch, messages));
+            Ok(status)
+        }
+
+        fn retire_if_epoch(
+            &self,
+            workspace_uuid: WorkspaceUuid,
+            renderer_epoch: u64,
+        ) -> Result<bool, RendererSupervisorError> {
+            let mut state = self.state.lock().unwrap();
+            state.retire_requests.push((workspace_uuid, renderer_epoch));
+            Ok(state.retire_quiesced)
+        }
+
+        fn retain_workspaces(
+            &self,
+            workspace_uuids: BTreeSet<WorkspaceUuid>,
+        ) -> Result<(), RendererSupervisorError> {
+            let mut state = self.state.lock().unwrap();
+            state.desired.retain(|_, workspace_uuid| workspace_uuids.contains(workspace_uuid));
+            if state
+                .status
+                .as_ref()
+                .is_some_and(|status| !workspace_uuids.contains(&status.workspace_uuid))
+            {
+                state.status = None;
+            }
+            Ok(())
+        }
     }
 
     #[test]
@@ -10606,8 +11886,8 @@ mod tests {
 
         assert!(pending.wait_until_quiesced(Duration::from_millis(1)));
         assert!(
-            mux.renderer_removal_waiters.lock().unwrap().contains_key(&lifetime),
-            "event delivery must not erase state before the retry observes it"
+            !mux.renderer_removal_waiters.lock().unwrap().contains_key(&lifetime),
+            "the exact acknowledgement must erase the map entry immediately"
         );
     }
 
@@ -10635,6 +11915,12 @@ mod tests {
             workspace_uuid,
             renderer_epoch: 12,
             process_id: Some(99),
+            process_instance_token: Some(RendererProcessInstanceToken {
+                start_time_seconds: 12,
+                start_time_microseconds: 99,
+            }),
+            status: None,
+            quiesced: true,
             reason: "replacement worker retired".to_owned(),
         });
         assert!(!pending.is_quiesced());
@@ -10643,9 +11929,30 @@ mod tests {
             workspace_uuid,
             renderer_epoch: 11,
             process_id: Some(98),
+            process_instance_token: Some(RendererProcessInstanceToken {
+                start_time_seconds: 11,
+                start_time_microseconds: 98,
+            }),
+            status: None,
+            quiesced: false,
+            reason: "exact worker retirement is still awaiting waitpid".to_owned(),
+        });
+        assert!(!pending.is_quiesced());
+
+        mux.handle_renderer_supervisor_event(RendererSupervisorEvent::WorkerUnavailable {
+            workspace_uuid,
+            renderer_epoch: 11,
+            process_id: Some(98),
+            process_instance_token: Some(RendererProcessInstanceToken {
+                start_time_seconds: 11,
+                start_time_microseconds: 98,
+            }),
+            status: None,
+            quiesced: true,
             reason: "exact worker retired".to_owned(),
         });
         assert!(pending.is_quiesced());
+        assert!(mux.renderer_removal_waiters.lock().unwrap().is_empty());
     }
 
     fn topology_subscription(mux: &Mux, revision: u64) -> crate::TopologySubscription {
@@ -11897,13 +13204,839 @@ mod tests {
         assert!(resolved_custom_shader_count(&[0xff]).is_err());
     }
 
+    struct RendererActivationFixture {
+        mux: Arc<Mux>,
+        supervisor: Arc<TestRendererSupervisor>,
+        client: u64,
+        presentation_id: crate::PresentationId,
+        workspace_uuid: WorkspaceUuid,
+        renderer_generation: u64,
+        worker: RendererWorkerStatus,
+    }
+
+    fn renderer_worker(
+        workspace_uuid: WorkspaceUuid,
+        renderer_epoch: u64,
+        process_id: u32,
+    ) -> RendererWorkerStatus {
+        RendererWorkerStatus {
+            workspace_uuid,
+            renderer_epoch,
+            pid: Some(process_id),
+            process_start_time_seconds: Some(u64::from(process_id)),
+            process_start_time_microseconds: Some(u64::from(process_id) ^ 0x5a5a),
+            effective_user_id: Some(unsafe { libc::geteuid() }),
+            scene_capabilities: Some(1),
+            restart_count: 0,
+            visible_presentation_count: 1,
+            state: RendererWorkerState::Ready,
+            retry_after_milliseconds: None,
+            last_error: None,
+        }
+    }
+
+    fn renderer_configuration() -> RendererPresentationConfiguration {
+        RendererPresentationConfiguration {
+            width: 800,
+            height: 600,
+            backing_scale_factor: 2.0,
+            columns: 80,
+            rows: 24,
+            pixel_format: RendererPixelFormat::Bgra8Unorm,
+            color_space: RendererColorSpace::Srgb,
+            frame_endpoint_service: "test.renderer.endpoint".into(),
+            frame_endpoint_capability: vec![0x5a; 32],
+            resolved_config_revision: 1,
+            resolved_config: Vec::new(),
+            focused: true,
+            cursor_blink_visible: true,
+            preedit: None,
+        }
+    }
+
+    fn configured_renderer_fixture() -> RendererActivationFixture {
+        let mux = test_mux();
+        mux.new_workspace(Some("renderer-activation".into()), None).unwrap();
+        let (
+            workspace,
+            workspace_uuid,
+            screen,
+            screen_uuid,
+            pane,
+            pane_uuid,
+            surface,
+            surface_uuid,
+        ) = mux.with_state(|state| {
+            let workspace = &state.workspaces[0];
+            let screen = &workspace.screens[0];
+            let pane = state.panes.get(&screen.active_pane).unwrap();
+            let surface = state.surfaces.get(&pane.tabs[0]).unwrap();
+            (
+                workspace.id,
+                workspace.uuid,
+                screen.id,
+                screen.uuid,
+                pane.id,
+                pane.uuid,
+                surface.id,
+                surface.uuid,
+            )
+        });
+        let client = mux.control_clients.register_frontend_for_test();
+        let presentation = mux
+            .presentations
+            .open(
+                client,
+                PresentationView {
+                    workspace: Some(workspace),
+                    workspace_uuid: Some(workspace_uuid),
+                    screen: Some(screen),
+                    screen_uuid: Some(screen_uuid),
+                    pane: Some(pane),
+                    pane_uuid: Some(pane_uuid),
+                    tab: Some(surface),
+                    surface_uuid: Some(surface_uuid),
+                },
+                PresentationZoom::default(),
+                PresentationScroll::default(),
+            )
+            .unwrap();
+        let worker = renderer_worker(workspace_uuid, 7, 9_007);
+        let supervisor = Arc::new(TestRendererSupervisor::default());
+        supervisor.set_status(worker.clone());
+        mux.install_renderer_supervisor_for_test(supervisor.clone());
+        let receipt = mux
+            .configure_renderer_presentation(
+                client,
+                presentation.presentation_id,
+                presentation.generation,
+                renderer_configuration(),
+            )
+            .unwrap();
+        RendererActivationFixture {
+            mux,
+            supervisor,
+            client,
+            presentation_id: presentation.presentation_id,
+            workspace_uuid,
+            renderer_generation: receipt.renderer_presentation_generation,
+            worker,
+        }
+    }
+
+    fn activate_renderer(
+        fixture: &RendererActivationFixture,
+        worker: &RendererWorkerStatus,
+    ) -> anyhow::Result<RendererWorkerStatus> {
+        fixture.mux.activate_renderer_presentation(
+            fixture.client,
+            fixture.presentation_id,
+            1,
+            fixture.renderer_generation,
+            worker.renderer_epoch,
+            worker.pid.unwrap(),
+            RendererProcessInstanceToken {
+                start_time_seconds: worker.process_start_time_seconds.unwrap(),
+                start_time_microseconds: worker.process_start_time_microseconds.unwrap(),
+            },
+        )
+    }
+
+    #[test]
+    fn renderer_event_dispatcher_preserves_order_across_capacity() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+        let mut dispatcher = RendererEventDispatcher::start(Arc::downgrade(&mux)).unwrap();
+        let sender = dispatcher.sender();
+        let workspace_uuid = WorkspaceUuid::new();
+        let event_count = RENDERER_EVENT_DISPATCH_CAPACITY * 2;
+        for index in 1..=event_count {
+            let renderer_epoch = u64::try_from(index).unwrap();
+            let status = renderer_worker(
+                workspace_uuid,
+                renderer_epoch,
+                u32::try_from(9_000 + index).unwrap(),
+            );
+            sender
+                .send(RendererSupervisorEvent::WorkerReady {
+                    workspace_uuid,
+                    renderer_epoch,
+                    process_id: status.pid.unwrap(),
+                    process_instance_token: RendererProcessInstanceToken {
+                        start_time_seconds: status.process_start_time_seconds.unwrap(),
+                        start_time_microseconds: status.process_start_time_microseconds.unwrap(),
+                    },
+                    effective_user_id: status.effective_user_id.unwrap(),
+                    scene_capabilities:
+                        crate::renderer_control::RendererSceneCapabilities::from_bits(
+                            status.scene_capabilities.unwrap(),
+                        ),
+                    status,
+                })
+                .unwrap();
+        }
+        for expected in 1..=event_count {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(matches!(
+                event,
+                MuxEvent::RendererWorkerChanged { prior_renderer_epoch, .. }
+                    if prior_renderer_epoch == u64::try_from(expected).unwrap()
+            ));
+        }
+        drop(sender);
+        dispatcher.shutdown();
+    }
+
+    #[test]
+    fn renderer_configure_sends_nothing_until_exact_activation_ack() {
+        let fixture = configured_renderer_fixture();
+        assert!(fixture.supervisor.sent_messages().is_empty());
+
+        let stale = fixture.mux.activate_renderer_presentation(
+            fixture.client,
+            fixture.presentation_id,
+            1,
+            fixture.renderer_generation,
+            fixture.worker.renderer_epoch,
+            fixture.worker.pid.unwrap(),
+            RendererProcessInstanceToken {
+                start_time_seconds: fixture.worker.process_start_time_seconds.unwrap() + 1,
+                start_time_microseconds: fixture.worker.process_start_time_microseconds.unwrap(),
+            },
+        );
+        assert!(stale.unwrap_err().to_string().contains("worker identity is stale"));
+        assert!(fixture.supervisor.sent_messages().is_empty());
+
+        activate_renderer(&fixture, &fixture.worker).unwrap();
+        let sent = fixture.supervisor.sent_messages();
+        assert!(matches!(sent.first(), Some(RendererControlMessage::UpsertPresentation(_))));
+        assert!(matches!(sent.get(1), Some(RendererControlMessage::SemanticScene(_))));
+    }
+
+    #[test]
+    fn renderer_activation_rejects_stale_generation_after_reconfigure() {
+        let fixture = configured_renderer_fixture();
+        let receipt = fixture
+            .mux
+            .configure_renderer_presentation(
+                fixture.client,
+                fixture.presentation_id,
+                1,
+                renderer_configuration(),
+            )
+            .unwrap();
+        assert_eq!(receipt.renderer_presentation_generation, fixture.renderer_generation + 1);
+
+        let stale = fixture.mux.activate_renderer_presentation(
+            fixture.client,
+            fixture.presentation_id,
+            1,
+            fixture.renderer_generation,
+            fixture.worker.renderer_epoch,
+            fixture.worker.pid.unwrap(),
+            RendererProcessInstanceToken {
+                start_time_seconds: fixture.worker.process_start_time_seconds.unwrap(),
+                start_time_microseconds: fixture.worker.process_start_time_microseconds.unwrap(),
+            },
+        );
+        assert!(stale.unwrap_err().to_string().contains("stale renderer presentation generation"));
+        assert!(fixture.supervisor.sent_messages().is_empty());
+
+        fixture
+            .mux
+            .activate_renderer_presentation(
+                fixture.client,
+                fixture.presentation_id,
+                1,
+                receipt.renderer_presentation_generation,
+                fixture.worker.renderer_epoch,
+                fixture.worker.pid.unwrap(),
+                RendererProcessInstanceToken {
+                    start_time_seconds: fixture.worker.process_start_time_seconds.unwrap(),
+                    start_time_microseconds: fixture
+                        .worker
+                        .process_start_time_microseconds
+                        .unwrap(),
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            fixture.supervisor.sent_messages().first(),
+            Some(RendererControlMessage::UpsertPresentation(attachment))
+                if attachment.presentation_generation
+                    == receipt.renderer_presentation_generation
+        ));
+    }
+
+    #[test]
+    fn renderer_detach_retry_resends_until_exact_ack() {
+        let fixture = configured_renderer_fixture();
+        activate_renderer(&fixture, &fixture.worker).unwrap();
+        let first = fixture.mux.detach_renderer_presentation_with_timeout(
+            fixture.client,
+            fixture.presentation_id,
+            1,
+            Duration::from_millis(1),
+        );
+        assert!(first.unwrap_err().to_string().contains("removal was not acknowledged"));
+        let runtime = fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .cloned()
+            .expect("timed-out removal retains its runtime");
+        assert!(runtime.removal_pending.load(Ordering::Acquire));
+        assert!(runtime.scene.lock().unwrap().is_none());
+        assert_eq!(fixture.mux.renderer_removal_waiters.lock().unwrap().len(), 1);
+        assert_eq!(
+            fixture
+                .supervisor
+                .sent_messages()
+                .iter()
+                .filter(|message| matches!(message, RendererControlMessage::RemovePresentation(_)))
+                .count(),
+            1
+        );
+
+        let mux = fixture.mux.clone();
+        let supervisor = fixture.supervisor.clone();
+        let removal = runtime.removal();
+        let workspace_uuid = fixture.workspace_uuid;
+        let renderer_epoch = fixture.worker.renderer_epoch;
+        let process_id = fixture.worker.pid.unwrap();
+        let acknowledge = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while supervisor
+                .sent_messages()
+                .iter()
+                .filter(|message| matches!(message, RendererControlMessage::RemovePresentation(_)))
+                .count()
+                < 2
+            {
+                assert!(Instant::now() < deadline, "detach retry did not resend removal");
+                std::thread::yield_now();
+            }
+            mux.handle_renderer_supervisor_event(RendererSupervisorEvent::PresentationRemoved {
+                workspace_uuid,
+                renderer_epoch,
+                process_id,
+                removal: crate::renderer_control::RendererPresentationRemoved {
+                    terminal_id: removal.terminal_id,
+                    terminal_epoch: removal.terminal_epoch,
+                    presentation_id: removal.presentation_id,
+                    presentation_generation: removal.presentation_generation,
+                },
+            });
+        });
+
+        fixture
+            .mux
+            .detach_renderer_presentation_with_timeout(
+                fixture.client,
+                fixture.presentation_id,
+                1,
+                Duration::from_secs(1),
+            )
+            .unwrap();
+        acknowledge.join().unwrap();
+        assert!(
+            fixture
+                .mux
+                .renderer_presentations
+                .lock()
+                .unwrap()
+                .get(&fixture.presentation_id)
+                .is_none()
+        );
+        assert!(fixture.mux.renderer_removal_waiters.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn renderer_reconfigure_loop_keeps_pending_removals_bounded() {
+        let fixture = configured_renderer_fixture();
+        activate_renderer(&fixture, &fixture.worker).unwrap();
+
+        for _ in 0..8 {
+            let runtime = fixture
+                .mux
+                .renderer_presentations
+                .lock()
+                .unwrap()
+                .get(&fixture.presentation_id)
+                .cloned()
+                .unwrap();
+            let removal = runtime.removal();
+            let detached = fixture.mux.detach_renderer_presentation_with_timeout(
+                fixture.client,
+                fixture.presentation_id,
+                1,
+                Duration::from_millis(1),
+            );
+            assert!(detached.is_err());
+            assert_eq!(fixture.mux.renderer_removal_waiters.lock().unwrap().len(), 1);
+
+            let blocked = fixture.mux.configure_renderer_presentation(
+                fixture.client,
+                fixture.presentation_id,
+                1,
+                renderer_configuration(),
+            );
+            let error = blocked.err().expect("reconfigure must reject an unquiesced removal");
+            assert!(error.to_string().contains("blocked by an unquiesced removal"));
+            assert_eq!(fixture.mux.renderer_removal_waiters.lock().unwrap().len(), 1);
+
+            fixture.mux.handle_renderer_supervisor_event(
+                RendererSupervisorEvent::PresentationRemoved {
+                    workspace_uuid: fixture.workspace_uuid,
+                    renderer_epoch: fixture.worker.renderer_epoch,
+                    process_id: fixture.worker.pid.unwrap(),
+                    removal: crate::renderer_control::RendererPresentationRemoved {
+                        terminal_id: removal.terminal_id,
+                        terminal_epoch: removal.terminal_epoch,
+                        presentation_id: removal.presentation_id,
+                        presentation_generation: removal.presentation_generation,
+                    },
+                },
+            );
+            assert!(fixture.mux.renderer_removal_waiters.lock().unwrap().is_empty());
+
+            let receipt = fixture
+                .mux
+                .configure_renderer_presentation(
+                    fixture.client,
+                    fixture.presentation_id,
+                    1,
+                    renderer_configuration(),
+                )
+                .unwrap();
+            let renderer_generation = receipt.renderer_presentation_generation;
+            assert!(renderer_generation > fixture.renderer_generation);
+            fixture
+                .mux
+                .activate_renderer_presentation(
+                    fixture.client,
+                    fixture.presentation_id,
+                    1,
+                    renderer_generation,
+                    fixture.worker.renderer_epoch,
+                    fixture.worker.pid.unwrap(),
+                    RendererProcessInstanceToken {
+                        start_time_seconds: fixture.worker.process_start_time_seconds.unwrap(),
+                        start_time_microseconds: fixture
+                            .worker
+                            .process_start_time_microseconds
+                            .unwrap(),
+                    },
+                )
+                .unwrap();
+        }
+        assert!(fixture.mux.renderer_removal_waiters.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn renderer_ack_and_retry_share_one_atomic_publication_proof() {
+        let fixture = configured_renderer_fixture();
+        activate_renderer(&fixture, &fixture.worker).unwrap();
+        assert!(
+            fixture
+                .mux
+                .detach_renderer_presentation_with_timeout(
+                    fixture.client,
+                    fixture.presentation_id,
+                    1,
+                    Duration::from_millis(1),
+                )
+                .is_err()
+        );
+        let runtime = fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .cloned()
+            .unwrap();
+        let removal = runtime.removal();
+        let reached = Arc::new(std::sync::Barrier::new(2));
+        let release = Arc::new(std::sync::Barrier::new(2));
+        *fixture.mux.renderer_removal_before_map_erase.lock().unwrap() = Some(Arc::new({
+            let reached = reached.clone();
+            let release = release.clone();
+            move || {
+                reached.wait();
+                release.wait();
+            }
+        }));
+
+        let ack_mux = fixture.mux.clone();
+        let workspace_uuid = fixture.workspace_uuid;
+        let renderer_epoch = fixture.worker.renderer_epoch;
+        let process_id = fixture.worker.pid.unwrap();
+        let ack = std::thread::spawn(move || {
+            ack_mux.handle_renderer_supervisor_event(
+                RendererSupervisorEvent::PresentationRemoved {
+                    workspace_uuid,
+                    renderer_epoch,
+                    process_id,
+                    removal: crate::renderer_control::RendererPresentationRemoved {
+                        terminal_id: removal.terminal_id,
+                        terminal_epoch: removal.terminal_epoch,
+                        presentation_id: removal.presentation_id,
+                        presentation_generation: removal.presentation_generation,
+                    },
+                },
+            );
+        });
+        reached.wait();
+
+        let retry_mux = fixture.mux.clone();
+        let client = fixture.client;
+        let presentation_id = fixture.presentation_id;
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let retry = std::thread::spawn(move || {
+            let result = retry_mux.detach_renderer_presentation_with_timeout(
+                client,
+                presentation_id,
+                1,
+                Duration::from_secs(1),
+            );
+            done_tx.send(result).unwrap();
+        });
+        assert!(done_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        release.wait();
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        retry.join().unwrap();
+        ack.join().unwrap();
+
+        assert!(fixture.mux.renderer_removal_waiters.lock().unwrap().is_empty());
+        assert_eq!(fixture.supervisor.retire_requests().len(), 1);
+    }
+
+    #[test]
+    fn canonical_close_retires_unacknowledged_exact_worker() {
+        let fixture = configured_renderer_fixture();
+        activate_renderer(&fixture, &fixture.worker).unwrap();
+        fixture.supervisor.set_retire_quiesced(true);
+
+        fixture
+            .mux
+            .remove_renderer_presentation_with_timeout(
+                fixture.presentation_id,
+                Duration::from_millis(1),
+            )
+            .unwrap();
+
+        assert_eq!(
+            fixture.supervisor.retire_requests(),
+            vec![(fixture.workspace_uuid, fixture.worker.renderer_epoch)]
+        );
+        assert!(fixture.mux.renderer_removal_waiters.lock().unwrap().is_empty());
+        assert!(fixture.mux.renderer_release_routes.lock().unwrap().values.is_empty());
+    }
+
+    #[test]
+    fn idle_renderer_scene_uses_fixed_lanes_and_exits_on_detach() {
+        let fixture = configured_renderer_fixture();
+        activate_renderer(&fixture, &fixture.worker).unwrap();
+        assert_eq!(
+            fixture.mux.renderer_scene_dispatcher.lock().unwrap().as_ref().unwrap().lanes.len(),
+            RENDERER_SCENE_DISPATCH_LANES
+        );
+        assert_eq!(fixture.mux.renderer_scene_pump_received_events.load(Ordering::Acquire), 0);
+
+        assert!(fixture.mux.invalidate_renderer_presentation(fixture.presentation_id));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while fixture.mux.renderer_scene_pump_exits.load(Ordering::Acquire) == 0 {
+            assert!(Instant::now() < deadline, "idle scene dispatch did not observe detach");
+            std::thread::yield_now();
+        }
+        assert_eq!(fixture.mux.renderer_scene_pump_received_events.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn renderer_invalidation_orders_remove_after_inflight_publication() {
+        let fixture = configured_renderer_fixture();
+        let reached_scene = Arc::new(std::sync::Barrier::new(2));
+        let release_publication = Arc::new(std::sync::Barrier::new(2));
+        *fixture.mux.renderer_activation_after_scene_install.lock().unwrap() = Some(Arc::new({
+            let reached_scene = reached_scene.clone();
+            let release_publication = release_publication.clone();
+            move || {
+                reached_scene.wait();
+                release_publication.wait();
+            }
+        }));
+
+        let activation_mux = fixture.mux.clone();
+        let worker = fixture.worker.clone();
+        let client = fixture.client;
+        let presentation_id = fixture.presentation_id;
+        let renderer_generation = fixture.renderer_generation;
+        let activation = std::thread::spawn(move || {
+            activation_mux.activate_renderer_presentation(
+                client,
+                presentation_id,
+                1,
+                renderer_generation,
+                worker.renderer_epoch,
+                worker.pid.unwrap(),
+                RendererProcessInstanceToken {
+                    start_time_seconds: worker.process_start_time_seconds.unwrap(),
+                    start_time_microseconds: worker.process_start_time_microseconds.unwrap(),
+                },
+            )
+        });
+        reached_scene.wait();
+        assert!(fixture.supervisor.sent_messages().is_empty());
+
+        let retirement_mux = fixture.mux.clone();
+        let retirement = std::thread::spawn(move || {
+            assert!(retirement_mux.invalidate_renderer_presentation(presentation_id));
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .is_some()
+        {
+            assert!(Instant::now() < deadline, "invalidation did not begin");
+            std::thread::yield_now();
+        }
+        release_publication.wait();
+
+        activation.join().unwrap().unwrap();
+        retirement.join().unwrap();
+        let sent = fixture.supervisor.sent_messages();
+        assert!(matches!(
+            sent.as_slice(),
+            [
+                RendererControlMessage::UpsertPresentation(_),
+                RendererControlMessage::SemanticScene(_),
+                RendererControlMessage::RemovePresentation(_)
+            ]
+        ));
+    }
+
+    #[test]
+    fn renderer_invalidation_cannot_be_followed_by_scene_delta() {
+        let fixture = configured_renderer_fixture();
+        activate_renderer(&fixture, &fixture.worker).unwrap();
+        let runtime = fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .cloned()
+            .unwrap();
+        let terminal = runtime.surface.semantic_scene_terminal_identity().unwrap();
+        let attachment = runtime
+            .surface
+            .attach_semantic_scene(SemanticSceneAttachmentOptions::new(
+                terminal,
+                SemanticScenePresentationIdentity {
+                    presentation_id: fixture.presentation_id,
+                    generation: fixture.renderer_generation,
+                },
+            ))
+            .unwrap();
+        let frame = attachment.initial;
+        attachment.control.detach();
+
+        let reached_send = Arc::new(std::sync::Barrier::new(2));
+        let release_send = Arc::new(std::sync::Barrier::new(2));
+        *fixture.mux.renderer_scene_before_send.lock().unwrap() = Some(Arc::new({
+            let reached_send = reached_send.clone();
+            let release_send = release_send.clone();
+            move || {
+                reached_send.wait();
+                release_send.wait();
+            }
+        }));
+        let forward_mux = fixture.mux.clone();
+        let forward_runtime = runtime.clone();
+        let forward =
+            std::thread::spawn(move || forward_mux.forward_renderer_scene(&forward_runtime, frame));
+        reached_send.wait();
+
+        let retirement_mux = fixture.mux.clone();
+        let presentation_id = fixture.presentation_id;
+        let retirement = std::thread::spawn(move || {
+            assert!(retirement_mux.invalidate_renderer_presentation(presentation_id));
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .is_some()
+        {
+            assert!(Instant::now() < deadline, "invalidation did not begin");
+            std::thread::yield_now();
+        }
+        release_send.wait();
+        assert!(forward.join().unwrap());
+        retirement.join().unwrap();
+
+        let sent = fixture.supervisor.sent_messages();
+        let removal = sent
+            .iter()
+            .rposition(|message| matches!(message, RendererControlMessage::RemovePresentation(_)))
+            .expect("invalidation publishes exact removal");
+        assert!(
+            !sent[removal + 1..]
+                .iter()
+                .any(|message| matches!(message, RendererControlMessage::SemanticScene(_)))
+        );
+    }
+
+    #[test]
+    fn renderer_semantic_attach_failure_rolls_back_and_same_epoch_retries() {
+        let fixture = configured_renderer_fixture();
+        fixture.mux.renderer_activation_fail_semantic_attach.store(true, Ordering::Release);
+
+        let failed = activate_renderer(&fixture, &fixture.worker);
+        assert!(failed.unwrap_err().to_string().contains("semantic scene attachment failure"));
+        let runtime = fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .cloned()
+            .unwrap();
+        assert_eq!(runtime.activation.lock().unwrap().activating_epoch, None);
+        assert_eq!(runtime.activation.lock().unwrap().active_epoch, None);
+        assert!(runtime.scene.lock().unwrap().is_none());
+        assert!(fixture.supervisor.sent_messages().is_empty());
+
+        activate_renderer(&fixture, &fixture.worker).unwrap();
+        assert_eq!(runtime.activation.lock().unwrap().active_epoch, Some(7));
+    }
+
+    #[test]
+    fn renderer_scene_pump_spawn_failure_rolls_back_before_publication() {
+        let fixture = configured_renderer_fixture();
+        fixture.mux.renderer_scene_pump_fail_spawn.store(true, Ordering::Release);
+
+        let failed = activate_renderer(&fixture, &fixture.worker);
+        assert!(failed.unwrap_err().to_string().contains("scene pump spawn failure"));
+        let runtime = fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .cloned()
+            .unwrap();
+        assert_eq!(runtime.activation.lock().unwrap().activating_epoch, None);
+        assert_eq!(runtime.activation.lock().unwrap().active_epoch, None);
+        assert!(runtime.scene.lock().unwrap().is_none());
+        assert!(fixture.mux.renderer_release_routes.lock().unwrap().values.is_empty());
+        let sent = fixture.supervisor.sent_messages();
+        let upsert = sent
+            .iter()
+            .position(|message| matches!(message, RendererControlMessage::UpsertPresentation(_)));
+        let removal = sent
+            .iter()
+            .position(|message| matches!(message, RendererControlMessage::RemovePresentation(_)));
+        assert!(upsert.is_none() || removal.is_some_and(|removal| removal > upsert.unwrap()));
+    }
+
+    #[test]
+    fn renderer_revocation_after_publication_retracts_before_detach() {
+        let fixture = configured_renderer_fixture();
+        let runtime = fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .cloned()
+            .unwrap();
+        *fixture.mux.renderer_activation_before_commit.lock().unwrap() = Some(Arc::new({
+            let runtime = runtime.clone();
+            move || {
+                let mut activation = runtime.activation.lock().unwrap();
+                runtime.removal_pending.store(true, Ordering::Release);
+                activation.activating_epoch = None;
+                activation.active_epoch = None;
+            }
+        }));
+
+        let failed = activate_renderer(&fixture, &fixture.worker);
+        assert!(failed.unwrap_err().to_string().contains("revoked during publication"));
+        let sent = fixture.supervisor.sent_messages();
+        assert!(matches!(
+            sent.as_slice(),
+            [
+                RendererControlMessage::UpsertPresentation(_),
+                RendererControlMessage::SemanticScene(_),
+                RendererControlMessage::RemovePresentation(_)
+            ]
+        ));
+        assert!(runtime.scene.lock().unwrap().is_none());
+        assert_eq!(runtime.activation.lock().unwrap().active_epoch, None);
+        assert_eq!(fixture.mux.renderer_release_routes.lock().unwrap().values.len(), 1);
+        let removal = runtime.removal();
+        fixture.mux.handle_renderer_supervisor_event(
+            RendererSupervisorEvent::PresentationRemoved {
+                workspace_uuid: fixture.workspace_uuid,
+                renderer_epoch: fixture.worker.renderer_epoch,
+                process_id: fixture.worker.pid.unwrap(),
+                removal: crate::renderer_control::RendererPresentationRemoved {
+                    terminal_id: removal.terminal_id,
+                    terminal_epoch: removal.terminal_epoch,
+                    presentation_id: removal.presentation_id,
+                    presentation_generation: removal.presentation_generation,
+                },
+            },
+        );
+        assert!(fixture.mux.renderer_release_routes.lock().unwrap().values.is_empty());
+    }
+
+    #[test]
+    fn renderer_replacement_between_exact_checks_rolls_back_then_new_epoch_activates() {
+        let fixture = configured_renderer_fixture();
+        let replacement = renderer_worker(fixture.workspace_uuid, 8, 9_008);
+        fixture.supervisor.script_statuses([fixture.worker.clone(), replacement.clone()]);
+
+        let failed = activate_renderer(&fixture, &fixture.worker);
+        assert!(failed.unwrap_err().to_string().contains("worker identity is stale"));
+        let runtime = fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .cloned()
+            .unwrap();
+        assert_eq!(runtime.activation.lock().unwrap().activating_epoch, None);
+        assert_eq!(runtime.activation.lock().unwrap().active_epoch, None);
+        assert!(runtime.scene.lock().unwrap().is_none());
+        assert!(fixture.supervisor.sent_messages().is_empty());
+
+        fixture.supervisor.set_status(replacement.clone());
+        activate_renderer(&fixture, &replacement).unwrap();
+        assert_eq!(runtime.activation.lock().unwrap().active_epoch, Some(8));
+    }
+
     #[test]
     fn renderer_epoch_binding_has_one_winner_and_advances_monotonically() {
-        let bound = Arc::new(Mutex::new(0));
+        let bound = Arc::new(Mutex::new(RendererActivationState::default()));
         let contenders = (0..32)
             .map(|_| {
                 let bound = bound.clone();
-                std::thread::spawn(move || claim_new_renderer_epoch(&bound, 7).is_some())
+                std::thread::spawn(move || {
+                    claim_new_renderer_epoch(&bound, 7).is_some_and(|claim| claim.commit())
+                })
             })
             .collect::<Vec<_>>();
 
@@ -11913,12 +14046,15 @@ mod tests {
             .filter(|won| *won)
             .count();
         assert_eq!(winners, 1);
-        assert_eq!(*bound.lock().unwrap(), 7);
+        assert_eq!(bound.lock().unwrap().active_epoch, Some(7));
         assert!(claim_new_renderer_epoch(&bound, 0).is_none());
         assert!(claim_new_renderer_epoch(&bound, 6).is_none());
         assert!(claim_new_renderer_epoch(&bound, 7).is_none());
-        assert!(claim_new_renderer_epoch(&bound, 8).is_some());
-        assert_eq!(*bound.lock().unwrap(), 8);
+        let uncommitted = claim_new_renderer_epoch(&bound, 8).unwrap();
+        drop(uncommitted);
+        assert_eq!(bound.lock().unwrap().activating_epoch, None);
+        assert!(claim_new_renderer_epoch(&bound, 8).unwrap().commit());
+        assert_eq!(bound.lock().unwrap().active_epoch, Some(8));
     }
 
     #[test]
@@ -11945,6 +14081,26 @@ mod tests {
             index.remove(ready_workspace, presentation_id);
         }
         assert!(index.get(ready_workspace).is_none());
+    }
+
+    #[test]
+    fn renderer_workspace_admission_matches_the_worker_capacity_before_publish() {
+        let mut index = RendererPresentationWorkspaceIndex::default();
+        let full_workspace = WorkspaceUuid::new();
+        let retained = crate::PresentationId::new();
+        index.insert(full_workspace, retained);
+        for _ in 1..MAXIMUM_RENDERER_PRESENTATIONS_PER_WORKSPACE {
+            index.insert(full_workspace, crate::PresentationId::new());
+        }
+
+        assert!(index.admits(retained, full_workspace, Some(full_workspace)));
+        assert!(!index.admits(crate::PresentationId::new(), full_workspace, None));
+
+        let other_workspace = WorkspaceUuid::new();
+        let movable = crate::PresentationId::new();
+        index.insert(other_workspace, movable);
+        assert!(!index.admits(movable, full_workspace, Some(other_workspace)));
+        assert!(index.admits(crate::PresentationId::new(), other_workspace, None));
     }
 
     #[test]
@@ -13757,9 +15913,9 @@ mod tests {
             .presentations
             .open(
                 17,
-                crate::PresentationView::default(),
-                crate::PresentationZoom::default(),
-                crate::PresentationScroll::default(),
+                PresentationView::default(),
+                PresentationZoom::default(),
+                PresentationScroll::default(),
             )
             .unwrap();
         assert_eq!(mux.topology_snapshot(), before);

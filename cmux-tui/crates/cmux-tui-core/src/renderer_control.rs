@@ -18,6 +18,8 @@ pub const MAXIMUM_DIAGNOSTIC_LENGTH: usize = 4 * 1_024;
 pub const MAXIMUM_RENDERER_CONTROL_PAYLOAD_LENGTH: usize = 80 + MAXIMUM_SEMANTIC_SCENE_LENGTH;
 pub const MAXIMUM_RENDERER_CONTROL_FRAME_LENGTH: usize =
     RENDERER_CONTROL_HEADER_LENGTH + MAXIMUM_RENDERER_CONTROL_PAYLOAD_LENGTH;
+pub const MAXIMUM_RENDERER_WORKER_FRAME_LENGTH: usize =
+    RENDERER_CONTROL_HEADER_LENGTH + 16 + MAXIMUM_DIAGNOSTIC_LENGTH;
 
 const MAGIC: [u8; 4] = *b"CMRC";
 const MAXIMUM_SERVICE_NAME_LENGTH: usize = 120;
@@ -1368,7 +1370,15 @@ impl RendererControlIncrementalDecoder {
                         actual: sequence,
                     });
                 }
-                if frame_length > MAXIMUM_RENDERER_CONTROL_FRAME_LENGTH {
+                let maximum_frame_length = match self.expected_direction {
+                    RendererControlDirection::DaemonToWorker => {
+                        MAXIMUM_RENDERER_CONTROL_FRAME_LENGTH
+                    }
+                    RendererControlDirection::WorkerToDaemon => {
+                        MAXIMUM_RENDERER_WORKER_FRAME_LENGTH
+                    }
+                };
+                if frame_length > maximum_frame_length {
                     return Err(RendererControlError::InvalidPayloadLength);
                 }
                 self.expected_frame_length = Some(frame_length);
@@ -2303,6 +2313,28 @@ mod tests {
             RendererControlError::InvalidPayloadLength
         );
         assert_eq!(decoder.maximum_observed_buffered_byte_count(), RENDERER_CONTROL_HEADER_LENGTH);
+
+        let mut oversized_worker = RendererControlWire::encode(&envelope(
+            RendererControlMessage::Fatal(RendererFatal {
+                code: RendererFatalCode::ProtocolViolation,
+                diagnostic: String::new(),
+            }),
+            1,
+        ))
+        .unwrap();
+        let worker_payload_length =
+            (MAXIMUM_RENDERER_WORKER_FRAME_LENGTH - RENDERER_CONTROL_HEADER_LENGTH + 1) as u64;
+        oversized_worker[24..32].copy_from_slice(&worker_payload_length.to_be_bytes());
+        let mut worker_decoder =
+            RendererControlIncrementalDecoder::new(RendererControlDirection::WorkerToDaemon);
+        assert_eq!(
+            worker_decoder.feed(&oversized_worker[..RENDERER_CONTROL_HEADER_LENGTH]).unwrap_err(),
+            RendererControlError::InvalidPayloadLength
+        );
+        assert_eq!(
+            worker_decoder.maximum_observed_buffered_byte_count(),
+            RENDERER_CONTROL_HEADER_LENGTH
+        );
     }
 
     #[test]

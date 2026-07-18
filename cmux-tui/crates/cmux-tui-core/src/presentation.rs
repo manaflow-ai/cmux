@@ -69,8 +69,11 @@ pub struct Presentation {
     pub scroll: PresentationScroll,
 }
 
-const MAX_PRESENTATIONS_PER_CLIENT: usize = 64;
-const MAX_PRESENTATIONS_GLOBAL: usize = 1024;
+// The Swift shell keeps one stable input-authority presentation per terminal.
+// Leave bounded headroom for 1,000-workspace sessions, multiple windows, and
+// reconnect overlap without weakening the renderer-specific admission caps.
+const MAX_PRESENTATIONS_PER_CLIENT: usize = 4_096;
+const MAX_PRESENTATIONS_GLOBAL: usize = 16_384;
 
 #[derive(Debug, Clone, Copy)]
 struct PresentationLimits {
@@ -85,19 +88,25 @@ impl Default for PresentationLimits {
 }
 
 pub(crate) struct PresentationRegistry {
-    presentations: Mutex<BTreeMap<PresentationId, Presentation>>,
+    state: Mutex<PresentationRegistryState>,
     limits: PresentationLimits,
+}
+
+#[derive(Default)]
+struct PresentationRegistryState {
+    presentations: BTreeMap<PresentationId, Presentation>,
+    client_counts: BTreeMap<u64, usize>,
 }
 
 impl PresentationRegistry {
     pub(crate) fn new() -> Self {
-        Self { presentations: Mutex::new(BTreeMap::new()), limits: PresentationLimits::default() }
+        Self { state: Mutex::new(PresentationRegistryState::default()), limits: Default::default() }
     }
 
     #[cfg(test)]
     fn new_with_limits(per_client: usize, global: usize) -> Self {
         Self {
-            presentations: Mutex::new(BTreeMap::new()),
+            state: Mutex::new(PresentationRegistryState::default()),
             limits: PresentationLimits { per_client, global },
         }
     }
@@ -109,12 +118,11 @@ impl PresentationRegistry {
         zoom: PresentationZoom,
         scroll: PresentationScroll,
     ) -> anyhow::Result<Presentation> {
-        let mut presentations = self.presentations.lock().unwrap();
-        if presentations.len() >= self.limits.global {
+        let mut state = self.state.lock().unwrap();
+        if state.presentations.len() >= self.limits.global {
             anyhow::bail!("global presentation limit reached (maximum {})", self.limits.global);
         }
-        let client_count =
-            presentations.values().filter(|presentation| presentation.client == client).count();
+        let client_count = state.client_counts.get(&client).copied().unwrap_or(0);
         if client_count >= self.limits.per_client {
             anyhow::bail!(
                 "presentation limit reached for client {client} (maximum {})",
@@ -123,13 +131,14 @@ impl PresentationRegistry {
         }
         let presentation_id = loop {
             let candidate = PresentationId::new();
-            if !presentations.contains_key(&candidate) {
+            if !state.presentations.contains_key(&candidate) {
                 break candidate;
             }
         };
         let presentation =
             Presentation { presentation_id, generation: 1, client, view, zoom, scroll };
-        presentations.insert(presentation_id, presentation.clone());
+        state.presentations.insert(presentation_id, presentation.clone());
+        state.client_counts.insert(client, client_count + 1);
         Ok(presentation)
     }
 
@@ -138,8 +147,9 @@ impl PresentationRegistry {
         client: u64,
         presentation_id: PresentationId,
     ) -> anyhow::Result<Presentation> {
-        let presentations = self.presentations.lock().unwrap();
-        let presentation = presentations
+        let state = self.state.lock().unwrap();
+        let presentation = state
+            .presentations
             .get(&presentation_id)
             .ok_or_else(|| anyhow::anyhow!("unknown presentation {presentation_id}"))?;
         if presentation.client != client {
@@ -157,8 +167,9 @@ impl PresentationRegistry {
         zoom: Option<PresentationZoom>,
         scroll: Option<PresentationScroll>,
     ) -> anyhow::Result<Presentation> {
-        let mut presentations = self.presentations.lock().unwrap();
-        let presentation = presentations
+        let mut state = self.state.lock().unwrap();
+        let presentation = state
+            .presentations
             .get_mut(&presentation_id)
             .ok_or_else(|| anyhow::anyhow!("unknown presentation {presentation_id}"))?;
         if presentation.client != client {
@@ -190,21 +201,24 @@ impl PresentationRegistry {
     }
 
     pub(crate) fn close(&self, client: u64, presentation_id: PresentationId) -> anyhow::Result<()> {
-        let mut presentations = self.presentations.lock().unwrap();
-        let presentation = presentations
+        let mut state = self.state.lock().unwrap();
+        let presentation = state
+            .presentations
             .get(&presentation_id)
             .ok_or_else(|| anyhow::anyhow!("unknown presentation {presentation_id}"))?;
         if presentation.client != client {
             anyhow::bail!("presentation {presentation_id} is owned by another client");
         }
-        presentations.remove(&presentation_id);
+        state.presentations.remove(&presentation_id);
+        Self::decrement_client_count(&mut state, client, 1);
         Ok(())
     }
 
     pub(crate) fn list_for_client(&self, client: u64) -> Vec<Presentation> {
-        self.presentations
+        self.state
             .lock()
             .unwrap()
+            .presentations
             .values()
             .filter(|presentation| presentation.client == client)
             .cloned()
@@ -212,29 +226,43 @@ impl PresentationRegistry {
     }
 
     pub(crate) fn remove_client(&self, client: u64) -> Vec<PresentationId> {
-        let mut presentations = self.presentations.lock().unwrap();
-        let removed = presentations
+        let mut state = self.state.lock().unwrap();
+        let removed = state
+            .presentations
             .values()
             .filter(|presentation| presentation.client == client)
             .map(|presentation| presentation.presentation_id)
             .collect::<Vec<_>>();
         for presentation_id in &removed {
-            presentations.remove(presentation_id);
+            state.presentations.remove(presentation_id);
         }
+        state.client_counts.remove(&client);
         removed
     }
 
     pub(crate) fn remove_surface(&self, surface_uuid: SurfaceUuid) -> Vec<PresentationId> {
-        let mut presentations = self.presentations.lock().unwrap();
-        let removed = presentations
+        let mut state = self.state.lock().unwrap();
+        let removed = state
+            .presentations
             .values()
             .filter(|presentation| presentation.view.surface_uuid == Some(surface_uuid))
-            .map(|presentation| presentation.presentation_id)
+            .map(|presentation| (presentation.presentation_id, presentation.client))
             .collect::<Vec<_>>();
-        for presentation_id in &removed {
-            presentations.remove(presentation_id);
+        for (presentation_id, client) in &removed {
+            state.presentations.remove(presentation_id);
+            Self::decrement_client_count(&mut state, *client, 1);
         }
-        removed
+        removed.into_iter().map(|(presentation_id, _)| presentation_id).collect()
+    }
+
+    fn decrement_client_count(state: &mut PresentationRegistryState, client: u64, count: usize) {
+        let remove = state.client_counts.get_mut(&client).is_some_and(|current| {
+            *current = current.saturating_sub(count);
+            *current == 0
+        });
+        if remove {
+            state.client_counts.remove(&client);
+        }
     }
 }
 
@@ -491,5 +519,15 @@ mod tests {
         assert!(registry.list_for_client(1).is_empty());
         open(&registry, 3);
         assert_eq!(registry.list_for_client(3).len(), 1);
+    }
+
+    #[test]
+    fn default_capacity_admits_one_stable_input_owner_for_one_thousand_terminals() {
+        let registry = PresentationRegistry::new();
+        let presentations = (0..1_000).map(|_| open(&registry, 1)).collect::<Vec<_>>();
+
+        assert_eq!(presentations.len(), 1_000);
+        assert_eq!(registry.list_for_client(1).len(), 1_000);
+        assert!(open(&registry, 1).generation == 1);
     }
 }

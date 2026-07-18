@@ -22,6 +22,7 @@ pub(crate) enum ConnectionRole {
     RemoteReadOnly,
     TrustedFrontend,
     TrustedAutomation,
+    TrustedInputDelegate,
     TrustedRenderer,
 }
 
@@ -29,6 +30,7 @@ pub(crate) enum ConnectionRole {
 pub(crate) enum ConnectionPermission {
     Control,
     Frontend,
+    InputDelegate,
 }
 
 impl ConnectionRole {
@@ -38,6 +40,7 @@ impl ConnectionRole {
             Self::RemoteReadOnly => "remote-read-only",
             Self::TrustedFrontend => "trusted-frontend",
             Self::TrustedAutomation => "trusted-automation",
+            Self::TrustedInputDelegate => "trusted-input-delegate",
             Self::TrustedRenderer => "trusted-renderer",
         }
     }
@@ -52,6 +55,10 @@ impl ConnectionRole {
                 matches!(self, Self::TrustedFrontend | Self::TrustedAutomation)
             }
             ConnectionPermission::Frontend => matches!(self, Self::TrustedFrontend),
+            ConnectionPermission::InputDelegate => matches!(
+                self,
+                Self::TrustedFrontend | Self::TrustedAutomation | Self::TrustedInputDelegate
+            ),
         }
     }
 
@@ -66,6 +73,9 @@ impl ConnectionRole {
             let required = match permission {
                 ConnectionPermission::Control => "trusted frontend or automation",
                 ConnectionPermission::Frontend => "trusted frontend",
+                ConnectionPermission::InputDelegate => {
+                    "trusted frontend, automation, or input delegate"
+                }
             };
             anyhow::bail!(
                 "command {command:?} requires a registered server-issued same-UID {required} role"
@@ -79,6 +89,7 @@ pub(crate) enum RegisteredClientKind {
     SwiftShell,
     Tui,
     Automation,
+    MobileCompatibility,
     RendererWorker,
     Web,
 }
@@ -89,6 +100,7 @@ impl RegisteredClientKind {
             "swift-shell" => Ok(Self::SwiftShell),
             "tui" => Ok(Self::Tui),
             "automation" => Ok(Self::Automation),
+            "mobile-compatibility" => Ok(Self::MobileCompatibility),
             "renderer-worker" => Ok(Self::RendererWorker),
             "web" => Ok(Self::Web),
             other => anyhow::bail!("unsupported registered client kind {other:?}"),
@@ -100,6 +112,7 @@ impl RegisteredClientKind {
             Self::SwiftShell => "swift-shell",
             Self::Tui => "tui",
             Self::Automation => "automation",
+            Self::MobileCompatibility => "mobile-compatibility",
             Self::RendererWorker => "renderer-worker",
             Self::Web => "web",
         }
@@ -171,6 +184,9 @@ impl ConnectionAuthorization {
                     ConnectionRole::TrustedFrontend
                 }
                 Some(RegisteredClientKind::Automation) => ConnectionRole::TrustedAutomation,
+                Some(RegisteredClientKind::MobileCompatibility) => {
+                    ConnectionRole::TrustedInputDelegate
+                }
                 Some(RegisteredClientKind::RendererWorker) => ConnectionRole::TrustedRenderer,
                 Some(RegisteredClientKind::Web) | None => ConnectionRole::Unaffiliated,
             },
@@ -262,6 +278,12 @@ mod tests {
         renderer.register(9, Some("renderer-worker")).unwrap();
         assert_eq!(renderer.role(), ConnectionRole::TrustedRenderer);
         assert!(renderer.topology_lease().is_none());
+
+        let mut mobile = ConnectionAuthorization::unix(Some(same_user_peer()));
+        mobile.register(9, Some("mobile-compatibility")).unwrap();
+        assert_eq!(mobile.role(), ConnectionRole::TrustedInputDelegate);
+        assert_eq!(mobile.registered_kind(), Some(RegisteredClientKind::MobileCompatibility));
+        assert!(mobile.topology_lease().is_none());
     }
 
     #[test]
@@ -347,5 +369,38 @@ mod tests {
         automation.register(9, Some("automation")).unwrap();
         assert!(automation.role().permits(ConnectionPermission::Control));
         assert!(!automation.role().permits(ConnectionPermission::Frontend));
+    }
+
+    #[test]
+    fn mobile_compatibility_role_only_receives_input_delegate_permission() {
+        let mut mobile = ConnectionAuthorization::unix(Some(same_user_peer()));
+        mobile.register(9, Some("mobile-compatibility")).unwrap();
+
+        assert_eq!(mobile.role(), ConnectionRole::TrustedInputDelegate);
+        assert_eq!(mobile.role().as_str(), "trusted-input-delegate");
+        assert_eq!(
+            mobile.registered_kind().map(RegisteredClientKind::as_str),
+            Some("mobile-compatibility")
+        );
+        assert!(mobile.role().permits(ConnectionPermission::InputDelegate));
+        assert!(!mobile.role().permits(ConnectionPermission::Control));
+        assert!(!mobile.role().permits(ConnectionPermission::Frontend));
+        assert!(mobile.topology_lease().is_none());
+
+        let mut frontend = ConnectionAuthorization::unix(Some(same_user_peer()));
+        frontend.register(9, Some("swift-shell")).unwrap();
+        assert!(frontend.role().permits(ConnectionPermission::InputDelegate));
+
+        let mut automation = ConnectionAuthorization::unix(Some(same_user_peer()));
+        automation.register(9, Some("automation")).unwrap();
+        assert!(automation.role().permits(ConnectionPermission::InputDelegate));
+
+        let mut renderer = ConnectionAuthorization::unix(Some(same_user_peer()));
+        renderer.register(9, Some("renderer-worker")).unwrap();
+        assert!(!renderer.role().permits(ConnectionPermission::InputDelegate));
+
+        let mut unaffiliated = ConnectionAuthorization::unix(Some(same_user_peer()));
+        unaffiliated.register(9, Some("web")).unwrap();
+        assert!(!unaffiliated.role().permits(ConnectionPermission::InputDelegate));
     }
 }

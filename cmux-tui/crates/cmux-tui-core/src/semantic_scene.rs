@@ -122,7 +122,7 @@ impl Default for SemanticSceneCaptureOptions {
 }
 
 /// Inputs required to attach one renderer to one exact terminal presentation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct SemanticSceneAttachmentOptions {
     pub terminal: SemanticSceneTerminalIdentity,
     pub presentation: SemanticScenePresentationIdentity,
@@ -130,6 +130,10 @@ pub struct SemanticSceneAttachmentOptions {
     /// Initial visual IME marked text. It is never written to the PTY.
     pub preedit: Option<SemanticScenePreedit>,
     pub event_capacity: usize,
+    /// Optional fixed-lane consumer wake used by daemon render dispatchers.
+    /// The bounded scene receiver remains the source of truth.
+    pub consumer_wake:
+        Option<Arc<dyn Fn(SemanticScenePresentationIdentity) + Send + Sync + 'static>>,
 }
 
 /// Presentation-local IME state. Offsets use AppKit's UTF-16 convention.
@@ -160,6 +164,7 @@ impl SemanticSceneAttachmentOptions {
             capture: SemanticSceneCaptureOptions::default(),
             preedit: None,
             event_capacity: SEMANTIC_SCENE_EVENT_CAPACITY,
+            consumer_wake: None,
         }
     }
 }
@@ -310,6 +315,8 @@ struct SemanticSceneLifecycleState {
 struct SemanticSceneLifecycle {
     state: Arc<SemanticSceneLifecycleState>,
     wake: SyncSender<u64>,
+    consumer_wake: Option<Arc<dyn Fn(SemanticScenePresentationIdentity) + Send + Sync + 'static>>,
+    presentation: SemanticScenePresentationIdentity,
 }
 
 impl SemanticSceneLifecycle {
@@ -317,6 +324,10 @@ impl SemanticSceneLifecycle {
         wake: SyncSender<u64>,
         event_capacity: usize,
         preedit: Option<SemanticScenePreedit>,
+        consumer_wake: Option<
+            Arc<dyn Fn(SemanticScenePresentationIdentity) + Send + Sync + 'static>,
+        >,
+        presentation: SemanticScenePresentationIdentity,
     ) -> Self {
         Self {
             state: Arc::new(SemanticSceneLifecycleState {
@@ -330,6 +341,14 @@ impl SemanticSceneLifecycle {
                 fallback_failure: Mutex::new(None),
             }),
             wake,
+            consumer_wake,
+            presentation,
+        }
+    }
+
+    fn notify_consumer(&self) {
+        if let Some(wake) = &self.consumer_wake {
+            wake(self.presentation);
         }
     }
 
@@ -407,6 +426,7 @@ impl SemanticSceneLifecycle {
 
     fn detach(&self) {
         self.cancel();
+        self.notify_consumer();
         self.wake_producer();
     }
 
@@ -639,7 +659,13 @@ impl SemanticSceneHub {
             encoded,
         };
         let (sender, receiver) = sync_channel(options.event_capacity);
-        let lifecycle = SemanticSceneLifecycle::new(wake, options.event_capacity, options.preedit);
+        let lifecycle = SemanticSceneLifecycle::new(
+            wake,
+            options.event_capacity,
+            options.preedit,
+            options.consumer_wake,
+            options.presentation,
+        );
         self.attachments.push(SemanticSceneTap {
             encoder,
             sender,
@@ -676,6 +702,7 @@ impl SemanticSceneHub {
         let mut backpressured_attachments = 0_usize;
         self.attachments.retain_mut(|attachment| {
             if attachment.lifecycle.is_canceled() {
+                attachment.lifecycle.notify_consumer();
                 return false;
             }
             if attachment.terminal != actual_terminal || content_sequence == 0 {
@@ -776,6 +803,7 @@ impl SemanticSceneHub {
             encoded_scenes = encoded_scenes.saturating_add(1);
             match attachment.sender.try_send(SemanticSceneEvent::Scene(frame)) {
                 Ok(()) => {
+                    attachment.lifecycle.notify_consumer();
                     attachment.delivered_content_sequence = content_sequence;
                     attachment.next_presentation_sequence += 1;
                     attachment.needs_full = false;
@@ -847,6 +875,7 @@ impl SemanticSceneHub {
             attachment.lifecycle.retain_fallback_failure(failure);
         }
         attachment.lifecycle.cancel();
+        attachment.lifecycle.notify_consumer();
         false
     }
 
