@@ -31,6 +31,19 @@ enum AgentHibernationResumePreparation: Equatable {
     }
 }
 
+struct AgentHibernationResumePlan: Sendable {
+    let kind: RestorableAgentKind
+    let sessionId: String
+    let hibernatedAt: Date
+    let startupInput: String
+
+    func matches(_ state: AgentHibernationPanelState) -> Bool {
+        kind == state.agent.kind
+            && sessionId == state.agent.sessionId
+            && hibernatedAt == state.hibernatedAt
+    }
+}
+
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
@@ -747,16 +760,46 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func prepareAgentHibernationResume() -> AgentHibernationResumePreparation {
+        guard let plan = agentHibernationResumePlan() else {
+            return .unavailable
+        }
+        return applyAgentHibernationResume(plan)
+    }
+
+    func agentHibernationResumePlan(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> AgentHibernationResumePlan? {
         guard let state = agentHibernationState,
+              surface.canPrepareAgentHibernationResume,
+              let startupInput = state.agent.resumeStartupInput(
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory
+              ) else {
+            return nil
+        }
+        return AgentHibernationResumePlan(
+            kind: state.agent.kind,
+            sessionId: state.agent.sessionId,
+            hibernatedAt: state.hibernatedAt,
+            startupInput: startupInput
+        )
+    }
+
+    @discardableResult
+    func applyAgentHibernationResume(
+        _ plan: AgentHibernationResumePlan
+    ) -> AgentHibernationResumePreparation {
+        guard let state = agentHibernationState,
+              plan.matches(state),
               surface.canPrepareAgentHibernationResume else {
             return .unavailable
         }
-        let resumeStartupInput = state.agent.resumeStartupInput()
         agentHibernationState = nil
-        surface.prepareAgentHibernationResume(initialInput: resumeStartupInput)
+        surface.prepareAgentHibernationResume(initialInput: plan.startupInput)
         requestViewReattach()
         surface.requestBackgroundSurfaceStartIfNeeded()
-        return .resumed(queuedStartupInput: resumeStartupInput != nil)
+        return .resumed(queuedStartupInput: true)
     }
 
     var canPrepareAgentHibernationResume: Bool {

@@ -152,6 +152,7 @@ struct AgentHookSessionStateWriter: Sendable {
         var agent: SessionRestorableAgentSnapshot
         var workspaceId: UUID
         var surfaceId: UUID
+        var attemptId = UUID()
     }
     enum HibernatedResumeAuthorityOutcome: Equatable, Sendable {
         case acquired
@@ -166,7 +167,15 @@ struct AgentHookSessionStateWriter: Sendable {
         let recordFingerprint: Data
         let canonicalWorkspaceId: String?
         let canonicalSurfaceId: String?
-        let hasProvablyLiveForeignRuntime: Bool
+        let isDetached: Bool
+        let hasResumeAttempt: Bool
+        let runtimeEvidence: RuntimeOwnershipEvidence
+    }
+    private enum RuntimeOwnershipEvidence: Sendable, Equatable {
+        case current
+        case provablyLiveForeign
+        case provablyDeadForeign
+        case unknownForeign
     }
     private enum LegacyReadLockMode: Sendable, Equatable {
         case immediate
@@ -419,14 +428,72 @@ struct AgentHookSessionStateWriter: Sendable {
         agent: SessionRestorableAgentSnapshot,
         workspaceId: UUID,
         surfaceId: UUID,
+        attemptId: UUID,
         now: TimeInterval = Date().timeIntervalSince1970
     ) -> HibernatedResumeAuthorityOutcome {
         productionWriter().establishHibernatedAuthoritySynchronously(
             request: HibernatedResumeAuthorityRequest(
                 agent: agent,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                attemptId: attemptId
             ),
+            now: now
+        )
+    }
+
+    /// Detaches only the durable hibernation generation whose native teardown
+    /// lost to a portal close after the registry commit. Recovery authority is
+    /// retained without active slots so closed-history/session restore can
+    /// adopt it; a later generation makes this exact-token write a no-op.
+    static func releaseFailedHibernationAuthority(
+        agent: SessionRestorableAgentSnapshot,
+        workspaceId: UUID,
+        surfaceId: UUID,
+        attemptId: UUID,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) async {
+        let writer = productionWriter()
+        let request = HibernatedResumeAuthorityRequest(
+            agent: agent,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            attemptId: attemptId
+        )
+        await Task.detached(priority: .utility) {
+            writer.releaseFailedHibernationAuthoritySynchronously(
+                request: request,
+                now: now,
+                busyTimeoutMilliseconds: 2_000
+            )
+        }.value
+    }
+
+    static func projectCanonicalLegacy(agent: SessionRestorableAgentSnapshot) {
+        let writer = productionWriter()
+        let provider = agent.kind.rawValue
+        let stateURL = agent.kind.hookStoreFileURL(
+            homeDirectory: writer.homeDirectory,
+            environment: writer.environment
+        )
+        Task(priority: .utility) {
+            await Self.writeCoordinator.projectCanonicalLegacy(
+                using: writer,
+                provider: provider,
+                stateURL: stateURL
+            )
+        }
+    }
+
+    /// Returns an exact resume claim to hibernated when its already-built
+    /// local plan can no longer be applied. The active surface slot remains
+    /// owned by the same session, so a later resume can retry safely.
+    static func releaseFailedHibernatedResumeAuthority(
+        _ request: HibernatedResumeAuthorityRequest,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) {
+        productionWriter().releaseFailedHibernatedResumeAuthoritySynchronously(
+            request,
             now: now
         )
     }
@@ -755,7 +822,6 @@ struct AgentHookSessionStateWriter: Sendable {
             homeDirectory: homeDirectory,
             environment: environment
         )
-        let legacyStampAtClaim = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path)
         let result: CmuxAgentSessionRegistry.RecordRebindResult
         do {
             result = try registry(
@@ -793,21 +859,17 @@ struct AgentHookSessionStateWriter: Sendable {
                 let effectiveNow = max(now, record["updatedAt"] as? TimeInterval ?? now)
                 applyLifecycle(.hibernated, to: &record, now: effectiveNow)
                 record.removeValue(forKey: "cmuxRestoreAdoptionId")
+                record["cmuxHibernationAttemptId"] = request.attemptId.uuidString
+                record["cmuxHibernatedAt"] = effectiveNow
+                record["cmuxHibernationDetached"] = false
+                record.removeValue(forKey: "cmuxHibernationResumeAttemptId")
+                record.removeValue(forKey: "cmuxHibernationResumeStartedAt")
+                record.removeValue(forKey: "cmuxHibernationResumeFromAttemptId")
             }
         } catch {
             return .unavailable
         }
         guard result == .patched else { return .rejected }
-        Task(priority: .utility) {
-            await Self.writeCoordinator.projectEstablishedHibernationToLegacy(
-                using: self,
-                provider: provider,
-                stateURL: stateURL,
-                request: request,
-                legacyStampAtClaim: legacyStampAtClaim,
-                now: now
-            )
-        }
         return .acquired
     }
 
@@ -866,6 +928,7 @@ struct AgentHookSessionStateWriter: Sendable {
                             shouldMutate: { record in
                                 guard record["sessionState"] as? String
                                         == AgentSessionLifecycleState.hibernated.rawValue,
+                                      record["cmuxHibernationDetached"] as? Bool != true,
                                       record["restoreAuthority"] as? Bool != false,
                                       !hasCompletion(record),
                                       record["updatedAt"] is TimeInterval,
@@ -887,8 +950,17 @@ struct AgentHookSessionStateWriter: Sendable {
                                 now,
                                 record["updatedAt"] as? TimeInterval ?? now
                             )
+                            if let hibernationId = normalized(
+                                record["cmuxHibernationAttemptId"] as? String
+                            ) {
+                                record["cmuxHibernationResumeFromAttemptId"] = hibernationId
+                            } else {
+                                record.removeValue(forKey: "cmuxHibernationResumeFromAttemptId")
+                            }
                             applyLifecycle(.restoring, to: &record, now: effectiveNow)
                             record.removeValue(forKey: "cmuxRestoreAdoptionId")
+                            record["cmuxHibernationResumeAttemptId"] = request.attemptId.uuidString
+                            record["cmuxHibernationResumeStartedAt"] = effectiveNow
                         }
                         if result == .patched {
                             transactionOutcomes[request.surfaceId] = .acquired
@@ -923,6 +995,133 @@ struct AgentHookSessionStateWriter: Sendable {
             }
         }
         return outcomes
+    }
+
+    private func releaseFailedHibernationAuthoritySynchronously(
+        request: HibernatedResumeAuthorityRequest,
+        now: TimeInterval,
+        busyTimeoutMilliseconds: Int32
+    ) {
+        guard let sessionId = normalized(request.agent.sessionId) else { return }
+        let provider = request.agent.kind.rawValue
+        let stateURL = request.agent.kind.hookStoreFileURL(
+            homeDirectory: homeDirectory,
+            environment: environment
+        )
+        do {
+            _ = try registry(
+                provider: provider,
+                stateURL: stateURL,
+                busyTimeoutMilliseconds: busyTimeoutMilliseconds
+            ).patchRecordRebindingActiveSlots(
+                provider: provider,
+                sessionID: sessionId,
+                updatedAt: now,
+                previousSlots: [
+                    .init(scope: .workspace, scopeID: request.workspaceId.uuidString),
+                    .init(scope: .surface, scopeID: request.surfaceId.uuidString),
+                ],
+                activeSlots: [],
+                monotonicUpdatedAt: true,
+                shouldMutate: { record in
+                    guard normalized(record["cmuxHibernationAttemptId"] as? String)
+                            == request.attemptId.uuidString,
+                          record["sessionState"] as? String
+                            == AgentSessionLifecycleState.hibernated.rawValue,
+                          record["restoreAuthority"] as? Bool != false,
+                          !hasCompletion(record),
+                          recordBelongsToCurrentRuntime(record),
+                          let workspaceId = normalized(record["workspaceId"] as? String),
+                          let surfaceId = normalized(record["surfaceId"] as? String) else {
+                        return false
+                    }
+                    return identifiersEqual(workspaceId, request.workspaceId.uuidString)
+                        && identifiersEqual(surfaceId, request.surfaceId.uuidString)
+                }
+            ) { record in
+                let effectiveNow = max(now, record["updatedAt"] as? TimeInterval ?? now)
+                applyLifecycle(.hibernated, to: &record, now: effectiveNow)
+                record["cmuxHibernationDetached"] = true
+                record.removeValue(forKey: "cmuxHibernationResumeAttemptId")
+                record.removeValue(forKey: "cmuxHibernationResumeStartedAt")
+                record.removeValue(forKey: "cmuxHibernationResumeFromAttemptId")
+                record.removeValue(forKey: "cmuxRestoreAdoptionId")
+            }
+        } catch {
+            NSLog(
+                "[Workspace] failed to release hibernation attempt provider=%@ session=%@ error=%@",
+                provider,
+                sessionId,
+                String(describing: error)
+            )
+            return
+        }
+        Task(priority: .utility) {
+            await Self.writeCoordinator.projectCanonicalLegacy(
+                using: self,
+                provider: provider,
+                stateURL: stateURL
+            )
+        }
+    }
+
+    private func releaseFailedHibernatedResumeAuthoritySynchronously(
+        _ request: HibernatedResumeAuthorityRequest,
+        now: TimeInterval
+    ) {
+        guard let sessionId = normalized(request.agent.sessionId) else { return }
+        let provider = request.agent.kind.rawValue
+        let stateURL = request.agent.kind.hookStoreFileURL(
+            homeDirectory: homeDirectory,
+            environment: environment
+        )
+        let result: CmuxAgentSessionRegistry.RecordRebindResult
+        do {
+            result = try registry(
+                provider: provider,
+                stateURL: stateURL,
+                busyTimeoutMilliseconds: 25
+            ).patchRecordRebindingActiveSlots(
+                provider: provider,
+                sessionID: sessionId,
+                updatedAt: now,
+                previousSlots: [],
+                activeSlots: [.init(scope: .surface, scopeID: request.surfaceId.uuidString)],
+                requireExistingActiveSlots: true,
+                monotonicUpdatedAt: true,
+                shouldMutate: { record in
+                    guard normalized(record["cmuxHibernationResumeAttemptId"] as? String)
+                            == request.attemptId.uuidString,
+                          record["sessionState"] as? String
+                            == AgentSessionLifecycleState.restoring.rawValue,
+                          record["restoreAuthority"] as? Bool != false,
+                          !hasCompletion(record),
+                          recordBelongsToCurrentRuntime(record),
+                          let workspaceId = normalized(record["workspaceId"] as? String),
+                          let surfaceId = normalized(record["surfaceId"] as? String) else {
+                        return false
+                    }
+                    return identifiersEqual(workspaceId, request.workspaceId.uuidString)
+                        && identifiersEqual(surfaceId, request.surfaceId.uuidString)
+                }
+            ) { record in
+                let effectiveNow = max(now, record["updatedAt"] as? TimeInterval ?? now)
+                applyLifecycle(.hibernated, to: &record, now: effectiveNow)
+                record.removeValue(forKey: "cmuxHibernationResumeAttemptId")
+                record.removeValue(forKey: "cmuxHibernationResumeStartedAt")
+                record.removeValue(forKey: "cmuxHibernationResumeFromAttemptId")
+            }
+        } catch {
+            return
+        }
+        guard result == .patched else { return }
+        Task(priority: .utility) {
+            await Self.writeCoordinator.projectCanonicalLegacy(
+                using: self,
+                provider: provider,
+                stateURL: stateURL
+            )
+        }
     }
 
     /// Waits for compatibility writers without retry sleeps. Darwin reports
@@ -1066,10 +1265,22 @@ struct AgentHookSessionStateWriter: Sendable {
                     if cancellationCheck() { throw CancellationError() }
                     guard let ownerPreflight = ownerPreflights[sessionId],
                           let canonicalWorkspaceId = ownerPreflight.canonicalWorkspaceId,
-                          let canonicalSurfaceId = ownerPreflight.canonicalSurfaceId,
-                          !ownerPreflight.hasProvablyLiveForeignRuntime else {
+                          let canonicalSurfaceId = ownerPreflight.canonicalSurfaceId else {
                         outcomes[request.surfaceId] = .rejected
                         continue
+                    }
+                    switch ownerPreflight.runtimeEvidence {
+                    case .provablyLiveForeign:
+                        outcomes[request.surfaceId] = .rejected
+                        continue
+                    case .unknownForeign:
+                        outcomes[request.surfaceId] = .unavailable
+                        continue
+                    case .current where !ownerPreflight.isDetached:
+                        outcomes[request.surfaceId] = .rejected
+                        continue
+                    case .current, .provablyDeadForeign:
+                        break
                     }
                     let canonicalSurfaceSlot = CmuxAgentSessionRegistry.ActiveSlotKey(
                         scope: .surface,
@@ -1119,7 +1330,10 @@ struct AgentHookSessionStateWriter: Sendable {
                                 canonicalWorkspaceId: canonicalWorkspaceId,
                                 canonicalSurfaceId: canonicalSurfaceId,
                                 workspaceId: request.workspaceId.uuidString,
-                                surfaceId: request.surfaceId.uuidString
+                                surfaceId: request.surfaceId.uuidString,
+                                allowRestoringAttempt:
+                                    ownerPreflight.runtimeEvidence == .provablyDeadForeign
+                                    && ownerPreflight.hasResumeAttempt
                             ),
                             restoredHibernationRecordFingerprint(record)
                                 == ownerPreflight.recordFingerprint,
@@ -1142,7 +1356,7 @@ struct AgentHookSessionStateWriter: Sendable {
                             )
                             return alreadyAdopted
                                 ? activeSurfaceOwner == sessionId
-                                : canonicalSurfaceOwner == sessionId
+                                : ownerPreflight.isDetached || canonicalSurfaceOwner == sessionId
                         }
                     ) { record in
                         let effectiveNow = max(now, record["updatedAt"] as? TimeInterval ?? now)
@@ -1240,6 +1454,10 @@ struct AgentHookSessionStateWriter: Sendable {
         applyLifecycle(.hibernated, to: &record, now: now)
         record["workspaceId"] = workspaceId
         record["surfaceId"] = surfaceId
+        record["cmuxHibernationDetached"] = false
+        record.removeValue(forKey: "cmuxHibernationResumeAttemptId")
+        record.removeValue(forKey: "cmuxHibernationResumeStartedAt")
+        record.removeValue(forKey: "cmuxHibernationResumeFromAttemptId")
     }
 
     private func restoredRecordCanBeAdopted(
@@ -1247,9 +1465,15 @@ struct AgentHookSessionStateWriter: Sendable {
         canonicalWorkspaceId: String,
         canonicalSurfaceId: String,
         workspaceId: String,
-        surfaceId: String
+        surfaceId: String,
+        allowRestoringAttempt: Bool = false
     ) -> Bool {
-        guard record["sessionState"] as? String == AgentSessionLifecycleState.hibernated.rawValue,
+        let lifecycle = record["sessionState"] as? String
+        let lifecycleCanBeAdopted = lifecycle == AgentSessionLifecycleState.hibernated.rawValue
+            || (allowRestoringAttempt
+                && lifecycle == AgentSessionLifecycleState.restoring.rawValue
+                && normalized(record["cmuxHibernationResumeAttemptId"] as? String) != nil)
+        guard lifecycleCanBeAdopted,
               record["restoreAuthority"] as? Bool != false,
               !hasCompletion(record),
               record["updatedAt"] is TimeInterval,
@@ -1418,7 +1642,7 @@ struct AgentHookSessionStateWriter: Sendable {
             return root["sessions"] as? [String: Any] ?? [:]
         }()
         var result: [String: RestoredHibernationOwnerPreflight] = [:]
-        var foreignSocketLiveness: [String: Bool] = [:]
+        var foreignSocketLiveness: [String: SocketPathProbeResult] = [:]
         var foreignProcessIdentities: [pid_t: AgentPIDProcessIdentity] = [:]
         var unavailableForeignProcessIdentities: Set<pid_t> = []
         var currentSocketState: (
@@ -1447,7 +1671,10 @@ struct AgentHookSessionStateWriter: Sendable {
                 recordFingerprint: fingerprint,
                 canonicalWorkspaceId: normalized(record["workspaceId"] as? String),
                 canonicalSurfaceId: normalized(record["surfaceId"] as? String),
-                hasProvablyLiveForeignRuntime: recordHasProvablyLiveForeignRuntime(
+                isDetached: record["cmuxHibernationDetached"] as? Bool == true,
+                hasResumeAttempt:
+                    normalized(record["cmuxHibernationResumeAttemptId"] as? String) != nil,
+                runtimeEvidence: recordRuntimeOwnershipEvidence(
                     record,
                     currentSocketState: &currentSocketState,
                     foreignSocketLiveness: &foreignSocketLiveness,
@@ -1465,21 +1692,20 @@ struct AgentHookSessionStateWriter: Sendable {
     }
 
     /// Stable workspace and surface UUIDs survive an app restart, so matching
-    /// those identifiers alone cannot distinguish a stale saved owner from a
-    /// second cmux process that is still serving the same restored binding.
-    /// An exact PID/start-generation match or a successful non-blocking socket
-    /// connection proves that the foreign runtime remains live. Dead/reused PIDs,
-    /// refused sockets, and legacy metadata remain eligible for restart adoption.
-    private func recordHasProvablyLiveForeignRuntime(
+    /// identifiers alone cannot distinguish a dead owner from a second cmux
+    /// process. Reclaim requires positive death evidence. Missing/denied
+    /// process metadata and indeterminate socket probes remain inert instead
+    /// of speculatively launching a duplicate agent.
+    private func recordRuntimeOwnershipEvidence(
         _ record: [String: Any],
         currentSocketState: inout (
             activePath: String,
             pathOwnedByCurrentListener: Bool
         )?,
-        foreignSocketLiveness: inout [String: Bool],
+        foreignSocketLiveness: inout [String: SocketPathProbeResult],
         foreignProcessIdentities: inout [pid_t: AgentPIDProcessIdentity],
         unavailableForeignProcessIdentities: inout Set<pid_t>
-    ) -> Bool {
+    ) -> RuntimeOwnershipEvidence {
         let currentRuntimeId = normalized(environment["CMUX_RUNTIME_ID"])
         var runtimes: [[String: Any]] = []
         if let runtime = record["cmuxRuntime"] as? [String: Any] {
@@ -1494,13 +1720,21 @@ struct AgentHookSessionStateWriter: Sendable {
             runtimes.append(runtime)
         }
 
+        var sawCurrentRuntime = false
+        var sawForeignRuntime = false
+        var sawDeadForeignRuntime = false
+        var sawUnknownForeignRuntime = false
         var probedSocketPaths: Set<String> = []
         let socketTransport = SocketTransport()
         for runtime in runtimes {
-            guard let runtimeId = normalized(runtime["id"] as? String),
-                  runtimeId != currentRuntimeId else {
+            if let runtimeId = normalized(runtime["id"] as? String),
+               runtimeId == currentRuntimeId {
+                sawCurrentRuntime = true
                 continue
             }
+            sawForeignRuntime = true
+            var runtimeHasDeadEvidence = false
+            var runtimeHasUnknownEvidence = false
             if let expectedProcessIdentity = runtimeProcessIdentity(runtime) {
                 let pid = expectedProcessIdentity.pid
                 let currentProcessIdentity: AgentPIDProcessIdentity?
@@ -1516,37 +1750,66 @@ struct AgentHookSessionStateWriter: Sendable {
                     currentProcessIdentity = nil
                 }
                 if currentProcessIdentity == expectedProcessIdentity {
-                    return true
+                    return .provablyLiveForeign
+                }
+                if currentProcessIdentity != nil {
+                    runtimeHasDeadEvidence = true
+                } else {
+                    errno = 0
+                    if kill(pid, 0) == 0 {
+                        runtimeHasUnknownEvidence = true
+                    } else if errno == ESRCH {
+                        runtimeHasDeadEvidence = true
+                    } else {
+                        runtimeHasUnknownEvidence = true
+                    }
                 }
             }
-            guard let socketPath = normalized(runtime["socketPath"] as? String),
-                  probedSocketPaths.insert(socketPath).inserted else {
-                continue
+            if let socketPath = normalized(runtime["socketPath"] as? String) {
+                if currentSocketState == nil {
+                    let preferredSocketPath = SocketControlSettings.socketPath(
+                        environment: environment,
+                        bundleIdentifier: normalized(environment["CMUX_BUNDLE_ID"])
+                    )
+                    currentSocketState = currentSocketStateResolver(preferredSocketPath)
+                }
+                if let currentSocketState,
+                   currentSocketState.pathOwnedByCurrentListener,
+                   SocketControlSettings.pathsMatch(socketPath, currentSocketState.activePath) {
+                    runtimeHasDeadEvidence = true
+                } else if probedSocketPaths.insert(socketPath).inserted {
+                    let probe = foreignSocketLiveness[socketPath]
+                        ?? socketTransport.pathProbeResult(at: socketPath)
+                    foreignSocketLiveness[socketPath] = probe
+                    switch probe {
+                    case .connected:
+                        return .provablyLiveForeign
+                    case .refused, .stale:
+                        runtimeHasDeadEvidence = true
+                    case .occupiedOrIndeterminate:
+                        runtimeHasUnknownEvidence = true
+                    }
+                } else if let probe = foreignSocketLiveness[socketPath] {
+                    switch probe {
+                    case .connected:
+                        return .provablyLiveForeign
+                    case .refused, .stale:
+                        runtimeHasDeadEvidence = true
+                    case .occupiedOrIndeterminate:
+                        runtimeHasUnknownEvidence = true
+                    }
+                }
             }
-            if currentSocketState == nil {
-                let preferredSocketPath = SocketControlSettings.socketPath(
-                    environment: environment,
-                    bundleIdentifier: normalized(environment["CMUX_BUNDLE_ID"])
-                )
-                currentSocketState = currentSocketStateResolver(preferredSocketPath)
-            }
-            if let currentSocketState,
-               currentSocketState.pathOwnedByCurrentListener,
-               SocketControlSettings.pathsMatch(socketPath, currentSocketState.activePath) {
-                continue
-            }
-            let isLive: Bool
-            if let cached = foreignSocketLiveness[socketPath] {
-                isLive = cached
+            if runtimeHasUnknownEvidence || !runtimeHasDeadEvidence {
+                sawUnknownForeignRuntime = true
             } else {
-                isLive = socketTransport.pathAcceptsConnections(socketPath)
-                foreignSocketLiveness[socketPath] = isLive
-            }
-            if isLive {
-                return true
+                sawDeadForeignRuntime = true
             }
         }
-        return false
+        if sawUnknownForeignRuntime { return .unknownForeign }
+        if sawCurrentRuntime { return .current }
+        if sawForeignRuntime, sawDeadForeignRuntime { return .provablyDeadForeign }
+        return .unknownForeign
     }
 
     private func runtimeProcessIdentity(_ runtime: [String: Any]) -> AgentPIDProcessIdentity? {

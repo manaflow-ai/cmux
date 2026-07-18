@@ -95,6 +95,7 @@ private struct AgentHibernationResumeCandidate {
     let panelId: UUID
     let panel: TerminalPanel
     let agent: SessionRestorableAgentSnapshot
+    let plan: AgentHibernationResumePlan
     let authority: AgentHibernationResumeAuthority
 }
 
@@ -5255,12 +5256,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let workspaceId = id
         let requiresDurableAuthority = agentHookBinding != nil
+        let hibernationAttemptId = UUID()
         let hibernatedAtTimestamp = max(
             Date().timeIntervalSince1970,
             agentHookBinding?.updatedAt ?? -.infinity
         )
         let hibernatedAt = Date(timeIntervalSince1970: hibernatedAtTimestamp)
-        guard await terminalPanel.enterAgentHibernation(
+        let didHibernate = await terminalPanel.enterAgentHibernation(
             agent: agent,
             lastActivityAt: lastActivityAt,
             hibernatedAt: hibernatedAt,
@@ -5271,10 +5273,20 @@ final class Workspace: Identifiable, ObservableObject {
                     agent: agent,
                     workspaceId: workspaceId,
                     surfaceId: panelId,
+                    attemptId: hibernationAttemptId,
                     now: hibernatedAtTimestamp
                 ) == .acquired
             }
-        ) else {
+        )
+        guard didHibernate else {
+            if requiresDurableAuthority {
+                await AgentHookSessionStateWriter.releaseFailedHibernationAuthority(
+                    agent: agent,
+                    workspaceId: workspaceId,
+                    surfaceId: panelId,
+                    attemptId: hibernationAttemptId
+                )
+            }
             return false
         }
         commitAgentHibernationMetadata(
@@ -5282,6 +5294,9 @@ final class Workspace: Identifiable, ObservableObject {
             agent: agent,
             recordLifecycle: !requiresDurableAuthority
         )
+        if requiresDurableAuthority {
+            AgentHookSessionStateWriter.projectCanonicalLegacy(agent: agent)
+        }
         if terminalPanel.surface.hasPendingInputForAgentHibernationResume {
             _ = resumeAgentHibernation(panelId: panelId, focus: false)
         }
@@ -5352,7 +5367,7 @@ final class Workspace: Identifiable, ObservableObject {
               let terminalPanel = panels[panelId] as? TerminalPanel,
               terminalPanel.isAgentHibernated,
               let hibernatedAgent = terminalPanel.agentHibernationState?.agent,
-              terminalPanel.canPrepareAgentHibernationResume else {
+              let plan = terminalPanel.agentHibernationResumePlan() else {
             return nil
         }
         guard let agentHookBinding = surfaceResumeBindingsByPanelId[panelId].flatMap({
@@ -5362,6 +5377,7 @@ final class Workspace: Identifiable, ObservableObject {
                 panelId: panelId,
                 panel: terminalPanel,
                 agent: hibernatedAgent,
+                plan: plan,
                 authority: .untracked
             )
         }
@@ -5376,6 +5392,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: panelId,
             panel: terminalPanel,
             agent: hibernatedAgent,
+            plan: plan,
             authority: authority
         )
     }
@@ -5426,16 +5443,20 @@ final class Workspace: Identifiable, ObservableObject {
         var didResume = false
         for candidate in candidates {
             let requiresAuthority: Bool
+            let claimedRequest: AgentHookSessionStateWriter.HibernatedResumeAuthorityRequest?
             let authorityOutcome: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome
             switch candidate.authority {
             case .untracked:
                 requiresAuthority = false
+                claimedRequest = nil
                 authorityOutcome = .acquired
-            case .claim:
+            case .claim(let request):
                 requiresAuthority = true
+                claimedRequest = request
                 authorityOutcome = authorityOutcomes[candidate.panelId] ?? .unavailable
             case .rejected:
                 requiresAuthority = true
+                claimedRequest = nil
                 authorityOutcome = .rejected
             }
             if authorityOutcome == .unavailable {
@@ -5449,8 +5470,15 @@ final class Workspace: Identifiable, ObservableObject {
                 if focusPanelId == candidate.panelId { focusPanel(candidate.panelId) }
                 continue
             }
-            let preparation = candidate.panel.prepareAgentHibernationResume()
-            guard preparation.didResume else { continue }
+            let preparation = candidate.panel.applyAgentHibernationResume(candidate.plan)
+            guard preparation.didResume else {
+                if let claimedRequest {
+                    AgentHookSessionStateWriter.releaseFailedHibernatedResumeAuthority(
+                        claimedRequest
+                    )
+                }
+                continue
+            }
             if !requiresAuthority {
                 AgentHookSessionStateWriter.recordLifecycle(
                     agent: candidate.agent,
