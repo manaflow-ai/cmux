@@ -4,8 +4,8 @@ import Testing
 
 @Suite("Workspace list refresh lifecycle")
 struct WorkspaceListRefreshLifecycleTests {
-    @Test("suppresses snapshots until the native collapse settles")
-    func suppressesSnapshotsUntilCollapseSettles() throws {
+    @Test("suppresses snapshots until the visible collapse completes")
+    func suppressesSnapshotsUntilCollapseCompletes() throws {
         var lifecycle = WorkspaceListRefreshLifecycle()
         #expect(!lifecycle.suppressesSnapshotAnimations)
 
@@ -27,63 +27,56 @@ struct WorkspaceListRefreshLifecycleTests {
             refreshCompletionGeneration: 11
         )
         let applyID = try #require(startedApplyID)
-        let applyCompleted = lifecycle.snapshotApplyCompleted(applyID)
-        #expect(applyCompleted)
+        let startedCollapseID = lifecycle.snapshotApplyCompleted(applyID)
+        let collapseID = try #require(startedCollapseID)
         #expect(lifecycle.suppressesSnapshotAnimations)
 
-        lifecycle.observeCollapse(
-            refreshControlIsRefreshing: false,
-            scrollViewIsTracking: false,
-            contentOffsetY: -20,
-            restingTopY: -20
-        )
+        let collapseStarted = lifecycle.collapseStarted(collapseID)
+        #expect(collapseStarted)
+        #expect(lifecycle.suppressesSnapshotAnimations)
+
+        let collapseCompleted = lifecycle.collapseCompleted(collapseID)
+        #expect(collapseCompleted)
         #expect(!lifecycle.suppressesSnapshotAnimations)
     }
 
-    @Test("requires every native collapse condition to settle")
-    func requiresEveryCollapseConditionToSettle() throws {
+    @Test("requires the matching collapse token at start and completion")
+    func requiresMatchingCollapseToken() throws {
         var lifecycle = WorkspaceListRefreshLifecycle()
-        let startedRefreshID = lifecycle.begin(currentGeneration: 0)
-        let refreshID = try #require(startedRefreshID)
-        let actionCompleted = lifecycle.refreshActionCompleted(refreshID)
-        #expect(actionCompleted)
-        let startedApplyID = lifecycle.snapshotApplyStarted(
+        let startedFirstRefreshID = lifecycle.begin(currentGeneration: 0)
+        let firstRefreshID = try #require(startedFirstRefreshID)
+        let firstActionCompleted = lifecycle.refreshActionCompleted(firstRefreshID)
+        #expect(firstActionCompleted)
+        let startedFirstApplyID = lifecycle.snapshotApplyStarted(
             refreshCompletionGeneration: 1
         )
-        let applyID = try #require(startedApplyID)
-        let applyCompleted = lifecycle.snapshotApplyCompleted(applyID)
-        #expect(applyCompleted)
+        let firstApplyID = try #require(startedFirstApplyID)
+        let startedFirstCollapseID = lifecycle.snapshotApplyCompleted(firstApplyID)
+        let firstCollapseID = try #require(startedFirstCollapseID)
 
-        lifecycle.observeCollapse(
-            refreshControlIsRefreshing: true,
-            scrollViewIsTracking: false,
-            contentOffsetY: 0,
-            restingTopY: 0
+        lifecycle.reset()
+        let startedSecondRefreshID = lifecycle.begin(currentGeneration: 1)
+        let secondRefreshID = try #require(startedSecondRefreshID)
+        let secondActionCompleted = lifecycle.refreshActionCompleted(secondRefreshID)
+        #expect(secondActionCompleted)
+        let startedSecondApplyID = lifecycle.snapshotApplyStarted(
+            refreshCompletionGeneration: 2
         )
+        let secondApplyID = try #require(startedSecondApplyID)
+        let startedSecondCollapseID = lifecycle.snapshotApplyCompleted(secondApplyID)
+        let secondCollapseID = try #require(startedSecondCollapseID)
+        #expect(secondCollapseID != firstCollapseID)
+
+        let staleCollapseStarted = lifecycle.collapseStarted(firstCollapseID)
+        #expect(!staleCollapseStarted)
         #expect(lifecycle.suppressesSnapshotAnimations)
-
-        lifecycle.observeCollapse(
-            refreshControlIsRefreshing: false,
-            scrollViewIsTracking: true,
-            contentOffsetY: 0,
-            restingTopY: 0
-        )
+        let secondCollapseStarted = lifecycle.collapseStarted(secondCollapseID)
+        #expect(secondCollapseStarted)
+        let staleCollapseCompleted = lifecycle.collapseCompleted(firstCollapseID)
+        #expect(!staleCollapseCompleted)
         #expect(lifecycle.suppressesSnapshotAnimations)
-
-        lifecycle.observeCollapse(
-            refreshControlIsRefreshing: false,
-            scrollViewIsTracking: false,
-            contentOffsetY: -1,
-            restingTopY: 0
-        )
-        #expect(lifecycle.suppressesSnapshotAnimations)
-
-        lifecycle.observeCollapse(
-            refreshControlIsRefreshing: false,
-            scrollViewIsTracking: false,
-            contentOffsetY: 0.5,
-            restingTopY: 0
-        )
+        let secondCollapseCompleted = lifecycle.collapseCompleted(secondCollapseID)
+        #expect(secondCollapseCompleted)
         #expect(!lifecycle.suppressesSnapshotAnimations)
     }
 
@@ -103,10 +96,10 @@ struct WorkspaceListRefreshLifecycleTests {
         )
         let latestApplyID = try #require(startedLatestApplyID)
 
-        let staleApplyCompleted = lifecycle.snapshotApplyCompleted(firstApplyID)
-        #expect(!staleApplyCompleted)
-        let latestApplyCompleted = lifecycle.snapshotApplyCompleted(latestApplyID)
-        #expect(latestApplyCompleted)
+        let staleCollapseID = lifecycle.snapshotApplyCompleted(firstApplyID)
+        #expect(staleCollapseID == nil)
+        let latestCollapseID = lifecycle.snapshotApplyCompleted(latestApplyID)
+        #expect(latestCollapseID != nil)
 
         lifecycle.reset()
         let startedSecondRefreshID = lifecycle.begin(currentGeneration: 1)
@@ -114,7 +107,12 @@ struct WorkspaceListRefreshLifecycleTests {
         #expect(secondRefreshID != firstRefreshID)
         let staleRefreshCompleted = lifecycle.refreshActionCompleted(firstRefreshID)
         #expect(!staleRefreshCompleted)
+        let staleRefreshCancelled = lifecycle.cancelRefresh(firstRefreshID)
+        #expect(!staleRefreshCancelled)
         #expect(lifecycle.suppressesSnapshotAnimations)
+        let activeRefreshCancelled = lifecycle.cancelRefresh(secondRefreshID)
+        #expect(activeRefreshCancelled)
+        #expect(!lifecycle.suppressesSnapshotAnimations)
     }
 }
 #endif

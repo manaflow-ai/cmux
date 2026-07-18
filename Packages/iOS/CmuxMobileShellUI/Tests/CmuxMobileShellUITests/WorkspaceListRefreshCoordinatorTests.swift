@@ -15,7 +15,13 @@ struct WorkspaceListRefreshCoordinatorTests {
             await gate.waitForRelease()
             await actionReturned.signal()
         }
-        let coordinator = WorkspaceListTableCoordinator(configuration: configuration)
+        let scheduler = ManualRefreshCollapseScheduler()
+        let animator = ManualRefreshCollapseAnimator()
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration,
+            scheduleRefreshCollapse: scheduler.schedule,
+            animateRefreshCollapse: animator.animate
+        )
         let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
         let refreshControl = RecordingRefreshControl()
         tableView.refreshControl = refreshControl
@@ -45,15 +51,79 @@ struct WorkspaceListRefreshCoordinatorTests {
             refresh: {}
         )
         coordinator.update(configuration: completedConfiguration, in: tableView)
+        await scheduler.waitUntilScheduled()
+        #expect(scheduler.scheduleCount == 1)
+        #expect(
+            refreshControl.endCount == 0,
+            "The snapshot completion must only schedule the visible collapse."
+        )
+
+        scheduler.runNext()
+        #expect(refreshControl.endCount == 1)
+        #expect(animator.animationCount == 1)
+        animator.completeNext()
+    }
+
+    @Test("ignores a queued collapse after refresh is removed")
+    func ignoresQueuedCollapseAfterRefreshIsRemoved() async {
+        let gate = RefreshActionGate()
+        let actionReturned = AsyncSignal()
+        let configuration = makeConfiguration {
+            await gate.waitForRelease()
+            await actionReturned.signal()
+        }
+        let scheduler = ManualRefreshCollapseScheduler()
+        let animator = ManualRefreshCollapseAnimator()
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration,
+            scheduleRefreshCollapse: scheduler.schedule,
+            animateRefreshCollapse: animator.animate
+        )
+        let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
+        let refreshControl = RecordingRefreshControl()
+        tableView.refreshControl = refreshControl
+        coordinator.attach(to: tableView)
+        coordinator.update(configuration: configuration, in: tableView)
+
+        _ = coordinator.perform(
+            NSSelectorFromString("refreshRequested:"),
+            with: refreshControl
+        )
+        await gate.waitUntilStarted()
+        await gate.release()
+        await actionReturned.wait()
         for _ in 0..<10 {
             await Task.yield()
         }
+
+        coordinator.update(
+            configuration: makeConfiguration(
+                refreshCompletionGeneration: 1,
+                refresh: {}
+            ),
+            in: tableView
+        )
+        await scheduler.waitUntilScheduled()
+        #expect(refreshControl.endCount == 0)
+
+        coordinator.update(
+            configuration: makeConfiguration(
+                refreshCompletionGeneration: 1,
+                refresh: nil
+            ),
+            in: tableView
+        )
         #expect(refreshControl.endCount == 1)
+        #expect(tableView.refreshControl == nil)
+
+        scheduler.runNext()
+        #expect(refreshControl.endCount == 1)
+        #expect(animator.animationCount == 0)
     }
 
     private func makeConfiguration(
         refreshCompletionGeneration: UInt64 = 0,
-        refresh: @escaping @Sendable () async -> Void
+        refresh: (@Sendable () async -> Void)?
     ) -> WorkspaceListTable {
         WorkspaceListTable(
             items: [],
@@ -101,6 +171,61 @@ struct WorkspaceListRefreshCoordinatorTests {
             refreshCompletionGeneration: refreshCompletionGeneration,
             refreshDidComplete: {}
         )
+    }
+}
+
+@MainActor
+private final class ManualRefreshCollapseScheduler {
+    private var pending: WorkspaceListTableCoordinator.RefreshCollapseAction?
+    private var waiter: CheckedContinuation<Void, Never>?
+    private(set) var scheduleCount = 0
+
+    func schedule(
+        _ action: @escaping WorkspaceListTableCoordinator.RefreshCollapseAction
+    ) {
+        precondition(pending == nil)
+        scheduleCount += 1
+        pending = action
+        waiter?.resume()
+        waiter = nil
+    }
+
+    func waitUntilScheduled() async {
+        guard pending == nil else { return }
+        await withCheckedContinuation { continuation in
+            waiter = continuation
+        }
+    }
+
+    func runNext() {
+        precondition(pending != nil)
+        let action = pending
+        pending = nil
+        action?()
+    }
+}
+
+@MainActor
+private final class ManualRefreshCollapseAnimator {
+    private var completion: WorkspaceListTableCoordinator.RefreshCollapseAction?
+    private(set) var animationCount = 0
+
+    func animate(
+        _ refreshControl: UIRefreshControl,
+        _ tableView: WorkspaceListUITableView,
+        completion: @escaping WorkspaceListTableCoordinator.RefreshCollapseAction
+    ) {
+        precondition(self.completion == nil)
+        animationCount += 1
+        refreshControl.endRefreshing()
+        self.completion = completion
+    }
+
+    func completeNext() {
+        precondition(completion != nil)
+        let completion = completion
+        self.completion = nil
+        completion?()
     }
 }
 

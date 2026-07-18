@@ -9,6 +9,14 @@ import UIKit
 final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
 {
+    typealias RefreshCollapseAction = @MainActor () -> Void
+    typealias RefreshCollapseScheduler = (@escaping RefreshCollapseAction) -> Void
+    typealias RefreshCollapseAnimation = (
+        UIRefreshControl,
+        WorkspaceListUITableView,
+        @escaping RefreshCollapseAction
+    ) -> Void
+
     private enum HeightKind: Hashable {
         case workspaceUniform
         case workspaceWrapped(id: MobileWorkspacePreview.ID, name: String, isSelected: Bool)
@@ -39,9 +47,34 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var refreshLifecycle = WorkspaceListRefreshLifecycle()
     private weak var activeRefreshControl: UIRefreshControl?
     private weak var tableView: WorkspaceListUITableView?
+    private let scheduleRefreshCollapse: RefreshCollapseScheduler
+    private let animateRefreshCollapse: RefreshCollapseAnimation
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
+        scheduleRefreshCollapse = { action in
+            DispatchQueue.main.async { @MainActor in
+                action()
+            }
+        }
+        animateRefreshCollapse = { refreshControl, tableView, completion in
+            Self.animateRefreshCollapse(
+                refreshControl: refreshControl,
+                tableView: tableView,
+                completion: completion
+            )
+        }
+        super.init()
+    }
+
+    init(
+        configuration: WorkspaceListTable,
+        scheduleRefreshCollapse: @escaping RefreshCollapseScheduler,
+        animateRefreshCollapse: @escaping RefreshCollapseAnimation
+    ) {
+        self.configuration = configuration
+        self.scheduleRefreshCollapse = scheduleRefreshCollapse
+        self.animateRefreshCollapse = animateRefreshCollapse
         super.init()
     }
 
@@ -329,8 +362,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             await refresh()
             guard let self else { return }
             guard let refreshControl, refreshControl === self.activeRefreshControl else {
-                self.refreshLifecycle.reset()
-                self.activeRefreshControl = nil
+                if self.refreshLifecycle.cancelRefresh(refreshID) {
+                    self.activeRefreshControl = nil
+                }
                 return
             }
             guard self.refreshLifecycle.refreshActionCompleted(refreshID) else {
@@ -358,34 +392,71 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        settleRefreshCollapse(in: scrollView)
-    }
-
     private func refreshSnapshotApplyCompleted(
         _ applyID: WorkspaceListRefreshLifecycle.SnapshotApplyID
     ) {
-        guard refreshLifecycle.snapshotApplyCompleted(applyID) else { return }
+        guard let collapseID = refreshLifecycle.snapshotApplyCompleted(applyID) else { return }
         guard let activeRefreshControl else {
             refreshLifecycle.reset()
             return
         }
-        activeRefreshControl.endRefreshing()
-        if let tableView {
-            settleRefreshCollapse(in: tableView)
+        scheduleRefreshCollapse { [weak self, weak activeRefreshControl] in
+            guard let self,
+                  let activeRefreshControl,
+                  activeRefreshControl === self.activeRefreshControl,
+                  let tableView = self.tableView,
+                  tableView.refreshControl === activeRefreshControl,
+                  self.refreshLifecycle.collapseStarted(collapseID) else {
+                return
+            }
+            self.animateRefreshCollapse(
+                activeRefreshControl,
+                tableView
+            ) { [weak self, weak activeRefreshControl] in
+                guard let self,
+                      self.refreshLifecycle.collapseCompleted(collapseID) else {
+                    return
+                }
+                if activeRefreshControl === self.activeRefreshControl {
+                    self.activeRefreshControl = nil
+                }
+            }
         }
     }
 
-    private func settleRefreshCollapse(in scrollView: UIScrollView) {
-        guard refreshLifecycle.suppressesSnapshotAnimations else { return }
-        refreshLifecycle.observeCollapse(
-            refreshControlIsRefreshing: activeRefreshControl?.isRefreshing ?? false,
-            scrollViewIsTracking: scrollView.isTracking,
-            contentOffsetY: scrollView.contentOffset.y,
-            restingTopY: -scrollView.adjustedContentInset.top
-        )
-        if !refreshLifecycle.suppressesSnapshotAnimations {
-            activeRefreshControl = nil
+    private static func animateRefreshCollapse(
+        refreshControl: UIRefreshControl,
+        tableView: WorkspaceListUITableView,
+        completion: @escaping RefreshCollapseAction
+    ) {
+        guard let window = tableView.window else {
+            refreshControl.endRefreshing()
+            completion()
+            return
+        }
+
+        window.layoutIfNeeded()
+        let frameBeforeCollapse = tableView.convert(tableView.bounds, to: window)
+        refreshControl.endRefreshing()
+        window.setNeedsLayout()
+        window.layoutIfNeeded()
+        let frameAfterCollapse = tableView.convert(tableView.bounds, to: window)
+
+        // UIRefreshControl updates the SwiftUI host's safe area synchronously,
+        // which otherwise moves the whole representable by one refresh-control
+        // height in a single frame. Preserve the old visual position, then
+        // animate the table back to its authoritative post-refresh geometry.
+        let restingTransform = tableView.transform
+        let compensationY = frameBeforeCollapse.minY - frameAfterCollapse.minY
+        tableView.transform = restingTransform.translatedBy(x: 0, y: compensationY)
+        UIView.animate(
+            withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.25,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut]
+        ) {
+            tableView.transform = restingTransform
+        } completion: { _ in
+            completion()
         }
     }
 

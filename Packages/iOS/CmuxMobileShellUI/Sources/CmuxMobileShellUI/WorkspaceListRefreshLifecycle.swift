@@ -11,6 +11,10 @@ struct WorkspaceListRefreshLifecycle {
         fileprivate let rawValue: UInt64
     }
 
+    struct CollapseID: Equatable {
+        fileprivate let rawValue: UInt64
+    }
+
     private enum Phase: Equatable {
         case idle
         case refreshing(id: RefreshID, targetGeneration: UInt64)
@@ -19,12 +23,14 @@ struct WorkspaceListRefreshLifecycle {
             targetGeneration: UInt64,
             latestApplyID: SnapshotApplyID?
         )
-        case collapsing(id: RefreshID)
+        case collapseScheduled(id: CollapseID)
+        case collapsing(id: CollapseID)
     }
 
     private var phase: Phase = .idle
     private var nextRefreshRawValue: UInt64 = 0
     private var nextApplyRawValue: UInt64 = 0
+    private var nextCollapseRawValue: UInt64 = 0
 
     var suppressesSnapshotAnimations: Bool {
         phase != .idle
@@ -71,30 +77,45 @@ struct WorkspaceListRefreshLifecycle {
         return applyID
     }
 
-    mutating func snapshotApplyCompleted(_ applyID: SnapshotApplyID) -> Bool {
+    mutating func snapshotApplyCompleted(_ applyID: SnapshotApplyID) -> CollapseID? {
         guard case .awaitingFinalSnapshot(
-            let id,
+            _,
             _,
             let latestApplyID
         ) = phase, latestApplyID == applyID else {
+            return nil
+        }
+        nextCollapseRawValue &+= 1
+        let collapseID = CollapseID(rawValue: nextCollapseRawValue)
+        phase = .collapseScheduled(id: collapseID)
+        return collapseID
+    }
+
+    mutating func collapseStarted(_ id: CollapseID) -> Bool {
+        guard case .collapseScheduled(let activeID) = phase,
+              activeID == id else {
             return false
         }
         phase = .collapsing(id: id)
         return true
     }
 
-    mutating func observeCollapse(
-        refreshControlIsRefreshing: Bool,
-        scrollViewIsTracking: Bool,
-        contentOffsetY: Double,
-        restingTopY: Double
-    ) {
-        guard case .collapsing = phase,
-              !refreshControlIsRefreshing,
-              !scrollViewIsTracking,
-              abs(contentOffsetY - restingTopY) <= 0.5
-        else { return }
+    mutating func collapseCompleted(_ id: CollapseID) -> Bool {
+        guard case .collapsing(let activeID) = phase,
+              activeID == id else {
+            return false
+        }
         phase = .idle
+        return true
+    }
+
+    mutating func cancelRefresh(_ id: RefreshID) -> Bool {
+        guard case .refreshing(let activeID, _) = phase,
+              activeID == id else {
+            return false
+        }
+        phase = .idle
+        return true
     }
 
     mutating func reset() {
