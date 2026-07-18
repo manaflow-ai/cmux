@@ -105,8 +105,7 @@ extension CMUXCLI {
             gitDiffViewerRepoOptions(selectedRepoRoot: $0, context: context)
         } ?? []
         let allowedAgentTurns: [DiffViewerAgentTurnAuthorization]
-        if selectedSource == .lastTurn,
-           let providerInput = normalizedDiffSourceValue(context.agentProvider),
+        if let providerInput = normalizedDiffSourceValue(context.agentProvider),
            let sessionId = normalizedDiffSourceValue(context.sessionId) {
             let provider = providerInput.lowercased()
             allowedAgentTurns = [DiffViewerAgentTurnAuthorization(

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use cmux_diff_sidecar::protocol::{AgentProvider, DiffSource};
 use cmux_diff_sidecar::trajectory::{AgentTurnIdentity, TrajectoryRoots, resolve_last_turn_patch};
 use rusqlite::Connection;
+use serde_json::Value;
 
 struct FixtureRoot {
     path: PathBuf,
@@ -121,40 +122,29 @@ fn codex_resolver_uses_successful_structured_apply_patch_when_event_changes_lack
     prepare_common_directories(&fixture);
     let transcript = fixture.home().join("codex-structured-apply-patch.jsonl");
     let repo = fixture.repo();
-    let patch = format!(
-        "*** Begin Patch\n*** Add File: {}\n+new\n*** Update File: {}\n@@\n-old\n+new\n*** Delete File: {}\n*** End Patch",
-        repo.join("added.txt").display(),
-        repo.join("updated.txt").display(),
-        repo.join("deleted.txt").display()
-    );
-    write_lines(
-        &transcript,
-        &[
-            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-current"}}),
-            serde_json::json!({"type":"response_item","payload":{
-                "type":"custom_tool_call",
-                "name":"apply_patch",
-                "call_id":"structured-patch",
-                "input":patch
-            }}),
-            serde_json::json!({"type":"response_item","payload":{
-                "type":"custom_tool_call_output",
-                "call_id":"structured-patch",
-                "output":"Success"
-            }}),
-            serde_json::json!({"type":"event_msg","payload":{
-                "type":"patch_apply_end",
-                "turn_id":"turn-current",
-                "call_id":"modern-patch",
-                "success":true,
-                "changes":{
-                    repo.join("added.txt").to_string_lossy(): {"type":"add"},
-                    repo.join("updated.txt").to_string_lossy(): {"type":"update"},
-                    repo.join("deleted.txt").to_string_lossy(): {"type":"delete"}
-                }
-            }}),
-        ],
-    );
+    let canonical = include_str!(
+        "../../../Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/Resources/ArtifactParity/codex-adversarial.jsonl"
+    )
+    .replace("/tmp/parity", repo.to_string_lossy().as_ref());
+    let mut records = vec![
+        serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-current"}}),
+    ];
+    records.extend(canonical.lines().filter_map(|line| {
+        let record: Value = serde_json::from_str(line).ok()?;
+        let payload = record.get("payload")?;
+        let is_structured_apply_patch = record.get("type").and_then(Value::as_str)
+            == Some("response_item")
+            && matches!(
+                payload.get("type").and_then(Value::as_str),
+                Some("custom_tool_call" | "custom_tool_call_output")
+            )
+            && (payload.get("name").and_then(Value::as_str) == Some("apply_patch")
+                || payload.get("call_id").and_then(Value::as_str) == Some("old-patch"));
+        let is_modern_patch_end = record.get("type").and_then(Value::as_str) == Some("event_msg")
+            && payload.get("type").and_then(Value::as_str) == Some("patch_apply_end");
+        (is_structured_apply_patch || is_modern_patch_end).then_some(record)
+    }));
+    write_lines(&transcript, &records);
     write_hook_store(
         &fixture.home(),
         "codex",
@@ -169,16 +159,25 @@ fn codex_resolver_uses_successful_structured_apply_patch_when_event_changes_lack
     )
     .expect("resolve the structured apply_patch input");
 
-    assert!(resolved.patch.contains("diff --git a/added.txt b/added.txt"));
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/A3-add.txt b/A3-add.txt")
+    );
     assert!(resolved.patch.contains("+new"));
-    assert!(resolved.patch.contains("diff --git a/updated.txt b/updated.txt"));
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/A3-update.txt b/A3-update.txt")
+    );
     assert!(resolved.patch.contains("-old\n+new"));
     assert!(
         resolved
             .patch
-            .contains("diff --git a/deleted.txt b/deleted.txt")
+            .contains("diff --git a/A4-deleted.txt b/A4-deleted.txt")
     );
     assert!(resolved.patch.contains("deleted file mode 100644"));
+    assert!(!resolved.patch.contains("A1-update.txt"));
 }
 
 #[test]

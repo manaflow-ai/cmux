@@ -866,9 +866,7 @@ async fn open_session(
         .map_err(|_| SessionOpenError::Failed)?
         .map_err(|_| SessionOpenError::Failed)?;
         drop(cancellation_guard);
-        if !authorizations_allow_agent_turn(&authorizations, &identity)
-            && !authorizations_allow_repo(&authorizations, location.repo_root()).await
-        {
+        if !authorizations_allow_agent_turn(&authorizations, &identity) {
             return Err(SessionOpenError::Unauthorized);
         }
         Some((identity, location))
