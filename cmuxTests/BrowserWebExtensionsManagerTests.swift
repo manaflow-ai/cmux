@@ -1739,6 +1739,11 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func extensionPopupsPreferBelowToolbarAnchor() {
+        #expect(BrowserWebExtensionsManager.actionPopupPreferredEdge == .minY)
+    }
+
+    @available(macOS 15.4, *)
     @Test func nativeInstallTargetsRequestedProfileDirectory() async throws {
         let managedRoot = try Self.makeExtensionsRoot()
         let sourceRoot = try Self.makeExtensionsRoot()
