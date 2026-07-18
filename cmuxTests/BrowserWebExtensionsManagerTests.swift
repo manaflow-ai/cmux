@@ -969,6 +969,9 @@ struct BrowserWebExtensionsManagerTests {
         #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
             "onClicked"
         ))
+        #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
+            "onCreatedNavigationTarget"
+        ))
     }
 
     @available(macOS 15.4, *)
