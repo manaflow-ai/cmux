@@ -1,6 +1,7 @@
 import CmuxRemoteSession
 import AppKit
 import Bonsplit
+import CmuxControlSocket
 import Testing
 
 #if canImport(cmux_DEV)
@@ -63,7 +64,61 @@ import Testing
             makePanel: { _ in nil }
         )
 
-        #expect(!mirror.requestSplit(fromPane: 7, vertical: true))
+        #expect(!mirror.requestSplit(
+            fromPane: 7,
+            vertical: true,
+            focusIntent: .focusCreatedPane
+        ))
+    }
+
+    /// `new-split --focus false` must ask tmux to create the pane detached.
+    /// Without `-d`, tmux selects the new pane and its authoritative active-pane
+    /// publication also changes the mirror's internal focus (#7733).
+    @Test func backgroundControlSplitPreservesTheRemoteActivePane() throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(
+            connectedTransport: true
+        )
+        defer { harness.tearDown() }
+        let activePaneBefore = harness.mirror.activePaneId
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let surfaceID = try #require(harness.mirror.panel(forPane: tmuxPaneID)?.id)
+
+        let result = TerminalController.shared.controlSurfaceSplit(
+            routing: harness.routing(),
+            inputs: ControlSurfaceSplitInputs(
+                directionRaw: "right",
+                typeRaw: nil,
+                urlRaw: nil,
+                requestedSourceSurfaceID: surfaceID,
+                workingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                remotePTYSessionID: nil,
+                remoteContextRaw: nil,
+                startupEnvironment: [:],
+                clientUnsupportedRemoteTmuxOptions: [],
+                requestedFocus: false,
+                initialDividerPosition: nil
+            )
+        )
+
+        guard case .routedToRemote = result else {
+            Issue.record("Expected background split to route to remote tmux: \(result)")
+            return
+        }
+        let writer = try #require(harness.controlWriter)
+        let pipe = try #require(harness.controlPipe)
+        writer.close()
+        let commands = try #require(String(
+            bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+            encoding: .utf8
+        ))
+        let splitCommands = commands.split(separator: "\n").filter {
+            $0.hasPrefix("split-window ")
+        }
+        #expect(splitCommands.count == 1)
+        #expect(splitCommands.first?.split(separator: " ").contains("-d") == true)
+        #expect(harness.mirror.activePaneId == activePaneBefore)
     }
 
     @Test func windowMirrorConfigurationTracksWorkspaceAppearanceAndEmbeddedPolicy() {

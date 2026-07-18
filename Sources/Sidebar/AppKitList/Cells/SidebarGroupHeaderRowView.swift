@@ -114,6 +114,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 
     private func applyModel(_ model: SidebarGroupHeaderRowModel) {
+        // Legacy parity: no implicit layer actions on content/color changes.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let percent = model.globalFontMagnificationPercent
 
@@ -219,6 +223,35 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         updatePlusVisibility()
     }
 
+    /// Optimistic press treatment: paints the anchor-active header visuals
+    /// instantly (group clicks focus the anchor workspace); the next
+    /// authoritative configure reconciles.
+    func showOptimisticAnchorActive() {
+        guard let model, !model.isAnchorActive else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        CATransaction.commit()
+        nameField.textColor = .labelColor
+    }
+
+    /// Inverse of the press treatment: previewing a different row must peel a
+    /// pending header's optimistic anchor-active visuals. The authoritative
+    /// apply reconfigures only rows whose model changed, and a replaced
+    /// preview never changes this header's model — without an explicit clear
+    /// the painted treatment would linger indefinitely.
+    func clearOptimisticAnchorActive() {
+        guard let model, !model.isAnchorActive else { return }
+        applyModel(model)
+    }
+
+    /// True when a press at this view should not repaint selection (chevron
+    /// toggles collapse, plus creates a workspace — neither selects).
+    func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
+        hitView === chevronButton || hitView.isDescendant(of: chevronButton)
+            || hitView === plusButton || hitView.isDescendant(of: plusButton)
+    }
+
     // MARK: Layout
 
     /// Deterministic row height; must stay in lockstep with `layout()`.
@@ -237,6 +270,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     override func layout() {
         super.layout()
         guard let model else { return }
+        // No implicit actions during manual layout (legacy parity —
+        // geometry snaps, never interpolates).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
         let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
