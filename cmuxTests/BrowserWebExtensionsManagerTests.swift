@@ -1256,6 +1256,54 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func loadingExtensionDoesNotEagerlyStartBackgroundContent() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["background"] = ["service_worker": "background.js"]
+        let directory = try Self.writeExtension(
+            named: "background-load-probe",
+            in: root,
+            manifest: manifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("background.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let backgroundSelector = NSSelectorFromString("loadBackgroundContentWithCompletionHandler:")
+        let backgroundMethod = try #require(class_getInstanceMethod(
+            WKWebExtensionContext.self,
+            backgroundSelector
+        ))
+        let originalBackgroundImplementation = method_getImplementation(backgroundMethod)
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let backgroundReplacement: @convention(block) (
+            WKWebExtensionContext,
+            @escaping (NSError?) -> Void
+        ) -> Void = { _, _ in
+            loadCount.withLock { $0 += 1 }
+        }
+        let backgroundReplacementImplementation = imp_implementationWithBlock(backgroundReplacement)
+        method_setImplementation(backgroundMethod, backgroundReplacementImplementation)
+        defer {
+            method_setImplementation(backgroundMethod, originalBackgroundImplementation)
+            imp_removeBlock(backgroundReplacementImplementation)
+        }
+
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+
+        #expect(manager.loadedContexts.count == 1)
+        #expect(loadCount.withLock { $0 } == 0)
+    }
+
+    @available(macOS 15.4, *)
     @Test func actionInvocationDoesNotWaitForBackgroundLoadCallback() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
