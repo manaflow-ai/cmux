@@ -1208,6 +1208,10 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    /// Agent inspection uses the socket only for cached runtime metadata. A
+    /// stale inherited socket must not delay the durable registry fallback,
+    /// while an explicit socket still surfaces the timeout as an error.
+    private static let agentsInspectionResponseTimeoutSeconds: TimeInterval = 1
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
     // reconnect, session restore, and mobile attach targets the same provider VM once
@@ -1662,7 +1666,7 @@ struct CMUXCLI {
                     )
                     let capabilities = try client.sendV2(
                         method: "system.capabilities",
-                        responseTimeout: 10
+                        responseTimeout: Self.agentsInspectionResponseTimeoutSeconds
                     )
                     queryEnvironment = agentSessionQueryEnvironment(
                         environment: queryEnvironment,
@@ -1670,7 +1674,10 @@ struct CMUXCLI {
                     )
                     if (capabilities["methods"] as? [String])?.contains("agents.observations") == true {
                         terminalObservations = try decodeAgentTerminalObservations(
-                            client.sendV2(method: "agents.observations", responseTimeout: 10),
+                            client.sendV2(
+                                method: "agents.observations",
+                                responseTimeout: Self.agentsInspectionResponseTimeoutSeconds
+                            ),
                             expectedRuntimeID: capabilities["runtime_id"] as? String
                         )
                     }
@@ -22352,7 +22359,11 @@ struct CMUXCLI {
             callerTerminalBinding: callerTTYBindingProvider,
             agentPid: claudeAgentPID(from: ProcessInfo.processInfo.environment)
         )
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard let rawInputData = Self.readBoundedHookStdin() else {
+            printClaudeHookAck()
+            return
+        }
+        let rawInput = String(data: rawInputData, encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore(processEnv: agentHookStoreEnvironment(environment: ProcessInfo.processInfo.environment, client: client))
         // Runtime permission mode is absent from the captured launch argv, so
@@ -27359,6 +27370,224 @@ export default CMUXSessionRestore;
         return false
     }
 
+    private static func copilotHookEvents(for def: AgentHookDef) -> [CopilotHookConfig.Event] {
+        let lifecycleEvents = def.events.map { event in
+            CopilotHookConfig.Event(
+                name: event.agentEvent,
+                command: hookCommandString(for: def, event: event),
+                timeoutSeconds: 5
+            )
+        }
+        let feedEvents = def.feedHookEvents.map { event in
+            CopilotHookConfig.Event(
+                name: event,
+                command: feedHookCommandString(for: def, agentEvent: event),
+                timeoutSeconds: 120
+            )
+        }
+        return lifecycleEvents + feedEvents
+    }
+
+    private static func copilotLegacyConfigURL(for def: AgentHookDef) -> URL {
+        URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .deletingLastPathComponent()
+            .appendingPathComponent("config.json", isDirectory: false)
+    }
+
+    private func installCopilotHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let configURL = URL(fileURLWithPath: configDir, isDirectory: true)
+        let hooksURL = configURL.appendingPathComponent(def.configFile, isDirectory: false)
+        let legacyURL = Self.copilotLegacyConfigURL(for: def)
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+        let isOwnedCommand: (String) -> Bool = { command in
+            Self.isCmuxOwnedHookCommand(command, for: def)
+        }
+
+        let existingData = fm.contents(atPath: hooksURL.path)
+        let newData: Data
+        do {
+            newData = try CopilotHookConfig.installing(
+                events: Self.copilotHookEvents(for: def),
+                in: existingData,
+                isOwnedCommand: isOwnedCommand
+            )
+        } catch {
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.copilot.error.invalidConfig",
+                    defaultValue: "%@ has an unsupported Copilot hook schema. Fix or remove it before changing hooks."
+                ),
+                hooksURL.path
+            ))
+        }
+        let legacyRemoval: CopilotHookConfig.RemovalResult?
+        do {
+            legacyRemoval = try fm.contents(atPath: legacyURL.path).map { data in
+                try CopilotHookConfig.removingOwnedHooks(
+                    from: data,
+                    isOwnedCommand: isOwnedCommand
+                )
+            }
+        } catch {
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.copilot.error.invalidConfig",
+                    defaultValue: "%@ has an unsupported Copilot hook schema. Fix or remove it before changing hooks."
+                ),
+                legacyURL.path
+            ))
+        }
+
+        let hooksChanged = existingData != newData
+        let legacyChanged = (legacyRemoval?.removedCount ?? 0) > 0
+        if !hooksChanged, !legacyChanged {
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.copilot.alreadyUpToDate",
+                    defaultValue: "%@ hooks already up to date at %@"
+                ),
+                def.displayName,
+                hooksURL.path
+            ))
+            return
+        }
+
+        var isConfigDirectory = ObjCBool(false)
+        let configPathExists = fm.fileExists(atPath: configDir, isDirectory: &isConfigDirectory)
+        if configPathExists, !isConfigDirectory.boolValue {
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.error.configDirectoryIsFile",
+                    defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+                ),
+                configDir
+            ))
+        }
+
+        if !skipConfirm {
+            if hooksChanged {
+                Self.printInstallPreview(
+                    path: hooksURL.path,
+                    oldContent: existingData.flatMap { String(data: $0, encoding: .utf8) } ?? "",
+                    newContent: String(data: newData, encoding: .utf8) ?? "{}",
+                    fallbackContent: String(data: newData, encoding: .utf8) ?? "{}"
+                )
+            }
+            if legacyChanged,
+               let oldLegacyData = fm.contents(atPath: legacyURL.path),
+               let legacyRemoval {
+                Self.printInstallPreview(
+                    path: legacyURL.path,
+                    oldContent: String(data: oldLegacyData, encoding: .utf8) ?? "",
+                    newContent: legacyRemoval.data.flatMap { String(data: $0, encoding: .utf8) } ?? "",
+                    fallbackContent: legacyRemoval.data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                )
+            }
+            print(String(
+                localized: "cli.hooks.copilot.confirmProceed",
+                defaultValue: "\nProceed? [y/N] "
+            ), terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print(String(localized: "cli.hooks.copilot.aborted", defaultValue: "Aborted."))
+                return
+            }
+        }
+
+        if !configPathExists {
+            do {
+                try fm.createDirectory(at: configURL, withIntermediateDirectories: true)
+            } catch {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.error.configDirectoryIsFile",
+                        defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+                    ),
+                    configDir
+                ))
+            }
+        }
+        if hooksChanged {
+            try newData.write(to: hooksURL, options: .atomic)
+        }
+        if legacyChanged, let legacyRemoval {
+            if let rewritten = legacyRemoval.data {
+                try rewritten.write(to: legacyURL, options: .atomic)
+            } else if fm.fileExists(atPath: legacyURL.path) {
+                try fm.removeItem(at: legacyURL)
+            }
+        }
+        print(String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.copilot.installed",
+                defaultValue: "%@ hooks installed at %@"
+            ),
+            def.displayName,
+            hooksURL.path
+        ))
+    }
+
+    private func uninstallCopilotHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configURL = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+        let hooksURL = configURL.appendingPathComponent(def.configFile, isDirectory: false)
+        let legacyURL = Self.copilotLegacyConfigURL(for: def)
+        let isOwnedCommand: (String) -> Bool = { command in
+            Self.isCmuxOwnedHookCommand(command, for: def)
+        }
+        var mutations: [(url: URL, result: CopilotHookConfig.RemovalResult)] = []
+        let candidates: [(
+            url: URL,
+            transform: (Data, (String) -> Bool) throws -> CopilotHookConfig.RemovalResult
+        )] = [
+            (hooksURL, { try CopilotHookConfig.uninstalling(from: $0, isOwnedCommand: $1) }),
+            (legacyURL, { try CopilotHookConfig.removingOwnedHooks(from: $0, isOwnedCommand: $1) }),
+        ]
+        for (url, transform) in candidates {
+            guard let data = fm.contents(atPath: url.path) else { continue }
+            do {
+                mutations.append((url, try transform(data, isOwnedCommand)))
+            } catch {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.copilot.error.invalidConfig",
+                        defaultValue: "%@ has an unsupported Copilot hook schema. Fix or remove it before changing hooks."
+                    ),
+                    url.path
+                ))
+            }
+        }
+
+        var removedCount = 0
+        for mutation in mutations where mutation.result.removedCount > 0 {
+            removedCount += mutation.result.removedCount
+            if let rewritten = mutation.result.data {
+                try rewritten.write(to: mutation.url, options: .atomic)
+            } else if fm.fileExists(atPath: mutation.url.path) {
+                try fm.removeItem(at: mutation.url)
+            }
+        }
+        if removedCount == 0 {
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.copilot.noneFound",
+                    defaultValue: "No Copilot cmux hooks found at %@"
+                ),
+                hooksURL.path
+            ))
+        } else {
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.copilot.removed",
+                    defaultValue: "Removed %lld Copilot cmux hook(s)"
+                ),
+                removedCount
+            ))
+        }
+    }
+
     private func installAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
         if def.name == "pi" { try installPiExtensionHooks(def); return }
@@ -27374,6 +27603,10 @@ export default CMUXSessionRestore;
         }
         if def.name == "hermes-agent" {
             try installHermesAgentHooks(def)
+            return
+        }
+        if def.name == "copilot" {
+            try installCopilotHooks(def)
             return
         }
         if case .antigravityJSON = def.format {
@@ -27731,6 +27964,10 @@ export default CMUXSessionRestore;
         }
         if def.name == "hermes-agent" {
             try uninstallHermesAgentHooks(def)
+            return
+        }
+        if def.name == "copilot" {
+            try uninstallCopilotHooks(def)
             return
         }
         if case .antigravityJSON = def.format {
@@ -28781,7 +29018,11 @@ export default CMUXSessionRestore;
             resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
 
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard let rawInputData = Self.readBoundedHookStdin() else {
+            print("{}")
+            return
+        }
+        let rawInput = String(data: rawInputData, encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
 
         let store = ClaudeHookSessionStore(
@@ -32435,22 +32676,12 @@ export default CMUXSessionRestore;
 
         let commandEvent = optionValue(commandArgs, name: "--event")
 
-        // Read stdin. Claude, Codex, and the other agents all pipe hook
-        // JSON through stdin; unknown inputs fall through to `{}`. Codex feed
-        // events are telemetry, and native lifecycle hooks can carry arbitrary
-        // transcript fragments or tool output, so cap every Codex feed
-        // invocation before JSON decoding without changing other agents'
-        // actionable hook reads.
-        let stdinData: Data
-        let shouldBoundCodexFeedStdin = source == "codex"
-        if shouldBoundCodexFeedStdin {
-            guard let boundedData = Self.readBoundedFeedHookStdin() else {
-                print("{}")
-                return
-            }
-            stdinData = boundedData
-        } else {
-            stdinData = FileHandle.standardInput.readDataToEndOfFile()
+        // Every provider controls the hook payload piped into this process.
+        // Bound allocation before JSON decoding, while draining overflow so a
+        // provider writing to the pipe does not receive SIGPIPE.
+        guard let stdinData = Self.readBoundedHookStdin() else {
+            print("{}")
+            return
         }
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
@@ -32658,20 +32889,20 @@ export default CMUXSessionRestore;
         print("{}")
     }
 
-    private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
+    private static let hookMaxStdinBytes = 1 * 1024 * 1024
 
-    private static func readBoundedFeedHookStdin(
+    private static func readBoundedHookStdin(
         handle: FileHandle = .standardInput
     ) -> Data? {
         var data = Data()
-        while data.count <= feedHookMaxStdinBytes {
-            let remainingBytes = feedHookMaxStdinBytes + 1 - data.count
+        while data.count <= hookMaxStdinBytes {
+            let remainingBytes = hookMaxStdinBytes + 1 - data.count
             let chunkSize = min(64 * 1024, remainingBytes)
             let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
             guard !chunk.isEmpty else { return data }
             data.append(chunk)
         }
-        guard data.count <= feedHookMaxStdinBytes else {
+        guard data.count <= hookMaxStdinBytes else {
             while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
             return nil
         }

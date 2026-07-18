@@ -7,12 +7,14 @@ extension CMUXCLI {
     func sessionsListForkDiagnostics(
         agent: String,
         record: ClaudeHookSessionRecord,
-        claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
+        claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache,
+        processIdentityLookup: (Int) -> SessionsListProcessIdentity?,
+        processExistenceLookup: (Int?) -> Bool?
     ) -> [String: Any] {
         // Keep diagnostics bound to the exact hook identity used by the list
         // projection. Transcript lookup only verifies that identity.
         let diagnosticRecord = record
-        let storedPIDExists = sessionsListStoredPIDExists(diagnosticRecord.pid)
+        let storedPIDExists = processExistenceLookup(diagnosticRecord.pid)
         let hookRecordRestorable = agentHookRecordIsRestorable(
             agent: agent,
             record: diagnosticRecord,
@@ -59,13 +61,14 @@ extension CMUXCLI {
             "fork_startup_input_available": forkStartupInputAvailable,
             "hook_record_restorable": hookRecordRestorable,
             "stale_pid_blocks_restore_in_0_64_17": sessionsListStalePIDBlocksRestoreIn06417(
-                agent: agent,
-                record: diagnosticRecord,
-                hookRecordRestorable: hookRecordRestorable
+            agent: agent,
+            record: diagnosticRecord,
+            hookRecordRestorable: hookRecordRestorable,
+            processIdentityLookup: processIdentityLookup
             ),
         ]
         if let pid = diagnosticRecord.pid,
-           let process = sessionsListProcessIdentity(for: pid) {
+           let process = processIdentityLookup(pid) {
             diagnostics["stored_pid_arguments"] = process.arguments
         }
         diagnostics["stored_pid_exists"] = storedPIDExists ?? NSNull()
@@ -75,18 +78,25 @@ extension CMUXCLI {
     private func sessionsListStalePIDBlocksRestoreIn06417(
         agent: String,
         record: ClaudeHookSessionRecord,
-        hookRecordRestorable: Bool
+        hookRecordRestorable: Bool,
+        processIdentityLookup: (Int) -> SessionsListProcessIdentity?
     ) -> Bool {
         guard hookRecordRestorable, let pid = record.pid else { return false }
-        return !sessionsListStoredPIDStillMatchesLaunch(agent: agent, record: record, pid: pid)
+        return !sessionsListStoredPIDStillMatchesLaunch(
+            agent: agent,
+            record: record,
+            pid: pid,
+            processIdentityLookup: processIdentityLookup
+        )
     }
 
     private func sessionsListStoredPIDStillMatchesLaunch(
         agent: String,
         record: ClaudeHookSessionRecord,
-        pid: Int
+        pid: Int,
+        processIdentityLookup: (Int) -> SessionsListProcessIdentity?
     ) -> Bool {
-        guard let process = sessionsListProcessIdentity(for: pid),
+        guard let process = processIdentityLookup(pid),
               sessionsListProcessStartTimeMatchesRecord(process.startTime, record: record) else {
             return false
         }
@@ -356,7 +366,7 @@ extension CMUXCLI {
         }
     }
 
-    private func sessionsListStoredPIDExists(_ pid: Int?) -> Bool? {
+    func sessionsListStoredPIDExists(_ pid: Int?) -> Bool? {
         guard let pid, pid > 0 else { return nil }
         guard let processID = pid_t(exactly: pid) else { return nil }
         errno = 0

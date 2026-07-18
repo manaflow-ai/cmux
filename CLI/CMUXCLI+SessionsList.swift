@@ -65,13 +65,13 @@ extension CMUXCLI {
         }
 
         let limit: Int
-        if includeAll {
-            limit = Int.max
-        } else if let limitRaw {
+        if let limitRaw {
             guard let parsed = Int(limitRaw), parsed > 0 else {
                 throw CLIError(message: String(localized: "cli.sessions.error.invalidLimit", defaultValue: "sessions list: --limit must be a positive integer"))
             }
             limit = parsed
+        } else if includeAll {
+            limit = Int.max
         } else {
             limit = 100
         }
@@ -152,6 +152,9 @@ extension CMUXCLI {
         let hasIdentityFilter = sessionFilter != nil || workspaceFilter != nil
             || surfaceFilter != nil || cwdFilter != nil
         let includesEndedRecords = includeAll || hasIdentityFilter || stateFilter == AgentEffectiveState.ended.rawValue
+        // History sorting and non-state filters do not depend on a live PID.
+        // Defer sysctl work until after top-K selection in that common path.
+        let defersProcessStateProbe = includeAll && stateFilter == nil
         let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
         let matchingObservations = canonicalTerminalObservations.filter { observation in
             if !observationAgentIDs.isEmpty,
@@ -174,10 +177,47 @@ extension CMUXCLI {
         )
         var codexIndexes: [String: CodexSessionListIndex] = [:]
         let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: homeDirectory)
-        var deferredNodes: [AgentSessionGraphNode] = []
-        var deferredPayloads: [[String: Any]] = []
+        var processStartTimeByPID: [Int: TimeInterval] = [:]
+        var missingProcessStartTimePIDs: Set<Int> = []
+        let processStartTimeLookup: (Int) -> TimeInterval? = { pid in
+            if let cached = processStartTimeByPID[pid] { return cached }
+            if missingProcessStartTimePIDs.contains(pid) { return nil }
+            if let startTime = sessionsListProcessStartTime(for: pid) {
+                processStartTimeByPID[pid] = startTime
+                return startTime
+            }
+            missingProcessStartTimePIDs.insert(pid)
+            return nil
+        }
+        var processIdentityByPID: [Int: SessionsListProcessIdentity] = [:]
+        var missingProcessIdentityPIDs: Set<Int> = []
+        let processIdentityLookup: (Int) -> SessionsListProcessIdentity? = { pid in
+            if let cached = processIdentityByPID[pid] { return cached }
+            if missingProcessIdentityPIDs.contains(pid) { return nil }
+            guard let startTime = processStartTimeLookup(pid),
+                  let identity = sessionsListProcessIdentity(
+                    for: pid,
+                    probedKernelStartTime: startTime
+                  ) else {
+                missingProcessIdentityPIDs.insert(pid)
+                return nil
+            }
+            processIdentityByPID[pid] = identity
+            return identity
+        }
+        var processExistenceByPID: [Int: Bool] = [:]
+        var probedProcessExistencePIDs: Set<Int> = []
+        let processExistenceLookup: (Int?) -> Bool? = { pid in
+            guard let pid, pid > 0 else { return nil }
+            if probedProcessExistencePIDs.contains(pid) { return processExistenceByPID[pid] }
+            probedProcessExistencePIDs.insert(pid)
+            let exists = sessionsListStoredPIDExists(pid)
+            if let exists { processExistenceByPID[pid] = exists }
+            return exists
+        }
         var entries = SessionListEntryAccumulator(limit: limit)
         var activeSessionBySurface: [String: String] = [:]
+        var processedObservationProviders: Set<String> = []
         var stores: [[String: Any]] = []
         var storeWarnings: [AgentHookSessionStoreLoadWarning] = []
 
@@ -192,7 +232,7 @@ extension CMUXCLI {
                 fileManager: fileManager
             )
         } catch let failure as AgentHookSessionStoreLoadFailure {
-            throw agentsStoreLoadCLIError(failure)
+            throw agentsStoreLoadCLIError(failure, context: .list, jsonOutput: localJSONOutput)
         }
         storeWarnings.append(contentsOf: snapshotLoad.warnings)
         for spec in selectedSpecs {
@@ -214,7 +254,7 @@ extension CMUXCLI {
                 do {
                     load = try bridge.loadForInspection(snapshot: snapshot)
                 } catch let failure as AgentHookSessionStoreLoadFailure {
-                    throw agentsStoreLoadCLIError(failure)
+                    throw agentsStoreLoadCLIError(failure, context: .list, jsonOutput: localJSONOutput)
                 }
                 store = load.store
                 if let warning = load.warning { storeWarnings.append(warning) }
@@ -231,13 +271,13 @@ extension CMUXCLI {
                 "exists": fileManager.fileExists(atPath: storePath) || !store.sessions.isEmpty
             ]
 
-            guard !store.sessions.isEmpty else {
+            if store.sessions.isEmpty {
                 storePayload["session_count"] = 0
                 stores.append(storePayload)
-                continue
+            } else {
+                storePayload["session_count"] = store.sessions.count
+                stores.append(storePayload)
             }
-            storePayload["session_count"] = store.sessions.count
-            stores.append(storePayload)
 
             let sessionProcessCohort = sessionFilter.map { sessionFilter in
                 var matcher = AgentSessionProcessCohortMatcher()
@@ -252,12 +292,175 @@ extension CMUXCLI {
                 return matcher
             }
 
+            for record in store.sessions.values {
+                let run = sessionsListProjectedRun(record: record, provider: spec.name)
+                guard store.activeSessionsBySurface[record.surfaceId]?.sessionId == record.sessionId,
+                      let runtimeID = run.cmuxRuntime(fallingBackTo: record.cmuxRuntime)?.id else {
+                    continue
+                }
+                activeSessionBySurface[AgentTerminalObservationJoiner.surfaceKey(
+                    provider: spec.name,
+                    runtimeID: runtimeID,
+                    surfaceID: record.surfaceId
+                )] = record.sessionId
+            }
+
+            let providerObservations = matchingObservations.filter {
+                $0.sessionProviderID == spec.name
+            }
+            processedObservationProviders.insert(spec.name)
+            let observationProjection: (
+                nodesByID: [String: AgentSessionGraphNode],
+                processNodes: [AgentSessionGraphNode]
+            ) = {
+                guard !providerObservations.isEmpty else { return ([:], []) }
+                var candidateAccumulator = AgentTerminalObservationCandidateAccumulator(
+                    observations: providerObservations,
+                    activeSessionBySurface: activeSessionBySurface
+                )
+                for rawRecord in store.sessions.values {
+                    let run = sessionsListProjectedRun(record: rawRecord, provider: spec.name)
+                    guard queryScope.includes(
+                        recordRuntime: run.identityConflict == true ? nil : rawRecord.cmuxRuntime,
+                        runRuntime: run.cmuxRuntime,
+                        legacyVisible: run.identityConflict != true
+                    ) else { continue }
+                    let record = rawRecord
+                    if let sessionFilter, record.sessionId.lowercased() != sessionFilter {
+                        guard sessionProcessCohort?.matches(
+                            provider: spec.name,
+                            record: record,
+                            run: run
+                        ) == true else {
+                            continue
+                        }
+                    }
+                    guard surfaceFilter == nil || record.surfaceId.lowercased() == surfaceFilter else {
+                        continue
+                    }
+                    let runtime = run.cmuxRuntime(fallingBackTo: record.cmuxRuntime)
+                    guard let runtimeID = runtime?.id,
+                          let pid = run.pid,
+                          let processStartedAt = run.processStartedAt else {
+                        continue
+                    }
+                    let surfaceKey = AgentTerminalObservationJoiner.surfaceKey(
+                        provider: spec.name,
+                        runtimeID: runtimeID,
+                        surfaceID: record.surfaceId
+                    )
+                    let processKey = "\(surfaceKey)\u{1F}\(pid)"
+                    let observations = observationsByProcessKey[processKey] ?? []
+                    guard observations.contains(where: { observation in
+                        observation.sessionProviderID == spec.name
+                            && observation.runtimeID == runtimeID
+                            && observation.surfaceID.uuidString.lowercased()
+                                == record.surfaceId.lowercased()
+                            && Int(observation.pid) == pid
+                            && abs(
+                                TimeInterval(observation.processStartSeconds)
+                                    + TimeInterval(observation.processStartMicroseconds) / 1_000_000
+                                    - processStartedAt
+                            ) <= 0.001
+                    }) else {
+                        continue
+                    }
+                    let probedProcessState: AgentProcessState?
+                    if run.identityConflict == true {
+                        probedProcessState = .unknown
+                    } else if let pid = run.pid, let expectedStartedAt = run.processStartedAt {
+                        probedProcessState = processStartTimeLookup(pid).map {
+                            abs($0 - expectedStartedAt) <= 0.001 ? .alive : .exited
+                        } ?? .exited
+                    } else {
+                        probedProcessState = nil
+                    }
+                    let projection = AgentSessionStateProjection(
+                        record: record,
+                        run: run,
+                        probedProcessState: probedProcessState
+                    )
+                    guard includesEndedRecords || queryScope.includes(projection: projection) else {
+                        continue
+                    }
+                    let workspaceActive = store.activeSessionsByWorkspace[record.workspaceId]
+                    let surfaceActive = store.activeSessionsBySurface[record.surfaceId]
+                    let activeForWorkspace = workspaceActive?.sessionId == record.sessionId
+                    let activeForSurface = surfaceActive?.sessionId == record.sessionId
+                    let legacyRecordRestorable: Bool
+                    if queryScope == .legacyUnscoped,
+                       run.identityConflict != true,
+                       !activeForWorkspace,
+                       !activeForSurface {
+                        legacyRecordRestorable = agentHookRecordIsRestorable(
+                            agent: spec.name,
+                            record: record,
+                            claudeTranscriptLookup: claudeTranscriptLookup
+                        )
+                    } else {
+                        legacyRecordRestorable = false
+                    }
+                    let defaultVisible = queryScope.includes(
+                        recordRuntime: run.identityConflict == true ? nil : record.cmuxRuntime,
+                        runRuntime: run.cmuxRuntime,
+                        legacyVisible: run.identityConflict != true
+                            && (activeForWorkspace || activeForSurface || legacyRecordRestorable)
+                    )
+                    guard includeAll || hasIdentityFilter
+                            || stateFilter == AgentEffectiveState.ended.rawValue
+                            || defaultVisible else {
+                        continue
+                    }
+                    let node = AgentSessionGraphNode(
+                        provider: spec.name,
+                        sessionId: record.sessionId,
+                        runId: run.runId,
+                        pid: run.pid,
+                        processStartedAt: run.processStartedAt,
+                        cmuxRuntime: runtime,
+                        workspaceId: record.workspaceId,
+                        surfaceId: record.surfaceId,
+                        cwd: record.cwd,
+                        processState: projection.process,
+                        sessionState: projection.session,
+                        foregroundState: projection.foreground,
+                        attentionState: projection.attention,
+                        activity: projection.activity,
+                        effectiveState: projection.effective,
+                        workloads: projection.workloads.map(AgentWorkloadSnapshot.init),
+                        restoreAuthority: run.restoreAuthority,
+                        startedAt: run.startedAt,
+                        updatedAt: run.updatedAt,
+                        endedAt: run.endedAt
+                    )
+                    candidateAccumulator.insert(node)
+                }
+                var candidates = candidateAccumulator.retainedCandidates
+                observationJoiner.merge(
+                    nodes: &candidates,
+                    observations: providerObservations,
+                    activeSessionBySurface: activeSessionBySurface
+                )
+                var nodesByID: [String: AgentSessionGraphNode] = [:]
+                var processNodes: [AgentSessionGraphNode] = []
+                nodesByID.reserveCapacity(providerObservations.count)
+                processNodes.reserveCapacity(providerObservations.count)
+                for node in candidates {
+                    if node.identitySource == "terminal_process" {
+                        processNodes.append(node)
+                    } else if node.terminalObservation != nil {
+                        nodesByID[node.nodeId] = node
+                    }
+                }
+                return (nodesByID, processNodes)
+            }()
+
             for rawRecord in store.sessions.values {
                 let projectedRun = sessionsListProjectedRun(record: rawRecord, provider: spec.name)
                 guard queryScope.includes(
-                    recordRuntime: rawRecord.cmuxRuntime,
+                    recordRuntime: projectedRun.identityConflict == true ? nil : rawRecord.cmuxRuntime,
                     runRuntime: projectedRun.cmuxRuntime,
-                    legacyVisible: true
+                    legacyVisible: projectedRun.identityConflict != true
                 ) else { continue }
                 let record = rawRecord
                 if let sessionFilter, record.sessionId.lowercased() != sessionFilter {
@@ -286,7 +489,24 @@ extension CMUXCLI {
                 payload["pid"] = record.pid ?? NSNull()
                 payload["runtime_status"] = record.runtimeStatus?.rawValue ?? NSNull()
                 payload["agent_lifecycle"] = record.agentLifecycle?.rawValue ?? NSNull()
-                let projection = AgentSessionStateProjection(record: record, run: projectedRun)
+                let probedProcessState: AgentProcessState?
+                if projectedRun.identityConflict == true || defersProcessStateProbe {
+                    // Supplying `.unknown` prevents the projection from probing
+                    // through its compatibility fallback.
+                    probedProcessState = .unknown
+                } else if let pid = projectedRun.pid,
+                   let expectedStartedAt = projectedRun.processStartedAt {
+                    probedProcessState = processStartTimeLookup(pid).map {
+                        abs($0 - expectedStartedAt) <= 0.001 ? .alive : .exited
+                    } ?? .exited
+                } else {
+                    probedProcessState = nil
+                }
+                let projection = AgentSessionStateProjection(
+                    record: record,
+                    run: projectedRun,
+                    probedProcessState: probedProcessState
+                )
                 guard includesEndedRecords || queryScope.includes(projection: projection) else { continue }
                 payload["process_state"] = projection.process.rawValue
                 payload["session_state"] = projection.session.rawValue
@@ -298,21 +518,12 @@ extension CMUXCLI {
                     projection.workloads.map(AgentWorkloadSnapshot.init)
                 )
                 payload["restore_authority"] = projectedRun.restoreAuthority
-                payload["cmux_runtime"] = (projectedRun.cmuxRuntime ?? record.cmuxRuntime)
+                payload["cmux_runtime"] = projectedRun.cmuxRuntime(fallingBackTo: record.cmuxRuntime)
                     .map { sessionsListEncodableJSONObject($0) } ?? NSNull()
                 payload["last_prompt_turn_id"] = record.lastPromptTurnId ?? NSNull()
                 payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
                 payload["launch_working_directory"] = record.launchCommand?.workingDirectory ?? NSNull()
                 payload["launch_arguments"] = record.launchCommand?.arguments ?? []
-                payload.merge(
-                    sessionsListForkDiagnostics(
-                        agent: spec.name,
-                        record: record,
-                        claudeTranscriptLookup: claudeTranscriptLookup
-                    ),
-                    uniquingKeysWith: { _, new in new }
-                )
-
                 let workspaceActive = store.activeSessionsByWorkspace[record.workspaceId]
                 let surfaceActive = store.activeSessionsBySurface[record.surfaceId]
                 let activeForWorkspace = workspaceActive?.sessionId == record.sessionId
@@ -325,7 +536,7 @@ extension CMUXCLI {
                 payload["active_surface_session_id"] = surfaceActive?.sessionId ?? NSNull()
                 payload["is_restorable"] = record.isRestorable ?? NSNull()
 
-                let runtime = projectedRun.cmuxRuntime ?? record.cmuxRuntime
+                let runtime = projectedRun.cmuxRuntime(fallingBackTo: record.cmuxRuntime)
                 if activeForSurface, let runtimeID = runtime?.id {
                     activeSessionBySurface[AgentTerminalObservationJoiner.surfaceKey(
                         provider: spec.name,
@@ -334,76 +545,132 @@ extension CMUXCLI {
                     )] = record.sessionId
                 }
 
-                var transcriptBacked = false
-
-                if spec.name == "codex" {
-                    let codexHome = sessionsListExpandedPath(
-                        sessionsListNormalized(record.launchCommand?.environment?["CODEX_HOME"]) ?? defaultCodexHome
-                    )
-                    let index = try codexIndexes[codexHome] ?? buildCodexDebugIndex(
-                        codexHome: codexHome,
-                        fileManager: fileManager
-                    )
-                    codexIndexes[codexHome] = index
-                    let transcriptPath = index.transcriptPathBySessionId[record.sessionId]
-                    let savedTranscriptPath = sessionsListNormalized(record.transcriptPath)
-                    let expandedSavedTranscriptPath = savedTranscriptPath.map { sessionsListExpandedPath($0) }
-                    payload["session_home"] = codexHome
-                    payload["session_dir"] = URL(fileURLWithPath: codexHome, isDirectory: true)
-                        .appendingPathComponent("sessions", isDirectory: true)
-                        .path
-                    payload["codex_indexed"] = index.indexedSessionIds.contains(record.sessionId)
-                    payload["codex_transcript_found"] = transcriptPath != nil || expandedSavedTranscriptPath.map { fileManager.fileExists(atPath: $0) } == true
-                    payload["codex_transcript_path"] = transcriptPath ?? expandedSavedTranscriptPath ?? NSNull()
-                    transcriptBacked = payload["codex_transcript_found"] as? Bool == true
-                } else if spec.name == "claude" {
-                    if let envKey = spec.configDirEnvOverride,
-                       let value = sessionsListNormalized(record.launchCommand?.environment?[envKey]) {
-                        payload["session_home"] = sessionsListExpandedPath(value)
-                        payload["session_dir"] = sessionsListExpandedPath(value)
-                    } else {
-                        payload["session_home"] = NSNull()
-                        payload["session_dir"] = NSNull()
-                    }
-                    transcriptBacked = sessionsListClaudeHasExactTranscript(
+                let legacyRecordRestorable: Bool
+                if queryScope == .legacyUnscoped,
+                   projectedRun.identityConflict != true,
+                   !activeForWorkspace,
+                   !activeForSurface {
+                    legacyRecordRestorable = agentHookRecordIsRestorable(
+                        agent: spec.name,
                         record: record,
-                        lookup: claudeTranscriptLookup
+                        claudeTranscriptLookup: claudeTranscriptLookup
                     )
-                } else if let envKey = spec.configDirEnvOverride,
-                          let value = sessionsListNormalized(record.launchCommand?.environment?[envKey]) {
-                    payload["session_home"] = sessionsListExpandedPath(value)
-                    payload["session_dir"] = sessionsListExpandedPath(value)
-                    if let transcriptPath = sessionsListNormalized(record.transcriptPath) {
-                        transcriptBacked = fileManager.fileExists(atPath: sessionsListExpandedPath(transcriptPath))
-                    }
                 } else {
-                    payload["session_home"] = NSNull()
-                    payload["session_dir"] = NSNull()
-                    if let transcriptPath = sessionsListNormalized(record.transcriptPath) {
-                        transcriptBacked = fileManager.fileExists(atPath: sessionsListExpandedPath(transcriptPath))
-                    }
+                    legacyRecordRestorable = false
                 }
-                payload["transcript_backed"] = transcriptBacked
-                let launchBacked = record.launchCommand != nil && agentHookSessionHasDurableResumeEvidence(
-                    kind: spec.name,
-                    launchCommand: record.launchCommand,
-                    transcriptPath: record.transcriptPath
-                )
-                payload["launch_backed"] = launchBacked
-
                 let legacyDefaultVisible = activeForWorkspace
                     || activeForSurface
-                    || (payload["hook_record_restorable"] as? Bool == true)
+                    || legacyRecordRestorable
                 let defaultVisible = queryScope.includes(
-                    recordRuntime: record.cmuxRuntime,
+                    recordRuntime: projectedRun.identityConflict == true ? nil : record.cmuxRuntime,
                     runRuntime: projectedRun.cmuxRuntime,
-                    legacyVisible: legacyDefaultVisible
+                    legacyVisible: projectedRun.identityConflict != true && legacyDefaultVisible
                 )
                 payload["default_visible"] = defaultVisible
                 guard includeAll || hasIdentityFilter
                         || stateFilter == AgentEffectiveState.ended.rawValue
                         || defaultVisible else {
                     continue
+                }
+
+                let enrichment: SessionListEntryAccumulator.Enrichment = { [self] payload in
+                    if defersProcessStateProbe,
+                       projectedRun.identityConflict != true,
+                       payload["state_source"] as? String != "terminal" {
+                        let retainedProcessState: AgentProcessState?
+                        if let pid = projectedRun.pid,
+                           let expectedStartedAt = projectedRun.processStartedAt {
+                            retainedProcessState = processStartTimeLookup(pid).map {
+                                abs($0 - expectedStartedAt) <= 0.001 ? .alive : .exited
+                            } ?? .exited
+                        } else {
+                            retainedProcessState = nil
+                        }
+                        let retainedProjection = AgentSessionStateProjection(
+                            record: record,
+                            run: projectedRun,
+                            probedProcessState: retainedProcessState
+                        )
+                        self.sessionsListApply(projection: retainedProjection, to: &payload)
+                    }
+                    payload.merge(
+                        sessionsListForkDiagnostics(
+                            agent: spec.name,
+                            record: record,
+                            claudeTranscriptLookup: claudeTranscriptLookup,
+                            processIdentityLookup: processIdentityLookup,
+                            processExistenceLookup: processExistenceLookup
+                        ),
+                        uniquingKeysWith: { _, new in new }
+                    )
+
+                    var transcriptBacked = false
+                    if spec.name == "codex" {
+                        let codexHome = sessionsListExpandedPath(
+                            sessionsListNormalized(record.launchCommand?.environment?["CODEX_HOME"])
+                                ?? defaultCodexHome
+                        )
+                        let index = codexIndexes[codexHome] ?? buildCodexDebugIndex(
+                            codexHome: codexHome,
+                            fileManager: fileManager
+                        )
+                        codexIndexes[codexHome] = index
+                        let transcriptPath = index.transcriptPathBySessionId[record.sessionId]
+                        let savedTranscriptPath = sessionsListNormalized(record.transcriptPath)
+                        let expandedSavedTranscriptPath = savedTranscriptPath.map {
+                            self.sessionsListExpandedPath($0)
+                        }
+                        payload["session_home"] = codexHome
+                        payload["session_dir"] = URL(fileURLWithPath: codexHome, isDirectory: true)
+                            .appendingPathComponent("sessions", isDirectory: true)
+                            .path
+                        payload["codex_indexed"] = index.indexedSessionIds.contains(record.sessionId)
+                        payload["codex_transcript_found"] = transcriptPath != nil
+                            || expandedSavedTranscriptPath.map {
+                                fileManager.fileExists(atPath: $0)
+                            } == true
+                        payload["codex_transcript_path"] = transcriptPath
+                            ?? expandedSavedTranscriptPath
+                            ?? NSNull()
+                        transcriptBacked = payload["codex_transcript_found"] as? Bool == true
+                    } else if spec.name == "claude" {
+                        if let envKey = spec.configDirEnvOverride,
+                           let value = sessionsListNormalized(record.launchCommand?.environment?[envKey]) {
+                            payload["session_home"] = sessionsListExpandedPath(value)
+                            payload["session_dir"] = sessionsListExpandedPath(value)
+                        } else {
+                            payload["session_home"] = NSNull()
+                            payload["session_dir"] = NSNull()
+                        }
+                        transcriptBacked = sessionsListClaudeHasExactTranscript(
+                            record: record,
+                            lookup: claudeTranscriptLookup
+                        )
+                    } else if let envKey = spec.configDirEnvOverride,
+                              let value = sessionsListNormalized(record.launchCommand?.environment?[envKey]) {
+                        payload["session_home"] = sessionsListExpandedPath(value)
+                        payload["session_dir"] = sessionsListExpandedPath(value)
+                        if let transcriptPath = sessionsListNormalized(record.transcriptPath) {
+                            transcriptBacked = fileManager.fileExists(
+                                atPath: sessionsListExpandedPath(transcriptPath)
+                            )
+                        }
+                    } else {
+                        payload["session_home"] = NSNull()
+                        payload["session_dir"] = NSNull()
+                        if let transcriptPath = sessionsListNormalized(record.transcriptPath) {
+                            transcriptBacked = fileManager.fileExists(
+                                atPath: sessionsListExpandedPath(transcriptPath)
+                            )
+                        }
+                    }
+                    payload["transcript_backed"] = transcriptBacked
+                    payload["launch_backed"] = record.launchCommand != nil
+                        && agentHookSessionHasDurableResumeEvidence(
+                            kind: spec.name,
+                            launchCommand: record.launchCommand,
+                            transcriptPath: record.transcriptPath
+                        )
                 }
 
                 let node = AgentSessionGraphNode(
@@ -428,15 +695,31 @@ extension CMUXCLI {
                     updatedAt: projectedRun.updatedAt,
                     endedAt: projectedRun.endedAt
                 )
-                let matchingProcessObservations = observationsByProcessKey[
-                    AgentTerminalObservationJoiner.processKey(node: node)
-                ] ?? []
-                if matchingProcessObservations.contains(where: {
-                    observationJoiner.matches(node, observation: $0)
-                }) {
-                    deferredNodes.append(node)
-                    deferredPayloads.append(payload)
-                } else if let payload = sessionsListFilteredPayload(
+                let projectedNode = observationProjection.nodesByID[node.nodeId] ?? node
+                if let payload = sessionsListFilteredPayload(
+                    node: projectedNode,
+                    payload: payload,
+                    sessionFilter: sessionFilter,
+                    workspaceFilter: workspaceFilter,
+                    cwdFilter: cwdFilter,
+                    stateFilter: stateFilter,
+                    activityFilter: activityFilter,
+                    workKindFilter: workKindFilter
+                ) {
+                    entries.insert(
+                        updatedAt: node.updatedAt,
+                        payload: payload,
+                        enrichment: enrichment
+                    )
+                }
+            }
+            for node in observationProjection.processNodes {
+                let payload = sessionsListProcessPayload(
+                    node: node,
+                    displayName: spec.displayName,
+                    timestampFormatter: timestampFormatter
+                )
+                if let payload = sessionsListFilteredPayload(
                     node: node,
                     payload: payload,
                     sessionFilter: sessionFilter,
@@ -450,30 +733,24 @@ extension CMUXCLI {
                 }
             }
         }
-
-        let savedDeferredCount = deferredNodes.count
-        observationJoiner.merge(
-            nodes: &deferredNodes,
-            observations: matchingObservations,
-            activeSessionBySurface: activeSessionBySurface
-        )
         let displayNameByProvider = Dictionary(
             selectedSpecs.map { ($0.name, $0.displayName) },
             uniquingKeysWith: { first, _ in first }
         )
-        for (index, node) in deferredNodes.enumerated() {
-            let payload: [String: Any]
-            if index < savedDeferredCount {
-                payload = deferredPayloads[index]
-            } else if node.identitySource == "terminal_process" {
-                payload = sessionsListProcessPayload(
-                    node: node,
-                    displayName: displayNameByProvider[node.provider] ?? node.provider,
-                    timestampFormatter: timestampFormatter
-                )
-            } else {
-                continue
-            }
+        var unhandledObservationNodes: [AgentSessionGraphNode] = []
+        observationJoiner.merge(
+            nodes: &unhandledObservationNodes,
+            observations: matchingObservations.filter {
+                !processedObservationProviders.contains($0.sessionProviderID)
+            },
+            activeSessionBySurface: activeSessionBySurface
+        )
+        for node in unhandledObservationNodes {
+            let payload = sessionsListProcessPayload(
+                node: node,
+                displayName: displayNameByProvider[node.provider] ?? node.provider,
+                timestampFormatter: timestampFormatter
+            )
             if let payload = sessionsListFilteredPayload(
                 node: node,
                 payload: payload,
@@ -484,7 +761,10 @@ extension CMUXCLI {
                 activityFilter: activityFilter,
                 workKindFilter: workKindFilter
             ) {
-                entries.insert(updatedAt: node.updatedAt, payload: payload)
+                entries.insert(
+                    updatedAt: node.updatedAt,
+                    payload: payload
+                )
             }
         }
         let limitedPayloads = entries.sortedPayloads
@@ -516,8 +796,19 @@ extension CMUXCLI {
             print(renderSessionListLine(payload))
         }
         if entries.totalCount > limitedPayloads.count {
+            let moreFormat = if includeAll {
+                String(
+                    localized: "cli.sessions.output.moreLimitedAll",
+                    defaultValue: "... %lld more. Raise --limit <n>."
+                )
+            } else {
+                String(
+                    localized: "cli.sessions.output.more",
+                    defaultValue: "... %lld more. Pass --all or --limit <n>."
+                )
+            }
             print(String(
-                format: String(localized: "cli.sessions.output.more", defaultValue: "... %lld more. Pass --all or --limit <n>."),
+                format: moreFormat,
                 entries.totalCount - limitedPayloads.count
             ))
         }
@@ -583,6 +874,21 @@ extension CMUXCLI {
         payload["state_source"] = node.terminalStateApplied ? "terminal" : "lifecycle"
         payload["terminal_observation"] = node.terminalObservation
             .map { sessionsListEncodableJSONObject($0) } ?? NSNull()
+    }
+
+    private func sessionsListApply(
+        projection: AgentSessionStateProjection,
+        to payload: inout [String: Any]
+    ) {
+        payload["process_state"] = projection.process.rawValue
+        payload["session_state"] = projection.session.rawValue
+        payload["foreground_state"] = projection.foreground.rawValue
+        payload["attention_state"] = projection.attention.rawValue
+        payload["effective_state"] = projection.effective.rawValue
+        payload["activity"] = sessionsListEncodableJSONObject(projection.activity)
+        payload["workloads"] = sessionsListEncodableJSONObject(
+            projection.workloads.map(AgentWorkloadSnapshot.init)
+        )
     }
 
     private func sessionsListProcessPayload(
@@ -668,7 +974,7 @@ extension CMUXCLI {
     private func buildCodexDebugIndex(
         codexHome: String,
         fileManager: FileManager
-    ) throws -> CodexSessionListIndex {
+    ) -> CodexSessionListIndex {
         let homeURL = URL(fileURLWithPath: codexHome, isDirectory: true)
         var indexedSessionIds = Set<String>()
         let sessionIndexURL = homeURL.appendingPathComponent("session_index.jsonl", isDirectory: false)

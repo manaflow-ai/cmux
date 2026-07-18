@@ -1,5 +1,33 @@
 import Foundation
 
+struct AgentStableProcessIdentity: Sendable, Equatable {
+    let executablePath: String?
+    let arguments: [String]
+    let startTime: TimeInterval
+}
+
+enum AgentStableProcessIdentityValidator {
+    static func identity(
+        for pid: Int,
+        probedKernelStartTime: TimeInterval,
+        processStartTimeLookup: (Int) -> TimeInterval?,
+        executablePathLookup: (Int) -> String?,
+        argumentsLookup: (Int) -> [String]?
+    ) -> AgentStableProcessIdentity? {
+        let executablePath = executablePathLookup(pid)
+        let arguments = argumentsLookup(pid) ?? []
+        guard let verifiedKernelStartTime = processStartTimeLookup(pid),
+              abs(verifiedKernelStartTime - probedKernelStartTime) <= 0.001 else {
+            return nil
+        }
+        return AgentStableProcessIdentity(
+            executablePath: executablePath,
+            arguments: arguments,
+            startTime: verifiedKernelStartTime
+        )
+    }
+}
+
 /// One process generation of a logical agent session.
 struct AgentSessionRunRecord: Codable, Sendable, Equatable {
     var runId: String
@@ -14,6 +42,15 @@ struct AgentSessionRunRecord: Codable, Sendable, Equatable {
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
     var endedAt: TimeInterval?
+    /// Set only when equal-time duplicate rows disagree about the process or
+    /// cmux runtime generation. Consumers must not fall back to record-level
+    /// identity for a conflicted run.
+    var identityConflict: Bool? = nil
+
+    func cmuxRuntime(fallingBackTo recordRuntime: AgentCmuxRuntimeIdentity?) -> AgentCmuxRuntimeIdentity? {
+        guard identityConflict != true else { return nil }
+        return cmuxRuntime ?? recordRuntime
+    }
 }
 
 struct AgentSessionRunReconciler: Sendable {

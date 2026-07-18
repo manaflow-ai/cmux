@@ -1197,6 +1197,133 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func agentsTreeBreaksCorruptParentCyclesAndKeepsOrphansAsRoots() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-tree-corrupt-cycles-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessions: [String: Any] = [
+            "self-session": [
+                "sessionId": "self-session",
+                "workspaceId": "workspace-self",
+                "surfaceId": "surface-self",
+                "runId": "self-run",
+                "parentRunId": "self-run",
+                "parentSessionId": "self-session",
+                "relationship": "spawned",
+                "restoreAuthority": false,
+                "startedAt": 100.0,
+                "updatedAt": 100.0,
+            ],
+            "cycle-a": [
+                "sessionId": "cycle-a",
+                "workspaceId": "workspace-cycle-a",
+                "surfaceId": "surface-cycle-a",
+                "runId": "run-a",
+                "parentRunId": "run-b",
+                "parentSessionId": "cycle-b",
+                "relationship": "spawned",
+                "restoreAuthority": false,
+                "startedAt": 200.0,
+                "updatedAt": 200.0,
+            ],
+            "cycle-b": [
+                "sessionId": "cycle-b",
+                "workspaceId": "workspace-cycle-b",
+                "surfaceId": "surface-cycle-b",
+                "runId": "run-b",
+                "parentRunId": "run-a",
+                "parentSessionId": "cycle-a",
+                "relationship": "spawned",
+                "restoreAuthority": false,
+                "startedAt": 300.0,
+                "updatedAt": 300.0,
+            ],
+            "orphan-session": [
+                "sessionId": "orphan-session",
+                "workspaceId": "workspace-orphan",
+                "surfaceId": "surface-orphan",
+                "runId": "orphan-run",
+                "parentRunId": "missing-run",
+                "parentSessionId": "missing-session",
+                "relationship": "spawned",
+                "restoreAuthority": false,
+                "startedAt": 400.0,
+                "updatedAt": 400.0,
+            ],
+        ]
+        try JSONSerialization.data(
+            withJSONObject: ["version": 2, "sessions": sessions],
+            options: [.sortedKeys]
+        ).write(to: root.appendingPathComponent("opencode-hook-sessions.json"), options: .atomic)
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        let baseArguments = [
+            "agents", "tree", "--agent", "opencode", "--all", "--state-dir", root.path,
+        ]
+
+        let firstJSON = runProcess(
+            executablePath: cliPath,
+            arguments: baseArguments + ["--json"],
+            environment: environment,
+            timeout: 5
+        )
+        let secondJSON = runProcess(
+            executablePath: cliPath,
+            arguments: baseArguments + ["--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!firstJSON.timedOut, Comment(rawValue: firstJSON.stdout))
+        #expect(!secondJSON.timedOut, Comment(rawValue: secondJSON.stdout))
+        #expect(firstJSON.status == 0, Comment(rawValue: firstJSON.stdout))
+        #expect(secondJSON.status == 0, Comment(rawValue: secondJSON.stdout))
+        #expect(firstJSON.stdout == secondJSON.stdout, Comment(rawValue: secondJSON.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(firstJSON.stdout.utf8)) as? [String: Any]
+        )
+        let nodes = try #require(payload["nodes"] as? [[String: Any]])
+        let edges = try #require(payload["edges"] as? [[String: Any]])
+        let nodeIDs = nodes.compactMap { $0["node_id"] as? String }
+        #expect(nodes.count == 4)
+        #expect(Set(nodeIDs).count == nodes.count)
+        #expect(edges.count == 1)
+        #expect(edges.first?["from_run_id"] as? String == "run-b")
+        #expect(edges.first?["to_run_id"] as? String == "run-a")
+        #expect(!edges.contains { $0["to_run_id"] as? String == "self-run" })
+        #expect(!edges.contains { $0["to_run_id"] as? String == "orphan-run" })
+
+        let firstText = runProcess(
+            executablePath: cliPath,
+            arguments: baseArguments,
+            environment: environment,
+            timeout: 5
+        )
+        let secondText = runProcess(
+            executablePath: cliPath,
+            arguments: baseArguments,
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!firstText.timedOut, Comment(rawValue: firstText.stdout))
+        #expect(!secondText.timedOut, Comment(rawValue: secondText.stdout))
+        #expect(firstText.status == 0, Comment(rawValue: firstText.stdout))
+        #expect(secondText.status == 0, Comment(rawValue: secondText.stdout))
+        #expect(firstText.stdout == secondText.stdout, Comment(rawValue: secondText.stdout))
+        let lines = firstText.stdout.split(separator: "\n").map(String.init)
+        for sessionID in ["self-session", "cycle-a", "cycle-b", "orphan-session"] {
+            #expect(
+                lines.filter { $0.contains("opencode \(sessionID) ") }.count == 1,
+                Comment(rawValue: firstText.stdout)
+            )
+        }
+        #expect(lines.contains { $0.hasPrefix("opencode self-session ") })
+        #expect(lines.contains { $0.hasPrefix("opencode cycle-b ") })
+        #expect(lines.contains { $0.hasPrefix("└── spawned opencode cycle-a ") })
+        #expect(lines.contains { $0.hasPrefix("opencode orphan-session ") })
+    }
+
     @Test func agentsListAndTreeCanonicalizeDuplicateRunsBeforeProjection() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -1326,6 +1453,117 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(lines.filter { $0.contains("codex duplicate-session ") }.count == 1)
         #expect(childIndex == winningParentIndex + 1)
         #expect(lines[childIndex].hasPrefix("└── "))
+    }
+
+    @Test func equalTimeDuplicateRunsMergeMetadataAndDemotionInEitherOrder() throws {
+        let runtimeWithBundle = AgentCmuxRuntimeIdentity(
+            id: "runtime-a", socketPath: nil, bundleIdentifier: "com.cmux.test"
+        )
+        let runtimeWithSocket = AgentCmuxRuntimeIdentity(
+            id: "runtime-a", socketPath: "/tmp/cmux-test.sock", bundleIdentifier: nil
+        )
+        let authoritative = AgentSessionRunRecord(
+            runId: "shared-run", pid: 42, processStartedAt: 100,
+            cmuxRuntime: runtimeWithBundle,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true, authorityEvidence: nil,
+            startedAt: 100, updatedAt: 200, endedAt: nil
+        )
+        let child = AgentSessionRunRecord(
+            runId: "shared-run", pid: 42, processStartedAt: 100,
+            cmuxRuntime: runtimeWithSocket,
+            parentRunId: "parent-run", parentSessionId: "parent-session", relationship: .spawned,
+            restoreAuthority: false, authorityEvidence: .managedChild,
+            startedAt: 100, updatedAt: 200, endedAt: nil
+        )
+
+        let canonical: [AgentSessionRunRecord?] = [[authoritative, child], [child, authoritative]].map { runs in
+            let values = AgentSessionRunCanonicalizer.runs(
+                record: ClaudeHookSessionRecord(
+                    sessionId: "session", workspaceId: "workspace", surfaceId: "surface",
+                    startedAt: 100, updatedAt: 200, runs: runs
+                ),
+                provider: "codex"
+            )
+            return values.first
+        }
+        let first = try #require(canonical[0])
+        let second = try #require(canonical[1])
+        #expect(first == second)
+        #expect(first.restoreAuthority == false)
+        #expect(first.relationship == .spawned)
+        #expect(first.authorityEvidence == .managedChild)
+        #expect(first.parentRunId == "parent-run")
+        #expect(first.pid == 42)
+        #expect(first.processStartedAt == 100)
+        #expect(first.cmuxRuntime?.id == "runtime-a")
+        #expect(first.cmuxRuntime?.socketPath == "/tmp/cmux-test.sock")
+        #expect(first.cmuxRuntime?.bundleIdentifier == "com.cmux.test")
+        #expect(first.identityConflict != true)
+    }
+
+    @Test func equalTimeEndedDuplicateCannotBeRevivedByLiveDuplicate() throws {
+        let live = AgentSessionRunRecord(
+            runId: "shared-run", pid: 42, processStartedAt: 100,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true, startedAt: 100, updatedAt: 200, endedAt: nil
+        )
+        let ended = AgentSessionRunRecord(
+            runId: "shared-run", pid: 42, processStartedAt: 100,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: false, startedAt: 100, updatedAt: 200, endedAt: 250
+        )
+
+        for runs in [[live, ended], [ended, live]] {
+            let canonical = try #require(AgentSessionRunCanonicalizer.runs(
+                record: ClaudeHookSessionRecord(
+                    sessionId: "session", workspaceId: "workspace", surfaceId: "surface",
+                    startedAt: 100, updatedAt: 200, runs: runs
+                ),
+                provider: "codex"
+            ).first)
+            #expect(canonical.endedAt == 250)
+            #expect(canonical.restoreAuthority == false)
+        }
+    }
+
+    @Test func equalTimeIdentityConflictsFailClosedWithoutRecordFallback() throws {
+        let recordRuntime = AgentCmuxRuntimeIdentity(
+            id: "record-runtime", socketPath: "/tmp/record.sock", bundleIdentifier: nil
+        )
+        let baseline = AgentSessionRunRecord(
+            runId: "shared-run", pid: 42, processStartedAt: 100,
+            cmuxRuntime: AgentCmuxRuntimeIdentity(
+                id: "runtime-a", socketPath: "/tmp/a.sock", bundleIdentifier: nil
+            ),
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true, startedAt: 100, updatedAt: 200, endedAt: nil
+        )
+        var runtimeConflict = baseline
+        runtimeConflict.cmuxRuntime = AgentCmuxRuntimeIdentity(
+            id: "runtime-b", socketPath: "/tmp/b.sock", bundleIdentifier: nil
+        )
+        var processConflict = baseline
+        processConflict.pid = 84
+        processConflict.processStartedAt = 101
+
+        for conflicting in [runtimeConflict, processConflict] {
+            for runs in [[baseline, conflicting], [conflicting, baseline]] {
+                let canonical = try #require(AgentSessionRunCanonicalizer.runs(
+                    record: ClaudeHookSessionRecord(
+                        sessionId: "session", workspaceId: "workspace", surfaceId: "surface",
+                        startedAt: 100, updatedAt: 200, runs: runs, cmuxRuntime: recordRuntime
+                    ),
+                    provider: "codex"
+                ).first)
+                #expect(canonical.identityConflict == true)
+                #expect(canonical.restoreAuthority == false)
+                #expect(canonical.pid == nil)
+                #expect(canonical.processStartedAt == nil)
+                #expect(canonical.cmuxRuntime == nil)
+                #expect(canonical.cmuxRuntime(fallingBackTo: recordRuntime) == nil)
+            }
+        }
     }
 
     @Test func agentsTreeTextPreservesDepthFirstOrderingAndGuideBytes() throws {
@@ -1476,6 +1714,114 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func limitedAgentListBoundsTenThousandSameProcessPayloadEnrichmentsToTopK() {
+        var enrichmentCount = 0
+        var entries = SessionListEntryAccumulator(limit: 100)
+        for index in 0..<10_000 {
+            entries.insert(
+                updatedAt: Double(index),
+                payload: [
+                    "session_id": "session-\(index)",
+                    "process_key": "runtime-a\u{1F}surface-a\u{1F}42",
+                ],
+                enrichment: { payload in
+                    enrichmentCount += 1
+                    payload["enriched"] = true
+                }
+            )
+        }
+
+        #expect(enrichmentCount == 0)
+        let payloads = entries.sortedPayloads
+        #expect(entries.totalCount == 10_000)
+        #expect(entries.retainedCount == 100)
+        #expect(payloads.count == 100)
+        #expect(enrichmentCount == 100)
+        #expect(payloads.allSatisfy { $0["enriched"] as? Bool == true })
+    }
+
+    @Test func terminalObservationCandidateRetentionIsBoundedForTenThousandSameProcessSessions() {
+        let observation = makeTerminalObservation(state: .working, lifecycleAuthoritative: false)
+        let activeSessionID = "session-9999"
+        let surfaceKey = AgentTerminalObservationJoiner.surfaceKey(
+            provider: observation.sessionProviderID,
+            runtimeID: observation.runtimeID,
+            surfaceID: observation.surfaceID.uuidString
+        )
+        var accumulator = AgentTerminalObservationCandidateAccumulator(
+            observations: [observation],
+            activeSessionBySurface: [surfaceKey: activeSessionID]
+        )
+        for index in 0..<10_000 {
+            accumulator.insert(makeTerminalNodeCandidate(
+                sessionID: "session-\(index)",
+                observation: observation,
+                effectiveState: .idle
+            ))
+        }
+
+        var activeCandidates = accumulator.retainedCandidates
+        #expect(activeCandidates.count == 3)
+        #expect(AgentTerminalObservationJoiner().merge(
+            nodes: &activeCandidates,
+            observations: [observation],
+            activeSessionBySurface: [surfaceKey: activeSessionID]
+        ))
+        #expect(activeCandidates.count == 3)
+        #expect(activeCandidates.first {
+            $0.sessionId == activeSessionID
+        }?.effectiveState == .working)
+        #expect(!activeCandidates.contains { $0.identitySource == "terminal_process" })
+
+        var ambiguousAccumulator = AgentTerminalObservationCandidateAccumulator(
+            observations: [observation],
+            activeSessionBySurface: [:]
+        )
+        for index in 0..<10_000 {
+            ambiguousAccumulator.insert(makeTerminalNodeCandidate(
+                sessionID: "session-\(index)",
+                observation: observation,
+                effectiveState: .idle
+            ))
+        }
+        var ambiguousCandidates = ambiguousAccumulator.retainedCandidates
+        #expect(ambiguousCandidates.count == 2)
+        #expect(AgentTerminalObservationJoiner().merge(
+            nodes: &ambiguousCandidates,
+            observations: [observation],
+            activeSessionBySurface: [:]
+        ))
+        #expect(ambiguousCandidates.count == 3)
+        #expect(ambiguousCandidates.filter { $0.identitySource == "terminal_process" }.count == 1)
+    }
+
+    @Test func processIdentityRejectsPIDReuseBetweenMetadataReads() {
+        var executableProbeCount = 0
+        var argumentsProbeCount = 0
+        var verificationProbeCount = 0
+        let identity = AgentStableProcessIdentityValidator.identity(
+            for: 42,
+            probedKernelStartTime: 100,
+            processStartTimeLookup: { _ in
+                verificationProbeCount += 1
+                return 101
+            },
+            executablePathLookup: { _ in
+                executableProbeCount += 1
+                return "/usr/bin/claude"
+            },
+            argumentsLookup: { _ in
+                argumentsProbeCount += 1
+                return ["claude", "--resume", "saved"]
+            }
+        )
+
+        #expect(identity == nil)
+        #expect(executableProbeCount == 1)
+        #expect(argumentsProbeCount == 1)
+        #expect(verificationProbeCount == 1)
+    }
+
     @Test func limitedAgentListTextAndJSONPreserveCountLimitAndOrdering() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -1487,7 +1833,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             to: root.appendingPathComponent("opencode-hook-sessions.json")
         )
         let baseArguments = [
-            "agents", "list", "--agent", "opencode", "--limit", "2",
+            "agents", "list", "--agent", "opencode", "--all", "--limit", "2",
             "--state-dir", root.path,
         ]
         let environment = isolatedAgentTreeEnvironment(home: root)
@@ -1503,7 +1849,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(lines.count == 3)
         #expect(lines[0].contains("opencode session-00003 "))
         #expect(lines[1].contains("opencode session-00002 "))
-        #expect(lines[2] == "... 2 more. Pass --all or --limit <n>.")
+        #expect(lines[2] == "... 2 more. Raise --limit <n>.")
 
         let json = runProcess(
             executablePath: cliPath,
@@ -1521,6 +1867,28 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(sessions.compactMap { $0["session_id"] as? String } == [
             "session-00003", "session-00002",
         ])
+
+        let unlimitedJSON = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "list", "--agent", "opencode", "--all", "--json",
+                "--state-dir", root.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+        let unlimitedObject = try #require(
+            JSONSerialization.jsonObject(with: Data(unlimitedJSON.stdout.utf8)) as? [String: Any]
+        )
+        let unlimitedSessions = try #require(unlimitedObject["sessions"] as? [[String: Any]])
+        #expect(unlimitedJSON.status == 0, Comment(rawValue: unlimitedJSON.stdout))
+        #expect(unlimitedSessions.count == 4)
+        for index in sessions.indices {
+            #expect(
+                NSDictionary(dictionary: sessions[index]).isEqual(to: unlimitedSessions[index]),
+                Comment(rawValue: "retained row \(index) diverged from unbounded output")
+            )
+        }
     }
 
     @Test func agentsTreeTextDoesNotOverflowTheStackBeyondTwoThousandFiveHundredLevels() throws {
@@ -1626,9 +1994,12 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
-    @Test func runOnlyGraphParentsRejectASingleForeignProviderCandidate() {
+    @Test func runOnlyGraphParentsResolveOneForeignProviderAndRejectGlobalAmbiguity() {
         let foreignParent = makeAgentSessionGraphTestNode(
             provider: "claude", sessionID: "foreign", runID: "shared-run", updatedAt: 200
+        )
+        let ambiguousForeignParent = makeAgentSessionGraphTestNode(
+            provider: "pi", sessionID: "other-foreign", runID: "shared-run", updatedAt: 300
         )
         let child = makeAgentSessionGraphTestNode(
             provider: "codex", sessionID: "child", runID: "child-run", updatedAt: 400
@@ -1639,8 +2010,15 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         #expect(
-            AgentSessionGraphEdgeResolver(nodes: [foreignParent, child]).parentNodeId(for: edge) == nil
+            AgentSessionGraphEdgeResolver(nodes: [foreignParent, child]).parentNodeId(for: edge)
+                == foreignParent.nodeId
         )
+        for nodes in [
+            [foreignParent, ambiguousForeignParent, child],
+            [ambiguousForeignParent, child, foreignParent],
+        ] {
+            #expect(AgentSessionGraphEdgeResolver(nodes: nodes).parentNodeId(for: edge) == nil)
+        }
     }
 
     @Test func exactRunAndSessionGraphParentsStayWithinTheChildProvider() {
@@ -1663,8 +2041,15 @@ extension CMUXCLIErrorOutputRegressionTests {
                 == codexParent.nodeId
         )
         #expect(
-            AgentSessionGraphEdgeResolver(nodes: [claudeParent, child]).parentNodeId(for: edge) == nil
+            AgentSessionGraphEdgeResolver(nodes: [claudeParent, child]).parentNodeId(for: edge)
+                == claudeParent.nodeId
         )
+        let ambiguousForeignParent = makeAgentSessionGraphTestNode(
+            provider: "pi", sessionID: "shared-session", runID: "shared-run", updatedAt: 350
+        )
+        #expect(AgentSessionGraphEdgeResolver(
+            nodes: [claudeParent, ambiguousForeignParent, child]
+        ).parentNodeId(for: edge) == nil)
     }
 
     @Test func graphParentTieOrderingSurvivesSelfExclusion() {
@@ -1684,7 +2069,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
-    @Test func sessionOnlyGraphParentTieOrderingIsIndependentOfInputOrder() {
+    @Test func graphResolverRejectsEdgesWhoseChildIsOutsideTheVisibleGraph() {
         let codex = makeAgentSessionGraphTestNode(
             provider: "codex", sessionID: "shared-session", runID: "shared-run", updatedAt: 200
         )
@@ -1695,10 +2080,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             fromRunId: nil, fromSessionId: "shared-session",
             toNodeId: "missing-child", toRunId: "child-run", relationship: .resumed
         )
-        let expected = [codex.nodeId, claude.nodeId].min()
-
         for nodes in [[codex, claude], [claude, codex]] {
-            #expect(AgentSessionGraphEdgeResolver(nodes: nodes).parentNodeId(for: edge) == expected)
+            #expect(AgentSessionGraphEdgeResolver(nodes: nodes).parentNodeId(for: edge) == nil)
         }
     }
 
@@ -2003,6 +2386,312 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect((output["nodes"] as? [Any])?.isEmpty == true)
     }
 
+    @Test func agentsTreeNodeBudgetIsGlobalStructuredAndNeverReturnsPartialRows() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-budget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeAgentTreeStore(
+            parentIndices: [nil, nil],
+            to: root.appendingPathComponent("codex-hook-sessions.json")
+        )
+        try writeAgentTreeStore(
+            parentIndices: [nil, nil],
+            to: root.appendingPathComponent("opencode-hook-sessions.json")
+        )
+        let environment = isolatedAgentTreeEnvironment(home: root)
+
+        let text = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "tree", "--all", "--max-nodes", "3", "--state-dir", root.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!text.timedOut, Comment(rawValue: text.stdout))
+        #expect(text.status != 0)
+        #expect(text.stdout.contains("agent_graph_node_budget_exceeded"))
+        #expect(!text.stdout.contains("codex session-"))
+        #expect(!text.stdout.contains("opencode session-"))
+
+        let stderrURL = root.appendingPathComponent("tree-budget-stderr.txt")
+        let jsonArguments = [
+            cliPath, "agents", "tree", "--all", "--json", "--max-nodes", "3",
+            "--state-dir", root.path,
+        ]
+        let jsonCommand = jsonArguments.map(shellQuoteAgentTreeArgument).joined(separator: " ")
+        let json = runProcess(
+            executablePath: "/bin/sh",
+            arguments: [
+                "-c", "\(jsonCommand) 2>\(shellQuoteAgentTreeArgument(stderrURL.path))",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!json.timedOut, Comment(rawValue: json.stdout))
+        #expect(json.status != 0)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(json.stdout.utf8)) as? [String: Any]
+        )
+        let error = try #require(payload["error"] as? [String: Any])
+        #expect(payload["schema_version"] as? Int == 2)
+        #expect(error["code"] as? String == "agent_graph_node_budget_exceeded")
+        #expect(error["limit"] as? Int == 3)
+        #expect(error["observed_at_least"] as? Int == 4)
+        #expect((payload["nodes"] as? [Any])?.isEmpty == true)
+        #expect((payload["edges"] as? [Any])?.isEmpty == true)
+        let stderr = try String(contentsOf: stderrURL, encoding: .utf8)
+        #expect(stderr.contains("agent_graph_node_budget_exceeded"))
+
+        let filtered = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "tree", "--agent", "opencode", "--session", "session-00001",
+                "--all", "--json", "--max-nodes", "3", "--state-dir", root.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(filtered.status == 0, Comment(rawValue: filtered.stdout))
+        let filteredPayload = try #require(
+            JSONSerialization.jsonObject(with: Data(filtered.stdout.utf8)) as? [String: Any]
+        )
+        let filteredNodes = try #require(filteredPayload["nodes"] as? [[String: Any]])
+        #expect(filteredNodes.count == 1)
+        #expect(filteredNodes.first?["session_id"] as? String == "session-00001")
+    }
+
+    @Test func agentsTreePreflightCountsSessionProcessCohortsAndCanonicalizesDuplicateRuns() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-cohort-budget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        let runtime: [String: Any] = ["id": "runtime-a"]
+        let cohortRecords = try (0..<4).map { index in
+            let sessionID = index == 0 ? "selected-session" : "cohort-\(index)"
+            let runID = "run-\(index)"
+            let record: [String: Any] = [
+                "sessionId": sessionID,
+                "workspaceId": "workspace",
+                "surfaceId": "surface",
+                "runId": runID,
+                "activeRunId": runID,
+                "cmuxRuntime": runtime,
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+                "runs": [[
+                    "runId": runID,
+                    "pid": 42,
+                    "processStartedAt": 100.0,
+                    "cmuxRuntime": runtime,
+                    "restoreAuthority": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ]],
+            ]
+            return CmuxAgentSessionRegistry.Record(
+                provider: "opencode",
+                sessionID: sessionID,
+                updatedAt: 200,
+                json: try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            )
+        }
+        try registry.apply(provider: "opencode", records: cohortRecords)
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        let cohort = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "tree", "--agent", "opencode", "--session", "selected-session",
+                "--all", "--max-nodes", "3", "--state-dir", root.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(cohort.status != 0)
+        #expect(cohort.stdout.contains("agent_graph_node_budget_exceeded"))
+
+        let duplicateRuns: [[String: Any]] = (0..<5_000).map { index in
+            [
+                "runId": "one-logical-run",
+                "restoreAuthority": index.isMultiple(of: 2),
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]
+        }
+        let duplicateRecord: [String: Any] = [
+            "sessionId": "duplicate-session",
+            "workspaceId": "workspace",
+            "surfaceId": "surface",
+            "runId": "one-logical-run",
+            "activeRunId": "one-logical-run",
+            "startedAt": 100.0,
+            "updatedAt": 200.0,
+            "runs": duplicateRuns,
+        ]
+        try registry.apply(provider: "gemini", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "gemini",
+                sessionID: "duplicate-session",
+                updatedAt: 200,
+                json: try JSONSerialization.data(
+                    withJSONObject: duplicateRecord,
+                    options: [.sortedKeys]
+                )
+            ),
+        ])
+        let duplicate = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "tree", "--agent", "gemini", "--session", "duplicate-session",
+                "--all", "--json", "--max-nodes", "1", "--state-dir", root.path,
+            ],
+            environment: environment,
+            timeout: 10
+        )
+        #expect(!duplicate.timedOut, Comment(rawValue: duplicate.stdout))
+        #expect(duplicate.status == 0, Comment(rawValue: duplicate.stdout))
+        let duplicatePayload = try #require(
+            JSONSerialization.jsonObject(with: Data(duplicate.stdout.utf8)) as? [String: Any]
+        )
+        #expect((duplicatePayload["nodes"] as? [Any])?.count == 1)
+    }
+
+    @Test func agentsTreeRejectsInvalidBudgetsExcessiveDepthAndOversizedRawRecords() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-limits-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let environment = isolatedAgentTreeEnvironment(home: root)
+
+        for value in ["0", "not-a-number", "20001"] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["agents", "tree", "--max-nodes", value, "--state-dir", root.path],
+                environment: environment,
+                timeout: 5
+            )
+            #expect(result.status != 0)
+            #expect(result.stdout.contains("--max-nodes must be an integer from 1 through 20000"))
+        }
+
+        let depth = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--depth", "4097", "--state-dir", root.path],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(depth.status != 0)
+        #expect(depth.stdout.contains("--depth must not exceed 4096"))
+
+        let sessionID = "oversized-session"
+        var oversizedJSON = Data(
+            "{\"sessionId\":\"\(sessionID)\",\"workspaceId\":\"workspace\",\"surfaceId\":\"surface\",\"startedAt\":100,\"updatedAt\":200,\"padding\":\"".utf8
+        )
+        oversizedJSON.append(Data(repeating: 97, count: (4 * 1_024 * 1_024) + 1))
+        oversizedJSON.append(Data("\"}".utf8))
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try registry.apply(provider: "codex", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex", sessionID: sessionID, updatedAt: 200, json: oversizedJSON
+            ),
+        ])
+        for subcommand in ["list", "tree"] {
+            let oversizedStderrURL = root.appendingPathComponent("oversized-\(subcommand)-stderr.txt")
+            let oversizedCommand = [
+                cliPath, "agents", subcommand, "--agent", "codex", "--session", sessionID,
+                "--all", "--json", "--state-dir", root.path,
+            ].map(shellQuoteAgentTreeArgument).joined(separator: " ")
+            let oversized = runProcess(
+                executablePath: "/bin/sh",
+                arguments: [
+                    "-c", "\(oversizedCommand) 2>\(shellQuoteAgentTreeArgument(oversizedStderrURL.path))",
+                ],
+                environment: environment,
+                timeout: 15
+            )
+            #expect(!oversized.timedOut, Comment(rawValue: oversized.stdout))
+            #expect(oversized.status != 0)
+            let oversizedPayload = try #require(
+                JSONSerialization.jsonObject(with: Data(oversized.stdout.utf8)) as? [String: Any]
+            )
+            #expect(oversizedPayload["schema_version"] as? Int == 2)
+            let oversizedError = try #require(oversizedPayload["error"] as? [String: Any])
+            #expect(oversizedError["code"] as? String == "storage_limit_exceeded")
+            #expect(oversizedError["provider"] as? String == "codex")
+            #expect(oversizedError["path"] as? String == registry.url.path)
+            #expect(oversizedError["scope"] as? String == "registry_record")
+            #expect(oversizedError["session_id"] as? String == sessionID)
+            #expect((oversizedError["observed_bytes"] as? Int64) ?? 0 > 4 * 1_024 * 1_024)
+            #expect(oversizedError["maximum_bytes"] as? Int64 == 4 * 1_024 * 1_024)
+            #expect(oversizedError["recovery_action"] as? String == "narrow_agent_selection")
+            #expect((oversizedError["guidance"] as? String)?.contains("--agent codex") == true)
+            if subcommand == "tree" {
+                #expect((oversizedPayload["nodes"] as? [Any])?.isEmpty == true)
+                #expect((oversizedPayload["edges"] as? [Any])?.isEmpty == true)
+            } else {
+                #expect((oversizedPayload["sessions"] as? [Any])?.isEmpty == true)
+            }
+            let stderr = try String(contentsOf: oversizedStderrURL, encoding: .utf8)
+            #expect(stderr.contains("Retry with --agent codex"))
+            #expect(stderr.contains(registry.url.path))
+            #expect(stderr.contains(sessionID))
+        }
+    }
+
+    @Test func legacyStorageLimitGuidancePreservesTheCompatibilityFile() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-legacy-record-limit-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionID = "session-over-limit"
+        let legacyURL = root.appendingPathComponent("codex-hook-sessions.json")
+        var legacyData = Data(
+            "{\"version\":2,\"sessions\":{\"\(sessionID)\":{\"sessionId\":\"\(sessionID)\",\"workspaceId\":\"workspace\",\"surfaceId\":\"surface\",\"startedAt\":100,\"updatedAt\":200,\"padding\":\"".utf8
+        )
+        legacyData.append(Data(repeating: 97, count: (4 * 1_024 * 1_024) + 1))
+        legacyData.append(Data("\"}}}".utf8))
+        try legacyData.write(to: legacyURL, options: .atomic)
+
+        let stderrURL = root.appendingPathComponent("legacy-limit-stderr.txt")
+        let command = [
+            cliPath, "agents", "tree", "--agent", "codex", "--session", sessionID,
+            "--all", "--json", "--state-dir", root.path,
+        ].map(shellQuoteAgentTreeArgument).joined(separator: " ")
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "\(command) 2>\(shellQuoteAgentTreeArgument(stderrURL.path))"],
+            environment: isolatedAgentTreeEnvironment(home: root),
+            timeout: 15
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let error = try #require(payload["error"] as? [String: Any])
+        #expect(error["code"] as? String == "storage_limit_exceeded")
+        #expect(error["scope"] as? String == "legacy_record")
+        #expect(error["session_id"] as? String == sessionID)
+        #expect(error["path"] as? String == legacyURL.path)
+        #expect(error["recovery_action"] as? String == "move_legacy_file_aside")
+        let stderr = try String(contentsOf: stderrURL, encoding: .utf8)
+        #expect(stderr.contains("Move \(legacyURL.path) aside without deleting it"))
+        #expect(stderr.contains(root.appendingPathComponent(CmuxAgentSessionRegistry.filename).path))
+        #expect(stderr.contains("If that database has no codex rows"))
+        #expect(FileManager.default.fileExists(atPath: legacyURL.path))
+    }
+
     @Test func agentsTreeRejectsUnknownAgentLikeAgentsList() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -2076,6 +2765,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             ("tree", "--activity"),
             ("tree", "--work-kind"),
             ("tree", "--depth"),
+            ("tree", "--max-nodes"),
         ]
 
         for testCase in cases {

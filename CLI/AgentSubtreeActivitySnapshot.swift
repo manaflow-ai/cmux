@@ -80,19 +80,27 @@ extension AgentActivitySnapshot.Counts {
 /// Computes descendant rollups from leaves to roots in O(nodes + edges). Cycles
 /// are ignored instead of recursing or blocking the CLI on corrupt history.
 struct AgentSubtreeActivityProjector: Sendable {
+    private struct EdgeKey: Hashable, Sendable {
+        var parent: Int
+        var child: Int
+    }
+
     func project(nodes: inout [AgentSessionGraphNode], edges: [AgentSessionGraphEdge]) {
-        nodes = AgentSessionGraphNodeIndex.canonicalNodes(nodes)
-        let indexByNode = AgentSessionGraphNodeIndex.indices(nodes)
+        var indexByNode = AgentSessionGraphNodeIndex.indices(nodes)
+        if indexByNode.count != nodes.count {
+            nodes = indexByNode.values.sorted().map { nodes[$0] }
+            indexByNode = AgentSessionGraphNodeIndex.indices(nodes)
+        }
         let edgeResolver = AgentSessionGraphEdgeResolver(nodes: nodes)
         var parentsByChild: [Int: [Int]] = [:]
         var remainingChildren = Array(repeating: 0, count: nodes.count)
-        var seenEdges: Set<String> = []
+        var seenEdges: Set<EdgeKey> = []
         for edge in edges {
             guard let parentNode = edgeResolver.parentNodeId(for: edge),
                   let parent = indexByNode[parentNode],
                   let child = indexByNode[edge.toNodeId],
                   parent != child else { continue }
-            let edgeKey = "\(parent):\(child)"
+            let edgeKey = EdgeKey(parent: parent, child: child)
             guard seenEdges.insert(edgeKey).inserted else { continue }
             parentsByChild[child, default: []].append(parent)
             remainingChildren[parent] += 1

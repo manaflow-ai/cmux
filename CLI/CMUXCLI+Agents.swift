@@ -64,11 +64,12 @@ extension CMUXCLI {
         List options:
           --cwd <text>          Filter by saved cwd or launch working directory
           --codex-home <path>   Override the default Codex home used for transcript checks
-          --limit <n>           Limit text output (default: 100)
+          --limit <n>           Limit rows (default: 100; with --all: unlimited)
 
         Tree options:
           --relation <kind>     Filter edges to spawned, forked, or resumed
-          --depth <n>           Limit rendered tree depth (default: 64)
+          --depth <n>           Limit rendered tree depth (default: 64; maximum: 4096)
+          --max-nodes <n>       Cap graph nodes (default: 10000; maximum: 20000)
 
         Codex rows include whether the saved id exists in CODEX_HOME/session_index.jsonl
         and whether a matching transcript file exists under CODEX_HOME/sessions or
@@ -106,16 +107,196 @@ extension CMUXCLI {
         }
     }
 
-    func agentsStoreLoadCLIError(_ failure: AgentHookSessionStoreLoadFailure) -> CLIError {
-        CLIError(message: String(
-            format: String(
-                localized: "cli.agents.error.storeLoadFailed",
-                defaultValue: "agents: [%@] saved %@ agent state at %@ could not be read and no complete fallback is available"
-            ),
-            failure.code.rawValue,
-            failure.provider,
-            failure.path
-        ))
+    func agentsStoreLoadCLIError(
+        _ failure: AgentHookSessionStoreLoadFailure,
+        context: AgentsValueOptionContext,
+        jsonOutput: Bool
+    ) -> CLIError {
+        let isTreeContext = switch context {
+        case .tree: true
+        case .list: false
+        }
+        let isGraphBudget = isTreeContext
+            && (failure.scope == .legacyGraphNodes || failure.scope == .registryGraphNodes)
+        let externalCode = isGraphBudget
+            ? "agent_graph_node_budget_exceeded"
+            : failure.code.rawValue
+        let failureHasLegacyScope = switch failure.scope {
+        case .legacyFile?, .legacySessions?, .legacyGraphNodes?, .legacyRecord?: true
+        default: false
+        }
+        let isLegacyStorageLimit = !isGraphBudget && failureHasLegacyScope
+        let canonicalPath = isLegacyStorageLimit
+            ? (failure.canonicalPath ?? URL(fileURLWithPath: failure.path).deletingLastPathComponent()
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename, isDirectory: false)
+                .path)
+            : nil
+        let storageGuidance: String? = if failure.code == .storageLimitExceeded {
+            if isGraphBudget {
+                String(
+                    format: String(
+                        localized: "cli.agents.error.storageLimitGuidance.graph",
+                        defaultValue: "Narrow the selection with --agent %@ or raise --max-nodes, up to %lld."
+                    ),
+                    failure.provider,
+                    Self.agentsTreeHardMaximumNodes
+                )
+            } else if let canonicalPath {
+                String(
+                    format: String(
+                        localized: "cli.agents.error.storageLimitGuidance.legacy",
+                        defaultValue: "Move %@ aside without deleting it, then rerun so cmux can rebuild it from %@. If that database has no %@ rows, keep the moved file and restore it before proceeding."
+                    ),
+                    failure.path,
+                    canonicalPath,
+                    failure.provider
+                )
+            } else {
+                String(
+                    format: String(
+                        localized: "cli.agents.error.storageLimitGuidance.canonical",
+                        defaultValue: "Retry with --agent %@ to narrow the selection; inspect the canonical store at %@ before changing it."
+                    ),
+                    failure.provider,
+                    failure.path
+                )
+            }
+        } else {
+            nil
+        }
+        let message: String
+        if failure.code == .storageLimitExceeded,
+           let scope = failure.scope,
+           let storageGuidance {
+            if let observedBytes = failure.observedBytes,
+               let maximumBytes = failure.maximumBytes,
+               let sessionID = failure.sessionID {
+                message = String(
+                    format: String(
+                        localized: "cli.agents.error.storageLimitExceeded.session",
+                        defaultValue: "agents: [%@] saved %@ agent state at %@ exceeds the %@ inspection limit for session %@ (%lld bytes observed, %lld maximum); %@"
+                    ),
+                    externalCode,
+                    failure.provider,
+                    failure.path,
+                    scope.rawValue,
+                    sessionID,
+                    observedBytes,
+                    maximumBytes,
+                    storageGuidance
+                )
+            } else if let observedBytes = failure.observedBytes,
+                      let maximumBytes = failure.maximumBytes {
+                message = String(
+                    format: String(
+                        localized: "cli.agents.error.storageLimitExceeded",
+                        defaultValue: "agents: [%@] saved %@ agent state at %@ exceeds the %@ inspection limit (%lld bytes observed, %lld maximum); %@"
+                    ),
+                    externalCode,
+                    failure.provider,
+                    failure.path,
+                    scope.rawValue,
+                    observedBytes,
+                    maximumBytes,
+                    storageGuidance
+                )
+            } else if let observedCount = failure.observedCount,
+                      let maximumCount = failure.maximumCount,
+                      let sessionID = failure.sessionID {
+                message = String(
+                    format: String(
+                        localized: "cli.agents.error.storageLimitExceededCount.session",
+                        defaultValue: "agents: [%@] saved %@ agent state at %@ exceeds the %@ inspection limit for session %@ (%lld entries observed, %lld maximum); %@"
+                    ),
+                    externalCode,
+                    failure.provider,
+                    failure.path,
+                    scope.rawValue,
+                    sessionID,
+                    observedCount,
+                    maximumCount,
+                    storageGuidance
+                )
+            } else if let observedCount = failure.observedCount,
+                      let maximumCount = failure.maximumCount {
+                message = String(
+                    format: String(
+                        localized: "cli.agents.error.storageLimitExceededCount",
+                        defaultValue: "agents: [%@] saved %@ agent state at %@ exceeds the %@ inspection limit (%lld entries observed, %lld maximum); %@"
+                    ),
+                    externalCode,
+                    failure.provider,
+                    failure.path,
+                    scope.rawValue,
+                    observedCount,
+                    maximumCount,
+                    storageGuidance
+                )
+            } else {
+                message = String(
+                    format: String(
+                        localized: "cli.agents.error.storeLoadFailed",
+                        defaultValue: "agents: [%@] saved %@ agent state at %@ could not be read and no complete fallback is available"
+                    ),
+                    externalCode,
+                    failure.provider,
+                    failure.path
+                )
+            }
+        } else {
+            message = String(
+                format: String(
+                    localized: "cli.agents.error.storeLoadFailed",
+                    defaultValue: "agents: [%@] saved %@ agent state at %@ could not be read and no complete fallback is available"
+                ),
+                externalCode,
+                failure.provider,
+                failure.path
+            )
+        }
+
+        if jsonOutput {
+            var error: [String: Any] = [
+                "code": externalCode,
+                "provider": failure.provider,
+                "path": failure.path,
+                "scope": failure.scope?.rawValue ?? NSNull(),
+                "session_id": failure.sessionID ?? NSNull(),
+                "observed_bytes": failure.observedBytes ?? NSNull(),
+                "maximum_bytes": failure.maximumBytes ?? NSNull(),
+                "observed_count": failure.observedCount ?? NSNull(),
+                "maximum_count": failure.maximumCount ?? NSNull(),
+                "message": message,
+            ]
+            if let storageGuidance {
+                error["guidance"] = storageGuidance
+                error["recovery_action"] = if isGraphBudget {
+                    "narrow_graph_selection"
+                } else if isLegacyStorageLimit {
+                    "move_legacy_file_aside"
+                } else {
+                    "narrow_agent_selection"
+                }
+            }
+            if let canonicalPath { error["canonical_path"] = canonicalPath }
+            if isGraphBudget {
+                error["limit"] = failure.maximumCount ?? NSNull()
+                error["observed_at_least"] = failure.observedCount ?? NSNull()
+            }
+            var payload: [String: Any] = [
+                "schema_version": 2,
+                "error": error,
+            ]
+            switch context {
+            case .list:
+                payload["sessions"] = []
+            case .tree:
+                payload["nodes"] = []
+                payload["edges"] = []
+            }
+            cliWriteStdout(jsonString(payload) + "\n")
+        }
+        return CLIError(message: message, v2Code: externalCode)
     }
 
     func sessionsListEncodableJSONObject<T: Encodable>(_ value: T) -> Any {

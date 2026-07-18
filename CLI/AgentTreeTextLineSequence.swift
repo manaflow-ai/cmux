@@ -12,12 +12,12 @@ struct AgentTreeTextLineSequence: Sequence {
 
     struct Iterator: IteratorProtocol {
         private struct ResolvedEdgeKey: Hashable {
-            let parentNodeID: String
-            let childNodeID: String
+            let parentNodeIndex: Int
+            let childNodeIndex: Int
         }
 
         private struct RenderFrame {
-            var node: AgentSessionGraphNode
+            var nodeIndex: Int
             var relationship: AgentSessionRelationship?
             var prefix: String
             var connector: String
@@ -25,66 +25,67 @@ struct AgentTreeTextLineSequence: Sequence {
         }
 
         private struct Child {
-            var node: AgentSessionGraphNode
+            var nodeIndex: Int
             var relationship: AgentSessionRelationship
         }
 
         private let maximumDepth: Int
-        private let childrenByNodeID: [String: [Child]]
-        private let roots: [AgentSessionGraphNode]
+        private let childrenByNodeIndex: [Int: [Child]]
+        private let roots: [Int]
         private let nodes: [AgentSessionGraphNode]
         private var nextRootIndex = 0
         private var nextFallbackIndex = 0
         private var stack: [RenderFrame] = []
-        private var visited: Set<String> = []
-        private var covered: Set<String> = []
+        private var visited: Set<Int> = []
+        private var covered: Set<Int> = []
 
         init(snapshot: AgentSessionGraphSnapshot, maximumDepth: Int) {
             self.maximumDepth = maximumDepth
             nodes = snapshot.nodes
-            let nodeByID = AgentSessionGraphNodeIndex.nodes(snapshot.nodes)
+            guard !snapshot.edges.isEmpty else {
+                childrenByNodeIndex = [:]
+                roots = Array(snapshot.nodes.indices)
+                return
+            }
+            let indexByNodeID = AgentSessionGraphNodeIndex.indices(snapshot.nodes)
             let edgeResolver = AgentSessionGraphEdgeResolver(nodes: snapshot.nodes)
             var seenEdgeKeys: Set<ResolvedEdgeKey> = []
-            let resolvedEdges = snapshot.edges.compactMap {
-                edge -> (parentNodeID: String, edge: AgentSessionGraphEdge)? in
+            var mutableChildrenByNodeIndex: [Int: [Child]] = [:]
+            var childNodeIndices: Set<Int> = []
+            for edge in snapshot.edges {
                 guard let parentNodeID = edgeResolver.parentNodeId(for: edge),
+                      let parentNodeIndex = indexByNodeID[parentNodeID],
+                      let childNodeIndex = indexByNodeID[edge.toNodeId],
                       seenEdgeKeys.insert(ResolvedEdgeKey(
-                          parentNodeID: parentNodeID,
-                          childNodeID: edge.toNodeId
-                      )).inserted else { return nil }
-                return (parentNodeID, edge)
+                          parentNodeIndex: parentNodeIndex,
+                          childNodeIndex: childNodeIndex
+                      )).inserted else { continue }
+                mutableChildrenByNodeIndex[parentNodeIndex, default: []].append(Child(
+                    nodeIndex: childNodeIndex,
+                    relationship: edge.relationship
+                ))
+                childNodeIndices.insert(childNodeIndex)
             }
-            let childEdgesByNodeID = Dictionary(
-                grouping: resolvedEdges,
-                by: \.parentNodeID
-            ).mapValues { $0.map(\.edge) }
-            childrenByNodeID = childEdgesByNodeID.mapValues { edges in
-                edges.compactMap { edge in
-                    nodeByID[edge.toNodeId].map {
-                        Child(node: $0, relationship: edge.relationship)
-                    }
-                }
-            }
-            let childNodeIDs = Set(resolvedEdges.map { $0.edge.toNodeId })
-            roots = snapshot.nodes.filter { !childNodeIDs.contains($0.nodeId) }
+            childrenByNodeIndex = mutableChildrenByNodeIndex
+            roots = snapshot.nodes.indices.filter { !childNodeIndices.contains($0) }
         }
 
         mutating func next() -> String? {
             while true {
                 if stack.isEmpty, !seedNextTraversal() { return nil }
                 guard let frame = stack.popLast() else { continue }
-                let node = frame.node
+                let node = nodes[frame.nodeIndex]
                 guard frame.depth <= maximumDepth,
-                      visited.insert(node.nodeId).inserted else {
+                      visited.insert(frame.nodeIndex).inserted else {
                     continue
                 }
 
-                let children = childrenByNodeID[node.nodeId] ?? []
+                let children = childrenByNodeIndex[frame.nodeIndex] ?? []
                 let childPrefix = frame.prefix
                     + (frame.connector == "├── " ? "│   " : frame.connector == "└── " ? "    " : "")
                 for index in children.indices.reversed() {
                     stack.append(RenderFrame(
-                        node: children[index].node,
+                        nodeIndex: children[index].nodeIndex,
                         relationship: children[index].relationship,
                         prefix: childPrefix,
                         connector: index == children.count - 1 ? "└── " : "├── ",
@@ -102,12 +103,12 @@ struct AgentTreeTextLineSequence: Sequence {
 
         private mutating func seedNextTraversal() -> Bool {
             while nextRootIndex < roots.count {
-                let root = roots[nextRootIndex]
+                let rootIndex = roots[nextRootIndex]
                 nextRootIndex += 1
-                guard !covered.contains(root.nodeId) else { continue }
-                markReachable(from: root)
+                guard !covered.contains(rootIndex) else { continue }
+                markReachable(from: rootIndex)
                 stack.append(RenderFrame(
-                    node: root,
+                    nodeIndex: rootIndex,
                     relationship: nil,
                     prefix: "",
                     connector: "",
@@ -116,15 +117,15 @@ struct AgentTreeTextLineSequence: Sequence {
                 return true
             }
             while nextFallbackIndex < nodes.count {
-                let node = nodes[nextFallbackIndex]
+                let nodeIndex = nextFallbackIndex
                 nextFallbackIndex += 1
-                guard !covered.contains(node.nodeId) else { continue }
+                guard !covered.contains(nodeIndex) else { continue }
                 // Components made entirely of cycles have no root. Mark the
                 // whole component before rendering its fallback seed so a
                 // depth-truncated descendant cannot later reappear as a root.
-                markReachable(from: node)
+                markReachable(from: nodeIndex)
                 stack.append(RenderFrame(
-                    node: node,
+                    nodeIndex: nodeIndex,
                     relationship: nil,
                     prefix: "",
                     connector: "",
@@ -135,11 +136,11 @@ struct AgentTreeTextLineSequence: Sequence {
             return false
         }
 
-        private mutating func markReachable(from root: AgentSessionGraphNode) {
+        private mutating func markReachable(from root: Int) {
             var pending = [root]
-            while let node = pending.popLast() {
-                guard covered.insert(node.nodeId).inserted else { continue }
-                pending.append(contentsOf: (childrenByNodeID[node.nodeId] ?? []).map(\.node))
+            while let nodeIndex = pending.popLast() {
+                guard covered.insert(nodeIndex).inserted else { continue }
+                pending.append(contentsOf: (childrenByNodeIndex[nodeIndex] ?? []).map(\.nodeIndex))
             }
         }
 

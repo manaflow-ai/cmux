@@ -3,6 +3,8 @@ import Foundation
 /// Retains the exact sorted prefix for a bounded `agents list` query without
 /// keeping every matching session payload in memory.
 struct SessionListEntryAccumulator {
+    typealias Enrichment = (inout [String: Any]) -> Void
+
     private static let deterministicStringKeys = [
         "session_id", "agent", "run_id", "workspace_id", "surface_id", "identity_source",
     ]
@@ -10,6 +12,7 @@ struct SessionListEntryAccumulator {
     private struct Entry {
         var updatedAt: TimeInterval
         var payload: [String: Any]
+        var enrichment: Enrichment?
     }
 
     private let limit: Int
@@ -25,12 +28,20 @@ struct SessionListEntryAccumulator {
     var retainedCount: Int { retained.count }
 
     var sortedPayloads: [[String: Any]] {
-        retained.sorted(by: Self.isOrderedBefore).map(\.payload)
+        retained.sorted(by: Self.isOrderedBefore).map { entry in
+            var payload = entry.payload
+            entry.enrichment?(&payload)
+            return payload
+        }
     }
 
-    mutating func insert(updatedAt: TimeInterval, payload: [String: Any]) {
+    mutating func insert(
+        updatedAt: TimeInterval,
+        payload: [String: Any],
+        enrichment: Enrichment? = nil
+    ) {
         totalCount += 1
-        let entry = Entry(updatedAt: updatedAt, payload: payload)
+        let entry = Entry(updatedAt: updatedAt, payload: payload, enrichment: enrichment)
         guard limit != Int.max else {
             retained.append(entry)
             return

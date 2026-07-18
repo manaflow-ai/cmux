@@ -1040,6 +1040,118 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(nodes.compactMap { $0["session_id"] as? String }, ["current-session"])
     }
 
+    func testAgentsInspectionSocketFallbackIsBoundedAndExplicitSocketStaysAuthoritative() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-socket-timeout-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketPath = makeSocketPath("agent-timeout")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [
+                "saved-session": [
+                    "sessionId": "saved-session",
+                    "workspaceId": "workspace-saved",
+                    "surfaceId": "surface-saved",
+                    "runId": "run-saved",
+                    "restoreAuthority": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ],
+            ],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("opencode-hook-sessions.json"),
+            options: .atomic
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = root.path
+
+        var deadSocketEnvironment = environment
+        deadSocketEnvironment["CMUX_SOCKET_PATH"] = makeSocketPath("agent-dead")
+        for subcommand in ["list", "tree"] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "agents", subcommand, "--agent", "opencode", "--all",
+                    "--json", "--state-dir", root.path,
+                ],
+                environment: deadSocketEnvironment,
+                timeout: 3
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let state = MockSocketServerState()
+        let serverObservedRequest = startMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 4,
+            fulfillWhen: { line in
+                guard let data = line.data(using: .utf8),
+                      let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    return false
+                }
+                return payload["method"] as? String == "system.capabilities"
+            },
+            handler: { _ in nil }
+        )
+        var inheritedSocketEnvironment = environment
+        inheritedSocketEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        for subcommand in ["list", "tree"] {
+            let inheritedResult = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "agents", subcommand, "--agent", "opencode", "--all",
+                    "--json", "--state-dir", root.path,
+                ],
+                environment: inheritedSocketEnvironment,
+                timeout: 3
+            )
+            XCTAssertFalse(inheritedResult.timedOut, inheritedResult.stderr)
+            XCTAssertEqual(inheritedResult.status, 0, inheritedResult.stderr)
+            let inheritedPayload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(inheritedResult.stdout.utf8)) as? [String: Any]
+            )
+            let rowKey = subcommand == "list" ? "sessions" : "nodes"
+            let rows = try XCTUnwrap(inheritedPayload[rowKey] as? [[String: Any]])
+            XCTAssertEqual(rows.compactMap { $0["session_id"] as? String }, ["saved-session"])
+
+            let explicitResult = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "--socket", socketPath,
+                    "agents", subcommand, "--agent", "opencode", "--all",
+                    "--json", "--state-dir", root.path,
+                ],
+                environment: environment,
+                timeout: 3
+            )
+            XCTAssertFalse(explicitResult.timedOut, explicitResult.stderr)
+            XCTAssertNotEqual(explicitResult.status, 0)
+        }
+        wait(for: [serverObservedRequest], timeout: 1)
+        let capabilityRequests = state.snapshot().filter { line in
+            guard let data = line.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return false
+            }
+            return payload["method"] as? String == "system.capabilities"
+        }
+        XCTAssertEqual(capabilityRequests.count, 4)
+    }
+
     func testExplicitSocketScopesAgentsTreeToTheTargetRuntime() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

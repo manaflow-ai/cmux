@@ -51,7 +51,8 @@ struct AgentSessionProcessCohortMatcher: Sendable {
         record: ClaudeHookSessionRecord,
         run: AgentSessionRunRecord
     ) -> Base? {
-        guard let runtimeID = (run.cmuxRuntime ?? record.cmuxRuntime)?.id,
+        guard run.identityConflict != true,
+              let runtimeID = run.cmuxRuntime(fallingBackTo: record.cmuxRuntime)?.id,
               let pid = run.pid else { return nil }
         return Base(
             provider: provider,
@@ -63,6 +64,104 @@ struct AgentSessionProcessCohortMatcher: Sendable {
 
     private static func milliseconds(_ value: TimeInterval) -> Int64 {
         Int64((value * 1_000).rounded())
+    }
+}
+
+/// Retains only the session candidates needed to decide whether a terminal
+/// observation has one match, an active-slot match, or an ambiguous match.
+/// The full lifecycle rows are emitted by the caller's normal store pass.
+struct AgentTerminalObservationCandidateAccumulator {
+    private struct Bucket {
+        var observation: CmuxAgentTerminalObservation
+        var activeSessionID: String?
+        var activeCandidateNodeID: String?
+        var fallbackCandidateNodeIDs: [String] = []
+    }
+
+    private var bucketsByIdentity: [String: Bucket] = [:]
+    private var identitiesByProcessKey: [String: [String]] = [:]
+    private var nodesByID: [String: AgentSessionGraphNode] = [:]
+    private let joiner = AgentTerminalObservationJoiner()
+
+    init(
+        observations: [CmuxAgentTerminalObservation],
+        activeSessionBySurface: [String: String]
+    ) {
+        let observations = AgentTerminalObservationJoiner.canonicalObservations(observations)
+        bucketsByIdentity.reserveCapacity(observations.count)
+        identitiesByProcessKey.reserveCapacity(observations.count)
+        nodesByID.reserveCapacity(min(observations.count, 341) * 3)
+        for observation in observations {
+            let identity = Self.observationIdentity(observation)
+            let surfaceKey = AgentTerminalObservationJoiner.surfaceKey(
+                provider: observation.sessionProviderID,
+                runtimeID: observation.runtimeID,
+                surfaceID: observation.surfaceID.uuidString
+            )
+            bucketsByIdentity[identity] = Bucket(
+                observation: observation,
+                activeSessionID: activeSessionBySurface[surfaceKey]
+            )
+            identitiesByProcessKey[
+                AgentTerminalObservationJoiner.processKey(observation: observation),
+                default: []
+            ].append(identity)
+        }
+    }
+
+    var retainedCount: Int { retainedCandidates.count }
+
+    func contains(nodeID: String) -> Bool { nodesByID[nodeID] != nil }
+
+    var retainedCandidates: [AgentSessionGraphNode] {
+        var retainedNodeIDs: Set<String> = []
+        retainedNodeIDs.reserveCapacity(nodesByID.count)
+        for bucket in bucketsByIdentity.values {
+            if let activeCandidateNodeID = bucket.activeCandidateNodeID {
+                retainedNodeIDs.insert(activeCandidateNodeID)
+            }
+            retainedNodeIDs.formUnion(bucket.fallbackCandidateNodeIDs)
+        }
+        return retainedNodeIDs.compactMap { nodesByID[$0] }.sorted {
+            $0.nodeId < $1.nodeId
+        }
+    }
+
+    mutating func insert(_ node: AgentSessionGraphNode) {
+        let processKey = AgentTerminalObservationJoiner.processKey(node: node)
+        guard !processKey.isEmpty,
+              let identities = identitiesByProcessKey[processKey] else {
+            return
+        }
+        for identity in identities {
+            guard var bucket = bucketsByIdentity[identity],
+                  joiner.matches(node, observation: bucket.observation) else {
+                continue
+            }
+            let nodeID = node.nodeId
+            if let activeSessionID = bucket.activeSessionID,
+               node.sessionId == activeSessionID {
+                if bucket.activeCandidateNodeID == nodeID {
+                    nodesByID[nodeID] = node
+                } else if bucket.activeCandidateNodeID == nil {
+                    bucket.activeCandidateNodeID = nodeID
+                    nodesByID[nodeID] = node
+                }
+            } else if bucket.fallbackCandidateNodeIDs.contains(nodeID) {
+                nodesByID[nodeID] = node
+            } else if bucket.fallbackCandidateNodeIDs.count < 2 {
+                bucket.fallbackCandidateNodeIDs.append(nodeID)
+                nodesByID[nodeID] = node
+            }
+            bucketsByIdentity[identity] = bucket
+        }
+    }
+
+    private static func observationIdentity(_ observation: CmuxAgentTerminalObservation) -> String {
+        "\(AgentTerminalObservationJoiner.processKey(observation: observation))\u{1F}"
+            + "\(observation.surfaceGeneration)\u{1F}"
+            + "\(observation.processStartSeconds)\u{1F}"
+            + "\(observation.processStartMicroseconds)"
     }
 }
 
@@ -121,7 +220,7 @@ struct AgentTerminalObservationJoiner: Sendable {
         activeSessionBySurface: [String: String]
     ) -> [AgentSessionGraphNode] {
         var result = nodes
-        merge(
+        _ = merge(
             nodes: &result,
             observations: observations,
             activeSessionBySurface: activeSessionBySurface
@@ -129,11 +228,14 @@ struct AgentTerminalObservationJoiner: Sendable {
         return result
     }
 
+    @discardableResult
     func merge(
         nodes: inout [AgentSessionGraphNode],
         observations: [CmuxAgentTerminalObservation],
-        activeSessionBySurface: [String: String]
-    ) {
+        activeSessionBySurface: [String: String],
+        maximumNodeCount: Int? = nil,
+        includeUnmatchedNode: (AgentSessionGraphNode) -> Bool = { _ in true }
+    ) -> Bool {
         let candidateIndices = Dictionary(grouping: nodes.indices) { index in
             Self.processKey(node: nodes[index])
         }
@@ -155,9 +257,13 @@ struct AgentTerminalObservationJoiner: Sendable {
             if let selectedIndex {
                 nodes[selectedIndex] = applying(observation, to: nodes[selectedIndex])
             } else {
-                nodes.append(processNode(observation))
+                let node = processNode(observation)
+                guard includeUnmatchedNode(node) else { continue }
+                if let maximumNodeCount, nodes.count >= maximumNodeCount { return false }
+                nodes.append(node)
             }
         }
+        return true
     }
 
     static func surfaceKey(provider: String, runtimeID: String, surfaceID: String) -> String {
