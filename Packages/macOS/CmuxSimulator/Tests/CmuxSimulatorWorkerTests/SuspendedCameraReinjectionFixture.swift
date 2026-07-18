@@ -18,6 +18,7 @@ func makeSuspendedCameraReinjectionFixture() async throws -> (
         processIdentifier: processIdentifier
     )
     let adapter = SimulatorCameraAdapter(
+        sharedMemoryToken: UUID().uuidString,
         cameraPermission: SimulatorCameraPermissionAdapter { _, _, _, _ in },
         compiledLibrary: { await compileGate.compiledLibrary() },
         simctl: { arguments, environment in

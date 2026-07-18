@@ -25,6 +25,7 @@ final class SimulatorCameraAdapter {
     let applicationMutationWillCommit: ApplicationMutationWillCommit
     let hostCameraDevicesOperation: HostCameraDevicesOperation
     let fileManager: FileManager
+    let sharedMemoryToken: String?
     var deviceIdentifier: String?
     var surfaceRing: SimulatorCameraSurfaceRing?
     var ownershipLock: SimulatorCameraOwnershipLock?
@@ -45,6 +46,9 @@ final class SimulatorCameraAdapter {
     init(
         subprocessRunner: SimulatorSubprocessRunner = SimulatorSubprocessRunner(),
         fileManager: FileManager = FileManager(),
+        sharedMemoryToken: String? = ProcessInfo.processInfo.environment[
+            SimulatorCameraSharedMemory.tokenEnvironmentKey
+        ],
         cameraPermission: SimulatorCameraPermissionAdapter? = nil,
         compiledLibrary: CompiledLibraryOperation? = nil,
         simctl: SimctlOperation? = nil,
@@ -72,6 +76,7 @@ final class SimulatorCameraAdapter {
         self.applicationMutationWillCommit = applicationMutationWillCommit
         hostCameraDevicesOperation = hostCameraDevices
         self.fileManager = fileManager
+        self.sharedMemoryToken = sharedMemoryToken
     }
 
     var isAvailable: Bool {
@@ -175,7 +180,10 @@ final class SimulatorCameraAdapter {
         if let surfaceRing {
             ring = surfaceRing
         } else {
-            ring = try SimulatorCameraSurfaceRing(deviceIdentifier: deviceIdentifier)
+            ring = try SimulatorCameraSurfaceRing(
+                deviceIdentifier: deviceIdentifier,
+                sharedMemoryToken: sharedMemoryToken
+            )
             surfaceRing = ring
         }
         let producer: SimulatorCameraFrameProducer

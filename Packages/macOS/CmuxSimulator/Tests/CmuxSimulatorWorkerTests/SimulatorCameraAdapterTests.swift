@@ -181,6 +181,7 @@ struct SimulatorCameraAdapterTests {
         )
         let permission = SimulatorCameraPermissionAdapter { _, _, _, _ in }
         let adapter = SimulatorCameraAdapter(
+            sharedMemoryToken: UUID().uuidString,
             cameraPermission: permission,
             compiledLibrary: { await compileGate.compiledLibrary() },
             simctl: { arguments, environment in
@@ -249,6 +250,7 @@ struct SimulatorCameraAdapterTests {
         )
         let permission = CameraPermissionRecorder()
         let adapter = SimulatorCameraAdapter(
+            sharedMemoryToken: UUID().uuidString,
             cameraPermission: SimulatorCameraPermissionAdapter {
                 device, action, service, bundle in
                 await permission.record(
@@ -291,9 +293,6 @@ struct SimulatorCameraAdapterTests {
         let suffix = UUID().uuidString
         let bundleIdentifier = "com.example.CameraFixtureCommitted.\(suffix)"
         let deviceIdentifier = "DEVICE"
-        let tokenKey = SimulatorCameraSharedMemory.tokenEnvironmentKey
-        setenv(tokenKey, "committed-\(suffix)", 1)
-        defer { unsetenv(tokenKey) }
         var operationIsCurrent = true
         let simctl = CameraReinjectionSimctlFake(
             bundleIdentifier: bundleIdentifier,
@@ -301,6 +300,7 @@ struct SimulatorCameraAdapterTests {
             injectedLaunchDidComplete: { operationIsCurrent = false }
         )
         let adapter = SimulatorCameraAdapter(
+            sharedMemoryToken: "committed-\(suffix)",
             cameraPermission: SimulatorCameraPermissionAdapter { _, _, _, _ in },
             compiledLibrary: { URL(fileURLWithPath: "/tmp/cmux-camera-test.dylib") },
             simctl: { arguments, environment in
@@ -327,14 +327,12 @@ struct SimulatorCameraAdapterTests {
     func preMutationFailureDoesNotLaunch() async throws {
         let suffix = UUID().uuidString
         let bundleIdentifier = "com.example.CameraFixturePreMutation.\(suffix)"
-        let tokenKey = SimulatorCameraSharedMemory.tokenEnvironmentKey
-        setenv(tokenKey, "pre-mutation-\(suffix)", 1)
-        defer { unsetenv(tokenKey) }
         let simctl = CameraReinjectionSimctlFake(
             bundleIdentifier: bundleIdentifier,
             processIdentifier: Int32(getpid())
         )
         let adapter = SimulatorCameraAdapter(
+            sharedMemoryToken: "pre-mutation-\(suffix)",
             cameraPermission: SimulatorCameraPermissionAdapter { _, _, _, _ in },
             compiledLibrary: { URL(fileURLWithPath: "/tmp/cmux-camera-test.dylib") },
             simctl: { arguments, environment in
@@ -365,6 +363,7 @@ struct SimulatorCameraAdapterTests {
             processIdentifier: processIdentifier
         )
         let adapter = SimulatorCameraAdapter(
+            sharedMemoryToken: UUID().uuidString,
             cameraPermission: SimulatorCameraPermissionAdapter { _, _, _, _ in },
             compiledLibrary: { URL(fileURLWithPath: "/tmp/cmux-camera-test.dylib") },
             simctl: { arguments, environment in
@@ -401,6 +400,7 @@ struct SimulatorCameraAdapterTests {
             processIdentifier: Int32(getpid())
         )
         let adapter = SimulatorCameraAdapter(
+            sharedMemoryToken: UUID().uuidString,
             cameraPermission: SimulatorCameraPermissionAdapter {
                 device, action, service, bundle in
                 await permission.record(
