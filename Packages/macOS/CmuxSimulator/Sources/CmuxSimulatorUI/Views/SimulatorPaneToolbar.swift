@@ -6,23 +6,7 @@ struct SimulatorPaneToolbar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            SimulatorDevicePicker(
-                snapshot: simulatorDevicePickerSnapshot(
-                    devices: coordinator.devices,
-                    selectedDeviceID: coordinator.selectedDeviceID,
-                    localizedState: {
-                        String(localized: simulatorStrings.deviceState($0))
-                    }
-                ),
-                actions: SimulatorDevicePickerActions(
-                    select: { coordinator.selectDevice(id: $0) },
-                    refresh: {
-                        coordinator.scheduleControlAction("reload-devices") {
-                            _ = await $0.reloadDevices()
-                        }
-                    }
-                )
-            )
+            SimulatorDevicePicker(coordinator: coordinator)
             statusView
             Spacer(minLength: 8)
             controlButtons
@@ -83,9 +67,33 @@ private struct SimulatorDevicePickerActions {
     let refresh: () -> Void
 }
 
-// Keep the coordinator out of this subtree, but let SwiftUI own its identity.
-// EquatableView recursively compared this closure-bearing view in AttributeGraph.
 private struct SimulatorDevicePicker: View {
+    let coordinator: SimulatorPaneCoordinator
+
+    var body: some View {
+        SimulatorDevicePickerMenu(
+            snapshot: simulatorDevicePickerSnapshot(
+                devices: coordinator.devices,
+                selectedDeviceID: coordinator.selectedDeviceID,
+                localizedState: {
+                    String(localized: simulatorStrings.deviceState($0))
+                }
+            ),
+            actions: SimulatorDevicePickerActions(
+                select: { coordinator.selectDevice(id: $0) },
+                refresh: {
+                    coordinator.scheduleControlAction("reload-devices") {
+                        _ = await $0.reloadDevices()
+                    }
+                }
+            )
+        )
+    }
+}
+
+// Keep the live coordinator above the row subtree. SwiftUI can skip this child
+// while its snapshot is unchanged without recursively comparing action closures.
+private struct SimulatorDevicePickerMenu: View {
     let snapshot: SimulatorDevicePickerSnapshot
     let actions: SimulatorDevicePickerActions
 
