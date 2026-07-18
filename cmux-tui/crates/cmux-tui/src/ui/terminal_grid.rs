@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn foreign_viewport_draws_injected_catalog_locale() {
         let render = render_frame(12, 5);
-        let rect = Rect { x: 0, y: 0, width: 70, height: 10 };
+        let rect = Rect { x: 0, y: 0, width: 80, height: 10 };
         let terminal = draw_grid(&render, rect, ChromeTheme::dark(), "ja_JP.UTF-8");
         let buffer = terminal.backend().buffer();
         let expected =
