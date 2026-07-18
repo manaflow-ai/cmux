@@ -186,7 +186,7 @@ struct BackendServiceHandoffCoordinatorTests {
         .revalidatePermit,
         .bootoutOld,
     ])
-    func preBootoutFailure(step: HandoffOperation) async throws {
+    fileprivate func preBootoutFailure(step: HandoffOperation) async throws {
         let harness = HandoffHarness(failing: step)
         let coordinator = harness.coordinator()
 
@@ -206,7 +206,7 @@ struct BackendServiceHandoffCoordinatorTests {
         .bootstrapNew,
         .checkNewReadiness,
     ])
-    func postBootoutFailure(step: HandoffOperation) async throws {
+    fileprivate func postBootoutFailure(step: HandoffOperation) async throws {
         let harness = HandoffHarness(failing: step)
         let coordinator = harness.coordinator()
 
@@ -265,7 +265,7 @@ struct BackendServiceHandoffCoordinatorTests {
         .bootstrapOld,
         .checkOldReadiness,
     ])
-    func rollbackFailure(step: HandoffOperation) async throws {
+    fileprivate func rollbackFailure(step: HandoffOperation) async throws {
         let harness = HandoffHarness(failing: [.checkNewReadiness, step])
         let coordinator = harness.coordinator()
 
@@ -335,7 +335,7 @@ struct BackendServiceHandoffCoordinatorTests {
     }
 }
 
-private enum HandoffOperation: Hashable, Sendable {
+fileprivate enum HandoffOperation: Hashable, Sendable {
     case stageTarget
     case loadActiveDescriptor
     case connectCoordinator
