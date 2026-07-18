@@ -782,6 +782,14 @@ final class cmuxUITests: XCTestCase {
         let promptText = "Connected Claude task \(UUID().uuidString)"
         let prompt = app.textFields["MobileTaskComposerPrompt"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            waitForKeyboardFocus(of: prompt, timeout: 3),
+            "Opening New Task from the production workspace must focus the prompt without an extra tap."
+        )
+        XCTAssertTrue(
+            waitForSoftwareKeyboardKeyPlane(in: app, minimumOverlap: 1, timeout: 3) != nil,
+            "Opening New Task must raise the software keyboard without an extra tap."
+        )
         tap(app.buttons["Claude"], in: app)
         try replaceText(promptText, in: prompt, app: app)
 
