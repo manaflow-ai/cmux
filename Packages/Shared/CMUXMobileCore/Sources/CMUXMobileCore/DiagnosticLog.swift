@@ -34,10 +34,14 @@ public final class DiagnosticLog: Sendable {
     /// caller can also carry it as a top-level field when submitting a bundle.
     public let buildStamp: String
 
+    /// The component producing this log. This is a fixed integer category, not
+    /// a device or account identifier.
+    public let role: DiagnosticRuntimeRole
+
     /// The continuation the hot path yields onto. `.bufferingNewest(capacity)`
     /// drops the oldest pending event if the consumer falls behind, so a burst
     /// can never block the recorder or grow unboundedly.
-    private let continuation: AsyncStream<DiagnosticEvent>.Continuation
+    private let continuation: AsyncStream<Message>.Continuation
 
     /// The inner actor owning the ring buffer and the wall-clock anchor.
     private let store: Store
@@ -52,6 +56,8 @@ public final class DiagnosticLog: Sendable {
     ///     `4096`.
     ///   - buildStamp: A short string identifying the running build, written
     ///     into the export header. Defaults to empty.
+    ///   - role: The fixed runtime category producing this log. Defaults to
+    ///     ``DiagnosticRuntimeRole/unspecified``.
     ///   - anchorWallNanos: Wall-clock time at construction, in nanoseconds since
     ///     the Unix epoch, paired with ``anchorMonotonicNanos`` so export can map
     ///     monotonic event timestamps back to absolute time. Injected for tests;
@@ -62,25 +68,30 @@ public final class DiagnosticLog: Sendable {
     public init(
         capacity: Int = 4096,
         buildStamp: String = "",
+        role: DiagnosticRuntimeRole = .unspecified,
         anchorWallNanos: UInt64 = UInt64(max(0, Date().timeIntervalSince1970 * 1_000_000_000)),
         anchorMonotonicNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
+        let capacity = max(1, capacity)
+        let buildStamp = DiagnosticReport.sanitizeBuildStamp(buildStamp)
         self.capacity = capacity
         self.buildStamp = buildStamp
+        self.role = role
         let store = Store(
             capacity: capacity,
             buildStamp: buildStamp,
+            role: role,
             anchorWallNanos: anchorWallNanos,
             anchorMonotonicNanos: anchorMonotonicNanos
         )
         self.store = store
-        let (stream, continuation) = AsyncStream<DiagnosticEvent>.makeStream(
+        let (stream, continuation) = AsyncStream<Message>.makeStream(
             bufferingPolicy: .bufferingNewest(capacity)
         )
         self.continuation = continuation
         self.drainTask = Task {
-            for await event in stream {
-                await store.append(event)
+            for await message in stream {
+                await store.process(message)
             }
         }
     }
@@ -99,7 +110,7 @@ public final class DiagnosticLog: Sendable {
     ///
     /// - Parameter event: The event to record.
     public nonisolated func record(_ event: DiagnosticEvent) {
-        continuation.yield(event)
+        continuation.yield(.event(event))
     }
 
     /// Snapshot the currently-drained ring and format a compact export blob.
@@ -116,12 +127,48 @@ public final class DiagnosticLog: Sendable {
         await store.export()
     }
 
+    /// Returns a Codable, privacy-safe snapshot with events in chronological
+    /// order. Events still pending in the non-blocking stream are not forced to
+    /// drain; human-triggered exports naturally observe the most recent drained
+    /// state.
+    public func snapshot(generatedAt: Date = Date()) async -> DiagnosticReport {
+        await store.snapshot(generatedAt: generatedAt)
+    }
+
+    /// Starts a fresh diagnostic session by clearing retained events, resetting
+    /// the processed count, and capturing a new wall/monotonic clock anchor.
+    ///
+    /// The clear is an ordered barrier in the same bounded stream as recorded
+    /// events. It retries if a burst evicts the marker, so events yielded before
+    /// the barrier cannot drain back into the new session after this returns.
+    /// Recording itself remains non-blocking.
+    public func clear(
+        anchorWallNanos: UInt64 = UInt64(max(0, Date().timeIntervalSince1970 * 1_000_000_000)),
+        anchorMonotonicNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
+    ) async {
+        let barrierID = await store.reserveClearBarrier()
+        while await !store.hasAppliedClearBarrier(barrierID) {
+            switch continuation.yield(.clear(
+                id: barrierID,
+                anchorWallNanos: anchorWallNanos,
+                anchorMonotonicNanos: anchorMonotonicNanos
+            )) {
+            case .enqueued, .dropped:
+                await Task.yield()
+            case .terminated:
+                return
+            @unknown default:
+                return
+            }
+        }
+    }
+
     /// The current number of retained events.
     public func count() async -> Int {
         await store.count()
     }
 
-    /// The total number of events the drain task has processed since creation.
+    /// The total number of events the drain task has processed in this session.
     ///
     /// Unlike ``count()`` this never decreases (ring eviction does not lower it),
     /// so it is a stable barrier: after recording `n` events a caller can await
@@ -140,19 +187,28 @@ public final class DiagnosticLog: Sendable {
     /// the cursor (no `Array.removeFirst`, which would be O(capacity) per event
     /// once full and would starve the drain task during the exact lag bursts this
     /// log captures).
+    private enum Message: Sendable {
+        case event(DiagnosticEvent)
+        case clear(id: UInt64, anchorWallNanos: UInt64, anchorMonotonicNanos: UInt64)
+    }
+
     private actor Store {
         private var slots: [DiagnosticEvent?]
         private var head = 0
         private var filled = 0
         private var totalProcessed = 0
+        private var nextClearBarrierID: UInt64 = 1
+        private var appliedClearBarrierID: UInt64 = 0
         private let capacity: Int
         private let buildStamp: String
-        private let anchorWallNanos: UInt64
-        private let anchorMonotonicNanos: UInt64
+        private let role: DiagnosticRuntimeRole
+        private var anchorWallNanos: UInt64
+        private var anchorMonotonicNanos: UInt64
 
         init(
             capacity: Int,
             buildStamp: String,
+            role: DiagnosticRuntimeRole,
             anchorWallNanos: UInt64,
             anchorMonotonicNanos: UInt64
         ) {
@@ -161,12 +217,27 @@ public final class DiagnosticLog: Sendable {
             let clamped = max(1, capacity)
             self.capacity = clamped
             self.buildStamp = buildStamp
+            self.role = role
             self.anchorWallNanos = anchorWallNanos
             self.anchorMonotonicNanos = anchorMonotonicNanos
             self.slots = Array(repeating: nil, count: clamped)
         }
 
-        func append(_ event: DiagnosticEvent) {
+        func process(_ message: Message) {
+            switch message {
+            case let .event(event):
+                append(event)
+            case let .clear(id, anchorWallNanos, anchorMonotonicNanos):
+                guard id > appliedClearBarrierID else { return }
+                clear(
+                    anchorWallNanos: anchorWallNanos,
+                    anchorMonotonicNanos: anchorMonotonicNanos
+                )
+                appliedClearBarrierID = id
+            }
+        }
+
+        private func append(_ event: DiagnosticEvent) {
             slots[head] = event
             head = (head + 1) % capacity
             if filled < capacity {
@@ -181,6 +252,28 @@ public final class DiagnosticLog: Sendable {
 
         func processedCount() -> Int {
             totalProcessed
+        }
+
+        func reserveClearBarrier() -> UInt64 {
+            let id = nextClearBarrierID
+            nextClearBarrierID &+= 1
+            if nextClearBarrierID == 0 {
+                nextClearBarrierID = 1
+            }
+            return id
+        }
+
+        func hasAppliedClearBarrier(_ id: UInt64) -> Bool {
+            appliedClearBarrierID >= id
+        }
+
+        func clear(anchorWallNanos: UInt64, anchorMonotonicNanos: UInt64) {
+            slots = Array(repeating: nil, count: capacity)
+            head = 0
+            filled = 0
+            totalProcessed = 0
+            self.anchorWallNanos = anchorWallNanos
+            self.anchorMonotonicNanos = anchorMonotonicNanos
         }
 
         /// The retained events in chronological order (oldest first).
@@ -200,31 +293,19 @@ public final class DiagnosticLog: Sendable {
             return result
         }
 
-        func export() -> Data {
-            var out = "cmuxdiag v1"
-            out += " anchorWallNs=\(anchorWallNanos)"
-            out += " anchorMonoNs=\(anchorMonotonicNanos)"
-            out += " count=\(filled)"
-            if !buildStamp.isEmpty {
-                out += " build=\(buildStamp)"
-            }
-            out += "\n"
-            for event in orderedEvents() {
-                out += "\(event.tNanos),\(event.code.rawValue)"
-                out += ",\(Self.field(event.surface))"
-                out += ",\(Self.field(event.ms))"
-                out += ",\(Self.field(event.a))"
-                out += ",\(Self.field(event.b))"
-                out += ",\(Self.field(event.c))"
-                out += "\n"
-            }
-            return Data(out.utf8)
+        func snapshot(generatedAt: Date) -> DiagnosticReport {
+            DiagnosticReport(
+                role: role,
+                generatedAt: generatedAt,
+                anchorWallNanos: anchorWallNanos,
+                anchorMonotonicNanos: anchorMonotonicNanos,
+                buildStamp: buildStamp,
+                events: orderedEvents()
+            )
         }
 
-        /// Render an optional integer field: empty when absent, decimal when set.
-        private static func field(_ value: (some BinaryInteger)?) -> String {
-            guard let value else { return "" }
-            return String(value)
+        func export() -> Data {
+            snapshot(generatedAt: Date()).compactExport()
         }
     }
 }

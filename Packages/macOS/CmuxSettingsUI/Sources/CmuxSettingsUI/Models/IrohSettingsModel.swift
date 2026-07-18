@@ -11,6 +11,8 @@ final class IrohSettingsModel {
     private(set) var isMutating = false
     private(set) var showsSaveError = false
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
+    private(set) var diagnosticReport = DiagnosticReport.empty
+    private(set) var diagnosticExportText = ""
 
     init(controller: (any CmxIrohSettingsControlling)?) {
         self.controller = controller
@@ -19,9 +21,11 @@ final class IrohSettingsModel {
     func observe() async {
         guard let controller else { return }
         snapshot = await controller.irohSettingsSnapshot()
+        await reloadDiagnostics(using: controller)
         for await next in controller.irohSettingsUpdates() {
             guard !Task.isCancelled else { return }
             snapshot = next
+            await reloadDiagnostics(using: controller)
         }
     }
 
@@ -30,7 +34,16 @@ final class IrohSettingsModel {
         Task {
             await controller.refreshIrohSettings()
             snapshot = await controller.irohSettingsSnapshot()
+            await reloadDiagnostics(using: controller)
         }
+    }
+
+    func clearDiagnosticReport() async {
+        guard let controller, !isMutating else { return }
+        isMutating = true
+        defer { isMutating = false }
+        await controller.clearIrohDiagnosticReport()
+        await reloadDiagnostics(using: controller)
     }
 
     func setPreference(_ preference: CmxIrohRelayPreferenceDraft) {
@@ -94,5 +107,13 @@ final class IrohSettingsModel {
             showsSaveError = true
             return false
         }
+    }
+
+    private func reloadDiagnostics(using controller: any CmxIrohSettingsControlling) async {
+        let report = await controller.irohDiagnosticReport()
+        diagnosticReport = report
+        diagnosticExportText = report.events.isEmpty
+            ? ""
+            : String(decoding: report.compactExport(), as: UTF8.self)
     }
 }

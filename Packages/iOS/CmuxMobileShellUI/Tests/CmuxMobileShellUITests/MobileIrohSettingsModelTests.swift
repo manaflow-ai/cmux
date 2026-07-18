@@ -88,6 +88,41 @@ struct MobileIrohSettingsModelTests {
         #expect(model.snapshot == .unavailable)
     }
 
+    @Test func observationLoadsSafeDiagnosticReportAndExportText() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        let report = diagnosticReport()
+        controller.report = report
+        controller.exportData = Data("cmuxdiag v1\n25,1,,,1,,7".utf8)
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        let observation = Task { await model.observe() }
+        await waitUntil { model.diagnosticReport == report }
+        observation.cancel()
+        await observation.value
+
+        #expect(model.diagnosticExportText == String(decoding: report.compactExport(), as: UTF8.self))
+        #expect(model.diagnosticReport.events.count == 2)
+        #expect(model.diagnosticReport.lastFailureKind == .timedOut)
+    }
+
+    @Test func clearDiagnosticReportClearsControllerAndReloadsModel() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.report = diagnosticReport()
+        controller.exportData = Data("cmuxdiag v1\n25,1,,,1,,7".utf8)
+        let model = MobileIrohSettingsModel(controller: controller)
+        let observation = Task { await model.observe() }
+        await waitUntil { !model.diagnosticReport.events.isEmpty }
+        observation.cancel()
+        await observation.value
+
+        await model.clearDiagnosticReport()
+
+        #expect(controller.diagnosticClearCount == 1)
+        #expect(model.diagnosticReport == .empty)
+        #expect(model.diagnosticExportText.isEmpty)
+        #expect(!model.isMutating)
+    }
+
     private func waitUntil(_ predicate: () -> Bool) async {
         var spins = 0
         while !predicate(), spins < 100_000 {
@@ -107,6 +142,31 @@ struct MobileIrohSettingsModelTests {
             policySequence: sequence
         )
     }
+
+    private func diagnosticReport() -> DiagnosticReport {
+        DiagnosticReport(
+            role: .mobileClient,
+            generatedAt: Date(timeIntervalSince1970: 200),
+            anchorWallNanos: 100_000_000_000,
+            anchorMonotonicNanos: 1_000,
+            buildStamp: "test",
+            events: [
+                DiagnosticEvent(
+                    code: .transportDialConnected,
+                    tNanos: 2_000,
+                    a: Int(DiagnosticTransportKind.iroh.rawValue),
+                    c: 7
+                ),
+                DiagnosticEvent(
+                    code: .transportDialFailed,
+                    tNanos: 3_000,
+                    a: Int(DiagnosticTransportKind.iroh.rawValue),
+                    b: Int(DiagnosticFailureKind.timedOut.rawValue),
+                    c: 8
+                )
+            ]
+        )
+    }
 }
 
 @MainActor
@@ -117,6 +177,9 @@ private final class MobileIrohSettingsControllerDouble: CmxIrohSettingsControlli
     var snapshotAfterUpsertError: CmxIrohSettingsSnapshot?
     var streamCreations = 0
     var streamTerminated = false
+    var report = DiagnosticReport.empty
+    var exportData = Data()
+    var diagnosticClearCount = 0
     let continuation: AsyncStream<CmxIrohSettingsSnapshot>.Continuation
     private let stream: AsyncStream<CmxIrohSettingsSnapshot>
 
@@ -150,6 +213,16 @@ private final class MobileIrohSettingsControllerDouble: CmxIrohSettingsControlli
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult { .failed }
 
     func refreshIrohSettings() async {}
+
+    func irohDiagnosticReport() async -> DiagnosticReport { report }
+
+    func exportIrohDiagnosticReport() async -> Data { exportData }
+
+    func clearIrohDiagnosticReport() async {
+        diagnosticClearCount += 1
+        report = .empty
+        exportData = Data()
+    }
 }
 
 private enum MobileIrohSettingsTestFailure: Error {

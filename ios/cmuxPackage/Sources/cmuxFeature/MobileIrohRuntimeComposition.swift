@@ -118,6 +118,9 @@ public final class MobileIrohRuntimeComposition:
     private let startNetworkPathObservation: @Sendable () async -> Void
     private let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
     private let lanPeerDiscovery: CmxIrohLANPeerDiscovery?
+    /// Shared release-safe event ring. Its event schema has no string payloads,
+    /// so runtime failures cannot leak peer identities, routes, or credentials.
+    private let diagnosticLog: DiagnosticLog?
     private let authObserver = MobileIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
@@ -161,7 +164,8 @@ public final class MobileIrohRuntimeComposition:
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         defaults: UserDefaults = .standard,
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         #if DEBUG
         let transportVerificationMode = Self.debugTransportVerificationMode(
@@ -283,7 +287,8 @@ public final class MobileIrohRuntimeComposition:
             },
             networkPathSnapshot: {
                 await networkPathState.snapshot()
-            }
+            },
+            diagnosticLog: diagnosticLog
         )
     }
 
@@ -310,7 +315,8 @@ public final class MobileIrohRuntimeComposition:
         startNetworkPathObservation: @escaping @Sendable () async -> Void = {},
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
             CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
-        }
+        },
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.appInstances = appInstances
         self.identities = identities
@@ -333,6 +339,7 @@ public final class MobileIrohRuntimeComposition:
         self.lanPeerDiscovery = lanPeerDiscovery
         self.startNetworkPathObservation = startNetworkPathObservation
         self.networkPathSnapshot = networkPathSnapshot
+        self.diagnosticLog = diagnosticLog
     }
 
     /// Starts auth observation after the coordinator's launch restore completes.
@@ -370,8 +377,16 @@ public final class MobileIrohRuntimeComposition:
     /// The catalog keeps cached bindings in a separate route-only view, so this
     /// method can never turn an offline cache entry into a first pairing.
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
+        diagnosticLog?.record(DiagnosticEvent(.discoveryStarted, a: DiagnosticTransportKind.iroh.rawValue))
         await prepareForConnection()
-        guard let runtime else { return [] }
+        guard let runtime else {
+            diagnosticLog?.record(DiagnosticEvent(
+                .discoveryFailed,
+                a: DiagnosticTransportKind.iroh.rawValue,
+                b: DiagnosticFailureKind.endpointUnavailable.rawValue
+            ))
+            return []
+        }
         let runtimeID = ObjectIdentifier(runtime)
         var generation = await runtime.liveDiscoverySnapshotGeneration()
         guard self.runtime === runtime else { return [] }
@@ -380,24 +395,48 @@ public final class MobileIrohRuntimeComposition:
             || generation > consumedDiscoveryGeneration {
             consumedDiscoveryRuntimeID = runtimeID
             consumedDiscoveryGeneration = generation
-            return await routeCatalog.liveMacCandidates(
+            let candidates = await routeCatalog.liveMacCandidates(
                 preferredTag: tag,
                 compatibleWith: discoveryCompatibilityPolicy
             )
+            recordDiscoveryOutcome(candidateCount: candidates.count)
+            return candidates
         }
         guard await runtime.refreshLiveDiscovery() else {
             guard self.runtime === runtime else { return [] }
             await routeCatalog.clearLiveMacCandidates(scope: lifecycleRevision)
+            diagnosticLog?.record(DiagnosticEvent(
+                .discoveryFailed,
+                a: DiagnosticTransportKind.iroh.rawValue,
+                b: DiagnosticFailureKind.unknown.rawValue
+            ))
             return []
         }
         generation = await runtime.liveDiscoverySnapshotGeneration()
         guard self.runtime === runtime else { return [] }
         consumedDiscoveryRuntimeID = runtimeID
         consumedDiscoveryGeneration = generation
-        return await routeCatalog.liveMacCandidates(
+        let candidates = await routeCatalog.liveMacCandidates(
             preferredTag: tag,
             compatibleWith: discoveryCompatibilityPolicy
         )
+        recordDiscoveryOutcome(candidateCount: candidates.count)
+        return candidates
+    }
+
+    private func recordDiscoveryOutcome(candidateCount: Int) {
+        if candidateCount > 0 {
+            diagnosticLog?.record(DiagnosticEvent(
+                .discoverySucceeded,
+                a: DiagnosticTransportKind.iroh.rawValue
+            ))
+        } else {
+            diagnosticLog?.record(DiagnosticEvent(
+                .discoveryFailed,
+                a: DiagnosticTransportKind.iroh.rawValue,
+                b: DiagnosticFailureKind.noRoute.rawValue
+            ))
+        }
     }
 
     /// Resolves a disconnected transport from the active account runtime.
@@ -596,6 +635,7 @@ public final class MobileIrohRuntimeComposition:
             signOutPhase = .quarantined(preparation)
         }
         connectionReadiness.complete(revision: revision)
+        await diagnosticLog?.clear()
         return preparation
     }
 
@@ -960,6 +1000,9 @@ public final class MobileIrohRuntimeComposition:
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         connectionReadiness.begin(revision: revision)
+        if targetAccountID != nil {
+            diagnosticLog?.record(DiagnosticEvent(.endpointStarting, a: DiagnosticTransportKind.iroh.rawValue))
+        }
         let previous = transitionTask
         previous?.cancel()
         let task = Task { @MainActor [weak self] in
@@ -1010,6 +1053,7 @@ public final class MobileIrohRuntimeComposition:
                 } else {
                     await previousRuntime.stop()
                 }
+                diagnosticLog?.record(DiagnosticEvent(.endpointStopped, a: DiagnosticTransportKind.iroh.rawValue))
             } else if shouldErase {
                 let preparation = await enqueueFallbackRevocation(
                     accountID: previousAccountID,
@@ -1034,6 +1078,11 @@ public final class MobileIrohRuntimeComposition:
         } catch is CancellationError {
             return
         } catch {
+            diagnosticLog?.record(DiagnosticEvent(
+                .endpointFailed,
+                a: DiagnosticTransportKind.iroh.rawValue,
+                b: Self.diagnosticFailureKind(for: error).rawValue
+            ))
             mobileIrohLog.error(
                 "Iroh client activation failed: \(String(describing: error), privacy: .private)"
             )
@@ -1121,6 +1170,7 @@ public final class MobileIrohRuntimeComposition:
                 broker: broker as? any CmxIrohRelayPolicyServing
             )
             let effective: CmxIrohEffectiveRelayPolicy
+            diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
             do {
                 effective = try await service.refresh(
                     endpointID: endpointID,
@@ -1128,7 +1178,12 @@ public final class MobileIrohRuntimeComposition:
                     trustRoot: relayPolicyTrustRoot,
                     now: now()
                 )
+                diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
             } catch {
+                diagnosticLog?.record(DiagnosticEvent(
+                    .relayPolicyRefreshFailed,
+                    b: Self.diagnosticFailureKind(for: error).rawValue
+                ))
                 effective = await service.restore(
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
@@ -1306,6 +1361,7 @@ public final class MobileIrohRuntimeComposition:
         }
         self.runtime = runtime
         activeAccountID = accountID
+        diagnosticLog?.record(DiagnosticEvent(.endpointActive, a: DiagnosticTransportKind.iroh.rawValue))
         relayPolicyService = resolvedPolicyService
         relayPolicyEffective = resolvedEffectivePolicy
         relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()
@@ -1493,6 +1549,12 @@ public final class MobileIrohRuntimeComposition:
             maximumConcurrentClientApplicationLaneCount: 4,
             allowsNATTraversalAfterAdmission: mode.allowsNATTraversalAfterAdmission
         )
+    }
+
+    nonisolated private static func diagnosticFailureKind(
+        for error: any Error
+    ) -> DiagnosticFailureKind {
+        DiagnosticFailureKind.classify(error)
     }
 
     private static func currentTag(
@@ -1755,6 +1817,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             publishIrohSettingsUpdate()
             return
         }
+        diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
         do {
             let effective = try await context.service.refresh(
                 endpointID: context.endpointID,
@@ -1763,10 +1826,28 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 now: now()
             )
             try await applyRelayPolicy(effective)
+            diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
         } catch {
+            diagnosticLog?.record(DiagnosticEvent(
+                .relayPolicyRefreshFailed,
+                b: Self.diagnosticFailureKind(for: error).rawValue
+            ))
             relayPolicyDiagnostics = await context.service.diagnosticsSnapshot()
             publishIrohSettingsUpdate()
         }
+    }
+
+    public func irohDiagnosticReport() async -> DiagnosticReport {
+        await diagnosticLog?.snapshot() ?? .empty
+    }
+
+    public func exportIrohDiagnosticReport() async -> Data {
+        await diagnosticLog?.export() ?? Data()
+    }
+
+    public func clearIrohDiagnosticReport() async {
+        await diagnosticLog?.clear()
+        publishIrohSettingsUpdate()
     }
 
     private func observeRelayPolicyDiagnostics(
@@ -1804,6 +1885,13 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                       revision == self.lifecycleRevision,
                       self.activeAccountID == accountID,
                       self.runtime === runtime else { return }
+                let selectedPath = await runtime.selectedTransportPath(
+                    relayPolicy: self.relayPolicyEffective
+                )
+                self.diagnosticLog?.record(DiagnosticEvent(
+                    .selectedPathChanged,
+                    a: DiagnosticPathKind(selectedPath).rawValue
+                ))
                 self.publishIrohSettingsUpdate()
             }
         }
@@ -1870,6 +1958,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                       revision == self.lifecycleRevision,
                       self.activeAccountID == accountID,
                       self.relayPolicyService === service else { return }
+                self.diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let effective = try await service.refresh(
                         endpointID: endpointID,
@@ -1881,7 +1970,12 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                     retryAt = nil
                     failureCount = 0
                     relayAuthorityExpired = false
+                    self.diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
                 } catch {
+                    self.diagnosticLog?.record(DiagnosticEvent(
+                        .relayPolicyRefreshFailed,
+                        b: Self.diagnosticFailureKind(for: error).rawValue
+                    ))
                     let failureDate = self.now()
                     if Self.shouldDeactivateRelayPolicy(
                         policyExpiresAt: snapshot.policyExpiresAt,
@@ -1906,6 +2000,11 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                     )
                     failureCount = min(failureCount + 1, 20)
                     retryAt = failureDate.addingTimeInterval(retryDelay)
+                    self.diagnosticLog?.record(DiagnosticEvent(
+                        .retryScheduled,
+                        ms: UInt32(clamping: Int(retryDelay * 1_000)),
+                        a: DiagnosticTransportKind.iroh.rawValue
+                    ))
                 }
             }
         }

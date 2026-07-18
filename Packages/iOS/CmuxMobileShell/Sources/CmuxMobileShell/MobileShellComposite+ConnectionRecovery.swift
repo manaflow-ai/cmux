@@ -157,6 +157,11 @@ extension MobileShellComposite {
             probing: probeCurrentConnection
         )
         guard let attempt else { return }
+        diagnosticLog?.record(DiagnosticEvent(
+            .recoveryStarted,
+            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
+                ?? DiagnosticTransportKind.unknown.rawValue
+        ))
         applyConnectionRecoveryOwnerState()
         let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
 
@@ -178,6 +183,11 @@ extension MobileShellComposite {
                     }
                     if healthy {
                         _ = self.connectionRecoveryOwner.complete(attempt)
+                        self.diagnosticLog?.record(DiagnosticEvent(
+                            .recoverySucceeded,
+                            a: self.activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
+                                ?? DiagnosticTransportKind.unknown.rawValue
+                        ))
                         self.markMacConnectionHealthy()
                         if resyncAfterHealthy {
                             self.resyncTerminalOutput(
@@ -235,6 +245,12 @@ extension MobileShellComposite {
                     }
                 } else {
                     _ = self.connectionRecoveryOwner.fail(attempt)
+                    self.diagnosticLog?.record(DiagnosticEvent(
+                        .recoveryFailed,
+                        a: self.activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
+                            ?? DiagnosticTransportKind.unknown.rawValue,
+                        b: DiagnosticFailureKind.connectionClosed.rawValue
+                    ))
                 }
                 self.applyConnectionRecoveryOwnerState()
             } onCancel: {
@@ -249,6 +265,11 @@ extension MobileShellComposite {
     func recordSuccessfulTerminalSubscription() {
         lastSuccessfulTerminalSubscriptionGeneration = connectionGeneration
         if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
+            diagnosticLog?.record(DiagnosticEvent(
+                .recoverySucceeded,
+                a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
+                    ?? DiagnosticTransportKind.unknown.rawValue
+            ))
             applyConnectionRecoveryOwnerState()
         }
     }

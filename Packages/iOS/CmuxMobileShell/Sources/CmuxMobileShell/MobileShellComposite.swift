@@ -3159,7 +3159,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
-            stackTokenForceRefreshGate: stackTokenForceRefreshGate
+            stackTokenForceRefreshGate: stackTokenForceRefreshGate,
+            transportConnectObserver: transportConnectDiagnosticObserver
         )
         guard let status = await fetchSecondaryHostStatus(on: client),
               MobileMacInstanceTagAuthority.secondaryStatusMatches(
@@ -4890,6 +4891,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
             connectionState = .disconnected
             macConnectionStatus = .unavailable
+            diagnosticLog?.record(DiagnosticEvent(
+                .routeUnavailable,
+                a: DiagnosticTransportKind.unknown.rawValue,
+                b: DiagnosticFailureKind.unsupportedRoute.rawValue
+            ))
             clearRemoteConnectionContext()
             return .noSupportedRoute
         }
@@ -4929,7 +4935,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
-                stackTokenForceRefreshGate: stackTokenForceRefreshGate
+                stackTokenForceRefreshGate: stackTokenForceRefreshGate,
+                transportConnectObserver: transportConnectDiagnosticObserver
             )
             for workspaceListRequest in workspaceListRequests {
                 do {
@@ -4969,6 +4976,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     guard let status = try? MobileHostStatusResponse.decode(exchange.hostStatusResponse) else {
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
+                        recordHostAuthenticationFailure(route: route, failure: .protocolViolation)
                         continue routeLoop
                     }
                     let reportedDeviceID = status.macDeviceID?
@@ -4984,6 +4992,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             "build_incompatible",
                             "Mac build is incompatible with this iOS build"
                         )
+                        recordHostAuthenticationFailure(route: route, failure: .protocolViolation)
                         continue routeLoop
                     }
                     let authority = MobileMacInstanceTagAuthority.resolve(
@@ -4996,6 +5005,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
+                        recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
                         continue routeLoop
                     }
                     let ticketDeviceID = ticket.macDeviceID
@@ -5008,6 +5018,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ) {
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
+                        recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
                         continue routeLoop
                     }
                     if let expectedDeviceID,
@@ -5019,6 +5030,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         mobileShellLog.error("rejecting route with mismatched Mac device identity")
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
+                        recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
                         continue routeLoop
                     }
                     if case .preserve = instanceTagExpectation,
@@ -5028,12 +5040,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         // public status cannot prove the stale port still serves it.
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
+                        recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
                         continue routeLoop
                     }
                     if case .require = instanceTagExpectation,
                        (!hasAuthenticatedIdentity || reportedInstanceTag == nil) {
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
+                        recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
                         continue routeLoop
                     }
                     let resolvedTicket = Self.ticket(
@@ -5066,6 +5080,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         lastError = MobileShellConnectionError.invalidResponse
                         continue routeLoop
                     }
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .hostAuthenticated,
+                        a: DiagnosticTransportKind(route.kind).rawValue
+                    ))
                     guard isConnectCurrent() else {
                         await client.disconnect()
                         return nil
@@ -5122,6 +5140,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
                     markMacConnectionHealthy()
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .rpcReady,
+                        a: DiagnosticTransportKind(route.kind).rawValue
+                    ))
                     // Record this as the foreground entry in the per-Mac
                     // connection pool (P2). Anonymous (empty-id) tickets are not
                     // pooled, since a per-Mac key is required to aggregate. Keyed by
@@ -5159,6 +5181,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
+                    let failure = Self.diagnosticFailureKind(for: error)
+                    if failure == .identityMismatch
+                        || failure == .admissionDenied
+                        || failure == .authorizationFailed
+                        || failure == .accountMismatch {
+                        recordHostAuthenticationFailure(route: route, failure: failure)
+                    }
                 }
             }
             // This route exhausted every workspace-list request without being
@@ -5168,6 +5197,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         diagnosticLog?.record(DiagnosticEvent(.pairFail))
+        diagnosticLog?.record(DiagnosticEvent(
+            .rpcFailed,
+            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
+                ?? DiagnosticTransportKind.unknown.rawValue,
+            b: Self.diagnosticFailureKind(for: lastError).rawValue
+        ))
         throw lastError ?? MobileShellConnectionError.connectionClosed
     }
 
