@@ -1,9 +1,105 @@
 import Darwin
 import Foundation
-import XCTest
+import Testing
 
-final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
-    func testWrapperClassifiesCurrentGlobalOptionWidthsBeforeUtilitiesAndSessions() throws {
+@Suite
+struct CodexHookWriterOwnershipRegressionTests {
+    struct WrapperClassificationCase: Sendable, CustomTestStringConvertible {
+        let arguments: [String]
+        let expectsHookInstallation: Bool
+
+        var testDescription: String {
+            arguments.joined(separator: " ")
+        }
+    }
+
+    struct WrapperReplayCase: Sendable, CustomTestStringConvertible {
+        let command: String
+        let expectsSyntheticSessionStart: Bool
+
+        var testDescription: String { command }
+    }
+
+    enum InvalidCustomCodexCase: String, CaseIterable, Sendable, CustomTestStringConvertible {
+        case stale
+        case nonExecutable
+
+        var testDescription: String { rawValue }
+    }
+
+    static let wrapperClassificationCases: [WrapperClassificationCase] = [
+        WrapperClassificationCase(
+            arguments: ["--remote-auth-token-env", "CODEX_TOKEN", "plugin", "list"],
+            expectsHookInstallation: false
+        ),
+        WrapperClassificationCase(
+            arguments: ["--local-provider", "ollama", "plugin", "list"],
+            expectsHookInstallation: false
+        ),
+        WrapperClassificationCase(
+            arguments: ["--add-dir", "/tmp/source tree", "plugin", "list"],
+            expectsHookInstallation: false
+        ),
+        WrapperClassificationCase(
+            arguments: ["--image=/tmp/a.png", "plugin", "list"],
+            expectsHookInstallation: false
+        ),
+        WrapperClassificationCase(arguments: ["initial prompt", "--help"], expectsHookInstallation: false),
+        WrapperClassificationCase(
+            arguments: ["-i", "/tmp/a.png", "/tmp/b.png", "--help"],
+            expectsHookInstallation: false
+        ),
+        WrapperClassificationCase(
+            arguments: ["resume", "019dad34-d218-7943-b81a-eddac5c87951", "--version"],
+            expectsHookInstallation: false
+        ),
+        WrapperClassificationCase(
+            arguments: ["--add-dir", "/tmp/source tree", "fork", "019dad34-d218-7943-b81a-eddac5c87951"],
+            expectsHookInstallation: true
+        ),
+        WrapperClassificationCase(
+            arguments: ["--local-provider", "ollama", "resume", "019dad34-d218-7943-b81a-eddac5c87951"],
+            expectsHookInstallation: true
+        ),
+        WrapperClassificationCase(
+            arguments: ["--remote-auth-token-env", "CODEX_TOKEN", "exec", "echo", "ok"],
+            expectsHookInstallation: true
+        ),
+        WrapperClassificationCase(
+            arguments: ["--image=/tmp/a.png", "resume", "019dad34-d218-7943-b81a-eddac5c87951"],
+            expectsHookInstallation: true
+        ),
+        // Codex 0.144.3 parses --image/-i as <FILE>..., so every following
+        // bare token belongs to the root invocation. `plugin` and `exec`
+        // here are image values, not subcommands, and the wrapper must keep
+        // treating the resulting root launch as a session.
+        WrapperClassificationCase(
+            arguments: ["--image", "/tmp/a.png", "plugin", "list"],
+            expectsHookInstallation: true
+        ),
+        WrapperClassificationCase(
+            arguments: ["-i", "/tmp/a.png", "plugin", "list"],
+            expectsHookInstallation: true
+        ),
+        WrapperClassificationCase(
+            arguments: ["--image", "/tmp/a.png", "/tmp/b.png", "plugin", "list"],
+            expectsHookInstallation: true
+        ),
+        WrapperClassificationCase(
+            arguments: ["--image", "/tmp/a.png", "/tmp/b.png", "exec", "echo", "ok"],
+            expectsHookInstallation: true
+        ),
+    ]
+
+    static let wrapperReplayCases: [WrapperReplayCase] = [
+        WrapperReplayCase(command: "resume", expectsSyntheticSessionStart: true),
+        WrapperReplayCase(command: "fork", expectsSyntheticSessionStart: false),
+    ]
+
+    @Test(arguments: wrapperClassificationCases)
+    func `Wrapper classifies current global option widths before utilities and sessions`(
+        classification: WrapperClassificationCase
+    ) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-wrapper-widths-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
@@ -30,67 +126,48 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Resources/bin/cmux-codex-wrapper", isDirectory: false)
-
-        let utilityCases = [
-            ["--remote-auth-token-env", "CODEX_TOKEN", "plugin", "list"],
-            ["--local-provider", "ollama", "plugin", "list"],
-            ["--add-dir", "/tmp/source tree", "plugin", "list"],
-            ["initial prompt", "--help"],
-            ["-i", "/tmp/a.png", "/tmp/b.png", "--help"],
-            ["resume", "019dad34-d218-7943-b81a-eddac5c87951", "--version"],
-        ]
-        let sessionOrRootCases = [
-            ["--add-dir", "/tmp/source tree", "fork", "019dad34-d218-7943-b81a-eddac5c87951"],
-            ["--local-provider", "ollama", "resume", "019dad34-d218-7943-b81a-eddac5c87951"],
-            ["--remote-auth-token-env", "CODEX_TOKEN", "exec", "echo", "ok"],
-            // Codex 0.144.3 parses --image/-i as <FILE>..., so every following
-            // bare token belongs to the root invocation. `plugin` and `exec`
-            // here are image values, not subcommands, and the wrapper must keep
-            // treating the resulting root launch as a session.
-            ["--image", "/tmp/a.png", "plugin", "list"],
-            ["-i", "/tmp/a.png", "plugin", "list"],
-            ["--image", "/tmp/a.png", "/tmp/b.png", "plugin", "list"],
-            ["--image", "/tmp/a.png", "/tmp/b.png", "exec", "echo", "ok"],
-        ]
-
-        for (index, arguments) in (utilityCases + sessionOrRootCases).enumerated() {
-            let cliCapture = root.appendingPathComponent("cli-\(index).txt", isDirectory: false)
-            let codexCapture = root.appendingPathComponent("codex-\(index).txt", isDirectory: false)
-            let result = runCodexHookProcess(
-                executablePath: wrapper.path,
-                arguments: arguments,
-                environment: [
-                    "HOME": root.path,
-                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                    "CMUX_SURFACE_ID": "surface-widths",
-                    "CMUX_SOCKET_PATH": socketPath,
-                    "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
-                    "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
-                    "TEST_CLI_CAPTURE": cliCapture.path,
-                    "TEST_CODEX_CAPTURE": codexCapture.path,
-                ],
-                timeout: 3
+        let cliCapture = root.appendingPathComponent("cli.txt", isDirectory: false)
+        let codexCapture = root.appendingPathComponent("codex.txt", isDirectory: false)
+        let result = runCodexHookProcess(
+            executablePath: wrapper.path,
+            arguments: classification.arguments,
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "surface-widths",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
+                "TEST_CLI_CAPTURE": cliCapture.path,
+                "TEST_CODEX_CAPTURE": codexCapture.path,
+            ],
+            timeout: 3
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(
+            try String(contentsOf: codexCapture, encoding: .utf8)
+                .trimmingCharacters(in: .newlines) == classification.arguments.joined(separator: " ")
+        )
+        if classification.expectsHookInstallation {
+            #expect(
+                waitForFile(cliCapture, containing: "hooks codex install --yes", timeout: 1),
+                "\(classification.arguments)"
             )
-            XCTAssertFalse(result.timedOut, result.stderr)
-            XCTAssertEqual(result.status, 0, result.stderr)
-            XCTAssertEqual(
-                try String(contentsOf: codexCapture, encoding: .utf8)
-                    .trimmingCharacters(in: .newlines),
-                arguments.joined(separator: " ")
-            )
+        } else {
+            Thread.sleep(forTimeInterval: 0.1)
             let cliInvocations = (try? String(contentsOf: cliCapture, encoding: .utf8)) ?? ""
-            if index < utilityCases.count {
-                XCTAssertFalse(cliInvocations.contains("hooks codex install --yes"), "\(arguments): \(cliInvocations)")
-            } else {
-                XCTAssertTrue(
-                    waitForFile(cliCapture, containing: "hooks codex install --yes", timeout: 1),
-                    "\(arguments): \(cliInvocations)"
-                )
-            }
+            #expect(
+                !cliInvocations.contains("hooks codex install --yes"),
+                "\(classification.arguments): \(cliInvocations)"
+            )
         }
     }
 
-    func testWrapperRoutesResumeAndForkThroughCustomCodexWithHookOwnership() throws {
+    @Test(arguments: wrapperReplayCases)
+    func `Wrapper routes resume and fork through custom Codex with hook ownership`(
+        replay: WrapperReplayCase
+    ) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux codex custom path \(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux test cli", isDirectory: false)
@@ -123,40 +200,46 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("Resources/bin/cmux-codex-wrapper", isDirectory: false)
         let sessionID = "019dad34-d218-7943-b81a-eddac5c87951"
-        for command in ["resume", "fork"] {
-            let capture = root.appendingPathComponent("\(command)-capture.txt", isDirectory: false)
-            let result = runCodexHookProcess(
-                executablePath: wrapper.path,
-                arguments: [command, sessionID, "--model", "gpt-5.4"],
-                environment: [
-                    "HOME": root.path,
-                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                    "CMUX_SURFACE_ID": "surface-replay",
-                    "CMUX_SOCKET_PATH": socketPath,
-                    "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
-                    "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
-                    "TEST_CAPTURE": capture.path,
-                    "TEST_CLI_CAPTURE": cliCapture.path,
-                ],
-                timeout: 3
-            )
+        let capture = root.appendingPathComponent("\(replay.command)-capture.txt", isDirectory: false)
+        let result = runCodexHookProcess(
+            executablePath: wrapper.path,
+            arguments: [replay.command, sessionID, "--model", "gpt-5.4"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "surface-replay",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
+                "TEST_CAPTURE": capture.path,
+                "TEST_CLI_CAPTURE": cliCapture.path,
+            ],
+            timeout: 3
+        )
 
-            XCTAssertFalse(result.timedOut, result.stderr)
-            XCTAssertEqual(result.status, 0, result.stderr)
-            let captured = try String(contentsOf: capture, encoding: .utf8)
-            XCTAssertTrue(captured.contains("owner=1"), "\(command): \(captured)")
-            XCTAssertTrue(captured.contains("launch=\(fakeCodex.path)"), "\(command): \(captured)")
-            XCTAssertTrue(
-                captured.contains("args=\(command) \(sessionID) --model gpt-5.4"),
-                "\(command): \(captured)"
-            )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let captured = try String(contentsOf: capture, encoding: .utf8)
+        #expect(captured.contains("owner=1"), "\(replay.command): \(captured)")
+        #expect(captured.contains("launch=\(fakeCodex.path)"), "\(replay.command): \(captured)")
+        #expect(
+            captured.contains("args=\(replay.command) \(sessionID) --model gpt-5.4"),
+            "\(replay.command): \(captured)"
+        )
+        #expect(waitForFile(cliCapture, containing: "hooks codex install --yes", timeout: 1))
+        if replay.expectsSyntheticSessionStart {
+            #expect(waitForFile(cliCapture, containing: "hooks codex session-start", timeout: 1))
+        } else {
+            Thread.sleep(forTimeInterval: 0.1)
+            let cliInvocations = try String(contentsOf: cliCapture, encoding: .utf8)
+            #expect(!cliInvocations.contains("hooks codex session-start"), Comment(rawValue: cliInvocations))
         }
-
-        XCTAssertTrue(waitForFile(cliCapture, containing: "hooks codex install --yes", timeout: 1))
-        XCTAssertTrue(waitForFile(cliCapture, containing: "hooks codex session-start", timeout: 1))
     }
 
-    func testWrapperFallsBackSafelyFromStaleAndNonExecutableCustomCodexPaths() throws {
+    @Test(arguments: InvalidCustomCodexCase.allCases)
+    func `Wrapper falls back safely from invalid custom Codex paths`(
+        invalidCase: InvalidCustomCodexCase
+    ) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-custom-fallback-\(UUID().uuidString)", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
@@ -187,32 +270,33 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Resources/bin/cmux-codex-wrapper", isDirectory: false)
-        let invalidPaths = [
-            root.appendingPathComponent("moved Codex/codex", isDirectory: false).path,
-            nonExecutableCodex.path,
-        ]
-        for (index, customPath) in invalidPaths.enumerated() {
-            let capture = root.appendingPathComponent("fallback-\(index).txt", isDirectory: false)
-            let result = runCodexHookProcess(
-                executablePath: wrapper.path,
-                arguments: ["review", "--help"],
-                environment: [
-                    "HOME": root.path,
-                    "PATH": "\(bin.path):/usr/bin:/bin:/usr/sbin:/sbin",
-                    "CMUX_CUSTOM_CODEX_PATH": customPath,
-                    "TEST_CAPTURE": capture.path,
-                ],
-                timeout: 3
-            )
-            XCTAssertFalse(result.timedOut, result.stderr)
-            XCTAssertEqual(result.status, 0, result.stderr)
-            let captured = try String(contentsOf: capture, encoding: .utf8)
-            XCTAssertTrue(captured.contains("fallback=\(fallbackCodex.path)"), captured)
-            XCTAssertTrue(captured.contains("args=review --help"), captured)
+        let customPath = switch invalidCase {
+        case .stale:
+            root.appendingPathComponent("moved Codex/codex", isDirectory: false).path
+        case .nonExecutable:
+            nonExecutableCodex.path
         }
+        let capture = root.appendingPathComponent("fallback.txt", isDirectory: false)
+        let result = runCodexHookProcess(
+            executablePath: wrapper.path,
+            arguments: ["review", "--help"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "\(bin.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CUSTOM_CODEX_PATH": customPath,
+                "TEST_CAPTURE": capture.path,
+            ],
+            timeout: 3
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let captured = try String(contentsOf: capture, encoding: .utf8)
+        #expect(captured.contains("fallback=\(fallbackCodex.path)"), Comment(rawValue: captured))
+        #expect(captured.contains("args=review --help"), Comment(rawValue: captured))
     }
 
-    func testExplicitDisableWinsOverInheritedWrapperOwnership() throws {
+    @Test
+    func `Explicit disable wins over inherited wrapper ownership`() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-opt-out-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
@@ -259,16 +343,17 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             timeout: 3
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
         let captured = try String(contentsOf: capturedEnvironment, encoding: .utf8)
-        XCTAssertTrue(captured.contains("disabled=unset"))
-        XCTAssertTrue(captured.contains("owner=unset"))
-        XCTAssertTrue(captured.contains("args=\n"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: capturedCLIInvocations.path))
+        #expect(captured.contains("disabled=unset"))
+        #expect(captured.contains("owner=unset"))
+        #expect(captured.contains("args=\n"))
+        #expect(!FileManager.default.fileExists(atPath: capturedCLIInvocations.path))
     }
 
-    func testWrapperPrefersTrustedPersistentHooksOverUntrustedSessionFlags() throws {
+    @Test
+    func `Wrapper prefers trusted persistent hooks over untrusted session flags`() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-owner-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
@@ -318,37 +403,45 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             timeout: 3
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
         let captured = try String(contentsOf: capturedEnvironment, encoding: .utf8)
-        XCTAssertTrue(captured.contains("disabled=0"))
-        XCTAssertTrue(captured.contains("owner=1"))
-        XCTAssertTrue(captured.contains("args=\n"))
+        #expect(captured.contains("disabled=0"))
+        #expect(captured.contains("owner=1"))
+        #expect(captured.contains("args=\n"))
         let invocations = try String(contentsOf: capturedCLIInvocations, encoding: .utf8)
-        XCTAssertTrue(invocations.contains("hooks codex install --yes"))
-        XCTAssertFalse(invocations.contains("hooks codex inject-args"))
+        #expect(invocations.contains("hooks codex install --yes"))
+        #expect(!invocations.contains("hooks codex inject-args"))
     }
 
-    func testInjectedHooksRequireWrapperOwnershipWhilePersistentHooksRespectDisable() throws {
+    @Test
+    func `Injected hooks require wrapper ownership while persistent hooks respect disable`() throws {
         let cliPath = try bundledCLIPath()
-        let result = runCodexInjectArgsProcess(executablePath: cliPath)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-injected-hooks-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let result = runCodexInjectArgsProcess(executablePath: cliPath, homeDirectory: root.path)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
 
         let arguments = result.stdout.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
         let hookConfigurations = arguments.filter { $0.hasPrefix("hooks.") }
-        XCTAssertFalse(hookConfigurations.isEmpty)
+        try #require(!hookConfigurations.isEmpty)
         for configuration in hookConfigurations {
             let marker = "command='''"
-            let commandStart = try XCTUnwrap(configuration.range(of: marker)?.upperBound)
-            let commandEnd = try XCTUnwrap(configuration.range(of: "'''", range: commandStart..<configuration.endIndex)?.lowerBound)
+            let commandStart = try #require(configuration.range(of: marker)?.upperBound)
+            let commandEnd = try #require(
+                configuration.range(of: "'''", range: commandStart..<configuration.endIndex)?.lowerBound
+            )
             let scriptPath = String(configuration[commandStart..<commandEnd])
             let body = try String(contentsOfFile: scriptPath, encoding: .utf8)
-            XCTAssertTrue(body.contains("CMUX_CODEX_WRAPPER_HOOK_OWNER"))
-            XCTAssertTrue(body.contains("= \"1\""))
+            #expect(body.contains("CMUX_CODEX_WRAPPER_HOOK_OWNER"))
+            #expect(body.contains("= \"1\""))
         }
     }
 
-    func testPersistentHooksBindToNativeCodexProcessBeforeWrapperFallback() throws {
+    @Test
+    func `Persistent hooks bind to native Codex process before wrapper fallback`() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-native-pid-\(UUID().uuidString)", isDirectory: true)
@@ -362,14 +455,15 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
             timeout: 5
         )
-        XCTAssertEqual(install.status, 0, install.stderr)
-        let sessionStart = try XCTUnwrap(
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+        let sessionStart = try #require(
             codexHookEntries(in: codexHome).first { $0.eventName == "SessionStart" }
         )
-        XCTAssertTrue(sessionStart.body.contains(#"agent_pid="${PPID:-${CMUX_CODEX_PID:-}}""#))
+        #expect(sessionStart.body.contains(#"agent_pid="${PPID:-${CMUX_CODEX_PID:-}}""#))
     }
 
-    func testPersistentHooksDoNotPinOneCmuxInstanceIntoSharedCodexConfig() throws {
+    @Test
+    func `Persistent hooks do not pin one cmux instance into shared Codex config`() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-shared-config-\(UUID().uuidString)", isDirectory: true)
@@ -393,24 +487,25 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
                 environment: environment,
                 timeout: 10
             )
-            XCTAssertEqual(result.status, 0, result.stderr)
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
             return try codexHookEntries(in: codexHome)
         }
 
         let firstHooks = try install(cli: firstCLI, socket: "/tmp/cmux-debug-first.sock")
         let secondHooks = try install(cli: secondCLI, socket: "/tmp/cmux-debug-second.sock")
-        XCTAssertEqual(firstHooks.map(\.command).sorted(), secondHooks.map(\.command).sorted())
+        #expect(firstHooks.map(\.command).sorted() == secondHooks.map(\.command).sorted())
         for hook in secondHooks where hook.body.contains("hooks codex") {
-            XCTAssertTrue(hook.body.contains("CMUX_CODEX_HOOK_CMUX_BIN"))
-            XCTAssertTrue(hook.body.contains("CMUX_SOCKET_PATH"))
-            XCTAssertFalse(hook.body.contains(firstCLI.path))
-            XCTAssertFalse(hook.body.contains(secondCLI.path))
-            XCTAssertFalse(hook.body.contains("/tmp/cmux-debug-first.sock"))
-            XCTAssertFalse(hook.body.contains("/tmp/cmux-debug-second.sock"))
+            #expect(hook.body.contains("CMUX_CODEX_HOOK_CMUX_BIN"))
+            #expect(hook.body.contains("CMUX_SOCKET_PATH"))
+            #expect(!hook.body.contains(firstCLI.path))
+            #expect(!hook.body.contains(secondCLI.path))
+            #expect(!hook.body.contains("/tmp/cmux-debug-first.sock"))
+            #expect(!hook.body.contains("/tmp/cmux-debug-second.sock"))
         }
     }
 
-    func testHookScriptsAreImmutableAcrossConcurrentCmuxVersions() throws {
+    @Test
+    func `Hook scripts are immutable across concurrent cmux versions`() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-content-address-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -420,12 +515,12 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             executablePath: try bundledCLIPath(),
             homeDirectory: root.path
         )
-        XCTAssertEqual(result.status, 0, result.stderr)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
         let arguments = result.stdout.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
-        let sessionStart = try XCTUnwrap(arguments.first { $0.hasPrefix("hooks.SessionStart=") })
+        let sessionStart = try #require(arguments.first { $0.hasPrefix("hooks.SessionStart=") })
         let marker = "command='''"
-        let commandStart = try XCTUnwrap(sessionStart.range(of: marker)?.upperBound)
-        let commandEnd = try XCTUnwrap(sessionStart.range(
+        let commandStart = try #require(sessionStart.range(of: marker)?.upperBound)
+        let commandEnd = try #require(sessionStart.range(
             of: "'''",
             range: commandStart..<sessionStart.endIndex
         )?.lowerBound)
@@ -436,16 +531,17 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             .appendingPathComponent("cmux-codex-hook-session-start.sh")
             .path
 
-        XCTAssertNotEqual(currentPath, legacyPath)
+        #expect(currentPath != legacyPath)
         try "#!/bin/sh\nolder-path-fallback-body\n".write(
             toFile: legacyPath,
             atomically: true,
             encoding: .utf8
         )
-        XCTAssertEqual(try String(contentsOfFile: currentPath, encoding: .utf8), currentBody)
+        #expect(try String(contentsOfFile: currentPath, encoding: .utf8) == currentBody)
     }
 
-    func testSetupPrunesLegacyProjectDispatcherButPreservesUserHook() throws {
+    @Test
+    func `Setup prunes legacy project dispatcher but preserves user hook`() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-legacy-owner-\(UUID().uuidString)", isDirectory: true)
@@ -472,16 +568,17 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
             timeout: 5
         )
-        XCTAssertEqual(install.status, 0, install.stderr)
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
 
         let promptHooks = try codexHookEntries(in: codexHome)
             .filter { $0.eventName == "UserPromptSubmit" }
-        XCTAssertFalse(promptHooks.contains { $0.command == legacyCommand })
-        XCTAssertTrue(promptHooks.contains { $0.command == userCommand })
-        XCTAssertEqual(promptHooks.filter { $0.body.contains("hooks codex prompt-submit") }.count, 1)
+        #expect(!promptHooks.contains { $0.command == legacyCommand })
+        #expect(promptHooks.contains { $0.command == userCommand })
+        #expect(promptHooks.filter { $0.body.contains("hooks codex prompt-submit") }.count == 1)
     }
 
-    func testSetupReplacesOlderContentAddressedAndInlineDispatchers() throws {
+    @Test
+    func `Setup replaces older content-addressed and inline dispatchers`() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-old-script-\(UUID().uuidString)", isDirectory: true)
@@ -510,17 +607,17 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
             timeout: 10
         )
-        XCTAssertEqual(install.status, 0, install.stderr)
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
         let hooks = try codexHookEntries(in: codexHome).filter { $0.eventName == "SessionStart" }
-        XCTAssertFalse(hooks.contains { $0.command == oldScript.path })
-        XCTAssertFalse(hooks.contains { $0.command == oldInlineDispatcher })
-        XCTAssertTrue(hooks.contains { $0.command == "user-session-hook" })
-        XCTAssertEqual(hooks.filter { $0.body.contains("hooks codex session-start") }.count, 1)
+        #expect(!hooks.contains { $0.command == oldScript.path })
+        #expect(!hooks.contains { $0.command == oldInlineDispatcher })
+        #expect(hooks.contains { $0.command == "user-session-hook" })
+        #expect(hooks.filter { $0.body.contains("hooks codex session-start") }.count == 1)
     }
 
     private func runCodexInjectArgsProcess(
         executablePath: String,
-        homeDirectory: String = NSHomeDirectory()
+        homeDirectory: String
     ) -> (status: Int32, stdout: Data, stderr: String) {
         let process = Process()
         let stdout = Pipe()
