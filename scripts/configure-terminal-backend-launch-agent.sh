@@ -9,6 +9,7 @@ IDENTITY_TOOL="$REPO_ROOT/scripts/terminal-backend-identity.py"
 APP_BUNDLE=""
 LAUNCH_AGENTS_DIR=""
 BUNDLE_ID=""
+VERSIONED_PROGRAM_PLACEHOLDER="__CMUX_VERSIONED_BACKEND_PROGRAM__"
 
 usage() {
   echo "Usage: ./scripts/configure-terminal-backend-launch-agent.sh (--app-bundle <path> | --launch-agents-dir <path>) --bundle-id <identifier>"
@@ -75,9 +76,12 @@ done
 
 /usr/bin/install -m 0644 "$SOURCE_PLIST" "$DESTINATION"
 /usr/libexec/PlistBuddy -c "Set :Label $SERVICE_LABEL" "$DESTINATION"
+/usr/libexec/PlistBuddy -c "Delete :BundleProgram" "$DESTINATION" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Set :Program $VERSIONED_PROGRAM_PLACEHOLDER" "$DESTINATION" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :Program string $VERSIONED_PROGRAM_PLACEHOLDER" "$DESTINATION"
 /usr/libexec/PlistBuddy -c "Delete :ProgramArguments" "$DESTINATION" >/dev/null 2>&1 || true
 /usr/libexec/PlistBuddy -c "Add :ProgramArguments array" "$DESTINATION"
-/usr/libexec/PlistBuddy -c "Add :ProgramArguments:0 string cmux-terminal-backend" "$DESTINATION"
+/usr/libexec/PlistBuddy -c "Add :ProgramArguments:0 string $VERSIONED_PROGRAM_PLACEHOLDER" "$DESTINATION"
 /usr/libexec/PlistBuddy -c "Add :ProgramArguments:1 string --headless" "$DESTINATION"
 /usr/libexec/PlistBuddy -c "Add :ProgramArguments:2 string --app-service-layout" "$DESTINATION"
 /usr/libexec/PlistBuddy -c "Add :ProgramArguments:3 string --session" "$DESTINATION"

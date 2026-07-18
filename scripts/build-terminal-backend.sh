@@ -17,6 +17,7 @@ RENDERER_BUILD_TOOL="$REPO_ROOT/scripts/build-terminal-renderer.sh"
 FINGERPRINT_STAMP=""
 DEPENDENCY_FILE=""
 PACKAGED_BUILD_ID_PATH=""
+PACKAGED_RENDERER_BUILD_ID_PATH=""
 
 export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 
@@ -123,10 +124,12 @@ fi
 FINGERPRINT="$($FINGERPRINT_TOOL "${FINGERPRINT_ARGS[@]}")"
 FINGERPRINT_STAMP="${FINGERPRINT_STAMP:-${OUTPUT_PATH}.terminal-backend-fingerprint}"
 PACKAGED_BUILD_ID_PATH="${OUTPUT_PATH}.build-id"
+PACKAGED_RENDERER_BUILD_ID_PATH="${RENDERER_OUTPUT_PATH}.build-id"
 if [[ -x "$OUTPUT_PATH" && -x "$RENDERER_OUTPUT_PATH" && -f "$FINGERPRINT_STAMP" \
-  && -f "$PACKAGED_BUILD_ID_PATH" ]] \
+  && -f "$PACKAGED_BUILD_ID_PATH" && -f "$PACKAGED_RENDERER_BUILD_ID_PATH" ]] \
   && [[ "$(cat "$FINGERPRINT_STAMP")" == "$FINGERPRINT" ]] \
-  && [[ "$(cat "$PACKAGED_BUILD_ID_PATH")" == "$FINGERPRINT" ]]; then
+  && [[ "$(cat "$PACKAGED_BUILD_ID_PATH")" == "$FINGERPRINT" ]] \
+  && [[ "$(cat "$PACKAGED_RENDERER_BUILD_ID_PATH")" == "$FINGERPRINT" ]]; then
   if [[ "$SHOULD_SIGN" -eq 0 ]] \
     || { /usr/bin/codesign --verify --strict "$OUTPUT_PATH" >/dev/null 2>&1 \
       && /usr/bin/codesign --verify --strict "$RENDERER_OUTPUT_PATH" >/dev/null 2>&1; }; then
@@ -241,6 +244,11 @@ BUILD_ID_TEMP="${PACKAGED_BUILD_ID_PATH}.tmp.$$"
 printf '%s\n' "$FINGERPRINT" > "$BUILD_ID_TEMP"
 chmod 0644 "$BUILD_ID_TEMP"
 mv "$BUILD_ID_TEMP" "$PACKAGED_BUILD_ID_PATH"
+
+RENDERER_BUILD_ID_TEMP="${PACKAGED_RENDERER_BUILD_ID_PATH}.tmp.$$"
+printf '%s\n' "$FINGERPRINT" > "$RENDERER_BUILD_ID_TEMP"
+chmod 0644 "$RENDERER_BUILD_ID_TEMP"
+mv "$RENDERER_BUILD_ID_TEMP" "$PACKAGED_RENDERER_BUILD_ID_PATH"
 
 STAMP_TEMP="${FINGERPRINT_STAMP}.tmp.$$"
 mkdir -p "$(dirname "$FINGERPRINT_STAMP")"

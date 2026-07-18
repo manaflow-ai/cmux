@@ -30,22 +30,22 @@ struct TerminalBackendServiceUnregistrationCommand {
             userID: UInt32(Darwin.getuid()),
             homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
         )
+        let bundleInspection = BackendServiceBundleInspection(
+            bundleURL: bundleURL,
+            descriptor: descriptor
+        )
         let coordinator = BackendServiceBootstrapCoordinator(
             activationPolicy: BackendServiceActivationPolicy(buildSettingValue: "NO"),
-            inspection: BackendServiceBundleInspection(
-                bundleURL: bundleURL,
-                descriptor: descriptor
-            ),
+            inspection: bundleInspection,
             registration: SystemBackendServiceRegistration(
-                propertyListName: descriptor.propertyListName
+                descriptor: descriptor,
+                bundleInspection: bundleInspection,
+                runtimePaths: runtimePaths,
+                userID: UInt32(Darwin.getuid())
             ),
             readinessChecker: BackendServiceReadinessProbe(
                 descriptor: descriptor,
-                runtimePaths: runtimePaths,
-                trustedExecutableURL: BackendServiceBundleInspection(
-                    bundleURL: bundleURL,
-                    descriptor: descriptor
-                ).executableURL
+                runtimePaths: runtimePaths
             )
         )
 

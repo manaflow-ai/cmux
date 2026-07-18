@@ -75,7 +75,7 @@ final class TerminalBackendServiceModel {
                 localized: "terminalBackend.guidance.approvalRequired",
                 defaultValue: "Allow the cmux terminal backend in System Settings. Backend-owned terminals are unavailable until approval."
             )
-        case .unavailable(.missingBundleItem):
+        case .unavailable(.missingBundleItem), .unavailable(.pairValidationFailed):
             String(
                 localized: "terminalBackend.guidance.missingBundleItem",
                 defaultValue: "The terminal backend is missing from this app build. Reinstall this cmux build to restore terminals."

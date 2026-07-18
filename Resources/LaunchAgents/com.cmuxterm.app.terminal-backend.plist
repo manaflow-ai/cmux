@@ -4,11 +4,11 @@
 <dict>
     <key>Label</key>
     <string>com.cmuxterm.app.terminal-backend</string>
-    <key>BundleProgram</key>
-    <string>Contents/Resources/bin/cmux-terminal-backend</string>
+    <key>Program</key>
+    <string>__CMUX_VERSIONED_BACKEND_PROGRAM__</string>
     <key>ProgramArguments</key>
     <array>
-        <string>cmux-terminal-backend</string>
+        <string>__CMUX_VERSIONED_BACKEND_PROGRAM__</string>
         <string>--headless</string>
         <string>--app-service-layout</string>
         <string>--session</string>

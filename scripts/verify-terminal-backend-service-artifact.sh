@@ -111,16 +111,24 @@ PLIST="$APP_BUNDLE/Contents/Library/LaunchAgents/$PLIST_NAME"
 EXECUTABLE="$APP_BUNDLE/Contents/Resources/bin/cmux-terminal-backend"
 BUILD_ID_FILE="${EXECUTABLE}.build-id"
 RENDERER_EXECUTABLE="$APP_BUNDLE/Contents/Resources/bin/cmux-terminal-renderer"
+RENDERER_BUILD_ID_FILE="${RENDERER_EXECUTABLE}.build-id"
+VERSIONED_PROGRAM_PLACEHOLDER="__CMUX_VERSIONED_BACKEND_PROGRAM__"
 
 [[ -x "$EXECUTABLE" ]] || { echo "error: terminal backend executable missing: $EXECUTABLE" >&2; exit 1; }
 [[ -r "$BUILD_ID_FILE" ]] || { echo "error: terminal backend build ID missing: $BUILD_ID_FILE" >&2; exit 1; }
 [[ -x "$RENDERER_EXECUTABLE" ]] || { echo "error: terminal renderer executable missing: $RENDERER_EXECUTABLE" >&2; exit 1; }
+[[ -r "$RENDERER_BUILD_ID_FILE" ]] || { echo "error: terminal renderer build ID missing: $RENDERER_BUILD_ID_FILE" >&2; exit 1; }
 [[ -r "$PLIST" ]] || { echo "error: terminal backend launch-agent plist missing: $PLIST" >&2; exit 1; }
 /usr/bin/plutil -lint "$PLIST" >/dev/null
 
 PACKAGED_BUILD_ID="$(tr -d '[:space:]' < "$BUILD_ID_FILE")"
+PACKAGED_RENDERER_BUILD_ID="$(tr -d '[:space:]' < "$RENDERER_BUILD_ID_FILE")"
 [[ "$PACKAGED_BUILD_ID" =~ ^[0-9a-f]{64}$ ]] || {
   echo "error: terminal backend build ID is not a lowercase SHA-256: $PACKAGED_BUILD_ID" >&2
+  exit 1
+}
+[[ "$PACKAGED_RENDERER_BUILD_ID" == "$PACKAGED_BUILD_ID" ]] || {
+  echo "error: terminal renderer build ID $PACKAGED_RENDERER_BUILD_ID does not match backend $PACKAGED_BUILD_ID" >&2
   exit 1
 }
 REPORTED_BUILD_ID="$("$EXECUTABLE" --build-id)"
@@ -141,13 +149,16 @@ expect_plist_value() {
 }
 
 expect_plist_value Label "$SERVICE_LABEL"
-expect_plist_value BundleProgram "Contents/Resources/bin/cmux-terminal-backend"
-expect_plist_value ProgramArguments:0 "cmux-terminal-backend"
+if /usr/libexec/PlistBuddy -c 'Print :BundleProgram' "$PLIST" >/dev/null 2>&1; then
+  echo "error: launch-agent template must not target the mutable app-bundle backend" >&2
+  exit 1
+fi
+expect_plist_value Program "$VERSIONED_PROGRAM_PLACEHOLDER"
+expect_plist_value ProgramArguments:0 "$VERSIONED_PROGRAM_PLACEHOLDER"
 expect_plist_value ProgramArguments:1 "--headless"
 expect_plist_value ProgramArguments:2 "--app-service-layout"
 expect_plist_value ProgramArguments:3 "--session"
 expect_plist_value ProgramArguments:4 "$EXPECTED_SESSION"
-
 PROGRAM_ARGUMENT_COUNT="$(/usr/bin/plutil -extract ProgramArguments raw -o - "$PLIST")"
 [[ "$PROGRAM_ARGUMENT_COUNT" -eq 5 ]] || {
   echo "error: expected exactly five terminal backend program arguments" >&2

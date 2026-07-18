@@ -48,10 +48,12 @@ bash -n \
   "$ROOT/scripts/reloads.sh" \
   "$ROOT/scripts/sign-cmux-bundle.sh" \
   "$ROOT/scripts/test-terminal-renderer-helper.sh" \
-  "$ROOT/scripts/verify-terminal-backend-service-artifact.sh"
+  "$ROOT/scripts/verify-terminal-backend-service-artifact.sh" \
+  "$ROOT/tests/test_terminal_backend_versioned_install.sh"
 
 "$ROOT/tests/test_cmux_backend_only_linkage_audit.sh"
 "$ROOT/tests/test_terminal_renderer_linkage_audit.sh"
+"$ROOT/tests/test_terminal_backend_versioned_install.sh"
 
 "$ROOT/scripts/terminal-backend-identity.py" --check-vectors
 first_fingerprint="$("$ROOT/scripts/terminal-backend-build-fingerprint.py" --metadata test=service-scripts)"
@@ -113,6 +115,8 @@ printf '%s\n' "$FIXTURE_BUILD_ID" \
 cp \
   "$APP/Contents/Resources/bin/cmux-terminal-backend" \
   "$APP/Contents/Resources/bin/cmux-terminal-renderer"
+printf '%s\n' "$FIXTURE_BUILD_ID" \
+  > "$APP/Contents/Resources/bin/cmux-terminal-renderer.build-id"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
