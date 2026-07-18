@@ -211,6 +211,16 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func sidecarProcessExitSignalReplaysExitWithoutBlocking() async {
+        let signal = DiffSidecarProcessExitSignal()
+        let waiter = Task { await signal.wait() }
+
+        await signal.markExited()
+        await waiter.value
+        await signal.wait()
+    }
+
+    @Test
     func sidecarTerminationEscalatesAndReapsUncooperativeProcess() async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
