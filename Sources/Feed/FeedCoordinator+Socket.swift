@@ -11,6 +11,14 @@ extension FeedCoordinator {
         return pendingOnly ? store.pending : store.items
     }
 
+    /// Removes a non-blocking Feed item from the shared store and its
+    /// persisted projection. Pending decisions stay protected by the UI.
+    @MainActor
+    func removeItem(id: UUID) async -> Bool {
+        guard let store else { return false }
+        return (try? await store.removeItem(id: id)) == true
+    }
+
     /// Synchronous socket-only availability probe. Socket handlers execute on
     /// their worker queue, so this path never performs file I/O on MainActor.
     ///

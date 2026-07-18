@@ -57,6 +57,26 @@ struct FeedRowSurface: View {
                 isHovered = hovering
             }
         }
+        .contextMenu {
+            Button {
+                onActivate()
+            } label: {
+                Label(
+                    String(localized: "feed.contextMenu.openTerminal", defaultValue: "Open Terminal"),
+                    systemImage: "terminal"
+                )
+            }
+            Divider()
+            Button(role: .destructive) {
+                actions.remove(snapshot.id)
+            } label: {
+                Label(
+                    String(localized: "feed.contextMenu.remove", defaultValue: "Remove from Feed"),
+                    systemImage: "trash"
+                )
+            }
+            .disabled(snapshot.status.isPending)
+        }
     }
 
     private var rowBackgroundFill: Color {
@@ -87,4 +107,3 @@ struct FeedRowSurface: View {
         }
     }
 }
-

@@ -150,6 +150,19 @@ public final class WorkstreamStore {
         applyResolution(for: action)
     }
 
+    /// Removes one Feed item immediately and records a durable tombstone so
+    /// it does not return when persisted history is loaded again.
+    @discardableResult
+    public func removeItem(id: UUID) async throws -> Bool {
+        guard items.contains(where: { $0.id == id }) else { return false }
+        if let persistence {
+            try await persistence.remove(id)
+        }
+        items.removeAll { $0.id == id }
+        rebuildContextIndex()
+        return true
+    }
+
     /// Marks the local item resolved without sending. Used when the reply
     /// channel is being driven by another layer (e.g. an inbound socket
     /// resolution event).

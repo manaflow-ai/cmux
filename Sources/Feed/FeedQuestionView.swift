@@ -41,6 +41,17 @@ struct QuestionActionArea: View {
                     questionBlock(index: idx + 1, question: q)
                 }
             }
+            if !resolvedSelections.isEmpty {
+                FeedLabeledTextRow(
+                    label: String(
+                        localized: "feed.question.answered",
+                        defaultValue: "Answered:"
+                    ),
+                    text: resolvedSelections.formatted(),
+                    labelColor: .blue,
+                    textColor: .primary.opacity(0.95)
+                )
+            }
             if shouldShowSkipInterviewCTA {
                 HStack(spacing: 8) {
                     skipInterviewCTA
@@ -55,6 +66,15 @@ struct QuestionActionArea: View {
                 clearCustomAnswerFocus()
             }
         }
+    }
+
+    static func resolvedSelections(in status: WorkstreamStatus) -> [String] {
+        guard case .resolved(.question(let selections), _) = status else { return [] }
+        return selections
+    }
+
+    private var resolvedSelections: [String] {
+        Self.resolvedSelections(in: status)
     }
 
     private var shouldRenderLongForm: Bool {
@@ -109,7 +129,7 @@ struct QuestionActionArea: View {
         index: Int,
         option: WorkstreamQuestionOption
     ) -> some View {
-        let selected = selections[questionId]?.contains(option.id) == true
+        let selected = isOptionSelected(questionId: questionId, option: option)
         return Button {
             guard status.isPending else { return }
             onActionRow()
@@ -368,7 +388,7 @@ struct QuestionActionArea: View {
         option: WorkstreamQuestionOption,
         multi: Bool
     ) -> some View {
-        let selected = selections[questionId]?.contains(option.id) == true
+        let selected = isOptionSelected(questionId: questionId, option: option)
         let leading: String? = multi
             ? (selected ? "checkmark.square.fill" : "square")
             : nil
@@ -392,6 +412,16 @@ struct QuestionActionArea: View {
             }
             selections[questionId] = current
         }
+    }
+
+    private func isOptionSelected(
+        questionId: String,
+        option: WorkstreamQuestionOption
+    ) -> Bool {
+        if status.isPending {
+            return selections[questionId]?.contains(option.id) == true
+        }
+        return resolvedSelections.contains(option.label)
     }
 
     /// One answer string per question: the user's free-form text if

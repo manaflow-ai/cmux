@@ -12,7 +12,9 @@ struct FeedLabeledTextRow: View {
             Text(label)
                 .cmuxFont(size: 10, weight: .semibold)
                 .foregroundColor(labelColor)
-                .frame(width: 48, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 48, alignment: .leading)
             if rendersMarkdown {
                 FeedMarkdownInlineText(
                     text: text,

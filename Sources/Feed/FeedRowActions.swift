@@ -7,6 +7,7 @@ struct FeedRowActions {
     let replyQuestion: @MainActor (String, [String]) -> Void
     let approveExitPlan: @MainActor (String, WorkstreamExitPlanMode, String?) -> Void
     let jump: @MainActor (String) -> Void
+    let remove: @MainActor (UUID) -> Void
     /// Types the user's reply into the agent's terminal surface and
     /// presses Return. Used by Stop-kind cards so the user can nudge
     /// Claude without switching focus to the terminal.
@@ -61,6 +62,11 @@ struct FeedRowActions {
             jump: { workstreamId in
                 taskStore.run {
                     _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
+                }
+            },
+            remove: { itemID in
+                taskStore.run {
+                    _ = await FeedCoordinator.shared.removeItem(id: itemID)
                 }
             },
             sendText: { workstreamId, text, completion in

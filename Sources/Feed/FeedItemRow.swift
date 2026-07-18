@@ -51,6 +51,11 @@ struct FeedItemRow: View, Equatable {
             }
             .buttonStyle(.plain)
             actionArea
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard !snapshot.status.isPending else { return }
+                    onActivate()
+                }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

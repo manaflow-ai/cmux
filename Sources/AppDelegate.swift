@@ -9332,26 +9332,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         else {
             return false
         }
-        // Invoke the existing V2 commands so the Feed-layer focus request
-        // goes through the same code path as a socket-initiated focus.
-        // Serialize through JSON so we reuse the v2 command parser.
-        guard invokeFeedSocketCommand(
-            "workspace.select",
-            params: ["workspace_id": workspaceId]
-        ), invokeFeedSocketCommand(
-            "surface.focus",
-            params: ["surface_id": surfaceId]
-        ) else {
-            return false
-        }
-        // Flash the terminal's own focus ring (same visual as
-        // cmd+shift+H / Flash Focused Panel) so the user's eye is
-        // pulled to the terminal content the Feed jumped to.
-        _ = invokeFeedSocketCommand(
-            "surface.trigger_flash",
-            params: ["surface_id": surfaceId]
+        guard let workspace = located.tabManager.tabs.first(where: {
+            $0.id == claimedWorkspaceID
+        }) else { return false }
+
+        _ = focusMainWindow(windowId: located.windowId)
+        TerminalController.shared.setActiveTabManager(located.tabManager)
+        located.tabManager.focusTab(
+            claimedWorkspaceID,
+            surfaceId: located.panelId,
+            suppressFlash: true
         )
-        return true
+        workspace.triggerFocusFlash(panelId: located.panelId)
+        return located.tabManager.selectedTabId == claimedWorkspaceID
+            && workspace.focusedPanelId == located.panelId
     }
 
     @discardableResult

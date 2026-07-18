@@ -26,12 +26,16 @@ public actor WorkstreamPersistence {
     }
 
     private let fileURL: URL
+    private let removedItemsFileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var handle: FileHandle?
+    private var removedItemsHandle: FileHandle?
+    private var cachedRemovedItemIDs: Set<UUID>?
 
     public init(fileURL: URL) {
         self.fileURL = fileURL
+        self.removedItemsFileURL = Self.removedItemsFileURL(for: fileURL)
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         self.encoder = enc
@@ -48,6 +52,10 @@ public actor WorkstreamPersistence {
             .appendingPathComponent("workstream.jsonl", isDirectory: false)
     }
 
+    public static func removedItemsFileURL(for fileURL: URL) -> URL {
+        fileURL.deletingPathExtension().appendingPathExtension("removed.jsonl")
+    }
+
     /// Appends a single item as a JSON line. Creates the file and parent
     /// directory lazily on first write.
     public func append(_ item: WorkstreamItem) throws {
@@ -57,6 +65,21 @@ public actor WorkstreamPersistence {
         let fh = try handleForWriting()
         try fh.seekToEnd()
         try fh.write(contentsOf: line)
+    }
+
+    /// Persists an item tombstone without rewriting the unbounded event log.
+    /// Readers apply tombstones while paging, so user removals survive restart
+    /// and existing byte cursors remain stable while new events are appended.
+    public func remove(_ itemID: UUID) throws {
+        var removedItemIDs = try loadRemovedItemIDs()
+        guard removedItemIDs.insert(itemID).inserted else { return }
+
+        var line = Data(itemID.uuidString.utf8)
+        line.append(0x0A)
+        let fh = try handleForRemovedItemsWriting()
+        try fh.seekToEnd()
+        try fh.write(contentsOf: line)
+        cachedRemovedItemIDs = removedItemIDs
     }
 
     /// Loads the last `limit` items from the file. Order in the returned
@@ -79,6 +102,7 @@ public actor WorkstreamPersistence {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return Page(items: [], hasMoreBefore: false, startOffset: nil)
         }
+        let removedItemIDs = try loadRemovedItemIDs()
         let fh = try FileHandle(forReadingFrom: fileURL)
         defer { try? fh.close() }
         let fileSize = try fh.seekToEnd()
@@ -100,7 +124,7 @@ public actor WorkstreamPersistence {
             }
             tail.insert(contentsOf: chunk, at: 0)
             lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
-            if lineRanges.count > limit {
+            if lineRanges.count > limit + removedItemIDs.count {
                 break
             }
         }
@@ -108,18 +132,20 @@ public actor WorkstreamPersistence {
         if lineRanges.isEmpty {
             lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
         }
-        let selectedRanges = lineRanges.suffix(limit)
-        var out: [WorkstreamItem] = []
-        out.reserveCapacity(selectedRanges.count)
-        for lineRange in selectedRanges {
+        var decoded: [(item: WorkstreamItem, startOffset: UInt64)] = []
+        decoded.reserveCapacity(lineRanges.count)
+        for lineRange in lineRanges {
             let slice = tail.subdata(in: lineRange.range)
-            if let item = try? decoder.decode(WorkstreamItem.self, from: slice) {
-                out.append(item)
+            if let item = try? decoder.decode(WorkstreamItem.self, from: slice),
+               !removedItemIDs.contains(item.id) {
+                decoded.append((item, lineRange.startOffset))
             }
             // Malformed lines are dropped silently; the audit log is
             // append-only and we don't want a corrupt row to block startup.
         }
-        let startOffset = selectedRanges.first?.startOffset
+        let selected = decoded.suffix(limit)
+        let out = selected.map(\.item)
+        let startOffset = selected.first?.startOffset
         return Page(
             items: out,
             hasMoreBefore: (startOffset ?? 0) > 0,
@@ -132,16 +158,23 @@ public actor WorkstreamPersistence {
         if let fh = handle {
             try fh.close()
         }
+        if let fh = removedItemsHandle {
+            try fh.close()
+        }
         handle = nil
-        do {
-            try FileManager.default.removeItem(at: fileURL)
-        } catch {
-            let nsError = error as NSError
-            if nsError.domain == NSCocoaErrorDomain,
-               nsError.code == NSFileNoSuchFileError {
-                return
+        removedItemsHandle = nil
+        cachedRemovedItemIDs = []
+        for url in [fileURL, removedItemsFileURL] {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == NSCocoaErrorDomain,
+                   nsError.code == NSFileNoSuchFileError {
+                    continue
+                }
+                throw error
             }
-            throw error
         }
     }
 
@@ -158,6 +191,37 @@ public actor WorkstreamPersistence {
         let fh = try FileHandle(forWritingTo: fileURL)
         handle = fh
         return fh
+    }
+
+    private func handleForRemovedItemsWriting() throws -> FileHandle {
+        if let removedItemsHandle { return removedItemsHandle }
+        let fm = FileManager.default
+        try fm.createDirectory(
+            at: removedItemsFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if !fm.fileExists(atPath: removedItemsFileURL.path) {
+            fm.createFile(atPath: removedItemsFileURL.path, contents: nil)
+        }
+        let fh = try FileHandle(forWritingTo: removedItemsFileURL)
+        removedItemsHandle = fh
+        return fh
+    }
+
+    private func loadRemovedItemIDs() throws -> Set<UUID> {
+        if let cachedRemovedItemIDs { return cachedRemovedItemIDs }
+        guard FileManager.default.fileExists(atPath: removedItemsFileURL.path) else {
+            cachedRemovedItemIDs = []
+            return []
+        }
+        let data = try Data(contentsOf: removedItemsFileURL)
+        let removedItemIDs = Set(
+            String(decoding: data, as: UTF8.self)
+                .split(whereSeparator: \.isNewline)
+                .compactMap { UUID(uuidString: String($0)) }
+        )
+        cachedRemovedItemIDs = removedItemIDs
+        return removedItemIDs
     }
 
     private static func lineRanges(
