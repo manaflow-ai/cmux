@@ -391,7 +391,7 @@ final class TerminalControllerSocketSecurityTests {
 
     @Test func testRemoteStatusPayloadOmitsSensitiveSSHConfiguration() {
         let tabManager = TabManager()
-        let workspace = tabManager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let workspace = tabManager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
 
         workspace.configureRemoteConnection(
             .init(
@@ -443,7 +443,7 @@ final class TerminalControllerSocketSecurityTests {
         defer { AppDelegate.shared = previousAppDelegate }
 
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let workspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
@@ -489,7 +489,7 @@ final class TerminalControllerSocketSecurityTests {
         defer { AppDelegate.shared = previousAppDelegate }
 
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let workspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
@@ -533,7 +533,7 @@ final class TerminalControllerSocketSecurityTests {
         defer { AppDelegate.shared = previousAppDelegate }
 
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let workspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
@@ -578,7 +578,7 @@ final class TerminalControllerSocketSecurityTests {
         defer { AppDelegate.shared = previousAppDelegate }
 
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let workspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
@@ -748,7 +748,7 @@ final class TerminalControllerSocketSecurityTests {
     @Test func testSurfaceReadTextIsServicedOnTheWorkerLane() async throws {
         let socketPath = makeSocketPath("v2-read-text-worker")
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -807,7 +807,7 @@ final class TerminalControllerSocketSecurityTests {
     @Test func testV1SetStatusIsServicedOnWorkerLaneWhileMainThreadIsBlocked() throws {
         let socketPath = makeSocketPath("v1-status-worker")
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -1145,7 +1145,7 @@ final class TerminalControllerSocketSecurityTests {
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -1202,7 +1202,7 @@ final class TerminalControllerSocketSecurityTests {
     @Test func testPaneCreateStartupEnvironmentMarksManagedSubagentForRawNotificationSuppression() async throws {
         let socketPath = makeSocketPath("pane-env")
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         let defaults = UserDefaults.standard
         let previousSuppressionDefault = defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
 
@@ -1255,7 +1255,7 @@ final class TerminalControllerSocketSecurityTests {
     @Test func testSurfaceRelayRPCsReturnResolvedFocusedSurfaceWhenSurfaceIDOmitted() async throws {
         let socketPath = makeSocketPath("relay-fallback")
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
 
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
@@ -1303,7 +1303,7 @@ final class TerminalControllerSocketSecurityTests {
     @Test func testSurfaceRelayRPCsRejectExplicitUnknownSurfaceID() async throws {
         let socketPath = makeSocketPath("relay-invalid")
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
 
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
@@ -1356,7 +1356,7 @@ final class TerminalControllerSocketSecurityTests {
     @Test func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
         let socketPath = makeSocketPath("close-pinned")
         let manager = TabManager()
-        let pinnedWorkspace = manager.addWorkspace(select: false)
+        let pinnedWorkspace = manager.addLocalWorkspace(select: false)
         manager.setPinned(pinnedWorkspace, pinned: true)
 
         TerminalController.shared.start(
@@ -1622,8 +1622,8 @@ final class TerminalControllerSocketSecurityTests {
     private func makeMovedRemotePTYSurface(
         in manager: TabManager
     ) throws -> (source: Workspace, destination: Workspace, panel: TerminalPanel, sessionID: String) {
-        let source = manager.addWorkspace(select: true)
-        let destination = manager.addWorkspace(select: false)
+        let source = manager.addLocalWorkspace(select: true)
+        let destination = manager.addLocalWorkspace(select: false)
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,

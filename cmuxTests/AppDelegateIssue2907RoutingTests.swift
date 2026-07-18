@@ -161,8 +161,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         TerminalController.shared.setActiveTabManager(managerA)
         let originalAOrder = managerA.tabs.map(\.id)
         let firstB = try XCTUnwrap(managerB.tabs.first)
-        let secondB = managerB.addWorkspace(select: false, eagerLoadTerminal: false)
-        let thirdB = managerB.addWorkspace(select: false, eagerLoadTerminal: false)
+        let secondB = managerB.addLocalWorkspace(select: false, eagerLoadTerminal: false)
+        let thirdB = managerB.addLocalWorkspace(select: false, eagerLoadTerminal: false)
 
         let result = try v2Result(
             method: "workspace.reorder_many",
@@ -192,7 +192,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         TerminalController.shared.setActiveTabManager(manager)
         let first = try XCTUnwrap(manager.tabs.first)
-        let second = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let second = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         let originalOrder = manager.tabs.map(\.id)
 
         let orderError = try v2Error(

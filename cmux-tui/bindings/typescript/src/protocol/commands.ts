@@ -14,12 +14,44 @@ import type {
 } from "./common.js";
 import type { DeclarativeLayout, Layout, Tree } from "./tree.js";
 import type { RenderRow } from "./render.js";
+import type {
+  SubscribeTopologyResult,
+  TopologyCursor,
+  TopologySnapshot,
+  UUID,
+} from "./topology.js";
 
 export interface IdentifyRequest extends CmuxRequestBase { cmd: "identify" }
-export interface IdentifyResult { app: "cmux-tui"; version: string; protocol: number; session: string; pid: number }
+export interface IdentifyResult {
+  app: "cmux-tui";
+  version: string;
+  protocol: number;
+  protocol_min?: number;
+  protocol_max?: number;
+  capabilities?: string[];
+  session: string;
+  session_id?: UUID;
+  daemon_instance_id?: UUID;
+  topology_revision?: number;
+  canonical_topology_revision?: number;
+  pid: number;
+}
 
 export interface PingRequest extends CmuxRequestBase { cmd: "ping" }
-export interface PingResult { ok: true; version: string; protocol: number }
+export interface PingResult {
+  ok: true;
+  version: string;
+  protocol: number;
+  protocol_min?: number;
+  protocol_max?: number;
+  capabilities?: string[];
+  session?: string;
+  session_id?: UUID;
+  daemon_instance_id?: UUID;
+  topology_revision?: number;
+  canonical_topology_revision?: number;
+  pid?: number;
+}
 
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
@@ -62,6 +94,11 @@ export interface SetWindowTitleRequest extends CmuxRequestBase { cmd: "set-windo
 export interface ClearWindowTitleRequest extends CmuxRequestBase { cmd: "clear-window-title" }
 
 export interface ListWorkspacesRequest extends CmuxRequestBase { cmd: "list-workspaces" }
+
+export interface TopologySnapshotRequest extends CmuxRequestBase { cmd: "topology-snapshot" }
+export interface SubscribeTopologyRequest extends CmuxRequestBase, TopologyCursor {
+  cmd: "subscribe-topology";
+}
 
 export interface ExportLayoutRequest extends CmuxRequestBase {
   cmd: "export-layout";
@@ -191,7 +228,65 @@ export interface ZoomPaneRequest extends CmuxRequestBase {
 export interface ZoomPaneResult { pane: Id; zoomed: boolean; zoomed_pane: Id | null }
 
 export interface ProcessInfoRequest extends CmuxRequestBase { cmd: "process-info"; surface: Id }
-export interface ProcessInfoResult { pid: number | null; command: string | null; cwd: string | null }
+export interface ProcessInfoResult {
+  pid: number | null;
+  command: string[] | null;
+  cwd: string | null;
+  tty: string | null;
+}
+
+export interface EnsureTerminalEnvironment {
+  name: string;
+  value: string;
+}
+
+interface EnsureTerminalRequestBase extends CmuxRequestBase {
+  cmd: "ensure-terminal";
+  workspace_uuid: UUID;
+  surface_uuid: UUID;
+  cwd?: string | null;
+  env?: EnsureTerminalEnvironment[];
+  initial_input?: string | null;
+  /** Creation-only. A reconnect with the same surface UUID ignores a different value. */
+  wait_after_command?: boolean;
+  cols: number;
+  rows: number;
+}
+
+export type EnsureTerminalRequest = EnsureTerminalRequestBase & (
+  | { argv?: string[] | null; command?: never }
+  | { command?: string | null; argv?: never }
+);
+
+export interface EnsureTerminalResult {
+  created: boolean;
+  workspace: Id;
+  workspace_uuid: UUID;
+  screen: Id;
+  screen_uuid: UUID;
+  pane: Id;
+  pane_uuid: UUID;
+  surface: Id;
+  surface_uuid: UUID;
+}
+
+export interface ReparentTerminalRequest extends CmuxRequestBase {
+  cmd: "reparent-terminal";
+  surface_uuid: UUID;
+  workspace_uuid: UUID;
+}
+
+export interface ReparentTerminalResult {
+  moved: boolean;
+  workspace: Id;
+  workspace_uuid: UUID;
+  screen: Id;
+  screen_uuid: UUID;
+  pane: Id;
+  pane_uuid: UUID;
+  surface: Id;
+  surface_uuid: UUID;
+}
 
 export interface SetDefaultColorsRequest extends CmuxRequestBase {
   cmd: "set-default-colors";
@@ -336,6 +431,7 @@ export type CmuxRequest =
   | ReloadConfigRequest
   | SetWindowTitleRequest
   | ClearWindowTitleRequest
+  | TopologySnapshotRequest
   | ListWorkspacesRequest
   | ExportLayoutRequest
   | ApplyLayoutRequest
@@ -355,6 +451,8 @@ export type CmuxRequest =
   | SwapPaneRequest
   | ZoomPaneRequest
   | ProcessInfoRequest
+  | EnsureTerminalRequest
+  | ReparentTerminalRequest
   | SetDefaultColorsRequest
   | CloseSurfaceRequest
   | ClosePaneRequest
@@ -374,6 +472,7 @@ export type CmuxRequest =
   | MoveWorkspaceRequest
   | ScrollSurfaceRequest
   | SubscribeRequest
+  | SubscribeTopologyRequest
   | AttachSurfaceRequest
   | WaitForRequest
   | RunRequest
@@ -395,6 +494,7 @@ export interface CmuxResponseDataMap {
   "reload-config": ReloadConfigResult;
   "set-window-title": EmptyResult;
   "clear-window-title": EmptyResult;
+  "topology-snapshot": TopologySnapshot;
   "list-workspaces": Tree;
   "export-layout": ExportLayoutResult;
   "apply-layout": ApplyLayoutResult;
@@ -414,6 +514,8 @@ export interface CmuxResponseDataMap {
   "swap-pane": EmptyResult;
   "zoom-pane": ZoomPaneResult;
   "process-info": ProcessInfoResult;
+  "ensure-terminal": EnsureTerminalResult;
+  "reparent-terminal": ReparentTerminalResult;
   "set-default-colors": EmptyResult;
   "close-surface": EmptyResult;
   "close-pane": EmptyResult;
@@ -433,6 +535,7 @@ export interface CmuxResponseDataMap {
   "move-workspace": EmptyResult;
   "scroll-surface": EmptyResult;
   subscribe: EmptyResult;
+  "subscribe-topology": SubscribeTopologyResult;
   "attach-surface": EmptyResult;
   "wait-for": WaitForResult;
   run: RunResult;

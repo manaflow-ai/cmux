@@ -66,6 +66,16 @@ func parseEvent(raw map[string]any) Event {
 		if mustDecode(&event) {
 			return event
 		}
+	case "topology-delta":
+		var event TopologyDeltaEvent
+		if mustDecode(&event) {
+			return event
+		}
+	case "topology-resnapshot-required":
+		var event TopologyResnapshotRequiredEvent
+		if mustDecode(&event) {
+			return event
+		}
 	}
 	return UnknownEvent{Name: name, Raw: raw}
 }

@@ -377,6 +377,12 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
+    /// Daemon-derived terminal activity for the persistent backend. This set
+    /// is replaced from reader-specific receipts and never cleared by a local
+    /// notification mutation.
+    @Published private(set) var backendActivityUnreadWorkspaceIds: Set<UUID> = [] {
+        didSet { refreshUnreadPresentation() }
+    }
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:] {
         didSet {
             // The sidebar/pane read-indicator presentation derives from this map
@@ -483,6 +489,7 @@ final class TerminalNotificationStore: ObservableObject {
         manualUnreadWorkspaceIds
             .union(panelDerivedUnreadWorkspaceIds)
             .union(restoredUnreadWorkspaceIds)
+            .union(backendActivityUnreadWorkspaceIds)
     }
 
     private var workspaceUnreadIndicatorCount: Int {
@@ -716,12 +723,18 @@ final class TerminalNotificationStore: ObservableObject {
 
     func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool { restoredUnreadWorkspaceIds.contains(tabId) }
 
+    func setBackendActivityUnreadWorkspaceIDs(_ workspaceIDs: Set<UUID>) {
+        guard backendActivityUnreadWorkspaceIds != workspaceIDs else { return }
+        backendActivityUnreadWorkspaceIds = workspaceIDs
+    }
+
     func hasDismissibleState(forTabId tabId: UUID) -> Bool {
         (indexes.unreadCountByTabId[tabId] ?? 0) > 0 ||
             focusedReadIndicatorByTabId[tabId] != nil ||
             manualUnreadWorkspaceIds.contains(tabId) ||
             panelDerivedUnreadWorkspaceIds.contains(tabId) ||
             restoredUnreadWorkspaceIds.contains(tabId) ||
+            backendActivityUnreadWorkspaceIds.contains(tabId) ||
             inFlightPolicyRequests.hasPendingRequest(forTabId: tabId)
     }
 
@@ -755,7 +768,8 @@ final class TerminalNotificationStore: ObservableObject {
     func unreadCount(forTabId tabId: UUID) -> Int {
         let hasWorkspaceUnreadIndicator = manualUnreadWorkspaceIds.contains(tabId) ||
             panelDerivedUnreadWorkspaceIds.contains(tabId) ||
-            restoredUnreadWorkspaceIds.contains(tabId)
+            restoredUnreadWorkspaceIds.contains(tabId) ||
+            backendActivityUnreadWorkspaceIds.contains(tabId)
         return (indexes.unreadCountByTabId[tabId] ?? 0) + (hasWorkspaceUnreadIndicator ? 1 : 0)
     }
 

@@ -25,6 +25,10 @@ extension TerminalSurface {
         // prompt redraws with zsh themes like Powerlevel10k.
         guard force || focused != desiredFocusState else { return }
         desiredFocusState = focused
+        if let externalRuntime {
+            _ = externalRuntime.enqueue(.focus(focused))
+            return
+        }
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
         guard let surface = surface else { return }
@@ -44,7 +48,12 @@ extension TerminalSurface {
     }
 
     /// Applies the occlusion state to the runtime surface.
+    @MainActor
     public func setOcclusion(_ visible: Bool) {
+        if let externalRuntime {
+            _ = externalRuntime.enqueue(.visibility(visible))
+            return
+        }
         guard let surface = surface else { return }
         ghostty_surface_set_occlusion(surface, visible)
     }

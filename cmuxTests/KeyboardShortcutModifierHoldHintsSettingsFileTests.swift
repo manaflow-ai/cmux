@@ -90,7 +90,7 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
             defaults.set(false, forKey: key)
 
             let manager = TabManager(autoWelcomeIfNeeded: false)
-            let workspace = manager.addWorkspace(select: true)
+            let workspace = manager.addLocalWorkspace(select: true)
             workspace.bonsplitController.tabShortcutHintsEnabled = true
 
             _ = MainWindowFocusController(

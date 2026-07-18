@@ -9,6 +9,10 @@ let package = Package(
     ],
     products: [
         .library(
+            name: "CmuxTerminalFrontend",
+            targets: ["CmuxTerminalFrontend"]
+        ),
+        .library(
             name: "CmuxTerminal",
             targets: ["CmuxTerminal"]
         ),
@@ -17,13 +21,38 @@ let package = Package(
         .package(path: "../CmuxTerminalCore"),
         .package(path: "../CMUXDebugLog"),
         .package(path: "../CMUXAgentLaunch"),
+        .package(path: "../CmuxTerminalRenderTransport"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../../vendor/bonsplit"),
     ],
     targets: [
         .target(
+            name: "CmuxTerminalFrontend",
+            dependencies: [
+                .product(name: "CmuxTerminalDomain", package: "CmuxTerminalCore"),
+                .product(
+                    name: "CmuxTerminalRenderCompositor",
+                    package: "CmuxTerminalRenderTransport"
+                ),
+                .product(
+                    name: "CmuxTerminalRenderProtocol",
+                    package: "CmuxTerminalRenderTransport"
+                ),
+                .product(
+                    name: "CmuxTerminalRenderTransport",
+                    package: "CmuxTerminalRenderTransport"
+                ),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .target(
             name: "CmuxTerminal",
             dependencies: [
+                .product(name: "CmuxTerminalDomain", package: "CmuxTerminalCore"),
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "CmuxGhosttyKit", package: "CmuxTerminalCore"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
@@ -45,6 +74,29 @@ let package = Package(
         .target(
             name: "GhosttyRuntimeTestStubs",
             path: "Tests/GhosttyRuntimeTestStubs"
+        ),
+        .testTarget(
+            name: "CmuxTerminalFrontendTests",
+            dependencies: [
+                "CmuxTerminalFrontend",
+                .product(
+                    name: "CmuxTerminalRenderCompositor",
+                    package: "CmuxTerminalRenderTransport"
+                ),
+                .product(
+                    name: "CmuxTerminalRenderProtocol",
+                    package: "CmuxTerminalRenderTransport"
+                ),
+                .product(
+                    name: "CmuxTerminalRenderTransport",
+                    package: "CmuxTerminalRenderTransport"
+                ),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
         ),
         .testTarget(
             name: "CmuxTerminalTests",

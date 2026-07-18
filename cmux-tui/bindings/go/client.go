@@ -11,6 +11,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,6 +72,7 @@ type Client struct {
 	mu                    sync.Mutex
 	nextID                atomic.Uint64
 	protocol              *uint32
+	identity              *IdentifyResult
 }
 
 type Options struct {
@@ -108,11 +111,26 @@ func NewClient(options Options) (*Client, error) {
 }
 
 func DefaultSocketPath(session string) string {
-	base := os.Getenv("TMPDIR")
-	if base == "" {
-		base = os.TempDir()
+	base := runtimeBase(os.Getenv("XDG_RUNTIME_DIR"), os.Getenv("TMPDIR"))
+	return defaultSocketPathFrom(base, os.Getuid(), session, runtime.GOOS == "darwin")
+}
+
+func runtimeBase(xdgRuntimeDir, tmpDir string) string {
+	if xdgRuntimeDir != "" {
+		return xdgRuntimeDir
 	}
-	return filepath.Join(base, fmt.Sprintf("cmux-tui-%d", os.Getuid()), session+".sock")
+	if tmpDir != "" {
+		return tmpDir
+	}
+	return "/tmp"
+}
+
+func defaultSocketPathFrom(base string, uid int, session string, darwin bool) string {
+	candidate := filepath.Join(base, fmt.Sprintf("cmux-tui-%d", uid), session+".sock")
+	if darwin && len(candidate) > 103 {
+		return filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", uid), session+".sock")
+	}
+	return candidate
 }
 
 func EnvSocketPath() string {
@@ -198,8 +216,153 @@ func (c *Client) Identify(ctx context.Context) (IdentifyResult, error) {
 	err := c.request(ctx, "identify", nil, &result)
 	if err == nil {
 		c.protocol = &result.Protocol
+		c.identity = &result
 	}
 	return result, err
+}
+
+func (c *Client) Ping(ctx context.Context) (PingResult, error) {
+	var result PingResult
+	return result, c.request(ctx, "ping", nil, &result)
+}
+
+func (c *Client) TopologySnapshot(ctx context.Context) (TopologySnapshot, error) {
+	var result TopologySnapshot
+	if _, err := c.requireTopologyV8(ctx); err != nil {
+		return result, err
+	}
+	return result, c.request(ctx, "topology-snapshot", nil, &result)
+}
+
+type TopologySubscribeOutcome struct {
+	Subscribed         *TopologySubscription
+	ResnapshotRequired *TopologyResnapshotRequired
+}
+
+type TopologySubscription struct {
+	Info   TopologySubscribed
+	stream *Stream
+	mu     sync.Mutex
+	cursor TopologyCursor
+}
+
+func (s *TopologySubscription) Cursor() TopologyCursor {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cursor
+}
+
+func (s *TopologySubscription) Close() error { return s.stream.Close() }
+
+func (s *TopologySubscription) Recv(ctx context.Context) (TopologyStreamEvent, error) {
+	event, err := s.stream.Recv(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch value := event.(type) {
+	case TopologyResnapshotRequiredEvent:
+		_ = s.stream.Close()
+		return value, nil
+	case TopologyDeltaEvent:
+		if required := validateTopologyDelta(s.cursor, value.TopologyDelta); required != nil {
+			_ = s.stream.Close()
+			return TopologyResnapshotRequiredEvent{TopologyResnapshotRequired: *required}, nil
+		}
+		s.cursor.Revision = value.Revision
+		return value, nil
+	default:
+		_ = s.stream.Close()
+		return nil, &decodeError{msg: fmt.Sprintf("unexpected topology stream event %q", event.EventName())}
+	}
+}
+
+func (c *Client) SubscribeTopology(
+	ctx context.Context,
+	cursor TopologyCursor,
+) (TopologySubscribeOutcome, error) {
+	var outcome TopologySubscribeOutcome
+	if _, err := c.requireTopologyV8(ctx); err != nil {
+		return outcome, err
+	}
+	request := map[string]any{
+		"id":                 c.nextRequestID(),
+		"cmd":                "subscribe-topology",
+		"daemon_instance_id": cursor.DaemonInstanceID.String(),
+		"session_id":         cursor.SessionID.String(),
+		"revision":           cursor.Revision,
+	}
+	stream, data, err := c.openStreamWithResponse(ctx, request)
+	if err != nil {
+		return outcome, err
+	}
+	status, _ := data["status"].(string)
+	switch status {
+	case "resnapshot-required":
+		var required TopologyResnapshotRequired
+		if err := decodeData(data, &required); err != nil {
+			_ = stream.Close()
+			return outcome, err
+		}
+		_ = stream.Close()
+		outcome.ResnapshotRequired = &required
+		return outcome, nil
+	case "subscribed":
+		var info TopologySubscribed
+		if err := decodeData(data, &info); err != nil {
+			_ = stream.Close()
+			return outcome, err
+		}
+		if info.DaemonInstanceID != cursor.DaemonInstanceID ||
+			info.SessionID != cursor.SessionID || info.FromRevision != cursor.Revision {
+			_ = stream.Close()
+			required := topologyFenceFailure(cursor, info.TopologyAuthority, info.CurrentRevision)
+			outcome.ResnapshotRequired = required
+			return outcome, nil
+		}
+		outcome.Subscribed = &TopologySubscription{Info: info, stream: stream, cursor: cursor}
+		return outcome, nil
+	default:
+		_ = stream.Close()
+		return outcome, &decodeError{msg: fmt.Sprintf("invalid subscribe-topology status %q", status)}
+	}
+}
+
+func (c *Client) requireTopologyV8(ctx context.Context) (IdentifyResult, error) {
+	var identity IdentifyResult
+	if c.identity != nil {
+		identity = *c.identity
+	} else {
+		var err error
+		identity, err = c.Identify(ctx)
+		if err != nil {
+			return identity, err
+		}
+	}
+	if !identity.SupportsTopologyV8() {
+		missing := make([]string, 0, len(TopologyV8Capabilities))
+		for _, required := range TopologyV8Capabilities {
+			found := false
+			for _, actual := range identity.Capabilities {
+				if actual == required {
+					found = true
+					break
+				}
+			}
+			if !found {
+				missing = append(missing, required)
+			}
+		}
+		return identity, &protocolError{msg: fmt.Sprintf(
+			"canonical topology requires protocol 8 and capabilities %s; server protocol=%d missing=%s",
+			strings.Join(TopologyV8Capabilities, ","), identity.Protocol, strings.Join(missing, ","),
+		)}
+	}
+	if _, ok := identity.TopologyCursor(); !ok {
+		return identity, &protocolError{msg: "canonical topology identify response omitted its authority cursor"}
+	}
+	return identity, nil
 }
 
 func (c *Client) ListWorkspaces(ctx context.Context) (Tree, error) {
@@ -224,6 +387,44 @@ func (c *Client) Send(ctx context.Context, surface uint64, opts SendOptions) err
 func (c *Client) ReadScreen(ctx context.Context, surface uint64) (ReadScreenResult, error) {
 	var result ReadScreenResult
 	return result, c.request(ctx, "read-screen", map[string]any{"surface": surface}, &result)
+}
+
+func (c *Client) ProcessInfo(ctx context.Context, surface uint64) (ProcessInfoResult, error) {
+	var result ProcessInfoResult
+	return result, c.request(ctx, "process-info", map[string]any{"surface": surface}, &result)
+}
+
+func (c *Client) EnsureTerminal(
+	ctx context.Context,
+	workspaceUUID UUID,
+	surfaceUUID UUID,
+	cols uint16,
+	rows uint16,
+	opts EnsureTerminalOptions,
+) (EnsureTerminalResult, error) {
+	var result EnsureTerminalResult
+	if opts.Argv != nil && opts.Command != nil {
+		return result, fmt.Errorf("ensure-terminal argv and command are mutually exclusive")
+	}
+	params := commandMap(opts)
+	params["workspace_uuid"] = workspaceUUID
+	params["surface_uuid"] = surfaceUUID
+	params["cols"] = cols
+	params["rows"] = rows
+	return result, c.request(ctx, "ensure-terminal", params, &result)
+}
+
+func (c *Client) ReparentTerminal(
+	ctx context.Context,
+	surfaceUUID UUID,
+	workspaceUUID UUID,
+) (ReparentTerminalResult, error) {
+	var result ReparentTerminalResult
+	params := map[string]any{
+		"surface_uuid":   surfaceUUID,
+		"workspace_uuid": workspaceUUID,
+	}
+	return result, c.request(ctx, "reparent-terminal", params, &result)
 }
 
 func (c *Client) VtState(ctx context.Context, surface uint64) (VtStateResult, error) {
@@ -355,20 +556,28 @@ func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, er
 		}
 		protocol = &info.Protocol
 	}
-	if *protocol > 7 || (*protocol > 5 && !c.allowProtocolV6Attach) {
+	if *protocol > 8 || (*protocol > 5 && !c.allowProtocolV6Attach) {
 		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", *protocol)}
 	}
 	return c.openStream(ctx, map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface})
 }
 
 func (c *Client) openStream(ctx context.Context, request map[string]any) (*Stream, error) {
+	stream, _, err := c.openStreamWithResponse(ctx, request)
+	return stream, err
+}
+
+func (c *Client) openStreamWithResponse(
+	ctx context.Context,
+	request map[string]any,
+) (*Stream, map[string]any, error) {
 	conn, err := dialJSON(c.socketPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := conn.Send(ctx, c.timeout, request); err != nil {
 		_ = conn.Close()
-		return nil, err
+		return nil, nil, err
 	}
 	requestID := request["id"]
 	var buffered []Event
@@ -376,7 +585,7 @@ func (c *Client) openStream(ctx context.Context, request map[string]any) (*Strea
 		response, err := conn.Recv(ctx, c.timeout)
 		if err != nil {
 			_ = conn.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		if _, ok := response["event"].(string); ok {
 			buffered = append(buffered, parseEvent(response))
@@ -386,14 +595,18 @@ func (c *Client) openStream(ctx context.Context, request map[string]any) (*Strea
 			continue
 		}
 		if ok, _ := response["ok"].(bool); ok {
-			return &Stream{conn: conn, timeout: c.timeout, buffered: buffered}, nil
+			data, _ := response["data"].(map[string]any)
+			if data == nil {
+				data = map[string]any{}
+			}
+			return &Stream{conn: conn, timeout: c.timeout, buffered: buffered}, data, nil
 		}
 		msg, _ := response["error"].(string)
 		if msg == "" {
 			msg = "unknown error"
 		}
 		_ = conn.Close()
-		return nil, &CommandError{Message: msg, ID: response["id"]}
+		return nil, nil, &CommandError{Message: msg, ID: response["id"]}
 	}
 }
 
@@ -433,10 +646,52 @@ func (s *Stream) Recv(ctx context.Context) (Event, error) {
 
 func (s *Stream) finishTerminal(event Event) Event {
 	switch event.(type) {
-	case DetachedEvent, OverflowEvent:
+	case DetachedEvent, OverflowEvent, TopologyResnapshotRequiredEvent:
 		_ = s.Close()
 	}
 	return event
+}
+
+func decodeData(data map[string]any, out any) error {
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return &decodeError{msg: err.Error()}
+	}
+	if err := json.Unmarshal(encoded, out); err != nil {
+		return &decodeError{msg: err.Error()}
+	}
+	return nil
+}
+
+func topologyFenceFailure(
+	cursor TopologyCursor,
+	authority TopologyAuthority,
+	currentRevision uint64,
+) *TopologyResnapshotRequired {
+	reason := TopologyHistoryGap
+	if authority.DaemonInstanceID != cursor.DaemonInstanceID {
+		reason = TopologyStaleDaemon
+	} else if authority.SessionID != cursor.SessionID {
+		reason = TopologyStaleSession
+	}
+	return &TopologyResnapshotRequired{
+		TopologyAuthority: authority,
+		CurrentRevision:   &currentRevision,
+		Reason:            reason,
+	}
+}
+
+func validateTopologyDelta(
+	cursor TopologyCursor,
+	delta TopologyDelta,
+) *TopologyResnapshotRequired {
+	if delta.DaemonInstanceID != cursor.DaemonInstanceID ||
+		delta.SessionID != cursor.SessionID ||
+		delta.BaseRevision != cursor.Revision ||
+		delta.BaseRevision == ^uint64(0) || delta.Revision != delta.BaseRevision+1 {
+		return topologyFenceFailure(cursor, delta.TopologyAuthority, delta.Revision)
+	}
+	return nil
 }
 
 type jsonLineConn struct {

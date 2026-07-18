@@ -496,16 +496,25 @@ jobs:
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
+          TERMINAL_BACKEND="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-terminal-backend"
           APP_ARCHS="$(lipo -archs "$APP_BINARY")"
           CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
           HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
+          TERMINAL_BACKEND_ARCHS="$(lipo -archs "$TERMINAL_BACKEND")"
           echo "App binary architectures: $APP_ARCHS"
           echo "CLI binary architectures: $CLI_ARCHS"
           echo "Ghostty helper architectures: $HELPER_ARCHS"
+          echo "Terminal backend architectures: $TERMINAL_BACKEND_ARCHS"
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
+          [[ "$TERMINAL_BACKEND_ARCHS" == *arm64* && "$TERMINAL_BACKEND_ARCHS" == *x86_64* ]]
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
+          ./scripts/verify-terminal-backend-service-artifact.sh \
+            --app-bundle "build-universal/Build/Products/Release/cmux.app" \
+            --architectures "arm64 x86_64" \
+            --require-disabled \
+            --smoke-headless
 
       - name: Run CLI version memory guard regression
         run: |
@@ -565,6 +574,15 @@ jobs:
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$app_plist"
+            ./scripts/configure-terminal-backend-launch-agent.sh \
+              --app-bundle "$app_dir/cmux.app" \
+              --bundle-id "$bundle_id"
+            ./scripts/verify-terminal-backend-service-artifact.sh \
+              --app-bundle "$app_dir/cmux.app" \
+              --bundle-id "$bundle_id" \
+              --architectures "arm64 x86_64" \
+              --require-disabled \
+              --smoke-headless
             mv "$app_dir/cmux.app" "$app_dir/cmux NIGHTLY.app"
           }
 

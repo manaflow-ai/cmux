@@ -105,7 +105,7 @@ final class WorkspaceStressProfileTests: XCTestCase {
 
         for workspaceIndex in 1..<config.workspaceCount {
             let workspace = timed("workspace-\(label(for: workspaceIndex))-create", collectInto: &creationSamples) {
-                manager.addWorkspace(
+                manager.addLocalWorkspace(
                     select: true,
                     eagerLoadTerminal: false,
                     autoWelcomeIfNeeded: false
@@ -217,7 +217,7 @@ final class WorkspaceStressProfileTests: XCTestCase {
 
         let manager = TabManager(autoWelcomeIfNeeded: false)
         for workspaceIndex in 1..<config.workspaceCount {
-            _ = manager.addWorkspace(
+            _ = manager.addLocalWorkspace(
                 title: "Workspace \(label(for: workspaceIndex))",
                 select: false,
                 eagerLoadTerminal: false,

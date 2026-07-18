@@ -126,6 +126,8 @@ class TerminalController {
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    private var mobileTerminalDataPlane: any MobileTerminalDataPlane =
+        EmbeddedMobileTerminalDataPlane()
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
@@ -832,6 +834,12 @@ class TerminalController {
         self.browserSignInFlow = browserSignIn
     }
 
+    func configureMobileTerminalDataPlane(
+        _ terminalDataPlane: any MobileTerminalDataPlane
+    ) {
+        mobileTerminalDataPlane = terminalDataPlane
+    }
+
     func start(
         tabManager: TabManager,
         socketPath: String,
@@ -1324,6 +1332,24 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.terminal_backend":
+            guard request.params["reset"] == nil
+                    || v2Bool(request.params, "reset") != nil else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.debug.terminalBackendDiagnostics.error.invalidReset",
+                        defaultValue: "reset must be true or false"
+                    )
+                )
+            }
+            return v2Ok(
+                id: request.id,
+                result: TerminalBackendRenderDiagnostics.shared.payload(
+                    reset: v2Bool(request.params, "reset") ?? false
+                )
+            )
 #endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
@@ -1337,7 +1363,8 @@ class TerminalController {
             // its worker case above is compiled out; the Release main lane
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
-            if request.method == "debug.sidebar.simulate_drag" {
+            if request.method == "debug.sidebar.simulate_drag"
+                || request.method == "debug.terminal_backend" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -1962,6 +1989,9 @@ class TerminalController {
         case "simulate_app_active":
             return simulateAppDidBecomeActive()
 
+        case "terminal_backend_mutation_status":
+            return terminalBackendMutationStatusCommand(args)
+
         // Sidebar metadata/reporting commands (set_status/report_meta/
         // report_meta_block/clear_status/clear_meta/clear_meta_block/list_status/
         // list_meta/list_meta_blocks/set_agent_pid/set_agent_lifecycle/
@@ -2315,6 +2345,7 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "terminal_backend.mutation_status",
             "sidebar.custom.open",
             "system.top",
             "system.memory",
@@ -6574,9 +6605,9 @@ class TerminalController {
 
             var createdSplit = true
             var placementStrategy = "split_right"
-            let createdPanel: BrowserPanel?
+            let creation: BrowserPanelCreationOutcome
             if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(
+                creation = ws.requestNewBrowserSurface(
                     inPane: targetPane,
                     url: url,
                     focus: focus,
@@ -6589,7 +6620,7 @@ class TerminalController {
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
             } else {
-                createdPanel = ws.newBrowserSplit(
+                creation = ws.requestNewBrowserSplit(
                     from: sourceSurfaceId,
                     orientation: .horizontal,
                     url: url,
@@ -6601,7 +6632,7 @@ class TerminalController {
                 )
             }
 
-            guard let browserPanelId = createdPanel?.id else {
+            guard let browserPanelId = creation.surfaceID else {
                 result = .err(code: "internal_error", message: "Failed to create browser", data: nil)
                 return
             }
@@ -6625,7 +6656,7 @@ class TerminalController {
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "created_split": createdSplit,
                 "placement_strategy": placementStrategy,
-                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "show_omnibar": omnibarVisible,
                 "transparent_background": transparentBackground,
                 "bypass_remote_proxy": bypassRemoteProxy
             ])
@@ -9636,12 +9667,13 @@ class TerminalController {
                 return
             }
 
-            guard let panel = ws.newBrowserSurface(
+            let creation = ws.requestNewBrowserSurface(
                 inPane: pane,
                 url: url,
                 focus: true,
                 creationPolicy: .automationPreload
-            ) else {
+            )
+            guard let panelID = creation.surfaceID else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
             }
@@ -9650,9 +9682,9 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "pane_id": pane.id.uuidString,
                 "pane_ref": v2Ref(kind: .pane, uuid: pane.id),
-                "surface_id": panel.id.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                "url": panel.currentURL?.absoluteString ?? ""
+                "surface_id": panelID.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: panelID),
+                "url": url?.absoluteString ?? ""
             ])
         }
         return result
@@ -10623,6 +10655,7 @@ class TerminalController {
           select_workspace <id|index> - Select workspace by ID or index (0-based)
           current_workspace           - Get current workspace ID
           close_workspace <id>        - Close workspace by ID
+          terminal_backend_mutation_status <request-id> - Read a queued backend topology request
 
         Split & surface commands:
           new_split <direction> [panel]   - Split panel (left/right/up/down)
@@ -10737,6 +10770,21 @@ class TerminalController {
         """
 #endif
         return text
+    }
+
+    private func terminalBackendMutationStatusCommand(_ args: String) -> String {
+        let rawRequestID = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let requestID = UUID(uuidString: rawRequestID) else {
+            return "ERROR: Missing or invalid request id"
+        }
+        switch controlTerminalBackendMutationStatus(requestID: requestID) {
+        case .unavailable:
+            return "ERROR: Persistent terminal backend is not enabled"
+        case .unknown:
+            return "ERROR: Terminal backend mutation request not found"
+        case .known(let status):
+            return "STATUS cmuxd request=\(requestID.uuidString) status=\(status.rawValue)"
+        }
     }
 
 #if DEBUG
@@ -11741,15 +11789,17 @@ class TerminalController {
         var ok = false
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
-                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
-                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
+            guard let app = AppDelegate.shared,
+                  let dstTM = app.tabManagerFor(windowId: windowId),
+                  app.moveWorkspaceToWindow(
+                      workspaceId: wsId,
+                      windowId: windowId,
+                      focus: focus
+                  ) else {
                 ok = false
                 return
             }
-            dstTM.attachWorkspace(ws, select: focus)
             if focus {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
                 setActiveTabManager(dstTM)
             }
             ok = true
@@ -11798,15 +11848,27 @@ class TerminalController {
         let title: String? = trimmed.isEmpty ? nil : trimmed
 
         var newTabId: UUID?
+        var backendRequestId: UUID?
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            let workspace = tabManager.addWorkspace(
+            let outcome = tabManager.requestAddWorkspace(
                 title: title,
                 select: focus,
                 eagerLoadTerminal: !focus,
                 allowTextBoxFocusDefault: false
             )
-            newTabId = workspace.id
+            switch outcome {
+            case .created(let workspace):
+                newTabId = workspace.id
+            case .submittedToBackend(let submission):
+                newTabId = submission.workspaceID
+                backendRequestId = submission.requestID
+            case .failed:
+                break
+            }
+        }
+        if let backendRequestId, let newTabId {
+            return "OK \(newTabId.uuidString) pending backend_request_id=\(backendRequestId.uuidString) status_method=terminal_backend.mutation_status"
         }
         return "OK \(newTabId?.uuidString ?? "unknown")"
     }
@@ -11874,6 +11936,8 @@ class TerminalController {
                 result = "OK \(panel.id.uuidString)"
             case .routedToRemote:
                 result = "OK routed-to-remote-tmux"
+            case .submittedToBackend(let submission):
+                result = "PENDING cmuxd request=\(submission.requestID.uuidString)"
             case .failed:
                 break
             }
@@ -13822,7 +13886,9 @@ class TerminalController {
         case "mobile.terminal.paste_image", "terminal.paste_image":
             result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
-            result = v2MobileTerminalReplay(params: request.params)
+            result = await v2MobileTerminalReplayForMobileDataPlane(
+                params: request.params
+            )
         case "mobile.terminal.viewport", "terminal.viewport":
             result = v2MobileTerminalViewport(params: request.params)
         case "mobile.terminal.scroll", "terminal.scroll":
@@ -13998,10 +14064,14 @@ class TerminalController {
         // paths, so the advertised capabilities can never drift. Includes
         // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
         // the iOS client uses to show or hide rename/pin.
-        let capabilities = MobileHostService.mobileHostCapabilities
+        let terminalDataPlaneProfile = mobileTerminalDataPlane.profile
+        let capabilities = MobileHostService.mobileHostCapabilities(
+            for: terminalDataPlaneProfile
+        )
         guard includePrivateMetadata else {
             return .ok(MobileHostService.publicStatusPayload(
-                routes: status.routes
+                routes: status.routes,
+                profile: terminalDataPlaneProfile
             ))
         }
 
@@ -14013,7 +14083,7 @@ class TerminalController {
             "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
             "host_service": status.payload,
             "workspace_count": workspaceCount,
-            "terminal_fidelity": "render_grid",
+            "terminal_fidelity": terminalDataPlaneProfile.terminalFidelity,
             "capabilities": capabilities,
         ])
     }
@@ -14222,6 +14292,79 @@ class TerminalController {
             }
         }
         return .ok(payload)
+    }
+
+    /// Network replay uses the data plane selected by the process terminal
+    /// composition. The control socket keeps its existing process-local replay
+    /// behavior, while persistent mode never reaches the Ghostty byte tee.
+    func v2MobileTerminalReplayForMobileDataPlane(
+        params: [String: Any]
+    ) async -> V2CallResult {
+        guard mobileTerminalDataPlane.profile == .backendCompatibility else {
+            return v2MobileTerminalReplay(params: params)
+        }
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(
+            params: params,
+            requireTerminal: true
+        ), let surfaceID = resolved.surfaceId,
+           let terminalPanel = resolved.workspace.terminalPanel(for: surfaceID) else {
+            return .err(
+                code: "not_found",
+                message: "Terminal surface not found",
+                data: nil
+            )
+        }
+        let hasViewportReportFields = params["client_id"] != nil
+            || params["viewport_columns"] != nil
+            || params["viewport_rows"] != nil
+        if hasViewportReportFields,
+           v2String(params, "client_id") == nil
+               || v2Int(params, "viewport_columns") == nil
+               || v2Int(params, "viewport_rows") == nil {
+            return .err(
+                code: "invalid_params",
+                message: "Invalid mobile viewport report",
+                data: nil
+            )
+        }
+        _ = applyMobileViewportReport(
+            params: params,
+            terminalPanel: terminalPanel,
+            reason: "mobile.terminal.replay"
+        )
+        do {
+            let replay = try await mobileTerminalDataPlane.replay(
+                surfaceID: surfaceID
+            )
+            return .ok([
+                "workspace_id": resolved.workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "seq": replay.sequence,
+                "columns": replay.columns,
+                "rows": replay.rows,
+                "snapshot_format": replay.snapshotFormat,
+                "snapshot_data_b64": replay.data.base64EncodedString(),
+                "terminal_fidelity": replay.fidelity,
+            ])
+        } catch MobileTerminalDataPlaneError.surfaceNotFound {
+            return .err(
+                code: "not_found",
+                message: "Terminal surface not found",
+                data: nil
+            )
+        } catch {
+            return .err(
+                code: "terminal_unavailable",
+                message: "Terminal replay unavailable",
+                data: nil
+            )
+        }
     }
 
     /// Record (or clear) a paired device's reported terminal grid, recompute

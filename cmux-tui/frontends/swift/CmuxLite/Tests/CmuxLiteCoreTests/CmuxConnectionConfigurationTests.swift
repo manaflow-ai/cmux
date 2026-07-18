@@ -123,4 +123,47 @@ struct CmuxConnectionConfigurationTests {
         )
         #expect(empty == "/var/tmp-x/cmux-tui-501")
     }
+
+    @Test
+    func socketPathUsesDarwinFallbackOnlyAfter103FilesystemBytes() {
+        let suffix = "/cmux-tui-501/s.sock"
+        let boundaryRoot = "/" + String(
+            repeating: "a",
+            count: 103 - suffix.utf8.count - 1
+        )
+        let oversizedRoot = boundaryRoot + "a"
+
+        let boundary = CmuxConnectionConfiguration.socketPath(
+            session: "s",
+            environment: ["XDG_RUNTIME_DIR": boundaryRoot],
+            userID: 501
+        )
+        let oversized = CmuxConnectionConfiguration.socketPath(
+            session: "s",
+            environment: ["XDG_RUNTIME_DIR": oversizedRoot],
+            userID: 501
+        )
+
+        #expect(boundary.utf8.count == 103)
+        #expect(boundary.hasPrefix(boundaryRoot))
+        #expect(oversized == "/tmp/cmux-tui-501/s.sock")
+    }
+
+    @Test
+    func socketPathMeasuresUnicodeAsUTF8Bytes() {
+        let suffix = "/cmux-tui-501/s.sock"
+        let unicodePrefix = String(repeating: "é", count: 20)
+        let asciiCount = 104 - suffix.utf8.count - 1 - unicodePrefix.utf8.count
+        let root = "/" + unicodePrefix + String(repeating: "a", count: asciiCount)
+        let candidate = root + suffix
+
+        #expect(candidate.utf8.count == 104)
+        #expect(
+            CmuxConnectionConfiguration.socketPath(
+                session: "s",
+                environment: ["XDG_RUNTIME_DIR": root],
+                userID: 501
+            ) == "/tmp/cmux-tui-501/s.sock"
+        )
+    }
 }

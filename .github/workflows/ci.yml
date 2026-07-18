@@ -216,6 +216,9 @@ jobs:
       - name: Validate release bundle stripping
         run: ./tests/test_strip_release_bundle.sh
 
+      - name: Validate terminal backend service scripts
+        run: ./tests/test_terminal_backend_service_scripts.sh
+
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
@@ -1848,17 +1851,24 @@ jobs:
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
+          TERMINAL_BACKEND="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-terminal-backend"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
           test -x "$HELPER_BINARY"
           test -x "$DIFF_SIDECAR"
-          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR"
+          test -x "$TERMINAL_BACKEND"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR" "$TERMINAL_BACKEND"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
           lipo "$APP_BINARY" -verify_arch arm64 x86_64
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
+          ./scripts/verify-terminal-backend-service-artifact.sh \
+            --app-bundle "build-universal/Build/Products/Release/cmux.app" \
+            --architectures "arm64 x86_64" \
+            --require-disabled \
+            --smoke-headless
           [[ "$SDK_VERSION" == 26.* ]]
 
   ci-status:

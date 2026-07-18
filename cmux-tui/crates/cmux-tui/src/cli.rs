@@ -109,6 +109,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_no_args, print_tree, false),
     },
     VerbSpec {
+        name: "topology-snapshot",
+        help: "Print the canonical revisioned topology snapshot.",
+        allowed: &[],
+        kind: socket(build_no_args, print_json_data, false),
+    },
+    VerbSpec {
         name: "export-layout",
         help: "Export a screen layout.",
         allowed: &["screen"],
@@ -373,6 +379,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_subscribe, print_empty, true),
     },
     VerbSpec {
+        name: "subscribe-topology",
+        help: "Resume the canonical topology delta stream.",
+        allowed: &["daemon-instance-id", "session-id", "revision"],
+        kind: socket(build_subscribe_topology, print_empty, true),
+    },
+    VerbSpec {
         name: "attach-surface",
         help: "Attach to a surface stream.",
         allowed: &["surface", "mode"],
@@ -554,18 +566,34 @@ fn run_command(args: CliArgs) -> i32 {
         }
     };
     let socket_path = resolve_socket(&args.global);
-    let mut stream = match transport::connect(&socket_path) {
+    let stream = match transport::connect(&socket_path) {
         Ok(stream) => stream,
         Err(err) => {
             eprintln!("cannot connect to session socket {}: {err}", socket_path.display());
             return 3;
         }
     };
-    if stream_mode {
-        let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
-    } else {
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let mut registration_writer = match stream.try_clone_box() {
+        Ok(writer) => writer,
+        Err(err) => {
+            eprintln!("cannot clone session socket {}: {err}", socket_path.display());
+            return 3;
+        }
+    };
+    let mut reader = BufReader::new(stream);
+    if let Err(error) = crate::client_registration::register_trusted_automation(
+        &mut registration_writer,
+        &mut reader,
+    ) {
+        eprintln!("cannot register trusted local CLI connection: {error}");
+        return 3;
     }
+    drop(registration_writer);
+    if stream_mode {
+        let _ = reader.get_ref().set_read_timeout(Some(Duration::from_millis(250)));
+    }
+
     let mut line = match serde_json::to_vec(&request) {
         Ok(line) => line,
         Err(err) => {
@@ -574,12 +602,11 @@ fn run_command(args: CliArgs) -> i32 {
         }
     };
     line.push(b'\n');
-    if let Err(err) = stream.write_all(&line) {
+    if let Err(err) = reader.get_mut().write_all(&line) {
         eprintln!("transport error: {err}");
         return 3;
     }
 
-    let mut reader = BufReader::new(stream);
     if stream_mode {
         run_stream(reader)
     } else {
@@ -704,6 +731,13 @@ fn run_stream(mut reader: BufReader<Box<dyn transport::Stream>>) -> i32 {
             continue;
         }
         if value.get("ok").and_then(Value::as_bool) == Some(true) {
+            if value.pointer("/data/status").and_then(Value::as_str) == Some("resnapshot-required")
+            {
+                if let Some(data) = value.get("data") {
+                    println!("{data}");
+                }
+                return 1;
+            }
             line.clear();
             continue;
         }
@@ -821,6 +855,22 @@ fn build_subscribe(flags: &FlagMap) -> Result<Value, UsageError> {
         value["tree_events"] = json!(tree_events);
     }
     Ok(value)
+}
+
+fn build_subscribe_topology(flags: &FlagMap) -> Result<Value, UsageError> {
+    let daemon_instance_id = flags.required("daemon-instance-id")?;
+    daemon_instance_id
+        .parse::<cmux_tui_core::DaemonInstanceId>()
+        .map_err(|_| UsageError("--daemon-instance-id must be a UUID".to_string()))?;
+    let session_id = flags.required("session-id")?;
+    session_id
+        .parse::<cmux_tui_core::SessionId>()
+        .map_err(|_| UsageError("--session-id must be a UUID".to_string()))?;
+    Ok(json!({
+        "daemon_instance_id": daemon_instance_id,
+        "session_id": session_id,
+        "revision": flags.required_u64("revision")?,
+    }))
 }
 
 fn build_attach_surface(flags: &FlagMap) -> Result<Value, UsageError> {
@@ -1418,10 +1468,11 @@ fn print_zoom_state(data: &Value, out: &mut dyn Write) -> io::Result<()> {
 fn print_process_info(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     writeln!(
         out,
-        "pid={} command={} cwd={}",
+        "pid={} command={} cwd={} tty={}",
         atom(data.get("pid")),
         atom(data.get("command")),
-        atom(data.get("cwd"))
+        atom(data.get("cwd")),
+        atom(data.get("tty"))
     )
 }
 
@@ -1536,7 +1587,7 @@ mod tests {
     }
 
     #[test]
-    fn protocol_v7_cli_builders_emit_render_tree_paste_and_scrollback_fields() {
+    fn protocol_v7_and_v8_cli_builders_emit_versioned_fields() {
         let flags = FlagMap {
             values: BTreeMap::from([
                 ("surface".to_string(), "9".to_string()),
@@ -1564,6 +1615,25 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(build_subscribe(&flags).unwrap(), json!({"tree_events": "deltas"}));
+
+        let daemon_instance_id = cmux_tui_core::DaemonInstanceId::new();
+        let session_id = cmux_tui_core::SessionId::new();
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("daemon-instance-id".to_string(), daemon_instance_id.to_string()),
+                ("session-id".to_string(), session_id.to_string()),
+                ("revision".to_string(), "42".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_subscribe_topology(&flags).unwrap(),
+            json!({
+                "daemon_instance_id": daemon_instance_id,
+                "session_id": session_id,
+                "revision": 42,
+            })
+        );
 
         let flags = FlagMap {
             values: BTreeMap::from([

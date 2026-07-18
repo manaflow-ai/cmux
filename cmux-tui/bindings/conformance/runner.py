@@ -8,9 +8,12 @@ import re
 import selectors
 import subprocess
 import sys
+import tempfile
 import time
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List
+from uuid import UUID
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -22,6 +25,7 @@ sys.path.insert(0, str(PYTHON_BINDING))
 
 from cmux import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
 from cmux.client import _parse_event  # noqa: E402
+from cmux import TopologyCursor, TopologyDelta, TopologyResnapshotRequired, TopologyStream  # noqa: E402
 
 
 class FixtureFailure(Exception):
@@ -33,14 +37,14 @@ class FixtureSkipped(Exception):
 
 
 def main() -> int:
-    server = start_server()
     passed = 0
     failed = 0
     skipped = 0
-    try:
-        data = json.loads(FIXTURES.read_text())
-        defaults = data.get("defaults", {})
-        for fixture in data.get("fixtures", []):
+    data = json.loads(FIXTURES.read_text())
+    defaults = data.get("defaults", {})
+    for fixture in data.get("fixtures", []):
+        server = start_server()
+        try:
             try:
                 run_fixture(fixture, defaults, server["socket"])
             except FixtureSkipped as exc:
@@ -52,8 +56,9 @@ def main() -> int:
             else:
                 passed += 1
                 print(f"PASS {fixture.get('name', '<unnamed>')}")
-    finally:
-        stop_server(server["process"])
+        finally:
+            stop_server(server["process"])
+            server["state_dir"].cleanup()
     print(f"fixtures: {passed} passed, {skipped} skipped, {failed} failed")
     return 0 if failed == 0 else 1
 
@@ -62,9 +67,17 @@ def start_server() -> Dict[str, Any]:
     binary = MUX_DIR / "target" / "debug" / "cmux-tui"
     if not binary.exists():
         raise SystemExit(f"missing server binary: {binary}; run cargo build -p cmux-tui from cmux-tui/")
-    session = f"binding-conf-{os.getpid()}"
+    session = f"binding-conf-{os.getpid()}-{time.monotonic_ns()}"
+    state_dir = tempfile.TemporaryDirectory(prefix="cmux-binding-conformance-")
     process = subprocess.Popen(
-        [str(binary), "--headless", "--session", session],
+        [
+            str(binary),
+            "--headless",
+            "--session",
+            session,
+            "--state-dir",
+            state_dir.name,
+        ],
         cwd=str(MUX_DIR),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -89,18 +102,21 @@ def start_server() -> Dict[str, Any]:
         if socket_path is not None:
             break
         if process.poll() is not None:
+            state_dir.cleanup()
             raise SystemExit(f"server exited before socket path: {'; '.join(lines)}")
     selector.close()
     if socket_path is None:
         stop_server(process)
+        state_dir.cleanup()
         raise SystemExit(f"timed out waiting for socket path: {'; '.join(lines)}")
     deadline = time.time() + 5
     while not Path(socket_path).exists() and time.time() < deadline:
         time.sleep(0.05)
     if not Path(socket_path).exists():
         stop_server(process)
+        state_dir.cleanup()
         raise SystemExit(f"socket path was printed but does not exist: {socket_path}")
-    return {"process": process, "socket": socket_path}
+    return {"process": process, "socket": socket_path, "state_dir": state_dir}
 
 
 def stop_server(process: subprocess.Popen[str]) -> None:
@@ -148,14 +164,26 @@ def run_step(
         bind_variables(response, step.get("bind", {}), variables)
     elif step_type == "stream":
         request = substitute(step["request"], variables)
-        if request.get("cmd") == "subscribe":
-            stream = client.subscribe_with_request(request)
+        if request.get("cmd") in ("subscribe", "subscribe-topology"):
+            if request.get("cmd") == "subscribe-topology":
+                stream = client.subscribe_topology(
+                    TopologyCursor(
+                        UUID(request["daemon_instance_id"]),
+                        UUID(request["session_id"]),
+                        int(request["revision"]),
+                    )
+                )
+                if not isinstance(stream, TopologyStream):
+                    raise FixtureFailure(f"fresh cursor required resnapshot: {stream}")
+            else:
+                stream = client.subscribe_with_request(request)
         elif request.get("cmd") == "attach-surface":
             stream = client.attach_surface(int(request["surface"]))
         else:
             raise FixtureFailure(f"unsupported stream command {request.get('cmd')}")
         streams[step["name"]] = stream
-        response = stream.response
+        response = dict(stream.response or {})
+        response["id"] = request.get("id")
         assert_match(response, substitute(step.get("expect", {}), variables), step.get("match", "partial"))
     elif step_type == "expect_events":
         stream = streams[step["stream"]]
@@ -201,6 +229,10 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
     mapping = {
         "identify": client.identify,
         "ping": client.ping,
+        "topology-snapshot": lambda **kw: client.topology_snapshot(),
+        "open-presentation": lambda **kw: client._request("open-presentation", **kw),
+        "update-presentation": lambda **kw: client._request("update-presentation", **kw),
+        "close-presentation": lambda **kw: client._request("close-presentation", **kw),
         "reload-config": client.reload_config,
         "set-window-title": client.set_window_title,
         "clear-window-title": lambda **kw: client.clear_window_title(),
@@ -254,9 +286,21 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
 
 def result_to_data(result: Any) -> Any:
     if dataclasses.is_dataclass(result):
-        data = dataclasses.asdict(result)
+        data = normalize(dataclasses.asdict(result))
         return {} if data == {} else data
     return result
+
+
+def normalize(value: Any) -> Any:
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, list):
+        return [normalize(item) for item in value]
+    if isinstance(value, dict):
+        return {key: normalize(item) for key, item in value.items()}
+    return value
 
 
 def bind_variables(response: Dict[str, Any], bind: Dict[str, str], variables: Dict[str, Any]) -> None:
@@ -311,7 +355,17 @@ def expect_events(stream: Any, expected: List[Dict[str, Any]], timeout: float) -
         stream._conn.sock.settimeout(remaining)
         try:
             try:
-                event = next(stream).raw
+                item = next(stream)
+                if hasattr(item, "raw"):
+                    event = item.raw
+                elif dataclasses.is_dataclass(item):
+                    event = normalize(dataclasses.asdict(item))
+                    if isinstance(item, TopologyDelta):
+                        event["event"] = "topology-delta"
+                    elif isinstance(item, TopologyResnapshotRequired):
+                        event["event"] = "topology-resnapshot-required"
+                else:
+                    raise FixtureFailure(f"stream yielded unsupported event {item!r}")
             except CmuxTimeoutError:
                 break
         finally:

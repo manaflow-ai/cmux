@@ -154,7 +154,8 @@ extension RemoteTmuxControlConnection {
     /// and drag in the mirror are forwarded to the remote app — so drag-to-select
     /// becomes the app's own selection/OSC 52 copy, and **Shift+drag** does a native
     /// cmux copy (exactly as a local terminal behaves with a mouse-mode app).
-    func capturePane(paneId: Int) {
+    func capturePane(paneId: Int, clearScrollback: Bool = false) {
+        beginPaneSeed(paneId: paneId, clearScrollback: clearScrollback)
         // Match the remote pane's screen (primary vs alternate) BEFORE seeding the
         // captured rows. An alt-screen TUI (e.g. claude) must render on the mirror's
         // alternate screen so resize matches the remote (the alternate screen does
@@ -235,9 +236,9 @@ extension RemoteTmuxControlConnection {
     /// queued before the (3-command) capture because it only matters at the next
     /// resize — the earlier it lands, the smaller the window in which a resize
     /// hits the conservative no-reflow default on a slow link.
-    func seedPane(paneId: Int) {
+    func seedPane(paneId: Int, clearScrollback: Bool = false) {
         requestPaneReflow(paneId: paneId)
-        capturePane(paneId: paneId)
+        capturePane(paneId: paneId, clearScrollback: clearScrollback)
         requestPanePath(paneId: paneId)
         // One batched refresh-client for all three live subscriptions
         // instead of three separate sends — see subscribePaneAll. Under
@@ -277,8 +278,7 @@ extension RemoteTmuxControlConnection {
         scheduleAttachRedrawKickIfNeeded()
         for window in windowsByID.values {
             for paneId in window.paneIDsInOrder {
-                observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
-                seedPane(paneId: paneId)
+                seedPane(paneId: paneId, clearScrollback: true)
             }
         }
         observers.notifyReconnectReady()

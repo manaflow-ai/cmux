@@ -1,11 +1,43 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
+
+fn register_test_tui(writer: &mut impl Write, reader: &mut impl BufRead) {
+    let client_uuid = uuid::Uuid::new_v4();
+    let process_instance_uuid = uuid::Uuid::new_v4();
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "id": 0,
+            "cmd": "register-client",
+            "protocol_min": 9,
+            "protocol_max": 9,
+            "client_uuid": client_uuid,
+            "process_instance_uuid": process_instance_uuid,
+            "client_kind": "tui",
+        })
+    )
+    .unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "TUI registration failed: {response}");
+    let registration = &response["data"];
+    assert_eq!(registration["protocol"], 9);
+    assert_eq!(registration["client_kind"], "tui");
+    assert_eq!(registration["role"], "trusted-frontend");
+    uuid::Uuid::parse_str(
+        registration["topology_lease_id"].as_str().expect("TUI topology lease id"),
+    )
+    .expect("valid TUI topology lease id");
+    assert!(registration["topology_lease_generation"].as_u64().is_some_and(|value| value > 0));
+}
 
 struct HeadlessServer {
     child: Child,
@@ -19,7 +51,9 @@ impl HeadlessServer {
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
         let child = Command::new(bin())
-            .args(["--headless", "--socket"])
+            .args(["--headless", "--state-dir"])
+            .arg(dir.join("state"))
+            .arg("--socket")
             .arg(&socket)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -40,6 +74,23 @@ impl HeadlessServer {
         }
         panic!("headless server did not create socket at {}", self.socket.display());
     }
+
+    fn wait_for_exit(&mut self) -> std::process::ExitStatus {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                return status;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("headless server did not exit after a fatal persistence failure");
+    }
+
+    fn read_stderr(&mut self) -> String {
+        let mut stderr = String::new();
+        self.child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+        stderr
+    }
 }
 
 impl Drop for HeadlessServer {
@@ -49,6 +100,36 @@ impl Drop for HeadlessServer {
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+#[test]
+fn durability_failure_terminates_daemon_and_releases_session_lock() {
+    let mut server = HeadlessServer::start("durability-failure");
+    let store = cmux_tui_core::StateStore::new(server.dir.join("state"));
+    let journal = store.journal_path("main");
+    fs::remove_file(&journal).unwrap();
+    fs::create_dir(&journal).unwrap();
+
+    let mutation = cli(&server, &["new-workspace", "--name", "must-not-acknowledge"]);
+    assert!(!mutation.status.success(), "undurable mutation was acknowledged");
+    let status = server.wait_for_exit();
+    assert!(!status.success(), "daemon exited successfully after losing durability");
+    assert!(transport::connect(&server.socket).is_err(), "stale socket still accepted clients");
+
+    let lock_path = fs::read_dir(store.root().join("locks"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "lock"))
+        .expect("session lock file is missing");
+    let lock = fs::OpenOptions::new().read(true).write(true).open(lock_path).unwrap();
+    fs2::FileExt::try_lock_exclusive(&lock).expect("daemon retained its session lock after exit");
+    fs2::FileExt::unlock(&lock).unwrap();
+
+    let stderr = server.read_stderr();
+    assert!(
+        stderr.contains("cmux-tui: fatal canonical persistence failure:"),
+        "fatal persistence diagnostic missing from stderr: {stderr:?}"
+    );
 }
 
 #[test]
@@ -69,7 +150,14 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&ping_json);
     let ping: serde_json::Value = serde_json::from_slice(&ping_json.stdout).unwrap();
     assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(7));
+    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(8));
+    assert!(
+        ping["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == "topology-resume-v1")
+    );
 
     let client_info =
         cli(&server, &["set-client-info", "--name", "one-shot", "--kind", "cli-test"]);
@@ -78,6 +166,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let target = transport::connect(&server.socket).unwrap();
     let mut target_writer = target.try_clone_box().unwrap();
     let mut target_reader = BufReader::new(target);
+    register_test_tui(&mut target_writer, &mut target_reader);
     writeln!(
         target_writer,
         r#"{{"id":1,"cmd":"set-client-info","name":"cli-detach-target","kind":"test"}}"#
@@ -135,6 +224,13 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&tree);
     let tree_json: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
     let pane0 = tree_json["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
+
+    let topology = cli(&server, &["--json", "topology-snapshot"]);
+    assert_success(&topology);
+    let topology: serde_json::Value = serde_json::from_slice(&topology.stdout).unwrap();
+    assert_eq!(topology["revision"], tree_json["topology_revision"]);
+    assert_eq!(topology["topology"]["workspaces"][0]["id"], tree_json["workspaces"][0]["id"]);
+    assert!(topology["topology"]["workspaces"][0]["uuid"].as_str().is_some());
 
     let split = cli(&server, &["split", "--pane", &pane0.to_string(), "--dir", "right"]);
     assert_success(&split);
@@ -232,6 +328,25 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(bogus.status.code(), Some(3));
 
     assert_subscribe_reports_tree_changed(&server);
+    assert_subscribe_topology_reports_revisioned_delta(&server);
+
+    let topology = cli(&server, &["--json", "topology-snapshot"]);
+    assert_success(&topology);
+    let topology: serde_json::Value = serde_json::from_slice(&topology.stdout).unwrap();
+    let stale = cli(
+        &server,
+        &[
+            "subscribe-topology",
+            "--daemon-instance-id",
+            "00000000-0000-4000-8000-000000000000",
+            "--session-id",
+            topology["session_id"].as_str().unwrap(),
+            "--revision",
+            "0",
+        ],
+    );
+    assert_eq!(stale.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&stale.stdout).contains("stale-daemon"));
 }
 
 #[test]
@@ -315,6 +430,65 @@ fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
     panic!("subscribe did not print tree-changed event; lines={lines:?}");
 }
 
+fn assert_subscribe_topology_reports_revisioned_delta(server: &HeadlessServer) {
+    let snapshot = cli(server, &["--json", "topology-snapshot"]);
+    assert_success(&snapshot);
+    let snapshot: serde_json::Value = serde_json::from_slice(&snapshot.stdout).unwrap();
+    let daemon = snapshot["daemon_instance_id"].as_str().unwrap();
+    let session = snapshot["session_id"].as_str().unwrap();
+    let revision = snapshot["revision"].as_u64().unwrap();
+    let mut child = Command::new(bin())
+        .args(["--socket"])
+        .arg(&server.socket)
+        .args([
+            "subscribe-topology",
+            "--daemon-instance-id",
+            daemon,
+            "--session-id",
+            session,
+            "--revision",
+            &revision.to_string(),
+        ])
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            if tx.send(line.unwrap()).is_err() {
+                break;
+            }
+        }
+    });
+
+    std::thread::sleep(Duration::from_millis(200));
+    assert_success(&cli(server, &["new-tab"]));
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut lines = Vec::new();
+    while Instant::now() < deadline {
+        if let Ok(line) = rx.recv_timeout(Duration::from_millis(250)) {
+            lines.push(line.clone());
+            let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if value["event"] == "topology-delta" {
+                assert_eq!(value["base_revision"].as_u64(), Some(revision));
+                assert_eq!(value["revision"].as_u64(), Some(revision + 1));
+                assert!(value["replacement"]["workspaces"].is_array());
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    panic!("subscribe-topology did not print a topology delta; lines={lines:?}");
+}
+
 #[test]
 fn stream_preserves_partial_line_across_read_timeout() {
     let dir = unique_temp_dir("partial-line");
@@ -368,6 +542,20 @@ fn help_lists_plugin_verbs() {
     assert!(stdout.contains("--ws <addr>"));
     assert!(stdout.contains("--ws-token <token>"));
     assert!(stdout.contains("--ws-insecure-bind"));
+}
+
+#[test]
+fn attach_rejects_recover_state() {
+    let output = Command::new(bin())
+        .args(["attach", "--recover-state"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("--recover-state is only valid when starting a daemon session")
+    );
 }
 
 #[cfg(unix)]

@@ -2,7 +2,7 @@ package com.cmux;
 
 import java.util.Map;
 
-public sealed interface CmuxEvent permits TreeChangedEvent, EmptyEvent, SurfaceEvent, TitleChangedEvent, SurfaceResizedEvent, SurfaceResizeFailedEvent, VtStateEvent, OutputEvent, ResizedEvent, OverflowEvent, UnknownEvent {
+public sealed interface CmuxEvent permits TreeChangedEvent, EmptyEvent, SurfaceEvent, TitleChangedEvent, SurfaceResizedEvent, SurfaceResizeFailedEvent, VtStateEvent, OutputEvent, ResizedEvent, OverflowEvent, UnknownEvent, TopologyStreamEvent {
     String event();
 
     static CmuxEvent from(Map<String, Object> raw) {
@@ -48,6 +48,8 @@ public sealed interface CmuxEvent permits TreeChangedEvent, EmptyEvent, SurfaceE
                 (int) CmuxClient.asLong(raw.get("rows")),
                 CmuxClient.asString(raw.containsKey("replay") ? raw.get("replay") : raw.get("data"))
             );
+            case "topology-delta" -> TopologyDelta.from(raw);
+            case "topology-resnapshot-required" -> TopologyResnapshotRequired.from(raw);
             default -> new UnknownEvent(event, raw);
         };
     }

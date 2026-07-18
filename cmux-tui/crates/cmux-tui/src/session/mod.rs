@@ -21,6 +21,7 @@ use cmux_tui_core::{
 use ghostty_vt::{MouseInput, RenderState, Terminal};
 use serde::Deserialize;
 use serde_json::json;
+use uuid::Uuid;
 
 pub use remote::{RemoteSession, RemoteSurface};
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
@@ -480,7 +481,7 @@ impl Session {
                 Ok(())
             }
             Session::Remote(remote) => {
-                remote.request(json!({"cmd": "release-surface-size", "surface": id}))?;
+                remote.release_geometry_lease(id)?;
                 if let Some(surface) = remote.surface(id) {
                     surface.clear_reported_size();
                 }
@@ -901,9 +902,22 @@ impl SurfaceHandle {
     }
 
     pub fn write_bytes(&self, bytes: &[u8]) -> anyhow::Result<()> {
+        self.write_bytes_request(bytes, Uuid::new_v4(), None)
+    }
+
+    pub fn write_bytes_request(
+        &self,
+        bytes: &[u8],
+        request_id: Uuid,
+        input_group: Option<(Uuid, u32, bool)>,
+    ) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface, _) => surface.write_bytes(bytes).map_err(Into::into),
-            SurfaceHandle::Remote(surface, session) => session.send_bytes(surface.id, bytes),
+            SurfaceHandle::Local(surface, mux) => mux.with_legacy_terminal_control(surface, || {
+                surface.write_bytes(bytes).map_err(Into::into)
+            }),
+            SurfaceHandle::Remote(surface, session) => {
+                session.send_bytes(surface.id, surface.surface_uuid, bytes, request_id, input_group)
+            }
             SurfaceHandle::RemoteBrowserUnsupported => {
                 anyhow::bail!("browser surface does not accept PTY input")
             }
@@ -943,26 +957,25 @@ impl SurfaceHandle {
                     report(None);
                     return Ok(false);
                 }
-                let response = match session.request(json!({
-                    "cmd": "resize-surface",
-                    "surface": surface.id,
-                    "cols": desired.0,
-                    "rows": desired.1,
-                })) {
-                    Ok(response) => response,
+                let accepted = match session.resize_terminal(
+                    surface.id,
+                    surface.surface_uuid,
+                    desired.0,
+                    desired.1,
+                    _reassert,
+                ) {
+                    Ok(accepted) => accepted,
                     Err(error) => {
                         report(None);
                         return Err(error);
                     }
                 };
-                let accepted =
-                    response.get("accepted").and_then(serde_json::Value::as_bool).unwrap_or(true);
-                surface.set_reported_size(desired);
                 if !accepted {
                     report(None);
                     return Ok(false);
                 }
-                response.get("reservation_id").and_then(serde_json::Value::as_u64).or(Some(0))
+                surface.set_reported_size(desired);
+                Some(0)
             }
             SurfaceHandle::RemoteBrowserUnsupported => {
                 report(None);
@@ -979,7 +992,10 @@ impl SurfaceHandle {
             SurfaceHandle::Local(surface, mux) => {
                 resize_action(desired, mux.client_surface_size(surface.id, 0))
             }
-            SurfaceHandle::Remote(surface, _) => resize_action(desired, surface.reported_size()),
+            SurfaceHandle::Remote(surface, session) => {
+                (_user_interaction || session.has_geometry_lease(surface.id))
+                    && resize_action(desired, surface.reported_size())
+            }
             SurfaceHandle::RemoteBrowserUnsupported => false,
         }
     }

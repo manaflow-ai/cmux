@@ -19,9 +19,10 @@ public import GhosttyKit
 /// to the main actor, as it always did.
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
     private let lock = NSLock()
-    // SAFETY: all five are guarded by `lock`; callers arrive on the main
+    // SAFETY: all six are guarded by `lock`; callers arrive on the main
     // actor and from nonisolated `deinit` paths.
     nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
+    nonisolated(unsafe) private let inProcessRendererSurfaces = NSHashTable<AnyObject>.weakObjects()
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
     nonisolated(unsafe) private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
     // SAFETY: every read and write is guarded by `lock`.
@@ -51,6 +52,9 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         lock.lock()
         defer { lock.unlock() }
         surfaces.add(surface)
+        if !surface.isExternallyManaged {
+            inProcessRendererSurfaces.add(surface)
+        }
         surfaceFocusPlacements[surface.id] = surface.focusPlacement
         generation &+= 1
     }
@@ -62,6 +66,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         lock.lock()
         let surfaceId = surface.id
         surfaces.remove(surface)
+        inProcessRendererSurfaces.remove(surface)
         let stillRegistered = surfaces.allObjects
             .compactMap { $0 as? any TerminalSurfacing }
             .contains { $0 !== surface && $0.id == surfaceId }
@@ -161,6 +166,21 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     public func allSurfaces() -> [any TerminalSurfacing] {
         lock.lock()
         let objects = surfaces.allObjects.compactMap { $0 as? any TerminalSurfacing }
+        lock.unlock()
+        return objects.sorted { lhs, rhs in
+            lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    /// All live surfaces that own a Ghostty renderer in this process.
+    ///
+    /// This reads the dedicated weak index rather than filtering
+    /// ``allSurfaces()``. Its cost therefore grows with native terminals only;
+    /// daemon-owned dormant terminals add no periodic reclamation work.
+    public func allInProcessRendererSurfaces() -> [any TerminalSurfacing] {
+        lock.lock()
+        let objects = inProcessRendererSurfaces.allObjects
+            .compactMap { $0 as? any TerminalSurfacing }
         lock.unlock()
         return objects.sorted { lhs, rhs in
             lhs.id.uuidString < rhs.id.uuidString

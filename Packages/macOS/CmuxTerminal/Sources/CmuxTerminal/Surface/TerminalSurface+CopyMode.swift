@@ -8,8 +8,14 @@ extension TerminalSurface {
     /// Performs a Ghostty binding action string on the runtime surface.
     ///
     /// - Returns: Whether the runtime performed the action.
+    @MainActor
     @discardableResult
     public func performBindingAction(_ action: String) -> Bool {
+        if let externalRuntime {
+            return externalRuntime.enqueue(
+                .bindingAction(action: action, repeatCount: 1)
+            ).accepted
+        }
         guard let surface = surface else { return false }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
@@ -17,6 +23,7 @@ extension TerminalSurface {
     }
 
     /// Performs an internal binding action without treating it as user input.
+    @MainActor
     @discardableResult
     public func performInternalBindingAction(_ action: String) -> Bool {
         performBindingAction(action)
@@ -42,6 +49,18 @@ extension TerminalSurface {
     @MainActor
     public func toggleKeyboardCopyMode() -> Bool {
         didReceiveExplicitInput()
+        if let externalRuntime {
+            let operation: TerminalExternalCopyModeOperation = externalRuntime.snapshot.copyModeActive
+                ? .exit
+                : .enter
+            let handled = externalRuntime.enqueue(
+                .copyMode(operation: operation, adjustment: nil, count: 1)
+            ).accepted
+            if handled {
+                setKeyboardCopyModeActive(operation == .enter)
+            }
+            return handled
+        }
         let handled = surfaceView.toggleKeyboardCopyMode()
         if handled {
             setKeyboardCopyModeActive(surfaceView.isKeyboardCopyModeActive)
@@ -64,7 +83,11 @@ extension TerminalSurface {
     }
 
     /// Whether the runtime surface has an active selection.
+    @MainActor
     public func hasSelection() -> Bool {
+        if let externalRuntime {
+            return externalRuntime.snapshot.selection?.text.isEmpty == false
+        }
         guard let surface = surface else { return false }
         return ghostty_surface_has_selection(surface)
     }

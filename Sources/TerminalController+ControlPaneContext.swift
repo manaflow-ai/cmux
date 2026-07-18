@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import enum CmuxTerminalBackend.BackendSplitDirection
 import Foundation
 
 /// Pane-domain witnesses keep app-coupled topology resolution in the app while
@@ -318,7 +319,7 @@ extension TerminalController: ControlPaneContext {
         let newPanelId: UUID?
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         if panelType == .browser {
-            newPanelId = ws.newBrowserSplit(
+            newPanelId = ws.requestNewBrowserSplit(
                 from: sourcePanelId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -326,7 +327,7 @@ extension TerminalController: ControlPaneContext {
                 focus: focus,
                 creationPolicy: .automationPreload,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
-            )?.id
+            ).surfaceID
         } else {
             switch ws.newTerminalSplitOutcome(
                 from: sourcePanelId,
@@ -344,6 +345,13 @@ extension TerminalController: ControlPaneContext {
                 newPanelId = panel.id
             case .routedToRemote:
                 return .routedToRemote(
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: ws.id,
+                    typeRawValue: panelType.rawValue
+                )
+            case .submittedToBackend(let submission):
+                return .submittedToBackend(
+                    requestID: submission.requestID,
                     windowID: v2ResolveWindowId(tabManager: tabManager),
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
@@ -503,7 +511,26 @@ extension TerminalController: ControlPaneContext {
         let delta = CGFloat(amount) / candidate.axisPixels
         let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
-        guard ws.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true) else {
+        if let mutationCoordinator = ws.terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator,
+           !ws.isApplyingCanonicalTopologyProjection {
+            let backendDirection: BackendSplitDirection
+            switch direction {
+            case .left: backendDirection = .left
+            case .right: backendDirection = .right
+            case .up: backendDirection = .up
+            case .down: backendDirection = .down
+            }
+            mutationCoordinator.requestSetSplitRatio(
+                around: paneUUID,
+                direction: backendDirection,
+                ratio: Float(clamped)
+            )
+        } else if !ws.bonsplitController.setDividerPosition(
+            clamped,
+            forSplit: candidate.splitId,
+            fromExternal: true
+        ) {
             return .setDividerFailed(splitID: candidate.splitId)
         }
 
@@ -650,6 +677,38 @@ extension TerminalController: ControlPaneContext {
         }
         guard sourceWorkspace.panels[surfaceId] != nil else {
             return .surfaceNotFound(surfaceId)
+        }
+        if sourceWorkspace.panels[surfaceId] is TerminalPanel,
+           sourceWorkspace.terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator != nil {
+            guard let result = AppDelegate.shared?.moveSurfaceToNewWorkspace(
+                panelId: surfaceId,
+                destinationManager: tabManager,
+                focus: focus,
+                focusWindow: false
+            ) else {
+                return .createWorkspaceFailed
+            }
+            if let requestID = result.backendRequestId {
+                return .pending(
+                    windowID: result.destinationWindowId,
+                    workspaceID: result.destinationWorkspaceId,
+                    surfaceID: surfaceId,
+                    requestID: requestID
+                )
+            }
+            guard let paneID = result.paneId else {
+                return .destinationPaneUnresolved(
+                    workspaceID: result.destinationWorkspaceId,
+                    surfaceID: surfaceId
+                )
+            }
+            return .broken(
+                windowID: result.destinationWindowId,
+                workspaceID: result.destinationWorkspaceId,
+                paneID: paneID,
+                surfaceID: surfaceId
+            )
         }
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: surfaceId)
         let sourcePaneForRollback = sourceWorkspace.paneId(forPanelId: surfaceId)

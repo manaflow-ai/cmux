@@ -43,7 +43,7 @@ final class WorkspaceContentViewVisibilityTests {
 
         let tabManager = TabManager()
         for _ in 0..<6 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+            tabManager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         }
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()

@@ -12,6 +12,7 @@ import SwiftUI
 @Observable
 final class DockSplitStore: BonsplitDelegate {
     let workspaceId: UUID
+    let terminalClientComposition: TerminalClientComposition
     let bonsplitController: BonsplitController
 
     /// Which Dock this store backs: `.workspace` (per-workspace, seeded from the
@@ -74,12 +75,14 @@ final class DockSplitStore: BonsplitDelegate {
     init(
         workspaceId: UUID,
         scope: DockScope = .workspace,
+        terminalClientComposition: TerminalClientComposition,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
+        self.terminalClientComposition = terminalClientComposition
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
@@ -505,14 +508,17 @@ final class DockSplitStore: BonsplitDelegate {
             initialCommand = nil
         }
 
-        return TerminalPanel(
-            workspaceId: workspaceId,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            workingDirectory: workingDirectory,
-            initialCommand: initialCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            initialEnvironmentOverrides: resolvedEnvironment,
-            focusPlacement: .rightSidebarDock
+        return terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+            TerminalPanelCreationRequest(
+                origin: .dock,
+                workspaceId: workspaceId,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                workingDirectory: workingDirectory,
+                initialCommand: initialCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                initialEnvironmentOverrides: resolvedEnvironment,
+                focusPlacement: .rightSidebarDock
+            )
         )
     }
 

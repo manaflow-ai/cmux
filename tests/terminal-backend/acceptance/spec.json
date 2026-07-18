@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "criteria": [
+    {
+      "id": "PROC-1",
+      "priority": "P0",
+      "observable": "Swift terminal ownership",
+      "pass_condition": "The production Swift app is built from the exact backend-only Xcode native target, whose Frameworks phase links the Ghostty-free CmuxTerminalFrontend product, and a hash-bound link map plus recursive Mach-O load closure contain no Ghostty, PTY-construction, legacy-terminal, or dynamic-load escape symbol. A manifest-bound exact-socket census brackets one stable cmuxd session/topology sample, binds every host/backend/renderer/shell PID to its start identity and executable hash, proves every live local terminal ID and workspace ID maps to one direct cmuxd child with the backend-reported kernel controlling TTY, proves that TTY slave and exactly one cmuxd PTY master share one Darwin device minor, rejects extra or duplicate relations, and proves the Swift host and every renderer own zero PTY masters.",
+      "required_artifact_kinds": ["host-backend-only-attestation", "process-census"]
+    },
+    {
+      "id": "PROC-2",
+      "priority": "P0",
+      "observable": "GPU ownership",
+      "pass_condition": "Every Metal encoder submitted by the bound Swift PID is either the exact full-surface IOSurface blit or an exact reviewed nonterminal encoder pair, every renderer encoder is the exact terminal render pass, cmuxd submits no Metal work, the Swift PID performs no terminal shaping or terminal draws, and Swift submits at most one blit per admitted visible frame.",
+      "required_artifact_kinds": ["time-profiler", "metal-system-trace", "frame-counters"]
+    },
+    {
+      "id": "PROC-3",
+      "priority": "P0",
+      "observable": "Frame provenance",
+      "pass_condition": "Every accepted frame records worker audit identity, renderer epoch, presentation generation, and frame sequence.",
+      "required_artifact_kinds": ["protocol", "structured-log"]
+    },
+    {
+      "id": "LIFE-1",
+      "priority": "P0",
+      "observable": "GUI restart persistence",
+      "pass_condition": "An external commit-bound collector force-kills only Swift, proves a chronological host-absent phase in which cmuxd, the shell, terminal epoch, topology, scrollback sentinel, stable reader, unread activity, and output sequence remain live, then proves a new Swift PID reconnects to those exact identities.",
+      "required_artifact_kinds": ["protocol", "process-census", "restart-transcript"]
+    },
+    {
+      "id": "LIFE-2",
+      "priority": "P0",
+      "observable": "Renderer recovery",
+      "pass_condition": "Killing one renderer during output preserves the shell and unrelated workspaces, creates a new worker epoch, installs a full scene, and never presents a stale frame.",
+      "required_artifact_kinds": ["protocol", "process-census", "screenshot", "video"]
+    },
+    {
+      "id": "MOVE-1",
+      "priority": "P0",
+      "observable": "Cross-workspace move",
+      "pass_condition": "Moving a terminal during numbered output preserves PID and terminal ID, displays every number once, and never presents the retired generation.",
+      "required_artifact_kinds": ["protocol", "screen-capture"]
+    },
+    {
+      "id": "MULTI-1",
+      "priority": "P0",
+      "observable": "Geometry arbitration",
+      "pass_condition": "Concurrent GUI and TUI viewers at different sizes do not oscillate the PTY; the geometry lease is independent from input authority, at least one unauthorized resize is rejected, and attempted, prior, and resulting geometry prove that only the current holder changes canonical dimensions.",
+      "required_artifact_kinds": ["lease-transcript", "pty-size-samples"]
+    },
+    {
+      "id": "MULTI-2",
+      "priority": "P0",
+      "observable": "Input ordering",
+      "pass_condition": "Concurrent GUI, TUI, and explicitly delegated automation input for one canonical terminal shares one gap-free daemon-assigned global sequence; machine-derived source, event-type, and exact PTY-byte records prove paste batches and individual key and mouse events are atomic with no split paste, blocked key rollover, lost release, or duplicate command.",
+      "required_artifact_kinds": ["input-transcript", "integration-test"]
+    },
+    {
+      "id": "STATE-1",
+      "priority": "P0",
+      "observable": "Single topology authority",
+      "pass_condition": "Each visible topology mutation is one daemon transaction and revision, and client projections converge after reconnect and overflow.",
+      "required_artifact_kinds": ["protocol", "conformance-test"]
+    },
+    {
+      "id": "STATE-2",
+      "priority": "P0",
+      "observable": "No dual terminal authority",
+      "pass_condition": "Only renderer-worker PIDs consume daemon semantic scenes and perform terminal shaping. Swift consumes authenticated IOSurface frames, cmux-browser consumes daemon-authored styled rows or a renderer-frame endpoint, neither receives raw PTY output or instantiates a canonical parser, and byte-stream compatibility clients are identified separately and cannot claim canonical parity. Linkage counts come from the verifier's fixed production roots at the manifest source commit, not caller-authored records.",
+      "required_artifact_kinds": ["protocol", "linkage-audit", "runtime-assertion"]
+    },
+    {
+      "id": "FID-1",
+      "priority": "P0",
+      "observable": "Text parity",
+      "pass_condition": "Distinct embedded and external builds and processes match a deterministic golden corpus for ASCII, ligatures, emoji, CJK, combining text, wide cells, styles, cursor, palette, and OSC colors under identical commit, font, config, and geometry provenance, with distinct capture paths and hashes, zero geometry differences, maximum per-channel delta at most 2, and mean absolute error at most 0.25.",
+      "required_artifact_kinds": ["golden-image", "image-diff"]
+    },
+    {
+      "id": "FID-2",
+      "priority": "P0",
+      "observable": "Advanced parity",
+      "pass_condition": "Named machine-derived subcases prove link targets and activation, selection drag autoscroll, all search highlights, static and animated Kitty images, custom shaders, synchronized-output hold and timeout, and IME marked-text selection and caret attributes match embedded behavior; the exact runner, selected test list, exit code, stdout, JUnit, binary hash, and binary source commit are bound to the receipt.",
+      "required_artifact_kinds": ["integration-test", "screenshot", "video"]
+    },
+    {
+      "id": "PERF-1",
+      "priority": "P0",
+      "observable": "Sidebar responsiveness",
+      "pass_condition": "On the same Apple Silicon host, OS build, and display configuration, independently hashed 60-second baseline and branch runs use the same workload script hash, seed, and duration with 100 workspaces and eight continuous-output terminals; the verifier derives p95 improvement from a baseline built at the recorded current-main commit and branch measurements, requires at most 16.7 ms p95, 33.4 ms p99, and 50 ms maximum, and requires at least 25 percent p95 improvement plus PID-scoped Time Profiler and Metal System Trace evidence.",
+      "required_artifact_kinds": ["baseline", "time-profiler", "latency-distribution", "video"]
+    },
+    {
+      "id": "PERF-2",
+      "priority": "P0",
+      "observable": "Dormant scale",
+      "pass_condition": "A commit-bound live collector with a hashed executable, PID/start identity, command, host, OS, and chronological phase samples proves one thousand dormant workspaces create no renderer workers; making 100 distinct workspaces visible creates exactly 100 identity-bound workers, multiple presentations of one workspace still use one worker, and returning all workspaces to dormant retires every worker within the bounded lifecycle deadline.",
+      "required_artifact_kinds": ["process-census", "memory-report"]
+    },
+    {
+      "id": "FLOW-1",
+      "priority": "P0",
+      "observable": "Backpressure",
+      "pass_condition": "Slow or stopped clients cannot block PTY parsing, topology mutations, or other clients; overflow forces a full resnapshot with bounded retained bytes.",
+      "required_artifact_kinds": ["saturation-test", "queue-metrics", "protocol"]
+    },
+    {
+      "id": "SEC-1",
+      "priority": "P0",
+      "observable": "IPC rejection",
+      "pass_condition": "Unauthenticated, stale-capability, malformed, and oversized requests are rejected before state mutation or allocation amplification.",
+      "required_artifact_kinds": ["negative-test", "state-hash", "memory-report"]
+    },
+    {
+      "id": "COMPAT-1",
+      "priority": "P0",
+      "observable": "Upgrade behavior",
+      "pass_condition": "Compatible protocol ranges reconnect read-write; incompatible ranges and missing mutation capabilities remain connected in identify-first read-only mode, expose both ranges and an upgrade action, reject every mutation before dispatch, and leave the canonical state digest unchanged.",
+      "required_artifact_kinds": ["version-matrix", "state-hash"]
+    },
+    {
+      "id": "A11Y-1",
+      "priority": "P0",
+      "observable": "Accessibility",
+      "pass_condition": "Revision-fenced VoiceOver text, UTF-16 cursor and selection ranges, OSC 8 link targets and actions, range bounds, and focus match canonical terminal state while rendering is remote.",
+      "required_artifact_kinds": ["accessibility-tree", "ax-query", "video"]
+    },
+    {
+      "id": "CLEAN-1",
+      "priority": "P0",
+      "observable": "Legacy removal",
+      "pass_condition": "Each supported launch mode has one required production composition root; backend mode cannot construct a local Ghostty surface, parser, PTY, or bootstrap fallback capable of owning the same terminal. The verifier independently scans its fixed production roots at the manifest source commit and rejects empty or caller-authored linkage records.",
+      "required_artifact_kinds": ["linkage-audit", "runtime-assertion"]
+    }
+  ]
+}

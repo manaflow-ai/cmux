@@ -51,7 +51,7 @@ import Testing
 
     @Test func liveWindowPaneChangedUpdatesMirrorBeforeAnotherReconcile() throws {
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let workspace = manager.addLocalWorkspace(select: false, autoWelcomeIfNeeded: false)
         workspace.isRemoteTmuxMirror = true
         let host = RemoteTmuxHost(destination: "user@host")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "work")
@@ -88,7 +88,7 @@ import Testing
 
     @Test func reconnectWaitsForAttachDrainBeforeResizingVisibleMirror() throws {
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let workspace = manager.addLocalWorkspace(select: false, autoWelcomeIfNeeded: false)
         workspace.isRemoteTmuxMirror = true
         let host = RemoteTmuxHost(destination: "user@host")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "work")
@@ -125,7 +125,7 @@ import Testing
 
     @Test func reconcileWithUnchangedLayoutDoesNotReassertBonsplitFocus() throws {
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let workspace = manager.addLocalWorkspace(select: false, autoWelcomeIfNeeded: false)
         workspace.isRemoteTmuxMirror = true
         let host = RemoteTmuxHost(destination: "user@host")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "work")

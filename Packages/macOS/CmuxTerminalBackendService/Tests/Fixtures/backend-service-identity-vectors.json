@@ -1,0 +1,32 @@
+[
+  {
+    "bundleIdentifier": "com.cmuxterm.app",
+    "normalizedBundleIdentifier": "com.cmuxterm.app",
+    "identityToken": "omkjzmxai653wj3jgzmcth67ca",
+    "serviceLabel": "com.cmuxterm.app.terminal-backend",
+    "propertyListName": "com.cmuxterm.app.terminal-backend.plist",
+    "sessionName": "cmux",
+    "socketFileName": "cmux.sock",
+    "stateNamespace": "cmux"
+  },
+  {
+    "bundleIdentifier": " com.cmuxterm.app.DEBUG.Renderer-A ",
+    "normalizedBundleIdentifier": "com.cmuxterm.app.debug.renderer-a",
+    "identityToken": "z3ogyutjsmgrkezxttum65pgym",
+    "serviceLabel": "com.cmuxterm.app.debug.renderer-a.terminal-backend",
+    "propertyListName": "com.cmuxterm.app.debug.renderer-a.terminal-backend.plist",
+    "sessionName": "cmux-z3ogyutjsmgrkezxttum65pgym",
+    "socketFileName": "cmux-z3ogyutjsmgrkezxttum65pgym.sock",
+    "stateNamespace": "cmux-z3ogyutjsmgrkezxttum65pgym"
+  },
+  {
+    "bundleIdentifier": "com.cmuxterm.app.nightly.2026-07-17",
+    "normalizedBundleIdentifier": "com.cmuxterm.app.nightly.2026-07-17",
+    "identityToken": "pljz64psmq46q7ujxzc4otawge",
+    "serviceLabel": "com.cmuxterm.app.nightly.2026-07-17.terminal-backend",
+    "propertyListName": "com.cmuxterm.app.nightly.2026-07-17.terminal-backend.plist",
+    "sessionName": "cmux-pljz64psmq46q7ujxzc4otawge",
+    "socketFileName": "cmux-pljz64psmq46q7ujxzc4otawge.sock",
+    "stateNamespace": "cmux-pljz64psmq46q7ujxzc4otawge"
+  }
+]

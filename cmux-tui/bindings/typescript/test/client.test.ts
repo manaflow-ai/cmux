@@ -1,9 +1,127 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { CmuxClient, CmuxStream } from "../src/client.js";
 import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
 import type { TreeDeltaEvent } from "../src/protocol/index.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
+import {
+  parseSubscribeTopologyResult,
+  parseTopologySnapshot,
+  parseTopologyStreamEvent,
+  validateTopologyDelta,
+} from "../src/protocol/topology.js";
+
+test("protocol v8 shared vectors decode topology and every recovery outcome", () => {
+  const vectors = JSON.parse(readFileSync(
+    new URL("../../../conformance/topology-v8.json", import.meta.url),
+    "utf8",
+  )) as Record<string, unknown>;
+  const identity = vectors.identify as {
+    topology_revision: number;
+    canonical_topology_revision: number;
+  };
+  const ping = vectors.ping as {
+    ok: boolean;
+    topology_revision: number;
+    canonical_topology_revision: number;
+  };
+  assert.equal(identity.topology_revision, 47);
+  assert.equal(identity.canonical_topology_revision, 41);
+  assert.equal(ping.ok, true);
+  assert.equal(ping.topology_revision, 47);
+  assert.equal(ping.canonical_topology_revision, 41);
+  const snapshot = parseTopologySnapshot(vectors.snapshot);
+  assert.equal(snapshot.revision, 41);
+  assert.equal(snapshot.topology.workspaces[0].screens[0].panes[0].tabs[0].id, 4);
+  const delta = parseTopologyStreamEvent(vectors.delta);
+  assert.equal(delta.event, "topology-delta");
+  if (delta.event === "topology-delta") {
+    assert.equal(delta.operation, "workspace-renamed");
+    assert.equal(validateTopologyDelta(snapshot, delta), null);
+  }
+  const outcomes = (vectors.resnapshot_results as unknown[]).map(parseSubscribeTopologyResult);
+  assert.deepEqual(
+    outcomes.map((outcome) => outcome.status === "resnapshot-required" ? outcome.reason : null),
+    ["stale-daemon", "stale-session", "revision-ahead", "history-gap", "replay-too-large"],
+  );
+  const slow = parseTopologyStreamEvent(vectors.slow_consumer_event);
+  assert.equal(slow.event, "topology-resnapshot-required");
+  if (slow.event === "topology-resnapshot-required") {
+    assert.equal(slow.reason, "slow-consumer");
+    assert.equal(slow.current_revision, undefined);
+  }
+});
+
+test("typed v8 methods use canonical identify authority and preserve full ping authority", async () => {
+  const vectors = JSON.parse(readFileSync(
+    new URL("../../../conformance/topology-v8.json", import.meta.url),
+    "utf8",
+  )) as Record<string, unknown>;
+  const commands: unknown[] = [];
+  const transport = new ScriptedTransport((request, connection) => {
+    commands.push(request.cmd);
+    const key = request.cmd === "topology-snapshot" ? "snapshot" : String(request.cmd);
+    connection.emit({ id: request.id, ok: true, data: vectors[key] });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  const identity = await client.identify();
+  assert.equal(identity.topology_revision, 47);
+  assert.equal(identity.canonical_topology_revision, 41);
+  assert.deepEqual(await client.ping(), vectors.ping);
+  assert.deepEqual(await client.topologySnapshot(), parseTopologySnapshot(vectors.snapshot));
+  assert.deepEqual(commands, ["identify", "ping", "topology-snapshot"]);
+  await client.close();
+});
+
+test("typed v8 methods reject identify data without the canonical cursor", async () => {
+  const vectors = JSON.parse(readFileSync(
+    new URL("../../../conformance/topology-v8.json", import.meta.url),
+    "utf8",
+  )) as Record<string, Record<string, unknown>>;
+  const identity = { ...vectors.identify };
+  delete identity.canonical_topology_revision;
+  const transport = new ScriptedTransport((request, connection) => {
+    connection.emit({ id: request.id, ok: true, data: identity });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(() => client.topologySnapshot(), /omitted its authority cursor/);
+  await client.close();
+});
+
+test("topology replay buffer overflow becomes an explicit resnapshot outcome", async () => {
+  const vectors = JSON.parse(readFileSync(
+    new URL("../../../conformance/topology-v8.json", import.meta.url),
+    "utf8",
+  )) as Record<string, Record<string, unknown>>;
+  const secondDelta = {
+    ...vectors.delta,
+    base_revision: 42,
+    revision: 43,
+  };
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({ id: request.id, ok: true, data: vectors.identify });
+      return;
+    }
+    connection.emit(vectors.delta);
+    connection.emit(secondDelta);
+    connection.emit({ id: request.id, ok: true, data: vectors.subscribed });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100, maxBufferedEvents: 1 });
+
+  const snapshot = parseTopologySnapshot(vectors.snapshot);
+  const outcome = await client.subscribeTopology(snapshot);
+  assert.deepEqual(outcome, {
+    status: "resnapshot-required",
+    daemon_instance_id: snapshot.daemon_instance_id,
+    session_id: snapshot.session_id,
+    reason: "slow-consumer",
+  });
+  await client.close();
+});
 
 class ScriptedTransport implements Transport {
   private readonly messageHandlers = new Set<(json: string) => void>();

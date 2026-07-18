@@ -9,6 +9,8 @@ import CmuxWindowing
 import CmuxNotifications
 import CmuxTerminalCore
 import CmuxTerminal
+import enum CmuxTerminalBackend.BackendSplitDirection
+import CmuxTerminalBackendService
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxUpdater
@@ -664,6 +666,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    private(set) var terminalClientComposition: TerminalClientComposition?
+    private var terminalBackendServiceModel: TerminalBackendServiceModel?
+    private var terminalBackendTopologyProjectionRegistry:
+        TerminalBackendTopologyProjectionRegistry?
+    private var terminalBackendTopologyCoordinator: TerminalBackendTopologyCoordinator?
 
     /// Notification jump/open navigation, extracted into `CmuxNotifications`. `AppDelegate` is the
     /// composition root: it conforms to every seam (see `AppDelegate+NotificationNavSeams.swift`)
@@ -1255,6 +1262,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    private func bootstrapPersistentTerminalBackendService() {
+        guard let terminalBackendServiceModel else {
+            StartupBreadcrumbLog.append(
+                "appDelegate.terminalBackend.bootstrap",
+                fields: ["status": "notConfigured"]
+            )
+            return
+        }
+
+        terminalBackendServiceModel.start()
+        terminalBackendTopologyCoordinator?.start()
+        StartupBreadcrumbLog.append(
+            "appDelegate.terminalBackend.bootstrap",
+            fields: ["status": "scheduled"]
+        )
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
@@ -1277,6 +1301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
+        bootstrapPersistentTerminalBackendService()
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
         // synchronous RestorableAgentSessionIndex.load() on the main thread. See
@@ -1786,6 +1811,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidBecomeActive(_ notification: Notification) {
         PortScanner.shared.setTrackedAgentScanningPaused(false)
+        terminalBackendServiceModel?.refresh()
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -1974,6 +2000,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
     }
 
+    /// Synchronously severs every Swift presentation before AppKit starts closing panels.
+    /// The daemon remains the canonical PTY owner across a normal app Quit.
+    @discardableResult
+    static func detachPersistentTerminalPresentationsForAppTermination(
+        _ surfaces: [TerminalSurface]
+    ) -> Int {
+        var detached = 0
+        for surface in surfaces where surface.isExternallyManaged {
+            surface.detachExternalPresentationPreservingCanonicalTerminal()
+            detached += 1
+        }
+        return detached
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         // Backstop for any terminate path that did not route through
@@ -1982,6 +2022,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
         isTerminatingApp = true
+        let detachedPersistentTerminalCount = Self
+            .detachPersistentTerminalPresentationsForAppTermination(
+                GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
+            )
+        StartupBreadcrumbLog.append(
+            "appDelegate.willTerminate.terminalsDetached",
+            fields: ["count": String(detachedPersistentTerminalCount)]
+        )
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         terminationWatchdog.arm()
@@ -2029,9 +2077,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
-        auth: MacAuthComposition
+        auth: MacAuthComposition,
+        terminalClientComposition: TerminalClientComposition,
+        terminalBackendServiceModel: TerminalBackendServiceModel? = nil,
+        terminalBackendTopologyProjectionRegistry: TerminalBackendTopologyProjectionRegistry? = nil,
+        terminalBackendTopologyCoordinator: TerminalBackendTopologyCoordinator? = nil
     ) {
+        precondition(
+            tabManager.terminalClientComposition === terminalClientComposition,
+            "AppDelegate and its primary TabManager must share one terminal composition"
+        )
         self.tabManager = tabManager
+        self.terminalClientComposition = terminalClientComposition
+        self.terminalBackendServiceModel = terminalBackendServiceModel
+        self.terminalBackendTopologyProjectionRegistry =
+            terminalBackendTopologyProjectionRegistry
+        self.terminalBackendTopologyCoordinator = terminalBackendTopologyCoordinator
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
@@ -2040,7 +2101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
-        MobileHostService.shared.configure(auth: auth.coordinator)
+        MobileHostService.shared.configure(
+            auth: auth.coordinator,
+            terminalDataPlane: terminalClientComposition.mobileTerminalDataPlane
+        )
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's
@@ -2048,6 +2112,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
+        TerminalController.shared.configureMobileTerminalDataPlane(
+            terminalClientComposition.mobileTerminalDataPlane
+        )
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
@@ -3369,6 +3436,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
+        terminalBackendTopologyProjectionRegistry?.startupRestoreDidFinish()
+        terminalBackendTopologyCoordinator?.startupRestoreDidFinish()
         if isScreenChangeCaptureSuppressed {
             // A display change arrived mid-restore and its reconcile pass was
             // skipped. Queue it now that restore is done
@@ -3383,6 +3452,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = saveSessionSnapshot(includeScrollback: false)
         }
     }
+
+#if DEBUG
+    /// Exercises the production restore-completion seam without constructing
+    /// AppKit windows in topology projection tests.
+    func debugCompleteTerminalBackendSessionRestoreForTesting(
+        projectionRegistry: TerminalBackendTopologyProjectionRegistry
+    ) {
+        terminalBackendTopologyProjectionRegistry = projectionRegistry
+        isApplyingSessionRestore = true
+        completeSessionRestoreOperation(isManualReopen: true)
+    }
+#endif
 
     @discardableResult
     func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
@@ -4507,6 +4588,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
         if let existing = mainWindowContexts[key] {
+            guard existing.tabManager === tabManager else {
+                terminalBackendServiceModel?.reportTopologyFailure(String(
+                    localized: "terminalBackend.topology.projectionFailed",
+                    defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+                ))
+                return
+            }
             tabManager.window = window
             tabManager.windowId = existing.windowId
             existing.window = window
@@ -4524,6 +4612,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            guard existing.tabManager === tabManager else {
+                terminalBackendServiceModel?.reportTopologyFailure(String(
+                    localized: "terminalBackend.topology.projectionFailed",
+                    defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+                ))
+                return
+            }
             if let existingWindow = existing.window,
                existingWindow !== window,
                existingWindow.isVisible || existingWindow.isMiniaturized {
@@ -4585,12 +4680,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         ensureSocketListenerIfEnabled(tabManager: tabManager, source: "mainWindow.register")
         ensureMobileWorkspaceListObserver(for: tabManager)
+        let terminalProjectionRegistrationChanged = terminalBackendTopologyProjectionRegistry?.register(
+            tabManager,
+            presentationID: windowId,
+            isPrimary: tabManager === self.tabManager
+        ) ?? false
+        if terminalProjectionRegistrationChanged {
+            terminalBackendTopologyCoordinator?.projectorsDidChange()
+        }
         notifyMainWindowContextsDidChange()
         if window.isKeyWindow {
             setActiveMainWindow(window)
         }
 
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+        if tabManager === self.tabManager, !isApplyingSessionRestore {
+            terminalBackendTopologyProjectionRegistry?.startupRestoreDidFinish()
+            terminalBackendTopologyCoordinator?.startupRestoreDidFinish()
+        }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
@@ -4696,13 +4803,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
+        guard !destinationManager.tabs.contains(where: { $0.id == workspaceId }) else {
+            terminalBackendServiceModel?.reportTopologyFailure(String(
+                localized: "terminalBackend.topology.projectionFailed",
+                defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+            ))
+            return false
+        }
 
-        guard let workspace = sourceManager.detachWorkspace(tabId: workspaceId) else { return false }
+        let ownershipTransfer: TerminalBackendTopologyWorkspaceOwnershipTransfer?
+        do {
+            ownershipTransfer = try terminalBackendTopologyProjectionRegistry?
+                .prepareWorkspaceOwnershipTransfer(
+                    workspaceID: workspaceId,
+                    from: sourceManager,
+                    to: destinationManager
+                )
+        } catch {
+            terminalBackendServiceModel?.reportTopologyFailure(String(
+                localized: "terminalBackend.topology.projectionFailed",
+                defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+            ))
+            return false
+        }
+
+        guard sourceManager.tabs.contains(where: { $0.id == workspaceId }) else {
+            return false
+        }
+        do {
+            try ownershipTransfer?.commit()
+        } catch {
+            terminalBackendServiceModel?.reportTopologyFailure(String(
+                localized: "terminalBackend.topology.projectionFailed",
+                defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+            ))
+            return false
+        }
+
+        // Both operations are synchronous on MainActor and non-failable after
+        // this presence check. Commit daemon-presentation ownership first so a
+        // rejected transfer cannot leak detach/group/selection side effects.
+        guard let workspace = sourceManager.detachWorkspace(
+            tabId: workspaceId,
+            provisionReplacementIfEmpty: false
+        ) else {
+            ownershipTransfer?.rollback()
+            return false
+        }
         destinationManager.attachWorkspace(workspace, at: atIndex, select: focus)
+        terminalBackendTopologyCoordinator?.projectorsDidChange()
 
         if focus {
             _ = focusMainWindow(windowId: windowId)
             TerminalController.shared.setActiveTabManager(destinationManager)
+        }
+
+        if sourceManager.tabs.isEmpty {
+            let sourceWindowId = self.windowId(for: sourceManager) ?? sourceManager.windowId
+            if let sourceWindowId, sourceWindowId != windowId,
+               closeMainWindow(windowId: sourceWindowId, recordHistory: false) {
+                // Window teardown retires the now-empty presentation registry entry.
+            } else {
+                // A failed window close must not fabricate a backend-unowned
+                // terminal. The empty presentation remains fail-closed.
+                terminalBackendServiceModel?.reportTopologyFailure(String(
+                    localized: "terminalBackend.topology.projectionFailed",
+                    defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+                ))
+            }
         }
         return true
     }
@@ -4818,6 +4986,111 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             return false
+        }
+
+        if let canonicalSurfaceID = sourceWorkspace.backendCanonicalSurfaceID(for: panelId) {
+            guard let mutationCoordinator = sourceWorkspace.terminalClientComposition
+                .terminalBackendTopologyMutationCoordinator else {
+                return false
+            }
+            let destinationTabs = destinationWorkspace.bonsplitController
+                .tabs(inPane: resolvedTargetPane)
+            let destinationHasCanonicalPanel = destinationTabs.contains { tab in
+                guard let destinationPanelID = destinationWorkspace
+                    .panelIdFromSurfaceId(tab.id) else { return false }
+                return destinationWorkspace.isBackendCanonicalPanel(destinationPanelID)
+            }
+            guard destinationHasCanonicalPanel else {
+                mutationCoordinator.reportFailure(
+                    for: splitTarget == nil ? .moveTab : .splitPane
+                )
+                return false
+            }
+
+            if let splitTarget {
+                let direction: BackendSplitDirection
+                switch (splitTarget.orientation, splitTarget.insertFirst) {
+                case (.horizontal, true): direction = .left
+                case (.horizontal, false): direction = .right
+                case (.vertical, true): direction = .up
+                case (.vertical, false): direction = .down
+                }
+                let reservation: TerminalBackendTopologyCanonicalSurfaceMoveReservation?
+                do {
+                    if source.tabManager === destinationManager {
+                        reservation = nil
+                    } else {
+                        guard let registry = terminalBackendTopologyProjectionRegistry else {
+                            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                                "canonical surface move has no projection registry"
+                            )
+                        }
+                        reservation = try registry.reserveCanonicalSurfaceMove(
+                                surfaceID: canonicalSurfaceID,
+                                from: sourceWorkspace.id,
+                                in: source.tabManager,
+                                to: destinationWorkspace.id,
+                                in: destinationManager,
+                                destinationPaneID: nil,
+                                destinationIndex: nil
+                            )
+                    }
+                } catch {
+                    mutationCoordinator.reportFailure(for: .splitPane)
+                    return false
+                }
+                _ = mutationCoordinator.requestSplitTab(
+                    canonicalSurfaceID,
+                    around: resolvedTargetPane.id,
+                    direction: direction,
+                    onFailure: { [weak registry = terminalBackendTopologyProjectionRegistry] in
+                        if let reservation {
+                            registry?.cancelCanonicalSurfaceMoveReservation(reservation)
+                        }
+                    }
+                )
+                return true
+            }
+
+            let canonicalIndex = destinationWorkspace.backendCanonicalInsertionIndex(
+                inPane: resolvedTargetPane,
+                presentedIndex: targetIndex
+            )
+            let reservation: TerminalBackendTopologyCanonicalSurfaceMoveReservation?
+            do {
+                if source.tabManager === destinationManager {
+                    reservation = nil
+                } else {
+                    guard let registry = terminalBackendTopologyProjectionRegistry else {
+                        throw TerminalBackendTopologyProjectionError.projectionFailed(
+                            "canonical surface move has no projection registry"
+                        )
+                    }
+                    reservation = try registry.reserveCanonicalSurfaceMove(
+                            surfaceID: canonicalSurfaceID,
+                            from: sourceWorkspace.id,
+                            in: source.tabManager,
+                            to: destinationWorkspace.id,
+                            in: destinationManager,
+                            destinationPaneID: resolvedTargetPane.id,
+                            destinationIndex: canonicalIndex
+                        )
+                }
+            } catch {
+                mutationCoordinator.reportFailure(for: .moveTab)
+                return false
+            }
+            _ = mutationCoordinator.requestMoveTab(
+                canonicalSurfaceID,
+                to: resolvedTargetPane.id,
+                index: canonicalIndex,
+                onFailure: { [weak registry = terminalBackendTopologyProjectionRegistry] in
+                    if let reservation {
+                        registry?.cancelCanonicalSurfaceMoveReservation(reservation)
+                    }
+                }
+            )
+            return true
         }
 
         if destinationWorkspace.id == sourceWorkspace.id {
@@ -5076,11 +5349,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
-        let workspace = state.tabManager.addWorkspace(
+        let outcome = state.tabManager.requestAddWorkspace(
             workingDirectory: workingDirectory,
             select: shouldBringToFront
         )
-        return workspace.id
+        switch outcome {
+        case .created(let workspace): return workspace.id
+        case .submittedToBackend(let submission): return submission.workspaceID
+        case .failed: return nil
+        }
     }
 
     private func markCommandPaletteOpenRequested(for window: NSWindow?) {
@@ -5892,6 +6169,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
+        terminalBackendTopologyProjectionRegistry?.unregister(context.tabManager)
+        terminalBackendTopologyCoordinator?.projectorsDidChange()
         notifyMainWindowContextsDidChange()
 
         commandPaletteWindowStore.removeWindow(context.windowId)
@@ -7299,23 +7578,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // The fresh window boots with a terminal workspace; add the
                     // browser workspace and close that initial one so the
                     // action's result matches the no-window case for terminals.
-                    let workspace = context.tabManager.addWorkspace(
+                    let applyCreatedWorkspace: @MainActor (Workspace) -> Void = { workspace in
+                        self.closeInitialWorkspaceIfNeeded(
+                            initialWorkspaceId: initialWorkspace?.id,
+                            in: context
+                        )
+                        createdWorkspaceHandler?(workspace)
+                        if focusInitialBrowserAddressBarOnCreate {
+                            self.focusInitialBrowserAddressBar(in: workspace)
+                        }
+                    }
+                    let outcome = context.tabManager.requestAddWorkspace(
                         title: title,
                         initialSurface: .browser,
                         initialBrowserURL: initialBrowserURL,
                         initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                        initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                        initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                        onProjected: applyCreatedWorkspace
                     )
-                    closeInitialWorkspaceIfNeeded(
-                        initialWorkspaceId: initialWorkspace?.id,
-                        in: context
-                    )
-                    createdWorkspaceHandler?(workspace)
-                    if focusInitialBrowserAddressBarOnCreate {
-                        focusInitialBrowserAddressBar(in: workspace)
+                    if case .created(let workspace) = outcome {
+                        applyCreatedWorkspace(workspace)
                     }
+                    guard outcome.isAccepted else { return false }
                 case .cloudVMLoading:
-                    let workspace = context.tabManager.addWorkspace(initialSurface: .cloudVMLoading)
+                    let workspace = context.tabManager.addLocalWorkspace(
+                        initialSurface: .cloudVMLoading
+                    )
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
                         in: context
@@ -7344,7 +7632,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let context, let workspaceGroupTarget {
-            guard let workspace = context.tabManager.createWorkspaceInGroup(
+            guard let outcome = context.tabManager.requestCreateWorkspaceInGroup(
                 groupId: workspaceGroupTarget.groupId,
                 placement: workspaceGroupTarget.placement,
                 referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId,
@@ -7356,30 +7644,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) else {
                 return false
             }
-            createdWorkspaceHandler?(workspace)
-            if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
-                focusInitialBrowserAddressBar(in: workspace)
+            if case .created(let workspace) = outcome {
+                createdWorkspaceHandler?(workspace)
+                if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
+                    focusInitialBrowserAddressBar(in: workspace)
+                }
             }
-            return true
+            return outcome.isAccepted
         }
 
         if let preferredTabManager,
            preferredContext == nil || livePreferredContext != nil {
-            let workspace = preferredTabManager.addWorkspace(
+            let applyCreatedWorkspace: @MainActor (Workspace) -> Void = { workspace in
+                createdWorkspaceHandler?(workspace)
+                if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
+                    focusInitialBrowserAddressBar(in: workspace)
+                }
+            }
+            let outcome = preferredTabManager.requestAddWorkspace(
                 title: title,
                 initialSurface: initialSurface,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                onProjected: applyCreatedWorkspace
             )
-            createdWorkspaceHandler?(workspace)
-            if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
-                focusInitialBrowserAddressBar(in: workspace)
+            if case .created(let workspace) = outcome {
+                applyCreatedWorkspace(workspace)
             }
+            if case .failed = outcome { return false }
             return true
         }
 
-        if let workspace = addWorkspaceInPreferredMainWindow(
+        if let outcome = requestAddWorkspaceInPreferredMainWindow(
             title: title,
             initialSurface: initialSurface,
             initialBrowserURL: initialBrowserURL,
@@ -7388,9 +7685,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             debugSource: debugSource
         ) {
-            createdWorkspaceHandler?(workspace)
-            if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
-                focusInitialBrowserAddressBar(in: workspace)
+            if case .created(let workspace) = outcome {
+                createdWorkspaceHandler?(workspace)
+                if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
+                    focusInitialBrowserAddressBar(in: workspace)
+                }
             }
         } else {
 #if DEBUG
@@ -7476,7 +7775,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
         } else {
-            workspace = context.tabManager.addWorkspace(
+            workspace = context.tabManager.addLocalWorkspace(
                 title: workspaceTitle,
                 initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false,
@@ -7847,7 +8146,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
             ?? targetTabManager.tabs.first?.id
-            ?? targetTabManager.addWorkspace(select: true).id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
@@ -7860,13 +8158,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            guard targetTabManager.openBrowser(
-                inWorkspace: targetWorkspaceId,
-                url: openFolderURL,
-                preferSplitRight: true
-            ) != nil else {
-                NSSound.beep()
-                return
+            if let targetWorkspaceId {
+                guard targetTabManager.openBrowser(
+                    inWorkspace: targetWorkspaceId,
+                    url: openFolderURL,
+                    preferSplitRight: true
+                ) != nil else {
+                    NSSound.beep()
+                    return
+                }
+            } else {
+                let outcome = targetTabManager.requestAddWorkspace(
+                    initialSurface: .browser,
+                    initialBrowserURL: openFolderURL,
+                    select: true
+                )
+                if case .failed = outcome {
+                    NSSound.beep()
+                    return
+                }
             }
         }
 
@@ -8041,7 +8351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workingDirectory: String,
         debugSource: String
     ) {
-        if addWorkspaceInPreferredMainWindow(
+        if requestAddWorkspaceInPreferredMainWindow(
             workingDirectory: workingDirectory,
             shouldBringToFront: true,
             debugSource: debugSource
@@ -8055,7 +8365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ request: TerminalDefaultFileOpenRequest,
         debugSource: String
     ) {
-        if addWorkspaceInPreferredMainWindow(
+        if requestAddWorkspaceInPreferredMainWindow(
             workingDirectory: request.workingDirectory,
             initialTerminalInput: request.initialInput,
             shouldBringToFront: true,
@@ -8093,8 +8403,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        let workspace = context.tabManager.selectedWorkspace
-            ?? context.tabManager.addWorkspace(select: shouldBringToFront, autoWelcomeIfNeeded: false)
+        guard let workspace = context.tabManager.selectedWorkspace else {
+            let outcome = context.tabManager.requestAddWorkspace(
+                initialTerminalInput: text,
+                select: shouldBringToFront,
+                autoWelcomeIfNeeded: false
+            )
+            if case .failed = outcome {
+                onSendFailure?()
+                return false
+            }
+            return true
+        }
         // In a remote tmux mirror workspace, paste targets the existing focused
         // pane. Do NOT fall back to creating a new surface there: that would
         // route to a remote `new-window` (a surprising side effect) yet still
@@ -8140,8 +8460,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        let workspace = context.tabManager.selectedWorkspace
-            ?? context.tabManager.addWorkspace(workingDirectory: parentDirectory, select: true)
+        guard let workspace = context.tabManager.selectedWorkspace else {
+            let outcome = context.tabManager.requestAddWorkspace(
+                workingDirectory: parentDirectory,
+                select: true,
+                onProjected: { workspace in
+                    guard let paneId = workspace.bonsplitController.focusedPaneId
+                            ?? workspace.bonsplitController.allPaneIds.first else {
+                        return
+                    }
+                    _ = workspace.openFileSurfaces(
+                        inPane: paneId,
+                        filePaths: [filePath],
+                        focus: true,
+                        reuseExisting: true
+                    )
+                }
+            )
+            if case .failed = outcome { return false }
+            return true
+        }
         guard let paneId = workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first else {
             return false
@@ -8159,7 +8497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func addWorkspaceInPreferredMainWindow(
+    func requestAddWorkspaceInPreferredMainWindow(
         title: String? = nil,
         workingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
@@ -8170,7 +8508,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
-    ) -> Workspace? {
+    ) -> WorkspaceCreationOutcome? {
         #if DEBUG
         logWorkspaceCreationRouting(
             phase: "request",
@@ -8213,28 +8551,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             bringToFront(window)
         }
 
-        let workspace: Workspace
-        if initialSurface == .browser {
-            workspace = context.tabManager.addWorkspace(
-                title: title,
-                initialSurface: .browser,
-                initialBrowserURL: initialBrowserURL,
-                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                select: true
-            )
-        } else if workingDirectory != nil || initialTerminalInput != nil {
-            workspace = context.tabManager.addWorkspace(
-                title: title,
-                workingDirectory: workingDirectory,
-                initialTerminalInput: initialTerminalInput,
-                select: true,
-                autoWelcomeIfNeeded: initialTerminalInput == nil
-            )
-        } else if title != nil {
-            workspace = context.tabManager.addWorkspace(title: title, select: true)
-        } else {
-            workspace = context.tabManager.addTab(select: true)
+        let outcome = context.tabManager.requestAddWorkspace(
+            title: title,
+            workingDirectory: workingDirectory,
+            initialSurface: initialSurface,
+            initialTerminalInput: initialTerminalInput,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            select: true,
+            autoWelcomeIfNeeded: initialTerminalInput == nil
+        )
+        let workspaceID: UUID? = switch outcome {
+        case .created(let workspace): workspace.id
+        case .submittedToBackend(let submission): submission.workspaceID
+        case .failed: nil
         }
         #if DEBUG
         logWorkspaceCreationRouting(
@@ -8243,11 +8574,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             reason: "workspace_created",
             event: event,
             chosenContext: context,
-            workspaceId: workspace.id,
+            workspaceId: workspaceID,
             workingDirectory: workingDirectory
         )
         #endif
-        return workspace
+        return outcome
+    }
+
+    /// Embedded-runtime compatibility shim for synchronous callers.
+    @discardableResult
+    func addWorkspaceInPreferredMainWindow(
+        title: String? = nil,
+        workingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
+        shouldBringToFront: Bool = false,
+        event: NSEvent? = nil,
+        debugSource: String = "unspecified"
+    ) -> Workspace? {
+        requestAddWorkspaceInPreferredMainWindow(
+            title: title,
+            workingDirectory: workingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            initialSurface: initialSurface,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            shouldBringToFront: shouldBringToFront,
+            event: event,
+            debugSource: debugSource
+        )?.workspace
     }
 
     func preferredMainWindowContextForWorkspaceCreation(
@@ -8561,6 +8920,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
+        guard let terminalClientComposition else {
+            preconditionFailure(
+                "AppDelegate must be configured by cmuxApp before creating a main window"
+            )
+        }
         let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
         let windowId = availableWindowIdForNewMainWindow(preferredWindowId: requestedWindowId) ?? UUID()
         let tabManager = TabManager(
@@ -8568,6 +8932,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
+            terminalClientComposition: terminalClientComposition,
             pullRequestProbeService: self.tabManager?.pullRequestProbeService,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
@@ -8848,8 +9213,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
-        let workspace = context.tabManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
-        sendWelcomeCommandWhenReady(to: workspace)
+        let outcome = context.tabManager.requestAddWorkspace(
+            select: true,
+            autoWelcomeIfNeeded: false,
+            onProjected: { [weak self] workspace in
+                self?.sendWelcomeCommandWhenReady(to: workspace)
+            }
+        )
+        if case .created(let workspace) = outcome {
+            sendWelcomeCommandWhenReady(to: workspace)
+        }
     }
 
     func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
@@ -9687,7 +10060,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
-        let tab = tabManager.addTab()
+        if let coordinator = tabManager.terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator {
+            coordinator.reportFailure(for: .createWorkspace)
+            return
+        }
+        let tab = tabManager.addLocalTab()
         let config = GhosttyConfig.load()
         let minimumTargetBytes = 2_000_000
         let maximumTargetBytes = 200_000_000
@@ -9707,7 +10085,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func openDebugLoremTab(_ sender: Any?) {
         guard let tabManager else { return }
-        let tab = tabManager.addTab()
+        if let coordinator = tabManager.terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator {
+            coordinator.reportFailure(for: .createWorkspace)
+            return
+        }
+        let tab = tabManager.addLocalTab()
         let lineCount = 2000
         let base = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore."
         var lines: [String] = []
@@ -9761,7 +10144,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let existing = existingByTitle[title] {
                 targetTab = existing
             } else {
-                targetTab = tabManager.addTab()
+                guard tabManager.terminalClientComposition
+                    .terminalBackendTopologyMutationCoordinator == nil else {
+                    return
+                }
+                targetTab = tabManager.addLocalTab()
             }
             tabManager.setCustomTitle(tabId: targetTab.id, title: title)
             tabManager.setTabColor(tabId: targetTab.id, color: entry.hex)
@@ -9794,7 +10181,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             for index in 0..<self.debugStressWorkspaceCount {
                 let workspaceStart = ProcessInfo.processInfo.systemUptime
-                let workspace = tabManager.addWorkspace(select: false, placementOverride: .end)
+                guard tabManager.terminalClientComposition
+                    .terminalBackendTopologyMutationCoordinator == nil else {
+                    return
+                }
+                let workspace = tabManager.addLocalWorkspace(
+                    select: false,
+                    placementOverride: .end
+                )
                 created.append(workspace)
                 tabManager.setCustomTitle(
                     tabId: workspace.id,
@@ -10337,7 +10731,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 waitForContext { context in
                     let tabManager = context.tabManager
                     let initialIndex = tabManager.tabs.firstIndex(where: { $0.id == tabManager.selectedTabId }) ?? 0
-                    let tab = tabManager.addTab()
+                    guard tabManager.terminalClientComposition
+                        .terminalBackendTopologyMutationCoordinator == nil else {
+                        return
+                    }
+                    let tab = tabManager.addLocalTab()
                     guard let initialPanelId = tab.focusedPanelId else { return }
 
                     _ = tabManager.newSplit(tabId: tab.id, surfaceId: initialPanelId, direction: .right)
@@ -10497,7 +10895,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             guard let tabManager = self.tabManager else { return }
 
-            let tab = tabManager.addTab()
+            guard tabManager.terminalClientComposition
+                .terminalBackendTopologyMutationCoordinator == nil else {
+                return
+            }
+            let tab = tabManager.addLocalTab()
             guard let initialPanelId = tab.focusedPanelId else {
                 self.writeGotoSplitTestData(["setupError": "Missing initial panel id"])
                 return
@@ -15366,7 +15768,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .builtIn(let builtIn):
             switch builtIn {
             case .newWorkspace:
-                context.tabManager.addWorkspace()
+                _ = context.tabManager.requestAddWorkspace()
                 onExecuted?()
                 return true
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
@@ -16167,6 +16569,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowVisibilityController.discardClosedWindow(window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        if !isTerminatingApp {
+            terminalBackendTopologyProjectionRegistry?.closeProjection(
+                presentationID: removed.windowId
+            )
+        }
+        terminalBackendTopologyProjectionRegistry?.unregister(removed.tabManager)
+        terminalBackendTopologyCoordinator?.projectorsDidChange()
         windowConfigFrames.removeValue(forKey: removed.windowId)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteWindowStore.removeWindow(removed.windowId)

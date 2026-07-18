@@ -41,13 +41,13 @@ extension TerminalController: ControlBrowserPanelContext {
             return nil
         }
         let focus = Self.socketCommandAllowsInAppFocusMutations()
-        return tab.newBrowserSplit(
+        return tab.requestNewBrowserSplit(
             from: focusedPanelId,
             orientation: .horizontal,
             url: url,
             focus: focus,
             creationPolicy: .automationPreload
-        )?.id
+        ).surfaceID
     }
 
     func controlBrowserPanelNavigate(panelID: UUID, urlString: String) -> Bool {

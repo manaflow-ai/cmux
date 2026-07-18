@@ -74,7 +74,7 @@ struct NotificationRowSnapshotBoundaryTests {
 
     @Test func workspaceTitleIndexUsesRenamedGroupName() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let childId = try #require(manager.tabs.first?.id)
         let groupId = try #require(
             manager.createWorkspaceGroup(name: "Original Group", childWorkspaceIds: [childId])

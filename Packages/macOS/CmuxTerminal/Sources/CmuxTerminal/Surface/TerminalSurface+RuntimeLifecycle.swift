@@ -105,6 +105,7 @@ extension TerminalSurface {
     public func reconcileAttachedWindowIfNeeded(for view: any TerminalSurfaceNativeViewing) {
         guard attachedView === view else { return }
         releaseHeadlessStartupWindowIfNeeded(for: view)
+        guard externalRuntime == nil else { return }
         guard let screen = view.window?.screen ?? NSScreen.main,
               let displayID = screen.displayID,
               displayID != 0 else { return }
@@ -116,7 +117,7 @@ extension TerminalSurface {
     /// surface.
     @MainActor
     public func isAttached(to view: any TerminalSurfaceNativeViewing) -> Bool {
-        attachedView === view && surface != nil
+        attachedView === view && hasLiveSurface
     }
 
     /// Validates the runtime pointer (registry ownership + allocation
@@ -172,7 +173,10 @@ extension TerminalSurface {
     }
 
     func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
+        embeddedRuntime != nil &&
+            externalRuntime == nil &&
+            portalLifecycleState == .live &&
+            !runtimeSurfaceSuspendedForAgentHibernation
     }
 
     private var hasDeferredStartupWork: Bool {
@@ -234,6 +238,17 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
+
+        if let externalRuntime {
+            if !externalCanonicalCloseSuppressedForAppTermination,
+               !externalCanonicalCloseRequested {
+                externalCanonicalCloseRequested = true
+                _ = externalRuntime.enqueue(.closeCanonicalTerminal)
+            }
+            externalPresentationLease?.detach()
+            externalPresentationLease = nil
+            return
+        }
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -299,6 +314,7 @@ extension TerminalSurface {
     /// agent-hibernation resume.
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
+        guard externalRuntime == nil else { return }
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
@@ -370,6 +386,7 @@ extension TerminalSurface {
     /// spawn's initial input.
     @MainActor
     public func prepareAgentHibernationResume(initialInput: String?) {
+        guard externalRuntime == nil else { return }
         runtimeSurfaceSuspendedForAgentHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
     }
@@ -390,6 +407,14 @@ extension TerminalSurface {
             "attached=\(attachedView != nil ? 1 : 0) hasSurface=\(surface != nil ? 1 : 0) inWindow=\(view.window != nil ? 1 : 0)"
         )
 #endif
+
+        if externalRuntime != nil {
+            if let attachedView, attachedView !== view { return }
+            attachedView = view
+            view.tabId = tabId
+            releaseHeadlessStartupWindowIfNeeded(for: view)
+            return
+        }
 
         // If already attached to this view, nothing to do.
         // Still re-assert the display id: during split close tree restructuring, the view can be

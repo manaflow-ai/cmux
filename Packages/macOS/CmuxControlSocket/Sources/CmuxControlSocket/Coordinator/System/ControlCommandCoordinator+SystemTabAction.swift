@@ -123,6 +123,17 @@ extension ControlCommandCoordinator {
                 payload["created_surface_ref"] = .null
                 payload["created_tab_id"] = .null
                 payload["created_tab_ref"] = .null
+            case .submittedToBackend(let requestID):
+                payload["submitted"] = .bool(true)
+                payload["accepted"] = .bool(false)
+                payload["request_id"] = .string(requestID.uuidString)
+                payload["status_method"] = .string("terminal_backend.mutation_status")
+                payload["submission_target"] = .string("cmuxd")
+                payload["pending_projection"] = .bool(true)
+                payload["created_surface_id"] = .null
+                payload["created_surface_ref"] = .null
+                payload["created_tab_id"] = .null
+                payload["created_tab_ref"] = .null
             case .closed(let closed, let skippedPinned):
                 payload["closed"] = .int(Int64(closed))
                 payload["skipped_pinned"] = .int(Int64(skippedPinned))

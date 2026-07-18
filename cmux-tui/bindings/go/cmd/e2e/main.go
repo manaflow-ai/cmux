@@ -41,8 +41,25 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if info.App != "cmux-tui" || info.Protocol < 5 || info.Protocol > 7 {
+	if info.App != "cmux-tui" || info.Protocol < 5 || info.Protocol > 8 {
 		return fmt.Errorf("unexpected identify result: %+v", info)
+	}
+	if !info.SupportsTopologyV8() {
+		return fmt.Errorf("server omitted protocol-v8 topology capabilities: %+v", info)
+	}
+	identifyCursor, ok := info.TopologyCursor()
+	if !ok {
+		return fmt.Errorf("identify omitted canonical cursor: %+v", info)
+	}
+	ping, err := client.Ping(ctx)
+	if err != nil {
+		return err
+	}
+	if !ping.OK || ping.SessionID == nil || info.SessionID == nil || *ping.SessionID != *info.SessionID ||
+		ping.DaemonInstanceID == nil || info.DaemonInstanceID == nil || *ping.DaemonInstanceID != *info.DaemonInstanceID ||
+		ping.TopologyRevision == nil || info.TopologyRevision == nil || *ping.TopologyRevision != *info.TopologyRevision ||
+		ping.CanonicalTopologyRevision == nil || *ping.CanonicalTopologyRevision != identifyCursor.Revision {
+		return fmt.Errorf("ping authority does not match identify: ping=%+v identify=%+v", ping, info)
 	}
 	cols, rows := uint16(80), uint16(24)
 	created, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{Name: &marker, Cols: &cols, Rows: &rows})
@@ -70,6 +87,52 @@ func run() error {
 	workspace, ok := findWorkspaceForSurface(tree, created.Surface)
 	if !ok {
 		return fmt.Errorf("workspace not found")
+	}
+	snapshot, err := client.TopologySnapshot(ctx)
+	if err != nil {
+		return err
+	}
+	if !canonicalContainsSurface(snapshot.Topology, created.Surface, workspace) {
+		return fmt.Errorf("canonical topology omitted surface %d", created.Surface)
+	}
+	outcome, err := client.SubscribeTopology(ctx, snapshot.Cursor())
+	if err != nil {
+		return err
+	}
+	if outcome.Subscribed == nil {
+		return fmt.Errorf("fresh topology snapshot required resnapshot: %+v", outcome.ResnapshotRequired)
+	}
+	if err := client.RenameWorkspace(ctx, workspace, marker+"-topology"); err != nil {
+		return err
+	}
+	topologyCtx, topologyCancel := context.WithTimeout(ctx, 2*time.Second)
+	topologyEvent, err := outcome.Subscribed.Recv(topologyCtx)
+	topologyCancel()
+	if err != nil {
+		return err
+	}
+	delta, ok := topologyEvent.(cmux.TopologyDeltaEvent)
+	if !ok || delta.Operation != cmux.TopologyWorkspaceRenamed ||
+		delta.BaseRevision != snapshot.Revision || delta.Revision != snapshot.Revision+1 {
+		return fmt.Errorf("unexpected topology event: %#v", topologyEvent)
+	}
+	if err := outcome.Subscribed.Close(); err != nil {
+		return err
+	}
+	staleDaemon, err := cmux.ParseUUID("00000000-0000-0000-0000-000000000001")
+	if err != nil {
+		return err
+	}
+	stale, err := client.SubscribeTopology(ctx, cmux.TopologyCursor{
+		DaemonInstanceID: staleDaemon,
+		SessionID:        snapshot.SessionID,
+		Revision:         snapshot.Revision,
+	})
+	if err != nil {
+		return err
+	}
+	if stale.ResnapshotRequired == nil || stale.ResnapshotRequired.Reason != cmux.TopologyStaleDaemon {
+		return fmt.Errorf("stale daemon cursor did not require resnapshot: %+v", stale)
 	}
 	if err := client.RenameSurface(ctx, created.Surface, marker+"-renamed"); err != nil {
 		return err
@@ -131,6 +194,24 @@ func run() error {
 		return fmt.Errorf("closed surface error was not command error preserving message: %v", err)
 	}
 	return nil
+}
+
+func canonicalContainsSurface(topology cmux.CanonicalTopology, surface, workspace uint64) bool {
+	for _, item := range topology.Workspaces {
+		if item.ID != workspace {
+			continue
+		}
+		for _, screen := range item.Screens {
+			for _, pane := range screen.Panes {
+				for _, tab := range pane.Tabs {
+					if tab.ID == surface {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 func socketFromEnv() string {

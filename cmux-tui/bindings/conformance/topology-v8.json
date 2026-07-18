@@ -1,0 +1,177 @@
+{
+  "identify": {
+    "app": "cmux-tui",
+    "version": "0.1.2",
+    "protocol": 8,
+    "protocol_min": 6,
+    "protocol_max": 8,
+    "capabilities": [
+      "canonical-topology-snapshot-v1",
+      "stable-entity-uuid-v1",
+      "topology-resume-v1"
+    ],
+    "session": "fixture",
+    "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "topology_revision": 47,
+    "canonical_topology_revision": 41,
+    "pid": 123
+  },
+  "ping": {
+    "ok": true,
+    "version": "0.1.2",
+    "protocol": 8,
+    "protocol_min": 6,
+    "protocol_max": 8,
+    "capabilities": [
+      "canonical-topology-snapshot-v1",
+      "stable-entity-uuid-v1",
+      "topology-resume-v1"
+    ],
+    "session": "fixture",
+    "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "topology_revision": 47,
+    "canonical_topology_revision": 41,
+    "pid": 123
+  },
+  "snapshot": {
+    "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "revision": 41,
+    "topology": {
+      "workspaces": [
+        {
+          "id": 1,
+          "uuid": "11111111-1111-4111-8111-111111111111",
+          "name": "fixture",
+          "screens": [
+            {
+              "id": 2,
+              "uuid": "22222222-2222-4222-8222-222222222222",
+              "name": null,
+              "layout": {
+                "type": "leaf",
+                "pane": 3,
+                "pane_uuid": "33333333-3333-4333-8333-333333333333"
+              },
+              "panes": [
+                {
+                  "id": 3,
+                  "uuid": "33333333-3333-4333-8333-333333333333",
+                  "name": null,
+                  "tabs": [
+                    {
+                      "id": 4,
+                      "uuid": "44444444-4444-4444-8444-444444444444",
+                      "kind": "pty",
+                      "name": null
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "subscribed": {
+    "status": "subscribed",
+    "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "from_revision": 41,
+    "current_revision": 42,
+    "replayed": 1
+  },
+  "delta": {
+    "event": "topology-delta",
+    "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "base_revision": 41,
+    "revision": 42,
+    "operation": "workspace-renamed",
+    "targets": {
+      "workspaces": ["11111111-1111-4111-8111-111111111111"]
+    },
+    "replacement": {
+      "workspaces": [
+        {
+          "id": 1,
+          "uuid": "11111111-1111-4111-8111-111111111111",
+          "name": "renamed",
+          "screens": [
+            {
+              "id": 2,
+              "uuid": "22222222-2222-4222-8222-222222222222",
+              "name": null,
+              "layout": {
+                "type": "leaf",
+                "pane": 3,
+                "pane_uuid": "33333333-3333-4333-8333-333333333333"
+              },
+              "panes": [
+                {
+                  "id": 3,
+                  "uuid": "33333333-3333-4333-8333-333333333333",
+                  "name": null,
+                  "tabs": [
+                    {
+                      "id": 4,
+                      "uuid": "44444444-4444-4444-8444-444444444444",
+                      "kind": "pty",
+                      "name": null
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "resnapshot_results": [
+    {
+      "status": "resnapshot-required",
+      "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "current_revision": 42,
+      "reason": "stale-daemon"
+    },
+    {
+      "status": "resnapshot-required",
+      "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "current_revision": 42,
+      "reason": "stale-session"
+    },
+    {
+      "status": "resnapshot-required",
+      "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "current_revision": 42,
+      "reason": "revision-ahead"
+    },
+    {
+      "status": "resnapshot-required",
+      "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "current_revision": 42,
+      "reason": "history-gap"
+    },
+    {
+      "status": "resnapshot-required",
+      "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "current_revision": 42,
+      "reason": "replay-too-large"
+    }
+  ],
+  "slow_consumer_event": {
+    "event": "topology-resnapshot-required",
+    "daemon_instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "reason": "slow-consumer"
+  }
+}

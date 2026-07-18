@@ -38,7 +38,42 @@ fn unique_session(prefix: &str) -> String {
 }
 
 fn connect(path: &Path) -> Box<dyn transport::Stream> {
-    transport::connect(path).unwrap()
+    let stream = transport::connect(path).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+    let client_uuid = uuid::Uuid::new_v4();
+    let process_instance_uuid = uuid::Uuid::new_v4();
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "id": 0,
+            "cmd": "register-client",
+            "protocol_min": 9,
+            "protocol_max": 9,
+            "client_uuid": client_uuid,
+            "process_instance_uuid": process_instance_uuid,
+            "client_kind": "tui",
+        })
+    )
+    .unwrap();
+    let response = read_json_line(&mut reader).expect("TUI registration response");
+    assert_eq!(response["ok"], true, "TUI registration failed: {response}");
+    let registration = &response["data"];
+    assert_eq!(registration["protocol"], 9);
+    assert_eq!(registration["client_uuid"], client_uuid.to_string());
+    assert_eq!(registration["process_instance_uuid"], process_instance_uuid.to_string());
+    assert_eq!(registration["client_kind"], "tui");
+    assert_eq!(registration["role"], "trusted-frontend");
+    uuid::Uuid::parse_str(
+        registration["topology_lease_id"].as_str().expect("TUI topology lease id"),
+    )
+    .expect("valid TUI topology lease id");
+    assert!(
+        registration["topology_lease_generation"].as_u64().is_some_and(|value| value > 0),
+        "TUI registration did not return a live topology lease: {registration}"
+    );
+    stream
 }
 
 fn read_json_line(reader: &mut impl BufRead) -> Option<serde_json::Value> {
@@ -265,6 +300,35 @@ fn surface_exit_reaps_tree_and_emits_event() {
         Duration::from_secs(10),
     );
     assert!(reaped.is_some(), "exited surface not reaped from tree");
+}
+
+#[test]
+fn wait_after_command_retains_exited_surface_until_explicit_close() {
+    let opts = SurfaceOptions {
+        command: Some(vec!["/usr/bin/true".to_string()]),
+        wait_after_command: true,
+        ..Default::default()
+    };
+    let mux = Mux::new("test-wait-after-command", opts);
+    let events = mux.subscribe();
+    let surface = mux.new_workspace(None, None).unwrap();
+
+    let got = wait_for(
+        || {
+            events
+                .try_iter()
+                .find(|event| matches!(event, MuxEvent::SurfaceExited(id) if *id == surface.id))
+        },
+        Duration::from_secs(10),
+    );
+    assert!(got.is_some(), "no SurfaceExited event");
+    assert!(surface.is_dead());
+    assert!(surface.wait_after_command());
+    assert!(mux.surface(surface.id).is_some());
+    mux.with_state(|state| assert!(!state.workspaces.is_empty()));
+
+    mux.close_surface(surface.id);
+    mux.with_state(|state| assert!(state.workspaces.is_empty()));
 }
 
 #[test]
@@ -585,15 +649,19 @@ fn control_socket_set_default_colors_merges_fields() {
 #[test]
 fn control_socket_attach_vt_state_includes_effective_colors() {
     let mux = Mux::new(unique_session("test-attach-colors"), shell_opts("cat"));
-    mux.set_default_colors(DefaultColors {
+    let mut defaults = DefaultColors {
         fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
         bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
         cursor_style: Some(CursorShape::Bar),
         cursor_blink: Some(false),
         ..Default::default()
-    });
+    };
+    defaults.palette[4] = Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc });
+    mux.set_default_colors(defaults);
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-    surface.try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07")).unwrap();
+    surface
+        .try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07\x1b]4;4;#112233\x07"))
+        .unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
@@ -612,6 +680,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
             "cursor": "#204060",
             "selection_bg": null,
             "selection_fg": null,
+            "palette": {"4": "#112233"},
             "cursor_style": "bar",
             "cursor_blink": false,
         })
@@ -619,6 +688,30 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
 
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["id"], 1);
+    assert_eq!(response["ok"], true, "attach failed: {response}");
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_attach_vt_state_osc_palette_reset_restores_presentation_authority() {
+    let mux = Mux::new(unique_session("test-attach-palette-reset"), shell_opts("cat"));
+    let mut defaults = DefaultColors::default();
+    defaults.palette[4] = Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc });
+    mux.set_default_colors(defaults);
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    surface.try_with_terminal(|term| term.vt_write(b"\x1b]4;4;#112233\x07\x1b]104;4\x07")).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
+    let vt_state = read_json_line(&mut reader).expect("vt-state event");
+    assert_eq!(vt_state["colors"]["palette"], serde_json::json!({}));
+    let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
     mux.close_surface(surface.id);
@@ -731,6 +824,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
             "cursor": null,
             "selection_bg": null,
             "selection_fg": null,
+            "palette": {},
             "cursor_style": "bar",
             "cursor_blink": false,
         })
@@ -892,20 +986,20 @@ fn attach_stream_replays_then_streams_without_duplication() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Output(chunk)) => {
-                mirror.vt_write(&chunk);
+            Ok(AttachFrame::Output { data, .. }) => {
+                mirror.vt_write(&data);
                 if mirror.plain_text().unwrap().contains("after-attach") {
                     break;
                 }
             }
-            Ok(AttachFrame::Resized { cols, rows, replay }) => {
+            Ok(AttachFrame::Resized { cols, rows, replay, .. }) => {
                 assert!(!replay.is_empty());
                 mirror =
                     ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default())
                         .unwrap();
                 mirror.vt_write(&replay);
             }
-            Ok(AttachFrame::ColorsChanged(_)) => {}
+            Ok(AttachFrame::ColorsChanged { .. }) => {}
             Err(_) => assert!(Instant::now() < deadline, "stream never delivered output"),
         }
     }
@@ -925,8 +1019,8 @@ fn attach_stream_orders_resize_between_output_frames() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Output(bytes))
-                if bytes.windows(b"before-resize".len()).any(|w| w == b"before-resize") =>
+            Ok(AttachFrame::Output { data, .. })
+                if data.windows(b"before-resize".len()).any(|w| w == b"before-resize") =>
             {
                 break;
             }
@@ -938,7 +1032,7 @@ fn attach_stream_orders_resize_between_output_frames() {
     mux.resize_surface(surface.id, 100, 40).unwrap();
     let resized = wait_for(
         || match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Resized { cols, rows, replay }) => {
+            Ok(AttachFrame::Resized { cols, rows, replay, .. }) => {
                 assert!(!replay.is_empty());
                 Some((cols, rows))
             }
@@ -953,13 +1047,13 @@ fn attach_stream_orders_resize_between_output_frames() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Output(bytes))
-                if bytes.windows(b"after-resize".len()).any(|w| w == b"after-resize") =>
+            Ok(AttachFrame::Output { data, .. })
+                if data.windows(b"after-resize".len()).any(|w| w == b"after-resize") =>
             {
                 break;
             }
             Ok(AttachFrame::Resized { .. }) => panic!("unexpected second resize marker"),
-            Ok(AttachFrame::ColorsChanged(_)) => {}
+            Ok(AttachFrame::ColorsChanged { .. }) => {}
             Ok(_) => {}
             Err(_) => assert!(Instant::now() < deadline, "after output never arrived"),
         }

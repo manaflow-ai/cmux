@@ -1,7 +1,7 @@
 # cmux TypeScript Client
 
-The typed client library for cmux-tui frontends. It exposes every implemented
-command and event in protocol v6, transport-independent request handling,
+The typed client library for cmux-tui frontends. It exposes implemented
+commands and events through protocol v8, transport-independent request handling,
 browser-safe attach streams, and Node.js Unix-socket defaults.
 
 ## Install and build
@@ -82,6 +82,15 @@ console.log((await client.readScreen(created.surface)).text);
 await client.close();
 ```
 
+`client.processInfo(created.surface)` returns the daemon-owned PID, exact argv
+array, current cwd, and canonical PTY name.
+
+On the local Unix transport, `client.ensureTerminal(...)` creates or reconnects
+one stable terminal UUID. Set `wait_after_command: true` to retain its final VT
+state after child exit until explicit close; retries cannot change that policy.
+`client.reparentTerminal(...)` moves the same terminal identity without replacing
+its PTY or child process.
+
 `new CmuxClient()` uses `CMUX_TUI_SOCKET`, then legacy `CMUX_MUX_SOCKET`, then
 the default session socket. Unix subscribe and attach streams retain dedicated
 connections. An injected transport can multiplex attach streams and one
@@ -90,6 +99,34 @@ subscription on its main connection; concurrent subscriptions require a
 Each stream retains at most 256 unread events, and each encoded attach payload
 is limited to 16 MiB by default. `maxBufferedEvents` and
 `maxAttachEncodedChars` may lower those limits for constrained clients.
+
+Default derivation uses `XDG_RUNTIME_DIR`, then `TMPDIR`, then `/tmp`; empty values are ignored. On Darwin, paths over 103 filesystem bytes fall back to `/tmp/cmux-tui-<uid>` and are never truncated.
+
+## Protocol v8 topology
+
+```ts
+const snapshot = await client.topologySnapshot();
+const outcome = await client.subscribeTopology(snapshot);
+if (outcome.status === "subscribed") {
+  for await (const event of outcome.stream) {
+    if (event.event === "topology-delta") {
+      replaceCanonicalTopology(event.replacement);
+    } else {
+      break; // Fetch topologySnapshot() again.
+    }
+  }
+} else {
+  // Fetch topologySnapshot() again.
+}
+```
+
+`TopologySnapshot`, `TopologyCursor`, `TopologySubscribeOutcome`, and the
+discriminated stream-event union are exported from both browser and Node entry
+points. UUIDs are branded lowercase strings. The methods require protocol 8,
+all three topology capabilities, and `canonical_topology_revision` in the
+identify response. Authority or adjacency failures become
+`resnapshot-required`; a local bounded replay-buffer overflow becomes
+`slow-consumer`. `ping()` preserves the full authority result.
 
 ## Raw typed requests
 

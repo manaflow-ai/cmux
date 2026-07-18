@@ -201,27 +201,115 @@ final class TerminalPanel: Panel, ObservableObject {
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
-        let surface = TerminalSurface(
-            id: id,
-            tabId: workspaceId,
-            context: context,
-            configTemplate: configTemplate,
-            workingDirectory: workingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: initialCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            initialInput: initialInput,
-            initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
-            preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
+        self.init(
+            request: TerminalPanelCreationRequest(
+                origin: .legacyDirect,
+                id: id,
+                workspaceId: workspaceId,
+                context: context,
+                configTemplate: configTemplate,
+                workingDirectory: workingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: initialCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                initialInput: initialInput,
+                initialEnvironmentOverrides: initialEnvironmentOverrides,
+                additionalEnvironment: additionalEnvironment,
+                focusPlacement: focusPlacement,
+                runtimeSpawnPolicy: runtimeSpawnPolicy
+            ),
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
         )
-        self.init(workspaceId: workspaceId, surface: surface)
+    }
+
+    convenience init(
+        request: TerminalPanelCreationRequest,
+        dependencies: TerminalSurfaceRuntimeDependencies
+    ) {
+        let preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void
+        if request.manualIO {
+            // Preserve the old remote-tmux path, which constructed TerminalSurface
+            // directly and therefore used its no-op pane preparation default.
+            preparePaneHost = { _ in }
+        } else {
+            preparePaneHost = {
+                Self.prepareNotificationScrollReplay(
+                    for: $0,
+                    environment: request.additionalEnvironment
+                )
+            }
+        }
+        let surface = TerminalSurface(
+            id: request.id,
+            tabId: request.workspaceId,
+            context: request.context,
+            configTemplate: request.configTemplate,
+            workingDirectory: request.workingDirectory,
+            portOrdinal: request.portOrdinal,
+            initialCommand: request.initialCommand,
+            tmuxStartCommand: request.tmuxStartCommand,
+            initialInput: request.initialInput,
+            initialEnvironmentOverrides: request.initialEnvironmentOverrides,
+            additionalEnvironment: request.additionalEnvironment,
+            focusPlacement: request.focusPlacement,
+            manualIO: request.manualIO,
+            manualInputHandler: request.manualInputHandler,
+            runtimeSpawnPolicy: request.runtimeSpawnPolicy,
+            preparePaneHost: preparePaneHost,
+            dependencies: dependencies
+        )
+        self.init(workspaceId: request.workspaceId, surface: surface)
+        if !request.manualIO && Self.startsAtOwnedPrompt(
+            configTemplate: request.configTemplate,
+            initialCommand: request.initialCommand,
+            tmuxStartCommand: request.tmuxStartCommand,
+            initialInput: request.initialInput
+        ) {
+            updateShellActivityState(.promptIdle)
+        }
+    }
+
+
+    /// Constructs a panel that can only present an externally-owned terminal.
+    /// The initializer cannot receive a Ghostty engine, PTY tee, native surface
+    /// teardown queue, restore scheduler, runtime filesystem, or session ports.
+    convenience init(
+        externalRequest request: TerminalPanelCreationRequest,
+        presentationDependencies: TerminalSurfacePresentationDependencies,
+        externalRuntime: any TerminalExternalRuntime
+    ) {
+        precondition(
+            !request.manualIO && request.tmuxStartCommand == nil,
+            "External terminal panels cannot use embedded MANUAL-I/O or tmux bootstrap"
+        )
+        let preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = {
+            Self.prepareNotificationScrollReplay(
+                for: $0,
+                environment: request.additionalEnvironment
+            )
+        }
+        let surface = TerminalSurface(
+            id: request.id,
+            tabId: request.workspaceId,
+            context: request.context,
+            configTemplate: request.configTemplate,
+            workingDirectory: request.workingDirectory,
+            portOrdinal: request.portOrdinal,
+            initialCommand: request.initialCommand,
+            initialInput: request.initialInput,
+            initialEnvironmentOverrides: request.initialEnvironmentOverrides,
+            additionalEnvironment: request.additionalEnvironment,
+            focusPlacement: request.focusPlacement,
+            externalRuntime: externalRuntime,
+            preparePaneHost: preparePaneHost,
+            presentationDependencies: presentationDependencies
+        )
+        self.init(workspaceId: request.workspaceId, surface: surface)
         if Self.startsAtOwnedPrompt(
-            configTemplate: configTemplate,
-            initialCommand: initialCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            initialInput: initialInput
+            configTemplate: request.configTemplate,
+            initialCommand: request.initialCommand,
+            tmuxStartCommand: nil,
+            initialInput: request.initialInput
         ) {
             updateShellActivityState(.promptIdle)
         }
@@ -261,6 +349,27 @@ final class TerminalPanel: Panel, ObservableObject {
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
         surface.updateWorkspaceId(newWorkspaceId)
+    }
+
+    /// Installs a daemon-committed placement without echoing a second reparent
+    /// mutation back to the backend.
+    func installCanonicalWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+        surface.installCanonicalWorkspaceId(newWorkspaceId)
+    }
+
+    /// Updates Swift-only ownership while the process-wide projection remains
+    /// rollbackable. The external renderer and backend binding adopt on finalize.
+    func stageCanonicalWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+        surface.stageCanonicalWorkspaceId(newWorkspaceId)
+    }
+
+    /// Makes a staged process-wide topology placement visible to the external
+    /// runtime only after every Swift window has committed successfully.
+    func finalizeStagedCanonicalWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+        surface.finalizeStagedCanonicalWorkspaceId(newWorkspaceId)
     }
 
     func updateTmuxLayoutReport(_ report: TmuxPaneLayoutReport?) {

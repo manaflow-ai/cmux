@@ -9,6 +9,10 @@ let package = Package(
     ],
     products: [
         .library(
+            name: "CmuxTerminalDomain",
+            targets: ["CmuxTerminalDomain"]
+        ),
+        .library(
             name: "CmuxTerminalCore",
             targets: ["CmuxTerminalCore"]
         ),
@@ -34,8 +38,17 @@ let package = Package(
             path: "../../../GhosttyKit.xcframework"
         ),
         .target(
+            name: "CmuxTerminalDomain",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .target(
             name: "CmuxTerminalCore",
             dependencies: [
+                "CmuxTerminalDomain",
                 "GhosttyKit",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
@@ -56,6 +69,15 @@ let package = Package(
         .target(
             name: "GhosttyRuntimeTestStubs",
             path: "Tests/GhosttyRuntimeTestStubs"
+        ),
+        .testTarget(
+            name: "CmuxTerminalDomainTests",
+            dependencies: ["CmuxTerminalDomain"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
         ),
         .testTarget(
             name: "CmuxTerminalCoreTests",

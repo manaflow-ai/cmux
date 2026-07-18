@@ -23,12 +23,16 @@ extension TerminalSurface {
     }
 
     /// Whether closing this surface should ask for confirmation.
+    @MainActor
     public func needsConfirmClose() -> Bool {
 #if DEBUG
         if let needsConfirmCloseOverrideForTesting {
             return needsConfirmCloseOverrideForTesting
         }
 #endif
+        if let externalRuntime {
+            return externalRuntime.snapshot.needsCloseConfirmation
+        }
         guard let surface, hasCloseConfirmationProcessRisk(surface) else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }
@@ -50,6 +54,9 @@ extension TerminalSurface {
     public func sendText(_ text: String) -> Bool {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
         didReceiveExplicitInput()
+        if let result = enqueueExternalInput(.text(TerminalExternalTextInput(text: text, kind: .paste))) {
+            return result.accepted
+        }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
@@ -76,6 +83,9 @@ extension TerminalSurface {
     public func sendKeyText(_ text: String) -> Bool {
         guard !text.isEmpty else { return true }
         didReceiveExplicitInput()
+        if let result = enqueueExternalInput(.text(TerminalExternalTextInput(text: text, kind: .committed))) {
+            return result.accepted
+        }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
             return false
         }
@@ -101,6 +111,9 @@ extension TerminalSurface {
     public func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
         didReceiveExplicitInput()
+        if let result = enqueueExternalInput(.namedKey(event.label)) {
+            return namedKeySendResult(from: result)
+        }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
@@ -140,6 +153,9 @@ extension TerminalSurface {
     /// The visible viewport text, or nil without a live surface.
     @MainActor
     public func visibleText() -> String? {
+        if let externalRuntime {
+            return externalRuntime.snapshot.visibleText
+        }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "visibleText") else { return nil }
         return Self.readText(surface: surface, pointTag: GHOSTTY_POINT_VIEWPORT)
     }
@@ -160,6 +176,9 @@ extension TerminalSurface {
     public func sendInputResult(_ text: String) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
         didReceiveExplicitInput()
+        if let result = enqueueExternalInput(.text(TerminalExternalTextInput(text: text, kind: .automation))) {
+            return inputSendResult(from: result)
+        }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(text)
@@ -511,6 +530,7 @@ extension TerminalSurface {
     /// plain shell panes false.
     @MainActor
     public func setManualIONoReflow(_ value: Bool) {
+        precondition(externalRuntime == nil, "Remote MANUAL-I/O is unavailable for external terminal runtimes")
         guard manualIONoReflow != value else { return }
         manualIONoReflow = value
     }
@@ -519,6 +539,7 @@ extension TerminalSurface {
     /// runtime is not live yet, buffer a bounded tail and flush it on creation.
     @MainActor
     public func processRemoteOutput(_ data: Data) {
+        precondition(externalRuntime == nil, "Remote MANUAL-I/O output cannot be injected into an external terminal runtime")
         guard !data.isEmpty else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteOutput") else {
             pendingRemoteOutput.append(data)

@@ -46,14 +46,26 @@ Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b 
 The default socket path is:
 
 ```text
-$TMPDIR/cmux-tui-<uid>/<session>.sock
+<runtime-dir>/cmux-tui-<uid>/<session>.sock
 ```
 
-The usual default is `$XDG_RUNTIME_DIR/cmux-tui-<uid>/main.sock` when `XDG_RUNTIME_DIR` is set, then `$TMPDIR/cmux-tui-<uid>/main.sock`, then `/tmp/cmux-tui-<uid>/main.sock`. `--session <name>` changes the final file name. `--socket <path>` bypasses the session-derived path. Server-started child processes receive both `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET` with the socket path.
+The usual default is `$XDG_RUNTIME_DIR/cmux-tui-<uid>/main.sock` when `XDG_RUNTIME_DIR` is set, then `$TMPDIR/cmux-tui-<uid>/main.sock`, then `/tmp/cmux-tui-<uid>/main.sock`. On Darwin, an oversized environment root falls back to `/tmp/cmux-tui-<uid>` so the path fits the 103-byte Unix-socket limit; the server creates the per-user directory with mode `0700`. `--session <name>` changes the final file name. `--socket <path>` bypasses the session-derived path. Server-started child processes receive both `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET` with the socket path.
+
+The bundled cmux launch agent uses `--app-service-layout`. That mode ignores runtime and home environment overrides, selects `/tmp/cmux-tui-<uid>/<session>.sock`, and obtains `~/Library/Application Support/cmux-tui/state` from the native macOS account record. Explicit `--socket` and `--state-dir` flags cannot be combined with this mode.
 
 ## Platforms and XDG
 
 cmux-tui supports macOS and Linux; Windows support via ConPTY is planned for phase 2. The TUI config path resolves `CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `$XDG_CONFIG_HOME/cmux/cmux-tui.json` or `~/.config/cmux/cmux-tui.json`. Existing `mux.json` files remain supported and are used when `cmux-tui.json` is absent.
+
+Daemon session identity persists separately from configuration. The default
+state directory is `~/Library/Application Support/cmux-tui/state` on macOS,
+`$XDG_STATE_HOME/cmux-tui` on Linux when set, then
+`~/.local/state/cmux-tui`. `CMUX_TUI_STATE_DIR` or server option
+`--state-dir <path>` selects an explicit root. A malformed or unknown-version
+record stops startup without overwriting bytes. `--recover-state` archives the
+bad record and creates a new session identity. This store currently preserves
+identity only; workspace topology, PTYs, scrollback, and presentations are not
+restored after the daemon exits.
 
 Launched Chrome profile paths are platform-specific. On macOS the default is `~/Library/Application Support/cmux-tui/chrome-profile`. On Linux and other non-macOS targets, `XDG_DATA_HOME` is used when set, then `~/.local/share/cmux-tui/chrome-profile`.
 

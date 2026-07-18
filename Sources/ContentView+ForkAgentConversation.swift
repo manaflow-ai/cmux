@@ -278,26 +278,39 @@ extension ContentView {
                     NSSound.beep()
                     return
                 }
-                let forkWorkspace = tabManager.addWorkspace(
+                let configureForkWorkspace: @MainActor (Workspace) -> Void = { forkWorkspace in
+                    if let remoteConfiguration = launch.remoteConfiguration {
+                        forkWorkspace.configureRemoteConnection(
+                            remoteConfiguration,
+                            autoConnect: launch.autoConnectRemoteConfiguration
+                        )
+                    }
+                    if let workingDirectory = launch.workingDirectory,
+                       launch.terminalWorkingDirectory == nil,
+                       let forkPanelId = forkWorkspace.focusedPanelId {
+                        forkWorkspace.updatePanelDirectory(
+                            panelId: forkPanelId,
+                            directory: workingDirectory
+                        )
+                    }
+                }
+                let outcome = tabManager.requestAddWorkspace(
                     workingDirectory: launch.terminalWorkingDirectory,
                     initialTerminalCommand: launch.initialTerminalCommand,
                     initialTerminalInput: launch.initialTerminalInput,
                     initialTerminalEnvironment: launch.initialTerminalEnvironment,
                     inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-                    autoWelcomeIfNeeded: false
+                    autoWelcomeIfNeeded: false,
+                    onProjected: configureForkWorkspace
                 )
-                if let remoteConfiguration = launch.remoteConfiguration {
-                    forkWorkspace.configureRemoteConnection(
-                        remoteConfiguration,
-                        autoConnect: launch.autoConnectRemoteConfiguration
-                    )
+                if case .created(let workspace) = outcome {
+                    configureForkWorkspace(workspace)
                 }
-                if let workingDirectory = launch.workingDirectory,
-                   launch.terminalWorkingDirectory == nil,
-                   let forkPanelId = forkWorkspace.focusedPanelId {
-                    forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
+                if case .failed = outcome {
+                    didFork = false
+                } else {
+                    didFork = true
                 }
-                didFork = true
             case .right, .left, .top, .bottom:
                 didFork = false
             }

@@ -240,31 +240,55 @@ extension Workspace {
         let preferredSize: CanvasSize? = anchorPanelId
             .flatMap { canvasModel.frame(of: $0) }
             .map { CanvasSize(width: Double($0.width), height: Double($0.height)) }
-        let newPanelId: UUID
         switch type {
         case .terminal:
             guard let panel = newTerminalSurface(inPane: focusedPaneId, focus: focus) else {
                 return nil
             }
-            newPanelId = panel.id
+            finishOpeningCanvasPane(
+                panelID: panel.id,
+                anchorPanelID: anchorPanelId,
+                direction: direction,
+                preferredSize: preferredSize
+            )
+            return panel.id
         case .browser:
-            guard let panel = newBrowserSurface(inPane: focusedPaneId, focus: focus) else {
+            let creation = requestNewBrowserSurface(
+                inPane: focusedPaneId,
+                focus: focus,
+                onProjected: { [weak self] panel in
+                    self?.finishOpeningCanvasPane(
+                        panelID: panel.id,
+                        anchorPanelID: anchorPanelId,
+                        direction: direction,
+                        preferredSize: preferredSize
+                    )
+                }
+            )
+            guard let panelID = creation.surfaceID else {
                 return nil
             }
-            newPanelId = panel.id
+            return panelID
         }
+    }
+
+    private func finishOpeningCanvasPane(
+        panelID: UUID,
+        anchorPanelID: UUID?,
+        direction: CanvasDirection?,
+        preferredSize: CanvasSize?
+    ) {
         // Give the new surface its own canvas pane (the placer positions it
         // near the focused pane) rather than joining it as a tab.
         canvasModel.syncPanes(
             panelIds: orderedPanelIds,
-            focusedPanelId: anchorPanelId,
+            focusedPanelId: anchorPanelID,
             preferredDirection: direction,
             preferredNewPaneSize: preferredSize
         )
-        focusPanel(newPanelId)
+        focusPanel(panelID)
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
-        canvasModel.viewport?.revealPane(newPanelId, animated: true)
-        return newPanelId
+        canvasModel.viewport?.revealPane(panelID, animated: true)
     }
 
     /// Makes a freshly created panel a tab of the canvas pane hosting

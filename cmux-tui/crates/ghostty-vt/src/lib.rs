@@ -7,6 +7,7 @@
 mod key;
 mod mouse;
 mod render;
+mod scene;
 mod terminal;
 
 /// Raw bindings, re-exported for key/mode constants.
@@ -19,8 +20,14 @@ pub use render::{
     ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty, RenderFrame,
     RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
+pub use scene::{
+    EncodedRenderScene, RenderSceneEncoder, RenderSceneError, RenderSceneHighlight,
+    RenderSceneHighlightKind, RenderSceneLimits, RenderSceneOptions, RenderScenePreedit,
+    SceneSectionKind,
+};
 pub use terminal::{
-    Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, parse_color,
+    Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, SearchSelection, SelectionAdjustment,
+    SelectionPoint, SelectionRangeSnapshot, SelectionSnapshot, Terminal, parse_color,
     parse_palette_entry,
 };
 

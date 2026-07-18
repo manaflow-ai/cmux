@@ -119,7 +119,7 @@ struct CmuxDurableDeepLinkRestoreTests {
 
         // Respawn replaces the TerminalPanel object while keeping the logical tab.
         let respawned = try #require(
-            workspace.respawnTerminalSurface(panelId: panelId, command: "true")
+            workspace.respawnLocalTerminalSurface(panelId: panelId, command: "true")
         )
         #expect(respawned.stableSurfaceId == stableSurfaceId)
 

@@ -41,7 +41,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -109,7 +109,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -156,7 +156,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -214,7 +214,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -272,7 +272,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -325,7 +325,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -377,8 +377,8 @@ final class TerminalNotificationQueueTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let clearedWorkspace = manager.addWorkspace(select: true)
-        let unrelatedWorkspace = manager.addWorkspace(select: true)
+        let clearedWorkspace = manager.addLocalWorkspace(select: true)
+        let unrelatedWorkspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == clearedWorkspace.id }) {
                 manager.closeWorkspace(clearedWorkspace)
@@ -446,7 +446,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         AppFocusState.overrideIsFocused = false
 
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: targetManager)
-        let workspace = targetManager.addWorkspace(select: true)
+        let workspace = targetManager.addLocalWorkspace(select: true)
         defer {
             if targetManager.tabs.contains(where: { $0.id == workspace.id }) {
                 targetManager.closeWorkspace(workspace)

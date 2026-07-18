@@ -396,6 +396,13 @@ extension ControlCommandCoordinator {
                 typeRawValue: typeRawValue,
                 operation: .splitWindow
             )
+        case .submittedToBackend(let requestID, let windowID, let workspaceID, let typeRawValue):
+            return backendSubmittedCreationResult(
+                requestID: requestID,
+                windowID: windowID,
+                workspaceID: workspaceID,
+                typeRawValue: typeRawValue
+            )
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),
@@ -481,6 +488,19 @@ extension ControlCommandCoordinator {
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
             ]))
+        case .pending(let windowID, let workspaceID, let surfaceID, let requestID):
+            return .ok(.object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "surface_id": .string(surfaceID.uuidString),
+                "surface_ref": ref(.surface, surfaceID),
+                "type": .string("terminal"),
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "pending": .bool(true),
+                "backend_request_id": .string(requestID.uuidString),
+                "status_method": .string("terminal_backend.mutation_status"),
+            ]))
         }
     }
 
@@ -557,6 +577,13 @@ extension ControlCommandCoordinator {
                 workspaceID: workspaceID,
                 typeRawValue: typeRawValue,
                 operation: .newWindow
+            )
+        case .submittedToBackend(let requestID, let windowID, let workspaceID, let typeRawValue):
+            return backendSubmittedCreationResult(
+                requestID: requestID,
+                windowID: windowID,
+                workspaceID: workspaceID,
+                typeRawValue: typeRawValue
             )
         case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
             return .ok(.object([

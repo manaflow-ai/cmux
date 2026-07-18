@@ -14,4 +14,5 @@ final class FakeSurfaceRegistry: TerminalSurfaceRegistering {
     func isRightSidebarDockSurface(id: UUID) -> Bool { false }
     func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {}
     func allSurfaces() -> [any TerminalSurfacing] { [] }
+    func allInProcessRendererSurfaces() -> [any TerminalSurfacing] { [] }
 }

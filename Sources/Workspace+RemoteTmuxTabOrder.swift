@@ -4,6 +4,77 @@ import Foundation
 extension Workspace {
     @discardableResult
     func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
+        if let mutationCoordinator = terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator,
+           !isApplyingCanonicalTopologyProjection {
+            guard let tabId = surfaceIdFromPanelId(panelId),
+                  let paneId = paneId(forPanelId: panelId),
+                  let sourceIndex = bonsplitController.tabs(inPane: paneId)
+                    .firstIndex(where: { $0.id == tabId }) else {
+                return false
+            }
+            let paneTabs = bonsplitController.tabs(inPane: paneId)
+            let destinationIndex = max(0, min(index, paneTabs.count))
+            if destinationIndex == sourceIndex || destinationIndex == sourceIndex + 1 {
+                return true
+            }
+            var desiredTabs = paneTabs
+            let moved = desiredTabs.remove(at: sourceIndex)
+            let adjustedDestination = destinationIndex > sourceIndex
+                ? destinationIndex - 1
+                : destinationIndex
+            desiredTabs.insert(
+                moved,
+                at: min(adjustedDestination, desiredTabs.count)
+            )
+            let desiredPanelIDs = desiredTabs.compactMap {
+                panelIdFromSurfaceId($0.id)
+            }
+            guard desiredPanelIDs.count == desiredTabs.count else { return false }
+            let canonicalSurfaceIDs = desiredPanelIDs.filter {
+                isBackendCanonicalPanel($0)
+            }
+            if isBackendCanonicalPanel(panelId) {
+                _ = mutationCoordinator.requestReorderTabs(
+                    in: paneId.id,
+                    surfaceIDs: canonicalSurfaceIDs,
+                    onProjected: { [weak self] _ in
+                        guard focus, let self,
+                              let projectedTabID = self.surfaceIdFromPanelId(panelId),
+                              let projectedPaneID = self.paneId(forPanelId: panelId) else {
+                            return
+                        }
+                        self.applyTabSelection(
+                            tabId: projectedTabID,
+                            inPane: projectedPaneID
+                        )
+                    }
+                )
+                return true
+            }
+
+            // Native overlays remain a deterministic suffix after canonical
+            // terminals. Reorder only that suffix locally.
+            let clientOnlyPanelIDs = desiredPanelIDs.filter {
+                !isBackendCanonicalPanel($0)
+            }
+            for (clientIndex, clientPanelID) in clientOnlyPanelIDs.enumerated() {
+                guard let clientTabID = surfaceIdFromPanelId(clientPanelID) else {
+                    return false
+                }
+                _ = bonsplitController.reorderTab(
+                    clientTabID,
+                    toIndex: canonicalSurfaceIDs.count + clientIndex
+                )
+            }
+            if focus {
+                applyTabSelection(tabId: tabId, inPane: paneId)
+            } else {
+                scheduleFocusReconcile()
+            }
+            scheduleTerminalGeometryReconcile()
+            return true
+        }
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil
         let reordered: Bool

@@ -120,6 +120,14 @@ extension ControlCommandCoordinator {
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
             ]))
+        case .pending(let workspaceID, let requestID):
+            return .ok(.object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "pending": .bool(true),
+                "backend_request_id": .string(requestID.uuidString),
+                "status_method": .string("terminal_backend.mutation_status"),
+            ]))
         case .failed(let message):
             return .err(code: "internal_error", message: message, data: nil)
         }

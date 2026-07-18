@@ -59,14 +59,17 @@ actor MobileHostIrohApplicationLaneRouter {
 
     private let session: CmxIrohAdmittedServerSession
     private let artifactHandler: any MobileHostIrohArtifactLaneHandling
+    private let terminalDataPlane: any MobileTerminalDataPlane
     private var laneTasks: [UUID: Task<Void, Never>] = [:]
     private var stopped = false
 
     init(
         session: CmxIrohAdmittedServerSession,
+        terminalDataPlane: any MobileTerminalDataPlane,
         artifactHandler: any MobileHostIrohArtifactLaneHandling = MobileHostIrohRejectingArtifactLaneHandler()
     ) {
         self.session = session
+        self.terminalDataPlane = terminalDataPlane
         self.artifactHandler = artifactHandler
     }
 
@@ -122,13 +125,15 @@ actor MobileHostIrohApplicationLaneRouter {
         let id = UUID()
         let peer = session.peer
         let artifactHandler = artifactHandler
+        let terminalDataPlane = terminalDataPlane
         let task = Task { [weak self] in
             switch lane {
             case let .terminal(resourceID, cursor):
                 await Self.handleTerminalLane(
                     resourceID: resourceID,
                     cursor: cursor,
-                    stream: stream
+                    stream: stream,
+                    terminalDataPlane: terminalDataPlane
                 )
             case let .artifact(resourceID, offset):
                 let didTakeOwnership = await artifactHandler.handleArtifactLane(
@@ -155,12 +160,23 @@ actor MobileHostIrohApplicationLaneRouter {
     private nonisolated static func handleTerminalLane(
         resourceID: CmxIrohResourceID,
         cursor: UInt64?,
-        stream: CmxIrohBidirectionalStream
+        stream: CmxIrohBidirectionalStream,
+        terminalDataPlane: any MobileTerminalDataPlane
     ) async {
-        guard let surfaceID = terminalSurfaceID(resourceID),
-              await MainActor.run(body: {
-                  GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) != nil
-              }) else {
+        guard let surfaceID = terminalSurfaceID(resourceID) else {
+            await reject(stream, errorCode: ErrorCode.unsupportedResource)
+            return
+        }
+        let lane: any MobileTerminalDataPlaneLane
+        do {
+            lane = try await terminalDataPlane.openLane(
+                surfaceID: surfaceID,
+                cursor: cursor
+            )
+        } catch MobileTerminalDataPlaneError.cursorGap {
+            await reject(stream, errorCode: ErrorCode.cursorGap)
+            return
+        } catch {
             await reject(stream, errorCode: ErrorCode.unsupportedResource)
             return
         }
@@ -168,15 +184,14 @@ actor MobileHostIrohApplicationLaneRouter {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 await sendTerminalOutput(
-                    surfaceID: surfaceID,
-                    cursor: cursor,
+                    lane: lane,
                     stream: stream
                 )
                 return true
             }
             group.addTask {
                 await receiveTerminalInput(
-                    surfaceID: surfaceID,
+                    lane: lane,
                     stream: stream
                 )
             }
@@ -187,6 +202,7 @@ actor MobileHostIrohApplicationLaneRouter {
             }
             group.cancelAll()
         }
+        await lane.close()
         await stream.receiveStream.stop(errorCode: 0)
     }
 
@@ -194,7 +210,7 @@ actor MobileHostIrohApplicationLaneRouter {
     /// finish returns false because the client may intentionally retain an
     /// output-only terminal stream.
     private nonisolated static func receiveTerminalInput(
-        surfaceID: UUID,
+        lane: any MobileTerminalDataPlaneLane,
         stream: CmxIrohBidirectionalStream
     ) async -> Bool {
         var buffer = Data()
@@ -210,7 +226,9 @@ actor MobileHostIrohApplicationLaneRouter {
                     return true
                 }
                 for input in try decodeTerminalInputFrames(from: &buffer) {
-                    guard await sendTerminalInput(input, surfaceID: surfaceID) else {
+                    do {
+                        try await lane.sendInput(input)
+                    } catch {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
                     }
@@ -230,63 +248,18 @@ actor MobileHostIrohApplicationLaneRouter {
     }
 
     private nonisolated static func sendTerminalOutput(
-        surfaceID: UUID,
-        cursor: UInt64?,
+        lane: any MobileTerminalDataPlaneLane,
         stream: CmxIrohBidirectionalStream
     ) async {
-        let updates = await MainActor.run {
-            guard GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) != nil else {
-                return Optional<AsyncStream<MobileTerminalByteTee.OutputChunk>>.none
-            }
-            return MobileTerminalByteTee.shared.outputUpdates(surfaceID: surfaceID)
-        }
-        guard let updates else {
-            await reject(stream, errorCode: ErrorCode.unsupportedResource)
-            return
-        }
-        let replay = await MainActor.run {
-            MobileTerminalByteTee.shared.replayState(surfaceID: surfaceID)
-        }
-        let currentSequence = replay?.seq ?? 0
-        let replayData = replay?.data ?? Data()
-        let replayStart = currentSequence - UInt64(replayData.count)
-        let requestedSequence = cursor ?? replayStart
-        guard requestedSequence >= replayStart,
-              requestedSequence <= currentSequence else {
-            await reject(stream, errorCode: ErrorCode.cursorGap)
-            return
-        }
-
-        var nextSequence = requestedSequence
         do {
-            let replayOffset = Int(requestedSequence - replayStart)
-            let replayPayload = Data(replayData.dropFirst(replayOffset))
-            let replayEnvelope = try CmxIrohTerminalOutputEnvelope(
-                kind: .replay,
-                retainedBaseSequence: replayStart,
-                sequence: requestedSequence,
-                currentSequence: currentSequence,
-                payload: replayPayload
-            )
-            try await stream.sendStream.send(
-                CmxIrohTerminalOutputEnvelopeCodec().encode(replayEnvelope)
-            )
-            nextSequence = currentSequence
-            for await chunk in updates {
+            let frames = try await lane.frames()
+            for try await frame in frames {
                 try Task.checkCancellation()
-                let chunkEnd = chunk.sequence + UInt64(chunk.data.count)
-                if chunkEnd <= nextSequence { continue }
-                guard chunk.sequence <= nextSequence else {
-                    await reject(stream, errorCode: ErrorCode.cursorGap)
-                    return
+                for envelope in try terminalOutputEnvelopes(for: frame) {
+                    try await stream.sendStream.send(
+                        CmxIrohTerminalOutputEnvelopeCodec().encode(envelope)
+                    )
                 }
-                let offset = Int(nextSequence - chunk.sequence)
-                try await sendTerminalOutputChunks(
-                    Data(chunk.data.dropFirst(offset)),
-                    startingAt: nextSequence,
-                    stream: stream
-                )
-                nextSequence = chunkEnd
             }
             try await stream.sendStream.finish()
         } catch is CancellationError {
@@ -296,51 +269,59 @@ actor MobileHostIrohApplicationLaneRouter {
         }
     }
 
-    private nonisolated static func sendTerminalOutputChunks(
-        _ data: Data,
-        startingAt startingSequence: UInt64,
-        stream: CmxIrohBidirectionalStream
-    ) async throws {
-        let codec = CmxIrohTerminalOutputEnvelopeCodec()
+    /// Splits one logical data-plane frame into bounded wire envelopes. A
+    /// replay always starts with exactly one replay envelope, including when it
+    /// is empty; continuation bytes use ordinary chunk envelopes so the phone
+    /// still observes only one replay marker per lane.
+    nonisolated static func terminalOutputEnvelopes(
+        for frame: MobileTerminalDataPlaneFrame
+    ) throws -> [CmxIrohTerminalOutputEnvelope] {
+        let (expectedCurrentSequence, overflow) = frame.sequence.addingReportingOverflow(
+            UInt64(frame.data.count)
+        )
+        guard !overflow,
+              frame.retainedBaseSequence <= frame.sequence,
+              expectedCurrentSequence == frame.currentSequence else {
+            throw MobileTerminalDataPlaneError.cursorGap
+        }
+        if frame.data.isEmpty {
+            guard frame.kind == .replay else { return [] }
+            return [try CmxIrohTerminalOutputEnvelope(
+                kind: .replay,
+                retainedBaseSequence: frame.retainedBaseSequence,
+                sequence: frame.sequence,
+                currentSequence: frame.currentSequence,
+                payload: Data()
+            )]
+        }
+
+        var envelopes: [CmxIrohTerminalOutputEnvelope] = []
+        envelopes.reserveCapacity(
+            (frame.data.count + CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount - 1)
+                / CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount
+        )
         var offset = 0
-        while offset < data.count {
+        while offset < frame.data.count {
             let payloadByteCount = min(
                 CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount,
-                data.count - offset
+                frame.data.count - offset
             )
-            let payload = Data(data[offset ..< (offset + payloadByteCount)])
-            let sequence = startingSequence + UInt64(offset)
+            let payload = Data(frame.data[offset ..< (offset + payloadByteCount)])
+            let sequence = frame.sequence + UInt64(offset)
             let currentSequence = sequence + UInt64(payloadByteCount)
-            let envelope = try CmxIrohTerminalOutputEnvelope(
-                kind: .chunk,
-                retainedBaseSequence: sequence,
+            envelopes.append(try CmxIrohTerminalOutputEnvelope(
+                kind: offset == 0 && frame.kind == .replay ? .replay : .chunk,
+                retainedBaseSequence: offset == 0 ? frame.retainedBaseSequence : sequence,
                 sequence: sequence,
                 currentSequence: currentSequence,
                 payload: payload
-            )
-            try await stream.sendStream.send(codec.encode(envelope))
+            ))
             offset += payloadByteCount
         }
-    }
-
-    private nonisolated static func sendTerminalInput(
-        _ input: String,
-        surfaceID: UUID
-    ) async -> Bool {
-        await MainActor.run {
-            guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
-                return false
-            }
-            switch surface.sendInputResult(input) {
-            case .sent:
-                surface.forceRefresh(reason: "mobileHost.irohTerminalLaneInput")
-                return true
-            case .queued:
-                return true
-            case .inputQueueFull, .surfaceUnavailable, .processExited:
-                return false
-            }
+        guard envelopes.last?.currentSequence == frame.currentSequence else {
+            throw MobileTerminalDataPlaneError.cursorGap
         }
+        return envelopes
     }
 
     private nonisolated static func terminalSurfaceID(

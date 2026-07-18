@@ -42,12 +42,56 @@ extension ControlCommandCoordinator {
             return tabAction(request.params)
         case "surface.drag_to_split", "surface.split_off":
             return surfaceSplitOff(request.params)
+        case "terminal_backend.mutation_status":
+            return terminalBackendMutationStatus(request.params)
 #if DEBUG
         case "mobile.dev_stack_auth.configure":
             return mobileDevStackAuthConfigure(request.params)
 #endif
         default:
             return nil
+        }
+    }
+
+    /// `terminal_backend.mutation_status` reads the bounded in-process status
+    /// history for a request returned by a queued topology mutation.
+    func terminalBackendMutationStatus(
+        _ params: [String: JSONValue]
+    ) -> ControlCallResult {
+        guard let rawRequestID = string(params, "request_id"),
+              let requestID = UUID(uuidString: rawRequestID) else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid request_id",
+                data: nil
+            )
+        }
+        switch systemContext?.controlTerminalBackendMutationStatus(requestID: requestID)
+            ?? .unavailable {
+        case .unavailable:
+            return .err(
+                code: "backend_unavailable",
+                message: "The persistent terminal backend is not enabled",
+                data: .object(["request_id": .string(requestID.uuidString)])
+            )
+        case .unknown:
+            return .err(
+                code: "not_found",
+                message: "Terminal backend mutation request not found",
+                data: .object(["request_id": .string(requestID.uuidString)])
+            )
+        case .known(let status):
+            let isFinished = status == .projected || status == .failed
+            return .ok(.object([
+                "request_id": .string(requestID.uuidString),
+                "status": .string(status.rawValue),
+                "finished": .bool(isFinished),
+                "committed": .bool(status == .committed || status == .projected),
+                "canonical_snapshot_acknowledged": .bool(
+                    status == .committed || status == .projected
+                ),
+                "swift_projection_installed": .bool(status == .projected),
+            ]))
         }
     }
 

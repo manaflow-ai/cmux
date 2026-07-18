@@ -231,7 +231,11 @@ final class MobileHostService {
     /// reached the Mac to ask for status, while route discovery belongs to the
     /// authenticated registry. The Mac's account and cryptographic identities
     /// are never on this unauthenticated surface.
-    nonisolated static func publicStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
+    nonisolated static func publicStatusPayload(
+        routes: [CmxAttachRoute],
+        profile: MobileTerminalDataPlaneProfile = .embeddedGhostty,
+        now: Date = Date()
+    ) -> [String: Any] {
         // The Mac's resolved terminal theme is caller-independent, so it rides
         // the public payload (identity merges on top). `GhosttyConfig.load()`
         // resolves named ghostty themes, cmux's managed defaults, and explicit
@@ -241,8 +245,8 @@ final class MobileHostService {
         let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.load())
         return [
             "routes": routes.mobileHostJSONObjects(for: .publicStatus, at: now),
-            "terminal_fidelity": "render_grid",
-            "capabilities": mobileHostCapabilities,
+            "terminal_fidelity": profile.terminalFidelity,
+            "capabilities": mobileHostCapabilities(for: profile),
             "theme": theme.mobileHostJSONObject,
         ]
     }
@@ -251,8 +255,12 @@ final class MobileHostService {
     /// the display name or the device id, so this reply is where a freshly
     /// paired phone learns what to call this Mac, which paired-Mac record owns
     /// the connection, and which app instance owns its routes.
-    nonisolated static func identityStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
-        var payload = publicStatusPayload(routes: [], now: now)
+    nonisolated static func identityStatusPayload(
+        routes: [CmxAttachRoute],
+        profile: MobileTerminalDataPlaneProfile = .embeddedGhostty,
+        now: Date = Date()
+    ) -> [String: Any] {
+        var payload = publicStatusPayload(routes: [], profile: profile, now: now)
         payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
@@ -328,7 +336,7 @@ final class MobileHostService {
     /// networks or Tailscale flips, not only when the listener restarts.
     /// `nil` while stopped.
     private var pathMonitor: MobileHostNetworkPathMonitor?
-    /// Injected once via `configure(auth:)` at app startup, before the
+    /// Injected once via `configure(auth:terminalDataPlane:)` at app startup, before the
     /// listener starts accepting connections.
     private var auth: AuthCoordinator?
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
@@ -340,9 +348,16 @@ final class MobileHostService {
     private init() {}
 
     /// Inject the auth dependency. Call once at the composition root.
-    func configure(auth: AuthCoordinator) {
+    func configure(
+        auth: AuthCoordinator,
+        terminalDataPlane: any MobileTerminalDataPlane
+    ) {
         self.auth = auth
-        MobileHostIrohRuntime.shared.configure(auth: auth)
+        MobileHostPublicStatusCache.update(profile: terminalDataPlane.profile)
+        MobileHostIrohRuntime.shared.configure(
+            auth: auth,
+            terminalDataPlane: terminalDataPlane
+        )
     }
 
     func updateIrohBinding(_ binding: CmxIrohBrokerBinding?) {

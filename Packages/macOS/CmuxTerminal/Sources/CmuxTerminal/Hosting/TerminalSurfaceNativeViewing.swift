@@ -10,6 +10,9 @@ public import CmuxTerminalCore
 /// callback context identifies its host view through that core seam.
 @MainActor
 public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
+    /// The process boundary responsible for rendering terminal pixels.
+    var renderOwnership: TerminalSurfaceRenderOwnership { get }
+
     /// The owning workspace id mirrored onto the view for focus routing.
     var tabId: UUID? { get set }
 

@@ -1,19 +1,14 @@
 public import CmuxTerminalCore
 
-/// The injected collaborators a ``TerminalSurface`` needs to run.
+/// Capabilities shared by embedded and externally-owned terminal presentations.
 ///
-/// Constructed once at the composition root (today the transitional
-/// `GhosttyApp` statics; later the app's composition root proper) and passed
-/// to every `TerminalSurface` initializer. The bundle replaces the god-file
-/// reach-ups into `GhosttyApp.shared`, `TerminalController.shared`,
-/// `MobileTerminalByteTee.shared`, `RendererRealizationController.shared`,
-/// and `AgentHibernationController.shared`.
-public struct TerminalSurfaceRuntimeDependencies {
+/// This bundle deliberately contains no Ghostty app/config handle, PTY output
+/// tee, native-surface teardown queue, runtime filesystem, or spawn scheduler.
+/// An external terminal can therefore be constructed without gaining an
+/// accidental path back to process-local terminal ownership.
+public struct TerminalSurfacePresentationDependencies {
     /// The process-wide surface registry.
     public let registry: any TerminalSurfaceRegistering
-
-    /// The embedded Ghostty engine owner.
-    public let engine: any TerminalEngineHosting
 
     /// The factory for the surface's native view pair.
     public let viewProvider: any TerminalSurfaceViewProviding
@@ -21,31 +16,8 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// Live settings reads folded into spawn environments.
     public let spawnPolicy: any TerminalSurfaceSpawnPolicyProviding
 
-    /// The shared PTY output-tee installer.
-    public let byteTee: any TerminalByteTeeBinding
-
-    /// The renderer-reclamation pass scheduler.
-    public let rendererRealization: any TerminalRendererRealizationScheduling
-
     /// The agent-hibernation input recorder.
     public let hibernationRecorder: any AgentHibernationRecording
-
-    /// The serialized native-surface free queue.
-    public let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
-
-    /// The paced native-surface creation queue for restored terminal sessions.
-    public let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
-
-    /// Filesystem probes and writers used by runtime creation.
-    public let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
-
-    /// The first port of the per-session `CMUX_PORT` allocation
-    /// (snapshotted once per app session by the composition root).
-    public let sessionPortBase: Int
-
-    /// The per-workspace port range size (snapshotted once per app session
-    /// by the composition root).
-    public let sessionPortRangeSize: Int
 
     /// The environment key carrying one-shot session scrollback replay; the
     /// surface strips it after the first runtime spawn.
@@ -55,6 +27,72 @@ public struct TerminalSurfaceRuntimeDependencies {
     public let globalFontMagnificationPercent: @Sendable () -> Int
 
     /// Creates the dependency bundle.
+    public init(
+        registry: any TerminalSurfaceRegistering,
+        viewProvider: any TerminalSurfaceViewProviding,
+        spawnPolicy: any TerminalSurfaceSpawnPolicyProviding,
+        hibernationRecorder: any AgentHibernationRecording,
+        scrollbackReplayEnvironmentKey: String,
+        globalFontMagnificationPercent: @escaping @Sendable () -> Int = { 100 }
+    ) {
+        self.registry = registry
+        self.viewProvider = viewProvider
+        self.spawnPolicy = spawnPolicy
+        self.hibernationRecorder = hibernationRecorder
+        self.scrollbackReplayEnvironmentKey = scrollbackReplayEnvironmentKey
+        self.globalFontMagnificationPercent = globalFontMagnificationPercent
+    }
+}
+
+/// Capabilities that can create and destroy an in-process Ghostty surface.
+///
+/// Only the embedded initializer accepts this type. Persistent backend
+/// composition never constructs or stores it.
+public struct TerminalSurfaceEmbeddedRuntimeDependencies {
+    public let engine: any TerminalEngineHosting
+    public let byteTee: any TerminalByteTeeBinding
+    public let rendererRealization: any TerminalRendererRealizationScheduling
+    public let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
+    public let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
+    public let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
+    public let sessionPortBase: Int
+    public let sessionPortRangeSize: Int
+
+    public init(
+        engine: any TerminalEngineHosting,
+        byteTee: any TerminalByteTeeBinding,
+        rendererRealization: any TerminalRendererRealizationScheduling,
+        runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
+        restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling,
+        runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
+        sessionPortBase: Int,
+        sessionPortRangeSize: Int
+    ) {
+        self.engine = engine
+        self.byteTee = byteTee
+        self.rendererRealization = rendererRealization
+        self.runtimeTeardown = runtimeTeardown
+        self.restoreSpawnScheduler = restoreSpawnScheduler
+        self.runtimeFilesystem = runtimeFilesystem
+        self.sessionPortBase = sessionPortBase
+        self.sessionPortRangeSize = sessionPortRangeSize
+    }
+}
+
+/// Complete dependency graph for the legacy embedded Ghostty owner.
+public struct TerminalSurfaceRuntimeDependencies {
+    public let presentation: TerminalSurfacePresentationDependencies
+    public let embeddedRuntime: TerminalSurfaceEmbeddedRuntimeDependencies
+
+    public init(
+        presentation: TerminalSurfacePresentationDependencies,
+        embeddedRuntime: TerminalSurfaceEmbeddedRuntimeDependencies
+    ) {
+        self.presentation = presentation
+        self.embeddedRuntime = embeddedRuntime
+    }
+
+    /// Compatibility initializer for existing embedded-only call sites.
     public init(
         registry: any TerminalSurfaceRegistering,
         engine: any TerminalEngineHosting,
@@ -71,19 +109,23 @@ public struct TerminalSurfaceRuntimeDependencies {
         scrollbackReplayEnvironmentKey: String,
         globalFontMagnificationPercent: @escaping @Sendable () -> Int = { 100 }
     ) {
-        self.registry = registry
-        self.engine = engine
-        self.viewProvider = viewProvider
-        self.spawnPolicy = spawnPolicy
-        self.byteTee = byteTee
-        self.rendererRealization = rendererRealization
-        self.hibernationRecorder = hibernationRecorder
-        self.runtimeTeardown = runtimeTeardown
-        self.restoreSpawnScheduler = restoreSpawnScheduler
-        self.runtimeFilesystem = runtimeFilesystem
-        self.sessionPortBase = sessionPortBase
-        self.sessionPortRangeSize = sessionPortRangeSize
-        self.scrollbackReplayEnvironmentKey = scrollbackReplayEnvironmentKey
-        self.globalFontMagnificationPercent = globalFontMagnificationPercent
+        presentation = TerminalSurfacePresentationDependencies(
+            registry: registry,
+            viewProvider: viewProvider,
+            spawnPolicy: spawnPolicy,
+            hibernationRecorder: hibernationRecorder,
+            scrollbackReplayEnvironmentKey: scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: globalFontMagnificationPercent
+        )
+        embeddedRuntime = TerminalSurfaceEmbeddedRuntimeDependencies(
+            engine: engine,
+            byteTee: byteTee,
+            rendererRealization: rendererRealization,
+            runtimeTeardown: runtimeTeardown,
+            restoreSpawnScheduler: restoreSpawnScheduler,
+            runtimeFilesystem: runtimeFilesystem,
+            sessionPortBase: sessionPortBase,
+            sessionPortRangeSize: sessionPortRangeSize
+        )
     }
 }

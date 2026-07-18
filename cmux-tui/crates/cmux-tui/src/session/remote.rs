@@ -14,15 +14,19 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
-    SurfaceKind, platform::transport,
+    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PresentationId, Rgb,
+    SurfaceId, SurfaceKind, SurfaceUuid, platform::transport,
 };
 use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 use super::tree::{TreeView, parse_tree};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 7;
+const SUPPORTED_PROTOCOL_MIN: u64 = 7;
+const SUPPORTED_PROTOCOL_MAX: u64 = 9;
+const TERMINAL_LEASE_TTL_MS: u64 = 5_000;
+const TUI_CLIENT_NAMESPACE: Uuid = Uuid::from_u128(0x434d55585f5455498000000000000001);
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -194,6 +198,7 @@ impl RemoteTreeCache {
 /// A surface mirrored from a remote session.
 pub struct RemoteSurface {
     pub id: SurfaceId,
+    pub surface_uuid: SurfaceUuid,
     pub kind: SurfaceKind,
     pub term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
@@ -370,6 +375,24 @@ struct SubscriptionRecoveryState {
     in_flight: bool,
 }
 
+#[derive(Clone)]
+struct RemoteTerminalLease {
+    presentation_id: PresentationId,
+    presentation_generation: u64,
+    lease_id: Uuid,
+    lease_generation: u64,
+    next_sequence: u64,
+}
+
+#[derive(Clone)]
+struct RemoteTerminalControl {
+    surface_uuid: SurfaceUuid,
+    presentation_id: PresentationId,
+    presentation_generation: u64,
+    input: Option<RemoteTerminalLease>,
+    geometry: Option<RemoteTerminalLease>,
+}
+
 pub struct RemoteSession {
     writer: Mutex<Box<dyn transport::Stream>>,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
@@ -384,6 +407,9 @@ pub struct RemoteSession {
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
+    client_uuid: Uuid,
+    process_instance_uuid: Uuid,
+    terminal_controls: Mutex<HashMap<SurfaceId, RemoteTerminalControl>>,
 }
 
 impl RemoteSession {
@@ -403,6 +429,8 @@ impl RemoteSession {
             anyhow::anyhow!("cannot configure session socket write timeout: {error}")
         })?;
         let read_half = stream.try_clone_box()?;
+        let client_uuid = Uuid::new_v5(&TUI_CLIENT_NAMESPACE, path.to_string_lossy().as_bytes());
+        let process_instance_uuid = Uuid::new_v4();
         let session = Arc::new(RemoteSession {
             writer: Mutex::new(stream),
             pending: Mutex::new(HashMap::new()),
@@ -417,6 +445,9 @@ impl RemoteSession {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            client_uuid,
+            process_instance_uuid,
+            terminal_controls: Mutex::new(HashMap::new()),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -439,12 +470,45 @@ impl RemoteSession {
         if ident.get("app").and_then(|v| v.as_str()) != Some("cmux-tui") {
             anyhow::bail!("socket endpoint is not a cmux-tui session");
         }
-        let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
-        if protocol != SUPPORTED_PROTOCOL_VERSION {
+        let protocol_min = ident
+            .get("protocol_min")
+            .and_then(Value::as_u64)
+            .unwrap_or_else(|| ident.get("protocol").and_then(Value::as_u64).unwrap_or(0));
+        let protocol_max = ident
+            .get("protocol_max")
+            .and_then(Value::as_u64)
+            .unwrap_or_else(|| ident.get("protocol").and_then(Value::as_u64).unwrap_or(0));
+        if protocol_max < SUPPORTED_PROTOCOL_MIN || protocol_min > SUPPORTED_PROTOCOL_MAX {
             anyhow::bail!(
-                "unsupported cmux-tui protocol {protocol}; this client requires protocol 7; restart the cmux-tui server"
+                "unsupported cmux-tui protocol range {protocol_min}...{protocol_max}; this client requires protocol 7 through 9; restart the cmux-tui server"
             );
         }
+        let capabilities = ident
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<HashSet<_>>();
+        for required in [
+            "terminal-split-leases-v1",
+            "terminal-input-idempotency-v1",
+            "terminal-input-receipt-ack-v1",
+            "terminal-nonrenderer-presentation-v1",
+        ] {
+            if !capabilities.contains(required) {
+                anyhow::bail!("cmux-tui daemon is missing required capability {required}");
+            }
+        }
+        let registration = session.request(json!({
+            "cmd": "register-client",
+            "protocol_min": 9,
+            "protocol_max": 9,
+            "client_uuid": client_uuid,
+            "process_instance_uuid": process_instance_uuid,
+            "client_kind": "tui",
+        }))?;
+        validate_tui_registration(&registration, client_uuid, process_instance_uuid)?;
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
@@ -877,9 +941,335 @@ impl RemoteSession {
         }
     }
 
-    pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
+    fn terminal_control(
+        &self,
+        surface: SurfaceId,
+        surface_uuid: SurfaceUuid,
+    ) -> anyhow::Result<RemoteTerminalControl> {
+        if let Some(control) = self.terminal_controls.lock().unwrap().get(&surface).cloned() {
+            if control.surface_uuid == surface_uuid {
+                return Ok(control);
+            }
+            self.terminal_controls.lock().unwrap().remove(&surface);
+        }
+        let opened = self.request(json!({
+            "cmd": "open-presentation",
+            "view": {
+                "tab": surface,
+                "surface_uuid": surface_uuid,
+            },
+        }))?;
+        let presentation_id: PresentationId = serde_json::from_value(
+            opened
+                .get("presentation_id")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("terminal presentation omitted its id"))?,
+        )?;
+        let presentation_generation = opened
+            .get("generation")
+            .and_then(Value::as_u64)
+            .filter(|generation| *generation > 0)
+            .ok_or_else(|| anyhow::anyhow!("terminal presentation omitted its generation"))?;
+        self.request(json!({
+            "cmd": "activate-terminal-presentation",
+            "presentation_id": presentation_id,
+            "expected_generation": presentation_generation,
+        }))?;
+        let control = RemoteTerminalControl {
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            input: None,
+            geometry: None,
+        };
+        self.terminal_controls.lock().unwrap().insert(surface, control.clone());
+        Ok(control)
+    }
+
+    fn acquire_terminal_lease(
+        &self,
+        control: &RemoteTerminalControl,
+        kind: &str,
+    ) -> anyhow::Result<RemoteTerminalLease> {
+        let response = self.request(json!({
+            "cmd": "acquire-terminal-lease",
+            "kind": kind,
+            "surface_uuid": control.surface_uuid,
+            "presentation_id": control.presentation_id,
+            "presentation_generation": control.presentation_generation,
+            "ttl_ms": TERMINAL_LEASE_TTL_MS,
+        }))?;
+        Ok(RemoteTerminalLease {
+            presentation_id: control.presentation_id,
+            presentation_generation: control.presentation_generation,
+            lease_id: response
+                .get("lease_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("terminal lease omitted its id"))?
+                .parse()?,
+            lease_generation: response
+                .get("lease_generation")
+                .and_then(Value::as_u64)
+                .filter(|generation| *generation > 0)
+                .ok_or_else(|| anyhow::anyhow!("terminal lease omitted its generation"))?,
+            next_sequence: response
+                .get("next_sequence")
+                .and_then(Value::as_u64)
+                .filter(|sequence| *sequence > 0)
+                .ok_or_else(|| anyhow::anyhow!("terminal lease omitted its next sequence"))?,
+        })
+    }
+
+    fn terminal_request_status(
+        &self,
+        surface_uuid: SurfaceUuid,
+        request_id: Uuid,
+    ) -> anyhow::Result<Value> {
+        self.request(json!({
+            "cmd": "terminal-request-status",
+            "surface_uuid": surface_uuid,
+            "request_id": request_id,
+        }))
+    }
+
+    fn acknowledge_terminal_request(
+        &self,
+        surface_uuid: SurfaceUuid,
+        request_id: Uuid,
+    ) -> anyhow::Result<()> {
+        self.request(json!({
+            "cmd": "acknowledge-terminal-request",
+            "surface_uuid": surface_uuid,
+            "request_id": request_id,
+        }))?;
+        Ok(())
+    }
+
+    fn finish_terminal_receipt(
+        &self,
+        surface: SurfaceId,
+        surface_uuid: SurfaceUuid,
+        request_id: Uuid,
+        kind: &str,
+        receipt: &Value,
+    ) -> anyhow::Result<bool> {
+        if receipt.get("request_id").and_then(Value::as_str)
+            != Some(request_id.to_string().as_str())
+        {
+            anyhow::bail!("terminal receipt returned a mismatched request id");
+        }
+        match receipt.get("status").and_then(Value::as_str) {
+            Some("unknown") => return Ok(false),
+            Some("indeterminate") => {
+                anyhow::bail!(
+                    "terminal input became indeterminate: {}",
+                    receipt
+                        .get("diagnostic")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown PTY write state")
+                );
+            }
+            Some("applied") => {}
+            _ => anyhow::bail!("terminal receipt omitted a definitive status"),
+        }
+        let sequence = receipt
+            .get("sequence")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| anyhow::anyhow!("terminal receipt omitted its sequence"))?;
+        let lease_generation = receipt
+            .get("lease_generation")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| anyhow::anyhow!("terminal receipt omitted its lease generation"))?;
+        if let Some(control) = self.terminal_controls.lock().unwrap().get_mut(&surface) {
+            let lease = if kind == "input" { &mut control.input } else { &mut control.geometry };
+            if let Some(lease) = lease
+                && lease.lease_generation == lease_generation
+            {
+                lease.next_sequence = sequence
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("terminal sequence exhausted"))?;
+            }
+        }
+        self.acknowledge_terminal_request(surface_uuid, request_id)?;
+        Ok(true)
+    }
+
+    pub fn send_bytes(
+        &self,
+        surface: SurfaceId,
+        surface_uuid: SurfaceUuid,
+        bytes: &[u8],
+        request_id: Uuid,
+        input_group: Option<(Uuid, u32, bool)>,
+    ) -> anyhow::Result<()> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded})).map(|_| ())
+        let mut last_error = None;
+        for attempt in 0..2 {
+            let mut control = self.terminal_control(surface, surface_uuid)?;
+            if control.input.is_none() || attempt > 0 {
+                control.input = Some(self.acquire_terminal_lease(&control, "input")?);
+                self.terminal_controls.lock().unwrap().insert(surface, control.clone());
+            }
+            let lease = control.input.as_ref().unwrap();
+            let mut command = json!({
+                "cmd": "terminal-input",
+                "surface_uuid": surface_uuid,
+                "presentation_id": lease.presentation_id,
+                "presentation_generation": lease.presentation_generation,
+                "lease_id": lease.lease_id,
+                "lease_generation": lease.lease_generation,
+                "sequence": lease.next_sequence,
+                "request_id": request_id,
+                "input": {"type": "bytes", "data": encoded, "paste": false},
+            });
+            if let Some((id, index, end)) = input_group {
+                command["input_group_id"] = json!(id);
+                command["input_group_index"] = json!(index);
+                command["input_group_end"] = json!(end);
+            }
+            match self.request(command) {
+                Ok(receipt) => {
+                    if self.finish_terminal_receipt(
+                        surface,
+                        surface_uuid,
+                        request_id,
+                        "input",
+                        &receipt,
+                    )? {
+                        return Ok(());
+                    }
+                }
+                Err(error) => last_error = Some(error),
+            }
+
+            match self.terminal_request_status(surface_uuid, request_id) {
+                Ok(receipt)
+                    if self.finish_terminal_receipt(
+                        surface,
+                        surface_uuid,
+                        request_id,
+                        "input",
+                        &receipt,
+                    )? =>
+                {
+                    return Ok(());
+                }
+                Ok(_) => {
+                    if let Some(control) = self.terminal_controls.lock().unwrap().get_mut(&surface)
+                    {
+                        control.input = None;
+                    }
+                }
+                Err(status_error) => return Err(status_error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("terminal input was not applied")))
+    }
+
+    pub fn resize_terminal(
+        &self,
+        surface: SurfaceId,
+        surface_uuid: SurfaceUuid,
+        cols: u16,
+        rows: u16,
+        acquire_if_needed: bool,
+    ) -> anyhow::Result<bool> {
+        let mut control = self.terminal_control(surface, surface_uuid)?;
+        if control.geometry.is_none() {
+            if !acquire_if_needed {
+                return Ok(false);
+            }
+            control.geometry = Some(self.acquire_terminal_lease(&control, "geometry")?);
+            self.terminal_controls.lock().unwrap().insert(surface, control.clone());
+        }
+        let request_id = Uuid::new_v4();
+        let mut last_error = None;
+        for attempt in 0..2 {
+            if attempt > 0 {
+                control.geometry = Some(self.acquire_terminal_lease(&control, "geometry")?);
+                self.terminal_controls.lock().unwrap().insert(surface, control.clone());
+            }
+            let lease = control.geometry.as_ref().unwrap();
+            match self.request(json!({
+                "cmd": "terminal-geometry",
+                "surface_uuid": surface_uuid,
+                "presentation_id": lease.presentation_id,
+                "presentation_generation": lease.presentation_generation,
+                "lease_id": lease.lease_id,
+                "lease_generation": lease.lease_generation,
+                "sequence": lease.next_sequence,
+                "request_id": request_id,
+                "cols": cols,
+                "rows": rows,
+            })) {
+                Ok(receipt) => {
+                    let changed = receipt.get("changed").and_then(Value::as_bool).unwrap_or(true);
+                    if self.finish_terminal_receipt(
+                        surface,
+                        surface_uuid,
+                        request_id,
+                        "geometry",
+                        &receipt,
+                    )? {
+                        return Ok(changed);
+                    }
+                }
+                Err(error) => last_error = Some(error),
+            }
+            match self.terminal_request_status(surface_uuid, request_id) {
+                Ok(receipt) if receipt.get("status").and_then(Value::as_str) == Some("applied") => {
+                    let changed = receipt.get("changed").and_then(Value::as_bool).unwrap_or(true);
+                    self.finish_terminal_receipt(
+                        surface,
+                        surface_uuid,
+                        request_id,
+                        "geometry",
+                        &receipt,
+                    )?;
+                    return Ok(changed);
+                }
+                Ok(_) => {
+                    control.geometry = None;
+                    self.terminal_controls.lock().unwrap().insert(surface, control.clone());
+                }
+                Err(status_error) => return Err(status_error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("terminal geometry was not applied")))
+    }
+
+    pub fn has_geometry_lease(&self, surface: SurfaceId) -> bool {
+        self.terminal_controls
+            .lock()
+            .unwrap()
+            .get(&surface)
+            .is_some_and(|control| control.geometry.is_some())
+    }
+
+    pub fn release_geometry_lease(&self, surface: SurfaceId) -> anyhow::Result<()> {
+        let lease = self
+            .terminal_controls
+            .lock()
+            .unwrap()
+            .get_mut(&surface)
+            .and_then(|control| control.geometry.take());
+        let Some(lease) = lease else { return Ok(()) };
+        self.request(json!({
+            "cmd": "release-terminal-lease",
+            "kind": "geometry",
+            "surface_uuid": self
+                .terminal_controls
+                .lock()
+                .unwrap()
+                .get(&surface)
+                .map(|control| control.surface_uuid)
+                .ok_or_else(|| anyhow::anyhow!("terminal control disappeared"))?,
+            "presentation_id": lease.presentation_id,
+            "presentation_generation": lease.presentation_generation,
+            "lease_id": lease.lease_id,
+            "lease_generation": lease.lease_generation,
+        }))?;
+        Ok(())
     }
 
     pub fn begin_shutdown(&self) {
@@ -1021,10 +1411,18 @@ impl RemoteSession {
             let tree = self.tree.lock().unwrap();
             browser_source_from_tree(&tree.view, id)
         };
+        let surface_uuid = self
+            .tree
+            .lock()
+            .unwrap()
+            .view
+            .surface_uuid(id)
+            .ok_or_else(|| anyhow::anyhow!("surface {id} has no canonical UUID"))?;
         let (cols, rows) = size.unwrap_or((80, 24));
         let term = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
         let surface = Arc::new(RemoteSurface {
             id,
+            surface_uuid,
             kind,
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(MouseEncoders::new()?),
@@ -1116,6 +1514,39 @@ impl RemoteSession {
     pub fn tree_is_stale(&self) -> bool {
         self.tree_stale.load(Ordering::Acquire)
     }
+}
+
+fn validate_tui_registration(
+    registration: &Value,
+    client_uuid: Uuid,
+    process_instance_uuid: Uuid,
+) -> anyhow::Result<()> {
+    let registered_client = registration
+        .get("client_uuid")
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok());
+    let registered_process = registration
+        .get("process_instance_uuid")
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok());
+    let lease_id = registration
+        .get("topology_lease_id")
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok());
+    if registration.get("protocol").and_then(Value::as_u64) != Some(9)
+        || registered_client != Some(client_uuid)
+        || registered_process != Some(process_instance_uuid)
+        || registration.get("client_kind").and_then(Value::as_str) != Some("tui")
+        || registration.get("role").and_then(Value::as_str) != Some("trusted-frontend")
+        || lease_id.is_none()
+        || registration
+            .get("topology_lease_generation")
+            .and_then(Value::as_u64)
+            .is_none_or(|generation| generation == 0)
+    {
+        anyhow::bail!("cmux-tui daemon did not grant the expected same-UID protocol-v9 TUI role");
+    }
+    Ok(())
 }
 
 fn local_hostname() -> Option<String> {
@@ -1248,6 +1679,33 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn tui_registration_requires_exact_identity_role_and_live_lease() {
+        let client_uuid = Uuid::new_v4();
+        let process_instance_uuid = Uuid::new_v4();
+        let mut registration = json!({
+            "protocol": 9,
+            "client_uuid": client_uuid,
+            "process_instance_uuid": process_instance_uuid,
+            "client_kind": "tui",
+            "role": "trusted-frontend",
+            "topology_lease_id": Uuid::new_v4(),
+            "topology_lease_generation": 1,
+        });
+
+        validate_tui_registration(&registration, client_uuid, process_instance_uuid).unwrap();
+
+        registration["client_kind"] = json!("automation");
+        assert!(
+            validate_tui_registration(&registration, client_uuid, process_instance_uuid).is_err()
+        );
+        registration["client_kind"] = json!("tui");
+        registration["topology_lease_id"] = Value::Null;
+        assert!(
+            validate_tui_registration(&registration, client_uuid, process_instance_uuid).is_err()
+        );
+    }
+
     #[cfg(unix)]
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
         stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
@@ -1265,6 +1723,9 @@ mod tests {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            client_uuid: Uuid::new_v4(),
+            process_instance_uuid: Uuid::new_v4(),
+            terminal_controls: Mutex::new(HashMap::new()),
         })
     }
 
@@ -1287,7 +1748,9 @@ mod tests {
         session.begin_shutdown();
         assert!(waiting.join().unwrap().to_string().contains("canceled for shutdown"));
 
-        let release_error = session.send_bytes(7, b"release").unwrap_err();
+        let release_error = session
+            .request(json!({"cmd": "send", "surface": 7, "bytes": "cmVsZWFzZQ=="}))
+            .unwrap_err();
         assert!(release_error.to_string().contains("canceled for shutdown"));
         let mut release_line = String::new();
         peer.read_line(&mut release_line).unwrap();
@@ -1305,7 +1768,13 @@ mod tests {
         let session = socket_test_session(client);
         let payload = vec![b'x'; 4 * 1024 * 1024];
 
-        let error = session.send_bytes(7, &payload).unwrap_err();
+        let error = session
+            .request(json!({
+                "cmd": "send",
+                "surface": 7,
+                "bytes": base64::engine::general_purpose::STANDARD.encode(payload),
+            }))
+            .unwrap_err();
 
         assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
             matches!(error, RemoteRequestError::Transport(io_error) if matches!(
@@ -1543,6 +2012,7 @@ mod tests {
     fn browser_state_without_frame_keeps_cached_frame() {
         let surface = RemoteSurface {
             id: 1,
+            surface_uuid: SurfaceUuid::new(),
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
@@ -1584,6 +2054,7 @@ mod tests {
 
         let surface = RemoteSurface {
             id: 1,
+            surface_uuid: SurfaceUuid::new(),
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
@@ -1617,6 +2088,7 @@ mod tests {
         let session = socket_test_session(client);
         let surface = Arc::new(RemoteSurface {
             id: 7,
+            surface_uuid: SurfaceUuid::new(),
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
@@ -1652,6 +2124,7 @@ mod tests {
         let events = session.subscribe();
         let surface = Arc::new(RemoteSurface {
             id: 7,
+            surface_uuid: SurfaceUuid::new(),
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
@@ -1683,6 +2156,7 @@ mod tests {
         let events = session.subscribe();
         let surface = Arc::new(RemoteSurface {
             id: 7,
+            surface_uuid: SurfaceUuid::new(),
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
@@ -1872,6 +2346,7 @@ mod tests {
             7,
             Arc::new(RemoteSurface {
                 id: 7,
+                surface_uuid: SurfaceUuid::new(),
                 kind: SurfaceKind::Pty,
                 term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
                 mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
@@ -1910,6 +2385,7 @@ mod tests {
 
         let surface = RemoteSurface {
             id: 1,
+            surface_uuid: SurfaceUuid::new(),
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),

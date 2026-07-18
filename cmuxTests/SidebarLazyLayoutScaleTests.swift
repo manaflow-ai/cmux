@@ -112,7 +112,7 @@ final class SidebarLazyLayoutScaleTests {
             // objc_autoreleasePoolPop then hangs or crashes the test host
             // (observed as Signal 11 in AutoreleasePoolPage::releaseUntil).
             autoreleasepool {
-                _ = tabManager.addWorkspace(
+                _ = tabManager.addLocalWorkspace(
                     select: false,
                     autoWelcomeIfNeeded: false,
                     autoRefreshMetadata: false

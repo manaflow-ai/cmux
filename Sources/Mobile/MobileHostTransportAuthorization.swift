@@ -212,6 +212,15 @@ enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    private nonisolated(unsafe) static var profile =
+        MobileTerminalDataPlaneProfile.embeddedGhostty
+
+    static func update(profile nextProfile: MobileTerminalDataPlaneProfile) {
+        lock.lock()
+        profile = nextProfile
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
 
     static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
@@ -262,11 +271,18 @@ enum MobileHostPublicStatusCache {
     static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = mergedRoutesLocked()
+        let cachedProfile = profile
         lock.unlock()
         return .ok(
             includeIdentity
-                ? MobileHostService.identityStatusPayload(routes: cachedRoutes)
-                : MobileHostService.publicStatusPayload(routes: cachedRoutes)
+                ? MobileHostService.identityStatusPayload(
+                    routes: cachedRoutes,
+                    profile: cachedProfile
+                )
+                : MobileHostService.publicStatusPayload(
+                    routes: cachedRoutes,
+                    profile: cachedProfile
+                )
         )
     }
 

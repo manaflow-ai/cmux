@@ -21,7 +21,7 @@ public struct PortalHostLeasePolicy: Sendable {
     /// - Parameter bounds: The host bounds reported by its representable.
     /// - Returns: The product of the nonnegative width and height.
     public func area(for bounds: CGRect) -> CGFloat {
-        max(0, bounds.width) * max(0, bounds.height)
+        max(0, bounds.size.width) * max(0, bounds.size.height)
     }
 
     /// Returns whether a lease represents an attached host with meaningful area.

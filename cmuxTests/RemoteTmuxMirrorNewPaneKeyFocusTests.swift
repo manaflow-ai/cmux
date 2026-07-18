@@ -67,7 +67,7 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
 
         init() {
             let manager = TabManager()
-            let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+            let workspace = manager.addLocalWorkspace(select: false, autoWelcomeIfNeeded: false)
             workspace.isRemoteTmuxMirror = true
             let host = RemoteTmuxHost(destination: "user@newpanefocus")
             let connection = RemoteTmuxControlConnection(host: host, sessionName: "focus-map")

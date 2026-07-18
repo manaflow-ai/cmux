@@ -3,6 +3,7 @@ import Bonsplit
 import CmuxTerminal
 import Foundation
 import CmuxRemoteSession
+import CmuxTerminalBackend
 
 /// Mirrors one remote tmux session into a dedicated cmux sidebar workspace.
 ///
@@ -17,6 +18,8 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// de-dup works before the control stream reports `connection.sessionId`.
     let seededSessionId: Int?
     let connection: RemoteTmuxControlConnection
+    let backendProducerID: UUID?
+    let backendTmuxSessionID: UInt64?
     let onControlPaneRemoved: (PaneID, UUID?) -> Void
     let onControlSurfaceRemoved: (UUID) -> Void
 
@@ -119,6 +122,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     private let defaultPanelIds: [UUID]
     private var defaultClosed = false
     var panelIdByWindow: [Int: UUID] = [:]
+    private var outerSurfacePaneIdByWindow: [Int: Int] = [:]
     var windowIdByPanel: [UUID: Int] = [:]
     var panelIdByPane: [Int: UUID] = [:]
     var windowIdByPane: [Int: Int] = [:]
@@ -130,6 +134,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Per-pane filter that strips the screen/tmux `ESC k <title> ST` window-title
     /// escape from `%output` (stateful across chunk boundaries).
     private var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
+    private var noReflowByPane: [Int: Bool] = [:]
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var pendingExplicitFocusWindowId: Int?
@@ -142,6 +147,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         connection: RemoteTmuxControlConnection,
         tabManager: TabManager,
         workspace: Workspace,
+        backendProducerID: UUID? = nil,
+        backendTmuxSessionID: UInt64? = nil,
+        restoredSurfaces: [TerminalBackendRemoteTmuxProducerProjection.Surface] = [],
         onControlPaneRemoved: @escaping (PaneID, UUID?) -> Void = { _, _ in },
         onControlSurfaceRemoved: @escaping (UUID) -> Void = { _ in }
     ) {
@@ -149,18 +157,56 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.sessionName = sessionName
         self.seededSessionId = seededSessionId
         self.connection = connection
+        self.backendProducerID = backendProducerID
+        self.backendTmuxSessionID = backendTmuxSessionID
         self.onControlPaneRemoved = onControlPaneRemoved
         self.onControlSurfaceRemoved = onControlSurfaceRemoved
         self.tabManager = tabManager
         self.workspace = workspace
-        self.defaultPanelIds = Array(workspace.panels.keys)
+        self.defaultPanelIds = workspace.terminalClientComposition
+            .remoteTmuxSurfaceRegistry == nil ? Array(workspace.panels.keys) : []
         workspace.remoteTmuxSessionMirror = self
+
+        for surface in restoredSurfaces
+        where surface.provenance.presentationRole == .workspaceTab {
+            guard let windowID = Int(exactly: surface.provenance.tmuxWindowID),
+                  let paneID = Int(exactly: surface.provenance.tmuxPaneID),
+                  workspace.panels[surface.surfaceID.rawValue] is TerminalPanel else { continue }
+            panelIdByWindow[windowID] = surface.surfaceID.rawValue
+            outerSurfacePaneIdByWindow[windowID] = paneID
+            windowIdByPanel[surface.surfaceID.rawValue] = windowID
+            panelIdByPane[paneID] = surface.surfaceID.rawValue
+        }
+        for surface in restoredSurfaces {
+            guard let paneID = Int(exactly: surface.provenance.tmuxPaneID) else { continue }
+            _ = workspace.terminalClientComposition.remoteTmuxSurfaceRegistry?.register(
+                workspaceID: workspace.id,
+                provenance: surface.provenance,
+                sendKeys: { [weak connection] data in
+                    connection?.sendKeys(paneId: paneID, data: data) ?? false
+                },
+                requestSeed: { [weak connection] in
+                    connection?.seedPane(paneId: paneID)
+                },
+                onProjected: { [weak self] in self?.rebuild() }
+            )
+        }
 
         // Register as one of possibly several observers — never overwrite a
         // single shared closure on the connection.
         self.observerToken = connection.addObserver(
             onPaneOutput: { [weak self] paneId, data in
                 self?.routeOutput(paneId: paneId, data: data)
+            },
+            onPaneSeed: { [weak self] paneId, seed in
+                self?.routeSeed(paneId: paneId, seed: seed)
+            },
+            onPaneSeedFailure: { [weak self, weak connection] paneId in
+                guard connection?.connectionState == .connected,
+                      let self,
+                      let workspace = self.workspace else { return }
+                workspace.terminalClientComposition.remoteTmuxSurfaceRegistry?
+                    .seedFailed(workspaceID: workspace.id, tmuxPaneID: paneId)
             },
             onPaneCwd: { [weak self] paneId, path in
                 self?.handlePaneCwd(paneId: paneId, path: path)
@@ -190,6 +236,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // Resetting on the disconnect edge is ordering-independent (no output
                 // arrives while not connected).
                 if state != .connected { self?.titleFilters.removeAll() }
+                if state != .connected, let self, let workspace = self.workspace {
+                    workspace.terminalClientComposition.remoteTmuxSurfaceRegistry?
+                        .remoteConnectionDidDisconnect(workspaceID: workspace.id)
+                }
             }
         )
         rebuild()
@@ -210,10 +260,40 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Tmux confirmed a session rename. The controller owns the session-keyed
     /// dictionaries, so it performs the re-key and then updates this mirror.
     private func handleSessionNameChanged(oldName: String, newName: String) {
+        if let backendProducerID {
+            workspace?.terminalClientComposition.remoteTmuxSurfaceRegistry?
+                .updateProducerSource(
+                    producerID: backendProducerID,
+                    source: BackendRemoteTmuxProducerSource(
+                        destination: host.destination,
+                        port: host.port.flatMap { UInt16(exactly: $0) },
+                        identityFile: host.identityFile,
+                        sessionName: newName
+                    )
+                )
+        }
         AppDelegate.shared?.remoteTmuxController.handleMirrorSessionNameChanged(
             mirror: self,
             oldName: oldName,
             newName: newName
+        )
+    }
+
+    func backendProvenance(
+        windowID: Int,
+        paneID: Int,
+        role: CanonicalExternalTerminalProvenance.PresentationRole
+    ) -> CanonicalExternalTerminalProvenance? {
+        guard let backendProducerID,
+              let backendTmuxSessionID,
+              let windowID = UInt64(exactly: windowID),
+              let paneID = UInt64(exactly: paneID) else { return nil }
+        return CanonicalExternalTerminalProvenance(
+            producerID: backendProducerID,
+            tmuxSessionID: backendTmuxSessionID,
+            tmuxWindowID: windowID,
+            tmuxPaneID: paneID,
+            presentationRole: role
         )
     }
 
@@ -282,6 +362,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 panelId = existing
                 displayPanelWasCreated = false
             } else {
+                let initialLeaf = window.layout.leavesByPaneID[firstPaneId]
                 guard let panel = workspace.addRemoteTmuxDisplayPane(
                     remotePaneId: firstPaneId,
                     title: title,
@@ -289,6 +370,19 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                     onInput: { [weak connection] data in
                         Task { @MainActor in connection?.sendKeys(paneId: firstPaneId, data: data) }
                     },
+                    backendSendKeys: { [weak connection] data in
+                        connection?.sendKeys(paneId: firstPaneId, data: data) ?? false
+                    },
+                    onRequestSeed: { [weak connection] in
+                        connection?.seedPane(paneId: firstPaneId)
+                    },
+                    backendProvenance: backendProvenance(
+                        windowID: windowId,
+                        paneID: firstPaneId,
+                        role: .workspaceTab
+                    ),
+                    initialColumns: initialLeaf?.width ?? window.width,
+                    initialRows: initialLeaf?.height ?? window.height,
                     // A single-pane display drives this window from its rendered
                     // grid; multi-pane sizing transfers to the window mirror below.
                     onResize: { [weak self] columns, rows in
@@ -298,6 +392,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                     }
                 ) else { continue }
                 panelIdByWindow[windowId] = panel.id
+                outerSurfacePaneIdByWindow[windowId] = firstPaneId
                 windowIdByPanel[panel.id] = windowId
                 panelIdByPane[firstPaneId] = panel.id
                 // Claim from either runtime readiness or a later manual resize;
@@ -322,7 +417,8 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                         )
                     }
                 }
-                if Self.shouldSeedSinglePaneDisplay(for: window) {
+                if workspace.terminalClientComposition.remoteTmuxSurfaceRegistry == nil,
+                   Self.shouldSeedSinglePaneDisplay(for: window) {
                     connection.seedPane(paneId: firstPaneId)
                 }
                 panelId = panel.id
@@ -354,6 +450,14 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 mirror.teardown()
                 windowMirrorByWindowId[windowId] = nil
             }
+            for (paneID, mappedPanelID) in panelIdByPane where mappedPanelID == panelId {
+                workspace.terminalClientComposition.remoteTmuxSurfaceRegistry?
+                    .retire(workspaceID: workspace.id, tmuxPaneID: paneID)
+            }
+            if let paneID = outerSurfacePaneIdByWindow.removeValue(forKey: windowId) {
+                workspace.terminalClientComposition.remoteTmuxSurfaceRegistry?
+                    .retire(workspaceID: workspace.id, tmuxPaneID: paneID)
+            }
             _ = workspace.removeRemoteTmuxDisplayPane(panelId)
             panelIdByWindow[windowId] = nil
             windowIdByPanel[panelId] = nil
@@ -380,6 +484,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         panelIdByPane = panelIdByPane.filter { livePanes.contains($0.key) }
         cwdByPane = cwdByPane.filter { livePanes.contains($0.key) }
         titleFilters = titleFilters.filter { livePanes.contains($0.key) }
+        noReflowByPane = noReflowByPane.filter { livePanes.contains($0.key) }
         closeDefaultTabsIfNeeded()
         // Follow out-of-band tmux window reorders (a second client, or a manual
         // move-window / a new-window inserted mid-list): the cmux tabs are created
@@ -475,6 +580,14 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         let cleaned = filter.filter(data)
         titleFilters[paneId] = filter
 
+        if let workspace,
+           workspace.terminalClientComposition.remoteTmuxSurfaceRegistry?
+            .surfaceID(workspaceID: workspace.id, tmuxPaneID: paneId) != nil {
+            workspace.terminalClientComposition.remoteTmuxSurfaceRegistry?
+                .receiveOutput(cleaned, workspaceID: workspace.id, tmuxPaneID: paneId)
+            return
+        }
+
         // Multi-pane window: its in-tab renderer owns the pane's surface.
         if let windowId = windowIdContaining(pane: paneId),
            let mirror = windowMirrorByWindowId[windowId] {
@@ -488,11 +601,47 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         panel.surface.processRemoteOutput(cleaned)
     }
 
+    private func routeSeed(paneId: Int, seed: RemoteTmuxPaneSeed) {
+        if let workspace,
+           let registry = workspace.terminalClientComposition.remoteTmuxSurfaceRegistry,
+           registry.surfaceID(workspaceID: workspace.id, tmuxPaneID: paneId) != nil {
+            var filter = titleFilters[paneId] ?? RemoteTmuxScreenTitleFilter()
+            let chunks = ([seed.reset] + seed.output).map { filter.filter($0) }
+            titleFilters[paneId] = filter
+            let leaf = windowIdContaining(pane: paneId)
+                .flatMap { connection.windowsByID[$0]?.layout.leavesByPaneID[paneId] }
+            registry.receiveSeed(
+                RemoteTmuxPaneSeed(orderedChunks: chunks),
+                workspaceID: workspace.id,
+                tmuxPaneID: paneId,
+                columns: leaf?.width ?? 80,
+                rows: leaf?.height ?? 24,
+                noReflow: noReflowByPane[paneId] ?? true
+            )
+            return
+        }
+        routeOutput(paneId: paneId, data: seed.reset)
+        for chunk in seed.output {
+            routeOutput(paneId: paneId, data: chunk)
+        }
+    }
+
     /// Applies a pane's reflow classification to its mirror surface (suppress
     /// reflow on resize for alt-screen / inline-TUI panes; allow it for shells).
     /// Routes exactly like ``routeOutput(paneId:data:)`` — multi-pane windows own
     /// their pane surfaces, single-pane windows use the tab's panel surface.
     private func routeNoReflow(paneId: Int, noReflow: Bool) {
+        noReflowByPane[paneId] = noReflow
+        if let workspace,
+           let registry = workspace.terminalClientComposition.remoteTmuxSurfaceRegistry,
+           registry.surfaceID(workspaceID: workspace.id, tmuxPaneID: paneId) != nil {
+            registry.updateNoReflow(
+                noReflow,
+                workspaceID: workspace.id,
+                tmuxPaneID: paneId
+            )
+            return
+        }
         if let windowId = windowIdContaining(pane: paneId),
            let mirror = windowMirrorByWindowId[windowId] {
             mirror.surface(forPane: paneId)?.setManualIONoReflow(noReflow)

@@ -1,13 +1,34 @@
 import * as net from "node:net";
-import * as os from "node:os";
 import * as path from "node:path";
 import { CmuxConnectionError } from "./errors.js";
 import type { Transport, Unsubscribe } from "./transport.js";
 
 /** Resolves the default Unix socket path for a session. */
 export function defaultSocketPath(session = "main"): string {
-  const base = process.env.TMPDIR || os.tmpdir();
-  return path.join(base, `cmux-tui-${process.getuid?.() ?? 0}`, `${session}.sock`);
+  return defaultSocketPathFrom(
+    runtimeBaseFromEnv(process.env),
+    process.getuid?.() ?? 0,
+    session,
+    process.platform === "darwin",
+  );
+}
+
+/** @internal Pure default resolver used by platform-boundary tests. */
+export function defaultSocketPathFrom(base: string, uid: number, session: string, darwin: boolean): string {
+  const candidate = path.join(base, `cmux-tui-${uid}`, `${session}.sock`);
+  if (darwin && Buffer.byteLength(candidate) > 103) {
+    return path.join("/tmp", `cmux-tui-${uid}`, `${session}.sock`);
+  }
+  return candidate;
+}
+
+/** @internal Runtime root precedence shared with the daemon. */
+export function runtimeBaseFromEnv(env: NodeJS.ProcessEnv): string {
+  return nonempty(env.XDG_RUNTIME_DIR) ?? nonempty(env.TMPDIR) ?? "/tmp";
+}
+
+function nonempty(value: string | undefined): string | undefined {
+  return value !== undefined && value.length > 0 ? value : undefined;
 }
 
 /** Reads the current or legacy cmux-tui socket environment variable. */

@@ -240,7 +240,7 @@ struct RemoteTmuxMirrorLifecycleTests {
     @Test func hiddenMirrorWindowStaysHiddenAndNonKeyAcrossBackgroundClose() async throws {
         _ = NSApplication.shared
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        let workspace = manager.addLocalWorkspace(select: true, autoWelcomeIfNeeded: false)
         workspace.isRemoteTmuxMirror = true
         defer { workspace.teardownAllPanels() }
 

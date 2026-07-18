@@ -69,6 +69,10 @@ extension DockSplitStore {
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
+        let sourcePaneId = bonsplitController.paneId(containing: tabId)
+        let sourceIndex = sourcePaneId.flatMap { paneId in
+            bonsplitController.tabs(inPane: paneId).firstIndex { $0.id == tabId }
+        }
         let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
         let kind = (panel.panelType == .browser) ? "browser" : "terminal"
         let icon = panel.displayIcon
@@ -162,6 +166,9 @@ extension DockSplitStore {
         }
 
         return Workspace.DetachedSurfaceTransfer(
+            sourceTabId: tabId,
+            sourcePaneId: sourcePaneId,
+            sourceIndex: sourceIndex,
             sourceWorkspaceId: workspaceId,
             panelId: panelId,
             panel: panel,

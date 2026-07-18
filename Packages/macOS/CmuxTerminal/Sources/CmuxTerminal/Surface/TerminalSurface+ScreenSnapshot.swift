@@ -1,4 +1,11 @@
 extension TerminalSurface {
+    /// Reads the canonical visible text for accessibility projection.
+    @MainActor
+    public func visibleScreenText() async -> String? {
+        guard let externalRuntime else { return nil }
+        return await externalRuntime.readScreenText(.visible)
+    }
+
     /// Reads a byte-bounded VT reconstruction of the newest physical terminal rows.
     ///
     /// Ghostty selects the history suffix and formats it into a fixed-size buffer
@@ -12,11 +19,13 @@ extension TerminalSurface {
     /// - Returns: A complete UTF-8 VT reconstruction, or `nil` when no bounded snapshot is available.
     @MainActor
     public func boundedScreenTailVT(maxRows: Int, maxBytes: Int) async -> String? {
-        guard maxRows > 0,
-              maxBytes > 0,
-              let surface = liveSurfaceForGhosttyAccess(reason: "boundedScreenTailVT") else {
+        guard maxRows > 0, maxBytes > 0 else {
             return nil
         }
+        if let externalRuntime {
+            return await externalRuntime.readScreenText(.vtTail(maxRows: maxRows, maxBytes: maxBytes))
+        }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "boundedScreenTailVT") else { return nil }
         return await runtimeTeardown.readScreenTailVT(
             TerminalSurfaceRuntimeScreenTailRequest(
                 surface: surface,

@@ -226,8 +226,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
 
         manager.selectWorkspace(second)
         XCTAssertEqual(manager.selectedTabId, second.id)
@@ -250,7 +250,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     func testChildExitOnLastPanelInLastWorkspaceSelectsPreviousWorkspace() {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
 
         manager.selectWorkspace(second)
         XCTAssertEqual(manager.selectedTabId, second.id)
@@ -874,7 +874,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
     func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
         let manager = TabManager()
-        _ = manager.addWorkspace()
+        _ = manager.addLocalWorkspace()
         let initialTabIds = manager.tabs.map(\.id)
         let initialSelectedTabId = manager.selectedTabId
 
@@ -1131,7 +1131,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         }
         workspace.currentDirectory = repoURL.path
 
-        let backgroundWorkspace = manager.addWorkspace(select: false)
+        let backgroundWorkspace = manager.addLocalWorkspace(select: false)
         guard let backgroundPanelId = backgroundWorkspace.focusedPanelId else {
             XCTFail("Expected background workspace with focused panel")
             return
@@ -1339,8 +1339,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
     func testCloseWorkspacesWithConfirmationPromptsOnceAndClosesAcceptedWorkspaces() {
         let manager = TabManager()
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
         manager.setCustomTitle(tabId: second.id, title: "Beta")
         manager.setCustomTitle(tabId: third.id, title: "Gamma")
@@ -1374,7 +1374,7 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
 
     func testCloseWorkspacesWithConfirmationKeepsWorkspacesWhenCancelled() {
         let manager = TabManager()
-        let second = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
         manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
         manager.setCustomTitle(tabId: second.id, title: "Beta")
 
@@ -1418,8 +1418,8 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         }
 
         let manager = TabManager()
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
         manager.setCustomTitle(tabId: second.id, title: "Beta")
         manager.setCustomTitle(tabId: third.id, title: "Gamma")
@@ -1438,8 +1438,8 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
 
     func testCloseCurrentWorkspaceWithConfirmationUsesSidebarMultiSelection() {
         let manager = TabManager()
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
         manager.setCustomTitle(tabId: second.id, title: "Beta")
         manager.setCustomTitle(tabId: third.id, title: "Gamma")
@@ -1479,7 +1479,7 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
     func testCloseCurrentTabSpamWithConfirmationEnabledPromptsOnceAndClosesOneWorkspace() {
         let manager = TabManager()
         while manager.tabs.count < 6 {
-            _ = manager.addWorkspace()
+            _ = manager.addLocalWorkspace()
         }
 
         for workspace in manager.tabs {
@@ -1512,7 +1512,7 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
 
     func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() {
         let manager = TabManager()
-        let workspace = manager.addWorkspace()
+        let workspace = manager.addLocalWorkspace()
         manager.selectWorkspace(workspace)
 
         guard let panelId = workspace.focusedPanelId,
@@ -1547,7 +1547,7 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
     func testCloseCurrentTabSpamWithConfirmationDisabledClosesEveryRequestedWorkspace() {
         let manager = TabManager()
         while manager.tabs.count < 6 {
-            _ = manager.addWorkspace()
+            _ = manager.addLocalWorkspace()
         }
 
         for workspace in manager.tabs {
@@ -1766,7 +1766,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     func testCloseCurrentPanelClosesWorkspaceWhenItOwnsTheLastSurface() {
         let manager = TabManager()
         let firstWorkspace = manager.tabs[0]
-        let secondWorkspace = manager.addWorkspace()
+        let secondWorkspace = manager.addLocalWorkspace()
         manager.selectWorkspace(secondWorkspace)
 
         guard let secondPanelId = secondWorkspace.focusedPanelId else {
@@ -1790,7 +1790,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     func testCloseCurrentPanelPromptsBeforeClosingPinnedWorkspaceLastSurface() {
         let manager = TabManager()
         _ = manager.tabs[0]
-        let pinnedWorkspace = manager.addWorkspace()
+        let pinnedWorkspace = manager.addLocalWorkspace()
         manager.setPinned(pinnedWorkspace, pinned: true)
         manager.selectWorkspace(pinnedWorkspace)
 
@@ -1835,7 +1835,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     func testCloseCurrentPanelClosesPinnedWorkspaceAfterConfirmation() {
         let manager = TabManager()
         let firstWorkspace = manager.tabs[0]
-        let pinnedWorkspace = manager.addWorkspace()
+        let pinnedWorkspace = manager.addLocalWorkspace()
         manager.setPinned(pinnedWorkspace, pinned: true)
         manager.selectWorkspace(pinnedWorkspace)
 
@@ -1892,7 +1892,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     func testClosePanelButtonClosesWorkspaceWhenItOwnsTheLastSurface() {
         let manager = TabManager()
         let firstWorkspace = manager.tabs[0]
-        let secondWorkspace = manager.addWorkspace()
+        let secondWorkspace = manager.addLocalWorkspace()
         manager.selectWorkspace(secondWorkspace)
 
         guard let secondPanelId = secondWorkspace.focusedPanelId else {
@@ -1933,7 +1933,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
 
         let manager = TabManager()
         let firstWorkspace = manager.tabs[0]
-        let secondWorkspace = manager.addWorkspace()
+        let secondWorkspace = manager.addLocalWorkspace()
         manager.selectWorkspace(secondWorkspace)
 
         guard let secondPanelId = secondWorkspace.focusedPanelId else {
@@ -1984,7 +1984,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     func testCloseCurrentPanelIgnoresStaleSurfaceId() {
         let manager = TabManager()
         let firstWorkspace = manager.tabs[0]
-        let secondWorkspace = manager.addWorkspace()
+        let secondWorkspace = manager.addLocalWorkspace()
 
         manager.closePanelWithConfirmation(tabId: secondWorkspace.id, surfaceId: UUID())
 
@@ -2082,7 +2082,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         try withWarnBeforeClosingTabConfig(warnBeforeClosingTab) {
             let manager = TabManager()
             let firstWorkspace = manager.tabs[0]
-            let pinnedWorkspace = manager.addWorkspace()
+            let pinnedWorkspace = manager.addLocalWorkspace()
             manager.setPinned(pinnedWorkspace, pinned: true)
             manager.selectWorkspace(pinnedWorkspace)
 
@@ -2740,7 +2740,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             return
         }
 
-        let targetWorkspace = manager.addWorkspace(select: false)
+        let targetWorkspace = manager.addLocalWorkspace(select: false)
         manager.selectWorkspace(initialWorkspace)
         let initialPaneCount = targetWorkspace.bonsplitController.allPaneIds.count
         let initialPanelCount = targetWorkspace.panels.count
@@ -3698,7 +3698,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(workspace1.closePanel(closedBrowserId, force: true))
         drainMainQueue()
 
-        let workspace2 = manager.addWorkspace()
+        let workspace2 = manager.addLocalWorkspace()
         XCTAssertEqual(manager.selectedTabId, workspace2.id)
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
@@ -3720,7 +3720,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(originalWorkspace.closePanel(closedBrowserId, force: true))
         drainMainQueue()
 
-        let currentWorkspace = manager.addWorkspace()
+        let currentWorkspace = manager.addLocalWorkspace()
         let currentPanelCountBefore = currentWorkspace.panels.count
         manager.closeWorkspace(originalWorkspace, recordHistory: false)
 
@@ -3754,7 +3754,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(workspace1.closePanel(splitBrowserId, force: true))
         drainMainQueue()
 
-        let workspace2 = manager.addWorkspace()
+        let workspace2 = manager.addLocalWorkspace()
         XCTAssertEqual(manager.selectedTabId, workspace2.id)
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
@@ -3778,7 +3778,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         drainMainQueue()
 
         let panelIdsBeforeReopen = Set(workspace1.panels.keys)
-        let workspace2 = manager.addWorkspace()
+        let workspace2 = manager.addLocalWorkspace()
         XCTAssertEqual(manager.selectedTabId, workspace2.id)
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
@@ -3867,11 +3867,11 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
     func testMoveInsertsAtDropIndexInDestination() {
         let source = TabManager()
         let destination = TabManager()
-        let moving = source.addWorkspace()
-        _ = source.addWorkspace()
+        let moving = source.addLocalWorkspace()
+        _ = source.addLocalWorkspace()
 
         let destFirst = destination.tabs[0]
-        let destSecond = destination.addWorkspace()
+        let destSecond = destination.addLocalWorkspace()
 
         guard let detached = source.detachWorkspace(tabId: moving.id) else {
             XCTFail("Expected to detach the dragged workspace from the source window")
@@ -3899,8 +3899,8 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
     func testMoveAppendsWhenNoDropIndex() {
         let source = TabManager()
         let destination = TabManager()
-        let moving = source.addWorkspace()
-        _ = source.addWorkspace()
+        let moving = source.addLocalWorkspace()
+        _ = source.addLocalWorkspace()
 
         let existingDestIds = destination.tabs.map(\.id)
 
@@ -3939,6 +3939,20 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
         XCTAssertTrue(destination.tabs.contains { $0.id == onlyWorkspace.id })
     }
 
+    func testTransactionalLastWorkspaceDetachDoesNotCreateBootstrap() {
+        let source = TabManager()
+        let onlyWorkspace = source.tabs[0]
+
+        let detached = source.detachWorkspace(
+            tabId: onlyWorkspace.id,
+            provisionReplacementIfEmpty: false
+        )
+
+        XCTAssertTrue(detached === onlyWorkspace)
+        XCTAssertTrue(source.tabs.isEmpty)
+        XCTAssertNil(source.selectedTabId)
+    }
+
     func testMovingPinnedWorkspaceLandsAtFrontEvenWhenDroppedBelowUnpinnedRows() {
         let source = TabManager()
         let destination = TabManager()
@@ -3969,7 +3983,7 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
 
         // Build a destination group with an anchor + two members.
         let memberA = destination.tabs[0]
-        let memberB = destination.addWorkspace()
+        let memberB = destination.addLocalWorkspace()
         guard let groupId = destination.createWorkspaceGroup(
             name: "Group",
             childWorkspaceIds: [memberA.id, memberB.id]

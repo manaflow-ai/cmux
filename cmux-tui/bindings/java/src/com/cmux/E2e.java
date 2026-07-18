@@ -1,6 +1,7 @@
 package com.cmux;
 
 import java.time.Duration;
+import java.util.UUID;
 
 public final class E2e {
     public static void main(String[] args) throws Exception {
@@ -13,12 +14,49 @@ public final class E2e {
         try (CmuxClient client = CmuxClient.builder().socketPath(socket).build()) {
             IdentifyResult identify = client.identify();
             check("cmux-tui".equals(identify.app()), "unexpected app " + identify.app());
-            check(identify.protocol() >= 5 && identify.protocol() <= 7, "unsupported protocol " + identify.protocol());
+            check(identify.protocol() >= 5 && identify.protocol() <= 8, "unsupported protocol " + identify.protocol());
+            check(identify.supportsTopologyV8(), "server omitted protocol-v8 topology capabilities");
+            TopologyCursor identifyCursor = identify.topologyCursor().orElseThrow();
+            PingResult ping = client.ping();
+            check(ping.ok(), "ping reported false");
+            check(ping.sessionId().equals(identify.sessionId()), "ping session authority changed");
+            check(ping.daemonInstanceId().equals(identify.daemonInstanceId()), "ping daemon authority changed");
+            check(ping.topologyRevision().equals(identify.topologyRevision()), "ping legacy revision changed");
+            check(
+                ping.canonicalTopologyRevision() == identifyCursor.revision(),
+                "ping canonical revision changed"
+            );
             SurfaceResult created = client.newWorkspace(NewWorkspaceRequest.builder().name(marker).cols(80).rows(24).build());
             client.send(created.surface(), "printf '" + marker + "\\n'\r");
             waitForMarker(client, created.surface(), marker);
             check(client.readScreen(created.surface()).text().contains(marker), "marker missing from read-screen");
             long workspace = findWorkspaceForSurface(client.listWorkspaces(), created.surface());
+            TopologySnapshot snapshot = client.topologySnapshot();
+            check(
+                canonicalContainsSurface(snapshot.topology(), workspace, created.surface()),
+                "canonical topology omitted the new workspace"
+            );
+            TopologySubscribeOutcome outcome = client.subscribeTopology(snapshot.cursor());
+            check(outcome instanceof TopologySubscription, "fresh snapshot required resnapshot");
+            try (TopologySubscription topology = (TopologySubscription) outcome) {
+                client.renameWorkspace(workspace, marker + "-topology");
+                TopologyStreamEvent event = topology.next(Duration.ofSeconds(2));
+                check(event instanceof TopologyDelta, "unexpected topology stream event " + event.event());
+                TopologyDelta delta = (TopologyDelta) event;
+                check(delta.operation() == TopologyOperation.WORKSPACE_RENAMED, "wrong topology operation");
+                check(delta.baseRevision() == snapshot.revision(), "wrong topology base revision");
+                check(delta.revision() == snapshot.revision() + 1, "wrong topology revision");
+            }
+            TopologySubscribeOutcome stale = client.subscribeTopology(new TopologyCursor(
+                UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                snapshot.sessionId(),
+                snapshot.revision()
+            ));
+            check(stale instanceof TopologyResnapshotRequired, "stale daemon cursor unexpectedly subscribed");
+            check(
+                ((TopologyResnapshotRequired) stale).reason() == TopologyResnapshotReason.STALE_DAEMON,
+                "wrong stale cursor reason"
+            );
             client.renameSurface(created.surface(), marker + "-renamed");
             try (CmuxClient.CmuxStream events = client.subscribe()) {
                 client.resizeSurface(created.surface(), 100, 31);
@@ -107,6 +145,24 @@ public final class E2e {
             }
         }
         return -1;
+    }
+
+    private static boolean canonicalContainsSurface(
+        CanonicalTopology topology,
+        long workspace,
+        long surface
+    ) {
+        for (CanonicalWorkspace item : topology.workspaces()) {
+            if (item.id() != workspace) continue;
+            for (CanonicalScreen screen : item.screens()) {
+                for (CanonicalPane pane : screen.panes()) {
+                    for (CanonicalTab tab : pane.tabs()) {
+                        if (tab.id() == surface) return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private static void check(boolean condition, String message) {

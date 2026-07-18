@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, control socket"
 
+[[bin]]
+name = "cmux-launch-gate-helper"
+path = "src/bin/launch_gate_helper.rs"
+
 [lints]
 workspace = true
 
@@ -16,12 +20,15 @@ cmux-tui-cdp.workspace = true
 portable-pty.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 libc.workspace = true
 regex.workspace = true
 tungstenite.workspace = true
 getrandom.workspace = true
+uuid.workspace = true
+fs2.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true

@@ -48,6 +48,9 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// The create was routed to the remote tmux mirror backing the workspace
     /// (`new-window`); the tab arrives asynchronously via `%window-add`.
     case routedToRemote(windowID: UUID?, workspaceID: UUID, typeRawValue: String)
+    /// The create entered the local serialized backend queue. RPC acceptance
+    /// and the projected stable surface are pending.
+    case submittedToBackend(requestID: UUID, windowID: UUID?, workspaceID: UUID, typeRawValue: String)
     /// The surface was created in the right-sidebar Dock. Dock handles are scoped
     /// to the Dock container and are not ordinary workspace surface/pane ids.
     case createdDock(

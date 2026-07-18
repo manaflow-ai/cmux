@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/terminal-backend-acceptance-v1.json",
+  "title": "cmux terminal backend acceptance evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "criteria_sha256",
+    "source",
+    "build",
+    "environment",
+    "protocol",
+    "roles",
+    "processes",
+    "checks"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "criteria_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "clean", "submodules"],
+      "properties": {
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "clean": {"const": true},
+        "submodules": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "bundle_id", "app_path", "info_plist_sha256", "executables", "debug_socket", "backend_socket"],
+      "properties": {
+        "tag": {"type": "string", "minLength": 1},
+        "bundle_id": {"type": "string", "minLength": 1},
+        "app_path": {"type": "string", "minLength": 1},
+        "info_plist_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "executables": {
+          "type": "array",
+          "prefixItems": [
+            {"$ref": "#/$defs/packagedExecutable", "properties": {"role": {"const": "swift-host"}}},
+            {"$ref": "#/$defs/packagedExecutable", "properties": {"role": {"const": "terminal-backend"}}},
+            {"$ref": "#/$defs/packagedExecutable", "properties": {"role": {"const": "renderer-worker"}}}
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "debug_socket": {"type": "string", "minLength": 1},
+        "backend_socket": {"type": "string", "minLength": 1}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os_build", "hardware_model", "captured_at"],
+      "properties": {
+        "os_build": {"type": "string", "minLength": 1},
+        "hardware_model": {"type": "string", "minLength": 1},
+        "captured_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client_range", "daemon_range", "negotiated", "capabilities"],
+      "properties": {
+        "client_range": {"$ref": "#/$defs/versionRange"},
+        "daemon_range": {"$ref": "#/$defs/versionRange"},
+        "negotiated": {"type": "integer", "minimum": 1},
+        "capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acceptance_author", "implementer", "interaction_profiler", "artifact_verifier"],
+      "properties": {
+        "acceptance_author": {"type": "string", "minLength": 1},
+        "implementer": {"type": "string", "minLength": 1},
+        "interaction_profiler": {"type": "string", "minLength": 1},
+        "artifact_verifier": {"type": "string", "minLength": 1}
+      }
+    },
+    "processes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "build_role", "pid", "started_at", "executable_path", "executable_sha256"],
+        "properties": {
+          "role": {"type": "string", "minLength": 1},
+          "build_role": {
+            "type": ["string", "null"],
+            "enum": ["swift-host", "terminal-backend", "renderer-worker", null]
+          },
+          "pid": {"type": "integer", "minimum": 1},
+          "started_at": {"type": "string", "format": "date-time"},
+          "executable_path": {"type": "string", "minLength": 1},
+          "executable_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/check"}
+    }
+  },
+  "$defs": {
+    "packagedExecutable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path", "sha256"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "versionRange": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "integer", "minimum": 1},
+        {"type": "integer", "minimum": 1}
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string"}
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256", "captured_at", "pids"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "captured_at": {"type": "string", "format": "date-time"},
+        "pids": {"type": "array", "items": {"type": "integer", "minimum": 1}, "uniqueItems": true}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "priority", "status", "commands", "assertions", "artifacts"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Z]+-[0-9]+$"},
+        "priority": {"enum": ["P0", "P1"]},
+        "status": {"enum": ["pass", "fail"]},
+        "commands": {"type": "array", "items": {"$ref": "#/$defs/command"}},
+        "assertions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}}
+      }
+    }
+  }
+}

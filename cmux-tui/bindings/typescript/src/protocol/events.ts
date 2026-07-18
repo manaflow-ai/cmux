@@ -9,6 +9,7 @@ import type {
 import type { ClientTransport } from "./commands.js";
 import type { RenderDeltaEvent, RenderStateEvent } from "./render.js";
 import type { Pane, Screen, Tab, Workspace } from "./tree.js";
+import type { TopologyDelta, TopologyResnapshotRequiredEvent } from "./topology.js";
 
 export interface TreeChangedEvent { event: "tree-changed" }
 export interface LayoutChangedEvent { event: "layout-changed"; screen: Id }
@@ -46,6 +47,12 @@ export interface NotificationEvent {
 }
 
 export interface ConfigReloadRequestedEvent { event: "config-reload-requested" }
+export interface RendererConfigInvalidatedEvent {
+  event: "renderer-config-invalidated";
+  revision: number;
+  reason: "default-colors-changed";
+  default_colors: TerminalColors;
+}
 export interface WindowTitleRequestedEvent { event: "window-title-requested"; title: string }
 export interface ClientAttachedEvent {
   event: "client-attached";
@@ -164,6 +171,8 @@ export interface TerminalColors {
   cursor: ColorHex | null;
   selection_bg: ColorHex | null;
   selection_fg: ColorHex | null;
+  /** Sparse OSC 4 overrides keyed by decimal palette index. */
+  palette?: Record<string, ColorHex>;
   /** Protocol v6 additive extension. Older servers omit this field. */
   cursor_style?: "block" | "underline" | "bar" | null;
   /** Protocol v6 additive extension. Older servers omit this field. */
@@ -274,6 +283,7 @@ export type KnownSubscribeEvent =
   | BellEvent
   | NotificationEvent
   | ConfigReloadRequestedEvent
+  | RendererConfigInvalidatedEvent
   | WindowTitleRequestedEvent
   | ClientAttachedEvent
   | ClientChangedEvent
@@ -302,7 +312,10 @@ export type KnownAttachEvent =
 export type AttachEvent = KnownAttachEvent | UnknownEvent;
 
 /** Every known implemented subscribe or attach event. */
-export type KnownCmuxEvent = KnownSubscribeEvent | KnownAttachEvent | AgentStateChangedEvent | ProposedNotificationEvent;
+export type KnownCmuxEvent = KnownSubscribeEvent | KnownAttachEvent | TopologyEvent | AgentStateChangedEvent | ProposedNotificationEvent;
+
+/** Events yielded only by `subscribeTopology()`. */
+export type TopologyEvent = TopologyDelta | TopologyResnapshotRequiredEvent;
 
 /** Every cmux event, discriminated by `event`, with an unknown-event fallback. */
 export type CmuxEvent = KnownCmuxEvent | UnknownEvent;

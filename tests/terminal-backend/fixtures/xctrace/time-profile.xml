@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<trace-query-result>
+  <node xpath="fixture/time-profile">
+    <schema name="time-profile">
+      <col><mnemonic>process</mnemonic></col>
+      <col><mnemonic>stack</mnemonic></col>
+    </schema>
+    <row>
+      <process id="1" fmt="cmux DEV trace (1001)"><pid id="2">1001</pid></process>
+      <tagged-backtrace id="3"><backtrace><frame name="ghostty.font.shape.Shaper.shape"/></backtrace></tagged-backtrace>
+    </row>
+    <row>
+      <process ref="1"/>
+      <tagged-backtrace><backtrace><frame name="SidebarWorkspaceRow.body"/></backtrace></tagged-backtrace>
+    </row>
+    <row>
+      <process id="4" fmt="cmux-terminal-renderer (1003)"><pid id="5">1003</pid></process>
+      <tagged-backtrace id="6"><backtrace><frame name="ghostty.renderer.generic.drawFrame"/></backtrace></tagged-backtrace>
+    </row>
+    <row><process ref="4"/><tagged-backtrace ref="6"/></row>
+  </node>
+</trace-query-result>

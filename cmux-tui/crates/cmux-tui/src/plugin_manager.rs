@@ -453,11 +453,13 @@ fn report_reload_config(options: &CliOptions) {
 }
 
 fn send_reload_config(socket: &Path) -> anyhow::Result<()> {
-    let mut stream = transport::connect(socket)?;
+    let stream = transport::connect(socket)?;
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-    stream.write_all(br#"{"id":1,"cmd":"reload-config"}"#)?;
-    stream.write_all(b"\n")?;
     let mut reader = BufReader::new(stream);
+    let mut writer = reader.get_ref().try_clone_box()?;
+    crate::client_registration::register_trusted_automation(&mut writer, &mut reader)?;
+    writer.write_all(br#"{"id":1,"cmd":"reload-config"}"#)?;
+    writer.write_all(b"\n")?;
     loop {
         let mut line = String::new();
         let bytes = reader.read_line(&mut line)?;

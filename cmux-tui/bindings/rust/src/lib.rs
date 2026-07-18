@@ -4,8 +4,68 @@ use std::fmt;
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Duration;
+
+pub const CANONICAL_TOPOLOGY_SNAPSHOT_CAPABILITY: &str = "canonical-topology-snapshot-v1";
+pub const STABLE_ENTITY_UUID_CAPABILITY: &str = "stable-entity-uuid-v1";
+pub const TOPOLOGY_RESUME_CAPABILITY: &str = "topology-resume-v1";
+pub const TOPOLOGY_V8_CAPABILITIES: [&str; 3] = [
+    CANONICAL_TOPOLOGY_SNAPSHOT_CAPABILITY,
+    STABLE_ENTITY_UUID_CAPABILITY,
+    TOPOLOGY_RESUME_CAPABILITY,
+];
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Uuid(String);
+
+impl Uuid {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for Uuid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl FromStr for Uuid {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        let bytes = value.as_bytes();
+        let valid = bytes.len() == 36
+            && bytes.iter().enumerate().all(|(index, byte)| match index {
+                8 | 13 | 18 | 23 => *byte == b'-',
+                _ => byte.is_ascii_digit() || (b'a'..=b'f').contains(byte),
+            });
+        valid
+            .then(|| Self(value.to_string()))
+            .ok_or_else(|| format!("invalid lowercase UUID {value:?}"))
+    }
+}
+
+impl Serialize for Uuid {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Uuid {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        value.parse().map_err(serde::de::Error::custom)
+    }
+}
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
 
@@ -68,8 +128,58 @@ pub fn env_socket_path() -> Option<PathBuf> {
 }
 
 pub fn default_socket_path(session: &str) -> PathBuf {
-    let base = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join(format!("cmux-tui-{}", current_uid_component())).join(format!("{session}.sock"))
+    let runtime_base = default_runtime_base();
+    default_socket_path_from(
+        &runtime_base,
+        &current_uid_component(),
+        session,
+        if cfg!(target_os = "macos") { Some(103) } else { None },
+    )
+}
+
+fn default_socket_path_from(
+    runtime_base: &Path,
+    uid: &str,
+    session: &str,
+    max_bytes: Option<usize>,
+) -> PathBuf {
+    let candidate = runtime_base.join(format!("cmux-tui-{uid}")).join(format!("{session}.sock"));
+    if max_bytes.is_some_and(|limit| socket_path_bytes(&candidate) > limit) {
+        PathBuf::from("/tmp").join(format!("cmux-tui-{uid}")).join(format!("{session}.sock"))
+    } else {
+        candidate
+    }
+}
+
+fn socket_path_bytes(path: &Path) -> usize {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        path.as_os_str().as_bytes().len()
+    }
+    #[cfg(not(unix))]
+    {
+        path.as_os_str().to_string_lossy().len()
+    }
+}
+
+#[cfg(not(windows))]
+fn default_runtime_base() -> PathBuf {
+    nonempty_env_path("XDG_RUNTIME_DIR")
+        .or_else(|| nonempty_env_path("TMPDIR"))
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+}
+
+#[cfg(windows)]
+fn default_runtime_base() -> PathBuf {
+    nonempty_env_path("TEMP")
+        .or_else(|| nonempty_env_path("TMP"))
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+fn nonempty_env_path(name: &str) -> Option<PathBuf> {
+    let value = std::env::var_os(name)?;
+    (!value.is_empty()).then(|| PathBuf::from(value))
 }
 
 #[cfg(unix)]
@@ -79,7 +189,7 @@ fn current_uid_component() -> String {
 
 #[cfg(not(unix))]
 fn current_uid_component() -> String {
-    std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "0".to_string())
+    std::env::var("USERNAME").unwrap_or_else(|_| "user".to_string())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -87,8 +197,243 @@ pub struct IdentifyResult {
     pub app: String,
     pub version: String,
     pub protocol: u32,
+    #[serde(default)]
+    pub protocol_min: Option<u32>,
+    #[serde(default)]
+    pub protocol_max: Option<u32>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
     pub session: String,
+    #[serde(default)]
+    pub session_id: Option<Uuid>,
+    #[serde(default)]
+    pub daemon_instance_id: Option<Uuid>,
+    #[serde(default)]
+    pub topology_revision: Option<u64>,
+    #[serde(default)]
+    pub canonical_topology_revision: Option<u64>,
     pub pid: u32,
+}
+
+impl IdentifyResult {
+    pub fn supports_topology_v8(&self) -> bool {
+        self.protocol >= 8
+            && TOPOLOGY_V8_CAPABILITIES
+                .iter()
+                .all(|required| self.capabilities.iter().any(|actual| actual == required))
+    }
+
+    pub fn topology_cursor(&self) -> Option<TopologyCursor> {
+        Some(TopologyCursor {
+            daemon_instance_id: self.daemon_instance_id.clone()?,
+            session_id: self.session_id.clone()?,
+            revision: self.canonical_topology_revision?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PingResult {
+    pub ok: bool,
+    pub version: String,
+    pub protocol: u32,
+    #[serde(default)]
+    pub protocol_min: Option<u32>,
+    #[serde(default)]
+    pub protocol_max: Option<u32>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub session: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<Uuid>,
+    #[serde(default)]
+    pub daemon_instance_id: Option<Uuid>,
+    #[serde(default)]
+    pub topology_revision: Option<u64>,
+    #[serde(default)]
+    pub canonical_topology_revision: Option<u64>,
+    #[serde(default)]
+    pub pid: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopologyAuthority {
+    pub daemon_instance_id: Uuid,
+    pub session_id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopologyCursor {
+    pub daemon_instance_id: Uuid,
+    pub session_id: Uuid,
+    pub revision: u64,
+}
+
+impl TopologyCursor {
+    pub fn authority(&self) -> TopologyAuthority {
+        TopologyAuthority {
+            daemon_instance_id: self.daemon_instance_id.clone(),
+            session_id: self.session_id.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CanonicalTopology {
+    pub workspaces: Vec<CanonicalWorkspace>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CanonicalWorkspace {
+    pub id: u64,
+    pub uuid: Uuid,
+    pub name: String,
+    pub screens: Vec<CanonicalScreen>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CanonicalScreen {
+    pub id: u64,
+    pub uuid: Uuid,
+    pub name: Option<String>,
+    pub layout: CanonicalLayout,
+    pub panes: Vec<CanonicalPane>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum CanonicalLayout {
+    #[serde(rename = "leaf")]
+    Leaf { pane: u64, pane_uuid: Uuid },
+    #[serde(rename = "split")]
+    Split { dir: String, ratio: f32, a: Box<CanonicalLayout>, b: Box<CanonicalLayout> },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CanonicalPane {
+    pub id: u64,
+    pub uuid: Uuid,
+    pub name: Option<String>,
+    pub tabs: Vec<CanonicalTab>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CanonicalTab {
+    pub id: u64,
+    pub uuid: Uuid,
+    pub kind: CanonicalTabKind,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CanonicalTabKind {
+    Pty,
+    Browser,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TopologySnapshot {
+    pub daemon_instance_id: Uuid,
+    pub session_id: Uuid,
+    pub revision: u64,
+    pub topology: CanonicalTopology,
+}
+
+impl TopologySnapshot {
+    pub fn cursor(&self) -> TopologyCursor {
+        TopologyCursor {
+            daemon_instance_id: self.daemon_instance_id.clone(),
+            session_id: self.session_id.clone(),
+            revision: self.revision,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct TopologyTargets {
+    #[serde(default)]
+    pub workspaces: Vec<Uuid>,
+    #[serde(default)]
+    pub screens: Vec<Uuid>,
+    #[serde(default)]
+    pub panes: Vec<Uuid>,
+    #[serde(default)]
+    pub surfaces: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TopologyOperation {
+    WorkspaceCreated,
+    ScreenCreated,
+    PaneSplit,
+    SurfaceAttached,
+    SurfaceClosed,
+    PaneClosed,
+    ScreenClosed,
+    WorkspaceClosed,
+    WorkspaceRenamed,
+    ScreenRenamed,
+    PaneRenamed,
+    SurfaceRenamed,
+    SplitRatioChanged,
+    PanesSwapped,
+    LayoutApplied,
+    TabMoved,
+    WorkspaceMoved,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TopologyDelta {
+    pub daemon_instance_id: Uuid,
+    pub session_id: Uuid,
+    pub base_revision: u64,
+    pub revision: u64,
+    pub operation: TopologyOperation,
+    pub targets: TopologyTargets,
+    pub replacement: CanonicalTopology,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TopologyResnapshotReason {
+    StaleDaemon,
+    StaleSession,
+    RevisionAhead,
+    HistoryGap,
+    ReplayTooLarge,
+    SlowConsumer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopologyResnapshotRequired {
+    pub daemon_instance_id: Uuid,
+    pub session_id: Uuid,
+    #[serde(default)]
+    pub current_revision: Option<u64>,
+    pub reason: TopologyResnapshotReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopologySubscribed {
+    pub daemon_instance_id: Uuid,
+    pub session_id: Uuid,
+    pub from_revision: u64,
+    pub current_revision: u64,
+    pub replayed: usize,
+}
+
+pub enum TopologySubscribeOutcome {
+    Subscribed { info: TopologySubscribed, stream: TopologyStream },
+    ResnapshotRequired(TopologyResnapshotRequired),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TopologyStreamEvent {
+    Delta(TopologyDelta),
+    ResnapshotRequired(TopologyResnapshotRequired),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -99,6 +444,61 @@ pub struct SurfaceResult {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ReadScreenResult {
     pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ProcessInfoResult {
+    pub pid: Option<u32>,
+    pub command: Option<Vec<String>>,
+    pub cwd: Option<String>,
+    pub tty: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct EnsureTerminalEnvironment {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct EnsureTerminalOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub argv: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<EnsureTerminalEnvironment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initial_input: Option<String>,
+    pub wait_after_command: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct EnsureTerminalResult {
+    pub created: bool,
+    pub workspace: u64,
+    pub workspace_uuid: Uuid,
+    pub screen: u64,
+    pub screen_uuid: Uuid,
+    pub pane: u64,
+    pub pane_uuid: Uuid,
+    pub surface: u64,
+    pub surface_uuid: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ReparentTerminalResult {
+    pub moved: bool,
+    pub workspace: u64,
+    pub workspace_uuid: Uuid,
+    pub screen: u64,
+    pub screen_uuid: Uuid,
+    pub pane: u64,
+    pub pane_uuid: Uuid,
+    pub surface: u64,
+    pub surface_uuid: Uuid,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -264,6 +664,8 @@ pub enum Event {
     Resized(ResizedEvent),
     Detached(SurfaceEvent),
     Overflow(OverflowEvent),
+    TopologyDelta(TopologyDelta),
+    TopologyResnapshotRequired(TopologyResnapshotRequired),
     Unknown(Value),
 }
 
@@ -272,12 +674,13 @@ pub struct CmuxClient {
     conn: JsonLineConnection,
     next_id: u64,
     protocol: Option<u32>,
+    identity: Option<IdentifyResult>,
 }
 
 impl CmuxClient {
     pub fn connect(config: ClientConfig) -> Result<Self> {
         let conn = JsonLineConnection::connect(&config.socket_path, config.timeout)?;
-        Ok(Self { config, conn, next_id: 1, protocol: None })
+        Ok(Self { config, conn, next_id: 1, protocol: None, identity: None })
     }
 
     pub fn send_raw(&mut self, mut request: Map<String, Value>) -> Result<Value> {
@@ -327,7 +730,102 @@ impl CmuxClient {
     pub fn identify(&mut self) -> Result<IdentifyResult> {
         let result: IdentifyResult = self.request("identify", Map::new())?;
         self.protocol = Some(result.protocol);
+        self.identity = Some(result.clone());
         Ok(result)
+    }
+
+    pub fn ping(&mut self) -> Result<PingResult> {
+        self.request("ping", Map::new())
+    }
+
+    pub fn topology_snapshot(&mut self) -> Result<TopologySnapshot> {
+        self.require_topology_v8()?;
+        self.request("topology-snapshot", Map::new())
+    }
+
+    pub fn subscribe_topology(
+        &mut self,
+        cursor: TopologyCursor,
+    ) -> Result<TopologySubscribeOutcome> {
+        self.require_topology_v8()?;
+        let mut params = Map::new();
+        params.insert(
+            "daemon_instance_id".to_string(),
+            Value::String(cursor.daemon_instance_id.to_string()),
+        );
+        params.insert("session_id".to_string(), Value::String(cursor.session_id.to_string()));
+        params.insert("revision".to_string(), Value::from(cursor.revision));
+        let id = self.next_id();
+        params.insert("id".to_string(), Value::from(id));
+        params.insert("cmd".to_string(), Value::from("subscribe-topology"));
+        let (data, mut stream) = CmuxStream::open_with_response(
+            &self.config.socket_path,
+            self.config.timeout,
+            &Value::Object(params),
+        )?;
+        match data.get("status").and_then(Value::as_str) {
+            Some("subscribed") => {
+                let info = serde_json::from_value::<TopologySubscribed>(data)
+                    .map_err(|error| CmuxError::Decode(error.to_string()))?;
+                if info.daemon_instance_id != cursor.daemon_instance_id
+                    || info.session_id != cursor.session_id
+                    || info.from_revision != cursor.revision
+                {
+                    stream.close();
+                    return Ok(TopologySubscribeOutcome::ResnapshotRequired(
+                        topology_fence_failure(
+                            cursor,
+                            info.daemon_instance_id,
+                            info.session_id,
+                            info.current_revision,
+                        ),
+                    ));
+                }
+                Ok(TopologySubscribeOutcome::Subscribed {
+                    info,
+                    stream: TopologyStream { stream, cursor },
+                })
+            }
+            Some("resnapshot-required") => {
+                stream.close();
+                let required = serde_json::from_value::<TopologyResnapshotRequired>(data)
+                    .map_err(|error| CmuxError::Decode(error.to_string()))?;
+                Ok(TopologySubscribeOutcome::ResnapshotRequired(required))
+            }
+            status => {
+                stream.close();
+                Err(CmuxError::Decode(format!(
+                    "invalid subscribe-topology status {}",
+                    status.unwrap_or("<missing>")
+                )))
+            }
+        }
+    }
+
+    fn require_topology_v8(&mut self) -> Result<IdentifyResult> {
+        let identity = match self.identity.clone() {
+            Some(identity) => identity,
+            None => self.identify()?,
+        };
+        if !identity.supports_topology_v8() {
+            let missing = TOPOLOGY_V8_CAPABILITIES
+                .iter()
+                .filter(|required| !identity.capabilities.iter().any(|actual| actual == **required))
+                .copied()
+                .collect::<Vec<_>>();
+            return Err(CmuxError::ProtocolVersion(format!(
+                "canonical topology requires protocol 8 and capabilities {}; server protocol={} missing={}",
+                TOPOLOGY_V8_CAPABILITIES.join(","),
+                identity.protocol,
+                missing.join(",")
+            )));
+        }
+        if identity.topology_cursor().is_none() {
+            return Err(CmuxError::ProtocolVersion(
+                "canonical topology identify response omitted its authority cursor".to_string(),
+            ));
+        }
+        Ok(identity)
     }
 
     pub fn list_workspaces(&mut self) -> Result<Tree> {
@@ -344,6 +842,48 @@ impl CmuxClient {
 
     pub fn read_screen(&mut self, surface: u64) -> Result<ReadScreenResult> {
         self.request("read-screen", surface_params(surface))
+    }
+
+    pub fn process_info(&mut self, surface: u64) -> Result<ProcessInfoResult> {
+        self.request("process-info", surface_params(surface))
+    }
+
+    pub fn ensure_terminal(
+        &mut self,
+        workspace_uuid: &Uuid,
+        surface_uuid: &Uuid,
+        cols: u16,
+        rows: u16,
+        options: &EnsureTerminalOptions,
+    ) -> Result<EnsureTerminalResult> {
+        if options.argv.is_some() && options.command.is_some() {
+            return Err(CmuxError::Decode(
+                "ensure-terminal argv and command are mutually exclusive".to_string(),
+            ));
+        }
+        let mut params = serde_json::to_value(options)
+            .map_err(|error| CmuxError::Decode(error.to_string()))?
+            .as_object()
+            .cloned()
+            .ok_or_else(|| {
+                CmuxError::Decode("ensure-terminal options must encode as an object".to_string())
+            })?;
+        params.insert("workspace_uuid".to_string(), Value::from(workspace_uuid.as_str()));
+        params.insert("surface_uuid".to_string(), Value::from(surface_uuid.as_str()));
+        params.insert("cols".to_string(), Value::from(cols));
+        params.insert("rows".to_string(), Value::from(rows));
+        self.request("ensure-terminal", params)
+    }
+
+    pub fn reparent_terminal(
+        &mut self,
+        surface_uuid: &Uuid,
+        workspace_uuid: &Uuid,
+    ) -> Result<ReparentTerminalResult> {
+        let mut params = Map::new();
+        params.insert("surface_uuid".to_string(), Value::from(surface_uuid.as_str()));
+        params.insert("workspace_uuid".to_string(), Value::from(workspace_uuid.as_str()));
+        self.request("reparent-terminal", params)
     }
 
     pub fn vt_state(&mut self, surface: u64) -> Result<VtStateResult> {
@@ -563,7 +1103,7 @@ impl CmuxClient {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 7 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
+        if protocol > 8 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));
@@ -593,6 +1133,14 @@ pub struct CmuxStream {
 
 impl CmuxStream {
     fn open(socket_path: &PathBuf, timeout: Duration, request: &Value) -> Result<Self> {
+        Self::open_with_response(socket_path, timeout, request).map(|(_, stream)| stream)
+    }
+
+    fn open_with_response(
+        socket_path: &PathBuf,
+        timeout: Duration,
+        request: &Value,
+    ) -> Result<(Value, Self)> {
         let mut conn = JsonLineConnection::connect(socket_path, timeout)?;
         let request_id = request.get("id").cloned();
         conn.send(request)?;
@@ -607,7 +1155,8 @@ impl CmuxStream {
                 continue;
             }
             if response.get("ok") == Some(&Value::Bool(true)) {
-                return Ok(Self { conn, buffered, finished: false });
+                let data = response.get("data").cloned().unwrap_or(Value::Object(Map::new()));
+                return Ok((data, Self { conn, buffered, finished: false }));
             }
             return Err(CmuxError::Command {
                 message: response
@@ -656,12 +1205,84 @@ impl CmuxStream {
         Ok(self.finish_terminal(event))
     }
 
+    pub fn close(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        let _ = self.conn.writer.shutdown(Shutdown::Both);
+    }
+
     fn finish_terminal(&mut self, event: Event) -> Event {
-        if matches!(&event, Event::Detached(_) | Event::Overflow(_)) {
+        if matches!(
+            &event,
+            Event::Detached(_) | Event::Overflow(_) | Event::TopologyResnapshotRequired(_)
+        ) {
             self.finished = true;
             let _ = self.conn.writer.shutdown(Shutdown::Both);
         }
         event
+    }
+}
+
+pub struct TopologyStream {
+    stream: CmuxStream,
+    cursor: TopologyCursor,
+}
+
+impl TopologyStream {
+    pub fn cursor(&self) -> TopologyCursor {
+        self.cursor.clone()
+    }
+
+    pub fn recv(&mut self) -> Result<TopologyStreamEvent> {
+        let event = self.stream.recv()?;
+        self.accept(event)
+    }
+
+    pub fn recv_timeout(&mut self, timeout: Duration) -> Result<TopologyStreamEvent> {
+        let event = self.stream.recv_timeout(timeout)?;
+        self.accept(event)
+    }
+
+    pub fn close(&mut self) {
+        self.stream.close();
+    }
+
+    fn accept(&mut self, event: Event) -> Result<TopologyStreamEvent> {
+        match event {
+            Event::TopologyDelta(delta) => {
+                if let Some(required) = validate_topology_delta(&self.cursor, &delta) {
+                    self.stream.close();
+                    return Ok(TopologyStreamEvent::ResnapshotRequired(required));
+                }
+                self.cursor.revision = delta.revision;
+                Ok(TopologyStreamEvent::Delta(delta))
+            }
+            Event::TopologyResnapshotRequired(required) => {
+                self.stream.close();
+                Ok(TopologyStreamEvent::ResnapshotRequired(required))
+            }
+            Event::Unknown(value) => {
+                self.stream.close();
+                Err(CmuxError::Decode(format!(
+                    "unexpected topology stream event {}",
+                    value.get("event").and_then(Value::as_str).unwrap_or("<missing>")
+                )))
+            }
+            other => {
+                self.stream.close();
+                Err(CmuxError::Decode(format!("unexpected topology stream event {other:?}")))
+            }
+        }
+    }
+}
+
+impl Iterator for TopologyStream {
+    type Item = Result<TopologyStreamEvent>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (!self.stream.finished).then(|| self.recv())
     }
 }
 
@@ -770,6 +1391,10 @@ fn parse_event(value: Value) -> Event {
         "resized" => parse_typed(value).map_or_else(Event::Unknown, Event::Resized),
         "detached" => parse_typed(value).map_or_else(Event::Unknown, Event::Detached),
         "overflow" => parse_typed(value).map_or_else(Event::Unknown, Event::Overflow),
+        "topology-delta" => parse_typed(value).map_or_else(Event::Unknown, Event::TopologyDelta),
+        "topology-resnapshot-required" => {
+            parse_typed(value).map_or_else(Event::Unknown, Event::TopologyResnapshotRequired)
+        }
         _ => Event::Unknown(value),
     }
 }
@@ -793,9 +1418,131 @@ fn insert_opt<T: Serialize>(params: &mut Map<String, Value>, key: &str, value: O
     }
 }
 
+fn topology_fence_failure(
+    cursor: TopologyCursor,
+    daemon_instance_id: Uuid,
+    session_id: Uuid,
+    current_revision: u64,
+) -> TopologyResnapshotRequired {
+    let reason = if daemon_instance_id != cursor.daemon_instance_id {
+        TopologyResnapshotReason::StaleDaemon
+    } else if session_id != cursor.session_id {
+        TopologyResnapshotReason::StaleSession
+    } else {
+        TopologyResnapshotReason::HistoryGap
+    };
+    TopologyResnapshotRequired {
+        daemon_instance_id,
+        session_id,
+        current_revision: Some(current_revision),
+        reason,
+    }
+}
+
+fn validate_topology_delta(
+    cursor: &TopologyCursor,
+    delta: &TopologyDelta,
+) -> Option<TopologyResnapshotRequired> {
+    if delta.daemon_instance_id != cursor.daemon_instance_id
+        || delta.session_id != cursor.session_id
+        || delta.base_revision != cursor.revision
+        || delta.base_revision.checked_add(1) != Some(delta.revision)
+    {
+        Some(topology_fence_failure(
+            cursor.clone(),
+            delta.daemon_instance_id.clone(),
+            delta.session_id.clone(),
+            delta.revision,
+        ))
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn topology_vectors() -> Value {
+        serde_json::from_str(include_str!("../../conformance/topology-v8.json")).unwrap()
+    }
+
+    #[test]
+    fn protocol_v8_shared_vectors_decode_typed_uuid_topology_and_recovery() {
+        let vectors = topology_vectors();
+        let identity: IdentifyResult = serde_json::from_value(vectors["identify"].clone()).unwrap();
+        assert_eq!(identity.topology_revision, Some(47));
+        assert_eq!(identity.topology_cursor().unwrap().revision, 41);
+        let ping: PingResult = serde_json::from_value(vectors["ping"].clone()).unwrap();
+        assert!(ping.ok);
+        assert_eq!(ping.canonical_topology_revision, Some(41));
+        assert_eq!(ping.topology_revision, Some(47));
+        let snapshot: TopologySnapshot =
+            serde_json::from_value(vectors["snapshot"].clone()).unwrap();
+        assert_eq!(snapshot.revision, 41);
+        assert_eq!(snapshot.topology.workspaces[0].screens[0].panes[0].tabs[0].id, 4);
+
+        let delta = match parse_event(vectors["delta"].clone()) {
+            Event::TopologyDelta(delta) => delta,
+            event => panic!("unexpected event {event:?}"),
+        };
+        assert_eq!(delta.operation, TopologyOperation::WorkspaceRenamed);
+        assert!(validate_topology_delta(&snapshot.cursor(), &delta).is_none());
+
+        let reasons = vectors["resnapshot_results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| {
+                serde_json::from_value::<TopologyResnapshotRequired>(value.clone()).unwrap().reason
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            reasons,
+            vec![
+                TopologyResnapshotReason::StaleDaemon,
+                TopologyResnapshotReason::StaleSession,
+                TopologyResnapshotReason::RevisionAhead,
+                TopologyResnapshotReason::HistoryGap,
+                TopologyResnapshotReason::ReplayTooLarge,
+            ]
+        );
+        assert!(matches!(
+            parse_event(vectors["slow_consumer_event"].clone()),
+            Event::TopologyResnapshotRequired(TopologyResnapshotRequired {
+                current_revision: None,
+                reason: TopologyResnapshotReason::SlowConsumer,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn topology_delta_fence_synthesizes_explicit_resnapshot() {
+        let vectors = topology_vectors();
+        let snapshot: TopologySnapshot =
+            serde_json::from_value(vectors["snapshot"].clone()).unwrap();
+        let mut delta: TopologyDelta = serde_json::from_value(vectors["delta"].clone()).unwrap();
+        delta.base_revision += 1;
+        let required = validate_topology_delta(&snapshot.cursor(), &delta).unwrap();
+        assert_eq!(required.reason, TopologyResnapshotReason::HistoryGap);
+    }
+
+    #[test]
+    fn darwin_default_socket_path_accepts_103_bytes_and_falls_back_at_104() {
+        let base = PathBuf::from("/tmp/runtime");
+        let uid = "42";
+        let empty_session = base.join("cmux-tui-42").join(".sock");
+        let session = "s".repeat(103 - socket_path_bytes(&empty_session));
+
+        let accepted = default_socket_path_from(&base, uid, &session, Some(103));
+        assert_eq!(socket_path_bytes(&accepted), 103);
+        assert!(accepted.starts_with(&base));
+
+        let fallback = default_socket_path_from(&base, uid, &format!("{session}s"), Some(103));
+        assert!(fallback.starts_with("/tmp/cmux-tui-42"));
+        assert!(!fallback.starts_with(&base));
+    }
 
     #[test]
     fn title_changed_decodes_authoritative_title() {
@@ -870,6 +1617,78 @@ mod tests {
             serde_json::from_value(serde_json::json!({"accepted": true, "reservation_id": 41}))
                 .unwrap();
         assert_eq!(reserved.reservation_id, Some(41));
+    }
+
+    #[test]
+    fn process_info_decodes_argv_and_canonical_tty() {
+        let result: ProcessInfoResult = serde_json::from_value(serde_json::json!({
+            "pid": 42,
+            "command": ["/bin/zsh", "-l"],
+            "cwd": "/tmp",
+            "tty": "/dev/ttys004",
+        }))
+        .unwrap();
+        assert_eq!(result.pid, Some(42));
+        assert_eq!(result.command, Some(vec!["/bin/zsh".into(), "-l".into()]));
+        assert_eq!(result.cwd.as_deref(), Some("/tmp"));
+        assert_eq!(result.tty.as_deref(), Some("/dev/ttys004"));
+        assert!(
+            serde_json::from_value::<ProcessInfoResult>(serde_json::json!({
+                "pid": 42,
+                "command": "/bin/zsh -l",
+                "cwd": null,
+                "tty": null,
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn ensure_terminal_wire_includes_wait_policy_and_decodes_stable_placement() {
+        let options = EnsureTerminalOptions {
+            argv: Some(vec!["/bin/zsh".into(), "-l".into()]),
+            env: vec![EnsureTerminalEnvironment { name: "CMUX_TEST".into(), value: "1".into() }],
+            wait_after_command: true,
+            ..EnsureTerminalOptions::default()
+        };
+        let encoded = serde_json::to_value(&options).unwrap();
+        assert_eq!(encoded["wait_after_command"], true);
+        assert_eq!(encoded["env"][0]["name"], "CMUX_TEST");
+
+        let result: EnsureTerminalResult = serde_json::from_value(serde_json::json!({
+            "created": true,
+            "workspace": 1,
+            "workspace_uuid": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            "screen": 2,
+            "screen_uuid": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            "pane": 3,
+            "pane_uuid": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            "surface": 4,
+            "surface_uuid": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        }))
+        .unwrap();
+        assert!(result.created);
+        assert_eq!(result.surface, 4);
+        assert_eq!(result.surface_uuid.as_str(), "ffffffff-ffff-4fff-8fff-ffffffffffff");
+    }
+
+    #[test]
+    fn reparent_terminal_decodes_stable_placement() {
+        let result: ReparentTerminalResult = serde_json::from_value(serde_json::json!({
+            "moved": true,
+            "workspace": 1,
+            "workspace_uuid": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            "screen": 2,
+            "screen_uuid": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            "pane": 3,
+            "pane_uuid": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            "surface": 4,
+            "surface_uuid": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        }))
+        .unwrap();
+        assert!(result.moved);
+        assert_eq!(result.surface, 4);
+        assert_eq!(result.surface_uuid.as_str(), "ffffffff-ffff-4fff-8fff-ffffffffffff");
     }
 
     #[test]

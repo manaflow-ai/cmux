@@ -1,5 +1,13 @@
 import { decodeBase64, encodeBase64 } from "./base64.js";
 import {
+  TOPOLOGY_V8_CAPABILITIES,
+  parseSubscribeTopologyResult,
+  parseTopologyCursor,
+  parseTopologySnapshot,
+  parseTopologyStreamEvent,
+  validateTopologyDelta,
+} from "./protocol/topology.js";
+import {
   CmuxCommandError,
   CmuxConnectionError,
   CmuxError,
@@ -26,6 +34,7 @@ import type {
   IdRef,
   IdsResult,
   IdentifyResult,
+  EnsureTerminalResult,
   Json,
   JsonObject,
   ListAgentsResult,
@@ -36,6 +45,7 @@ import type {
   PaneNeighborResult,
   PingResult,
   ProcessInfoResult,
+  ReparentTerminalResult,
   ReadScrollbackResult,
   ReadScreenResult,
   ReloadConfigResult,
@@ -56,6 +66,11 @@ import type {
   AgentState,
   DeclarativeLayout,
   FocusDirectionResult,
+  TopologyCursor,
+  TopologyResnapshotRequiredResult,
+  TopologySnapshot,
+  TopologyStreamEvent,
+  TopologySubscribedResult,
 } from "./protocol/index.js";
 import type { Transport, Unsubscribe } from "./transport.js";
 
@@ -92,6 +107,13 @@ export interface SendOptions {
 }
 export interface SubscribeOptions { treeEvents?: "coarse" | "deltas" }
 export interface AttachSurfaceOptions { mode?: "bytes" | "render" }
+export interface TopologySubscription {
+  status: "subscribed";
+  info: TopologySubscribedResult;
+  stream: CmuxStream<TopologyStreamEvent>;
+  cursor(): TopologyCursor;
+}
+export type TopologySubscribeOutcome = TopologySubscription | TopologyResnapshotRequiredResult;
 
 interface PendingResponse {
   resolve: (response: CmuxResponse<unknown>) => void;
@@ -206,6 +228,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
   private closed = false;
   private endsAfterDrain = false;
   private terminalError: Error | null = null;
+  private response: unknown;
 
   constructor(
     private readonly timeoutMs: number,
@@ -302,6 +325,11 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
     return this.terminalError;
   }
 
+  /** The successful command response data that opened this stream. */
+  get responseData(): unknown { return this.response; }
+
+  setResponseData(value: unknown): void { this.response = value; }
+
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
     try {
       while (true) {
@@ -339,6 +367,7 @@ export class CmuxClient {
   private readonly streamTransportFactory?: () => Transport;
   private nextRequestId = 1;
   private identifiedProtocol: number | null = null;
+  private identified: IdentifyResult | null = null;
   private sharedSubscriptionActive = false;
 
   constructor(options: CmuxClientOptions) {
@@ -393,11 +422,74 @@ export class CmuxClient {
   async identify(): Promise<IdentifyResult> {
     const result = await this.request("identify");
     this.identifiedProtocol = result.protocol;
+    this.identified = result;
     return result;
   }
 
   /** The protocol reported by the latest `identify()`, or null before identification. */
   get protocol(): number | null { return this.identifiedProtocol; }
+
+  async topologySnapshot(): Promise<TopologySnapshot> {
+    await this.requireTopologyV8();
+    try {
+      return parseTopologySnapshot(await this.request("topology-snapshot"));
+    } catch (error) {
+      throw new CmuxProtocolError(`invalid topology snapshot: ${(error as Error).message}`);
+    }
+  }
+
+  async subscribeTopology(cursor: TopologyCursor): Promise<TopologySubscribeOutcome> {
+    await this.requireTopologyV8();
+    let applied = parseTopologyCursor(cursor);
+    let stream: CmuxStream<TopologyStreamEvent>;
+    try {
+      stream = await this.openStream(
+        { cmd: "subscribe-topology", ...applied },
+        (raw) => {
+          const event = parseTopologyStreamEvent(raw);
+          if (event.event === "topology-resnapshot-required") return event;
+          const required = validateTopologyDelta(applied, event);
+          if (required) return required;
+          applied = { ...applied, revision: event.revision };
+          return event;
+        },
+        (event, dedicated) => dedicated
+          || event.event === "topology-delta"
+          || event.event === "topology-resnapshot-required",
+        (event) => event.event === "topology-resnapshot-required",
+        true,
+      );
+    } catch (error) {
+      if (error instanceof CmuxProtocolError && error.message === "stream event buffer overflow") {
+        return {
+          status: "resnapshot-required",
+          daemon_instance_id: cursor.daemon_instance_id,
+          session_id: cursor.session_id,
+          reason: "slow-consumer",
+        };
+      }
+      throw error;
+    }
+    let result;
+    try {
+      result = parseSubscribeTopologyResult(stream.responseData);
+    } catch (error) {
+      stream.close();
+      throw new CmuxProtocolError(
+        `invalid subscribe-topology response: ${(error as Error).message}`,
+      );
+    }
+    if (result.status === "resnapshot-required") {
+      stream.close();
+      return result;
+    }
+    const fenceFailure = this.subscriptionFenceFailure(cursor, result);
+    if (fenceFailure) {
+      stream.close();
+      return fenceFailure;
+    }
+    return { status: "subscribed", info: result, stream, cursor: () => ({ ...applied }) };
+  }
 
   ping(): Promise<PingResult> { return this.request("ping"); }
   setClientInfo(name?: string, kind?: string): Promise<EmptyResult> {
@@ -458,6 +550,12 @@ export class CmuxClient {
   swapPane(params: CmuxRequestParams<"swap-pane">): Promise<EmptyResult> { return this.request("swap-pane", params); }
   zoomPane(params: CmuxRequestParams<"zoom-pane"> = {}): Promise<ZoomPaneResult> { return this.request("zoom-pane", params); }
   processInfo(surface: Id): Promise<ProcessInfoResult> { return this.request("process-info", { surface }); }
+  ensureTerminal(params: CmuxRequestParams<"ensure-terminal">): Promise<EnsureTerminalResult> {
+    return this.request("ensure-terminal", params);
+  }
+  reparentTerminal(params: CmuxRequestParams<"reparent-terminal">): Promise<ReparentTerminalResult> {
+    return this.request("reparent-terminal", params);
+  }
   setDefaultColors(fg?: ColorHex | null, bg?: ColorHex | null): Promise<EmptyResult> {
     return this.request("set-default-colors", { fg, bg });
   }
@@ -619,6 +717,7 @@ export class CmuxClient {
       stream.close();
       throw new CmuxCommandError(response.error || "unknown error", response.id, response);
     }
+    stream.setResponseData(response.data);
     const terminalError = streamError ?? stream.error;
     if (terminalError) throw terminalError;
     return stream;
@@ -736,6 +835,45 @@ export class CmuxClient {
       throw new RangeError(`${name} must be an integer from 1 through ${maximum}`);
     }
     return limit;
+  }
+
+  private async requireTopologyV8(): Promise<IdentifyResult> {
+    const identity = this.identified ?? await this.identify();
+    const capabilities = identity.capabilities ?? [];
+    const missing = TOPOLOGY_V8_CAPABILITIES.filter((capability) => !capabilities.includes(capability));
+    if (identity.protocol < 8 || missing.length > 0) {
+      throw new CmuxProtocolError(
+        `canonical topology requires protocol 8 and capabilities ${TOPOLOGY_V8_CAPABILITIES.join(",")}; `
+          + `server protocol=${identity.protocol} missing=${missing.join(",")}`,
+      );
+    }
+    try {
+      parseTopologyCursor({
+        daemon_instance_id: identity.daemon_instance_id,
+        session_id: identity.session_id,
+        revision: identity.canonical_topology_revision,
+      });
+    } catch {
+      throw new CmuxProtocolError("canonical topology identify response omitted its authority cursor");
+    }
+    return identity;
+  }
+
+  private subscriptionFenceFailure(
+    cursor: TopologyCursor,
+    result: TopologySubscribedResult,
+  ): TopologyResnapshotRequiredResult | null {
+    let reason: TopologyResnapshotRequiredResult["reason"] | null = null;
+    if (result.daemon_instance_id !== cursor.daemon_instance_id) reason = "stale-daemon";
+    else if (result.session_id !== cursor.session_id) reason = "stale-session";
+    else if (result.from_revision !== cursor.revision) reason = "history-gap";
+    return reason === null ? null : {
+      status: "resnapshot-required",
+      daemon_instance_id: result.daemon_instance_id,
+      session_id: result.session_id,
+      current_revision: result.current_revision,
+      reason,
+    };
   }
 
   private nextId(): number {

@@ -24,6 +24,7 @@ struct MuxEventSubscriber {
 enum MuxEventFilter {
     All,
     AttachedSurface(SurfaceId),
+    TerminalActivity,
 }
 
 pub struct MuxEventReceiver {
@@ -57,6 +58,10 @@ impl MuxEventBroadcaster {
         self.subscribe_with_filter(MuxEventFilter::AttachedSurface(surface))
     }
 
+    pub fn subscribe_terminal_activity(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::TerminalActivity)
+    }
+
     fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
         let mailbox = Arc::new(MuxEventMailbox::default());
         self.subscribers
@@ -84,6 +89,10 @@ impl MuxEventFilter {
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => *event_surface == surface,
                 _ => false,
             },
+            Self::TerminalActivity => matches!(
+                event,
+                MuxEvent::TerminalActivity(_) | MuxEvent::TerminalActivityReceipt(_)
+            ),
         }
     }
 }
@@ -141,12 +150,31 @@ impl MuxEventMailbox {
                 state.events.push_back((sequence, MuxEvent::SurfaceExited(surface)));
             }
             MuxEvent::Empty => {
+                // `Empty` is a structural reset, but `SurfaceExited` is also
+                // the terminal lifecycle signal for render/attach clients.
+                // A short-lived child can exit before its creator finishes
+                // inserting the pane, then be reaped again after insertion.
+                // Preserve any pending exits across that second reset and
+                // order them after `Empty`, matching the normal close path.
+                let pending_exits = state
+                    .events
+                    .iter()
+                    .filter_map(|(_, event)| match event {
+                        MuxEvent::SurfaceExited(surface) => Some(*surface),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
                 state.events.clear();
                 state.title_sequences.clear();
                 state.titles.clear();
                 state.surface_output_sequences.clear();
                 state.surface_outputs.clear();
                 state.events.push_back((sequence, MuxEvent::Empty));
+                for surface in pending_exits.into_iter().take(MAX_PENDING_EVENTS - 1) {
+                    let sequence = state.next_sequence;
+                    state.next_sequence = state.next_sequence.saturating_add(1);
+                    state.events.push_back((sequence, MuxEvent::SurfaceExited(surface)));
+                }
             }
             event => {
                 if !state.reserve_pending_slot() {
@@ -432,5 +460,19 @@ mod tests {
         assert!(matches!(events.recv().unwrap(), MuxEvent::Empty));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
         assert!(!events.overflowed());
+    }
+
+    #[test]
+    fn empty_preserves_a_pending_surface_exit_after_the_reset() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        broadcaster.emit(MuxEvent::SurfaceExited(7));
+        broadcaster.emit(MuxEvent::TreeChanged);
+        broadcaster.emit(MuxEvent::Empty);
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::Empty));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(7)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 }

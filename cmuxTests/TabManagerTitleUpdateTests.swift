@@ -363,7 +363,7 @@ struct TabManagerTitleUpdateTests {
             settings: settings
         )
         _ = try #require(manager.selectedWorkspace)
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         let focusedPanelId = try #require(workspace.focusedPanelId)
         let closedTitle = "Closed Workspace Title - grok"
 

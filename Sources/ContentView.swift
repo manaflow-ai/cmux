@@ -2587,7 +2587,7 @@ struct ContentView: View {
 
                 // Ensure there is at least one workspace.
                 if tabManager.tabs.isEmpty {
-                    tabManager.addWorkspace()
+                    _ = tabManager.requestAddWorkspace()
                     didRecover = true
                 }
 
@@ -3368,7 +3368,7 @@ struct ContentView: View {
     }
 
     private func addTab() {
-        tabManager.addTab()
+        _ = tabManager.requestAddWorkspace()
         sidebarSelectionState.selection = .tabs
     }
 
@@ -8144,7 +8144,7 @@ struct ContentView: View {
                 panel.title = String(localized: "panel.openFolder.title", defaultValue: "Open Folder")
                 panel.prompt = String(localized: "panel.openFolder.prompt", defaultValue: "Open")
                 if panel.runModal() == .OK, let url = panel.url {
-                    tabManager.addWorkspace(workingDirectory: url.path)
+                    _ = tabManager.requestAddWorkspace(workingDirectory: url.path)
                 }
             }
         }
@@ -11539,7 +11539,7 @@ struct VerticalTabsSidebar: View, Equatable {
                         debugSource: "sidebar.emptyArea.remoteTmux"
                     )
                 } else {
-                    tabManager.addWorkspace(placementOverride: .end)
+                    _ = tabManager.requestAddWorkspace(placementOverride: .end)
                 }
                 if let selectedId = tabManager.selectedTabId {
                     selectedTabIds = [selectedId]
@@ -12172,13 +12172,30 @@ struct VerticalTabsSidebar: View, Equatable {
     ) -> CmuxSidebarActionResult {
         switch action {
         case .createWorkspace(let title, let workingDirectory, let select):
-            let workspace = tabManager.addWorkspace(
+            let outcome = tabManager.requestAddWorkspace(
                 title: title,
                 workingDirectory: workingDirectory,
                 inheritWorkingDirectory: workingDirectory == nil,
                 select: select
             )
-            return CmuxSidebarActionResult(accepted: true, message: workspace.id.uuidString)
+            switch outcome {
+            case .created(let workspace):
+                return CmuxSidebarActionResult(
+                    accepted: true,
+                    message: workspace.id.uuidString
+                )
+            case .submittedToBackend(let submission):
+                return CmuxSidebarActionResult(
+                    accepted: true,
+                    message: submission.workspaceID?.uuidString
+                        ?? submission.requestID.uuidString
+                )
+            case .failed:
+                return .rejected(String(
+                    localized: "sidebar.extensions.action.createRejected",
+                    defaultValue: "Workspace creation could not be submitted"
+                ))
+            }
 
         case .selectWorkspace(let workspaceId):
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
@@ -12916,7 +12933,7 @@ struct VerticalTabsSidebar: View, Equatable {
             do {
                 let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRootPath)
                 let spawnArgs = result.workspaceSpawnArgs()
-                tabManager.addWorkspace(
+                _ = tabManager.requestAddWorkspace(
                     title: spawnArgs.title,
                     workingDirectory: spawnArgs.workingDirectory,
                     initialTerminalInput: spawnArgs.initialTerminalInput,
@@ -13516,6 +13533,9 @@ struct VerticalTabsSidebar: View, Equatable {
             resolvedShiftAnchorIndex: shiftAnchorIndex,
             clickedIndex: index
         )
+        if !wasSelected {
+            SidebarProfilingSignposts.beginSelectionLatency(workspaceID: workspace.id)
+        }
         tabManager.selectTab(workspace)
         if wasSelected, !isCommand, !isShift {
             tabManager.dismissNotificationOnDirectInteraction(
@@ -13761,6 +13781,10 @@ struct VerticalTabsSidebar: View, Equatable {
             inferredTaskStatus: tab.inferredTaskStatus,
             activeTodoOverride: activeTodoOverride,
             isTodoStatusHidden: tab.todoState.statusHidden
+        )
+        SidebarProfilingSignposts.endSelectionLatencyIfVisible(
+            workspaceID: tab.id,
+            isSelected: result.isActive
         )
         return result
     }

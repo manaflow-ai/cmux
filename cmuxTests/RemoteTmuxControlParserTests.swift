@@ -426,6 +426,113 @@ import Testing
     }
 }
 
+@MainActor
+@Suite struct RemoteTmuxPaneSeedTransactionTests {
+    private func connection() -> RemoteTmuxControlConnection {
+        RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "seed.test"),
+            sessionName: "work"
+        )
+    }
+
+    @Test func seedLargerThanWireLimitIsSplitWithoutByteLoss() throws {
+        let connection = connection()
+        var observed: [RemoteTmuxPaneSeed] = []
+        let token = connection.addObserver(onPaneSeed: { _, seed in observed.append(seed) })
+        defer { connection.removeObserver(token) }
+
+        let capture = Data(
+            repeating: 0x61,
+            count: RemoteTmuxPaneSeed.maximumChunkByteCount + 37
+        )
+        connection.beginPaneSeed(paneId: 4, clearScrollback: true)
+        connection.installPaneSeedCapture(paneId: 4, data: capture)
+        connection.finishPaneSeed(paneId: 4, state: Data("state".utf8))
+
+        let seed = try #require(observed.only)
+        #expect(seed.reset.count == RemoteTmuxPaneSeed.maximumChunkByteCount)
+        #expect(seed.output.allSatisfy {
+            !$0.isEmpty && $0.count <= RemoteTmuxPaneSeed.maximumChunkByteCount
+        })
+        #expect(seed.bytes == Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8) + capture + Data("state".utf8))
+    }
+
+    @Test func overlappingSeedsPreserveFifoAndPostCaptureOutputOrder() throws {
+        let connection = connection()
+        var observed: [RemoteTmuxPaneSeed] = []
+        let token = connection.addObserver(onPaneSeed: { _, seed in observed.append(seed) })
+        defer { connection.removeObserver(token) }
+
+        connection.beginPaneSeed(paneId: 7, clearScrollback: false)
+        connection.beginPaneSeed(paneId: 7, clearScrollback: true)
+        connection.installPaneSeedCapture(paneId: 7, data: Data("capture-1".utf8))
+        #expect(connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 7,
+            data: Data("live-1".utf8)
+        ))
+        connection.finishPaneSeed(paneId: 7, state: Data("state-1".utf8))
+        connection.installPaneSeedCapture(paneId: 7, data: Data("capture-2".utf8))
+        #expect(connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 7,
+            data: Data("live-2".utf8)
+        ))
+        connection.finishPaneSeed(paneId: 7, state: Data("state-2".utf8))
+
+        #expect(observed.map(\.bytes) == [
+            Data("capture-1live-1state-1".utf8),
+            Data("\u{1b}[H\u{1b}[2J\u{1b}[3Jcapture-2live-2state-2".utf8),
+        ])
+    }
+
+    @Test func captureCommandFailureStopsAbsorbingUntilItsStateReply() {
+        let connection = connection()
+        var failures: [Int] = []
+        var live: [Data] = []
+        let token = connection.addObserver(
+            onPaneOutput: { _, data in live.append(data) },
+            onPaneSeedFailure: { failures.append($0) }
+        )
+        defer { connection.removeObserver(token) }
+
+        connection.beginPaneSeed(paneId: 9, clearScrollback: false)
+        connection.pendingCommands = [.capturePane(9)]
+        connection.handleCommandResult(lines: ["capture failed"], isError: true)
+        connection.handleMessageForTesting(.output(paneId: 9, data: Data("live".utf8)))
+        connection.finishPaneSeed(paneId: 9, state: Data("state".utf8))
+
+        #expect(failures == [9])
+        #expect(live == [Data("live".utf8), Data("state".utf8)])
+        #expect(connection.pendingPaneSeeds[9] == nil)
+    }
+
+    @Test func connectionStopCancelsPendingSeedAndReleasesBufferedBytes() {
+        let connection = connection()
+        var failures: [Int] = []
+        let token = connection.addObserver(onPaneSeedFailure: { failures.append($0) })
+        defer { connection.removeObserver(token) }
+
+        connection.beginPaneSeed(paneId: 11, clearScrollback: false)
+        connection.installPaneSeedCapture(paneId: 11, data: Data("capture".utf8))
+        #expect(connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 11,
+            data: Data("buffered".utf8)
+        ))
+
+        connection.stop()
+
+        #expect(failures == [11])
+        #expect(connection.pendingPaneSeeds.isEmpty)
+        #expect(!connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 11,
+            data: Data("later".utf8)
+        ))
+    }
+}
+
+private extension Array {
+    var only: Element? { count == 1 ? first : nil }
+}
+
 /// Behavior tests for the per-pane foreground classification
 /// (`#{alternate_on}|#{pane_current_command}`) that drives BOTH the reflow
 /// suppression and the kill-window/kill-pane close confirmation — exercised on

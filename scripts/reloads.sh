@@ -246,6 +246,16 @@ if [[ -f "$INFO_PLIST" ]]; then
   if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
     rm -f "$CMUX_SOCKET_PATH_VALUE"
   fi
+  "$PWD/scripts/configure-terminal-backend-launch-agent.sh" \
+    --app-bundle "$STAGING_APP_PATH" \
+    --bundle-id "$BUNDLE_ID"
+  "$PWD/scripts/verify-terminal-backend-service-artifact.sh" \
+    --app-bundle "$STAGING_APP_PATH" \
+    --bundle-id "$BUNDLE_ID" \
+    --require-signed \
+    --require-minimal-entitlements \
+    --require-disabled \
+    --smoke-headless
   /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$STAGING_APP_PATH" >/dev/null 2>&1 || true
 fi
 APP_PATH="$STAGING_APP_PATH"

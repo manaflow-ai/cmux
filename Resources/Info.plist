@@ -14,6 +14,16 @@
 	<string>6.0</string>
 	<key>CMUXSidebarExtensionPointIdentifier</key>
 	<string>$(CMUX_SIDEBAR_EXTENSION_POINT_ID)</string>
+	<key>CMUXTerminalBackendServiceEnabled</key>
+	<string>$(CMUX_TERMINAL_BACKEND_ENABLED)</string>
+	<key>CMUXSourceCommit</key>
+	<string>$(CMUX_SOURCE_COMMIT)</string>
+	<key>CMUXSourceDirty</key>
+	<string>$(CMUX_SOURCE_DIRTY)</string>
+	<key>CMUXTerminalBackendServiceUnregisterCommand</key>
+	<string>--unregister-terminal-backend-service</string>
+	<key>CMUXTerminalBackendServiceStatusCommand</key>
+	<string>--terminal-backend-service-status</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

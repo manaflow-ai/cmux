@@ -97,4 +97,48 @@ struct ControlCommandCoordinatorTabActionTests {
         #expect(message == "Failed to toggle full-width tab mode")
         #expect(data == nil)
     }
+
+    @Test func backendMutationStatusReportsCanonicalCommit() throws {
+        let requestID = UUID()
+        let context = FakeTabActionControlCommandContext()
+        context.backendMutationStatus = .known(.committed)
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "terminal_backend.mutation_status",
+            params: ["request_id": .string(requestID.uuidString)]
+        ))
+
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected backend mutation status payload")
+            return
+        }
+        #expect(payload["request_id"] == .string(requestID.uuidString))
+        #expect(payload["status"] == .string("committed"))
+        #expect(payload["finished"] == .bool(false))
+        #expect(payload["committed"] == .bool(true))
+        #expect(payload["canonical_snapshot_acknowledged"] == .bool(true))
+        #expect(payload["swift_projection_installed"] == .bool(false))
+    }
+
+    @Test func backendMutationStatusRejectsUnknownRequest() throws {
+        let requestID = UUID()
+        let context = FakeTabActionControlCommandContext()
+        context.backendMutationStatus = .unknown
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "terminal_backend.mutation_status",
+            params: ["request_id": .string(requestID.uuidString)]
+        ))
+
+        guard case .err(let code, _, let data) = result else {
+            Issue.record("expected backend mutation not-found error")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(data == .object(["request_id": .string(requestID.uuidString)]))
+    }
 }

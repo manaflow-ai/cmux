@@ -35,6 +35,7 @@ _cmux_account_home="$(perl -e 'print((getpwuid($<))[7])' 2>/dev/null || true)"
 LAST_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/.local/state/cmux"
 AUTO_SKIP_ZIG_BUILD_REASON=""
 SWIFT_FRONTEND_WORKAROUND=0
+TERMINAL_BACKEND_ENABLED=0
 XCODEBUILD_STARTED=0
 XCODEBUILD_OUTPUT_VALID=0
 XCODEBUILD_CLEANED_OUTPUTS=0
@@ -264,6 +265,8 @@ Options:
   --derived-data <path>  Override derived data path.
   --no-global-cli-links  Do not update /tmp/cmux-cli, /tmp/cmux-last-cli-path,
                          or PATH cmux-dev shims. Useful for isolated dogfood.
+  --terminal-backend     Bake CMUX_TERMINAL_BACKEND_ENABLED=YES into this tagged
+                         artifact. The checked-in production gate remains off.
   --swift-frontend-workaround
                          Work around Swift arm64 frontend spins for this reload
                          only by disabling batch mode, debug symbol emission,
@@ -505,6 +508,10 @@ while [[ $# -gt 0 ]]; do
       NO_GLOBAL_CLI_LINKS=1
       shift
       ;;
+    --terminal-backend)
+      TERMINAL_BACKEND_ENABLED=1
+      shift
+      ;;
     --swift-disable-global-isel)
       SWIFT_FRONTEND_WORKAROUND=1
       shift
@@ -553,6 +560,11 @@ CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
 CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
+CMUX_SOURCE_COMMIT_VALUE="$(git rev-parse HEAD)"
+CMUX_SOURCE_DIRTY_VALUE="NO"
+if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+  CMUX_SOURCE_DIRTY_VALUE="YES"
+fi
 CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}"
 
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
@@ -685,6 +697,11 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+XCODEBUILD_ARGS+=(CMUX_SOURCE_COMMIT="$CMUX_SOURCE_COMMIT_VALUE")
+XCODEBUILD_ARGS+=(CMUX_SOURCE_DIRTY="$CMUX_SOURCE_DIRTY_VALUE")
+if [[ "$TERMINAL_BACKEND_ENABLED" -eq 1 ]]; then
+  XCODEBUILD_ARGS+=(CMUX_TERMINAL_BACKEND_ENABLED=YES)
+fi
 # Scope the sidebar ExtensionKit point per build tag so concurrent dev builds (and
 # their tagged sample extensions) don't share one point. The host bundle declares
 # the point under Contents/Extensions, and Info.plist carries the same identifier.
@@ -1010,6 +1027,22 @@ if [[ -x "$CMUXD_SRC" ]]; then
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
 fi
+"$PWD/scripts/configure-terminal-backend-launch-agent.sh" \
+  --app-bundle "$APP_PATH" \
+  --bundle-id "$BUNDLE_ID"
+BACKEND_VERIFY_ARGS=(
+  --app-bundle "$APP_PATH"
+  --bundle-id "$BUNDLE_ID"
+  --require-signed
+  --require-minimal-entitlements
+  --smoke-headless
+)
+if [[ "$TERMINAL_BACKEND_ENABLED" -eq 1 ]]; then
+  BACKEND_VERIFY_ARGS+=(--require-enabled)
+else
+  BACKEND_VERIFY_ARGS+=(--require-disabled)
+fi
+"$PWD/scripts/verify-terminal-backend-service-artifact.sh" "${BACKEND_VERIFY_ARGS[@]}"
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi

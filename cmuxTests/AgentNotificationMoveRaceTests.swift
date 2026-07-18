@@ -61,8 +61,8 @@ struct AgentNotificationRegressionTests {
             tabManager: manager,
             cmuxConfigStore: configStore
         )
-        let source = manager.addWorkspace(select: true)
-        let destination = manager.addWorkspace(select: false)
+        let source = manager.addLocalWorkspace(select: true)
+        let destination = manager.addLocalWorkspace(select: false)
         let panelId = try #require(source.focusedPanelId)
 
         return Fixture(

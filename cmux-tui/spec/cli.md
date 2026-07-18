@@ -13,8 +13,10 @@ The CLI resolves the target session in this order:
 | 1 | `--socket <path>` |
 | 2 | `CMUX_TUI_SOCKET` |
 | 3 | Legacy `CMUX_MUX_SOCKET` |
-| 4 | `--session <name>` using `$TMPDIR/cmux-tui-<uid>/<session>.sock` |
+| 4 | `--session <name>` using `$XDG_RUNTIME_DIR/cmux-tui-<uid>/<session>.sock`, then `$TMPDIR`, then `/tmp` |
 | 5 | default session `main` using the default socket path |
+
+On Darwin, the default resolver falls back to `/tmp/cmux-tui-<uid>/<session>.sock` when the environment-selected path would exceed the 103-byte `sockaddr_un` filesystem limit. The server creates that per-user directory with mode `0700`. An explicit path, or a session name still longer than the fallback permits, fails at 104 bytes rather than truncating or hashing the identity.
 
 `--session` and `--socket` are global flags and may appear before or after the verb.
 
@@ -59,6 +61,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `reload-config` | implemented | none | global flags | none |
 | `set-window-title` | implemented | `--title <title>` | global flags | none |
 | `clear-window-title` | implemented | none | global flags | none |
+| `topology-snapshot` | implemented; protocol 8 | none | global flags | exact snapshot JSON |
 | `list-workspaces` | implemented | none | global flags | tree lines |
 | `export-layout` | implemented | none | `--screen <id>` | JSON result object |
 | `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>`, `--cols <n> --rows <n>` | screen and pane/surface lines |
@@ -96,6 +99,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `move-workspace` | implemented | `--workspace <id> --index <n>` | none | none |
 | `scroll-surface` | implemented | `--surface <id> --delta <n>` | none | none |
 | `subscribe` | implemented; tree deltas protocol 7 | none | `--tree-events coarse|deltas` | event JSON lines |
+| `subscribe-topology` | implemented; protocol 8 | `--daemon-instance-id <uuid> --session-id <uuid> --revision <n>` | none | topology event JSON lines |
 | `attach-surface` | implemented; render mode protocol 7 | `--surface <id>` | `--mode bytes\|render` | event JSON lines |
 | `wait-for` | implemented | `--surface <id> --pattern <regex> --timeout-ms <n>` | none | none |
 | `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |

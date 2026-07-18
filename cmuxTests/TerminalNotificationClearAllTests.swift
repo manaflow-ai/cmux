@@ -26,7 +26,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -75,7 +75,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -138,7 +138,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -190,7 +190,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -229,7 +229,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         appDelegate.tabManager = manager
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -268,7 +268,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         appDelegate.tabManager = manager
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -302,7 +302,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         appDelegate.tabManager = manager
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -343,7 +343,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         appDelegate.tabManager = manager
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -376,7 +376,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         appDelegate.tabManager = manager
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -398,7 +398,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         appDelegate.tabManager = manager
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -434,7 +434,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         appDelegate.tabManager = manager
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -498,8 +498,8 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let sourceWorkspace = manager.addWorkspace(select: true)
-        let destinationWorkspace = manager.addWorkspace(select: false)
+        let sourceWorkspace = manager.addLocalWorkspace(select: true)
+        let destinationWorkspace = manager.addLocalWorkspace(select: false)
         defer {
             if manager.tabs.contains(where: { $0.id == destinationWorkspace.id }) {
                 manager.closeWorkspace(destinationWorkspace)
@@ -560,8 +560,8 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let sourceWorkspace = manager.addWorkspace(select: true)
-        let destinationWorkspace = manager.addWorkspace(select: false)
+        let sourceWorkspace = manager.addLocalWorkspace(select: true)
+        let destinationWorkspace = manager.addLocalWorkspace(select: false)
         defer {
             if manager.tabs.contains(where: { $0.id == destinationWorkspace.id }) {
                 manager.closeWorkspace(destinationWorkspace)
@@ -601,8 +601,8 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         appDelegate.tabManager = manager
 
-        let sourceWorkspace = manager.addWorkspace(select: true)
-        let destinationWorkspace = manager.addWorkspace(select: false)
+        let sourceWorkspace = manager.addLocalWorkspace(select: true)
+        let destinationWorkspace = manager.addLocalWorkspace(select: false)
         defer {
             if manager.tabs.contains(where: { $0.id == destinationWorkspace.id }) {
                 manager.closeWorkspace(destinationWorkspace)
@@ -659,8 +659,8 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         appDelegate.tabManager = manager
 
-        let sourceWorkspace = manager.addWorkspace(select: true)
-        let destinationWorkspace = manager.addWorkspace(select: false)
+        let sourceWorkspace = manager.addLocalWorkspace(select: true)
+        let destinationWorkspace = manager.addLocalWorkspace(select: false)
         defer {
             if manager.tabs.contains(where: { $0.id == destinationWorkspace.id }) {
                 manager.closeWorkspace(destinationWorkspace)

@@ -181,7 +181,19 @@
          location = "group:CmuxTerminal">
       </FileRef>
       <FileRef
+         location = "group:CmuxTerminalBackend">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalBackendService">
+      </FileRef>
+      <FileRef
          location = "group:CmuxTerminalCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalRenderer">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalRenderTransport">
       </FileRef>
       <FileRef
          location = "group:CmuxTestSupport">

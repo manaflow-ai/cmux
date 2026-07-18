@@ -136,7 +136,7 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
             defer { AppDelegate.shared = previousAppDelegate }
 
             let tabManager = TabManager()
-            let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+            let workspace = tabManager.addLocalWorkspace(select: true, eagerLoadTerminal: false)
             let windowId = UUID()
             appDelegate.registerMainWindowContextForTesting(
                 windowId: windowId,

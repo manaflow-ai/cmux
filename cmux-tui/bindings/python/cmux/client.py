@@ -4,10 +4,25 @@ import base64
 import json
 import os
 import socket
-import tempfile
+import sys
 import threading
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, cast
+from uuid import UUID
+
+from .topology import (
+    TOPOLOGY_V8_CAPABILITIES,
+    TopologyCursor,
+    TopologyDelta,
+    TopologyResnapshotRequired,
+    TopologySnapshot,
+    TopologySubscribed,
+    parse_resnapshot_required,
+    parse_topology_delta,
+    parse_topology_snapshot,
+    parse_topology_subscribed,
+    validate_topology_delta,
+)
 
 
 class CmuxError(Exception):
@@ -45,12 +60,79 @@ class ResizeSurfaceResult:
 
 
 @dataclass(frozen=True)
+class ProcessInfoResult:
+    pid: Optional[int]
+    command: Optional[List[str]]
+    cwd: Optional[str]
+    tty: Optional[str]
+
+
+@dataclass(frozen=True)
+class EnsureTerminalEnvironment:
+    name: str
+    value: str
+
+
+@dataclass(frozen=True)
+class EnsureTerminalResult:
+    created: bool
+    workspace: int
+    workspace_uuid: UUID
+    screen: int
+    screen_uuid: UUID
+    pane: int
+    pane_uuid: UUID
+    surface: int
+    surface_uuid: UUID
+
+
+@dataclass(frozen=True)
+class ReparentTerminalResult:
+    moved: bool
+    workspace: int
+    workspace_uuid: UUID
+    screen: int
+    screen_uuid: UUID
+    pane: int
+    pane_uuid: UUID
+    surface: int
+    surface_uuid: UUID
+
+
+@dataclass(frozen=True)
 class IdentifyResult:
     app: str
     version: str
     protocol: int
+    protocol_min: Optional[int]
+    protocol_max: Optional[int]
+    capabilities: List[str]
     session: str
+    session_id: Optional[UUID]
+    daemon_instance_id: Optional[UUID]
+    topology_revision: Optional[int]
+    canonical_topology_revision: Optional[int]
     pid: int
+
+    @property
+    def supports_topology_v8(self) -> bool:
+        return self.protocol >= 8 and all(
+            capability in self.capabilities for capability in TOPOLOGY_V8_CAPABILITIES
+        )
+
+    @property
+    def topology_cursor(self) -> Optional[TopologyCursor]:
+        if (
+            self.daemon_instance_id is None
+            or self.session_id is None
+            or self.canonical_topology_revision is None
+        ):
+            return None
+        return TopologyCursor(
+            self.daemon_instance_id,
+            self.session_id,
+            self.canonical_topology_revision,
+        )
 
 
 @dataclass(frozen=True)
@@ -58,6 +140,15 @@ class PingResult:
     ok: bool
     version: str
     protocol: int
+    protocol_min: Optional[int]
+    protocol_max: Optional[int]
+    capabilities: List[str]
+    session: Optional[str]
+    session_id: Optional[UUID]
+    daemon_instance_id: Optional[UUID]
+    topology_revision: Optional[int]
+    canonical_topology_revision: Optional[int]
+    pid: Optional[int]
 
 
 @dataclass(frozen=True)
@@ -216,7 +307,7 @@ class _Stream:
     def __init__(self, client: "CmuxClient", request: Dict[str, Any]):
         self._client = client
         self._conn = _JsonLineConnection(client.socket_path, client.timeout)
-        self._queue: List[Event] = []
+        self._queue: List[Any] = []
         self._closed = False
         self.response: Optional[Dict[str, Any]] = None
         request = dict(request)
@@ -227,7 +318,7 @@ class _Stream:
         while True:
             value = self._conn.recv()
             if "event" in value:
-                self._queue.append(_parse_event(value))
+                self._queue.append(self._parse(value))
                 continue
             if value.get("id") != request_id:
                 continue
@@ -244,16 +335,22 @@ class _Stream:
             raise StopIteration
         if self._queue:
             event = self._queue.pop(0)
-            if event.event in ("detached", "overflow"):
+            if self._terminal(event):
                 self.close()
             return event
         value = self._conn.recv()
         if "event" not in value:
             return self.__next__()
-        event = _parse_event(value)
-        if event.event in ("detached", "overflow"):
+        event = self._parse(value)
+        if self._terminal(event):
             self.close()
         return event
+
+    def _parse(self, value: Dict[str, Any]) -> Any:
+        return _parse_event(value)
+
+    def _terminal(self, event: Any) -> bool:
+        return event.event in ("detached", "overflow")
 
     def close(self) -> None:
         if not self._closed:
@@ -267,6 +364,46 @@ class EventStream(_Stream):
 
 class AttachStream(_Stream):
     pass
+
+
+class TopologyStream(_Stream):
+    def __init__(self, client: "CmuxClient", cursor: TopologyCursor):
+        self.cursor = cursor
+        super().__init__(
+            client,
+            {
+                "cmd": "subscribe-topology",
+                "daemon_instance_id": str(cursor.daemon_instance_id),
+                "session_id": str(cursor.session_id),
+                "revision": cursor.revision,
+            },
+        )
+
+    def _parse(self, value: Dict[str, Any]) -> Any:
+        event = value.get("event")
+        if event == "topology-resnapshot-required":
+            return parse_resnapshot_required(value)
+        if event != "topology-delta":
+            raise ProtocolError(f"unexpected topology stream event {event!r}")
+        delta = parse_topology_delta(value)
+        required = validate_topology_delta(self.cursor, delta)
+        if required is not None:
+            return required
+        self.cursor = TopologyCursor(
+            self.cursor.daemon_instance_id,
+            self.cursor.session_id,
+            delta.revision,
+        )
+        return delta
+
+    def __iter__(self) -> "TopologyStream":
+        return self
+
+    def __next__(self) -> TopologyDelta | TopologyResnapshotRequired:
+        return cast(TopologyDelta | TopologyResnapshotRequired, super().__next__())
+
+    def _terminal(self, event: Any) -> bool:
+        return isinstance(event, TopologyResnapshotRequired)
 
 
 class CmuxClient:
@@ -284,6 +421,7 @@ class CmuxClient:
         self._next_request_id = 1
         self._id_lock = threading.Lock()
         self._protocol: Optional[int] = None
+        self._identity: Optional[IdentifyResult] = None
 
     def __enter__(self) -> "CmuxClient":
         return self
@@ -321,22 +459,137 @@ class CmuxClient:
 
     def identify(self) -> IdentifyResult:
         data = self._request("identify")
+        session_id = data.get("session_id")
+        daemon_instance_id = data.get("daemon_instance_id")
         result = IdentifyResult(
             app=str(data["app"]),
             version=str(data["version"]),
             protocol=int(data["protocol"]),
+            protocol_min=int(data["protocol_min"]) if data.get("protocol_min") is not None else None,
+            protocol_max=int(data["protocol_max"]) if data.get("protocol_max") is not None else None,
+            capabilities=[str(value) for value in data.get("capabilities", [])],
             session=str(data["session"]),
+            session_id=UUID(session_id) if session_id is not None else None,
+            daemon_instance_id=UUID(daemon_instance_id) if daemon_instance_id is not None else None,
+            topology_revision=(
+                int(data["topology_revision"])
+                if data.get("topology_revision") is not None
+                else None
+            ),
+            canonical_topology_revision=(
+                int(data["canonical_topology_revision"])
+                if data.get("canonical_topology_revision") is not None
+                else None
+            ),
             pid=int(data["pid"]),
         )
         self._protocol = result.protocol
+        self._identity = result
         return result
+
+    def topology_snapshot(self) -> TopologySnapshot:
+        self._require_topology_v8()
+        try:
+            return parse_topology_snapshot(self._request("topology-snapshot"))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProtocolError(f"invalid topology snapshot: {exc}") from exc
+
+    def subscribe_topology(
+        self,
+        cursor: TopologyCursor,
+    ) -> TopologyStream | TopologyResnapshotRequired:
+        self._require_topology_v8()
+        try:
+            stream = TopologyStream(self, cursor)
+            assert stream.response is not None
+            data = stream.response.get("data", {})
+            status = data.get("status")
+            if status == "resnapshot-required":
+                required = parse_resnapshot_required(data)
+                stream.close()
+                return required
+            if status != "subscribed":
+                stream.close()
+                raise ProtocolError(f"invalid subscribe-topology status {status!r}")
+            info = parse_topology_subscribed(data)
+            if (
+                info.daemon_instance_id != cursor.daemon_instance_id
+                or info.session_id != cursor.session_id
+                or info.from_revision != cursor.revision
+            ):
+                stream.close()
+                reason = (
+                    "stale-daemon"
+                    if info.daemon_instance_id != cursor.daemon_instance_id
+                    else "stale-session"
+                    if info.session_id != cursor.session_id
+                    else "history-gap"
+                )
+                return parse_resnapshot_required(
+                    {
+                        "daemon_instance_id": str(info.daemon_instance_id),
+                        "session_id": str(info.session_id),
+                        "current_revision": info.current_revision,
+                        "reason": reason,
+                    }
+                )
+            stream.info = info
+            return stream
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProtocolError(f"invalid topology subscription response: {exc}") from exc
+
+    def _require_topology_v8(self) -> IdentifyResult:
+        identity = self._identity or self.identify()
+        if not identity.supports_topology_v8:
+            missing = [
+                capability
+                for capability in TOPOLOGY_V8_CAPABILITIES
+                if capability not in identity.capabilities
+            ]
+            raise ProtocolError(
+                "canonical topology requires protocol 8 and capabilities "
+                f"{','.join(TOPOLOGY_V8_CAPABILITIES)}; "
+                f"server protocol={identity.protocol} missing={','.join(missing)}"
+            )
+        if identity.topology_cursor is None:
+            raise ProtocolError("canonical topology identify response omitted its authority cursor")
+        return identity
 
     def ping(self) -> PingResult:
         data = self._request("ping")
+        session_id = data.get("session_id")
+        daemon_instance_id = data.get("daemon_instance_id")
         return PingResult(
             ok=bool(data["ok"]),
             version=str(data["version"]),
             protocol=int(data["protocol"]),
+            protocol_min=(
+                int(data["protocol_min"])
+                if data.get("protocol_min") is not None
+                else None
+            ),
+            protocol_max=(
+                int(data["protocol_max"])
+                if data.get("protocol_max") is not None
+                else None
+            ),
+            capabilities=[str(value) for value in data.get("capabilities", [])],
+            session=str(data["session"]) if data.get("session") is not None else None,
+            session_id=UUID(session_id) if session_id is not None else None,
+            daemon_instance_id=(
+                UUID(daemon_instance_id) if daemon_instance_id is not None else None
+            ),
+            topology_revision=(
+                int(data["topology_revision"])
+                if data.get("topology_revision") is not None
+                else None
+            ),
+            canonical_topology_revision=(
+                int(data["canonical_topology_revision"])
+                if data.get("canonical_topology_revision") is not None
+                else None
+            ),
+            pid=int(data["pid"]) if data.get("pid") is not None else None,
         )
 
     def reload_config(self) -> ReloadConfigResult:
@@ -447,8 +700,87 @@ class CmuxClient:
     def zoom_pane(self, pane: Optional[int] = None, mode: Optional[str] = None) -> Dict[str, Any]:
         return self._request("zoom-pane", pane=pane, mode=mode)
 
-    def process_info(self, surface: int) -> Dict[str, Any]:
-        return self._request("process-info", surface=surface)
+    def process_info(self, surface: int) -> ProcessInfoResult:
+        data = self._request("process-info", surface=surface)
+        command = data.get("command")
+        if command is not None and (
+            not isinstance(command, list)
+            or any(not isinstance(argument, str) for argument in command)
+        ):
+            raise ProtocolError("process-info command must be an argv array or null")
+        return ProcessInfoResult(
+            pid=int(data["pid"]) if data.get("pid") is not None else None,
+            command=command,
+            cwd=str(data["cwd"]) if data.get("cwd") is not None else None,
+            tty=str(data["tty"]) if data.get("tty") is not None else None,
+        )
+
+    def ensure_terminal(
+        self,
+        workspace_uuid: UUID,
+        surface_uuid: UUID,
+        cols: int,
+        rows: int,
+        *,
+        cwd: Optional[str] = None,
+        argv: Optional[List[str]] = None,
+        command: Optional[str] = None,
+        env: Optional[List[EnsureTerminalEnvironment]] = None,
+        initial_input: Optional[str] = None,
+        wait_after_command: bool = False,
+    ) -> EnsureTerminalResult:
+        if argv is not None and command is not None:
+            raise ValueError("ensure-terminal argv and command are mutually exclusive")
+        data = self._request(
+            "ensure-terminal",
+            workspace_uuid=str(workspace_uuid),
+            surface_uuid=str(surface_uuid),
+            cwd=cwd,
+            argv=argv,
+            command=command,
+            env=(
+                [{"name": entry.name, "value": entry.value} for entry in env]
+                if env is not None
+                else None
+            ),
+            initial_input=initial_input,
+            wait_after_command=wait_after_command,
+            cols=cols,
+            rows=rows,
+        )
+        return EnsureTerminalResult(
+            created=bool(data["created"]),
+            workspace=int(data["workspace"]),
+            workspace_uuid=UUID(str(data["workspace_uuid"])),
+            screen=int(data["screen"]),
+            screen_uuid=UUID(str(data["screen_uuid"])),
+            pane=int(data["pane"]),
+            pane_uuid=UUID(str(data["pane_uuid"])),
+            surface=int(data["surface"]),
+            surface_uuid=UUID(str(data["surface_uuid"])),
+        )
+
+    def reparent_terminal(
+        self,
+        surface_uuid: UUID,
+        workspace_uuid: UUID,
+    ) -> ReparentTerminalResult:
+        data = self._request(
+            "reparent-terminal",
+            surface_uuid=str(surface_uuid),
+            workspace_uuid=str(workspace_uuid),
+        )
+        return ReparentTerminalResult(
+            moved=bool(data["moved"]),
+            workspace=int(data["workspace"]),
+            workspace_uuid=UUID(str(data["workspace_uuid"])),
+            screen=int(data["screen"]),
+            screen_uuid=UUID(str(data["screen_uuid"])),
+            pane=int(data["pane"]),
+            pane_uuid=UUID(str(data["pane_uuid"])),
+            surface=int(data["surface"]),
+            surface_uuid=UUID(str(data["surface_uuid"])),
+        )
 
     def set_default_colors(self, fg: Optional[str] = None, bg: Optional[str] = None) -> EmptyResult:
         self._request("set-default-colors", fg=fg, bg=bg)
@@ -542,16 +874,27 @@ class CmuxClient:
 
     def attach_surface(self, surface: int) -> AttachStream:
         protocol = self._protocol if self._protocol is not None else self.identify().protocol
-        if protocol > 7:
-            raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 7")
+        if protocol > 8:
+            raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 8")
         if protocol > 5 and not self.allow_protocol_v6_attach:
             raise ProtocolError("protocol v6 attach streams require resized replay handling")
         return AttachStream(self, {"cmd": "attach-surface", "surface": surface})
 
 
 def default_socket_path(session: str) -> str:
-    base = os.environ.get("TMPDIR") or tempfile.gettempdir()
-    return os.path.join(base, f"cmux-tui-{os.getuid()}", f"{session}.sock")
+    base = _first_nonempty(os.environ.get("XDG_RUNTIME_DIR"), os.environ.get("TMPDIR")) or "/tmp"
+    return _default_socket_path(base, str(os.getuid()), session, sys.platform == "darwin")
+
+
+def _first_nonempty(*values: Optional[str]) -> Optional[str]:
+    return next((value for value in values if value), None)
+
+
+def _default_socket_path(base: str, uid: str, session: str, darwin: bool) -> str:
+    candidate = os.path.join(base, f"cmux-tui-{uid}", f"{session}.sock")
+    if darwin and len(os.fsencode(candidate)) > 103:
+        return os.path.join("/tmp", f"cmux-tui-{uid}", f"{session}.sock")
+    return candidate
 
 
 def env_socket_path() -> Optional[str]:

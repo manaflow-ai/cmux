@@ -23,7 +23,7 @@ struct WorkspaceGroupTests {
             settings: UserDefaultsSettingsClient(defaults: defaults),
             closeTabWarningDefaults: defaults
         )
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         return manager
     }
 
@@ -65,8 +65,8 @@ struct WorkspaceGroupTests {
 
     @Test func createGroupKeepsFirstChildPosition() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
         let children = Array(originalIds.suffix(2))
 
@@ -83,8 +83,8 @@ struct WorkspaceGroupTests {
 
     @Test func draggingGroupHeaderReordersAmongTopLevelWorkspaces() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "Middle", childWorkspaceIds: [originalIds[1]]))
@@ -115,8 +115,8 @@ struct WorkspaceGroupTests {
 
     @Test func draggingWorkspaceAfterCollapsedGroupHeaderKeepsWorkspaceTopLevel() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "Collapsed", childWorkspaceIds: [
@@ -163,7 +163,7 @@ struct WorkspaceGroupTests {
 
     @Test func topLevelReorderPinnedClampReportsNoMove() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
         let pinnedWorkspace = try #require(manager.tabs.first { $0.id == originalIds[0] })
         manager.setPinned(pinnedWorkspace, pinned: true)
@@ -182,8 +182,8 @@ struct WorkspaceGroupTests {
 
     @Test func collapsedGroupRenderItemCarriesMembersWithoutRenderingChildren() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "Collapsed", childWorkspaceIds: [
@@ -228,8 +228,8 @@ struct WorkspaceGroupTests {
 
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "Collapsed", childWorkspaceIds: [
@@ -273,8 +273,8 @@ struct WorkspaceGroupTests {
 
     @Test func draggingGroupedChildAboveItsGroupPromotesToTopLevel() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "Lower", childWorkspaceIds: [
@@ -326,8 +326,8 @@ struct WorkspaceGroupTests {
 
     @Test func draggingGroupedChildToRootSlotAfterOwnGroupPromotesToTopLevel() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "Middle", childWorkspaceIds: [
@@ -379,8 +379,8 @@ struct WorkspaceGroupTests {
 
     @Test func draggingPinnedGroupedChildToRootSlotAfterOwnUnpinnedGroupPromotesToPinnedTier() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "Middle", childWorkspaceIds: [
@@ -437,8 +437,8 @@ struct WorkspaceGroupTests {
 
     @Test func createUnpinnedGroupFromPinnedGroupChildStaysBelowPinnedGroups() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let firstPinnedId = try #require(manager.createWorkspaceGroup(name: "Pinned A", childWorkspaceIds: [originalIds[1]]))
@@ -459,7 +459,7 @@ struct WorkspaceGroupTests {
 
     @Test func movingGroupedChildToTopKeepsAnchorFirstWhenGroupIsAlreadyFirst() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "First", childWorkspaceIds: [
@@ -480,7 +480,7 @@ struct WorkspaceGroupTests {
 
     @Test func movingUnpinnedGroupedChildToTopKeepsPinnedGroupFirst() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let pinnedGroupId = try #require(manager.createWorkspaceGroup(name: "Pinned", childWorkspaceIds: [originalIds[2]]))
@@ -504,8 +504,8 @@ struct WorkspaceGroupTests {
 
     @Test func movingPinnedGroupedChildToTopUsesGroupPinTier() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
         let pinnedWorkspace = try #require(manager.tabs.first { $0.id == originalIds[0] })
         manager.setPinned(pinnedWorkspace, pinned: true)
@@ -527,8 +527,8 @@ struct WorkspaceGroupTests {
 
     @Test func movingPinnedGroupedSelectionToTopUsesGroupPinTier() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
         let pinnedWorkspace = try #require(manager.tabs.first { $0.id == originalIds[0] })
         manager.setPinned(pinnedWorkspace, pinned: true)
@@ -550,8 +550,8 @@ struct WorkspaceGroupTests {
 
     @Test func pinningGroupedWorkspaceKeepsItAtTopOfGroup() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
@@ -575,8 +575,8 @@ struct WorkspaceGroupTests {
 
     @Test func pinnedGroupedWorkspaceDoesNotPromoteUnpinnedGroup() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
         let globallyPinned = try #require(manager.tabs.first { $0.id == originalIds[0] })
         manager.setPinned(globallyPinned, pinned: true)
@@ -603,8 +603,8 @@ struct WorkspaceGroupTests {
 
     @Test func draggingUnpinnedGroupedWorkspaceAbovePinnedGroupedWorkspaceShowsNoIndicator() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
@@ -652,8 +652,8 @@ struct WorkspaceGroupTests {
 
     @Test func movingGroupMemberToTopKeepsScriptableGroupOrderInVisibleOrder() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let firstGroupId = try #require(manager.createWorkspaceGroup(name: "First", childWorkspaceIds: [originalIds[0]]))
@@ -677,8 +677,8 @@ struct WorkspaceGroupTests {
 
     @Test func addingWorkspaceToGroupPreservesGroupTopLevelPosition() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "Middle", childWorkspaceIds: [originalIds[1]]))
@@ -697,8 +697,8 @@ struct WorkspaceGroupTests {
 
     @Test func addingWorkspaceAboveGroupPreservesGroupTopLevelPosition() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "Lower", childWorkspaceIds: [originalIds[2]]))
@@ -717,8 +717,8 @@ struct WorkspaceGroupTests {
 
     @Test func createWorkspaceInGroupAfterCurrentPlacesAfterReferenceMember() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
@@ -747,7 +747,7 @@ struct WorkspaceGroupTests {
 
     @Test func createWorkspaceInGroupAfterCurrentAnchorReferenceFallsBackToTop() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
@@ -773,7 +773,7 @@ struct WorkspaceGroupTests {
 
     @Test func addingExistingWorkspaceToGroupHonorsPlacementReference() throws {
         let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
 
         let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
@@ -870,7 +870,7 @@ struct WorkspaceGroupTests {
     @Test func deleteClosesMembersAndRemovesGroup() {
         let manager = makeTabManager()
         // Add an outsider so closeWorkspace's `tabs.count <= 1` guard never fires.
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let groupChildren = Array(manager.tabs.prefix(2)).map(\.id)
         let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: groupChildren)!
         let memberIdsBefore = Set(manager.tabs.filter { $0.groupId == groupId }.map(\.id))

@@ -134,25 +134,35 @@ extension Workspace {
             return false
         }
 
-        let forkWorkspace = owningTabManager.addWorkspace(
+        let configureForkWorkspace: @MainActor (Workspace) -> Void = { forkWorkspace in
+            if let remoteConfiguration = launch.remoteConfiguration {
+                forkWorkspace.configureRemoteConnection(
+                    remoteConfiguration,
+                    autoConnect: launch.autoConnectRemoteConfiguration
+                )
+            }
+            if let workingDirectory = launch.workingDirectory,
+               launch.terminalWorkingDirectory == nil,
+               let forkPanelId = forkWorkspace.focusedPanelId {
+                forkWorkspace.updatePanelDirectory(
+                    panelId: forkPanelId,
+                    directory: workingDirectory
+                )
+            }
+        }
+        let outcome = owningTabManager.requestAddWorkspace(
             workingDirectory: launch.terminalWorkingDirectory,
             initialTerminalCommand: launch.initialTerminalCommand,
             initialTerminalInput: launch.initialTerminalInput,
             initialTerminalEnvironment: launch.initialTerminalEnvironment,
             inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            onProjected: configureForkWorkspace
         )
-        if let remoteConfiguration = launch.remoteConfiguration {
-            forkWorkspace.configureRemoteConnection(
-                remoteConfiguration,
-                autoConnect: launch.autoConnectRemoteConfiguration
-            )
+        if case .created(let workspace) = outcome {
+            configureForkWorkspace(workspace)
         }
-        if let workingDirectory = launch.workingDirectory,
-           launch.terminalWorkingDirectory == nil,
-           let forkPanelId = forkWorkspace.focusedPanelId {
-            forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
-        }
+        if case .failed = outcome { return false }
         return true
     }
 }

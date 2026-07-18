@@ -1,4 +1,7 @@
-use cmux_client::{ClientConfig, CmuxClient, CmuxError, Event, Result, Tree};
+use cmux_client::{
+    ClientConfig, CmuxClient, CmuxError, Event, Result, TopologyCursor, TopologyOperation,
+    TopologyResnapshotReason, TopologyStreamEvent, TopologySubscribeOutcome, Tree,
+};
 use std::env;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -13,7 +16,15 @@ fn main() -> Result<()> {
 
     let identify = client.identify()?;
     assert!(identify.app == "cmux-tui", "unexpected app {}", identify.app);
-    assert!((5..=7).contains(&identify.protocol), "unsupported protocol {}", identify.protocol);
+    assert!((5..=8).contains(&identify.protocol), "unsupported protocol {}", identify.protocol);
+    assert!(identify.supports_topology_v8(), "server omitted protocol-v8 topology capabilities");
+    let identify_cursor = identify.topology_cursor().expect("identify omitted canonical cursor");
+    let ping = client.ping()?;
+    assert!(ping.ok, "ping reported false");
+    assert_eq!(ping.session_id.as_ref(), identify.session_id.as_ref());
+    assert_eq!(ping.daemon_instance_id.as_ref(), identify.daemon_instance_id.as_ref());
+    assert_eq!(ping.topology_revision, identify.topology_revision);
+    assert_eq!(ping.canonical_topology_revision, Some(identify_cursor.revision));
 
     let created = client.new_workspace(Some(&marker), Some(80), Some(24))?;
     client.send(created.surface, Some(&format!("printf '{marker}\\n'\r")), None)?;
@@ -23,6 +34,57 @@ fn main() -> Result<()> {
 
     let workspace_id = find_workspace_for_surface(&client.list_workspaces()?, created.surface)
         .expect("workspace not found");
+    let snapshot = client.topology_snapshot()?;
+    let canonical = snapshot
+        .topology
+        .workspaces
+        .iter()
+        .find(|workspace| {
+            workspace.screens.iter().any(|screen| {
+                screen
+                    .panes
+                    .iter()
+                    .any(|pane| pane.tabs.iter().any(|tab| tab.id == created.surface))
+            })
+        })
+        .expect("canonical workspace not found");
+    assert_eq!(canonical.id, workspace_id);
+    let mut topology = match client.subscribe_topology(snapshot.cursor())? {
+        TopologySubscribeOutcome::Subscribed { info, stream } => {
+            assert_eq!(info.from_revision, snapshot.revision);
+            stream
+        }
+        TopologySubscribeOutcome::ResnapshotRequired(required) => {
+            panic!("fresh snapshot required resnapshot: {:?}", required.reason)
+        }
+    };
+    client.rename_workspace(workspace_id, &format!("{marker}-topology"))?;
+    match topology.recv_timeout(Duration::from_secs(2))? {
+        TopologyStreamEvent::Delta(delta) => {
+            assert_eq!(delta.operation, TopologyOperation::WorkspaceRenamed);
+            assert_eq!(delta.base_revision, snapshot.revision);
+            assert_eq!(delta.revision, snapshot.revision + 1);
+            assert_eq!(delta.replacement.workspaces[0].name, format!("{marker}-topology"));
+        }
+        TopologyStreamEvent::ResnapshotRequired(required) => {
+            panic!("adjacent topology delta required resnapshot: {:?}", required.reason)
+        }
+    }
+    topology.close();
+    let stale = TopologyCursor {
+        daemon_instance_id: "00000000-0000-0000-0000-000000000001".parse().unwrap(),
+        session_id: snapshot.session_id.clone(),
+        revision: snapshot.revision,
+    };
+    match client.subscribe_topology(stale)? {
+        TopologySubscribeOutcome::ResnapshotRequired(required) => {
+            assert_eq!(required.reason, TopologyResnapshotReason::StaleDaemon);
+        }
+        TopologySubscribeOutcome::Subscribed { mut stream, .. } => {
+            stream.close();
+            panic!("stale daemon cursor unexpectedly subscribed")
+        }
+    }
     client.rename_surface(created.surface, &format!("{marker}-renamed"))?;
     let mut events = client.subscribe()?;
     client.resize_surface(created.surface, 100, 31)?;

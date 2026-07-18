@@ -260,7 +260,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         let originalTabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
         let originalWaitAfterCommand = placeholderPanel.surface.debugWaitAfterCommand()
 
-        let respawnedPanel = try XCTUnwrap(workspace.respawnTerminalSurface(
+        let respawnedPanel = try XCTUnwrap(workspace.respawnLocalTerminalSurface(
             panelId: originalPanelId,
             command: attachCommand,
             workingDirectory: requestedDirectory,

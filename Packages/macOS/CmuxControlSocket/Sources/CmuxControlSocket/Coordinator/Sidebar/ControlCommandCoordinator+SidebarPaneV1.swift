@@ -189,6 +189,8 @@ extension ControlCommandCoordinator {
             return "OK \(newPanelID.uuidString)"
         case .routedToRemote:
             return "OK routed-to-remote-tmux"
+        case .submittedToBackend(let requestID):
+            return "PENDING cmuxd request=\(requestID.uuidString)"
         case .mirrorInsertFirstRejected:
             return "ERROR: direction left/up is not supported in a remote tmux mirror workspace"
         case .failed:
@@ -237,6 +239,8 @@ extension ControlCommandCoordinator {
             return "OK \(id.uuidString)"
         case .routedToRemote:
             return "OK routed-to-remote-tmux"
+        case .submittedToBackend(let requestID):
+            return "PENDING cmuxd request=\(requestID.uuidString)"
         }
     }
 

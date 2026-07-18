@@ -5,10 +5,21 @@ import os
 import sys
 import time
 from pathlib import Path
+from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cmux import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
+from cmux import (  # noqa: E402
+    CommandError,
+    CmuxClient,
+    TimeoutError as CmuxTimeoutError,
+    TopologyCursor,
+    TopologyDelta,
+    TopologyOperation,
+    TopologyResnapshotReason,
+    TopologyResnapshotRequired,
+    TopologyStream,
+)
 
 
 def main() -> int:
@@ -20,18 +31,55 @@ def main() -> int:
     with CmuxClient(socket_path=socket_path, timeout=5.0, allow_protocol_v6_attach=True) as client:
         info = client.identify()
         assert info.app == "cmux-tui", info
-        assert 5 <= info.protocol <= 7, info
+        assert 5 <= info.protocol <= 8, info
+        assert info.supports_topology_v8, info
+        assert info.topology_cursor is not None, info
+        ping = client.ping()
+        assert ping.ok, ping
+        assert ping.session_id == info.session_id, (ping, info)
+        assert ping.daemon_instance_id == info.daemon_instance_id, (ping, info)
+        assert ping.topology_revision == info.topology_revision, (ping, info)
+        assert ping.canonical_topology_revision == info.topology_cursor.revision, (ping, info)
         created = client.new_workspace(name=marker, cols=80, rows=24)
         client.send(created.surface, text=f"printf '{marker}\\n'\r")
         wait_for_marker(client, created.surface, marker)
         assert marker in client.read_screen(created.surface).text
         workspace = find_workspace_for_surface(client.list_workspaces(), created.surface)
         assert workspace is not None
-        client.rename_surface(created.surface, f"{marker}-renamed")
+        snapshot = client.topology_snapshot()
+        canonical = next(
+            item
+            for item in snapshot.topology.workspaces
+            if any(
+                tab.id == created.surface
+                for screen in item.screens
+                for pane in screen.panes
+                for tab in pane.tabs
+            )
+        )
+        assert canonical.id == workspace
+        topology = client.subscribe_topology(snapshot.cursor)
+        assert isinstance(topology, TopologyStream), topology
+        client.rename_workspace(workspace, f"{marker}-topology")
+        delta = next_topology(topology, 2.0)
+        assert isinstance(delta, TopologyDelta), delta
+        assert delta.operation == TopologyOperation.WORKSPACE_RENAMED
+        assert delta.base_revision == snapshot.revision
+        assert delta.revision == snapshot.revision + 1
+        topology.close()
+        stale = client.subscribe_topology(
+            TopologyCursor(
+                UUID("00000000-0000-0000-0000-000000000001"),
+                snapshot.session_id,
+                snapshot.revision,
+            )
+        )
+        assert isinstance(stale, TopologyResnapshotRequired), stale
+        assert stale.reason == TopologyResnapshotReason.STALE_DAEMON
         events = client.subscribe()
         try:
             title = f"{marker}_TITLE"
-            client.send(created.surface, text=f"printf '\\033]2;{title}\\007'; sleep 5\r")
+            client.send(created.surface, text=f"printf '\\033]2;{title}\\007'; sleep 30\r")
             title_changed = next_title_changed(events, created.surface, title, 3.0)
             assert title_changed.title == title, title_changed
             client.send(created.surface, text="\x03")
@@ -47,6 +95,7 @@ def main() -> int:
                 raise AssertionError("same-size resize emitted surface-resized")
         finally:
             events.close()
+        client.rename_surface(created.surface, f"{marker}-renamed")
         attach = client.attach_surface(created.surface)
         try:
             first = next(attach)
@@ -124,6 +173,15 @@ def next_attach_output(stream, timeout: float) -> None:
     finally:
         stream._conn.sock.settimeout(old_timeout)
     raise CmuxTimeoutError("attach output not observed")
+
+
+def next_topology(stream: TopologyStream, timeout: float):
+    old_timeout = stream._conn.sock.gettimeout()
+    stream._conn.sock.settimeout(timeout)
+    try:
+        return next(stream)
+    finally:
+        stream._conn.sock.settimeout(old_timeout)
 
 
 def find_workspace_for_surface(tree, surface: int) -> int | None:

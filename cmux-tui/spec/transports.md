@@ -1,12 +1,12 @@
 # Transport Contract
 
-The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 leaves both framing contracts unchanged and adds render-mode negotiation at the command layer. HTTP and SSE remain proposals.
+The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 added render-mode negotiation, protocol v8 adds canonical topology synchronization, and opt-in protocol v9 adds registered terminal-control leases without changing either framing contract. HTTP and SSE remain proposals.
 
 ## Protocol Negotiation
 
-Protocol-v7 servers report `protocol:7` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. In particular, a client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment.
+Servers report `protocol:9`, `protocol_min:6`, and `protocol_max:9` from `identify` and `ping`. A connection opts into v9 by sending `register-client` with an overlapping range and two non-nil UUID identities. Clients must inspect named capabilities before using gated additions. In particular, a client selecting `attach-surface` with `mode:"render"` requires `render-attach-v1`, a client selecting the noncanonical `mode:"compatibility"` byte stream requires `terminal-byte-stream-compat-v1`, a canonical topology client requires `canonical-topology-snapshot-v1`, `stable-entity-uuid-v1`, and `topology-resume-v1`, a reconnecting window frontend requires `projection-state-reconnect-v1`, a cold-restore client requires `ensure-terminals-v1` before sending a terminal batch, and a v9 terminal client requires `terminal-activity-v1` plus the full split-lease, transfer, delegation, grouping, global-order, and idempotency capability set in `terminal-control-v9.md`.
 
-There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
+There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 8.
 
 ## Unix Socket
 
@@ -17,19 +17,24 @@ There is no transport-level version preamble. Omitting `attach-surface.mode` sel
 
 ### Path Resolution
 
-The default socket path for a session is:
+The default socket path for a session uses `XDG_RUNTIME_DIR`, then `TMPDIR`, then `/tmp`:
 
 ```text
-$TMPDIR/cmux-tui-<uid>/<session>.sock
+<runtime-dir>/cmux-tui-<uid>/<session>.sock
 ```
 
-The implementation uses Rust `std::env::temp_dir()` for `$TMPDIR`, appends `cmux-tui-<uid>`, and then appends `<session>.sock`. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`.
+The implementation appends `cmux-tui-<uid>` and `<session>.sock`. On Darwin, a candidate longer than the 103-byte filesystem `sockaddr_un` limit falls back to `/tmp/cmux-tui-<uid>/<session>.sock`; 104-byte explicit or fallback paths fail with invalid input and are never truncated. The server creates and restricts the per-user directory to mode `0700`. Server and clients share the same default derivation. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`.
 
 The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path.
 
 ### Framing And Canonical Envelope
 
 Each request is one UTF-8 JSON object followed by `\n`. Empty or whitespace-only lines are ignored. Each command response is one JSON object followed by `\n`.
+
+The server accepts at most 4 MiB before the line delimiter. An exact-limit
+request is valid. An oversized request receives an `ok:false` error when the
+control lane can deliver it, then the server closes that connection. The
+reader never buffers bytes beyond the limit.
 
 Connections are full duplex after `subscribe` or `attach-surface`. Event lines and response lines may be interleaved. Each line is complete JSON. Clients must route by `event` vs `id`.
 
@@ -131,7 +136,7 @@ Static and server-issued reconnect credentials use this transport-level preamble
 
 The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, oversized, or incorrect authentication or pairing frame closes the connection with WebSocket policy code `1008` before dispatch. Pre-authentication frames are capped at 4 KiB, and authenticated protocol frames are capped at 4 MiB.
 
-The listener permits one pending request per source address, five starts per minute per address, 16 pending challenges, 64 total sockets, and 4 MiB frames. Pairing expires after 60 seconds and at most 64 reconnect credentials remain valid in memory.
+The listener permits one pending request per source address, five starts per minute per address, 16 pending challenges, 64 total sockets, and 4 MiB frames. Unix JSON-lines requests have the same 4 MiB command-message limit. Pairing expires after 60 seconds and at most 64 reconnect credentials remain valid in memory.
 
 ### Bind Security
 

@@ -32,7 +32,7 @@ final class TerminalNotificationStaleFocusDismissalTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)

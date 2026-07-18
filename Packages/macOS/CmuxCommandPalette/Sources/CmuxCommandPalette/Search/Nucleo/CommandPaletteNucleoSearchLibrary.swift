@@ -107,17 +107,25 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
 
     private static func defaultLibraryPaths() -> [String] {
         var paths: [String] = []
-        let environmentPath = ProcessInfo.processInfo.environment["CMUX_NUCLEO_FFI_LIB"]
-        if let environmentPath, !environmentPath.isEmpty {
-            paths.append(environmentPath)
-        }
-
         if let privateFrameworksPath = Bundle.main.privateFrameworksPath {
             paths.append(
                 URL(fileURLWithPath: privateFrameworksPath)
                     .appendingPathComponent(Self.libraryFileName)
                     .path
             )
+        }
+
+        // A backend-only host is an attested product boundary. It may load the
+        // signed library shipped in its own bundle, but it must never turn an
+        // environment variable or source-tree path into a runtime code-loading
+        // escape hatch. Standalone package tests and legacy debug builds retain
+        // their developer paths because they have no backend-only ownership
+        // declaration in their main-bundle Info.plist.
+        guard permitsDeveloperLibraryPaths else { return paths }
+
+        let environmentPath = ProcessInfo.processInfo.environment["CMUX_NUCLEO_FFI_LIB"]
+        if let environmentPath, !environmentPath.isEmpty {
+            paths.append(environmentPath)
         }
 
         // Repo source root: this file lives at
@@ -156,6 +164,27 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
         )
 
         return paths
+    }
+
+    private static var permitsDeveloperLibraryPaths: Bool {
+#if DEBUG
+        let debugBuild = true
+#else
+        let debugBuild = false
+#endif
+        return permitsDeveloperLibraryPaths(
+            runtimeOwnership: Bundle.main.object(
+                forInfoDictionaryKey: "CMUXTerminalRuntimeOwnership"
+            ) as? String,
+            debugBuild: debugBuild
+        )
+    }
+
+    static func permitsDeveloperLibraryPaths(
+        runtimeOwnership: String?,
+        debugBuild: Bool
+    ) -> Bool {
+        debugBuild && runtimeOwnership != "backend-only"
     }
 
     private static let libraryFileName = "libcmux_command_palette_nucleo_ffi.dylib"

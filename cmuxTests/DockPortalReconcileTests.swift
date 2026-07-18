@@ -581,7 +581,7 @@ struct DockPortalReconcileTests {
             }
 
             let sourceWorkspace = try #require(manager.tabs.first)
-            let destinationWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+            let destinationWorkspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
             let dock = sourceWorkspace.dockSplit
             let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
             dock.setVisibleInUI(true)

@@ -8,12 +8,15 @@ import os
 import socket
 import statistics
 import sys
-import tempfile
 import time
 
 
 def default_socket() -> str:
-    return os.path.join(tempfile.gettempdir(), f"cmux-tui-{os.getuid()}", "main.sock")
+    base = os.environ.get("XDG_RUNTIME_DIR") or os.environ.get("TMPDIR") or "/tmp"
+    candidate = os.path.join(base, f"cmux-tui-{os.getuid()}", "main.sock")
+    if sys.platform == "darwin" and len(os.fsencode(candidate)) > 103:
+        return os.path.join("/tmp", f"cmux-tui-{os.getuid()}", "main.sock")
+    return candidate
 
 
 class Rpc:

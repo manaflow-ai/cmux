@@ -785,7 +785,7 @@ struct EmptyPanelView: View {
         cmuxDebugLog("emptyPane.newBrowser pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
-        _ = workspace.newBrowserSurface(inPane: paneId)
+        _ = workspace.requestNewBrowserSurface(inPane: paneId)
     }
 
     private var newSurfaceShortcut: StoredShortcut {

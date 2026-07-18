@@ -27,6 +27,7 @@ extension RemoteTmuxControlConnection {
             }
         }
         guard !isError else {
+            failPaneSeedCommand(kind)
             // An errored activity query must still complete (with nil) — a close
             // decision is waiting on it and falls back to the cached state.
             if case let .activityQuery(token) = kind,
@@ -289,7 +290,7 @@ extension RemoteTmuxControlConnection {
             // the visible screen.
             let painted = "\u{1b}[H\u{1b}[2J" + lines.joined(separator: "\r\n")
             if let data = painted.data(using: .utf8) {
-                observers.emitPaneOutput(paneId, data)
+                installPaneSeedCapture(paneId: paneId, data: data)
             }
         case let .paneState(paneId):
             // Restore the pane's terminal state (scroll region + DEC modes + cursor)
@@ -297,7 +298,12 @@ extension RemoteTmuxControlConnection {
             // region (DECSTBM) is the important one: without it an inline TUI's
             // region-relative redraws land on the wrong rows even at a static size.
             if let line = lines.first {
-                observers.emitPaneOutput(paneId, decoding.paneStateSeedSequence(from: line))
+                finishPaneSeed(
+                    paneId: paneId,
+                    state: decoding.paneStateSeedSequence(from: line)
+                )
+            } else {
+                finishPaneSeed(paneId: paneId, state: Data())
             }
         case let .panePath(paneId):
             if let path = lines.first?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
@@ -326,9 +332,9 @@ extension RemoteTmuxControlConnection {
             // remote pane is now on primary, force it back (1049l) so the capture doesn't
             // paint onto a stale alt screen.
             if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
-                observers.emitPaneOutput(paneId, Self.altScreenEnterSequence)
+                appendPaneSeedPrefix(paneId: paneId, data: Self.altScreenEnterSequence)
             } else {
-                observers.emitPaneOutput(paneId, Self.altScreenExitSequence)
+                appendPaneSeedPrefix(paneId: paneId, data: Self.altScreenExitSequence)
             }
         case .perWindowSize:
             // A successful per-window size push replies with an empty block;

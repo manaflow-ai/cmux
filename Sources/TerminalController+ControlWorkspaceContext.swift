@@ -143,19 +143,21 @@ extension TerminalController: ControlWorkspaceContext {
         windowID: UUID,
         focusRequested: Bool
     ) -> ControlWorkspaceMoveToWindowResolution {
-        guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else {
+        guard AppDelegate.shared?.tabManagerFor(tabId: workspaceID) != nil else {
             return .workspaceNotFound
         }
         guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowID) else {
             return .windowNotFound
         }
-        guard let ws = srcTM.detachWorkspace(tabId: workspaceID) else {
+        let focus = v2FocusAllowed(requested: focusRequested)
+        guard AppDelegate.shared?.moveWorkspaceToWindow(
+            workspaceId: workspaceID,
+            windowId: windowID,
+            focus: focus
+        ) == true else {
             return .workspaceNotFound
         }
-        let focus = v2FocusAllowed(requested: focusRequested)
-        dstTM.attachWorkspace(ws, select: focus)
         if focus {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
             setActiveTabManager(dstTM)
         }
         return .resolved
@@ -355,13 +357,11 @@ extension TerminalController: ControlWorkspaceContext {
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .notFound
         }
-        let tree = ws.bonsplitController.treeSnapshot()
-        let equalizeResult = tabManager.paneLayout.equalizeSplits(
-            in: tree,
-            controller: ws.bonsplitController,
+        let equalized = tabManager.equalizeSplits(
+            tabId: ws.id,
             orientationFilter: orientationFilter
         )
-        return .resolved(workspaceID: ws.id, equalized: equalizeResult.didFullyEqualize)
+        return .resolved(workspaceID: ws.id, equalized: equalized)
     }
 
     /// Mirrors the legacy `v2ResolveWorkspace(params:tabManager:)` precedence

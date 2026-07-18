@@ -84,6 +84,13 @@ extension Workspace {
     /// current layout's authoritative tab model.
     @discardableResult
     func reorderSurface(panelId: UUID, by offset: Int) -> Bool {
+        if panels[panelId] is TerminalPanel,
+           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !isApplyingCanonicalTopologyProjection,
+           layoutMode == .canvas {
+            mutationCoordinator.reportFailure(for: .reorderTab)
+            return false
+        }
         if layoutMode == .canvas {
             let previousRevision = canvasModel.revision
             guard canvasModel.reorderPanel(panelId, by: offset) else { return false }

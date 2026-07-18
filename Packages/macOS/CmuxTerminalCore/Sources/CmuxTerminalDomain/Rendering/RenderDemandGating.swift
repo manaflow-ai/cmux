@@ -5,12 +5,11 @@
 /// to the render hot path, so producers first check ``isActive`` and skip the
 /// notification entirely while nobody has retained demand.
 ///
-/// Isolation: requirements are synchronous and `Sendable` on purpose. The hot
-/// reader is `GhosttyMetalLayer.nextDrawable()` on the renderer thread, which
-/// can neither await an actor nor hop to the main actor; retainers call from
-/// the main actor. Implementations therefore guard a tiny counter with a lock
-/// (the sanctioned shape for state shared with synchronous off-main readers)
-/// rather than actor isolation.
+/// Isolation: requirements are synchronous and `Sendable` on purpose. A hot
+/// renderer callback can neither await an actor nor hop to the main actor,
+/// while retainers may call from the main actor. Implementations therefore
+/// guard a tiny counter with a synchronous compare-and-set primitive rather
+/// than introducing an asynchronous hop into frame admission.
 public protocol RenderDemandGating: AnyObject, Sendable {
     /// Registers one unit of demand.
     ///

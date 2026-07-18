@@ -16,6 +16,8 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
+import CmuxTerminalBackend
+import CmuxTerminalBackendService
 
 /// The process entry point. When the binary is launched with a sidebar worker
 /// flag (the app re-executes its own binary that way so a crash in the
@@ -27,7 +29,22 @@ import CmuxTerminal
 ///   AppKit/SwiftUI setup.
 @main
 enum CmuxMain {
-    static func main() {
+    @MainActor
+    static func main() async {
+        if let invocation = BackendServiceMaintenanceInvocation(arguments: CommandLine.arguments) {
+            let status = switch invocation.operation {
+            case .status:
+                await TerminalBackendServiceStatusCommand(
+                    bundleIdentifier: Bundle.main.bundleIdentifier
+                ).run()
+            case .unregister:
+                await TerminalBackendServiceUnregistrationCommand(
+                    bundleURL: Bundle.main.bundleURL,
+                    bundleIdentifier: Bundle.main.bundleIdentifier
+                ).run()
+            }
+            Darwin.exit(status)
+        }
 #if DEBUG
         // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
         // debug log file. Route bonsplit through the shared writer so the
@@ -43,11 +60,48 @@ enum CmuxMain {
             runSidebarInterpreterWorker()
             exit(0)
         }
+        GhosttyApp.configureTerminalRuntimeOwnership(
+            persistentBackendEnabled: cmuxApp.terminalBackendActivationPolicy().isEnabled
+        )
         cmuxApp.main()
     }
 }
 
 struct cmuxApp: App {
+    private static let terminalBackendProcessInstanceUUID = UUID()
+
+    /// Invalid or missing app identities are quarantined in a namespace that can never
+    /// address the production backend. If the backend gate is on, bundle inspection then
+    /// fails closed with actionable service guidance.
+    static let quarantinedTerminalBackendDescriptor = BackendServiceDescriptor(
+        bundleIdentifier: "invalid.cmuxterm.untrusted-app-identity"
+    )!
+
+    static func terminalBackendDescriptor(
+        bundleIdentifier: String?
+    ) -> BackendServiceDescriptor {
+        bundleIdentifier.flatMap(BackendServiceDescriptor.init(bundleIdentifier:))
+            ?? quarantinedTerminalBackendDescriptor
+    }
+
+    static func terminalBackendActivationPolicy(
+        bundle: Bundle = .main,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> BackendServiceActivationPolicy {
+        let developmentOverride: String?
+#if DEBUG
+        developmentOverride = environment["CMUX_TERMINAL_BACKEND_ENABLED"]
+#else
+        developmentOverride = nil
+#endif
+        return BackendServiceActivationPolicy(
+            buildSettingValue: bundle.object(
+                forInfoDictionaryKey: "CMUXTerminalBackendServiceEnabled"
+            ) as? String,
+            developmentOverrideValue: developmentOverride
+        )
+    }
+
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
@@ -58,6 +112,10 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
+    private let terminalClientComposition: TerminalClientComposition
+    private let terminalBackendTopologyProjectionRegistry: TerminalBackendTopologyProjectionRegistry
+    private let terminalBackendTopologyCoordinator: TerminalBackendTopologyCoordinator?
+    @State private var terminalBackendServiceModel: TerminalBackendServiceModel? = nil
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -194,9 +252,111 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        _tabManager = StateObject(wrappedValue: TabManager(
+        let bundleID = Bundle.main.bundleIdentifier
+        let terminalBackendDescriptor = Self.terminalBackendDescriptor(
+            bundleIdentifier: bundleID
+        )
+        let terminalBackendRuntimePaths = BackendServiceRuntimePaths(
+            descriptor: terminalBackendDescriptor,
+            userID: UInt32(Darwin.getuid()),
+            homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+        )
+        let terminalBackendBundleInspection = BackendServiceBundleInspection(
+            bundleURL: Bundle.main.bundleURL,
+            descriptor: terminalBackendDescriptor
+        )
+        let terminalBackendActivationPolicy = Self.terminalBackendActivationPolicy()
+        let terminalBackendServiceBootstrap = BackendServiceBootstrapCoordinator(
+            activationPolicy: terminalBackendActivationPolicy,
+            inspection: terminalBackendBundleInspection,
+            registration: SystemBackendServiceRegistration(
+                descriptor: terminalBackendDescriptor,
+                bundleInspection: terminalBackendBundleInspection,
+                runtimePaths: terminalBackendRuntimePaths,
+                userID: UInt32(Darwin.getuid())
+            ),
+            readinessChecker: BackendServiceReadinessProbe(
+                descriptor: terminalBackendDescriptor,
+                runtimePaths: terminalBackendRuntimePaths
+            )
+        )
+        let terminalBackendServiceModel = TerminalBackendServiceModel(
+            coordinator: terminalBackendServiceBootstrap
+        )
+        _terminalBackendServiceModel = State(initialValue: terminalBackendServiceModel)
+
+        // The gate is resolved before constructing any workspace. A gate-on process gets
+        // only the persistent factory, so backend startup failure cannot create a local PTY.
+        let terminalClientComposition: TerminalClientComposition
+        let terminalBackendProjectionStateStore:
+            (any TerminalBackendProjectionStateServing)?
+        if terminalBackendActivationPolicy.isEnabled {
+            let backendClient = TerminalBackendClientCoordinator(
+                bootstrapCoordinator: terminalBackendServiceBootstrap,
+                runtimePaths: terminalBackendRuntimePaths,
+                registrationIdentity: BackendClientRegistrationIdentity(
+                    clientUUID: terminalBackendDescriptor.terminalClientUUID,
+                    processInstanceUUID: Self.terminalBackendProcessInstanceUUID
+                )!,
+                compatibilityReporter: { compatibility in
+                    await terminalBackendServiceModel.reportCompatibility(compatibility)
+                }
+            )
+            let mobileTerminalDataPlane = PersistentMobileTerminalDataPlane(
+                readinessProvider: {
+                    try await terminalBackendServiceBootstrap.ensureRegistered()
+                },
+                socketPath: terminalBackendRuntimePaths.socketURL.path,
+                processInstanceUUID: Self.terminalBackendProcessInstanceUUID,
+                inputAuthority: backendClient
+            )
+            terminalClientComposition = .persistent(
+                backendClient: backendClient,
+                presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
+                launchDependencies: GhosttyApp.terminalSurfaceLaunchDependencies,
+                renderConfigSerializer: {
+                    GhosttyApp.shared.serializedTerminalRendererConfig()
+                },
+                mobileTerminalDataPlane: mobileTerminalDataPlane,
+                topologyFailureReporter: { message in
+                    terminalBackendServiceModel.reportTopologyFailure(message)
+                }
+            )
+            terminalBackendProjectionStateStore = backendClient
+        } else {
+            terminalClientComposition = .embedded()
+            terminalBackendProjectionStateStore = nil
+        }
+        self.terminalClientComposition = terminalClientComposition
+        let tabManager = TabManager(
+            terminalClientComposition: terminalClientComposition,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
-        ))
+        )
+        _tabManager = StateObject(wrappedValue: tabManager)
+        let terminalBackendTopologyProjectionRegistry =
+            TerminalBackendTopologyProjectionRegistry(
+                projectionStateStore: terminalBackendProjectionStateStore
+            )
+        self.terminalBackendTopologyProjectionRegistry =
+            terminalBackendTopologyProjectionRegistry
+        let terminalBackendActivityStore = TerminalNotificationStore.shared
+        let topologyCoordinator = TerminalBackendTopologyCoordinator(
+            composition: terminalClientComposition,
+            projector: terminalBackendTopologyProjectionRegistry,
+            activityReporter: { unreadWorkspaceIDs in
+                terminalBackendActivityStore.setBackendActivityUnreadWorkspaceIDs(
+                    unreadWorkspaceIDs
+                )
+            },
+            failureReporter: { message in
+                terminalBackendServiceModel.reportTopologyFailure(message)
+            }
+        )
+        self.terminalBackendTopologyCoordinator = topologyCoordinator
+        terminalBackendTopologyProjectionRegistry.setProjectionStateDidChange {
+            [weak topologyCoordinator] in
+            topologyCoordinator?.projectorsDidChange()
+        }
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -212,7 +372,6 @@ struct cmuxApp: App {
         // unique bundle ID with its own UserDefaults domain, so migration would run
         // on every launch and trigger a macOS keychain access prompt (the legacy
         // keychain item was created by a differently-signed app).
-        let bundleID = Bundle.main.bundleIdentifier
         if !SocketControlSettings.isDebugLikeBundleIdentifier(bundleID)
             && !SocketControlSettings.isStagingBundleIdentifier(bundleID) {
             StartupBreadcrumbLog.append("app.init.keychainMigration.begin")
@@ -230,7 +389,11 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
-            auth: authComposition
+            auth: authComposition,
+            terminalClientComposition: terminalClientComposition,
+            terminalBackendServiceModel: terminalBackendServiceModel,
+            terminalBackendTopologyProjectionRegistry: terminalBackendTopologyProjectionRegistry,
+            terminalBackendTopologyCoordinator: terminalBackendTopologyCoordinator
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
@@ -422,6 +585,23 @@ struct cmuxApp: App {
                 }
                 Button(String(localized: "menu.app.makeDefaultTerminal", defaultValue: "Make cmux the Default Terminal")) {
                     DefaultTerminalUserAction.setAsDefault(debugSource: "menu.makeDefaultTerminal")
+                }
+                if let terminalBackendServiceModel,
+                   let guidanceTitle = terminalBackendServiceModel.guidanceMenuTitle {
+                    Divider()
+                    Button(guidanceTitle) {}
+                        .disabled(true)
+                        .help(terminalBackendServiceModel.guidanceMessage ?? guidanceTitle)
+                    if terminalBackendServiceModel.canOpenSystemSettings {
+                        Button(terminalBackendServiceModel.openSystemSettingsTitle) {
+                            terminalBackendServiceModel.openSystemSettingsLoginItems()
+                        }
+                    }
+                    if terminalBackendServiceModel.canCheckForCompatibilityUpdate {
+                        Button(terminalBackendServiceModel.compatibilityUpdateTitle) {
+                            appDelegate.checkForUpdates(nil)
+                        }
+                    }
                 }
             }
 
@@ -722,7 +902,7 @@ struct cmuxApp: App {
                             debugSource: "menu.newWorkspace"
                         )
                     } else {
-                        activeTabManager.addWorkspace()
+                        _ = activeTabManager.requestAddWorkspace()
                     }
                 }
 
@@ -736,7 +916,7 @@ struct cmuxApp: App {
                         // Last-resort fallback for a missing AppDelegate; keep
                         // the browser-availability gate identical to the
                         // shared action path.
-                        activeTabManager.addWorkspace(initialSurface: .browser)
+                        _ = activeTabManager.requestAddWorkspace(initialSurface: .browser)
                     }
                 }
 

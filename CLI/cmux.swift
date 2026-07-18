@@ -4736,6 +4736,43 @@ struct CMUXCLI {
                 print(formatDebugTerminalsPayload(payload, idFormat: idFormat))
             }
 
+        case "terminal-backend-diagnostics":
+            let reset = commandArgs.contains("--reset")
+            let unexpected = commandArgs.filter { $0 != "--reset" && $0 != "--" }
+            if let extra = unexpected.first {
+                throw CLIError(
+                    message: String(
+                        format: String(
+                            localized: "cli.terminalBackendDiagnostics.error.unexpectedArgument",
+                            defaultValue: "terminal-backend-diagnostics: unexpected argument '%@'"
+                        ),
+                        extra
+                    )
+                )
+            }
+            let payload = try client.sendV2(
+                method: "debug.terminal_backend",
+                params: ["reset": reset]
+            )
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                let metrics = payload["metrics"] as? [String: Any] ?? [:]
+                print(
+                    String(
+                        format: String(
+                            localized: "cli.terminalBackendDiagnostics.output.summary",
+                            defaultValue: "frames=%1$@ admitted=%2$@ blits=%3$@ provenance=%4$@ dropped=%5$@"
+                        ),
+                        String(describing: metrics["received_frames"] ?? 0),
+                        String(describing: metrics["admitted_frames"] ?? 0),
+                        String(describing: metrics["submitted_blits"] ?? 0),
+                        String(describing: metrics["provenance_records"] ?? 0),
+                        String(describing: metrics["provenance_dropped_records"] ?? 0)
+                    )
+                )
+            }
+
         case "trigger-flash":
             let tfWsFlag = optionValue(commandArgs, name: "--workspace")
             let explicitWorkspaceArg = tfWsFlag
@@ -16240,6 +16277,16 @@ struct CMUXCLI {
             Print live Ghostty terminal runtime metadata across all windows and workspaces.
             Intended for debugging stray or detached terminal views.
             """
+        case "terminal-backend-diagnostics":
+            return String(
+                localized: "cli.terminalBackendDiagnostics.help",
+                defaultValue: """
+                Usage: cmux terminal-backend-diagnostics [--reset] [--json]
+
+                Export bounded compositor counters and authenticated frame provenance.
+                --reset returns and clears the prior interval.
+                """
+            )
         case "trigger-flash":
             return """
             Usage: cmux trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>]
@@ -35274,6 +35321,7 @@ export default CMUXSessionRestore;
           reload-config
           surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
           debug-terminals
+          terminal-backend-diagnostics [--reset]
           trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-panels [--workspace <id|ref|index>] [--window <id|ref|index>]
           focus-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]

@@ -140,7 +140,7 @@ extension TerminalController {
         let useLocalContext = surfaceRemoteContextWantsLocal(inputs.remoteContextRaw)
         let newId: UUID?
         if panelType == .browser {
-            newId = ws.newBrowserSplit(
+            newId = ws.requestNewBrowserSplit(
                 from: targetSurfaceId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -149,7 +149,7 @@ extension TerminalController {
                 creationPolicy: .automationPreload,
                 bypassRemoteProxy: useLocalContext,
                 initialDividerPosition: dividerPosition
-            )?.id
+            ).surfaceID
         } else {
             switch ws.newTerminalSplitOutcome(
                 from: targetSurfaceId,
@@ -169,6 +169,13 @@ extension TerminalController {
                 newId = panel.id
             case .routedToRemote:
                 return .routedToRemote(
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: ws.id,
+                    typeRawValue: panelType.rawValue
+                )
+            case .submittedToBackend(let submission):
+                return .submittedToBackend(
+                    requestID: submission.requestID,
                     windowID: v2ResolveWindowId(tabManager: tabManager),
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
@@ -249,22 +256,32 @@ extension TerminalController {
         let focus: Bool? = inputs.hasFocusParam
             ? v2FocusAllowed(requested: inputs.requestedFocus)
             : nil
-        guard let replacementPanel = ws.respawnTerminalSurface(
+        let outcome = ws.requestRespawnTerminalSurface(
             panelId: surfaceId,
             command: inputs.command,
             workingDirectory: inputs.workingDirectory,
             tmuxStartCommand: inputs.tmuxStartCommand,
             focus: focus,
             allowTextBoxFocusDefault: focus == true
-        ) else {
-            return .respawnFailed(surfaceId)
-        }
-        return .respawned(
-            windowID: v2ResolveWindowId(tabManager: tabManager),
-            workspaceID: ws.id,
-            surfaceID: surfaceId,
-            typeRawValue: replacementPanel.panelType.rawValue
         )
+        switch outcome {
+        case .failed, .routedToRemote:
+            return .respawnFailed(surfaceId)
+        case .submittedToBackend(let submission):
+            return .pending(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: ws.id,
+                surfaceID: surfaceId,
+                requestID: submission.requestID
+            )
+        case .created(let replacementPanel):
+            return .respawned(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: ws.id,
+                surfaceID: surfaceId,
+                typeRawValue: replacementPanel.panelType.rawValue
+            )
+        }
     }
 
     // MARK: - create
@@ -365,13 +382,13 @@ extension TerminalController {
         let useLocalContext = surfaceRemoteContextWantsLocal(inputs.remoteContextRaw)
         let newPanelId: UUID?
         if panelType == .browser {
-            newPanelId = ws.newBrowserSurface(
+            newPanelId = ws.requestNewBrowserSurface(
                 inPane: paneId,
                 url: url,
                 focus: focus,
                 creationPolicy: .automationPreload,
                 bypassRemoteProxy: useLocalContext
-            )?.id
+            ).surfaceID
         } else if panelType == .agentSession {
             newPanelId = ws.newAgentSessionSurface(
                 inPane: paneId,
@@ -397,6 +414,13 @@ extension TerminalController {
                 newPanelId = panel.id
             case .routedToRemote:
                 return .routedToRemote(
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: ws.id,
+                    typeRawValue: panelType.rawValue
+                )
+            case .submittedToBackend(let submission):
+                return .submittedToBackend(
+                    requestID: submission.requestID,
                     windowID: v2ResolveWindowId(tabManager: tabManager),
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
