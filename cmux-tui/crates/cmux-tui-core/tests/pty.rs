@@ -267,9 +267,14 @@ fn surface_exit_reaps_tree_and_emits_event() {
     );
     assert!(got.is_some(), "no SurfaceExited event");
     assert!(surface.is_dead());
-    // The mux reaps exited surfaces itself; the emptied workspace is gone.
+    // The mux reaps exited surfaces itself, but a canonical empty workspace is
+    // retained so GUI and TUI projections cannot disagree about its existence.
     let reaped = wait_for(
-        || mux.with_state(|s| s.workspaces.is_empty().then_some(())),
+        || {
+            mux.with_state(|s| {
+                (s.workspaces.len() == 1 && s.workspaces[0].screens.is_empty()).then_some(())
+            })
+        },
         Duration::from_secs(10),
     );
     assert!(reaped.is_some(), "exited surface not reaped from tree");
@@ -1285,6 +1290,10 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
     assert_eq!(delta["workspace"], delta["entity"]["id"]);
     assert_eq!(delta["index"], 0);
     assert_eq!(delta["workspace_revision"], 1);
+    assert_eq!(delta["origin"], "cmux-tui");
+    assert!(delta["mutation_id"].as_str().is_some());
+    assert!(delta["registry_id"].as_str().is_some());
+    assert!(delta["generation"].as_str().is_some());
     assert!(delta["entity"]["key"].as_str().is_some_and(|key| key.len() == 36));
     assert_eq!(delta["entity"]["name"], "delta");
     assert!(
@@ -1426,17 +1435,19 @@ fn workspace_mutations_are_exactly_once_before_guards_and_close_resolution() {
         let stream = connect(&sock_path);
         let mut writer = stream.try_clone_box().unwrap();
         writeln!(writer, "{request}").unwrap();
+        writer.flush().unwrap();
+        wait_for(
+            || mux.with_state(|state| (state.workspace_revision == 1).then_some(())),
+            Duration::from_secs(10),
+        )
+        .expect("create mutation was not committed");
+        // Deliberately drop both halves without reading the queued response.
     }
-    wait_for(
-        || mux.with_state(|state| (state.workspace_revision == 1).then_some(())),
-        Duration::from_secs(5),
-    )
-    .expect("create mutation was not committed");
 
     let stream = connect(&sock_path);
     let mut writer = stream.try_clone_box().unwrap();
     let mut reader = BufReader::new(stream);
-    let retry = socket_request(&mut writer, &mut reader, request.clone());
+    let retry = socket_request(&mut writer, &mut reader, request);
     assert_eq!(retry["data"]["workspace_revision"], 1);
     assert_eq!(retry["data"]["replayed"], true);
     mux.with_state(|state| {

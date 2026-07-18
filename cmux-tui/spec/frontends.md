@@ -33,6 +33,21 @@ Require `protocol >= 7` before requesting render mode, `read-scrollback`, or bra
 
 Open [`subscribe`](commands.md#subscribe) with `tree_events:"deltas"`, buffer events as soon as the request is sent, then fetch [`list-workspaces`](commands.md#list-workspaces). Apply the snapshot before draining the buffer. The subscribe receiver is registered before its success response, so responses and events may race. Omitting `tree_events` selects the protocol-v6-compatible coarse stream instead.
 
+Treat cmux-tui as the only authority for workspace UUID, existence, name, and
+order. A browser window model is a disposable projection. Use a stable
+profile/window-group identity as the cmux session and as the
+`put-frontend-projection` subject; do not generate a new session on every app
+launch. Every canonical workspace, including an empty one, must appear in the
+frontend immediately. Browser-only columns, splits, web tabs, focus, and
+terminal placement belong in the opaque frontend projection and refer to
+workspaces by stable `key`.
+
+Generate `origin` and `mutation_id` before sending a workspace mutation and
+reuse both for retries. Apply a successful local response immediately, then
+deduplicate its matching event by mutation identity. On boot-generation
+change, event gap, or subscription overflow, discard daemon-local ids and
+reconcile from a fresh `list-workspaces` snapshot plus the latest projection.
+
 Protocol v7 lifecycle events (`workspace-*`, `screen-*`, `pane-*`, and `tab-*`) carry subject ids, parent ids, and exact `list-workspaces` entity payloads. Apply those deltas in stream order. `layout-changed`, surface events, and title events retain their documented focused invalidation paths.
 
 Always implement `tree-changed`: it is the delta stream's coarse resync fallback for churn and changes not represented by lifecycle deltas. Do not rely on it for ordinary delta-representable mutations. On receipt, fetch a new `list-workspaces` snapshot and treat it as authoritative over older buffered deltas. See the [event-scoping table](events.md#event-scoping) before routing events from a connection with streams.

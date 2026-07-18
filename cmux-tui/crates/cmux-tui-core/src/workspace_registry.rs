@@ -33,6 +33,7 @@ pub struct RegistrySnapshot {
     pub registry_id: String,
     pub generation: String,
     pub revision: u64,
+    pub next_numeric_id: u64,
     pub workspaces: Vec<RegistryWorkspace>,
 }
 
@@ -236,6 +237,15 @@ impl WorkspaceRegistry {
 
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
         let revision = current_revision(&self.connection)?;
+        let max_numeric_id = self.connection.query_row(
+            "SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let next_numeric_id = u64::try_from(max_numeric_id)
+            .context("stored workspace id is negative")?
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
         let mut statement = self.connection.prepare(
             "SELECT numeric_id, workspace_key, name, group_key
              FROM workspaces WHERE tombstoned = 0 ORDER BY position ASC",
@@ -259,6 +269,7 @@ impl WorkspaceRegistry {
             registry_id: self.registry_id.clone(),
             generation: self.generation.clone(),
             revision,
+            next_numeric_id,
             workspaces,
         })
     }
@@ -315,6 +326,7 @@ impl WorkspaceRegistry {
     /// Duplicate lookup intentionally precedes revision validation: a retry of
     /// a committed command must return its original result even after newer
     /// commands have advanced the registry.
+    #[allow(clippy::too_many_arguments)]
     pub fn commit(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -659,7 +671,7 @@ fn canonical_json(value: &Value) -> anyhow::Result<String> {
             Value::Object(map) => {
                 output.push('{');
                 let mut entries = map.iter().collect::<Vec<_>>();
-                entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+                entries.sort_by_key(|(key, _)| *key);
                 for (index, (key, value)) in entries.into_iter().enumerate() {
                     if index != 0 {
                         output.push(',');
@@ -762,7 +774,8 @@ struct SessionLease {
 
 impl SessionLease {
     fn acquire(path: &Path) -> anyhow::Result<Self> {
-        let file = OpenOptions::new().create(true).read(true).write(true).open(path)?;
+        let file =
+            OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
         platform::restrict_file(path)?;
         FileExt::try_lock(&file).with_context(|| {
             format!("workspace session is already owned by another daemon: {}", path.display())
@@ -908,6 +921,7 @@ mod tests {
                 &json!({"workspace":1,"key":"stable"}),
             )
             .unwrap();
+        assert_eq!(registry.snapshot().unwrap().next_numeric_id, 2);
         registry
             .commit(
                 &WorkspaceMutation::new("close", "browser").unwrap(),
@@ -920,6 +934,7 @@ mod tests {
                 &json!({"workspace":1,"key":"stable"}),
             )
             .unwrap();
+        assert_eq!(registry.snapshot().unwrap().next_numeric_id, 2);
         let error = registry
             .commit(
                 &WorkspaceMutation::new("recreate", "browser").unwrap(),

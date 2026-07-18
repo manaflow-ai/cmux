@@ -27,6 +27,7 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `workspace-closed` | subscribe (`deltas`) | `workspace` | protocol 7 |
 | `workspace-renamed` | subscribe (`deltas`) | `workspace` | protocol 7 |
 | `workspace-moved` | subscribe (`deltas`) | `workspace` | protocol 7 |
+| `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
 | `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-renamed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
@@ -175,7 +176,19 @@ Example:
 
 Protocol v7 adds typed lifecycle deltas for ordinary tree mutations, delivered only when the subscription explicitly requests `tree_events:"deltas"`. The default `"coarse"` subscription receives none of these events. `entity` is the exact `Workspace`, `Screen`, `Pane`, or `Tab` payload defined for `list-workspaces` in `commands.md`; it is not a reduced event-only projection. Added and renamed events carry the entity after the mutation. Closed events carry its last-known payload immediately before removal. This lets clients remove a subtree without having to retain a second copy for close animation or cleanup.
 
-For `*-added`, `index` is the zero-based insertion index in the parent's corresponding array. For `*-closed`, it is the former index. `workspace-moved` carries the new zero-based root index. Workspace events use the root `workspaces` array, include the resulting `workspace_revision`, and carry the stable key in `entity`. Tab events use the pane's `tabs` array. Rename events do not carry `index` because they do not reorder the entity.
+Ordered workspace events additionally carry `workspace_revision`, stable
+`registry_id`, boot `generation`, `origin`, and `mutation_id`. A client applies
+only the exact next revision for the same registry/generation and refetches
+`list-workspaces` after a gap or generation change. The server commits the
+durable mutation before publishing this event and holds one registry writer
+through event publication, so revision order and stream order are identical.
+
+For `*-added`, `index` is the zero-based insertion index in the parent's
+corresponding array. For `*-closed`, it is the former index.
+`workspace-moved` carries the new zero-based root index. Workspace events use
+the root `workspaces` array and carry the stable key in `entity`; tab events
+use the pane's `tabs` array. Rename events do not carry `index` because they do
+not reorder the entity.
 
 One settled mutation may affect a subtree. A server may emit only the highest-level delta when its `entity` already contains the complete affected subtree; it must not also emit redundant descendant add/close deltas. If it emits multiple independent deltas, adds are parent-first and closes are child-first.
 
@@ -192,7 +205,7 @@ These lifecycle deltas do not encode every mutable tree field. Selection, reorde
 Payload:
 
 ```text
-object{event:"workspace-added",workspace:Id,index:usize,workspace_revision:uint64,entity:Workspace}
+object{event:"workspace-added",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin:string,mutation_id:string}
 ```
 
 ### workspace-closed
@@ -206,7 +219,7 @@ object{event:"workspace-added",workspace:Id,index:usize,workspace_revision:uint6
 Payload:
 
 ```text
-object{event:"workspace-closed",workspace:Id,index:usize,workspace_revision:uint64,entity:Workspace}
+object{event:"workspace-closed",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin:string,mutation_id:string}
 ```
 
 ### workspace-renamed
@@ -220,7 +233,7 @@ object{event:"workspace-closed",workspace:Id,index:usize,workspace_revision:uint
 Payload:
 
 ```text
-object{event:"workspace-renamed",workspace:Id,workspace_revision:uint64,entity:Workspace}
+object{event:"workspace-renamed",workspace:Id,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin:string,mutation_id:string}
 ```
 
 ### workspace-moved
@@ -231,11 +244,17 @@ object{event:"workspace-renamed",workspace:Id,workspace_revision:uint64,entity:W
 | status | implemented |
 | since | protocol 7 |
 
-Payload:
-
 ```text
-object{event:"workspace-moved",workspace:Id,index:usize,workspace_revision:uint64,entity:Workspace}
+object{event:"workspace-moved",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin:string,mutation_id:string}
 ```
+
+### frontend-projection-changed
+
+Published after a successful non-replayed projection CAS commit. The payload
+contains `frontend`, `scope`, `subject_key`, `projection_revision`, `origin`,
+and `mutation_id`. It does not contain the opaque projection; interested
+frontends fetch it with `get-frontend-projection`. Projection changes do not
+advance `workspace_revision`.
 
 ### screen-added
 

@@ -142,9 +142,9 @@ pub fn workspace_state_dir() -> Option<PathBuf> {
     }
     #[cfg(target_os = "macos")]
     {
-        return home_dir().map(|home| {
+        home_dir().map(|home| {
             home.join("Library").join("Application Support").join("cmux-tui").join("sessions")
-        });
+        })
     }
     #[cfg(target_os = "linux")]
     {
