@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 /// The per-session control callbacks a ``RemoteTmuxSessionMirror`` registers.
@@ -13,6 +14,9 @@ struct RemoteTmuxSessionObservers {
     var onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?
     var onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?
     var onTopologyChanged: (() -> Void)?
+    /// Fires after reconnect attach drainage and reseeding, when observers may
+    /// safely schedule commands against fresh topology.
+    var onReconnectReady: (() -> Void)?
     var onExit: (() -> Void)?
     var onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)?
 
@@ -23,6 +27,7 @@ struct RemoteTmuxSessionObservers {
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
+        onReconnectReady: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil,
         onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)? = nil
     ) {
@@ -32,6 +37,7 @@ struct RemoteTmuxSessionObservers {
         self.onActivePaneChanged = onActivePaneChanged
         self.onSessionChanged = onSessionChanged
         self.onTopologyChanged = onTopologyChanged
+        self.onReconnectReady = onReconnectReady
         self.onExit = onExit
         self.onConnectionStateChanged = onConnectionStateChanged
     }
@@ -71,10 +77,13 @@ protocol RemoteTmuxSessionSource: AnyObject {
     var publishedWindowIdByPane: [Int: Int] { get }
     /// Per-pane header-strip labels (expanded `pane-border-format`, styles stripped).
     var paneHeaderLabels: [Int: String] { get }
-    /// Whether each window currently has `pane-border-status top`.
-    var windowTitleRowsVisible: [Int: Bool] { get }
+    /// Where each window places its pane title row (`pane-border-status`); a
+    /// consumer wanting only "is a top row visible" derives `== .top` at the edge.
+    var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] { get }
     /// The last size requested per window (the sizing claim/no-op check).
     var lastWindowSizes: [Int: (Int, Int)] { get }
+    /// `true` while a window's resize has a layout in flight to publication.
+    func hasPendingLayout(windowId: Int) -> Bool
 
     /// Registers the mirror's callbacks; returns a token for `removeObserver`.
     func addObserver(_ observers: RemoteTmuxSessionObservers) -> UUID
@@ -90,6 +99,16 @@ protocol RemoteTmuxSessionSource: AnyObject {
 
     /// Sends a raw tmux control command targeting this session's server-global ids.
     @discardableResult func send(_ command: String) -> Bool
+    /// Sends a command and fires `completion` exactly once with its block result,
+    /// so a state machine can anchor on the resolution instead of a timer.
+    @discardableResult func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool
+    /// Replaces a pane's visible screen from a fresh capture (home+clear+rows),
+    /// used to repaint after a resize the terminal didn't reflow.
+    func repaintPaneVisibleScreen(paneId: Int)
+    /// Drops cached window-size claims for windows no longer live (sizing GC).
+    func retainWindowSizeClaims(for liveWindowIDs: Set<Int>)
+    /// Drops the cached window-size claim for a single window (e.g. on its close).
+    func removeWindowSizeClaim(windowId: Int)
     /// Creates a tmux window in-band and reports the new `@id` (or nil) back.
     @discardableResult func sendNewWindow(_ command: String, completion: @escaping (Int?) -> Void) -> Bool
     /// Sends a window-reorder command batch with optional verification callback.
@@ -118,13 +137,8 @@ protocol RemoteTmuxSessionSource: AnyObject {
 
 /// GA: one control connection *is* one session, so the connection is its own source.
 extension RemoteTmuxControlConnection: RemoteTmuxSessionSource {
-    /// The linked-view model only needs "does this window show a top title row";
-    /// current main models it richer as a per-window placement, so derive the Bool
-    /// (main's connection has no stored `windowTitleRowsVisible`).
-    var windowTitleRowsVisible: [Int: Bool] {
-        windowTitleRowPlacements.mapValues { $0 == .top }
-    }
-
+    // All source members other than the lifecycle shims below are already stored
+    // properties / methods on the GA connection, so conformance is free.
     func releaseMirror() {}
 
     func endSession(kill: Bool) {
@@ -141,6 +155,7 @@ extension RemoteTmuxControlConnection: RemoteTmuxSessionSource {
             onActivePaneChanged: observers.onActivePaneChanged,
             onSessionChanged: observers.onSessionChanged,
             onTopologyChanged: observers.onTopologyChanged,
+            onReconnectReady: observers.onReconnectReady,
             onExit: observers.onExit,
             onConnectionStateChanged: observers.onConnectionStateChanged
         )
