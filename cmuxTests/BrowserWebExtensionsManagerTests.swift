@@ -470,7 +470,7 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
-    @Test func installsSafariAppExtensionResourcesThroughSharedInstallPath() async throws {
+    @Test func installsSafariAppExtensionAsBundleBackedReference() async throws {
         let sourceRoot = try Self.makeExtensionsRoot()
         let managedRoot = try Self.makeExtensionsRoot()
         defer {
@@ -512,15 +512,18 @@ struct BrowserWebExtensionsManagerTests {
         let receipt = try await manager.installExtension(from: app)
 
         #expect(receipt.name == "Safari container fixture")
-        let installed = managedRoot.appendingPathComponent(
+        let copiedResources = managedRoot.appendingPathComponent(
             "com.example.password-manager.safari-2.3.4",
             isDirectory: true
         )
+        #expect(!FileManager.default.fileExists(atPath: copiedResources.path))
         #expect(FileManager.default.fileExists(
-            atPath: installed.appendingPathComponent("manifest.json").path
+            atPath: managedRoot.appendingPathComponent(
+                ".cmux-app-extension-bundles.json"
+            ).path
         ))
         #expect(manager.loadedContexts.first?.uniqueIdentifier
-            == "cmux-browser-extension-com.example.password-manager.safari-2.3.4")
+            == "cmux-browser-extension-com.example.password-manager.safari")
     }
 
     @available(macOS 15.4, *)
