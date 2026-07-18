@@ -5110,7 +5110,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Floating containers own their glass at the window root regardless of
         // the user's main-window opacity setting.
         if !transparentBackgroundHostIDs.isEmpty { return false }
-        Self.drawsConfiguredWebViewBackground(
+        return Self.drawsConfiguredWebViewBackground(
             isBlankPage: isShowingBlankBrowserPage,
             usesTransparentBackground: effectiveUsesTransparentBackground
         )

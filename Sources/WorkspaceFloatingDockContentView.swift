@@ -159,7 +159,7 @@ private struct WorkspaceFloatingDockDragRegion: NSViewRepresentable {
     func updateNSView(_ nsView: WorkspaceFloatingDockDragNSView, context: Context) {}
 }
 
-private final class WorkspaceFloatingDockDragNSView: NSView {
+final class WorkspaceFloatingDockDragNSView: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {

@@ -41,6 +41,28 @@ private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitReg
 
 @MainActor
 final class WindowGlassEffectTests: XCTestCase {
+    func testGlassKeepsForegroundControlsAsMouseHitTargets() throws {
+        _ = NSApplication.shared
+        let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let button = NSButton(frame: NSRect(x: 40, y: 50, width: 100, height: 32))
+        originalContentView.addSubview(button)
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+
+        let glassEffect = WindowGlassEffect()
+        glassEffect.apply(to: window, tintColor: .systemBlue)
+        let root = try XCTUnwrap(window.contentView)
+        root.layoutSubtreeIfNeeded()
+        let point = root.convert(NSPoint(x: button.frame.midX, y: button.frame.midY), from: originalContentView)
+
+        XCTAssertTrue(root.hitTest(point) === button)
+    }
+
     func testRemoveRestoresOriginalContentHierarchy() {
         _ = NSApplication.shared
 
@@ -2986,6 +3008,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
         XCTAssertFalse(panel.isOpaque)
         XCTAssertTrue(panel.usesWorkspaceFloatingDockGlassBackdrop)
+        XCTAssertFalse(panel.isMovableByWindowBackground)
+        XCTAssertTrue(panel.styleMask.contains(.resizable))
         XCTAssertEqual(panel.backgroundColor.alphaComponent, 0, accuracy: 0.001)
         XCTAssertEqual(panel.minSize, NSSize(width: 320, height: 220))
         XCTAssertEqual(panel.contentMinSize, NSSize(width: 320, height: 220))
@@ -3008,6 +3032,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             contains: glass.backgroundViewIdentifier
         )
         XCTAssertTrue(glassIsInstalled)
+    }
+
+    func testWorkspaceFloatingDockDragRegionOwnsFirstMouseAndWindowDrag() {
+        let dragRegion = WorkspaceFloatingDockDragNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 38))
+
+        XCTAssertTrue(dragRegion.acceptsFirstMouse(for: nil))
+        XCTAssertTrue(dragRegion.mouseDownCanMoveWindow)
     }
 
     func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {
