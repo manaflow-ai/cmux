@@ -344,7 +344,19 @@ extension BrowserPanel {
         guard expectedOperationID.map({ diffViewerLoadingOperationID == $0 }) != false else {
             return false
         }
-        return expectedURL.map(hasCurrentURL) != false
+        guard let expectedURL else { return true }
+        if hasCurrentURL(expectedURL) {
+            return true
+        }
+        guard expectedOperationID != nil,
+              expectedURL == diffViewerLoadingOwnedOpeningURL else {
+            return false
+        }
+        return DiffViewerLoadingPage.owns(
+            url: diffViewerLoadingOwnershipURL,
+            expectedURL: DiffViewerLoadingPage.url.absoluteString,
+            ownedOpeningURL: diffViewerLoadingOwnedOpeningURL
+        )
     }
 }
 
