@@ -487,6 +487,11 @@ impl RemoteTmuxProducerRegistry {
         true
     }
 
+    /// Number of private external producer runtimes, without exposing reconnect sources.
+    pub(crate) fn state_count(&self) -> usize {
+        self.state.lock().unwrap().producers.len()
+    }
+
     #[cfg(test)]
     pub(crate) fn contains_producer(&self, producer_id: uuid::Uuid) -> bool {
         self.state.lock().unwrap().producers.contains_key(&producer_id)

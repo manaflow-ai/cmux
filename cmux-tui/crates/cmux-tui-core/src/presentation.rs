@@ -225,6 +225,11 @@ impl PresentationRegistry {
             .collect()
     }
 
+    /// Number of daemon-lifetime presentation records, without exposing contents.
+    pub(crate) fn state_count(&self) -> usize {
+        self.state.lock().unwrap().presentations.len()
+    }
+
     pub(crate) fn remove_client(&self, client: u64) -> Vec<PresentationId> {
         let mut state = self.state.lock().unwrap();
         let removed = state

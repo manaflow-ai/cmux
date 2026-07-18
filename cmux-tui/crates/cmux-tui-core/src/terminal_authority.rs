@@ -425,6 +425,12 @@ impl TerminalAuthorityRegistry {
             .map_or(TerminalControlMode::LegacyShared, |terminal| terminal.mode)
     }
 
+    /// Number of daemon-lifetime authority records, without exposing lease contents.
+    pub(crate) fn state_count(&self) -> usize {
+        let state = self.state.lock().unwrap();
+        state.terminals.len().saturating_add(state.visible_presentations.len())
+    }
+
     pub(crate) fn require_legacy(
         &self,
         surface_uuid: SurfaceUuid,

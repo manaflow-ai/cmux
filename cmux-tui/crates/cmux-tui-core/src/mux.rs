@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -89,6 +89,26 @@ fn terminal_initial_input_deadline() -> Duration {
 
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
+}
+
+fn is_sha256_build_id(value: &str) -> bool {
+    value.len() == 64
+        && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn unpredictable_handoff_capability() -> String {
+    format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
+}
+
+fn constant_time_string_eq(expected: &str, actual: &str) -> bool {
+    if expected.len() != actual.len() {
+        return false;
+    }
+    expected
+        .bytes()
+        .zip(actual.bytes())
+        .fold(0_u8, |difference, (left, right)| difference | (left ^ right))
+        == 0
 }
 
 #[derive(Debug, Default)]
@@ -600,6 +620,7 @@ struct PreparedTerminalLaunch {
     attempt_id: Option<uuid::Uuid>,
     committed: bool,
     mux: std::sync::Weak<Mux>,
+    _service_mutation: ServiceMutationPermit,
 }
 
 impl Drop for PreparedTerminalLaunch {
@@ -620,6 +641,10 @@ impl Drop for PreparedTerminalLaunch {
             if let (Some(attempt_id), Some(mux)) = (self.attempt_id, self.mux.upgrade()) {
                 mux.quarantine_launch_attempt(attempt_id, "launch-abandoned-before-publication");
             }
+        }
+        if let Some(mux) = self.mux.upgrade() {
+            let previous = mux.pending_terminal_launches.fetch_sub(1, Ordering::AcqRel);
+            debug_assert!(previous > 0, "pending terminal launch count underflow");
         }
     }
 }
@@ -980,7 +1005,7 @@ struct CanonicalDraft {
     result: Option<PersistedIdempotencyResult>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct DurableStorageStatus {
     pub state: &'static str,
     pub incident_id: Option<uuid::Uuid>,
@@ -988,6 +1013,96 @@ pub(crate) struct DurableStorageStatus {
     pub failure_resolution: Option<&'static str>,
     pub unresolved_mutation: bool,
     pub unresolved_launch_attempts: usize,
+}
+
+/// Content-free reasons an otherwise idle daemon cannot be replaced safely.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct ServiceHandoffBlockers {
+    pub canonical_surfaces: usize,
+    pub pending_terminal_launches: usize,
+    pub presentations: usize,
+    pub projection_states: usize,
+    pub terminal_authorities: usize,
+    pub renderer_presentations: usize,
+    pub renderer_workers: usize,
+    pub pending_renderer_removals: usize,
+    pub renderer_release_routes: usize,
+    pub browser_runtime: bool,
+    pub frontend_native_browser_runtimes: usize,
+    pub remote_external_producer_runtimes: usize,
+    pub sidebar_plugin_runtime: bool,
+    pub agent_records: usize,
+    pub unresolved_durable_mutation: bool,
+    pub unresolved_launch_attempts: usize,
+    pub durable_storage_degraded: bool,
+}
+
+impl ServiceHandoffBlockers {
+    pub(crate) fn is_idle(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// One connection-bound permission for the app to replace this exact daemon.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct ServiceHandoffPermit {
+    pub capability: String,
+    pub owner_connection_id: uuid::Uuid,
+    pub daemon_instance_id: DaemonInstanceId,
+    pub session_id: SessionId,
+    pub session: String,
+    pub source_build_id: String,
+    pub target_build_id: String,
+    pub topology_revision: u64,
+    pub canonical_topology_revision: u64,
+    pub durable_storage: DurableStorageStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ServiceHandoffPreparation {
+    DeferredNotIdle(ServiceHandoffBlockers),
+    Prepared(ServiceHandoffPermit),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ServiceHandoffPhase {
+    Running,
+    Draining,
+}
+
+#[derive(Default)]
+struct ServiceHandoffLifecycleState {
+    active_mutations: u64,
+    permit: Option<ServiceHandoffPermit>,
+}
+
+#[derive(Default)]
+struct ServiceHandoffLifecycle {
+    state: Mutex<ServiceHandoffLifecycleState>,
+    changed: Condvar,
+    #[cfg(test)]
+    prepare_wait_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+}
+
+pub(crate) struct ServiceMutationPermit {
+    lifecycle: Arc<ServiceHandoffLifecycle>,
+}
+
+impl std::fmt::Debug for ServiceMutationPermit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("ServiceMutationPermit").finish_non_exhaustive()
+    }
+}
+
+impl Drop for ServiceMutationPermit {
+    fn drop(&mut self) {
+        let mut state = self.lifecycle.state.lock().unwrap();
+        debug_assert!(state.active_mutations > 0, "service mutation count underflow");
+        state.active_mutations = state.active_mutations.saturating_sub(1);
+        if state.active_mutations == 0 {
+            self.lifecycle.changed.notify_all();
+        }
+    }
 }
 
 impl CanonicalState {
@@ -2618,6 +2733,8 @@ pub struct Mux {
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<LatestClientSize>,
     terminal_control_lifecycle: RwLock<()>,
+    service_handoff_lifecycle: Arc<ServiceHandoffLifecycle>,
+    pending_terminal_launches: AtomicU64,
     client_sizing_lifecycle: Mutex<()>,
     client_sizing: Mutex<ClientSizingState>,
     #[cfg(test)]
@@ -2806,6 +2923,8 @@ impl Mux {
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(LatestClientSize::default()),
             terminal_control_lifecycle: RwLock::new(()),
+            service_handoff_lifecycle: Arc::new(ServiceHandoffLifecycle::default()),
+            pending_terminal_launches: AtomicU64::new(0),
             client_sizing_lifecycle: Mutex::new(()),
             client_sizing: Mutex::new(ClientSizingState::default()),
             #[cfg(test)]
@@ -3579,18 +3698,29 @@ impl Mux {
         scrollback: Option<usize>,
         initial_input: Option<String>,
     ) -> anyhow::Result<PreparedTerminalLaunch> {
-        let (surface, launch, gate, input_authority) = self
-            .create_surface_with_allocated_identity_mode(
-                id,
-                uuid,
-                cwd,
-                command,
-                extra_env,
-                wait_after_command,
-                size,
-                scrollback,
-                true,
-            )?;
+        let service_mutation = self.begin_service_mutation()?;
+        self.pending_terminal_launches
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| count.checked_add(1))
+            .map_err(|_| anyhow::anyhow!("pending terminal launch count exhausted"))?;
+        let prepared = self.create_surface_with_allocated_identity_mode(
+            id,
+            uuid,
+            cwd,
+            command,
+            extra_env,
+            wait_after_command,
+            size,
+            scrollback,
+            true,
+        );
+        let (surface, launch, gate, input_authority) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                let previous = self.pending_terminal_launches.fetch_sub(1, Ordering::AcqRel);
+                debug_assert!(previous > 0, "pending terminal launch count underflow");
+                return Err(error);
+            }
+        };
         Ok(PreparedTerminalLaunch {
             surface,
             launch: Some(launch),
@@ -3603,6 +3733,7 @@ impl Mux {
             attempt_id: None,
             committed: false,
             mux: Arc::downgrade(self),
+            _service_mutation: service_mutation,
         })
     }
 
@@ -4463,6 +4594,10 @@ impl Mux {
 
     pub(crate) fn durable_storage_status(&self) -> DurableStorageStatus {
         let canonical = self.state.lock().unwrap();
+        Self::durable_storage_status_locked(&canonical)
+    }
+
+    fn durable_storage_status_locked(canonical: &CanonicalState) -> DurableStorageStatus {
         let Some(durable) = canonical.durable.as_ref() else {
             return DurableStorageStatus {
                 state: "disabled",
@@ -4517,6 +4652,190 @@ impl Mux {
                 unresolved_launch_attempts,
             },
         }
+    }
+
+    /// Starts a state-changing operation only while this daemon is Running.
+    ///
+    /// The returned permit keeps prepare from taking an idle snapshot until
+    /// the operation and all nested launch preparation have completed.
+    pub(crate) fn begin_service_mutation(&self) -> anyhow::Result<ServiceMutationPermit> {
+        let lifecycle = self.service_handoff_lifecycle.clone();
+        let mut state = lifecycle.state.lock().unwrap();
+        if state.permit.is_some() {
+            anyhow::bail!("terminal backend is draining for an authenticated service handoff");
+        }
+        state.active_mutations = state
+            .active_mutations
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("active service mutation count exhausted"))?;
+        drop(state);
+        Ok(ServiceMutationPermit { lifecycle })
+    }
+
+    /// Atomically waits for admitted mutations, snapshots every destructive
+    /// runtime, and enters Draining before returning an unpredictable permit.
+    pub(crate) fn prepare_service_handoff(
+        &self,
+        owner_connection_id: uuid::Uuid,
+        target_build_id: &str,
+    ) -> anyhow::Result<ServiceHandoffPreparation> {
+        if owner_connection_id.is_nil() {
+            anyhow::bail!("service handoff owner connection must be non-nil");
+        }
+        if !is_sha256_build_id(target_build_id) {
+            anyhow::bail!("service handoff target build must be a lowercase SHA-256 identity");
+        }
+        if target_build_id == crate::build_identity::BUILD_ID {
+            anyhow::bail!("service handoff target build is already running");
+        }
+
+        let lifecycle = &self.service_handoff_lifecycle;
+        let mut state = lifecycle.state.lock().unwrap();
+        if state.permit.is_some() {
+            anyhow::bail!("terminal backend is already draining for a service handoff");
+        }
+        while state.active_mutations != 0 {
+            #[cfg(test)]
+            if let Some(hook) = lifecycle.prepare_wait_hook.lock().unwrap().take() {
+                hook();
+            }
+            state = lifecycle.changed.wait(state).unwrap();
+            if state.permit.is_some() {
+                anyhow::bail!("terminal backend is already draining for a service handoff");
+            }
+        }
+
+        // Keeping the lifecycle mutex through this content-free snapshot
+        // prevents a new mutation from entering between eligibility and the
+        // Running -> Draining transition.
+        let (blockers, topology_revision, canonical_topology_revision, durable_storage) =
+            self.service_handoff_snapshot();
+        if !blockers.is_idle() {
+            return Ok(ServiceHandoffPreparation::DeferredNotIdle(blockers));
+        }
+
+        let permit = ServiceHandoffPermit {
+            capability: unpredictable_handoff_capability(),
+            owner_connection_id,
+            daemon_instance_id: self.daemon_instance_id,
+            session_id: self.session_id,
+            session: self.session.clone(),
+            source_build_id: crate::build_identity::BUILD_ID.to_owned(),
+            target_build_id: target_build_id.to_owned(),
+            topology_revision,
+            canonical_topology_revision,
+            durable_storage,
+        };
+        state.permit = Some(permit.clone());
+        Ok(ServiceHandoffPreparation::Prepared(permit))
+    }
+
+    /// Consumes the exact owner-bound permit and restores Running.
+    pub(crate) fn cancel_service_handoff(
+        &self,
+        owner_connection_id: uuid::Uuid,
+        capability: &str,
+        source_build_id: &str,
+        target_build_id: &str,
+    ) -> anyhow::Result<()> {
+        let mut state = self.service_handoff_lifecycle.state.lock().unwrap();
+        let permit = state
+            .permit
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("terminal backend is not draining"))?;
+        if permit.owner_connection_id != owner_connection_id {
+            anyhow::bail!("service handoff permit belongs to another connection");
+        }
+        if !constant_time_string_eq(&permit.capability, capability) {
+            anyhow::bail!("service handoff capability is invalid");
+        }
+        if permit.source_build_id != source_build_id {
+            anyhow::bail!("service handoff source build does not match the permit");
+        }
+        if permit.target_build_id != target_build_id {
+            anyhow::bail!("service handoff target build does not match the permit");
+        }
+        state.permit = None;
+        self.service_handoff_lifecycle.changed.notify_all();
+        Ok(())
+    }
+
+    /// Restores Running when the permit owner's Unix connection disappears.
+    pub(crate) fn cancel_service_handoff_for_connection(
+        &self,
+        owner_connection_id: uuid::Uuid,
+    ) -> bool {
+        let mut state = self.service_handoff_lifecycle.state.lock().unwrap();
+        if state
+            .permit
+            .as_ref()
+            .is_none_or(|permit| permit.owner_connection_id != owner_connection_id)
+        {
+            return false;
+        }
+        state.permit = None;
+        self.service_handoff_lifecycle.changed.notify_all();
+        true
+    }
+
+    pub(crate) fn service_handoff_phase(&self) -> ServiceHandoffPhase {
+        if self.service_handoff_lifecycle.state.lock().unwrap().permit.is_some() {
+            ServiceHandoffPhase::Draining
+        } else {
+            ServiceHandoffPhase::Running
+        }
+    }
+
+    #[cfg(test)]
+    fn set_service_handoff_prepare_wait_hook_for_test(&self, hook: Arc<dyn Fn() + Send + Sync>) {
+        *self.service_handoff_lifecycle.prepare_wait_hook.lock().unwrap() = Some(hook);
+    }
+
+    fn service_handoff_snapshot(&self) -> (ServiceHandoffBlockers, u64, u64, DurableStorageStatus) {
+        let canonical = self.state.lock().unwrap();
+        let topology_revision = canonical.legacy_topology_revision;
+        let canonical_topology_revision = canonical.topology.revision();
+        let durable_storage = Self::durable_storage_status_locked(&canonical);
+        let canonical_surfaces = canonical.value.surfaces.len();
+        drop(canonical);
+
+        let renderer_workers = self.renderer_worker_statuses().len();
+        let browser_runtime = self
+            .browser_runtime
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|runtime| !runtime.is_closed());
+        let sidebar_plugin_runtime = {
+            let runtime = self.sidebar_plugin.lock().unwrap();
+            runtime.options.is_some()
+                || runtime.surface.is_some()
+                || runtime.last_error.is_some()
+                || runtime.retry_at.is_some()
+        };
+        let blockers = ServiceHandoffBlockers {
+            canonical_surfaces,
+            pending_terminal_launches: usize::try_from(
+                self.pending_terminal_launches.load(Ordering::Acquire),
+            )
+            .unwrap_or(usize::MAX),
+            presentations: self.presentations.state_count(),
+            projection_states: self.projection_states.state_count(),
+            terminal_authorities: self.terminal_authority.state_count(),
+            renderer_presentations: self.renderer_presentations.lock().unwrap().by_id.len(),
+            renderer_workers,
+            pending_renderer_removals: self.renderer_removal_waiters.lock().unwrap().len(),
+            renderer_release_routes: self.renderer_release_routes.lock().unwrap().values.len(),
+            browser_runtime,
+            frontend_native_browser_runtimes: self.frontend_native_browsers.state_count(),
+            remote_external_producer_runtimes: self.remote_tmux_producers.state_count(),
+            sidebar_plugin_runtime,
+            agent_records: self.agent_records.lock().unwrap().len(),
+            unresolved_durable_mutation: durable_storage.unresolved_mutation,
+            unresolved_launch_attempts: durable_storage.unresolved_launch_attempts,
+            durable_storage_degraded: durable_storage.state == "degraded",
+        };
+        (blockers, topology_revision, canonical_topology_revision, durable_storage)
     }
 
     #[cfg(test)]
@@ -12155,14 +12474,8 @@ mod tests {
                 "unresolved-durable-mutation",
                 Box::new(|value| value.unresolved_durable_mutation = true),
             ),
-            (
-                "unresolved-launch-attempts",
-                Box::new(|value| value.unresolved_launch_attempts = 1),
-            ),
-            (
-                "durable-storage-degraded",
-                Box::new(|value| value.durable_storage_degraded = true),
-            ),
+            ("unresolved-launch-attempts", Box::new(|value| value.unresolved_launch_attempts = 1)),
+            ("durable-storage-degraded", Box::new(|value| value.durable_storage_degraded = true)),
         ];
 
         assert!(empty_handoff_blockers().is_idle());
@@ -12178,9 +12491,8 @@ mod tests {
         let mux = test_mux();
         let owner_connection_id = uuid::Uuid::new_v4();
 
-        let prepared = mux
-            .prepare_service_handoff(owner_connection_id, HANDOFF_TARGET_BUILD_ID)
-            .unwrap();
+        let prepared =
+            mux.prepare_service_handoff(owner_connection_id, HANDOFF_TARGET_BUILD_ID).unwrap();
         let ServiceHandoffPreparation::Prepared(permit) = prepared else {
             panic!("idle mux must prepare a handoff");
         };
@@ -12207,9 +12519,8 @@ mod tests {
         let mux = test_mux();
         mux.new_workspace(None, Some((80, 24))).unwrap();
 
-        let result = mux
-            .prepare_service_handoff(uuid::Uuid::new_v4(), HANDOFF_TARGET_BUILD_ID)
-            .unwrap();
+        let result =
+            mux.prepare_service_handoff(uuid::Uuid::new_v4(), HANDOFF_TARGET_BUILD_ID).unwrap();
         let ServiceHandoffPreparation::DeferredNotIdle(blockers) = result else {
             panic!("active terminal must defer replacement");
         };
@@ -12222,9 +12533,8 @@ mod tests {
     fn cancel_is_one_shot_owner_connection_and_build_bound() {
         let mux = test_mux();
         let owner = uuid::Uuid::new_v4();
-        let ServiceHandoffPreparation::Prepared(permit) = mux
-            .prepare_service_handoff(owner, HANDOFF_TARGET_BUILD_ID)
-            .unwrap()
+        let ServiceHandoffPreparation::Prepared(permit) =
+            mux.prepare_service_handoff(owner, HANDOFF_TARGET_BUILD_ID).unwrap()
         else {
             panic!("idle mux must prepare a handoff");
         };
@@ -12259,9 +12569,8 @@ mod tests {
                 "target build",
             ),
         ] {
-            let error = mux
-                .cancel_service_handoff(connection, capability, source, target)
-                .unwrap_err();
+            let error =
+                mux.cancel_service_handoff(connection, capability, source, target).unwrap_err();
             assert!(error.to_string().contains(expected), "unexpected error: {error}");
             assert_eq!(mux.service_handoff_phase(), ServiceHandoffPhase::Draining);
         }
@@ -12274,8 +12583,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(mux.service_handoff_phase(), ServiceHandoffPhase::Running);
-        assert!(mux
-            .cancel_service_handoff(
+        assert!(
+            mux.cancel_service_handoff(
                 owner,
                 &permit.capability,
                 &permit.source_build_id,
@@ -12283,16 +12592,16 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .contains("not draining"));
+            .contains("not draining")
+        );
     }
 
     #[test]
     fn owner_disconnect_cancels_drain_but_other_disconnect_does_not() {
         let mux = test_mux();
         let owner = uuid::Uuid::new_v4();
-        let ServiceHandoffPreparation::Prepared(_) = mux
-            .prepare_service_handoff(owner, HANDOFF_TARGET_BUILD_ID)
-            .unwrap()
+        let ServiceHandoffPreparation::Prepared(_) =
+            mux.prepare_service_handoff(owner, HANDOFF_TARGET_BUILD_ID).unwrap()
         else {
             panic!("idle mux must prepare a handoff");
         };

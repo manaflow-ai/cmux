@@ -345,6 +345,11 @@ impl ProjectionStateRegistry {
             }
         }
     }
+
+    /// Number of daemon-lifetime projection records, without exposing contents.
+    pub(crate) fn state_count(&self) -> usize {
+        self.states.lock().unwrap().len()
+    }
 }
 
 fn next_generation(generation: u64) -> anyhow::Result<u64> {

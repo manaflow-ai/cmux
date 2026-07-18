@@ -24,6 +24,7 @@ pub(crate) enum ConnectionRole {
     TrustedAutomation,
     TrustedInputDelegate,
     TrustedRenderer,
+    ServiceCoordinator,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +32,7 @@ pub(crate) enum ConnectionPermission {
     Control,
     Frontend,
     InputDelegate,
+    ServiceHandoff,
 }
 
 impl ConnectionRole {
@@ -42,6 +44,7 @@ impl ConnectionRole {
             Self::TrustedAutomation => "trusted-automation",
             Self::TrustedInputDelegate => "trusted-input-delegate",
             Self::TrustedRenderer => "trusted-renderer",
+            Self::ServiceCoordinator => "service-coordinator",
         }
     }
 
@@ -59,6 +62,7 @@ impl ConnectionRole {
                 self,
                 Self::TrustedFrontend | Self::TrustedAutomation | Self::TrustedInputDelegate
             ),
+            ConnectionPermission::ServiceHandoff => matches!(self, Self::ServiceCoordinator),
         }
     }
 
@@ -76,6 +80,7 @@ impl ConnectionRole {
                 ConnectionPermission::InputDelegate => {
                     "trusted frontend, automation, or input delegate"
                 }
+                ConnectionPermission::ServiceHandoff => "service coordinator",
             };
             anyhow::bail!(
                 "command {command:?} requires a registered server-issued same-UID {required} role"
@@ -91,6 +96,7 @@ pub(crate) enum RegisteredClientKind {
     Automation,
     MobileCompatibility,
     RendererWorker,
+    ServiceCoordinator,
     Web,
 }
 
@@ -102,6 +108,7 @@ impl RegisteredClientKind {
             "automation" => Ok(Self::Automation),
             "mobile-compatibility" => Ok(Self::MobileCompatibility),
             "renderer-worker" => Ok(Self::RendererWorker),
+            "service-coordinator" => Ok(Self::ServiceCoordinator),
             "web" => Ok(Self::Web),
             other => anyhow::bail!("unsupported registered client kind {other:?}"),
         }
@@ -114,6 +121,7 @@ impl RegisteredClientKind {
             Self::Automation => "automation",
             Self::MobileCompatibility => "mobile-compatibility",
             Self::RendererWorker => "renderer-worker",
+            Self::ServiceCoordinator => "service-coordinator",
             Self::Web => "web",
         }
     }
@@ -188,6 +196,9 @@ impl ConnectionAuthorization {
                     ConnectionRole::TrustedInputDelegate
                 }
                 Some(RegisteredClientKind::RendererWorker) => ConnectionRole::TrustedRenderer,
+                Some(RegisteredClientKind::ServiceCoordinator) => {
+                    ConnectionRole::ServiceCoordinator
+                }
                 Some(RegisteredClientKind::Web) | None => ConnectionRole::Unaffiliated,
             },
         };
@@ -292,10 +303,7 @@ mod tests {
         coordinator.register(9, Some("service-coordinator")).unwrap();
 
         assert_eq!(coordinator.role(), ConnectionRole::ServiceCoordinator);
-        assert_eq!(
-            coordinator.registered_kind(),
-            Some(RegisteredClientKind::ServiceCoordinator)
-        );
+        assert_eq!(coordinator.registered_kind(), Some(RegisteredClientKind::ServiceCoordinator));
         assert!(coordinator.permits(ConnectionPermission::ServiceHandoff));
         assert!(!coordinator.permits(ConnectionPermission::Control));
         assert!(!coordinator.permits(ConnectionPermission::Frontend));

@@ -386,6 +386,11 @@ impl FrontendNativeBrowserRegistry {
         true
     }
 
+    /// Number of private browser runtime records, without exposing their sources.
+    pub(crate) fn state_count(&self) -> usize {
+        self.state.lock().unwrap().states.len()
+    }
+
     #[cfg(test)]
     pub(crate) fn contains_surface(&self, surface_uuid: SurfaceUuid) -> bool {
         self.state.lock().unwrap().states.contains_key(&surface_uuid)

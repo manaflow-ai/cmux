@@ -104,6 +104,7 @@ pub const PROTOCOL_CAPABILITIES: &[&str] = &[
     "canonical-topology-snapshot-v1",
     "presentation-registry-v1",
     "projection-state-reconnect-v1",
+    "service-handoff-v1",
     "remote-tmux-producer-source-v1",
     "renderer-semantic-scene-v1",
     "renderer-worker-supervision-v1",
@@ -298,6 +299,14 @@ enum Command {
         process_instance_uuid: uuid::Uuid,
         #[serde(default)]
         client_kind: Option<String>,
+    },
+    PrepareServiceHandoff {
+        target_build_id: String,
+    },
+    CancelServiceHandoff {
+        capability: String,
+        source_build_id: String,
+        target_build_id: String,
     },
     OpenPresentation {
         #[serde(default)]
@@ -1368,6 +1377,17 @@ enum Command {
 }
 
 impl Command {
+    fn requires_running_service(&self) -> bool {
+        !matches!(
+            self,
+            Self::Identify
+                | Self::Ping
+                | Self::RegisterClient { .. }
+                | Self::PrepareServiceHandoff { .. }
+                | Self::CancelServiceHandoff { .. }
+        )
+    }
+
     fn canonical_mutation_claim(&self) -> Option<TopologyMutationLeaseClaim> {
         match self {
             Self::CanonicalNewWorkspace { mutation, .. }
@@ -1862,9 +1882,14 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
         // geometry, direct-input, or topology authority.
         policy.permission = Some(ConnectionPermission::InputDelegate);
     }
+    if matches!(command, "prepare-service-handoff" | "cancel-service-handoff") {
+        policy.permission = Some(ConnectionPermission::ServiceHandoff);
+    }
     policy.protocol_v9 = matches!(
         command,
-        "activate-terminal-presentation"
+        "prepare-service-handoff"
+            | "cancel-service-handoff"
+            | "activate-terminal-presentation"
             | "activate-renderer-presentation"
             | "canonical-new-workspace"
             | "canonical-new-tab"
@@ -3612,6 +3637,7 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
         mux.remove_size_client(client);
         record
     };
+    mux.cancel_service_handoff_for_connection(record.connection_id);
     mux.terminal_authority.revoke_connection(client);
     mux.projection_states.release_connection(record.connection_id);
     mux.release_private_runtime_connection(client);
@@ -5271,6 +5297,12 @@ fn handle_command(
     cmd: Command,
     writer: &MessageWriter,
 ) -> anyhow::Result<Value> {
+    // Draining is a process-wide admission state. Hold this permit through
+    // command execution so prepare cannot snapshot idle while a mutation is
+    // in flight. Authority reads, registration, and the two handoff commands
+    // remain available without mutation authority.
+    let _service_mutation =
+        if cmd.requires_running_service() { Some(mux.begin_service_mutation()?) } else { None };
     // Keep registration and its connection-bound lease live through the
     // entire canonical state transaction. Disconnect takes the write side.
     let topology_mutation_claim = cmd.canonical_mutation_claim();
@@ -5354,6 +5386,39 @@ fn handle_command(
                 "topology_lease_id": registration.topology_lease.map(|lease| lease.id),
                 "topology_lease_generation": registration.topology_lease.map(|lease| lease.generation),
             }))
+        }
+        Command::PrepareServiceHandoff { target_build_id } => {
+            let owner_connection_id = mux
+                .control_clients
+                .connection_id(client)
+                .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+            match mux.prepare_service_handoff(owner_connection_id, &target_build_id)? {
+                crate::mux::ServiceHandoffPreparation::DeferredNotIdle(blockers) => Ok(json!({
+                    "status": "deferred-not-idle",
+                    "blockers": blockers,
+                })),
+                crate::mux::ServiceHandoffPreparation::Prepared(permit) => {
+                    let mut response = serde_json::to_value(permit)?;
+                    response
+                        .as_object_mut()
+                        .expect("handoff permit serializes as an object")
+                        .insert("status".to_owned(), json!("prepared"));
+                    Ok(response)
+                }
+            }
+        }
+        Command::CancelServiceHandoff { capability, source_build_id, target_build_id } => {
+            let owner_connection_id = mux
+                .control_clients
+                .connection_id(client)
+                .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+            mux.cancel_service_handoff(
+                owner_connection_id,
+                &capability,
+                &source_build_id,
+                &target_build_id,
+            )?;
+            Ok(json!({"status": "cancelled"}))
         }
         Command::OpenPresentation { view, zoom, scroll } => {
             let _client_lifecycle = mux.control_clients.lock_lifecycle();
@@ -8583,12 +8648,8 @@ mod tests {
     fn service_coordinator_registration_is_handoff_only() {
         let mux = test_mux();
         let writer = test_writer();
-        let (coordinator, _, registration) = register_v9_client_kind(
-            &mux,
-            &writer,
-            ClientTransport::Unix,
-            "service-coordinator",
-        );
+        let (coordinator, _, registration) =
+            register_v9_client_kind(&mux, &writer, ClientTransport::Unix, "service-coordinator");
         assert_eq!(registration["role"], "service-coordinator");
         assert!(registration["topology_lease_id"].is_null());
 
@@ -8611,19 +8672,13 @@ mod tests {
     fn prepared_handoff_response_precedes_central_mutation_rejection() {
         let mux = test_mux();
         let writer = test_writer();
-        let (coordinator, _, _) = register_v9_client_kind(
-            &mux,
-            &writer,
-            ClientTransport::Unix,
-            "service-coordinator",
-        );
+        let (coordinator, _, _) =
+            register_v9_client_kind(&mux, &writer, ClientTransport::Unix, "service-coordinator");
 
         let result = handle_command(
             &mux,
             coordinator,
-            Command::PrepareServiceHandoff {
-                target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned(),
-            },
+            Command::PrepareServiceHandoff { target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned() },
             &writer,
         )
         .unwrap();
@@ -8655,18 +8710,12 @@ mod tests {
     fn cancel_command_and_owner_disconnect_restore_running() {
         let mux = test_mux();
         let writer = test_writer();
-        let (coordinator, _, _) = register_v9_client_kind(
-            &mux,
-            &writer,
-            ClientTransport::Unix,
-            "service-coordinator",
-        );
+        let (coordinator, _, _) =
+            register_v9_client_kind(&mux, &writer, ClientTransport::Unix, "service-coordinator");
         let prepared = handle_command(
             &mux,
             coordinator,
-            Command::PrepareServiceHandoff {
-                target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned(),
-            },
+            Command::PrepareServiceHandoff { target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned() },
             &writer,
         )
         .unwrap();
@@ -8702,9 +8751,7 @@ mod tests {
         handle_command(
             &mux,
             coordinator,
-            Command::PrepareServiceHandoff {
-                target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned(),
-            },
+            Command::PrepareServiceHandoff { target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned() },
             &writer,
         )
         .unwrap();
