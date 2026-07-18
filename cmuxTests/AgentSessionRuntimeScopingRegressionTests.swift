@@ -3493,7 +3493,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     @MainActor
     @Test(arguments: ["active", "restoring"])
-    func restoredHibernationCannotStealSameBindingFromLiveLifecycle(_ lifecycle: String) throws {
+    func restoredHibernationKeepsUnknownForeignRuntimeInert(_ lifecycle: String) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "cmux-restored-hibernation-same-binding-\(lifecycle)-\(UUID().uuidString)",
@@ -3579,16 +3579,19 @@ extension CMUXCLIErrorOutputRegressionTests {
         let restoredPanelID = try #require(mapping[fixture.sourcePanelID])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
 
-        #expect(!restoredPanel.isAgentHibernated)
-        #expect(restored.restoredAgentSnapshotForTesting(panelId: restoredPanelID) == nil)
+        #expect(restoredPanel.isAgentHibernated)
+        #expect(
+            restored.restoredAgentSnapshotForTesting(panelId: restoredPanelID)?.sessionId
+                == fixture.agent.sessionId
+        )
         #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
         #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
         let restoredPanelSnapshot = try #require(
             restored.sessionSnapshot(includeScrollback: false).panels.first { $0.id == restoredPanelID }
         )
-        #expect(restoredPanelSnapshot.terminal?.agent == nil)
-        #expect(restoredPanelSnapshot.terminal?.hibernation == nil)
-        #expect(restoredPanelSnapshot.terminal?.resumeBinding == nil)
+        #expect(restoredPanelSnapshot.terminal?.agent?.sessionId == fixture.agent.sessionId)
+        #expect(restoredPanelSnapshot.terminal?.hibernation != nil)
+        #expect(restoredPanelSnapshot.terminal?.resumeBinding?.checkpointId == fixture.agent.sessionId)
 
         let snapshot = try registry.snapshot(provider: "codex")
         let stored = try #require(snapshot.records.first)
