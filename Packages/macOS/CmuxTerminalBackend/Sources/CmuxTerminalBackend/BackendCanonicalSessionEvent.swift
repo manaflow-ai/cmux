@@ -21,6 +21,9 @@ public enum BackendCanonicalSessionEvent: Equatable, Sendable {
     /// Exact font-grid metrics produced by the worker for one render generation.
     case rendererPresentationReady(BackendRendererPresentationReady)
 
+    /// Daemon-owned renderer configuration changed and live presentations must upsert.
+    case rendererConfigInvalidated(BackendRendererConfigInvalidated)
+
     /// The connection stopped and must be replaced before state can advance.
     case disconnected(BackendCanonicalSessionError)
 }

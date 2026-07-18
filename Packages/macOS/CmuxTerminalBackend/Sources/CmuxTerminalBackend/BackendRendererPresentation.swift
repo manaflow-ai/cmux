@@ -198,6 +198,8 @@ public struct BackendRendererPresentationReceipt: Decodable, Equatable, Sendable
     public let metrics: BackendRendererMetrics?
     public let pixelFormat: BackendRendererPixelFormat
     public let colorSpace: BackendRendererColorSpace
+    public let resolvedConfigRevision: UInt64
+    public let resolvedConfigDigest: BackendRendererConfigDigest
 
     private enum CodingKeys: String, CodingKey {
         case daemonInstanceID = "daemon_instance_id"
@@ -223,6 +225,8 @@ public struct BackendRendererPresentationReceipt: Decodable, Equatable, Sendable
         case metrics
         case pixelFormat = "pixel_format"
         case colorSpace = "color_space"
+        case resolvedConfigRevision = "resolved_config_revision"
+        case resolvedConfigDigest = "resolved_config_digest"
     }
 
     public var workerProcessInstanceToken: BackendRendererProcessInstanceToken? {

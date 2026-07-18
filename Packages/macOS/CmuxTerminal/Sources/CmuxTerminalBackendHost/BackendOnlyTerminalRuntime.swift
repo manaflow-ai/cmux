@@ -175,6 +175,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private var rendererDaemonInstanceID: UUID?
     private var rendererGeneration: UInt64?
     private var rendererTerminalEpoch: UInt64?
+    private var rendererConfigIdentity: BackendOnlyRendererConfigIdentity?
+    private var rendererConfigFloor = BackendOnlyRendererConfigFloor()
     private var minimumContentSequence: UInt64?
     private var rendererMetrics: BackendRendererMetrics?
     private var workerIdentity: BackendOnlyRendererWorkerIdentity?
@@ -761,7 +763,9 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         }
     }
 
-    private func configureRenderer(viewport: TerminalExternalViewport) async throws {
+    private func configureRenderer(
+        viewport: TerminalExternalViewport
+    ) async throws -> BackendOnlyRendererConfigIdentity {
         guard let presentation,
               let width = UInt32(exactly: viewport.widthPixels),
               let height = UInt32(exactly: viewport.heightPixels),
@@ -842,6 +846,13 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
               receipt.height == height else {
             throw BackendOnlyHostConnectionError.backendUnavailable
         }
+        let configIdentity = BackendOnlyRendererConfigIdentity(
+            revision: receipt.resolvedConfigRevision,
+            digest: receipt.resolvedConfigDigest
+        )
+        guard try rendererConfigFloor.satisfies(configIdentity) else {
+            throw BackendOnlyRendererConfigRefreshError.staleReceipt
+        }
         // Worker authorization and the endpoint capability are write-once. Let
         // serialized recovery retire this presentation, then configure the
         // replacement worker with a fresh receiver and capability.
@@ -865,15 +876,23 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         rendererTerminalEpoch = receipt.terminalEpoch
         minimumContentSequence = receipt.minimumContentSequence
         if receipt.workerState == .ready {
-            try await activateConfiguredRenderer(receipt, receiver: receiver)
+            try await activateConfiguredRenderer(
+                receipt,
+                configIdentity: configIdentity,
+                receiver: receiver
+            )
             if let metrics = receipt.metrics {
                 installMetrics(metrics, width: width, height: height)
             }
         }
+        try rendererConfigFloor.accept(configIdentity)
+        rendererConfigIdentity = configIdentity
+        return configIdentity
     }
 
     private func activateConfiguredRenderer(
         _ receipt: BackendRendererPresentationReceipt,
+        configIdentity: BackendOnlyRendererConfigIdentity,
         receiver: TerminalRenderFrameReceiver
     ) async throws {
         guard let processID = receipt.workerProcessID,
@@ -890,6 +909,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             terminalEpoch: receipt.terminalEpoch,
             presentationGeneration: receipt.rendererGeneration,
             minimumContentSequence: receipt.minimumContentSequence,
+            configIdentity: configIdentity,
             width: receipt.width,
             height: receipt.height,
             receiver: receiver
@@ -900,6 +920,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         _ ready: BackendRendererPresentationReady,
         daemonInstanceID: UUID,
         minimumContentSequence: UInt64,
+        configIdentity: BackendOnlyRendererConfigIdentity,
         width: UInt32,
         height: UInt32,
         receiver: TerminalRenderFrameReceiver
@@ -916,6 +937,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             terminalEpoch: ready.terminalEpoch,
             presentationGeneration: ready.presentationGeneration,
             minimumContentSequence: minimumContentSequence,
+            configIdentity: configIdentity,
             width: width,
             height: height,
             receiver: receiver
@@ -931,6 +953,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         terminalEpoch: UInt64,
         presentationGeneration: UInt64,
         minimumContentSequence: UInt64,
+        configIdentity: BackendOnlyRendererConfigIdentity,
         width: UInt32,
         height: UInt32,
         receiver: TerminalRenderFrameReceiver
@@ -941,6 +964,9 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
               self.rendererEpoch == rendererEpoch,
               rendererTerminalEpoch == terminalEpoch else {
             throw BackendOnlyHostConnectionError.backendUnavailable
+        }
+        guard try rendererConfigFloor.satisfies(configIdentity) else {
+            throw BackendOnlyRendererConfigRefreshError.staleReceipt
         }
         let identity = BackendOnlyRendererWorkerIdentity(
             daemonInstanceID: daemonInstanceID,
@@ -970,6 +996,9 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             )
         )
         try await receiver.authorize(worker: authenticatedWorker)
+        guard try rendererConfigFloor.satisfies(configIdentity) else {
+            throw BackendOnlyRendererConfigRefreshError.staleReceipt
+        }
         let fence = try rendererFence(
             daemonInstanceID: identity.daemonInstanceID,
             rendererEpoch: identity.rendererEpoch,
@@ -980,6 +1009,9 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             height: height
         )
         await receiver.updateFence(fence)
+        guard try rendererConfigFloor.satisfies(configIdentity) else {
+            throw BackendOnlyRendererConfigRefreshError.staleReceipt
+        }
         let compositor = try installCompositor(fence: fence)
         workerIdentity = identity
         workerExitFence = exitFence
@@ -996,7 +1028,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 workerProcessID: UInt32(processID),
                 workerProcessInstanceToken: processToken
             )
-            guard !exitFence.hasExited,
+            guard try rendererConfigFloor.satisfies(configIdentity),
+                  !exitFence.hasExited,
                   workerIdentity == identity,
                   self.presentation?.id == presentation.id,
                   self.presentation?.generation == presentation.generation else {
@@ -1024,8 +1057,12 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
               let readyProcessID = pid_t(exactly: ready.workerProcessID),
               let configuredPixelSize,
               let receiver,
+              let configIdentity = rendererConfigIdentity,
               let daemonInstanceID = rendererDaemonInstanceID
         else { return }
+        guard try rendererConfigFloor.satisfies(configIdentity) else {
+            throw BackendOnlyRendererConfigRefreshError.staleReceipt
+        }
         let sequence = max(minimumContentSequence ?? 0, ready.canonicalSequence)
         if let identity = workerIdentity {
             guard identity.daemonInstanceID == daemonInstanceID,
@@ -1039,6 +1076,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 ready,
                 daemonInstanceID: daemonInstanceID,
                 minimumContentSequence: sequence,
+                configIdentity: configIdentity,
                 width: configuredPixelSize.width,
                 height: configuredPixelSize.height,
                 receiver: receiver
@@ -1065,6 +1103,9 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             height: configuredPixelSize.height
         )
         await receiver.updateFence(fence)
+        guard try rendererConfigFloor.satisfies(configIdentity) else {
+            throw BackendOnlyRendererConfigRefreshError.staleReceipt
+        }
         _ = try installCompositor(fence: fence)
         installMetrics(
             metrics,
@@ -1222,6 +1263,10 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     }
 
     private func handleSessionEvent(_ event: BackendCanonicalSessionEvent) async {
+        if case .rendererConfigInvalidated(let invalidation) = event {
+            await handleRendererConfigInvalidation(invalidation)
+            return
+        }
         do {
             try await withRendererOperation {
                 switch event {
@@ -1244,8 +1289,11 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     if self.visible, !self.retired {
                         try await self.startPresentationIfReady()
                     }
+                case .rendererConfigInvalidated:
+                    return
                 case .disconnected:
                     self.snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .unavailable)
+                    self.rendererConfigFloor = BackendOnlyRendererConfigFloor()
                     self.invalidateRendererOperations()
                     await self.stopPresentation()
                 case .snapshot, .delta, .terminalActivitySnapshot, .terminalActivity,
@@ -1258,10 +1306,58 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         }
     }
 
+    private func handleRendererConfigInvalidation(
+        _ invalidation: BackendRendererConfigInvalidated
+    ) async {
+        do {
+            guard try rendererConfigFloor.record(invalidation),
+                  presentation != nil else { return }
+            snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .unavailable)
+            let priorReceiveTask = retireRendererFrameIngressNow()
+            let outcome = try await BackendOnlyRendererConfigRefresh.perform(
+                current: rendererConfigIdentity,
+                invalidation: invalidation,
+                retireIngress: {
+                    if let priorReceiveTask {
+                        await priorReceiveTask.value
+                    }
+                },
+                configure: {
+                    try await self.withRendererOperation {
+                        if let current = self.rendererConfigIdentity,
+                           try self.rendererConfigFloor.satisfies(current) {
+                            return current
+                        }
+                        guard let viewport = self.currentViewport,
+                              self.presentation != nil else {
+                            throw BackendOnlyHostConnectionError.backendUnavailable
+                        }
+                        return try await self.configureRenderer(viewport: viewport)
+                    }
+                }
+            )
+            if case .refreshed(let identity) = outcome {
+                try rendererConfigFloor.accept(identity)
+                rendererConfigIdentity = identity
+            }
+        } catch {
+            await withRendererOperationIgnoringCancellation {
+                self.snapshot = TerminalExternalRuntimeSnapshot(
+                    lifecycle: .unavailable
+                )
+                await self.stopPresentation(keepEventSubscription: true)
+                if self.visible, !self.retired {
+                    _ = try? await self.startPresentationIfReady()
+                }
+            }
+        }
+    }
+
     private func handleEventStreamEnded() async {
         guard visible, !retired else { return }
         invalidateRendererOperations()
         await withRendererOperationIgnoringCancellation {
+            self.rendererConfigFloor = BackendOnlyRendererConfigFloor()
             await self.stopPresentation(keepEventSubscription: true)
             if self.visible, !self.retired {
                 _ = try? await self.startPresentationIfReady()
@@ -1293,6 +1389,35 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         try await configureRenderer(viewport: viewport)
     }
 
+    private func retireRendererFrameIngressNow() -> Task<Void, Never>? {
+        // Retire the drawable synchronously before cancellation can suspend.
+        // Frames already queued on the old generation can then only target a
+        // detached layer, and later receives are fenced by the new generation.
+        compositor?.retire()
+        compositor?.removeFromSuperview()
+        compositor = nil
+        let priorReceiveTask = receiveTask
+        receiveTask = nil
+        priorReceiveTask?.cancel()
+        presentedFrameState.reset()
+        accessibilityRefreshTask?.cancel()
+        accessibilityRefreshTask = nil
+        accessibilityRefreshRequested = false
+        latestAccessibilityMetadata = nil
+        uxRefreshTask?.cancel()
+        uxRefreshTask = nil
+        uxRefreshRequested = false
+        latestUXContentSequence = nil
+        clearAccessibilitySnapshot()
+        return priorReceiveTask
+    }
+
+    private func retireRendererFrameIngress() async {
+        if let priorReceiveTask = retireRendererFrameIngressNow() {
+            await priorReceiveTask.value
+        }
+    }
+
     private func stopPresentation(keepEventSubscription: Bool = false) async {
         let priorWorkerIdentity = workerIdentity
         workerIdentity = nil
@@ -1307,22 +1432,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             eventTask?.cancel()
             eventTask = nil
         }
-        receiveTask?.cancel()
-        if let receiveTask { await receiveTask.value }
-        self.receiveTask = nil
-        compositor?.retire()
-        compositor?.removeFromSuperview()
-        compositor = nil
-        presentedFrameState.reset()
-        accessibilityRefreshTask?.cancel()
-        accessibilityRefreshTask = nil
-        accessibilityRefreshRequested = false
-        latestAccessibilityMetadata = nil
-        uxRefreshTask?.cancel()
-        uxRefreshTask = nil
-        uxRefreshRequested = false
-        latestUXContentSequence = nil
-        clearAccessibilitySnapshot()
+        await retireRendererFrameIngress()
 
         if let presentation {
             _ = try? await session.detachRendererPresentation(
@@ -1350,6 +1460,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         rendererEpoch = nil
         rendererGeneration = nil
         rendererTerminalEpoch = nil
+        rendererConfigIdentity = nil
         minimumContentSequence = nil
         rendererMetrics = nil
         configuredPixelSize = nil

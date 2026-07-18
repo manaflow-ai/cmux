@@ -29,6 +29,7 @@ public struct BackendHandshakePolicy: Equatable, Sendable {
             "presentation-registry-v1",
             "projection-state-reconnect-v1",
             "remote-tmux-producer-source-v1",
+            "renderer-lifecycle-subscription-v1",
             "renderer-semantic-scene-v1",
             "renderer-worker-supervision-v1",
             "reparent-terminal-v1",

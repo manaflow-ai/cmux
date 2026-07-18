@@ -314,7 +314,7 @@ public final class BackendOnlyHostModel: ObservableObject {
                     return
                 case .terminalActivitySnapshot, .terminalActivity,
                      .terminalActivityReceipt, .rendererWorkerChanged,
-                     .rendererPresentationReady:
+                     .rendererPresentationReady, .rendererConfigInvalidated:
                     continue
                 }
             }

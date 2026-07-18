@@ -181,6 +181,7 @@ public actor BackendCanonicalSession {
                 }
                 let activity = try await client.terminalActivitySnapshot()
                 try activityProjection.install(activity, expectedReaderUUID: readerUUID)
+                try await client.subscribeRendererLifecycle()
             }
             advertisedCapabilities = identify.capabilities
             identifiedBackend = identify
@@ -2092,6 +2093,10 @@ public actor BackendCanonicalSession {
 
     private func receive(_ event: BackendServerEvent) async {
         guard connected else { return }
+        if event.name == "overflow" {
+            await finish(.topologyStreamFailed("renderer lifecycle stream overflow"))
+            return
+        }
         if event.name == "terminal-activity" {
             do {
                 let fact = try event.terminalActivityFact()
@@ -2125,6 +2130,14 @@ public actor BackendCanonicalSession {
         if event.name == "renderer-presentation-ready" {
             do {
                 publish(.rendererPresentationReady(try event.rendererPresentationReady()))
+            } catch {
+                await finish(.topologyStreamFailed(String(describing: error)))
+            }
+            return
+        }
+        if event.name == "renderer-config-invalidated" {
+            do {
+                publish(.rendererConfigInvalidated(try event.rendererConfigInvalidated()))
             } catch {
                 await finish(.topologyStreamFailed(String(describing: error)))
             }

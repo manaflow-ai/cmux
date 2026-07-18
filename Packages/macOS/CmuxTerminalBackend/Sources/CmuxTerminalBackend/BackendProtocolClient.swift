@@ -23,6 +23,7 @@ public actor BackendProtocolClient {
         "process-info",
         "read-screen",
         "renderer-workers",
+        "subscribe-renderer-lifecycle",
         "subscribe-topology",
         "terminal-accessibility-activate-link",
         "terminal-accessibility-snapshot",
@@ -152,6 +153,14 @@ public actor BackendProtocolClient {
                 "revision": .unsignedInteger(revision),
             ],
             as: TopologySubscriptionResponse.self
+        )
+    }
+
+    /// Registers the protocol-v9 stream containing only renderer lifecycle events.
+    public func subscribeRendererLifecycle() async throws {
+        let _: BackendEmptyResponse = try await call(
+            command: "subscribe-renderer-lifecycle",
+            as: BackendEmptyResponse.self
         )
     }
 
