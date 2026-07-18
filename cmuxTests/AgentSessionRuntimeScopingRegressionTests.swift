@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Darwin
 import Foundation
 import Testing
 
@@ -186,6 +187,70 @@ extension CMUXCLIErrorOutputRegressionTests {
             #expect(restoredRow["surface_id"] as? String == restoredPanelID.uuidString)
             #expect(restoredRow["session_state"] as? String == "hibernated")
         }
+    }
+
+    @MainActor
+    @Test func restoredHibernationAdoptionFailsFastWhileLegacyWriterIsLocked() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-hibernation-legacy-lock-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let environmentOverrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "legacy-lock-runtime",
+        ]
+        let previousEnvironment = environmentOverrides.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in environmentOverrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "legacy-lock-session"
+        )
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [fixture.agent.sessionId: [
+                "sessionId": fixture.agent.sessionId,
+                "workspaceId": fixture.source.id.uuidString,
+                "surfaceId": fixture.sourcePanelID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+
+        let descriptor = open(
+            stateURL.path + ".lock",
+            O_CREAT | O_RDWR,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        #expect(descriptor >= 0)
+        guard descriptor >= 0 else { return }
+        defer { Darwin.close(descriptor) }
+        #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+        defer { _ = flock(descriptor, LOCK_UN) }
+
+        let elapsed = ContinuousClock().measure {
+            #expect(!AgentHookSessionStateWriter.recordRestoredHibernation(
+                agent: fixture.agent,
+                previousWorkspaceId: fixture.source.id,
+                previousSurfaceId: fixture.sourcePanelID,
+                workspaceId: UUID(),
+                surfaceId: UUID()
+            ))
+        }
+        #expect(elapsed < .seconds(1))
+        #expect(!FileManager.default.fileExists(atPath: registryURL.path))
     }
 
     @MainActor
