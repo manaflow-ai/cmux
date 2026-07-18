@@ -1056,6 +1056,46 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
     }
 
+    func testDiffCommandAuthorizesAgentIdentityWhenLastTurnIsAnAvailableSource() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        let result = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: [
+                "diff", "--agent", "codex", "--session", "codex-session-123",
+            ],
+            currentDirectoryURL: repoURL,
+            readPatchSidecar: false
+        )
+
+        let payload = try diffViewerPayload(from: result.html)
+        XCTAssertEqual(payload["selectedSource"] as? String, "unstaged")
+        let token = try XCTUnwrap(payload["capabilityToken"] as? String)
+        let diffViewerDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+        let branchSession = try FileManager.default
+            .contentsOfDirectory(at: diffViewerDirectory, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(".branch-session-") }
+            .compactMap { url -> [String: Any]? in
+                guard let session = try? JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any],
+                      session["token"] as? String == token else {
+                    return nil
+                }
+                return session
+            }
+            .first
+        XCTAssertEqual(
+            branchSession?["allowedAgentTurns"] as? [[String: String]],
+            [["provider": "codex", "sessionId": "codex-session-123"]]
+        )
+    }
+
     func testDiffCommandSupportsAgentTurnOutsideGitRepository() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory

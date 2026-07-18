@@ -464,7 +464,7 @@ fn rpc_resolves_agent_turn_from_provider_and_session_id() {
 }
 
 #[test]
-fn rpc_rejects_agent_turn_outside_the_token_repository_scope() {
+fn rpc_rejects_agent_turn_when_repo_scope_lacks_exact_agent_identity() {
     let root = std::env::temp_dir().join(format!(
         "cmux-diff-sidecar-agent-scope-test-{}-{}",
         std::process::id(),
@@ -472,18 +472,17 @@ fn rpc_rejects_agent_turn_outside_the_token_repository_scope() {
     ));
     let home = prepare_agent_rpc_fixture(&root);
     let token = "0123456789abcdef";
-    let unauthorized_repo = root.join("unauthorized-repo");
-    std::fs::create_dir_all(&unauthorized_repo).expect("create unauthorized repo");
+    let authorized_repo = root.join("repo");
     std::fs::write(
         root.join(".branch-session-agent-test.json"),
         serde_json::to_vec(&serde_json::json!({
             "token": token,
             "groupID": "agent-test",
-            "allowedRepoRoots": [unauthorized_repo]
+            "allowedRepoRoots": [authorized_repo]
         }))
         .expect("encode restricted authorization"),
     )
-    .expect("restrict authorization");
+    .expect("write repo-only authorization");
     let request = serde_json::to_vec(&serde_json::json!({
         "id": "agent-session-outside-scope",
         "version": 1,

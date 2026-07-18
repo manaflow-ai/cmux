@@ -116,6 +116,72 @@ fn codex_resolver_uses_patch_events_from_the_latest_turn_id() {
 }
 
 #[test]
+fn codex_resolver_uses_successful_structured_apply_patch_when_event_changes_lack_hunks() {
+    let fixture = FixtureRoot::new("codex-structured-apply-patch");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("codex-structured-apply-patch.jsonl");
+    let repo = fixture.repo();
+    let patch = format!(
+        "*** Begin Patch\n*** Add File: {}\n+new\n*** Update File: {}\n@@\n-old\n+new\n*** Delete File: {}\n*** End Patch",
+        repo.join("added.txt").display(),
+        repo.join("updated.txt").display(),
+        repo.join("deleted.txt").display()
+    );
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-current"}}),
+            serde_json::json!({"type":"response_item","payload":{
+                "type":"custom_tool_call",
+                "name":"apply_patch",
+                "call_id":"structured-patch",
+                "input":patch
+            }}),
+            serde_json::json!({"type":"response_item","payload":{
+                "type":"custom_tool_call_output",
+                "call_id":"structured-patch",
+                "output":"Success"
+            }}),
+            serde_json::json!({"type":"event_msg","payload":{
+                "type":"patch_apply_end",
+                "turn_id":"turn-current",
+                "call_id":"modern-patch",
+                "success":true,
+                "changes":{
+                    repo.join("added.txt").to_string_lossy(): {"type":"add"},
+                    repo.join("updated.txt").to_string_lossy(): {"type":"update"},
+                    repo.join("deleted.txt").to_string_lossy(): {"type":"delete"}
+                }
+            }}),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve the structured apply_patch input");
+
+    assert!(resolved.patch.contains("diff --git a/added.txt b/added.txt"));
+    assert!(resolved.patch.contains("+new"));
+    assert!(resolved.patch.contains("diff --git a/updated.txt b/updated.txt"));
+    assert!(resolved.patch.contains("-old\n+new"));
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/deleted.txt b/deleted.txt")
+    );
+    assert!(resolved.patch.contains("deleted file mode 100644"));
+}
+
+#[test]
 fn codex_empty_file_addition_produces_a_valid_git_patch() {
     let fixture = FixtureRoot::new("codex-empty-add");
     prepare_common_directories(&fixture);
