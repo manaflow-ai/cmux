@@ -119,7 +119,8 @@ func startCodexHookMockSocketServerAccepting(
     commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
     connectionLimit: Int,
-    droppedResponseCount: Int = 0
+    droppedResponseCount: Int = 0,
+    methodErrorCodes: [String: String] = [:]
 ) {
     DispatchQueue.global(qos: .userInitiated).async {
         var accepted = 0
@@ -141,7 +142,8 @@ func startCodexHookMockSocketServerAccepting(
                     fd: clientFD,
                     commands: commands,
                     surfaceId: surfaceId,
-                    droppedResponseCount: droppedResponseCount
+                    droppedResponseCount: droppedResponseCount,
+                    methodErrorCodes: methodErrorCodes
                 )
             }
         }
@@ -152,7 +154,8 @@ func handleCodexHookMockSocketClient(
     fd clientFD: Int32,
     commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
-    droppedResponseCount: Int = 0
+    droppedResponseCount: Int = 0,
+    methodErrorCodes: [String: String] = [:]
 ) {
     defer { Darwin.close(clientFD) }
     var pending = Data()
@@ -173,7 +176,11 @@ func handleCodexHookMockSocketClient(
             if commands.snapshot().count <= droppedResponseCount {
                 return
             }
-            let response = codexHookMockSocketResponse(for: line, surfaceId: surfaceId) + "\n"
+            let response = codexHookMockSocketResponse(
+                for: line,
+                surfaceId: surfaceId,
+                methodErrorCodes: methodErrorCodes
+            ) + "\n"
             _ = response.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
             }
@@ -181,22 +188,40 @@ func handleCodexHookMockSocketClient(
     }
 }
 
-func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String {
+func codexHookMockSocketResponse(
+    for line: String,
+    surfaceId: String,
+    methodErrorCodes: [String: String] = [:]
+) -> String {
     guard let payload = codexHookJSONObject(line),
           let id = payload["id"] as? String else {
         return "OK"
     }
-    if payload["method"] as? String == "surface.list" {
+    let method = payload["method"] as? String
+    if let method, let errorCode = methodErrorCodes[method] {
+        return codexHookV2ErrorResponse(id: id, code: errorCode)
+    }
+    if method == "surface.list" {
         return codexHookV2Response(
             id: id,
             ok: true,
             result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
         )
     }
-    if payload["method"] as? String == "agent.hook.enqueue" {
+    if method == "agent.hook.enqueue" {
         return codexHookV2Response(id: id, ok: true, result: ["queued": true])
     }
     return codexHookV2Response(id: id, ok: true, result: [:])
+}
+
+func codexHookV2ErrorResponse(id: String, code: String) -> String {
+    let payload: [String: Any] = [
+        "id": id,
+        "ok": false,
+        "error": ["code": code, "message": "test \(code)"],
+    ]
+    let data = try? JSONSerialization.data(withJSONObject: payload, options: [])
+    return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
 }
 
 func codexHookV2Response(

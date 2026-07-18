@@ -90,6 +90,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // Wrapper hooks acknowledge after durable queue insertion. The queue
         // performs all process and socket work after the reply.
         "agent.hook.enqueue",
+        // A local cmux-owned delivery requests one bounded in-process monitor;
+        // parsing and admission stay off-main, with event delivery hopping only
+        // when the transcript produces an actionable transition.
+        "agent.sidecar.start",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",

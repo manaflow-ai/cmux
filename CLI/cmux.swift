@@ -26700,6 +26700,7 @@ struct CMUXCLI {
         surfaceId: String?,
         leasePath: String?,
         env: [String: String],
+        client: SocketClient,
         telemetry: CLISocketSentryTelemetry
     ) {
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -26715,30 +26716,85 @@ struct CMUXCLI {
         ]
         telemetry.breadcrumb("codex-hook.monitor.start", data: monitorTelemetry)
 
+        guard let request = CodexTranscriptMonitorRequest(
+            sessionID: sessionId,
+            turnID: turnId,
+            transcriptPath: transcriptPath,
+            workingDirectory: cwd,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId,
+            leasePath: leasePath,
+            homeDirectory: normalizedHookValue(env["HOME"]),
+            codexHome: normalizedHookValue(env["CODEX_HOME"]),
+            stateDirectory: normalizedHookValue(env["CMUX_AGENT_HOOK_STATE_DIR"])
+        ) else {
+            telemetry.breadcrumb("codex-hook.monitor.invalid-request", data: monitorTelemetry)
+            removeCodexMonitorLease(path: leasePath)
+            return
+        }
+
+        if !client.isRelayBacked {
+            do {
+                _ = try client.sendV2(
+                    method: "agent.sidecar.start",
+                    params: request.socketParameters,
+                    responseTimeout: 2
+                )
+                telemetry.breadcrumb("codex-hook.monitor.started", data: monitorTelemetry)
+                return
+            } catch let error as CLIError where error.v2Code == "method_not_found"
+                    || error.v2Code == "unrecognized_method" {
+                telemetry.breadcrumb("codex-hook.monitor.legacy-fallback", data: monitorTelemetry)
+            } catch {
+                // Authentication, capacity, and transient failures must not
+                // silently create an unmanaged four-hour process. Only an
+                // explicit older-app method response selects compatibility.
+                telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
+                removeCodexMonitorLease(path: request.leasePath)
+                return
+            }
+        } else {
+            telemetry.breadcrumb("codex-hook.monitor.relay-fallback", data: monitorTelemetry)
+        }
+
+        startLegacyCodexTranscriptMonitor(
+            request: request,
+            env: env,
+            telemetry: telemetry,
+            monitorTelemetry: monitorTelemetry
+        )
+    }
+
+    private func startLegacyCodexTranscriptMonitor(
+        request: CodexTranscriptMonitorRequest,
+        env: [String: String],
+        telemetry: CLISocketSentryTelemetry,
+        monitorTelemetry: [String: Any]
+    ) {
         let executablePath = resolvedExecutableURL()?.path ?? args.first ?? "cmux"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         var monitorArgs = [
             "hooks", "codex",
-            "monitor",
+            "monitor-compat",
             "--workspace",
-            workspaceId,
+            request.workspaceID,
             "--session",
-            sessionId,
+            request.sessionID,
         ]
-        if let surfaceId, !surfaceId.isEmpty {
+        if let surfaceId = request.surfaceID {
             monitorArgs += ["--surface", surfaceId]
         }
-        if let turnId, !turnId.isEmpty {
+        if let turnId = request.turnID {
             monitorArgs += ["--turn", turnId]
         }
-        if let transcriptPath, !transcriptPath.isEmpty {
+        if let transcriptPath = request.transcriptPath {
             monitorArgs += ["--transcript", transcriptPath]
         }
-        if let cwd, !cwd.isEmpty {
+        if let cwd = request.workingDirectory {
             monitorArgs += ["--cwd", cwd]
         }
-        if let leasePath, !leasePath.isEmpty {
+        if let leasePath = request.leasePath {
             monitorArgs += ["--lease", leasePath]
         }
         process.arguments = monitorArgs
@@ -26776,6 +26832,7 @@ struct CMUXCLI {
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
         var nextOwnerCheck = Date.distantPast
         var publishedUserInputCallIds = Set<String>()
+        let monitorScanner = CodexTranscriptMonitorScanner()
         while Date() < deadline {
             if isCodexMonitorLeaseRetired(path: leasePath) {
                 return
@@ -26793,38 +26850,57 @@ struct CMUXCLI {
             }
 
             if let currentTranscriptPath = transcriptPath {
-                if let userInput = readCodexTranscriptUserInput(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    excluding: publishedUserInputCallIds
-                ) {
-                    publishedUserInputCallIds.insert(userInput.callId)
-                    publishCodexMonitorUserInput(
-                        userInput,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        client: client
+                if let lines = readRecentTextFileLines(path: currentTranscriptPath, maxBytes: 512 * 1024) {
+                    let snapshot = monitorScanner.scan(
+                        lines: lines,
+                        turnID: turnId,
+                        excludingCallIDs: publishedUserInputCallIds
                     )
-                }
-
-                switch readCodexTranscriptFailure(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    requireTerminalCompletion: true
-                ) {
-                case .failure(let failure):
-                    publishCodexMonitorFailure(
-                        failure,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        client: client
-                    )
-                    return
-                case .healthy:
-                    return
-                case .pending:
-                    break
-                case .unavailable:
+                    if let userInput = snapshot.userInput {
+                        publishedUserInputCallIds.insert(userInput.callID)
+                        publishCodexMonitorUserInput(
+                            CodexHookUserInputCandidate(
+                                callId: userInput.callID,
+                                question: userInput.question
+                            ),
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            client: client
+                        )
+                    }
+                    switch snapshot.state {
+                    case .failure(let failure):
+                        let fallbackMessage: String
+                        switch failure.kind {
+                        case .reported:
+                            fallbackMessage = String(
+                                localized: "agent.codex.error.defaultMessage",
+                                defaultValue: "Codex reported an error"
+                            )
+                        case .missingFinalResponse:
+                            fallbackMessage = String(
+                                localized: "agent.codex.error.noFinalResponse",
+                                defaultValue: "Codex ended before sending a final response"
+                            )
+                        }
+                        publishCodexMonitorFailure(
+                            CodexHookFailureCandidate(
+                                message: failure.message ?? fallbackMessage,
+                                codexErrorInfo: failure.codexErrorInfo,
+                                additionalDetails: failure.additionalDetails,
+                                isStreamError: failure.isStreamError
+                            ),
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            client: client
+                        )
+                        return
+                    case .healthy:
+                        return
+                    case .pending:
+                        break
+                    }
+                } else {
                     let unavailableTranscriptPath = currentTranscriptPath
                     transcriptPath = nil
                     if let resolvedTranscriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env) {
@@ -30215,7 +30291,7 @@ export default CMUXSessionRestore;
         let hookArgs = Array(commandArgs.dropFirst())
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
-        if def.name == "codex", subcommand == "monitor" {
+        if def.name == "codex", (subcommand == "monitor" || subcommand == "monitor-compat") {
             try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client)
             return
         }
@@ -31096,6 +31172,7 @@ export default CMUXSessionRestore;
                     surfaceId: surfaceId,
                     leasePath: leasePath,
                     env: env,
+                    client: client,
                     telemetry: telemetry
                 )
             }
@@ -35571,6 +35648,19 @@ private enum CMUXCLIOutput {
 @main
 struct CMUXTermMain {
     static func main() {
+        let arguments = CommandLine.arguments
+        let isCompatibilityMonitor = arguments.count >= 4
+            && arguments[1] == "hooks"
+            && arguments[2] == "codex"
+            && arguments[3] == "monitor-compat"
+        if isCompatibilityMonitor {
+            // Rolling compatibility only: an app that explicitly reports the
+            // new in-process method unsupported still needs the established
+            // four-hour transcript feature. This fresh child is not a process-
+            // group leader, so `setsid` moves only that exact monitor out of the
+            // short delivery supervisor group. Current apps never take this path.
+            guard Darwin.setsid() >= 0 else { exit(1) }
+        }
         let deliveryProcessGroupMarker = "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"
         if let marker = getenv(deliveryProcessGroupMarker), strcmp(marker, "1") == 0 {
             _ = Darwin.setpgid(0, 0)

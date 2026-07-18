@@ -25,6 +25,13 @@ extension TerminalController {
         socketServer.stop()
     }
 
+    func shutdownCodexTranscriptMonitors() {
+        let monitorManager = codexTranscriptMonitorManager
+        Task.detached {
+            await monitorManager.shutdown()
+        }
+    }
+
     /// Reconciles the current resolved control-socket configuration with the live server.
     ///
     /// Every config mutation entrypoint delegates here. An active listener keeps

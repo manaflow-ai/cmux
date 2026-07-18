@@ -30,7 +30,7 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.push", "browser.download.wait", "system.top", "system.memory",
-            "agent.hook.enqueue",
+            "agent.hook.enqueue", "agent.sidecar.start",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",

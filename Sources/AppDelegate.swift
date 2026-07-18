@@ -1996,6 +1996,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         MobileHostService.shared.stop()
+        TerminalController.shared.shutdownCodexTranscriptMonitors()
         TerminalController.shared.stop()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()

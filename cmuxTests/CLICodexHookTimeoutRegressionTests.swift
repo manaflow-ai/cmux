@@ -64,10 +64,143 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(params["workspace_id"] as? String == workspaceID)
         #expect(params["surface_id"] as? String == surfaceID)
         #expect(params["transcript_path"] as? String == transcript.path)
+        let leasePath = try #require(params["lease_path"] as? String)
+        #expect(FileManager.default.fileExists(atPath: leasePath))
         let environment = try #require(params["environment"] as? [String: Any])
         #expect(environment["HOME"] as? String == root.path)
         #expect(environment["CODEX_HOME"] as? String == codexHome.path)
         #expect(environment["CMUX_AGENT_HOOK_STATE_DIR"] as? String == stateDirectory.path)
+        let methodsAtReturn = commands.snapshot().compactMap(codexHookJSONObject).compactMap {
+            $0["method"] as? String
+        }
+        let startIndex = try #require(methodsAtReturn.firstIndex(of: "agent.sidecar.start"))
+        let observedCompatibilityMonitor = waitForCondition(timeout: 0.5) {
+            let methods = commands.snapshot().compactMap(codexHookJSONObject).compactMap {
+                $0["method"] as? String
+            }
+            guard startIndex + 1 < methods.count else { return false }
+            return methods[(startIndex + 1)...].contains("surface.list")
+        }
+        #expect(!observedCompatibilityMonitor)
+    }
+
+    @Test func unsupportedAppSidecarMethodUsesTheDetachedCompatibilityMonitor() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-compat-\(UUID().uuidString)", isDirectory: true)
+        let transcript = root.appendingPathComponent("transcript.jsonl")
+        let socketPath = makeCodexHookSocketPath("monold")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"turn-1","last_agent_message":"done"}}"#
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceID,
+            connectionLimit: 16,
+            methodErrorCodes: ["agent.sidecar.start": "method_not_found"]
+        )
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP": "1",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"session_id":"session-compat","turn_id":"turn-1","cwd":"\#(root.path)","transcript_path":"\#(transcript.path)","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(waitForCondition(timeout: 2) {
+            let methods = commands.snapshot().compactMap(codexHookJSONObject).compactMap { $0["method"] as? String }
+            guard let startIndex = methods.firstIndex(of: "agent.sidecar.start") else { return false }
+            return methods[methods.index(after: startIndex)...].contains("surface.list")
+        })
+        let sidecarRequest = try #require(commands.snapshot().compactMap(codexHookJSONObject).first {
+            $0["method"] as? String == "agent.sidecar.start"
+        })
+        let sidecarParams = try #require(sidecarRequest["params"] as? [String: Any])
+        let leasePath = try #require(sidecarParams["lease_path"] as? String)
+        #expect(waitForCondition(timeout: 2) {
+            !FileManager.default.fileExists(atPath: leasePath)
+        })
+    }
+
+    @Test(arguments: ["access_denied", "auth_required", "sidecar_capacity", "timeout"])
+    func sidecarAdmissionFailureDoesNotDetachACompatibilityMonitor(_ errorCode: String) throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-error-\(UUID().uuidString)", isDirectory: true)
+        let transcript = root.appendingPathComponent("transcript.jsonl")
+        let socketPath = makeCodexHookSocketPath("monerr")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceID,
+            connectionLimit: 16,
+            methodErrorCodes: ["agent.sidecar.start": errorCode]
+        )
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP": "1",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"session_id":"session-error","turn_id":"turn-1","cwd":"\#(root.path)","transcript_path":"\#(transcript.path)","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let requestsAtReturn = commands.snapshot().compactMap(codexHookJSONObject)
+        let methodsAtReturn = requestsAtReturn.compactMap { $0["method"] as? String }
+        let startIndex = try #require(methodsAtReturn.firstIndex(of: "agent.sidecar.start"))
+        let sidecarRequest = try #require(requestsAtReturn.first { $0["method"] as? String == "agent.sidecar.start" })
+        let sidecarParams = try #require(sidecarRequest["params"] as? [String: Any])
+        let leasePath = try #require(sidecarParams["lease_path"] as? String)
+        #expect(!FileManager.default.fileExists(atPath: leasePath))
+        let observedFallback = waitForCondition(timeout: 0.5) {
+            let methods = commands.snapshot().compactMap(codexHookJSONObject).compactMap { $0["method"] as? String }
+            guard startIndex + 1 < methods.count else { return false }
+            return methods[(startIndex + 1)...].contains("surface.list")
+        }
+        #expect(!observedFallback)
     }
 
     @Test func codexWrapperUsesOneNativeClientForAllQueuedEvents() throws {
