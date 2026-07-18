@@ -37,6 +37,7 @@ struct MobileSettingsView: View {
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
     #if DEBUG
+    @State private var showingDesignGallery = false
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
     #endif
@@ -179,22 +180,19 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
-                    Button {
-                        showingChatDemo = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.agentChatDemo", defaultValue: "Agent Chat Demo"),
-                            systemImage: "bubble.left.and.bubble.right"
-                        )
+                    Button { showingDesignGallery = true } label: {
+                        Label(L10n.string("mobile.settings.designGallery", defaultValue: "Design Gallery"),
+                              systemImage: "paintpalette")
+                    }
+                    .accessibilityIdentifier("MobileSettingsDesignGallery")
+                    Button { showingChatDemo = true } label: {
+                        Label(L10n.string("mobile.settings.agentChatDemo", defaultValue: "Agent Chat Demo"),
+                              systemImage: "bubble.left.and.bubble.right")
                     }
                     .accessibilityIdentifier("MobileSettingsAgentChatDemo")
-                    Button {
-                        showingTerminalDemo = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.terminalLogDemo", defaultValue: "Terminal Log Demo"),
-                            systemImage: "terminal"
-                        )
+                    Button { showingTerminalDemo = true } label: {
+                        Label(L10n.string("mobile.settings.terminalLogDemo", defaultValue: "Terminal Log Demo"),
+                              systemImage: "terminal")
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
 
@@ -330,12 +328,9 @@ struct MobileSettingsView: View {
                 TerminalShortcutsSettingsView()
             }
             #if DEBUG
-            .fullScreenCover(isPresented: $showingChatDemo) {
-                AgentChatDemoScreen()
-            }
-            .fullScreenCover(isPresented: $showingTerminalDemo) {
-                TerminalLogDemoScreen()
-            }
+            .fullScreenCover(isPresented: $showingDesignGallery) { DesignGalleryScreen() }
+            .fullScreenCover(isPresented: $showingChatDemo) { AgentChatDemoScreen() }
+            .fullScreenCover(isPresented: $showingTerminalDemo) { TerminalLogDemoScreen() }
             #endif
             .sheet(isPresented: $showingHostPicker) {
                 if let store {
