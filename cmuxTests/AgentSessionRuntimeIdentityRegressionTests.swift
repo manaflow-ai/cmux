@@ -177,4 +177,24 @@ extension CMUXCLIErrorOutputRegressionTests {
         ))
         #expect(legacy.id == "legacy-runtime")
     }
+
+    @Test func cliRuntimeIdentityIgnoresNewerAppMetadataFields() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": "forward-compatible-runtime",
+            "socketPath": "/tmp/cmux-forward-compatible.sock",
+            "bundleIdentifier": "com.cmuxterm.forward-compatible",
+            "processId": 42,
+            "processStartSeconds": 1_234,
+            "processStartMicroseconds": 567_890,
+            "futureRuntimeMetadata": ["generation": 9],
+        ], options: [.sortedKeys])
+
+        let runtime = try JSONDecoder().decode(AgentCmuxRuntimeIdentity.self, from: data)
+
+        #expect(runtime == AgentCmuxRuntimeIdentity(
+            id: "forward-compatible-runtime",
+            socketPath: "/tmp/cmux-forward-compatible.sock",
+            bundleIdentifier: "com.cmuxterm.forward-compatible"
+        ))
+    }
 }
