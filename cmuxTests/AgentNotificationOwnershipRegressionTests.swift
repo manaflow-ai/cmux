@@ -62,6 +62,13 @@ struct AgentNotificationOwnershipRegressionTests {
         let harness = ClaudeHookSurfaceResolutionSwiftTests()
         let context = try harness.makeClaudeHookContext(name: name)
         defer { context.cleanup() }
+        let codexProcess = try startCodexFixture(in: context.root)
+        defer {
+            if codexProcess.isRunning {
+                codexProcess.terminate()
+            }
+            codexProcess.waitUntilExit()
+        }
         let ttyName = "ttys-\(name)"
         let handled = harness.startClaudeSurfaceResolutionServer(
             context: context,
@@ -76,6 +83,7 @@ struct AgentNotificationOwnershipRegressionTests {
             storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
         )
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_CODEX_PID"] = String(codexProcess.processIdentifier)
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "1"
         environment["CMUX_CODEX_TEAMS_THREAD_ID"] = "child-thread"
         environment["CMUX_CODEX_TEAMS_PARENT_THREAD_ID"] = "root-thread"
@@ -98,6 +106,21 @@ struct AgentNotificationOwnershipRegressionTests {
         #expect(!process.timedOut, Comment(rawValue: process.stderr))
         #expect(process.status == 0, Comment(rawValue: process.stderr))
         return (context.state.snapshot(), context.workspaceId, context.surfaceId)
+    }
+
+    private func startCodexFixture(in root: URL) throws -> Process {
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: "/bin/sleep", isDirectory: false),
+            to: executable
+        )
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        return process
     }
 
     private func expectNoVisibleOwnership(_ commands: [String]) {
