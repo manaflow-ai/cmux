@@ -34,6 +34,13 @@ struct AgentHookDeliveryQueueTests {
         let sharedMemoryName: String
     }
 
+    private struct StoredDeliveryRow {
+        let orderingKey: String
+        let phase: String
+        let subcommand: String
+        let contentDigest: Data
+    }
+
     @Test func authenticatedOutboxRecoverySurvivesAuthorityRecreationAndScrubsSecrets() async throws {
         let root = try temporaryDirectory(named: "outbox-recovery")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1295,7 +1302,7 @@ struct AgentHookDeliveryQueueTests {
         #expect(try await queue.diagnosticStatus(for: event.deliveryID)?["state"] == "delivered")
     }
 
-    @Test func feedTelemetryTargetsUseTheBoundedDeliveryQueue() async throws {
+    @Test func feedTelemetryTargetsUseAgentSpecificProjectors() async throws {
         let root = try temporaryDirectory(named: "feed-targets")
         defer { try? FileManager.default.removeItem(at: root) }
         let scriptURL = root.appendingPathComponent("deliver.sh")
@@ -1315,23 +1322,296 @@ struct AgentHookDeliveryQueueTests {
             retryMaximumDelay: 60
         )
         let targets = [
-            "feed:PreToolUse", "feed:PermissionRequest", "feed:PostToolUse",
-            "feed:PreCompact", "feed:PostCompact", "feed:SubagentStart", "feed:SubagentStop",
+            ("codex", "feed:PreToolUse"),
+            ("codex", "feed:PermissionRequest"),
+            ("codex", "feed:PostToolUse"),
+            ("codex", "feed:PreCompact"),
+            ("codex", "feed:PostCompact"),
+            ("codex", "feed:SubagentStart"),
+            ("codex", "feed:SubagentStop"),
+            ("claude", "feed:SubagentStop"),
         ]
         for (index, target) in targets.enumerated() {
             let event = try #require(makeEvent(
                 deliveryID: "feed-target-\(index)",
                 payload: Data("payload-\(index)".utf8),
                 environment: testEnvironment(root: root),
-                subcommand: target
+                subcommand: target.1,
+                agent: target.0
             ))
             try queue.enqueue(event)
         }
         await queue.waitUntilCurrentDrainFinishes()
 
         #expect(try lines(at: root.appendingPathComponent("arguments")) == targets.map {
-            "--socket /tmp/cmux-agent-hook-delivery-test.sock hooks feed --source codex --event \($0.dropFirst("feed:".count))"
+            "--socket /tmp/cmux-agent-hook-delivery-test.sock hooks \($0.0) project-feed --event \($0.1.dropFirst("feed:".count))"
         })
+    }
+
+    @Test func lifecycleSuccessTransitionsOneRowToFeedWithoutReplayingLifecycle() async throws {
+        let root = try temporaryDirectory(named: "lifecycle-feed-phase")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            printf '%s|%s|%s\n' "$*" "${OPENAI_API_KEY-unset}" \
+              "${CMUX_AGENT_HOOK_SUPPRESS_INTERNAL_FEED-unset}" >> "$TMPDIR/invocations"
+            case "$*" in
+              *" project-feed "*) exit 23 ;;
+            esac
+            /bin/cat >/dev/null
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        var environment = testEnvironment(root: root)
+        environment["OPENAI_API_KEY"] = "phase-memory-only-secret"
+        let event = try #require(makeEvent(
+            deliveryID: "lifecycle-feed-phase",
+            payload: Data("phase-payload".utf8),
+            environment: environment,
+            subcommand: "session-start"
+        ))
+
+        try queue.enqueue(event)
+        await queue.waitUntilCurrentDrainFinishes()
+
+        let firstPass = try lines(at: root.appendingPathComponent("invocations"))
+        #expect(firstPass.count == 2)
+        #expect(firstPass.filter { $0.contains(" hooks codex session-start|") }.count == 1)
+        #expect(firstPass[0].hasSuffix("|phase-memory-only-secret|1"))
+        #expect(firstPass[1].contains(" hooks codex project-feed --event SessionStart|unset|unset"))
+        let pending = try #require(storedDeliveryRow(
+            databaseURL: databaseURL,
+            deliveryID: event.deliveryID
+        ))
+        #expect(pending.phase == "feed")
+        #expect(pending.subcommand == "session-start")
+        #expect(pending.contentDigest == event.contentDigest)
+        #expect(try storedDeliveryIDs(databaseURL: databaseURL) == [event.deliveryID])
+
+        // A native retry can race the Feed phase after lifecycle already ran.
+        // It must remain Feed and cannot republish the secret overlay.
+        try queue.enqueue(event)
+        try await queue.retryPendingDeliveries()
+        await queue.waitUntilCurrentDrainFinishes()
+
+        let retryPass = try lines(at: root.appendingPathComponent("invocations"))
+        #expect(retryPass.filter { $0.contains(" hooks codex session-start|") }.count == 1)
+        #expect(retryPass.last?.contains(
+            " hooks codex project-feed --event SessionStart|unset|unset"
+        ) == true)
+        #expect(try storedDeliveryRow(
+            databaseURL: databaseURL,
+            deliveryID: event.deliveryID
+        )?.phase == "feed")
+    }
+
+    @Test func lifecycleAndFeedUseSeparateOrderingDomainsForCodexAndClaude() throws {
+        let root = try temporaryDirectory(named: "phase-ordering")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let codexLifecycle = try #require(makeEvent(
+            deliveryID: "codex-lifecycle-order",
+            payload: Data(),
+            environment: testEnvironment(root: root),
+            subcommand: "session-start"
+        ))
+        let codexFeed = try #require(makeEvent(
+            deliveryID: "codex-feed-order",
+            payload: Data(),
+            environment: testEnvironment(root: root),
+            subcommand: "feed:PreToolUse"
+        ))
+        var claudeEnvironment = testEnvironment(root: root)
+        claudeEnvironment.removeValue(forKey: "CMUX_SURFACE_ID")
+        claudeEnvironment["CMUX_CLAUDE_PID"] = "99117"
+        let claudeFirst = try #require(makeEvent(
+            deliveryID: "claude-order-first",
+            payload: Data(),
+            environment: claudeEnvironment,
+            subcommand: "session-start",
+            agent: "claude"
+        ))
+        let claudeSecond = try #require(makeEvent(
+            deliveryID: "claude-order-second",
+            payload: Data(),
+            environment: claudeEnvironment,
+            subcommand: "prompt-submit",
+            agent: "claude"
+        ))
+
+        for event in [codexLifecycle, codexFeed, claudeFirst, claudeSecond] {
+            try queue.enqueue(event)
+        }
+
+        let rows = try storedDeliveryRows(databaseURL: databaseURL)
+        #expect(rows["codex-lifecycle-order"]?.orderingKey != rows["codex-feed-order"]?.orderingKey)
+        #expect(rows["codex-lifecycle-order"]?.phase == "lifecycle")
+        #expect(rows["codex-feed-order"]?.phase == "feed")
+        #expect(rows["claude-order-first"]?.orderingKey == rows["claude-order-second"]?.orderingKey)
+    }
+
+    @Test func legacyRowsMigrateToExplicitLifecyclePhase() throws {
+        let root = try temporaryDirectory(named: "phase-schema-migration")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let event = try #require(makeEvent(
+            deliveryID: "legacy-phase-row",
+            payload: Data("legacy".utf8),
+            environment: testEnvironment(root: root)
+        ))
+        try createLegacyDeliveryDatabase(
+            at: databaseURL,
+            event: event,
+            nextAttemptAt: Date().addingTimeInterval(3_600).timeIntervalSince1970
+        )
+
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        withExtendedLifetime(queue) {}
+
+        let migrated = try #require(storedDeliveryRow(
+            databaseURL: databaseURL,
+            deliveryID: event.deliveryID
+        ))
+        #expect(migrated.phase == "lifecycle")
+        #expect(migrated.subcommand == event.subcommand)
+        #expect(migrated.contentDigest == event.contentDigest)
+    }
+
+    @Test func feedBacklogLeavesReservedAdmissionCapacityForLifecycle() throws {
+        let root = try temporaryDirectory(named: "feed-reserved-capacity")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+
+        for index in 0..<3_072 {
+            let event = try #require(makeEvent(
+                deliveryID: "feed-capacity-\(index)",
+                payload: Data(),
+                environment: testEnvironment(root: root, surfaceID: "feed-capacity-\(index)"),
+                subcommand: "feed:PreToolUse"
+            ))
+            try queue.enqueue(event)
+        }
+        let overflow = try #require(makeEvent(
+            deliveryID: "feed-capacity-overflow",
+            payload: Data(),
+            environment: testEnvironment(root: root, surfaceID: "feed-capacity-overflow"),
+            subcommand: "feed:PreToolUse"
+        ))
+        #expect(throws: (any Error).self) {
+            try queue.enqueue(overflow)
+        }
+
+        let lifecycle = try #require(makeEvent(
+            deliveryID: "lifecycle-after-feed-capacity",
+            payload: Data(),
+            environment: testEnvironment(root: root, surfaceID: "lifecycle-reserved")
+        ))
+        try queue.enqueue(lifecycle)
+        #expect(try storedDeliveryRow(
+            databaseURL: databaseURL,
+            deliveryID: lifecycle.deliveryID
+        )?.phase == "lifecycle")
+    }
+
+    @Test func feedBacklogUsesEightOfThirtyTwoPermitsWithoutStarvingLifecycle() async throws {
+        let root = try temporaryDirectory(named: "phase-fair-scheduler")
+        defer {
+            try? Data().write(to: root.appendingPathComponent("release"))
+            try? FileManager.default.removeItem(at: root)
+        }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        var stagingQueue: AgentHookDeliveryQueue? = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        for index in 0..<40 {
+            let event = try #require(makeEvent(
+                deliveryID: "fair-feed-\(index)",
+                payload: Data(),
+                environment: testEnvironment(root: root, surfaceID: "fair-feed-\(index)"),
+                subcommand: "feed:PreToolUse"
+            ))
+            try stagingQueue?.enqueue(event)
+        }
+        for index in 0..<24 {
+            let event = try #require(makeEvent(
+                deliveryID: "fair-lifecycle-\(index)",
+                payload: Data(),
+                environment: testEnvironment(root: root, surfaceID: "fair-lifecycle-\(index)")
+            ))
+            try stagingQueue?.enqueue(event)
+        }
+        await stagingQueue?.waitUntilCurrentDrainFinishes()
+        stagingQueue = nil
+
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            kind=lifecycle
+            case "$*" in *" project-feed "*) kind=feed ;; esac
+            active="$TMPDIR/active-$kind-$CMUX_AGENT_HOOK_DELIVERY_ID"
+            /bin/mkdir "$active"
+            feed_count=$(/usr/bin/find "$TMPDIR" -maxdepth 1 -name 'active-feed-*' | /usr/bin/wc -l | /usr/bin/tr -d ' ')
+            lifecycle_count=$(/usr/bin/find "$TMPDIR" -maxdepth 1 -name 'active-lifecycle-*' | /usr/bin/wc -l | /usr/bin/tr -d ' ')
+            printf '%s %s\n' "$feed_count" "$lifecycle_count" >> "$TMPDIR/concurrency"
+            while [ ! -e "$TMPDIR/release" ]; do /bin/sleep 0.005; done
+            /bin/rmdir "$active"
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { scriptURL },
+            processTimeout: 3,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60,
+            maximumConcurrentDeliveries: 32
+        )
+        try await queue.retryPendingDeliveries()
+        let firstWaveFilled = await waitUntil(timeout: .seconds(2)) {
+            let counts = (try? self.concurrencyCounts(
+                at: root.appendingPathComponent("concurrency")
+            )) ?? []
+            return counts.contains { $0.feed + $0.lifecycle >= 16 }
+        }
+        #expect(firstWaveFilled)
+        let firstWave = try concurrencyCounts(at: root.appendingPathComponent("concurrency"))
+        #expect(firstWave.map(\.feed).max() ?? 0 <= 8)
+        #expect(firstWave.map { $0.feed + $0.lifecycle }.max() ?? 0 <= 32)
+        #expect(firstWave.contains { $0.feed > 0 && $0.lifecycle > 0 })
+
+        try Data().write(to: root.appendingPathComponent("release"))
+        await queue.waitUntilCurrentDrainFinishes()
     }
 
     @Test func diskBacklogSurvivesQueueReplacementAndDeduplicatesBurst() async throws {
@@ -2375,7 +2655,8 @@ struct AgentHookDeliveryQueueTests {
         deliveryID: String,
         payload: Data,
         environment: [String: String],
-        subcommand: String = "session-start"
+        subcommand: String = "session-start",
+        agent: String = "codex"
     ) -> AgentHookDeliveryEvent? {
         var environmentData = Data()
         for key in environment.keys.sorted() {
@@ -2386,7 +2667,7 @@ struct AgentHookDeliveryQueueTests {
         }
         return AgentHookDeliveryEvent(params: [
             "delivery_id": deliveryID,
-            "agent": "codex",
+            "agent": agent,
             "subcommand": subcommand,
             "payload_b64": payload.base64EncodedString(),
             "environment_b64": environmentData.base64EncodedString(),
@@ -2567,6 +2848,64 @@ struct AgentHookDeliveryQueueTests {
             deliveryIDs.append(String(cString: text))
         }
         return deliveryIDs
+    }
+
+    private func storedDeliveryRow(
+        databaseURL: URL,
+        deliveryID: String
+    ) throws -> StoredDeliveryRow? {
+        try storedDeliveryRows(databaseURL: databaseURL)[deliveryID]
+    }
+
+    private func storedDeliveryRows(databaseURL: URL) throws -> [String: StoredDeliveryRow] {
+        var database: OpaquePointer?
+        let openStatus = sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil)
+        guard openStatus == SQLITE_OK, let database else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(openStatus))
+        }
+        defer { sqlite3_close(database) }
+        var statement: OpaquePointer?
+        let prepareStatus = sqlite3_prepare_v2(
+            database,
+            """
+            SELECT delivery_id, ordering_key, delivery_phase, subcommand, content_digest
+            FROM agent_hook_deliveries ORDER BY sequence ASC;
+            """,
+            -1,
+            &statement,
+            nil
+        )
+        guard prepareStatus == SQLITE_OK, let statement else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(prepareStatus))
+        }
+        defer { sqlite3_finalize(statement) }
+        var rows: [String: StoredDeliveryRow] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW,
+              let deliveryIDBytes = sqlite3_column_text(statement, 0),
+              let orderingKeyBytes = sqlite3_column_text(statement, 1),
+              let phaseBytes = sqlite3_column_text(statement, 2),
+              let subcommandBytes = sqlite3_column_text(statement, 3),
+              let digestBytes = sqlite3_column_blob(statement, 4) {
+            let deliveryID = String(cString: deliveryIDBytes)
+            rows[deliveryID] = StoredDeliveryRow(
+                orderingKey: String(cString: orderingKeyBytes),
+                phase: String(cString: phaseBytes),
+                subcommand: String(cString: subcommandBytes),
+                contentDigest: Data(
+                    bytes: digestBytes,
+                    count: Int(sqlite3_column_bytes(statement, 4))
+                )
+            )
+        }
+        return rows
+    }
+
+    private func concurrencyCounts(at url: URL) throws -> [(feed: Int, lifecycle: Int)] {
+        try lines(at: url).compactMap { line in
+            let fields = line.split(separator: " ").compactMap { Int($0) }
+            guard fields.count == 2 else { return nil }
+            return (feed: fields[0], lifecycle: fields[1])
+        }
     }
 
     private func testEnvironment(root: URL, surfaceID: String = "surface:test") -> [String: String] {
