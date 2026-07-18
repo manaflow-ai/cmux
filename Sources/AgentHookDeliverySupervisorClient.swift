@@ -1,3 +1,5 @@
+import CmuxFoundation
+import Darwin
 import Foundation
 
 /// Launches one hook delivery beneath the bundled process-group supervisor.
@@ -82,6 +84,20 @@ final class AgentHookDeliverySupervisorClient: @unchecked Sendable {
     ) async throws -> Launch {
         let controlPipe = Pipe()
         let statusPipe = Pipe()
+        let pipeHandles = [
+            controlPipe.fileHandleForReading,
+            controlPipe.fileHandleForWriting,
+            statusPipe.fileHandleForReading,
+            statusPipe.fileHandleForWriting,
+        ]
+        do {
+            try configureCloseOnExec(pipeHandles)
+        } catch {
+            for handle in pipeHandles {
+                try? handle.close()
+            }
+            throw error
+        }
         let process = Process()
         process.executableURL = supervisorURL
         process.arguments = [
@@ -137,7 +153,7 @@ final class AgentHookDeliverySupervisorClient: @unchecked Sendable {
         return await withTaskCancellationHandler {
             do {
                 try await Task.detached {
-                    try controlPipe.fileHandleForWriting.write(contentsOf: payload)
+                    try controlPipe.fileHandleForWriting.writeProcessPipeInput(payload)
                 }.value
             } catch {
                 let payloadWriteError = error
@@ -195,6 +211,17 @@ final class AgentHookDeliverySupervisorClient: @unchecked Sendable {
         guard timeout.isFinite else { return "86400000" }
         let milliseconds = min(86_400_000, max(1, (timeout * 1_000).rounded(.up)))
         return String(Int64(milliseconds))
+    }
+
+    private static func configureCloseOnExec(_ handles: [FileHandle]) throws {
+        for handle in handles {
+            let descriptor = handle.fileDescriptor
+            let flags = fcntl(descriptor, F_GETFD)
+            guard flags >= 0,
+                  fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
     }
 
     private static func readProtocol(from handle: FileHandle) throws -> Data {

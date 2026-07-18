@@ -3069,12 +3069,40 @@ actor AgentHookDeliveryQueue {
         guard descriptor >= 0 else {
             throw failure("mkstemp failed with errno \(errno).", code: 6)
         }
-        Darwin.fchmod(descriptor, 0o600)
-        template.withUnsafeBufferPointer { buffer in
-            if let baseAddress = buffer.baseAddress {
-                Darwin.unlink(baseAddress)
+        var ownsDescriptor = true
+        var pathIsLinked = true
+        defer {
+            if ownsDescriptor {
+                Darwin.close(descriptor)
+            }
+            if pathIsLinked {
+                template.withUnsafeBufferPointer { buffer in
+                    if let baseAddress = buffer.baseAddress {
+                        Darwin.unlink(baseAddress)
+                    }
+                }
             }
         }
+
+        let descriptorFlags = fcntl(descriptor, F_GETFD)
+        guard descriptorFlags >= 0,
+              fcntl(descriptor, F_SETFD, descriptorFlags | FD_CLOEXEC) == 0 else {
+            throw failure("Configuring child I/O close-on-exec failed with errno \(errno).", code: 14)
+        }
+        guard Darwin.fchmod(descriptor, 0o600) == 0 else {
+            throw failure("Securing child I/O file failed with errno \(errno).", code: 15)
+        }
+        let unlinkStatus = template.withUnsafeBufferPointer { buffer -> Int32 in
+            if let baseAddress = buffer.baseAddress {
+                return Darwin.unlink(baseAddress)
+            }
+            errno = EINVAL
+            return -1
+        }
+        guard unlinkStatus == 0 else {
+            throw failure("Unlinking child I/O file failed with errno \(errno).", code: 16)
+        }
+        pathIsLinked = false
 
         var writeError: Int32?
         data.withUnsafeBytes { bytes in
@@ -3086,18 +3114,21 @@ actor AgentHookDeliveryQueue {
                     writeError = errno
                     break
                 }
+                if count == 0 {
+                    writeError = EIO
+                    break
+                }
                 offset += count
             }
         }
         if let writeError {
-            Darwin.close(descriptor)
             throw failure("Writing child I/O file failed with errno \(writeError).", code: 7)
         }
         guard Darwin.lseek(descriptor, 0, SEEK_SET) == 0 else {
             let seekError = errno
-            Darwin.close(descriptor)
             throw failure("Seeking child I/O file failed with errno \(seekError).", code: 8)
         }
+        ownsDescriptor = false
         return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     }
 
