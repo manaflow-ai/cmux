@@ -2328,10 +2328,69 @@ mod tests {
     use super::{
         AllowedFile, DiffSource, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
         TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
-        prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
+        migrate_legacy_agent_turn_baselines, prune_orphaned_session_temp_files, read_rpc_request,
+        register_session_temp,
         remove_trajectory_scan_if_current, reserve_session_owner, run_git_patch_with_limit,
         session_lease_lock_is_active, sweep_orphaned_sessions_periodically, valid_group_id,
     };
+
+    #[tokio::test]
+    async fn legacy_agent_turn_baseline_migration_removes_owned_files_and_refs() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-legacy-baseline-migration-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let home = root.join("home");
+        let state = home.join(".cmuxterm");
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&state).expect("create state directory");
+        std::fs::create_dir_all(&repo).expect("create repo");
+        let run_git = |arguments: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&repo)
+                .args(arguments)
+                .output()
+                .expect("run git");
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            String::from_utf8(output.stdout).expect("git stdout")
+        };
+        run_git(&["init"]);
+        run_git(&["config", "user.name", "cmux tests"]);
+        run_git(&["config", "user.email", "cmux@example.invalid"]);
+        std::fs::write(repo.join("tracked.txt"), b"baseline\n").expect("write tracked file");
+        run_git(&["add", "tracked.txt"]);
+        run_git(&["commit", "-m", "baseline"]);
+        let commit = run_git(&["rev-parse", "HEAD"]).trim().to_owned();
+        run_git(&["update-ref", &format!("refs/cmux/last-turn/{commit}"), &commit]);
+        let snapshot = state.join("agent-turn-diff-baseline-snapshots/snapshot");
+        let staging = state.join("agent-turn-diff-baseline-snapshots-staging/staging");
+        std::fs::create_dir_all(&snapshot).expect("create snapshot");
+        std::fs::create_dir_all(&staging).expect("create staging snapshot");
+        std::fs::write(snapshot.join("untracked.txt"), b"private").expect("write snapshot");
+        std::fs::write(staging.join("untracked.txt"), b"private").expect("write staging");
+        let store = state.join("agent-turn-diff-baselines.json");
+        std::fs::write(
+            &store,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "records": [{"repoRoot": repo}]
+            }))
+            .expect("encode store"),
+        )
+        .expect("write store");
+
+        migrate_legacy_agent_turn_baselines(&home).await;
+
+        assert!(!store.exists());
+        assert!(!state.join("agent-turn-diff-baseline-snapshots").exists());
+        assert!(!state.join("agent-turn-diff-baseline-snapshots-staging").exists());
+        assert!(run_git(&["for-each-ref", "--format=%(refname)", "refs/cmux/last-turn"])
+            .trim()
+            .is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn canceled_trajectory_scan_is_evicted_without_removing_replacement() {

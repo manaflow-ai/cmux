@@ -241,6 +241,23 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func sidecarTerminationHandleSignalsBeforeAsyncActorCleanup() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        try process.run()
+        let handle = DiffSidecarSynchronousTerminationHandle()
+        handle.register(processID: process.processIdentifier)
+
+        handle.terminateSynchronously()
+        process.waitUntilExit()
+
+        #expect(!process.isRunning)
+        #expect(process.terminationReason == .uncaughtSignal)
+        #expect(process.terminationStatus == SIGTERM)
+    }
+
+    @Test
     func sidecarBridgeNormalizesViewerInstanceIdentity() {
         let identifier = UUID()
         let body: [String: Any] = [

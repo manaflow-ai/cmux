@@ -358,6 +358,66 @@ fn codex_resolver_uses_hook_or_database_record_atomically() {
 }
 
 #[test]
+fn codex_database_fallback_honors_the_recorded_codex_home() {
+    let fixture = FixtureRoot::new("codex-custom-home");
+    prepare_common_directories(&fixture);
+    let home = fixture.home();
+    let repo = fixture.repo();
+    let custom_codex_home = fixture.path.join("custom-codex-home");
+    let transcript = custom_codex_home.join("session.jsonl");
+    fs::create_dir_all(&custom_codex_home).expect("create custom Codex home");
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn"}}),
+            codex_patch_event("turn", &repo.join("custom.txt"), "+custom-home"),
+        ],
+    );
+    let database = Connection::open(custom_codex_home.join("state_5.sqlite"))
+        .expect("open custom Codex database");
+    database
+        .execute_batch(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, cwd TEXT);",
+        )
+        .expect("create Codex schema");
+    database
+        .execute(
+            "INSERT INTO threads (id, rollout_path, cwd) VALUES (?1, ?2, ?3)",
+            (
+                "session",
+                transcript.to_string_lossy().as_ref(),
+                repo.to_string_lossy().as_ref(),
+            ),
+        )
+        .expect("insert Codex record");
+    let store = serde_json::json!({
+        "version": 1,
+        "sessions": {
+            "session": {
+                "cwd": repo,
+                "launchCommand": {
+                    "arguments": [],
+                    "environment": {"CODEX_HOME": custom_codex_home}
+                }
+            }
+        }
+    });
+    fs::write(
+        home.join(".cmuxterm/codex-hook-sessions.json"),
+        serde_json::to_vec(&store).expect("encode hook store"),
+    )
+    .expect("write hook store");
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(home),
+    )
+    .expect("resolve custom Codex home");
+
+    assert!(resolved.patch.contains("+custom-home"));
+}
+
+#[test]
 fn codex_resolver_normalizes_a_nested_cwd_to_the_repository_root() {
     let fixture = FixtureRoot::new("codex-nested-cwd");
     prepare_common_directories(&fixture);
