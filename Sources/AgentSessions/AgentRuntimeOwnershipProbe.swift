@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxFoundation
 import CmuxSettings
 import Darwin
 import Foundation
@@ -56,17 +57,20 @@ struct AgentRuntimeOwnershipProbe: Sendable {
 
     mutating func evidence(for record: [String: Any]) -> Evidence {
         let currentRuntimeID = Self.normalized(environment["CMUX_RUNTIME_ID"])
-        var runtimes: [[String: Any]] = []
-        if let runtime = record["cmuxRuntime"] as? [String: Any] {
-            runtimes.append(runtime)
-        }
-        if let activeRunID = Self.normalized(record["activeRunId"] as? String),
-           let runs = record["runs"] as? [[String: Any]],
-           let activeRun = runs.first(where: {
-               Self.normalized($0["runId"] as? String) == activeRunID
-           }),
-           let runtime = activeRun["cmuxRuntime"] as? [String: Any] {
-            runtimes.append(runtime)
+        let runtimes: [[String: Any]]
+        if let runs = record["runs"] as? [[String: Any]], !runs.isEmpty {
+            guard JSONSerialization.isValidJSONObject(record),
+                  let data = try? JSONSerialization.data(withJSONObject: record),
+                  let projection = CmuxAgentSessionRunAuthorityProjection()
+                    .projection(recordJSON: data),
+                  let runtime = projection.run?.cmuxRuntime else {
+                return .unknownForeign
+            }
+            runtimes = [Self.runtimeObject(runtime)]
+        } else if let runtime = record["cmuxRuntime"] as? [String: Any] {
+            runtimes = [runtime]
+        } else {
+            runtimes = []
         }
 
         var sawCurrentRuntime = false
@@ -210,6 +214,24 @@ struct AgentRuntimeOwnershipProbe: Sendable {
             startSeconds: startSeconds,
             startMicroseconds: startMicroseconds
         )
+    }
+
+    private static func runtimeObject(
+        _ runtime: CmuxAgentSessionRunAuthorityProjection.Runtime
+    ) -> [String: Any] {
+        var object: [String: Any] = ["id": runtime.id]
+        if let socketPath = runtime.socketPath { object["socketPath"] = socketPath }
+        if let bundleIdentifier = runtime.bundleIdentifier {
+            object["bundleIdentifier"] = bundleIdentifier
+        }
+        if let processId = runtime.processId { object["processId"] = processId }
+        if let processStartSeconds = runtime.processStartSeconds {
+            object["processStartSeconds"] = processStartSeconds
+        }
+        if let processStartMicroseconds = runtime.processStartMicroseconds {
+            object["processStartMicroseconds"] = processStartMicroseconds
+        }
+        return object
     }
 
     private static func normalized(_ value: String?) -> String? {

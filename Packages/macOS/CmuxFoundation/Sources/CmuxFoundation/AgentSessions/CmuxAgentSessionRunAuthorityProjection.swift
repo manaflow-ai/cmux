@@ -12,11 +12,34 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
         public var id: String
         public var socketPath: String?
         public var bundleIdentifier: String?
+        public var processId: Int?
+        public var processStartSeconds: Int64?
+        public var processStartMicroseconds: Int64?
 
-        public init(id: String, socketPath: String? = nil, bundleIdentifier: String? = nil) {
+        public init(
+            id: String,
+            socketPath: String? = nil,
+            bundleIdentifier: String? = nil,
+            processId: Int? = nil,
+            processStartSeconds: Int64? = nil,
+            processStartMicroseconds: Int64? = nil
+        ) {
             self.id = id
             self.socketPath = socketPath
             self.bundleIdentifier = bundleIdentifier
+            self.processId = processId
+            self.processStartSeconds = processStartSeconds
+            self.processStartMicroseconds = processStartMicroseconds
+        }
+    }
+
+    public struct Projection: Equatable, Sendable {
+        public var restoreAuthority: Bool
+        public var run: Run?
+
+        public init(restoreAuthority: Bool, run: Run?) {
+            self.restoreAuthority = restoreAuthority
+            self.run = run
         }
     }
 
@@ -104,10 +127,16 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
     /// Returns `nil` when a nonempty run projection cannot be decoded safely.
     /// Callers must treat `nil` as non-authoritative.
     public func projectedRestoreAuthority(recordJSON: Data) -> Bool? {
+        projection(recordJSON: recordJSON)?.restoreAuthority
+    }
+
+    /// Projects authority and runtime from the same canonical run so lifecycle
+    /// consumers cannot combine a run's authority with stale root ownership.
+    public func projection(recordJSON: Data) -> Projection? {
         guard let record = try? JSONDecoder().decode(RecordEnvelope.self, from: recordJSON) else {
             return nil
         }
-        return projectedRestoreAuthority(
+        return projection(
             recordRestoreAuthority: record.restoreAuthority,
             runs: record.runs,
             activeRunId: record.activeRunId
@@ -121,10 +150,23 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
         runs: [Run]?,
         activeRunId: String?
     ) -> Bool {
+        projection(
+            recordRestoreAuthority: recordRestoreAuthority,
+            runs: runs,
+            activeRunId: activeRunId
+        ).restoreAuthority
+    }
+
+    public func projection(
+        recordRestoreAuthority: Bool?,
+        runs: [Run]?,
+        activeRunId: String?
+    ) -> Projection {
         guard let runs, !runs.isEmpty else {
-            return recordRestoreAuthority != false
+            return Projection(restoreAuthority: recordRestoreAuthority != false, run: nil)
         }
-        return projectedRun(runs: runs, activeRunId: activeRunId)?.restoreAuthority ?? false
+        let run = projectedRun(runs: runs, activeRunId: activeRunId)
+        return Projection(restoreAuthority: run?.restoreAuthority ?? false, run: run)
     }
 
     public func projectedRun(runs: [Run], activeRunId: String?) -> Run? {
@@ -294,11 +336,26 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
         return Runtime(
             id: lhs.id,
             socketPath: mergedRuntimeField(lhs.socketPath, rhs.socketPath),
-            bundleIdentifier: mergedRuntimeField(lhs.bundleIdentifier, rhs.bundleIdentifier)
+            bundleIdentifier: mergedRuntimeField(lhs.bundleIdentifier, rhs.bundleIdentifier),
+            processId: mergedRuntimeField(lhs.processId, rhs.processId),
+            processStartSeconds: mergedRuntimeField(
+                lhs.processStartSeconds,
+                rhs.processStartSeconds
+            ),
+            processStartMicroseconds: mergedRuntimeField(
+                lhs.processStartMicroseconds,
+                rhs.processStartMicroseconds
+            )
         )
     }
 
     private func mergedRuntimeField(_ lhs: String?, _ rhs: String?) -> String? {
+        guard let lhs else { return rhs }
+        guard let rhs else { return lhs }
+        return lhs == rhs ? lhs : nil
+    }
+
+    private func mergedRuntimeField<T: Equatable>(_ lhs: T?, _ rhs: T?) -> T? {
         guard let lhs else { return rhs }
         guard let rhs else { return lhs }
         return lhs == rhs ? lhs : nil
