@@ -954,6 +954,7 @@ class AcceptanceToolTests(unittest.TestCase):
         self.assertEqual(
             metrics,
             {
+                "swift_ghostty_runtime_app_creation_attempts": 0,
                 "swift_canonical_ghostty_allocations": 0,
                 "swift_pty_master_allocations": 0,
             },
@@ -971,7 +972,7 @@ class AcceptanceToolTests(unittest.TestCase):
         incomplete = acceptance.ET.parse(fixture).getroot()
         for row in list(incomplete.iter("row")):
             if any(
-                child.text == "ghostty-process-census-schema-v1"
+                child.text == "ghostty-process-census-schema-v2"
                 for child in row
             ):
                 for child in row:
@@ -1010,6 +1011,19 @@ class AcceptanceToolTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(acceptance.AcceptanceError, "not census-instrumented"):
+                acceptance.audit_ghostty_process_census_linkage(root)
+
+            embedded.write_text(
+                (REPO_ROOT / "ghostty/src/apprt/embedded.zig")
+                .read_text(encoding="utf-8")
+                .replace(
+                    "process_census.recordRuntimeAppConstructor();",
+                    "// runtime app census bypass",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "runtime app constructor"):
                 acceptance.audit_ghostty_process_census_linkage(root)
 
     def test_metal_metrics_are_derived_from_exact_encoder_labels_and_pids(self) -> None:

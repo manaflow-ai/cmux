@@ -93,7 +93,7 @@ The Time Profiler extractor reads `/trace-toc/run/data/table[@schema='time-profi
 
 The Metal System Trace extractor reads `/trace-toc/run/data/table[@schema='metal-application-encoders-list']`. It uses process PID, command-buffer label, and encoder label. Host blits require the exact pair `cmux host compositor: one IOSurface blit` and `cmux host compositor: no Ghostty rendering`. Renderer draws require the exact pair `cmux Ghostty worker semantic-scene render` and `Ghostty terminal glyph render pass`. Admitted frames come from the independently derived `frame-counters` payload. PROC-2 cross-artifact validation rejects more host blits than admitted frames.
 
-PROC-1 combines two different time domains. The Allocations trace proves lifetime constructor history through monotonic in-library counters, including objects already freed before tracing began. The process census independently derives current PTY-master ownership from kernel-visible file descriptors. A passing run requires both to be zero for the Swift host and requires at least one PTY master in the terminal backend.
+PROC-1 combines two different time domains. The Allocations trace proves lifetime Ghostty runtime-app, canonical-surface, and PTY-allocation history through monotonic in-library counters, including objects freed before tracing began. The process census independently derives current PTY-master ownership from kernel-visible file descriptors. A passing run requires every Swift-host counter and current PTY ownership to be zero, and requires at least one PTY master in the terminal backend.
 
 Final verification rejects missing required artifact kinds, failed P0 checks, reused role identities, unbound PIDs, changed hashes, a dirty worktree, or a manifest from a different commit.
 

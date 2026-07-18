@@ -28,7 +28,7 @@
     <row>
       <event-time>3000000</event-time><process ref="8"/><event-type ref="4"/>
       <os-signpost-identifier ref="10"/>
-      <signpost-name id="12">ghostty-process-census-schema-v1</signpost-name>
+      <signpost-name id="12">ghostty-process-census-schema-v2</signpost-name>
       <subsystem ref="7"/>
     </row>
     <row>

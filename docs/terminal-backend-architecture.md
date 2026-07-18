@@ -703,7 +703,7 @@ Exit gate: all P0 acceptance checks pass and no evidence predates the PR head.
 
 | ID | Priority | Observable | Pass condition | Evidence |
 | --- | --- | --- | --- | --- |
-| PROC-1 | P0 | Swift terminal ownership | Swift PID has no PTY master owned for local terminals and no lifetime Ghostty canonical-surface constructor or PTY-master allocation. | Kernel-visible PID-scoped process census plus an Allocations trace containing a final in-library Ghostty process-census signpost snapshot. |
+| PROC-1 | P0 | Swift terminal ownership | Swift PID has no PTY master owned for local terminals and no lifetime Ghostty runtime-app constructor, canonical-surface constructor, or PTY-master allocation. | Kernel-visible PID-scoped process census plus an Allocations trace containing a final in-library Ghostty process-census signpost snapshot. |
 | PROC-2 | P0 | GPU ownership | Swift PID has no terminal CoreText shaping, render encoder, or draw call and submits at most one labeled full-surface blit per admitted visible frame; worker PID owns shaping, terminal render encoders, and draws. | Time Profiler plus Metal System Trace for exact PIDs, stable labels, and frame-to-blit count correlation. |
 | PROC-3 | P0 | Frame provenance | Every accepted frame records worker audit identity, renderer epoch, presentation generation, and frame sequence. | Structured logs correlated with Metal trace. |
 | LIFE-1 | P0 | GUI restart persistence | Force-kill and relaunch Swift; shell PID, TTY, cwd, terminal ID, topology, scrollback sentinel, and unread activity remain identical. | Automated restart test plus before/after protocol snapshots. |

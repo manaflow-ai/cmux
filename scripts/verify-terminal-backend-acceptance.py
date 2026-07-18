@@ -44,6 +44,7 @@ ARTIFACT_REQUIRED_METRICS: dict[str, set[str]] = {
         "link_count",
     },
     "allocation-trace": {
+        "swift_ghostty_runtime_app_creation_attempts",
         "swift_canonical_ghostty_allocations",
         "swift_pty_master_allocations",
     },
@@ -315,9 +316,10 @@ SIDEBAR_SIGNPOST_SUBSYSTEM = "com.cmux.sidebar"
 SIDEBAR_SELECTION_SIGNPOST = "sidebar-selection-event-to-visible-state"
 GHOSTTY_CENSUS_SIGNPOST_SUBSYSTEM = "com.cmux.ghostty.process-census"
 GHOSTTY_CENSUS_SNAPSHOT = "ghostty-process-census-snapshot"
-GHOSTTY_CENSUS_SCHEMA = "ghostty-process-census-schema-v1"
+GHOSTTY_CENSUS_SCHEMA = "ghostty-process-census-schema-v2"
 GHOSTTY_CENSUS_OVERFLOW = "ghostty-process-census-snapshot-overflow"
 GHOSTTY_CENSUS_UNIT_NAMES = {
+    "ghostty-snapshot-runtime-app-constructor": "runtime_app",
     "ghostty-snapshot-canonical-surface-constructor": "canonical",
     "ghostty-snapshot-manual-io-surface-constructor": "manual",
     "ghostty-snapshot-embedded-pty-surface-constructor": "embedded",
@@ -325,6 +327,7 @@ GHOSTTY_CENSUS_UNIT_NAMES = {
     "ghostty-snapshot-pty-master-allocation": "pty_allocation",
 }
 GHOSTTY_CENSUS_LIVE_EVENT_NAMES = {
+    "ghostty-runtime-app-constructor": "runtime_app",
     "ghostty-canonical-surface-constructor": "canonical",
     "ghostty-manual-io-surface-constructor": "manual",
     "ghostty-embedded-pty-surface-constructor": "embedded",
@@ -378,6 +381,7 @@ CRITERION_REQUIRED_METRICS: dict[tuple[str, str], set[str]] = {
 }
 
 ZERO_ON_PASS_METRICS = {
+    "swift_ghostty_runtime_app_creation_attempts",
     "swift_canonical_ghostty_allocations",
     "swift_pty_master_allocations",
     "failure_count",
@@ -1607,6 +1611,10 @@ def audit_ghostty_process_census_linkage(repo_root: pathlib.Path = REPO_ROOT) ->
     ) != 1 or shared_constructor.count("app.newSurface(") != 1:
         raise AcceptanceError("Ghostty shared surface constructor is not census-instrumented")
 
+    app_constructor = _source_function_body(embedded, "ghostty_app_new", "Ghostty embedded C API")
+    if app_constructor.count("process_census.recordRuntimeAppConstructor();") != 1:
+        raise AcceptanceError("Ghostty runtime app constructor is not census-instrumented")
+
     snapshot_body = _source_function_body(
         embedded,
         "ghostty_process_census_emit_signpost_snapshot",
@@ -1631,6 +1639,7 @@ def audit_ghostty_process_census_linkage(repo_root: pathlib.Path = REPO_ROOT) ->
         "ghostty_process_census_s",
         "ghostty_process_census_snapshot",
         "ghostty_process_census_emit_signpost_snapshot",
+        "runtime_app_constructor_attempts",
     }
     missing_header_symbols = {
         symbol for symbol in required_header_symbols if header.count(symbol) < 1
@@ -1641,7 +1650,7 @@ def audit_ghostty_process_census_linkage(repo_root: pathlib.Path = REPO_ROOT) ->
         )
 
     required_census_fragments = {
-        "ghostty-process-census-schema-v1",
+        GHOSTTY_CENSUS_SCHEMA,
         "ghostty-process-census-snapshot-overflow",
         *GHOSTTY_CENSUS_UNIT_NAMES,
         *GHOSTTY_CENSUS_LIVE_EVENT_NAMES,
@@ -1742,7 +1751,14 @@ def derive_ghostty_process_census_metrics(
             raise AcceptanceError(f"{label} Ghostty census snapshot overflowed")
         counts = {
             key: int(snapshot["counts"][key])
-            for key in ("canonical", "manual", "embedded", "pty_attempt", "pty_allocation")
+            for key in (
+                "runtime_app",
+                "canonical",
+                "manual",
+                "embedded",
+                "pty_attempt",
+                "pty_allocation",
+            )
         }
         if counts["canonical"] != counts["manual"] + counts["embedded"]:
             raise AcceptanceError(f"{label} Ghostty surface census subtype counts disagree")
@@ -1775,6 +1791,7 @@ def derive_ghostty_process_census_metrics(
             raise AcceptanceError(f"{label} Ghostty live event count exceeds its lifetime snapshot")
 
     return {
+        "swift_ghostty_runtime_app_creation_attempts": latest["runtime_app"],
         "swift_canonical_ghostty_allocations": latest["canonical"],
         "swift_pty_master_allocations": latest["pty_allocation"],
     }

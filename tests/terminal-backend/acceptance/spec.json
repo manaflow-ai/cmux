@@ -5,7 +5,7 @@
       "id": "PROC-1",
       "priority": "P0",
       "observable": "Swift terminal ownership",
-      "pass_condition": "The Swift PID owns no local-terminal PTY master and allocates no canonical Ghostty terminal.",
+      "pass_condition": "The Swift PID owns no local-terminal PTY master and never constructs a Ghostty runtime app or canonical Ghostty terminal.",
       "required_artifact_kinds": ["process-census", "allocation-trace"]
     },
     {

@@ -213,6 +213,7 @@ final class TerminalBackendRenderDiagnostics: @unchecked Sendable {
             "reset_after_snapshot": reset,
             "ghostty_process_census": [
                 "schema_version": ghosttyProcessCensus.schema_version,
+                "runtime_app_constructor_attempts": ghosttyProcessCensus.runtime_app_constructor_attempts,
                 "surface_constructor_attempts": ghosttyProcessCensus.surface_constructor_attempts,
                 "manual_io_surface_constructor_attempts": ghosttyProcessCensus.manual_io_surface_constructor_attempts,
                 "embedded_pty_surface_constructor_attempts": ghosttyProcessCensus.embedded_pty_surface_constructor_attempts,
