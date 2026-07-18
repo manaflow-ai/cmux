@@ -328,7 +328,7 @@ final class SimulatorFramebuffer {
             descriptor: NSObject,
             surface: IOSurface,
             screenID: UInt32,
-            screenType: UInt64,
+            isIntegrated: Bool,
             properties: NSObject
         )] = []
         for descriptor in descriptors {
@@ -344,22 +344,26 @@ final class SimulatorFramebuffer {
                     properties,
                     selectorName: "screenID"
                 ),
-                let screenType = simulatorUnsignedLongLongProperty(
+                let isIntegrated = simulatorBooleanProperty(
+                    properties,
+                    selectorName: "isDefault"
+                ) ?? simulatorUnsignedLongLongProperty(
                     properties,
                     selectorName: "screenType"
-                )
+                ).map({ $0 == 0 })
             else {
                 // HID events target the built-in display. Rendering an unidentified
                 // surface could show a different screen than the one receiving input.
                 integratedDisplay = nil
                 return false
             }
-            candidates.append((descriptor, surface, screenID, screenType, properties))
+            candidates.append((descriptor, surface, screenID, isIntegrated, properties))
         }
-        // SimScreenType.integrated is raw value zero in SimulatorKit. Require
-        // one integrated screen identity, then choose its largest plane.
+        // Current SimulatorKit marks the built-in display with isDefault;
+        // older releases use SimScreenType.integrated (raw value zero).
+        // Require one integrated screen identity, then choose its largest plane.
         let integratedScreenIDs = Set(
-            candidates.lazy.filter { $0.screenType == 0 }.map(\.screenID)
+            candidates.lazy.filter(\.isIntegrated).map(\.screenID)
         )
         guard integratedScreenIDs.count == 1,
               let primaryScreenID = integratedScreenIDs.first,
@@ -374,6 +378,36 @@ final class SimulatorFramebuffer {
         }
         integratedDisplay = (best.descriptor, best.properties)
         return true
+    }
+
+    private func simulatorBooleanProperty(
+        _ target: NSObject,
+        selectorName: String
+    ) -> Bool? {
+        let selector = NSSelectorFromString(selectorName)
+        guard target.responds(to: selector),
+            let method = class_getInstanceMethod(type(of: target), selector)
+        else {
+            return nil
+        }
+        let returnType = method_copyReturnType(method)
+        defer { free(returnType) }
+        switch String(cString: returnType) {
+        case "B":
+            typealias Function = @convention(c) (AnyObject, Selector) -> Bool
+            return unsafeBitCast(method_getImplementation(method), to: Function.self)(
+                target,
+                selector
+            )
+        case "c":
+            typealias Function = @convention(c) (AnyObject, Selector) -> CChar
+            return unsafeBitCast(method_getImplementation(method), to: Function.self)(
+                target,
+                selector
+            ) != 0
+        default:
+            return nil
+        }
     }
 
 }
