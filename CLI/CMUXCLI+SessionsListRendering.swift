@@ -3,7 +3,9 @@ import Foundation
 extension CMUXCLI {
     func renderSessionListLine(_ payload: [String: Any]) -> String {
         let agent = (payload["agent"] as? String) ?? "unknown"
-        let sessionId = (payload["session_id"] as? String) ?? "unknown"
+        let sessionId = (payload["session_id"] as? String)
+            ?? (payload["pid"] as? Int).map { "pid \($0)" }
+            ?? "unknown"
         let workspaceId = (payload["workspace_id"] as? String) ?? "-"
         let surfaceId = (payload["surface_id"] as? String) ?? "-"
         let cwd = (payload["cwd"] as? String) ?? "-"

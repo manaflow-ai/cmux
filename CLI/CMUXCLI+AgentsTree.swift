@@ -50,7 +50,7 @@ extension CMUXCLI {
                     .appendingPathComponent(".cmuxterm", isDirectory: true)
                     .path
         )
-        let normalizedAgent = agentsTreeNormalized(agentFilter)?.lowercased()
+        let normalizedAgent = agentsTreeNormalized(agentFilter).map(agentsNormalizedAgentID)
         let normalizedSession = agentsTreeNormalized(sessionFilter)?.lowercased()
         let normalizedWorkspace = agentsTreeNormalizedID(workspaceFilter)?.lowercased()
         let normalizedSurface = agentsTreeNormalizedID(surfaceFilter)?.lowercased()
@@ -94,9 +94,15 @@ extension CMUXCLI {
         let specifications = [(name: "claude", suffix: "claude")] + Self.agentDefs.map {
             (name: $0.name, suffix: $0.sessionStoreSuffix)
         }
-        let selectedSpecifications = specifications.filter {
-            normalizedAgent == nil || $0.name.lowercased() == normalizedAgent
+        let providerID = normalizedAgent.flatMap {
+            agentSessionProviderID(for: $0, terminalObservations: terminalObservations)
         }
+        let selectedSpecifications = if let normalizedAgent {
+            specifications.filter { $0.name.lowercased() == (providerID ?? normalizedAgent) }
+        } else {
+            specifications
+        }
+        let observationAgentIDs = Set([normalizedAgent, providerID].compactMap { $0 })
         let snapshots = AgentHookSessionRegistryBridge.snapshots(
             specifications: selectedSpecifications.map { (provider: $0.name, suffix: $0.suffix) },
             stateDirectory: stateDirectory,
@@ -191,9 +197,10 @@ extension CMUXCLI {
         }
 
         let matchingObservations = terminalObservations.filter { observation in
-            if let normalizedAgent,
-               observation.sessionProviderID.lowercased() != normalizedAgent,
-               observation.familyID.lowercased() != normalizedAgent { return false }
+            if !observationAgentIDs.isEmpty,
+               !agentTerminalObservation(observation, matchesAnyAgentID: observationAgentIDs) {
+                return false
+            }
             if let normalizedWorkspace,
                observation.workspaceID.uuidString.lowercased() != normalizedWorkspace { return false }
             if let normalizedSurface,

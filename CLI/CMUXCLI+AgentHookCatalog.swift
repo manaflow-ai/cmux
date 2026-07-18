@@ -94,6 +94,7 @@ extension CMUXCLI {
                 .init(agentEvent: "beforeShellExecution", cmuxSubcommand: "shell-exec"),
                 .init(agentEvent: "afterShellExecution", cmuxSubcommand: "shell-done"),
             ],
+            aliases: ["cursor-agent"],
             feedHookEvents: ["beforeShellExecution"]
         ),
         AgentHookDef(
@@ -187,6 +188,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            aliases: ["droid"],
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(

@@ -24,7 +24,8 @@ extension CMUXCLI {
             commandArgs: commandArgs,
             jsonOutput: jsonOutput,
             processEnv: processEnv,
-            fileManager: fileManager
+            fileManager: fileManager,
+            terminalObservations: terminalObservations
         )
     }
 
@@ -100,5 +101,42 @@ extension CMUXCLI {
               JSONSerialization.isValidJSONObject(observations) else { return [] }
         let data = try JSONSerialization.data(withJSONObject: observations)
         return try JSONDecoder().decode([CmuxAgentTerminalObservation].self, from: data)
+    }
+
+    func agentSessionProviderID(
+        for requestedAgent: String,
+        terminalObservations: [CmuxAgentTerminalObservation]
+    ) -> String? {
+        let normalized = agentsNormalizedAgentID(requestedAgent)
+        if normalized == "claude" || normalized == "claude-code" {
+            return "claude"
+        }
+        if let definition = Self.agentDef(named: normalized) {
+            return definition.name
+        }
+        let observedProviders = Set(terminalObservations.compactMap { observation -> String? in
+            guard agentTerminalObservation(observation, matchesAnyAgentID: [normalized]) else {
+                return nil
+            }
+            return agentsNormalizedAgentID(observation.sessionProviderID)
+        })
+        guard observedProviders.count == 1 else { return nil }
+        return observedProviders.first
+    }
+
+    func agentTerminalObservation(
+        _ observation: CmuxAgentTerminalObservation,
+        matchesAnyAgentID agentIDs: Set<String>
+    ) -> Bool {
+        let normalizedIDs = Set(agentIDs.map(agentsNormalizedAgentID))
+        let provider = agentsNormalizedAgentID(observation.sessionProviderID)
+        let family = agentsNormalizedAgentID(observation.familyID)
+        return normalizedIDs.contains(provider) || normalizedIDs.contains(family)
+    }
+
+    func agentsNormalizedAgentID(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
     }
 }

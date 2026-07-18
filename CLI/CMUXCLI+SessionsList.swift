@@ -1,14 +1,21 @@
+import CmuxFoundation
 import Foundation
 extension CMUXCLI {
     private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
     private typealias SessionListEntry = (updatedAt: TimeInterval, payload: [String: Any])
     private typealias CodexSessionListIndex = (indexedSessionIds: Set<String>, transcriptPathBySessionId: [String: String])
 
+    private struct SessionListCandidate {
+        var node: AgentSessionGraphNode
+        var payload: [String: Any]
+    }
+
     func runSessionsCommand(
         commandArgs rawArgs: [String],
         jsonOutput: Bool,
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        terminalObservations: [CmuxAgentTerminalObservation] = []
     ) throws {
         var args = rawArgs
         let subcommand = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -91,22 +98,30 @@ extension CMUXCLI {
         let homeDirectory = sessionsListExpandedPath(processEnv["HOME"] ?? NSHomeDirectory())
 
         let agentSpecs = sessionsListAgentSpecs()
+        let requestedAgent = agentRaw.map(agentsNormalizedAgentID)
+        var observationAgentIDs: Set<String> = []
         let selectedSpecs: [SessionListAgentSpec]
-        if let agentRaw {
-            let normalized = agentRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let agentRaw, let normalized = requestedAgent {
             guard !normalized.isEmpty else {
                 throw CLIError(message: String(localized: "cli.sessions.error.agentRequiresValue", defaultValue: "sessions list: --agent requires a value"))
             }
-            if normalized == "claude" || normalized == "claude-code" || normalized == "claude_code" {
-                selectedSpecs = agentSpecs.filter { $0.name == "claude" }
-            } else if let def = Self.agentDef(named: normalized) {
-                selectedSpecs = agentSpecs.filter { $0.name == def.name }
-            } else {
+            let providerID = agentSessionProviderID(
+                for: normalized,
+                terminalObservations: terminalObservations
+            )
+            let hasMatchingObservation = terminalObservations.contains {
+                agentTerminalObservation($0, matchesAnyAgentID: [normalized])
+            }
+            guard providerID != nil || hasMatchingObservation else {
                 throw CLIError(message: String(
                     format: String(localized: "cli.sessions.error.unknownAgent", defaultValue: "sessions list: unknown agent '%@'"),
                     agentRaw
                 ))
             }
+            selectedSpecs = providerID.map { providerID in
+                agentSpecs.filter { $0.name == providerID }
+            } ?? []
+            observationAgentIDs = Set([normalized] + [providerID].compactMap { $0 })
         } else {
             selectedSpecs = agentSpecs
         }
@@ -142,7 +157,8 @@ extension CMUXCLI {
         let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
         var codexIndexes: [String: CodexSessionListIndex] = [:]
         let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: homeDirectory)
-        var entries: [SessionListEntry] = []
+        var candidates: [SessionListCandidate] = []
+        var activeSessionBySurface: [String: String] = [:]
         var stores: [[String: Any]] = []
 
         let timestampFormatter = ISO8601DateFormatter()
@@ -253,12 +269,6 @@ extension CMUXCLI {
                 ) else { continue }
                 let projection = AgentSessionStateProjection(record: record, run: projectedRun)
                 guard includesEndedRecords || queryScope.includes(projection: projection) else { continue }
-                if let stateFilter, projection.effective.rawValue != stateFilter { continue }
-                if let activityFilter, projection.activity.state.rawValue != activityFilter { continue }
-                if let workKindFilter,
-                   !projection.workloads.contains(where: {
-                       $0.kind.rawValue == workKindFilter && $0.phase.isActive
-                   }) { continue }
                 payload["process_state"] = projection.process.rawValue
                 payload["session_state"] = projection.session.rawValue
                 payload["foreground_state"] = projection.foreground.rawValue
@@ -295,6 +305,15 @@ extension CMUXCLI {
                 payload["active_workspace_session_id"] = workspaceActive?.sessionId ?? NSNull()
                 payload["active_surface_session_id"] = surfaceActive?.sessionId ?? NSNull()
                 payload["is_restorable"] = record.isRestorable ?? NSNull()
+
+                let runtime = projectedRun.cmuxRuntime ?? record.cmuxRuntime
+                if activeForSurface, let runtimeID = runtime?.id {
+                    activeSessionBySurface[AgentTerminalObservationJoiner.surfaceKey(
+                        provider: spec.name,
+                        runtimeID: runtimeID,
+                        surfaceID: record.surfaceId
+                    )] = record.sessionId
+                }
 
                 var transcriptBacked = false
 
@@ -357,7 +376,86 @@ extension CMUXCLI {
                     continue
                 }
 
-                entries.append((updatedAt: record.updatedAt, payload: payload))
+                candidates.append(SessionListCandidate(
+                    node: AgentSessionGraphNode(
+                        provider: spec.name,
+                        sessionId: record.sessionId,
+                        runId: projectedRun.runId,
+                        pid: projectedRun.pid,
+                        processStartedAt: projectedRun.processStartedAt,
+                        cmuxRuntime: runtime,
+                        workspaceId: record.workspaceId,
+                        surfaceId: record.surfaceId,
+                        cwd: record.cwd,
+                        processState: projection.process,
+                        sessionState: projection.session,
+                        foregroundState: projection.foreground,
+                        attentionState: projection.attention,
+                        activity: projection.activity,
+                        effectiveState: projection.effective,
+                        workloads: projection.workloads.map(AgentWorkloadSnapshot.init),
+                        restoreAuthority: projectedRun.restoreAuthority,
+                        startedAt: projectedRun.startedAt,
+                        updatedAt: projectedRun.updatedAt,
+                        endedAt: projectedRun.endedAt
+                    ),
+                    payload: payload
+                ))
+            }
+        }
+
+        let matchingObservations = terminalObservations.filter { observation in
+            if !observationAgentIDs.isEmpty,
+               !agentTerminalObservation(observation, matchesAnyAgentID: observationAgentIDs) {
+                return false
+            }
+            if let workspaceFilter,
+               observation.workspaceID.uuidString.lowercased() != workspaceFilter { return false }
+            if let surfaceFilter,
+               observation.surfaceID.uuidString.lowercased() != surfaceFilter { return false }
+            if let cwdFilter,
+               observation.cwd?.lowercased().contains(cwdFilter) != true { return false }
+            switch queryScope {
+            case .history, .legacyUnscoped:
+                return true
+            case let .currentRuntime(runtimeID):
+                return observation.runtimeID == runtimeID
+            }
+        }
+        let mergedNodes = AgentTerminalObservationJoiner().merge(
+            nodes: candidates.map(\.node),
+            observations: matchingObservations,
+            activeSessionBySurface: activeSessionBySurface
+        )
+        let candidateByNodeID = candidates.reduce(into: [String: SessionListCandidate]()) { result, candidate in
+            result[candidate.node.nodeId] = candidate
+        }
+        let displayNameByProvider = Dictionary(
+            selectedSpecs.map { ($0.name, $0.displayName) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var entries: [SessionListEntry] = []
+        for node in mergedNodes {
+            if sessionFilter != nil, node.sessionId == nil { continue }
+            if let stateFilter, node.effectiveState.rawValue != stateFilter { continue }
+            if let activityFilter, node.activity.state.rawValue != activityFilter { continue }
+            if let workKindFilter,
+               !node.workloads.contains(where: {
+                   $0.kind.rawValue == workKindFilter && $0.phase.isActive
+               }) { continue }
+
+            if var candidate = candidateByNodeID[node.nodeId] {
+                sessionsListApply(node: node, to: &candidate.payload)
+                entries.append((updatedAt: node.updatedAt, payload: candidate.payload))
+            } else if node.identitySource == "terminal_process" {
+                entries.append((
+                    updatedAt: node.updatedAt,
+                    payload: sessionsListProcessPayload(
+                        node: node,
+                        displayName: displayNameByProvider[node.provider] ?? node.provider,
+                        timestampFormatter: timestampFormatter
+                    )
+                ))
             }
         }
 
@@ -396,6 +494,90 @@ extension CMUXCLI {
                 sortedEntries.count - limitedEntries.count
             ))
         }
+    }
+
+    private func sessionsListApply(
+        node: AgentSessionGraphNode,
+        to payload: inout [String: Any]
+    ) {
+        payload["identity_source"] = node.identitySource
+        payload["run_id"] = node.runId
+        payload["pid"] = node.pid ?? NSNull()
+        payload["process_started_at"] = node.processStartedAt ?? NSNull()
+        payload["cwd"] = node.cwd ?? NSNull()
+        payload["process_state"] = node.processState.rawValue
+        payload["session_state"] = node.sessionState.rawValue
+        payload["foreground_state"] = node.foregroundState.rawValue
+        payload["attention_state"] = node.attentionState.rawValue
+        payload["effective_state"] = node.effectiveState.rawValue
+        payload["activity"] = sessionsListEncodableJSONObject(node.activity)
+        payload["workloads"] = sessionsListEncodableJSONObject(node.workloads)
+        payload["restore_authority"] = node.restoreAuthority
+        payload["cmux_runtime"] = node.cmuxRuntime
+            .map { sessionsListEncodableJSONObject($0) } ?? NSNull()
+        payload["state_source"] = node.terminalStateApplied ? "terminal" : "lifecycle"
+        payload["terminal_observation"] = node.terminalObservation
+            .map { sessionsListEncodableJSONObject($0) } ?? NSNull()
+    }
+
+    private func sessionsListProcessPayload(
+        node: AgentSessionGraphNode,
+        displayName: String,
+        timestampFormatter: ISO8601DateFormatter
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "agent": node.provider,
+            "agent_display_name": displayName,
+            "identity_source": node.identitySource,
+            "session_id": NSNull(),
+            "run_id": node.runId,
+            "workspace_id": node.workspaceId,
+            "surface_id": node.surfaceId,
+            "store_path": NSNull(),
+            "started_at": sessionsListTimestamp(node.startedAt, formatter: timestampFormatter),
+            "updated_at": sessionsListTimestamp(node.updatedAt, formatter: timestampFormatter),
+            "updated_at_unix": node.updatedAt,
+            "cwd": node.cwd ?? NSNull(),
+            "transcript_path": NSNull(),
+            "pid": node.pid ?? NSNull(),
+            "process_started_at": node.processStartedAt ?? NSNull(),
+            "runtime_status": NSNull(),
+            "agent_lifecycle": NSNull(),
+            "process_state": node.processState.rawValue,
+            "session_state": node.sessionState.rawValue,
+            "foreground_state": node.foregroundState.rawValue,
+            "attention_state": node.attentionState.rawValue,
+            "effective_state": node.effectiveState.rawValue,
+            "activity": sessionsListEncodableJSONObject(node.activity),
+            "workloads": sessionsListEncodableJSONObject(node.workloads),
+            "restore_authority": false,
+            "cmux_runtime": node.cmuxRuntime.map { sessionsListEncodableJSONObject($0) } ?? NSNull(),
+            "state_source": "terminal",
+            "terminal_observation": node.terminalObservation
+                .map { sessionsListEncodableJSONObject($0) } ?? NSNull(),
+            "last_prompt_turn_id": NSNull(),
+            "active_prompt_turn_id": NSNull(),
+            "launch_working_directory": NSNull(),
+            "launch_arguments": [],
+            "fork_command_available": false,
+            "fork_supported": false,
+            "active_for_workspace": false,
+            "active_for_surface": false,
+            "active_workspace_session_id": NSNull(),
+            "active_surface_session_id": NSNull(),
+            "is_restorable": false,
+            "session_home": NSNull(),
+            "session_dir": NSNull(),
+            "transcript_backed": false,
+            "launch_backed": false,
+            "default_visible": true,
+        ]
+        if node.provider == "codex" {
+            payload["codex_indexed"] = false
+            payload["codex_transcript_found"] = false
+            payload["codex_transcript_path"] = NSNull()
+        }
+        return payload
     }
 
     private func sessionsListAgentSpecs() -> [SessionListAgentSpec] {
