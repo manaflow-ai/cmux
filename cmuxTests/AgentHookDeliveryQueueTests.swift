@@ -1342,6 +1342,85 @@ struct AgentHookDeliveryQueueTests {
         }
     }
 
+    @Test func closedSupervisorInputCannotTerminateTheAppDuringPayloadUpload() async throws {
+        let root = try temporaryDirectory(named: "supervisor-closed-input")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let supervisorURL = root.appendingPathComponent("close-input.sh")
+        try writeExecutable(
+            at: supervisorURL,
+            contents: """
+            #!/bin/sh
+            exec 0<&-
+            /bin/sleep 0.05
+            exit 74
+            """
+        )
+
+        let launch = try await AgentHookDeliverySupervisorClient.launch(
+            supervisorURL: supervisorURL,
+            childURL: URL(fileURLWithPath: "/usr/bin/true"),
+            childArguments: [],
+            environment: ["PATH": "/usr/bin:/bin"],
+            payload: Data(repeating: 0xa5, count: 8 * 1024 * 1024),
+            errorOutput: .nullDevice,
+            directTimeout: 2,
+            groupTimeout: 3,
+            terminationGrace: 0.05
+        )
+
+        guard case .transportError(let detail) = launch.directResult else {
+            Issue.record("Expected a closed supervisor input to report a transport error")
+            return
+        }
+        #expect(detail.contains("Writing the supervisor payload failed"))
+        _ = await launch.handle.waitForTermination()
+    }
+
+    @Test func rawSpawnCannotInheritTheSupervisorControlLease() async throws {
+        let root = try temporaryDirectory(named: "supervisor-control-cloexec")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let supervisorURL = root.appendingPathComponent("lease-supervisor.sh")
+        try writeExecutable(
+            at: supervisorURL,
+            contents: """
+            #!/bin/sh
+            printf 'CMUX-HOOK-SUPERVISOR 1 READY %s %s\n' "$$" "$$"
+            printf 'CMUX-HOOK-SUPERVISOR 1 RESULT EXIT 0\n'
+            exec 1>&-
+            /bin/cat >/dev/null
+            """
+        )
+
+        let launch = try await AgentHookDeliverySupervisorClient.launch(
+            supervisorURL: supervisorURL,
+            childURL: URL(fileURLWithPath: "/usr/bin/true"),
+            childArguments: [],
+            environment: ["PATH": "/usr/bin:/bin"],
+            payload: Data(),
+            errorOutput: .nullDevice,
+            directTimeout: 2,
+            groupTimeout: 3,
+            terminationGrace: 0.05
+        )
+        #expect(launch.directResult == .exited(0))
+
+        let sleeperPID = try spawnRawSleep(seconds: "3")
+        defer {
+            Darwin.kill(sleeperPID, SIGKILL)
+            waitForChild(sleeperPID)
+        }
+        #expect(Darwin.kill(sleeperPID, 0) == 0)
+
+        let started = ContinuousClock.now
+        launch.handle.requestCancellation()
+        let supervisorStatus = await launch.handle.waitForTermination()
+        let elapsed = started.duration(to: .now)
+
+        #expect(supervisorStatus == 0)
+        #expect(elapsed < .seconds(1))
+        #expect(Darwin.kill(sleeperPID, 0) == 0)
+    }
+
     @Test func liveSupervisorOwnsDetachedDeliveryGroupUntilItDrains() async throws {
         let root = try temporaryDirectory(named: "owned-supervisor")
         let scriptURL = root.appendingPathComponent("deliver.sh")
@@ -2272,6 +2351,44 @@ struct AgentHookDeliveryQueueTests {
     private func writeExecutable(at url: URL, contents: String) throws {
         try Data(contents.utf8).write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func spawnRawSleep(seconds: String) throws -> pid_t {
+        var arguments: [UnsafeMutablePointer<CChar>?] = [
+            strdup("/bin/sleep"),
+            strdup(seconds),
+            nil,
+        ]
+        defer {
+            for argument in arguments where argument != nil {
+                free(argument)
+            }
+        }
+        var environment: [UnsafeMutablePointer<CChar>?] = [nil]
+        var processIdentifier: pid_t = 0
+        let status = "/bin/sleep".withCString { executablePath in
+            arguments.withUnsafeMutableBufferPointer { argumentBuffer in
+                environment.withUnsafeMutableBufferPointer { environmentBuffer in
+                    posix_spawn(
+                        &processIdentifier,
+                        executablePath,
+                        nil,
+                        nil,
+                        argumentBuffer.baseAddress,
+                        environmentBuffer.baseAddress
+                    )
+                }
+            }
+        }
+        guard status == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: status) ?? .EIO)
+        }
+        return processIdentifier
+    }
+
+    private func waitForChild(_ processIdentifier: pid_t) {
+        var childStatus: Int32 = 0
+        while waitpid(processIdentifier, &childStatus, 0) < 0, errno == EINTR {}
     }
 
     private func storedEnvironmentJSON(databaseURL: URL, deliveryID: String) throws -> String {
