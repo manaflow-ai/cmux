@@ -146,6 +146,13 @@ extension SimulatorWorkerClientTests {
             first.sharedMemoryName,
             second.sharedMemoryName,
         ])
+        await client.acknowledgeFrameTransportAdoption(first)
+        #expect(await client.frameTransportSharedMemoryNames == [
+            first.sharedMemoryName,
+            second.sharedMemoryName,
+        ])
+        await client.acknowledgeFrameTransportAdoption(second)
+        #expect(await client.frameTransportSharedMemoryNames == [second.sharedMemoryName])
         await client.stop()
     }
 

@@ -122,14 +122,8 @@ extension SimulatorWorkerClient {
             lastDisplayOrientation = display.orientation
             currentDisplayMetadata = display
         case let .frameTransport(frameTransport):
-            let previousSharedMemoryName = currentFrameTransport?.sharedMemoryName
             currentFrameTransport = frameTransport
             if simulatorFrameSharedMemoryNameIsValid(frameTransport.sharedMemoryName) {
-                if let previousSharedMemoryName,
-                   previousSharedMemoryName != frameTransport.sharedMemoryName {
-                    simulatorUnlinkFrameSharedMemory(named: previousSharedMemoryName)
-                    frameTransportSharedMemoryNames.remove(previousSharedMemoryName)
-                }
                 frameTransportSharedMemoryNames.insert(frameTransport.sharedMemoryName)
             }
         case let .capabilities(capabilities):

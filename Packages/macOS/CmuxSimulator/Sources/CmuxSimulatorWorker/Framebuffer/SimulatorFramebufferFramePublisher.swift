@@ -38,6 +38,12 @@ final class SimulatorFramebufferFramePublisher {
         continuation = source.continuation
         consumerTask = Task.detached(priority: .userInitiated) {
             var ring = initialRing
+            var retiredSharedMemoryNames: Set<String> = []
+            defer {
+                for name in retiredSharedMemoryNames {
+                    simulatorUnlinkFrameSharedMemory(named: name)
+                }
+            }
             for await frame in source.stream {
                 guard !Task.isCancelled else { return }
                 do {
@@ -48,7 +54,8 @@ final class SimulatorFramebufferFramePublisher {
                             width: frame.width,
                             height: frame.height
                         )
-                        ring.releaseResources()
+                        retiredSharedMemoryNames.insert(ring.descriptor.sharedMemoryName)
+                        ring.releaseResources(unlinkSharedMemory: false)
                         ring = replacement
                     }
                     try ring.publish(frame.surface)

@@ -319,6 +319,20 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             await broadcastFailure(error, code: "worker_send_failed")
         }
     }
+
+    public func acknowledgeFrameTransportAdoption(
+        _ descriptor: SimulatorFrameTransportDescriptor
+    ) async {
+        guard currentFrameTransport == descriptor else { return }
+        let obsoleteNames = frameTransportSharedMemoryNames.subtracting([
+            descriptor.sharedMemoryName,
+        ])
+        for name in obsoleteNames {
+            simulatorUnlinkFrameSharedMemory(named: name)
+            frameTransportSharedMemoryNames.remove(name)
+        }
+    }
+
     /// Clears a tripped crash fuse and relaunches the worker with its last
     /// attachment and geometry.
     public func recover() async throws {

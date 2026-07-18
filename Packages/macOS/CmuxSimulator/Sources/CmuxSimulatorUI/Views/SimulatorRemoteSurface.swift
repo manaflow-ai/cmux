@@ -33,6 +33,9 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
                 coordinator?.receiveFrameTransportFailure(failure, for: descriptor)
             }
         }
+        view.onFrameTransportAdopted = { [weak coordinator] descriptor in
+            coordinator?.acknowledgeFrameTransportAdoption(descriptor)
+        }
         view.update(frameTransport: frameTransport, display: display, chrome: chrome)
         view.requestFocus(generation: coordinator.focusRequestGeneration)
         return view
@@ -54,6 +57,9 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
             Task { @MainActor in
                 coordinator?.receiveFrameTransportFailure(failure, for: descriptor)
             }
+        }
+        view.onFrameTransportAdopted = { [weak coordinator] descriptor in
+            coordinator?.acknowledgeFrameTransportAdoption(descriptor)
         }
         view.update(frameTransport: frameTransport, display: display, chrome: chrome)
         view.requestFocus(generation: coordinator.focusRequestGeneration)

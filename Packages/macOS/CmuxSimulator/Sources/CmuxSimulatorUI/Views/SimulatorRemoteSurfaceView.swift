@@ -9,6 +9,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var onGeometry: ((SimulatorSurfaceGeometry) -> Void)?
     var onRequestPanelFocus: (() -> Void)?
     var onFrameTransportFailure: ((SimulatorFrameTransportDescriptor, SimulatorFailure) -> Void)?
+    var onFrameTransportAdopted: ((SimulatorFrameTransportDescriptor) -> Void)?
 
     var frameLayer: CALayer?
     private var framePipeline: SimulatorFramePresentationPipeline?
@@ -140,6 +141,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         onRequestPanelFocus = nil
         pointerEntryEventFilter = nil
         onFrameTransportFailure = nil
+        onFrameTransportAdopted = nil
         simulatorOwnerID = nil
     }
 
@@ -352,6 +354,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         self.frameLayer = frameLayer
         framePipeline = SimulatorFramePresentationPipeline(source: source)
         frameTransportDescriptor = frameTransport
+        onFrameTransportAdopted?(frameTransport)
         renderLatestFrame()
         layoutFrameLayer()
         startDisplayLink()

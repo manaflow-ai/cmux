@@ -187,6 +187,15 @@ struct SimulatorFramebufferPortDiscoveryTests {
         if obsoleteHandle >= 0 { close(obsoleteHandle) }
         #expect(obsoleteHandle >= 0)
         framebuffer.stop()
+        let cleanupDeadline = clock.now.advanced(by: .seconds(2))
+        var retiredHandle = try simulatorOpenSharedMemory(named: obsoleteName, flags: O_RDONLY)
+        while retiredHandle >= 0, clock.now < cleanupDeadline {
+            close(retiredHandle)
+            await Task.yield()
+            retiredHandle = try simulatorOpenSharedMemory(named: obsoleteName, flags: O_RDONLY)
+        }
+        if retiredHandle >= 0 { close(retiredHandle) }
+        #expect(retiredHandle == -1)
     }
 
     @Test("A failed publication resume remains retryable")

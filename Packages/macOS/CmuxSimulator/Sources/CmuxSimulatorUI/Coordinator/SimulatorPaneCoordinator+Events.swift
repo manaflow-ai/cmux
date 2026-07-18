@@ -19,6 +19,15 @@ extension SimulatorPaneCoordinator {
         }
     }
 
+    func acknowledgeFrameTransportAdoption(
+        _ descriptor: SimulatorFrameTransportDescriptor
+    ) {
+        guard frameTransport == descriptor else { return }
+        Task { [client] in
+            await client.acknowledgeFrameTransportAdoption(descriptor)
+        }
+    }
+
     @discardableResult
     func enqueue(_ message: SimulatorWorkerInbound) -> Bool {
         switch outgoingContinuation.yield(message) {

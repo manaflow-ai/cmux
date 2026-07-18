@@ -20,6 +20,12 @@ public protocol SimulatorPaneClient: Sendable {
     /// - Parameter message: The command to enqueue.
     func send(_ message: SimulatorWorkerInbound) async
 
+    /// Confirms that the host has opened the named frame transport, allowing
+    /// older shared-memory names to be retired without racing host adoption.
+    func acknowledgeFrameTransportAdoption(
+        _ descriptor: SimulatorFrameTransportDescriptor
+    ) async
+
     /// Establishes and confirms a known display orientation before input begins.
     func synchronizeOrientation(
         _ orientation: SimulatorOrientation
@@ -36,4 +42,12 @@ public protocol SimulatorPaneClient: Sendable {
     /// Releases held input, asks the worker to exit, and tears down its pipes
     /// without shutting down the selected CoreSimulator device.
     func stop() async
+}
+
+public extension SimulatorPaneClient {
+    func acknowledgeFrameTransportAdoption(
+        _ descriptor: SimulatorFrameTransportDescriptor
+    ) async {
+        _ = descriptor
+    }
 }

@@ -111,12 +111,14 @@ final class SimulatorFramebufferSurfaceRing: @unchecked Sendable {
         releaseResources()
     }
 
-    func releaseResources() {
+    func releaseResources(unlinkSharedMemory: Bool = true) {
         guard !isClosed else { return }
         isClosed = true
         munmap(mapping, layout.totalByteCount)
         close(descriptorHandle)
-        shm_unlink(descriptor.sharedMemoryName)
+        if unlinkSharedMemory {
+            shm_unlink(descriptor.sharedMemoryName)
+        }
     }
 
     func publish(_ source: IOSurface) throws {
