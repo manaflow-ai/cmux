@@ -3634,6 +3634,99 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func permanentHistoryRemovalReturnsBeforeDurableReleasePersistenceCompletes() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-async-release-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let historyURL = root.appendingPathComponent("closed-item-history.json")
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "closed-history-async-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "closed-history-async-release"
+        )
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID
+        )
+        let hibernatedPanel = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.sourcePanelID }
+        )
+        let persistenceStarted = AgentSessionAsyncGate()
+        let allowPersistence = AgentSessionAsyncGate()
+        let store = ClosedItemHistoryStore(
+            fileURL: historyURL,
+            loadPersisted: false,
+            persistsRecordsSynchronously: true,
+            permanentRemovalHandler: { removed, retained, fileURL, persist in
+                AgentHookSessionStateWriter.releasePermanentlyRemovedClosedHistoryHibernations(
+                    removedRecords: removed,
+                    retainedRecords: retained,
+                    historyFileURL: fileURL,
+                    persistRetainedRecords: {
+                        await persistenceStarted.open()
+                        await allowPersistence.waitUntilOpen()
+                        return await persist()
+                    }
+                )
+            }
+        )
+        store.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: fixture.source.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: hibernatedPanel
+        )))
+        #expect(FileManager.default.fileExists(atPath: historyURL.path))
+
+        // This call must return while the persistence closure is still gated.
+        store.removeAll()
+        await persistenceStarted.waitUntilOpen()
+        #expect(FileManager.default.fileExists(atPath: historyURL.path))
+        let beforeCommit = try registry.snapshot(provider: "codex")
+        let beforeCommitRecord = try #require(beforeCommit.records.first)
+        let beforeCommitObject = try #require(
+            JSONSerialization.jsonObject(with: beforeCommitRecord.json) as? [String: Any]
+        )
+        #expect(beforeCommitObject["sessionState"] as? String == "hibernated")
+
+        await allowPersistence.open()
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        var afterCommit = try registry.snapshot(provider: "codex")
+        while clock.now < deadline {
+            let object = try afterCommit.records.first.flatMap {
+                try JSONSerialization.jsonObject(with: $0.json) as? [String: Any]
+            }
+            if object?["sessionState"] as? String == "ended" { break }
+            try await clock.sleep(for: .milliseconds(10))
+            afterCommit = try registry.snapshot(provider: "codex")
+        }
+        let afterCommitRecord = try #require(afterCommit.records.first)
+        let afterCommitObject = try #require(
+            JSONSerialization.jsonObject(with: afterCommitRecord.json) as? [String: Any]
+        )
+        #expect(afterCommitObject["sessionState"] as? String == "ended")
+        #expect(!FileManager.default.fileExists(atPath: historyURL.path))
+    }
+
+    @MainActor
     @Test(arguments: [false, true])
     func pendingClosedHistoryReleaseRetriesAfterRestartWithoutEndingAReusedSession(
         reusesSessionGeneration: Bool
@@ -3837,7 +3930,10 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
-    @Test func preparedReleaseDoesNotForfeitPersistedHistoryRouteAfterCrash() async throws {
+    @Test(arguments: [false, true])
+    func preparedReleaseReconcilesHistorySaveAfterCrash(
+        historySaveLanded: Bool
+    ) async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-closed-history-prepared-crash-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -3884,6 +3980,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         historyStore.push(historyRecord)
         #expect(FileManager.default.fileExists(atPath: historyURL.path))
+        if historySaveLanded {
+            _ = try #require(historyStore.removeRecord(id: historyRecord.id))
+            #expect(!FileManager.default.fileExists(atPath: historyURL.path))
+        }
 
         let crashedOwner = Process()
         crashedOwner.executableURL = URL(fileURLWithPath: "/bin/sleep")
@@ -3913,6 +4013,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "surfaceId": fixture.sourcePanelID.uuidString,
                 "expectedRecordUpdatedAt": 20.0,
                 "persistenceState": "prepared",
+                "persistenceTransactionId": UUID().uuidString,
                 "historyFilePath": historyURL.path,
                 "historyRecordId": historyRecord.id.uuidString,
                 "persistenceOwnerProcessId": Int(crashedOwnerIdentity.pid),
@@ -3929,22 +4030,138 @@ extension CMUXCLIErrorOutputRegressionTests {
             try await clock.sleep(for: .milliseconds(10))
         }
         #expect(!FileManager.default.fileExists(atPath: queueURL.path))
+        let quarantineURL = queueDirectory.appendingPathComponent("quarantine", isDirectory: true)
+        let quarantinedFiles = (try? FileManager.default.contentsOfDirectory(
+            at: quarantineURL,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        #expect(quarantinedFiles.isEmpty)
 
         let registrySnapshot = try registry.snapshot(provider: "codex")
         let stored = try #require(registrySnapshot.records.first)
         let object = try #require(JSONSerialization.jsonObject(with: stored.json) as? [String: Any])
-        #expect(object["sessionState"] as? String == "hibernated")
-        #expect(object["restoreAuthority"] as? Bool == true)
-        #expect(Set(registrySnapshot.activeSlots.map(\.scopeID)) == [
+        #expect(object["sessionState"] as? String == (historySaveLanded ? "ended" : "hibernated"))
+        #expect(object["restoreAuthority"] as? Bool == !historySaveLanded)
+        #expect(Set(registrySnapshot.activeSlots.map(\.scopeID)) == (historySaveLanded ? [] : [
             fixture.source.id.uuidString,
             fixture.sourcePanelID.uuidString,
-        ])
+        ]))
         let restoredHistory = ClosedItemHistoryStore(
             fileURL: historyURL,
             loadsPersistedRecordsSynchronously: true,
             persistsRecordsSynchronously: true
         )
-        #expect(restoredHistory.menuSnapshot().items.map(\.id) == [historyRecord.id])
+        #expect(
+            restoredHistory.menuSnapshot().items.map(\.id)
+                == (historySaveLanded ? [] : [historyRecord.id])
+        )
+    }
+
+    @MainActor
+    @Test(arguments: ["oversized", "symlink"])
+    func preparedReleaseRejectsUnsafePersistedHistoryFile(kind: String) async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-unsafe-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let historyURL = root.appendingPathComponent("closed-item-history.json")
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "closed-history-unsafe-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "closed-history-unsafe-\(kind)"
+        )
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID
+        )
+        if kind == "symlink" {
+            let targetURL = root.appendingPathComponent("untrusted-target.json")
+            try Data(#"{"version":1,"records":[]}"#.utf8).write(to: targetURL)
+            try FileManager.default.createSymbolicLink(
+                at: historyURL,
+                withDestinationURL: targetURL
+            )
+        } else {
+            #expect(FileManager.default.createFile(atPath: historyURL.path, contents: nil))
+            let handle = try FileHandle(forWritingTo: historyURL)
+            try handle.truncate(atOffset: 64 * 1_024 * 1_024 + 1)
+            try handle.close()
+        }
+
+        let crashedOwner = Process()
+        crashedOwner.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        crashedOwner.arguments = ["30"]
+        try crashedOwner.run()
+        let crashedOwnerIdentity = try #require(
+            AgentPIDProcessIdentity(pid: crashedOwner.processIdentifier)
+        )
+        crashedOwner.terminate()
+        crashedOwner.waitUntilExit()
+
+        let queueDirectory = root.appendingPathComponent(
+            "pending-closed-history-releases-v1",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: queueDirectory, withIntermediateDirectories: true)
+        let queueURL = queueDirectory.appendingPathComponent("prepared-unsafe.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "requests": [[
+                "provider": "codex",
+                "sessionId": fixture.agent.sessionId,
+                "workspaceId": fixture.source.id.uuidString,
+                "surfaceId": fixture.sourcePanelID.uuidString,
+                "expectedRecordUpdatedAt": 20.0,
+                "persistenceState": "prepared",
+                "persistenceTransactionId": UUID().uuidString,
+                "historyFilePath": historyURL.path,
+                "historyRecordId": UUID().uuidString,
+                "persistenceOwnerProcessId": Int(crashedOwnerIdentity.pid),
+                "persistenceOwnerStartSeconds": crashedOwnerIdentity.startSeconds,
+                "persistenceOwnerStartMicroseconds": crashedOwnerIdentity.startMicroseconds,
+            ]],
+        ], options: [.sortedKeys]).write(to: queueURL, options: .atomic)
+
+        AgentHookSessionStateWriter.resumePendingClosedHistoryHibernationReleases(now: 50)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        func pendingJSONFiles() -> [URL] {
+            (try? FileManager.default.contentsOfDirectory(
+                at: queueDirectory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ))?.filter { $0.pathExtension == "json" } ?? []
+        }
+        while clock.now < deadline, FileManager.default.fileExists(atPath: queueURL.path) {
+            try await clock.sleep(for: .milliseconds(10))
+        }
+        #expect(!FileManager.default.fileExists(atPath: queueURL.path))
+        #expect(pendingJSONFiles().count == 1)
+        let quarantineURL = queueDirectory.appendingPathComponent("quarantine", isDirectory: true)
+        #expect(!FileManager.default.fileExists(atPath: quarantineURL.path))
+
+        let snapshot = try registry.snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        #expect(object["sessionState"] as? String == "hibernated")
+        #expect(object["restoreAuthority"] as? Bool == true)
+        #expect(snapshot.activeSlots.count == 2)
     }
 
     @MainActor
