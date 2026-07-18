@@ -111,6 +111,16 @@ struct BrowserWebExtensionsManagerTests {
         #expect(entries.allSatisfy { $0.packageSHA256.count == 64 })
     }
 
+    @Test func verifiedCatalogPinsPortableOnePasswordPackage() throws {
+        let entry = try #require(BrowserWebExtensionCatalog.entry(id: "1password"))
+
+        #expect(entry.version == "8.12.28.25")
+        #expect(entry.packageURL.absoluteString
+            == "https://addons.mozilla.org/firefox/downloads/file/4899098/1password_x_password_manager-8.12.28.25.xpi")
+        #expect(entry.packageSHA256
+            == "fc369b5ee7958a57c519aa37e7ba540ebe08d58b4bc976fab1ba2e91bc01bc25")
+    }
+
     @Test func toolbarExtensionIconMatchesBrowserChromeScale() {
         #expect(BrowserExtensionIconMetrics.toolbarContentSize(iconPointSize: 11) == 13)
         #expect(BrowserExtensionIconMetrics.toolbarContentSize(iconPointSize: 16) == 18)
@@ -928,12 +938,10 @@ struct BrowserWebExtensionsManagerTests {
 
         #expect(items.map(\.id) == [
             "bitwarden-safari-app",
-            "1password-safari-app",
             "ublock-origin-lite-safari-app",
         ])
         #expect(items.map(\.installedIdentifierPrefix) == [
             "cmux-browser-extension-com.bitwarden.desktop.safari",
-            "cmux-browser-extension-com.1password.safari.extension",
             "cmux-browser-extension-net.raymondhill.uBlock-Origin-Lite.Extension",
         ])
     }
