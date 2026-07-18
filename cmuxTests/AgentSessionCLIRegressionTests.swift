@@ -1183,7 +1183,67 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(!result.timedOut)
         #expect(result.status == 0, Comment(rawValue: result.stdout))
         #expect(result.stdout.contains("kimi"))
-        #expect(result.stdout.contains("~/.kimi-code/config.toml"))
+        #expect(result.stdout.contains("~/.kimi/config.toml"))
+        #expect(!result.stdout.contains("~/.kimi-code/config.toml"))
+    }
+
+    @Test func agentInspectionAcceptsProviderExecutableAliasesAndOllama() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-filter-aliases-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: stateDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var environment = isolatedAgentTreeEnvironment(home: root)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDirectory.path
+        let cliPath = try bundledCLIPath()
+        let aliases = [
+            "hermes",
+            "kiro-cli",
+            "qodercli",
+            "kimi-cli",
+            "kimi-code",
+            "ollama",
+        ]
+
+        for command in ["list", "tree"] {
+            for alias in aliases {
+                let result = runProcess(
+                    executablePath: cliPath,
+                    arguments: [
+                        "agents", command,
+                        "--agent", alias,
+                        "--state-dir", stateDirectory.path,
+                        "--all",
+                        "--json",
+                    ],
+                    environment: environment,
+                    timeout: 5
+                )
+                #expect(
+                    !result.timedOut,
+                    Comment(rawValue: "\(command) --agent \(alias): \(result.stdout)")
+                )
+                #expect(
+                    result.status == 0,
+                    Comment(rawValue: "\(command) --agent \(alias): \(result.stdout)")
+                )
+                let payload = try #require(
+                    JSONSerialization.jsonObject(with: Data(result.stdout.utf8))
+                        as? [String: Any]
+                )
+                #expect(payload["schema_version"] as? Int == 2)
+                if command == "list" {
+                    #expect(payload["sessions"] as? [[String: Any]] == [])
+                } else {
+                    #expect(payload["nodes"] as? [[String: Any]] == [])
+                    #expect(payload["edges"] as? [[String: Any]] == [])
+                }
+            }
+        }
     }
 
     @Test func providerStopAdapterDistinguishesInterruptionsFromCompletion() throws {
@@ -1720,6 +1780,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let listPayload = try #require(
             JSONSerialization.jsonObject(with: Data(listResult.stdout.utf8)) as? [String: Any]
         )
+        #expect(listPayload["schema_version"] as? Int == 2)
         let sessions = try #require(listPayload["sessions"] as? [[String: Any]])
         #expect(sessions.count == 1)
         #expect(sessions.first?["session_id"] as? String == "duplicate-session")
