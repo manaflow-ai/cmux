@@ -1,0 +1,77 @@
+name: Nightly macOS performance benchmark
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/nightly-perf-benchmark.yml
+      - scripts/ci/benchmark-nightly-build.sh
+      - tests/test_nightly_perf_benchmark.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-perf-benchmark-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: ${{ matrix.scenario }}
+    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 55
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - universal-wmo
+          - universal-singlefile
+          - arm64-wmo
+          - x86_64-wmo
+    steps:
+      - name: Checkout benchmark ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install compilation dependencies
+        run: |
+          ./scripts/install-rust-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .spm-cache
+          key: nightly-benchmark-spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: nightly-benchmark-spm-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
+
+      - name: Run benchmark
+        run: ./scripts/ci/benchmark-nightly-build.sh "${{ matrix.scenario }}"
+
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          summary="benchmark-results/${{ matrix.scenario }}/summary.md"
+          if [ -f "$summary" ]; then
+            cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-benchmark-${{ matrix.scenario }}
+          path: benchmark-results/${{ matrix.scenario }}
+          if-no-files-found: warn
+          retention-days: 14
