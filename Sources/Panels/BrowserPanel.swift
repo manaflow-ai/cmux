@@ -2785,6 +2785,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
+    private var transparentBackgroundHostIDs: Set<UUID> = []
     let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
     var hasCommittedDocumentSinceWebViewReplacement = false
     var userStoppedLoadSinceWebViewReplacement = false
@@ -5078,7 +5079,7 @@ final class BrowserPanel: Panel, ObservableObject {
             portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
             return
         }
-        if usesTransparentBackground {
+        if effectiveUsesTransparentBackground {
             // Transparent internal pages keep their page CSS clear. On opaque
             // themes, the native webview layer owns the terminal-color backing
             // fill so loading/empty/code regions never fall through to window gray.
@@ -5106,10 +5107,28 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func drawsConfiguredWebViewBackgroundForCurrentPage() -> Bool {
+        // Floating containers own their glass at the window root regardless of
+        // the user's main-window opacity setting.
+        if !transparentBackgroundHostIDs.isEmpty { return false }
         Self.drawsConfiguredWebViewBackground(
             isBlankPage: isShowingBlankBrowserPage,
-            usesTransparentBackground: usesTransparentBackground
+            usesTransparentBackground: effectiveUsesTransparentBackground
         )
+    }
+
+    func setTransparentBackgroundHost(_ hostID: UUID, enabled: Bool) {
+        let wasHostedTransparently = !transparentBackgroundHostIDs.isEmpty
+        if enabled {
+            transparentBackgroundHostIDs.insert(hostID)
+        } else {
+            transparentBackgroundHostIDs.remove(hostID)
+        }
+        guard wasHostedTransparently != !transparentBackgroundHostIDs.isEmpty else { return }
+        refreshBackgroundAppearance()
+    }
+
+    private var effectiveUsesTransparentBackground: Bool {
+        usesTransparentBackground || !transparentBackgroundHostIDs.isEmpty
     }
 
     private func restorableDisplayURLForCurrentErrorPage(liveURL: URL?) -> URL? {

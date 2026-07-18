@@ -85,6 +85,7 @@ struct DockPanelView: View {
                 store: store,
                 appearance: appearance,
                 windowAppearance: windowAppearance,
+                usesTransparentBackground: usesTransparentBackground,
                 rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
                 onKeyboardFocusIntent: onKeyboardFocusIntent
             )
@@ -98,6 +99,7 @@ private struct DockSplitContentView: View {
     let store: DockSplitStore
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
+    let usesTransparentBackground: Bool
     let rightSidebarOwnsInputFocus: Bool
     let onKeyboardFocusIntent: (() -> Void)?
 
@@ -135,6 +137,7 @@ private struct DockSplitContentView: View {
                 isSplit: isSplit,
                 appearance: appearance,
                 windowAppearance: windowAppearance,
+                usesTransparentContainer: usesTransparentBackground,
                 customSidebarTabManager: nil,
                 hasUnreadNotification: false,
                 terminalAgentContext: "",

@@ -2985,6 +2985,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == false)
         XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
         XCTAssertFalse(panel.isOpaque)
+        XCTAssertTrue(panel.usesWorkspaceFloatingDockGlassBackdrop)
         XCTAssertEqual(panel.backgroundColor.alphaComponent, 0, accuracy: 0.001)
         XCTAssertEqual(panel.minSize, NSSize(width: 320, height: 220))
         XCTAssertEqual(panel.contentMinSize, NSSize(width: 320, height: 220))

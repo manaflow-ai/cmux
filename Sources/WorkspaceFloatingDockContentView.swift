@@ -30,7 +30,10 @@ struct WorkspaceFloatingDockContentView: View {
             )
         }
         .frame(minWidth: 320, minHeight: 220)
-        .background(Color.clear)
+        // One glass substrate lives below the entire window. Keep every hosted
+        // surface clear and use a single translucent tint so the titlebar,
+        // Bonsplit chrome, and content read as one continuous material.
+        .background(Color.primary.opacity(0.035))
         .accessibilityIdentifier("WorkspaceFloatingDock")
     }
 }
@@ -88,7 +91,6 @@ private struct WorkspaceFloatingDockTitlebar: View {
             .padding(.trailing, 8)
         }
         .frame(height: 38)
-        .background(Color.primary.opacity(0.035))
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color.primary.opacity(0.10))

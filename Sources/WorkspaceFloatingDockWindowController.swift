@@ -192,3 +192,9 @@ private final class WorkspaceFloatingDockHostingView<Content: View>: UserSizedWi
         true
     }
 }
+
+extension NSWindow {
+    var usesWorkspaceFloatingDockGlassBackdrop: Bool {
+        identifier?.rawValue.hasPrefix("cmux.workspace.float.") == true
+    }
+}
