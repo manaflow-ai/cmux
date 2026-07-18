@@ -194,6 +194,7 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
             ).decode("ascii"),
             "CMUX_AGENT_LAUNCH_CWD": str(workspace),
             "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_TEST_AGENT_ROOT_VISIBLE_MUTATIONS": "1",
             "CAMPFIRE_RELAY_URL": "wss://relay.example/ws",
             "PI_PACKAGE_DIR": "/tmp/stale-pi-cache-should-not-persist",
             "OPENAI_API_KEY": "secret-should-not-persist",

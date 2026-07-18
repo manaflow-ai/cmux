@@ -3,6 +3,9 @@ import Foundation
 private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
 private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
 private let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
+#if DEBUG
+private let testRootVisibleMutationsEnvironmentKey = "CMUX_TEST_AGENT_ROOT_VISIBLE_MUTATIONS"
+#endif
 
 extension CMUXCLI {
     func shouldSuppressNestedAgentVisibleMutations(
@@ -12,6 +15,11 @@ extension CMUXCLI {
         transcriptSubagentSession: Bool = false,
         env: [String: String]
     ) -> Bool {
+#if DEBUG
+        if Self.parseHookBoolean(env[testRootVisibleMutationsEnvironmentKey] ?? "") == true {
+            return false
+        }
+#endif
         if let override = normalizedHookValue(env["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"])?.lowercased(),
            Self.parseHookBoolean(override) == true {
             return true
