@@ -14235,6 +14235,11 @@ struct SidebarFooterButtons: View {
                 SidebarMobileConnectButton()
             }
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+            // Command-hold reveal: appears immediately before Upgrade. It stays
+            // mounted while its popover is open so releasing ⌘ does not dismiss it.
+            if (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
+                ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
+            }
             SidebarProBadge()
             // The puzzle button opens the extensions browser; it only shows
             // while the experimental Extensions feature is enabled.
@@ -14259,14 +14264,6 @@ struct SidebarFooterButtons: View {
             if let updateActionsHost = AppDelegate.shared {
                 UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
             }
-            // Command-hold reveal: sits at the trailing end of the footer, so it
-            // appears next to the update pill when one is showing, otherwise next
-            // to the help button. Hidden unless ⌘ is held (the shortcut-hint
-            // signal), matching the sidebar's modifier-hold badges. Stays mounted
-            // while its popover is open so releasing ⌘ does not dismiss it.
-            if (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
-                ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -14284,39 +14281,6 @@ private enum SidebarHelpMenuAction {
     case sendFeedback
     case welcome
 }
-
-#if DEBUG
-enum SidebarFooterHelpIconDebugWeight: String, CaseIterable, Identifiable {
-    case regular
-    case medium
-    case semibold
-
-    var id: String { rawValue }
-
-    var fontWeight: Font.Weight {
-        switch self {
-        case .regular: .regular
-        case .medium: .medium
-        case .semibold: .semibold
-        }
-    }
-
-    var displayName: String {
-        switch self {
-        case .regular: "Regular"
-        case .medium: "Medium"
-        case .semibold: "Semibold"
-        }
-    }
-}
-
-enum SidebarFooterHelpIconDebugSettings {
-    static let sizeKey = "debug.sidebarFooterHelpIcon.size"
-    static let weightKey = "debug.sidebarFooterHelpIcon.weight"
-    static let defaultSize = 15.0
-    static let defaultWeight = SidebarFooterHelpIconDebugWeight.medium
-}
-#endif
 
 private struct SidebarHelpMenuButton: View {
     private let docsURL = URL(string: "https://cmux.com/docs")
@@ -14342,15 +14306,15 @@ private struct SidebarHelpMenuButton: View {
 #if DEBUG
         CGFloat(debugIconSize)
 #else
-        15
+        14
 #endif
     }
 
     private var iconWeight: Font.Weight {
 #if DEBUG
-        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight ?? .medium
+        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight ?? .regular
 #else
-        .medium
+        .regular
 #endif
     }
 
@@ -14363,8 +14327,7 @@ private struct SidebarHelpMenuButton: View {
         Button {
             isPopoverPresented.toggle()
         } label: {
-            CmuxSystemSymbolImage(systemName: "questionmark", pointSize: iconSize, weight: iconWeight)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+            SidebarFooterHelpIcon(pointSize: iconSize, weight: iconWeight)
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
         }
         .buttonStyle(SidebarFooterIconButtonStyle())

@@ -2494,6 +2494,10 @@ private struct SidebarFooterIconBalanceDebugView: View {
     private var selectedPointSize = SidebarFooterHelpIconDebugSettings.defaultSize
     @AppStorage(SidebarFooterHelpIconDebugSettings.weightKey)
     private var selectedWeight = SidebarFooterHelpIconDebugSettings.defaultWeight.rawValue
+    @AppStorage(SidebarFooterProfileIconDebugSettings.iconKey)
+    private var selectedProfileIcon = SidebarFooterProfileIconDebugSettings.defaultIcon.rawValue
+    @AppStorage(SidebarFooterHelpIconDebugSettings.iconKey)
+    private var selectedHelpIcon = SidebarFooterHelpIconDebugSettings.defaultIcon.rawValue
     @AppStorage(SidebarFooterIconButtonDebugSettings.hoverOpacityKey)
     private var hoverOpacity = SidebarFooterIconButtonDebugSettings.defaultHoverOpacity
 
@@ -2505,6 +2509,11 @@ private struct SidebarFooterIconBalanceDebugView: View {
                     selectedWeight: SidebarFooterHelpIconDebugWeight(rawValue: selectedWeight)
                         ?? SidebarFooterHelpIconDebugSettings.defaultWeight,
                     onReset: resetSelection
+                )
+
+                SidebarFooterIconChoiceControls(
+                    profileIcon: $selectedProfileIcon,
+                    helpIcon: $selectedHelpIcon
                 )
 
                 SidebarFooterIconBalanceControls(
@@ -2537,6 +2546,8 @@ private struct SidebarFooterIconBalanceDebugView: View {
     private func resetSelection() {
         selectedPointSize = SidebarFooterHelpIconDebugSettings.defaultSize
         selectedWeight = SidebarFooterHelpIconDebugSettings.defaultWeight.rawValue
+        selectedProfileIcon = SidebarFooterProfileIconDebugSettings.defaultIcon.rawValue
+        selectedHelpIcon = SidebarFooterHelpIconDebugSettings.defaultIcon.rawValue
         hoverOpacity = SidebarFooterIconButtonDebugSettings.defaultHoverOpacity
     }
 }
@@ -2586,6 +2597,87 @@ private struct SidebarFooterIconBalanceDebugHeader: View {
                 )
             }
         }
+    }
+}
+
+private struct SidebarFooterIconChoiceControls: View {
+    @Binding var profileIcon: String
+    @Binding var helpIcon: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(
+                    String(
+                        localized: "debug.sidebarFooterIconBalance.profileIcon",
+                        defaultValue: "Profile icon"
+                    )
+                )
+                .cmuxFont(size: 11, weight: .semibold)
+                Picker(
+                    String(
+                        localized: "debug.sidebarFooterIconBalance.profileIcon",
+                        defaultValue: "Profile icon"
+                    ),
+                    selection: $profileIcon
+                ) {
+                    ForEach(SidebarFooterProfileIconDebugChoice.allCases) { choice in
+                        Label {
+                            Text(verbatim: choice.rawValue)
+                        } icon: {
+                            Image(systemName: choice.rawValue)
+                        }
+                        .tag(choice.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SidebarFooterProfileIconPicker")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Divider()
+                .frame(height: 50)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(
+                    String(
+                        localized: "debug.sidebarFooterIconBalance.helpIcon",
+                        defaultValue: "Help icon"
+                    )
+                )
+                .cmuxFont(size: 11, weight: .semibold)
+                Picker(
+                    String(
+                        localized: "debug.sidebarFooterIconBalance.helpIcon",
+                        defaultValue: "Help icon"
+                    ),
+                    selection: $helpIcon
+                ) {
+                    ForEach(SidebarFooterHelpIconDebugChoice.allCases) { choice in
+                        Label {
+                            Text(verbatim: choice.rawValue)
+                        } icon: {
+                            Image(systemName: choice.rawValue)
+                        }
+                        .tag(choice.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SidebarFooterHelpIconPicker")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
     }
 }
 
@@ -2658,7 +2750,7 @@ private struct SidebarFooterHoverIntensityPreview: View {
                     displayName: "",
                     email: "",
                     isSignedIn: false,
-                    size: 17
+                    size: 16
                 )
                 .frame(width: 22, height: 22)
             }
@@ -2666,7 +2758,7 @@ private struct SidebarFooterHoverIntensityPreview: View {
             .accessibilityLabel(accessibilityLabel)
 
             Button(action: {}) {
-                CmuxSystemSymbolImage(systemName: "iphone", pointSize: 12, weight: .medium)
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: 11, weight: .medium)
                     .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     .frame(width: 22, height: 22)
             }
@@ -2674,12 +2766,10 @@ private struct SidebarFooterHoverIntensityPreview: View {
             .accessibilityLabel(accessibilityLabel)
 
             Button(action: {}) {
-                CmuxSystemSymbolImage(
-                    systemName: "questionmark",
+                SidebarFooterHelpIcon(
                     pointSize: CGFloat(helpPointSize),
                     weight: helpWeight.fontWeight
                 )
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 .frame(width: 22, height: 22)
             }
             .buttonStyle(SidebarFooterIconButtonStyle())
@@ -2756,7 +2846,7 @@ private struct SidebarFooterProfileIconReference: View {
             displayName: "",
             email: "",
             isSignedIn: false,
-            size: 17
+            size: 16
         )
             .frame(width: 22, height: 22)
     }
@@ -2764,7 +2854,7 @@ private struct SidebarFooterProfileIconReference: View {
 
 private struct SidebarFooterMobileIconReference: View {
     var body: some View {
-        CmuxSystemSymbolImage(systemName: "iphone", pointSize: 12, weight: .medium)
+        CmuxSystemSymbolImage(systemName: "iphone", pointSize: 11, weight: .medium)
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             .frame(width: 22, height: 22)
     }
@@ -2774,12 +2864,10 @@ private struct SidebarFooterHelpIconReference: View {
     let variant: SidebarFooterHelpIconVariant
 
     var body: some View {
-        CmuxSystemSymbolImage(
-            systemName: "questionmark",
+        SidebarFooterHelpIcon(
             pointSize: CGFloat(variant.pointSize),
             weight: variant.weight.fontWeight
         )
-        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
         .frame(width: 22, height: 22)
     }
 }
