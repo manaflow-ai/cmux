@@ -1,6 +1,10 @@
 import { ImageResponse } from "next/og";
 import { readFile } from "fs/promises";
 import { join } from "path";
+import {
+  openGraphLocaleFonts,
+  openGraphTaglineFallbackFont,
+} from "@/app/lib/open-graph-font-config";
 import { openGraphImageTagline } from "@/i18n/seo";
 import { routing, type Locale } from "@/i18n/routing";
 
@@ -9,47 +13,6 @@ const size = { width: 1200, height: 630 };
 const S = 2; // render at 2x for sharper images on social platforms
 const SCREENSHOT_INSET = 40;
 const SCREENSHOT_RADIUS = 18;
-const localeFonts: Partial<
-  Record<Locale, { name: string; filename: string }>
-> = {
-  ja: {
-    name: "Noto Sans CJK JP",
-    filename: "noto-cjk-jp.otf",
-  },
-  "zh-CN": {
-    name: "Noto Sans CJK SC",
-    filename: "noto-cjk-sc.otf",
-  },
-  "zh-TW": {
-    name: "Noto Sans CJK TC",
-    filename: "noto-cjk-tc.otf",
-  },
-  ko: {
-    name: "Noto Sans CJK KR",
-    filename: "noto-cjk-kr.otf",
-  },
-  ar: {
-    name: "Tajawal",
-    filename: "tajawal.ttf",
-  },
-  th: {
-    name: "Noto Sans Thai",
-    filename: "noto-thai.ttf",
-  },
-  km: {
-    name: "Noto Sans Khmer",
-    filename: "noto-khmer.ttf",
-  },
-  ru: {
-    name: "Noto Sans",
-    filename: "noto-sans-cyrillic.ttf",
-  },
-  uk: {
-    name: "Noto Sans",
-    filename: "noto-sans-cyrillic.ttf",
-  },
-};
-
 type OpenGraphImageRenderer = (locale: string) => Response | Promise<Response>;
 
 export async function openGraphImageResponse(
@@ -75,7 +38,7 @@ async function readBundledFont(filename: string): Promise<ArrayBuffer> {
 
 async function renderOpenGraphImage(locale: string) {
   const tagline = openGraphImageTagline(locale);
-  const localeFont = localeFonts[locale as Locale];
+  const localeFont = openGraphLocaleFonts[locale as Locale];
   const [logoData, screenshotData, geistRegular, geistSemiBold, localeFontData] =
     await Promise.all([
       readFile(join(process.cwd(), "public", "logo.png")),
@@ -89,7 +52,7 @@ async function renderOpenGraphImage(locale: string) {
           "landing-image.png",
         )
       ),
-      readBundledFont("geist-regular.ttf"),
+      readBundledFont(openGraphTaglineFallbackFont),
       readBundledFont("geist-semibold.ttf"),
       localeFont
         ? readBundledFont(localeFont.filename)

@@ -3,8 +3,8 @@
 These files contain only the glyphs used by the localized Open Graph taglines.
 They were generated with fonttools `pyftsubset` while preserving all layout
 features. `web/tests/opengraph-image-route.test.ts` renders every configured
-locale and verifies visible tagline pixels, so translation changes that need
-new glyphs fail behaviorally.
+locale, verifies visible tagline pixels, and checks every non-whitespace tagline
+code point against the bundled fonts' cmap tables.
 
 Sources:
 

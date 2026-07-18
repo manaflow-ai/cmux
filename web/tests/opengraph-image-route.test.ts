@@ -3,12 +3,21 @@ import { readFile } from "fs/promises";
 import { NextRequest } from "next/server";
 import { join } from "path";
 import sharp from "sharp";
-import { GET } from "../app/[locale]/opengraph-image/route";
+import {
+  dynamic as localizedImageDynamic,
+  GET,
+} from "../app/[locale]/opengraph-image/route";
+import {
+  openGraphLocaleFonts,
+  openGraphTaglineFallbackFont,
+} from "../app/lib/open-graph-font-config";
 import { openGraphImageResponse } from "../app/lib/open-graph-image";
+import { dynamic as defaultImageDynamic } from "../app/opengraph-image/route";
 import { articleSchema } from "../app/[locale]/components/json-ld";
-import { openGraphImage } from "../i18n/seo";
+import { openGraphImage, openGraphImageTagline } from "../i18n/seo";
 import { routing } from "../i18n/routing";
 import middleware from "../proxy";
+import { fontSupportsCodePoint } from "./font-cmap";
 
 function renderLocaleOpenGraphImage(locale: string): Promise<Response> {
   return GET(new Request(`https://cmux.com/${locale}/opengraph-image`), {
@@ -63,6 +72,11 @@ describe("Open Graph image discovery", () => {
     }
   });
 
+  test("caches both immutable image routes", () => {
+    expect(defaultImageDynamic).toBe("force-static");
+    expect(localizedImageDynamic).toBe("force-static");
+  });
+
   for (const locale of routing.locales) {
     test(
       `renders the ${locale} image response body`,
@@ -94,6 +108,38 @@ describe("Open Graph image discovery", () => {
         expect(visibleTaglinePixels).toBeGreaterThan(5_000);
       },
     );
+  }
+
+  for (const locale of routing.locales) {
+    test(`bundled fonts cover every ${locale} tagline code point`, async () => {
+      const localeFont = openGraphLocaleFonts[locale];
+      const filenames = [
+        openGraphTaglineFallbackFont,
+        ...(localeFont ? [localeFont.filename] : []),
+      ];
+      const fonts = await Promise.all(
+        filenames.map(async (filename) =>
+          readFile(
+            join(
+              process.cwd(),
+              "app",
+              "lib",
+              "open-graph-fonts",
+              filename,
+            ),
+          ),
+        ),
+      );
+      const missingCharacters = [...openGraphImageTagline(locale)].filter(
+        (character) =>
+          !/^\s$/u.test(character) &&
+          !fonts.some((font) =>
+            fontSupportsCodePoint(font, character.codePointAt(0)!),
+          ),
+      );
+
+      expect(missingCharacters).toEqual([]);
+    });
   }
 
   test("insets the screenshot from the card edges", async () => {
