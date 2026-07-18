@@ -7,10 +7,29 @@ import Testing
 @Suite
 @MainActor
 struct SidebarAppKitRowCellTests {
-    private static func makeSnapshot(title: String = "Workspace") -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+    private static func makeSettings(hidesAllDetails: Bool = false) -> SidebarTabItemSettingsSnapshot {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(hidesAllDetails, forKey: "sidebarHideAllDetails")
+        defaults.set(true, forKey: "sidebarShowNotificationMessage")
+        defaults.set(true, forKey: "sidebarShowStatusPills")
+        defaults.set(true, forKey: "sidebarShowBranchDirectory")
+        defaults.set(true, forKey: "sidebarShowGitBranchIcon")
+        defaults.set(true, forKey: "sidebarShowPullRequest")
+        defaults.set(true, forKey: "sidebarBranchVerticalLayout")
+        defaults.set(false, forKey: "sidebarBranchDirectoryStacked")
+        return SidebarTabItemSettingsSnapshot(defaults: defaults)
+    }
+
+    private static func makeSnapshot(
+        title: String = "Workspace",
+        latestConversationMessage: String? = nil,
+        metadataEntries: [SidebarStatusEntry] = [],
+        branchDirectoryLines: [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] = [],
+        pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = []
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
-                settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                settings: makeSettings(),
                 showsAgentActivity: false
             ),
             title: title,
@@ -22,8 +41,8 @@ struct SidebarAppKitRowCellTests {
             remoteStateHelpText: "",
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
-            latestConversationMessage: nil,
-            metadataEntries: [],
+            latestConversationMessage: latestConversationMessage,
+            metadataEntries: metadataEntries,
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
@@ -31,9 +50,9 @@ struct SidebarAppKitRowCellTests {
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
-            branchDirectoryLines: [],
-            branchLinesContainBranch: false,
-            pullRequestRows: [],
+            branchDirectoryLines: branchDirectoryLines,
+            branchLinesContainBranch: branchDirectoryLines.contains { $0.branch != nil },
+            pullRequestRows: pullRequestRows,
             listeningPorts: [],
             finderDirectoryPath: nil,
             mediaActivity: BrowserMediaActivity(),
@@ -52,11 +71,18 @@ struct SidebarAppKitRowCellTests {
         isActive: Bool = false,
         canClose: Bool = true
     ) -> SidebarWorkspaceRowModel {
+        let settings = makeSettings()
+        let snapshot = makeSnapshot()
         SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,
-            snapshot: makeSnapshot(),
-            settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            snapshot: snapshot,
+            content: SidebarWorkspaceRowContentModel(
+                workspace: snapshot,
+                settings: settings,
+                latestNotificationText: nil
+            ),
+            settings: settings,
             isActive: isActive,
             isMultiSelected: false,
             canCloseWorkspace: canClose,
@@ -79,6 +105,158 @@ struct SidebarAppKitRowCellTests {
             isMetadataExpanded: false,
             isMarkdownExpanded: false
         )
+    }
+
+    @Test
+    func sharedContentUsesWorkspaceTitleInsteadOfAgentSurfaceTitle() {
+        let settings = Self.makeSettings()
+        let content = SidebarWorkspaceRowContentModel(
+            workspace: Self.makeSnapshot(title: "cmux104: #7230 trusted manual host"),
+            settings: settings,
+            latestNotificationText: nil
+        )
+
+        #expect(content.title == "cmux104: #7230 trusted manual host")
+        #expect(content.title != "claude-ayw")
+        #expect(content.titleLineLimit == 1)
+    }
+
+    @Test
+    func sharedStatusRowsUseAuthoritativeValueWithoutRawAgentSlug() throws {
+        let settings = Self.makeSettings()
+        let needsInput = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#FF9500"
+        )
+        let content = SidebarWorkspaceRowContentModel(
+            workspace: Self.makeSnapshot(metadataEntries: [needsInput]),
+            settings: settings,
+            latestNotificationText: nil
+        )
+        let status = try #require(content.statusRows.first)
+
+        #expect(status.text == "Needs input")
+        #expect(status.icon == "bell.fill")
+        #expect(!status.text.contains("claude_code"))
+
+        let runningContent = SidebarWorkspaceRowContentModel(
+            workspace: Self.makeSnapshot(metadataEntries: [
+                SidebarStatusEntry(
+                    key: "claude_code",
+                    value: "Running",
+                    icon: "bolt.fill",
+                    color: "#4C8DFF"
+                ),
+            ]),
+            settings: settings,
+            latestNotificationText: nil
+        )
+        #expect(runningContent.statusRows.first?.text == "Running")
+        #expect(runningContent.statusRows.first?.icon == "bolt.fill")
+    }
+
+    @Test
+    func emptyAgentStatusValueFallsBackToFriendlyAgentName() throws {
+        let settings = Self.makeSettings()
+        let content = SidebarWorkspaceRowContentModel(
+            workspace: Self.makeSnapshot(metadataEntries: [
+                SidebarStatusEntry(key: "claude_code", value: "  "),
+            ]),
+            settings: settings,
+            latestNotificationText: nil
+        )
+        let status = try #require(content.statusRows.first)
+
+        #expect(status.text == "Claude Code")
+    }
+
+    @Test
+    func sharedSubtitleUsesNotificationVisibilityRules() {
+        let visibleSettings = Self.makeSettings()
+        let visible = SidebarWorkspaceRowContentModel(
+            workspace: Self.makeSnapshot(latestConversationMessage: "older conversation"),
+            settings: visibleSettings,
+            latestNotificationText: "Claude is waiting for your input"
+        )
+        let hiddenSettings = Self.makeSettings(hidesAllDetails: true)
+        let hidden = SidebarWorkspaceRowContentModel(
+            workspace: Self.makeSnapshot(latestConversationMessage: "older conversation"),
+            settings: hiddenSettings,
+            latestNotificationText: "Claude is waiting for your input"
+        )
+
+        #expect(visible.subtitle == "Claude is waiting for your input")
+        #expect(visible.subtitleLineLimit == visibleSettings.notificationMessageLineLimit)
+        #expect(hidden.subtitle == nil)
+    }
+
+    @Test
+    func sharedBranchDirectoryAndPullRequestRowsPreserveParityContent() throws {
+        let settings = Self.makeSettings()
+        let pullRequestURL = try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/7238"))
+        let content = SidebarWorkspaceRowContentModel(
+            workspace: Self.makeSnapshot(
+                branchDirectoryLines: [
+                    .init(
+                        branch: "issue-7230-trusted-manual-host",
+                        directoryCandidates: ["~/manaflow/term/cmux104", "cmux104"]
+                    ),
+                ],
+                pullRequestRows: [
+                    .init(
+                        id: "pr#7238",
+                        number: 7238,
+                        label: "PR",
+                        url: pullRequestURL,
+                        status: .open,
+                        isStale: false
+                    ),
+                ]
+            ),
+            settings: settings,
+            latestNotificationText: nil
+        )
+        let branchRow = try #require(content.branchDirectoryRows.first)
+        let pullRequest = try #require(content.pullRequestRows.first)
+
+        #expect(branchRow.branch == "issue-7230-trusted-manual-host")
+        #expect(branchRow.directoryCandidates.first == "~/manaflow/term/cmux104")
+        #expect(content.showsBranchIcon)
+        #expect(pullRequest.title == "PR #7238")
+        #expect(pullRequest.statusLabel == "open")
+        #expect(pullRequest.url == pullRequestURL)
+        #expect(pullRequest.isClickable)
+    }
+
+    @Test
+    func sharedHoverCloseRuleMatchesShortcutAndContextMenuSuppression() {
+        let settings = Self.makeSettings()
+        let content = SidebarWorkspaceRowContentModel(
+            workspace: Self.makeSnapshot(),
+            settings: settings,
+            latestNotificationText: nil
+        )
+
+        #expect(content.showsCloseButton(
+            isPointerHovering: true,
+            contextMenuVisible: false,
+            canCloseWorkspace: true,
+            showsModifierShortcutHints: false
+        ))
+        #expect(!content.showsCloseButton(
+            isPointerHovering: true,
+            contextMenuVisible: true,
+            canCloseWorkspace: true,
+            showsModifierShortcutHints: false
+        ))
+        #expect(!content.showsCloseButton(
+            isPointerHovering: true,
+            contextMenuVisible: false,
+            canCloseWorkspace: true,
+            showsModifierShortcutHints: true
+        ))
     }
 
     private static func makeActions(model: SidebarWorkspaceRowModel) -> SidebarAppKitRowActions {
