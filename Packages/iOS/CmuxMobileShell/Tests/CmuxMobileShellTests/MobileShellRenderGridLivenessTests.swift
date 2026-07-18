@@ -445,6 +445,55 @@ import Testing
     collector.unmount()
 }
 
+/// One timed-out liveness probe is ambiguous during Iroh path migration or a
+/// short Mac stall. The original stream must remain installed until a second
+/// independent probe confirms failure; a successful follow-up clears the
+/// suspicion without changing the client or connection generation.
+@MainActor
+@Test func watchdogKeepsSessionAfterOneTransientProbeFailure() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let sawSubscribe = try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 1
+    }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+    let originalClient = try #require(store.remoteClient)
+    let originalGeneration = store.connectionGeneration
+    let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
+
+    // Hold only the first watchdog probe. The follow-up probe can complete,
+    // modeling a short stall that resolves without the Iroh session dying.
+    await router.holdSubscribeRequest(number: 2)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+    try await Task.sleep(for: .milliseconds(300))
+
+    #expect(store.remoteClient === originalClient)
+    #expect(store.connectionGeneration == originalGeneration)
+    #expect(store.connectionState == .connected)
+    #expect(
+        await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
+        "one transient probe miss must not restart the event listener"
+    )
+
+    // The second independent probe succeeds and resets the liveness window.
+    store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 3))
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(store.remoteClient === originalClient)
+    #expect(store.connectionGeneration == originalGeneration)
+    #expect(store.macConnectionStatus == .connected)
+    #expect(await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure)
+}
+
 /// A successful probe that REPAIRED a lost registration (the host reports
 /// `already_subscribed: false`) must replay mounted surfaces: render-grid
 /// deltas emitted while the registration was absent were never delivered, so
