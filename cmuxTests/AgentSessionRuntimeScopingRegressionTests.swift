@@ -3959,6 +3959,84 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func startupReconciliationKeepsDeadRestoringWithoutAttemptInert() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-startup-restoring-dead-without-attempt-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "startup-dead-no-attempt-current-runtime",
+        ]
+        let previousEnvironment = environment.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in environment { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "startup-restoring-dead-without-attempt"
+        )
+        var savedActive = fixture.snapshot
+        let panelIndex = try #require(
+            savedActive.panels.firstIndex { $0.id == fixture.sourcePanelID }
+        )
+        var terminal = try #require(savedActive.panels[panelIndex].terminal)
+        terminal.hibernation = nil
+        terminal.wasAgentRunning = true
+        savedActive.panels[panelIndex].terminal = terminal
+        let registry = try installStartupCanonicalOwner(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID,
+            lifecycle: "restoring",
+            hibernatedAt: 30,
+            runtime: provablyDeadRuntime(id: "dead-restoring-without-attempt")
+        )
+        var appSnapshot = appSessionSnapshot(containing: savedActive)
+
+        let failures = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+            &appSnapshot,
+            homeDirectory: root.path,
+            environment: environment
+        )
+
+        #expect(failures.isEmpty)
+        let reconciledWorkspace = appSnapshot.windows[0].tabManager.workspaces[0]
+        let reconciledTerminal = try #require(
+            reconciledWorkspace.panels.first { $0.id == fixture.sourcePanelID }?.terminal
+        )
+        #expect(reconciledTerminal.hibernation != nil)
+        #expect(reconciledTerminal.wasAgentRunning == false)
+        let restored = Workspace()
+        let mapping = restored.restoreSessionSnapshot(reconciledWorkspace)
+        let restoredPanelID = try #require(mapping[fixture.sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(restoredPanel.isAgentHibernated)
+        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
+
+        let retained = try #require(registry.snapshot(provider: "codex").records.first)
+        let retainedObject = try #require(
+            JSONSerialization.jsonObject(with: retained.json) as? [String: Any]
+        )
+        #expect(retainedObject["sessionState"] as? String == "restoring")
+        #expect(retainedObject["cmuxHibernationResumeAttemptId"] == nil)
+    }
+
+    @MainActor
     @Test func startupReconciliationKeepsProvablyLiveRestoringAttemptPending() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
