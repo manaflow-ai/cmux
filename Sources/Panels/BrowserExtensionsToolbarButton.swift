@@ -289,24 +289,41 @@ struct BrowserExtensionsManagerPage: View {
             FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Applications", isDirectory: true),
         ]
-        guard let bitwardenURL = applicationsDirectories
-            .map({ $0.appendingPathComponent("Bitwarden.app", isDirectory: true) })
-            .first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
-            return []
+
+        func installedApplication(named bundleName: String) -> URL? {
+            applicationsDirectories
+                .map { $0.appendingPathComponent(bundleName, isDirectory: true) }
+                .first { FileManager.default.fileExists(atPath: $0.path) }
         }
+
         return [
-            BrowserExtensionLocalAppItem(
-                id: "bitwarden-safari-app",
-                name: "Bitwarden",
-                detail: String(
-                    localized: "browser.extensions.localApp.bitwarden.detail",
-                    defaultValue: "Use the Safari extension from the Bitwarden app"
-                ),
-                icon: "lock.shield",
-                sourceURL: bitwardenURL,
-                installedIdentifierPrefix: "cmux-browser-extension-com.bitwarden.desktop.safari-"
-            )
-        ]
+            installedApplication(named: "Bitwarden.app").map { sourceURL in
+                BrowserExtensionLocalAppItem(
+                    id: "bitwarden-safari-app",
+                    name: "Bitwarden",
+                    detail: String(
+                        localized: "browser.extensions.localApp.bitwarden.detail",
+                        defaultValue: "Use the Safari extension from the Bitwarden app"
+                    ),
+                    icon: "lock.shield",
+                    sourceURL: sourceURL,
+                    installedIdentifierPrefix: "cmux-browser-extension-com.bitwarden.desktop.safari-"
+                )
+            },
+            installedApplication(named: "uBlock Origin Lite.app").map { sourceURL in
+                BrowserExtensionLocalAppItem(
+                    id: "ublock-origin-lite-safari-app",
+                    name: "uBlock Origin Lite",
+                    detail: String(
+                        localized: "browser.extensions.localApp.ublockOriginLite.detail",
+                        defaultValue: "Block ads and trackers with the Safari extension"
+                    ),
+                    icon: "shield.lefthalf.filled",
+                    sourceURL: sourceURL,
+                    installedIdentifierPrefix: "cmux-browser-extension-net.raymondhill.uBlock-Origin-Lite.Extension-"
+                )
+            }
+        ].compactMap { $0 }
     }
 
     private var commonExtensions: [BrowserExtensionCatalogItem] {
