@@ -99,6 +99,114 @@ struct AgentPromptSubmitResult: Sendable, Equatable {
 struct AgentPromptStopResult: Sendable, Equatable {
     var accepted: Bool
     var nested: Bool
+    var completedGeneration: Bool = false
+    var completionReason: AgentPromptStopCompletionReason? = nil
+    var clearedActiveBoundary: Bool = false
+
+    var shouldClearVisibleState: Bool {
+        guard completedGeneration, clearedActiveBoundary else { return false }
+        return completionReason == .terminalLaunch || completionReason == .processExited
+    }
+}
+
+enum AgentPromptStopCompletionReason: Sendable, Equatable {
+    case terminalLaunch
+    case processExited
+    case processIdentityChanged
+    case inconsistentRecord
+}
+
+enum AgentPromptStopLineageDecision: Sendable, Equatable {
+    case apply
+    case completeRecordedGeneration(AgentPromptStopCompletionReason)
+    case rejectStaleGeneration
+}
+
+/// A Stop is a turn boundary for an already-observed process generation. It
+/// may update that exact generation, or retire it once the kernel proves it is
+/// gone. It must never create a replacement run from a dead or reused PID.
+struct AgentPromptStopLineagePolicy: Sendable {
+    func decision(
+        record: ClaudeHookSessionRecord?,
+        lineage: AgentHookSessionLineage,
+        incomingPID: Int?
+    ) -> AgentPromptStopLineageDecision {
+        // A PID-less Stop carries no process-generation evidence. Applying it
+        // can resurrect an ended record or mutate a newer generation that
+        // reused the logical session id, so it fails closed.
+        guard let incomingPID else { return .rejectStaleGeneration }
+        guard let record else {
+            guard lineage.processStartedAt != nil, lineage.processDescribesAgent else {
+                return .rejectStaleGeneration
+            }
+            return liveGenerationDecision(lineage)
+        }
+        guard record.completedAt == nil, record.sessionState != .ended else {
+            return .rejectStaleGeneration
+        }
+
+        if let activeRunId = record.activeRunId {
+            let activeRuns = (record.runs ?? []).filter {
+                $0.runId == activeRunId && $0.endedAt == nil
+            }
+            guard activeRuns.count <= 1 else {
+                return .completeRecordedGeneration(.inconsistentRecord)
+            }
+            if let activeRun = activeRuns.first {
+                if let activePID = activeRun.pid, activePID != incomingPID {
+                    return .rejectStaleGeneration
+                }
+                guard let observedStartedAt = lineage.processStartedAt else {
+                    return .completeRecordedGeneration(.processExited)
+                }
+                guard lineage.processDescribesAgent else {
+                    return .completeRecordedGeneration(.processIdentityChanged)
+                }
+                if let expectedStartedAt = activeRun.processStartedAt {
+                    guard abs(expectedStartedAt - observedStartedAt) <= 0.001 else {
+                        return .completeRecordedGeneration(.processIdentityChanged)
+                    }
+                    return liveGenerationDecision(lineage)
+                }
+                // Legacy/runtime-fallback runs lack a start time. The live
+                // process is the recorded generation only when it predates the
+                // run's first hook observation. A later process proves reuse.
+                guard observedStartedAt <= activeRun.startedAt + 0.001 else {
+                    return .completeRecordedGeneration(.processIdentityChanged)
+                }
+                return liveGenerationDecision(lineage)
+            }
+        }
+
+        if let recordedPID = record.pid {
+            guard recordedPID == incomingPID else { return .rejectStaleGeneration }
+            guard let observedStartedAt = lineage.processStartedAt else {
+                return .completeRecordedGeneration(.processExited)
+            }
+            guard lineage.processDescribesAgent else {
+                return .completeRecordedGeneration(.processIdentityChanged)
+            }
+            // Pre-run stores can migrate safely when the process predates the
+            // immutable session creation boundary. A process born afterward is
+            // a reuse of the saved numeric PID, not this session generation.
+            guard observedStartedAt <= record.startedAt + 0.001 else {
+                return .completeRecordedGeneration(.processIdentityChanged)
+            }
+            return liveGenerationDecision(lineage)
+        }
+        guard lineage.processStartedAt != nil, lineage.processDescribesAgent else {
+            return .rejectStaleGeneration
+        }
+        return liveGenerationDecision(lineage)
+    }
+
+    private func liveGenerationDecision(
+        _ lineage: AgentHookSessionLineage
+    ) -> AgentPromptStopLineageDecision {
+        lineage.processLaunchMode == .oneShot
+            ? .completeRecordedGeneration(.terminalLaunch)
+            : .apply
+    }
 }
 
 struct AgentHookLaunchCommandRecord: Codable {

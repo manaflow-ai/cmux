@@ -17,8 +17,40 @@ struct AgentHibernationRecord {
     let hasUnconfirmedTerminalInput: Bool
     let lastActivityAt: TimeInterval
     let isProtected: Bool
-    let hasLiveProcess: Bool
-    let processIDs: Set<Int>
+    let processEvidence: AgentHibernationProcessEvidence
+
+    var processIDs: Set<Int> { processEvidence.processIDs }
+
+    var satisfiesPromptAndCloseGates: Bool {
+        AgentHibernationController.passesPromptAndCloseGates(
+            workspaceShellActivity: workspace.panelShellActivityStates[key.panelId],
+            panelShellActivity: terminalPanel.shellActivity.state,
+            rawNeedsConfirmClose: terminalPanel.needsConfirmClose(),
+            workspaceNeedsConfirmClose: workspace.panelNeedsConfirmClose(panelId: key.panelId)
+        )
+    }
+
+    init(
+        key: AgentHibernationPanelKey,
+        workspace: Workspace,
+        terminalPanel: TerminalPanel,
+        agent: SessionRestorableAgentSnapshot,
+        lifecycle: AgentHibernationLifecycleState,
+        hasUnconfirmedTerminalInput: Bool,
+        lastActivityAt: TimeInterval,
+        isProtected: Bool,
+        processEvidence: AgentHibernationProcessEvidence
+    ) {
+        self.key = key
+        self.workspace = workspace
+        self.terminalPanel = terminalPanel
+        self.agent = agent
+        self.lifecycle = lifecycle
+        self.hasUnconfirmedTerminalInput = hasUnconfirmedTerminalInput
+        self.lastActivityAt = lastActivityAt
+        self.isProtected = isProtected
+        self.processEvidence = processEvidence
+    }
 }
 
 @MainActor
@@ -29,6 +61,7 @@ final class AgentHibernationController {
 
     private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
     private var timer: DispatchSourceTimer?
+    private var hibernationIndexLoadInFlight = false
     private var settingsObserver: NSObjectProtocol?
     var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
@@ -45,6 +78,18 @@ final class AgentHibernationController {
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
 
     private init() {}
+
+    nonisolated static func passesPromptAndCloseGates(
+        workspaceShellActivity: PanelShellActivityState?,
+        panelShellActivity: PanelShellActivityState,
+        rawNeedsConfirmClose: Bool,
+        workspaceNeedsConfirmClose: Bool
+    ) -> Bool {
+        workspaceShellActivity == .promptIdle &&
+            panelShellActivity == .promptIdle &&
+            !rawNeedsConfirmClose &&
+            !workspaceNeedsConfirmClose
+    }
 
     func start() {
         guard settingsObserver == nil else {
@@ -104,6 +149,7 @@ final class AgentHibernationController {
     private func recordActivity(workspaceId: UUID, panelId: UUID, recordedAt: Date) -> AgentHibernationPanelKey {
         let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
         activityByPanel[key] = recordedAt.timeIntervalSince1970
+        teardownInFlightByPanel[key]?.invalidate()
         bumpTeardownValidationEpoch(key)
         confirmations.removeValue(forKey: key)
         unableToProtectByPanel.removeValue(forKey: key)
@@ -115,6 +161,7 @@ final class AgentHibernationController {
     }
 
     private func recordSettingsChange() {
+        teardownInFlightByPanel.values.forEach { $0.invalidate() }
         teardownValidationGeneration = teardownValidationGeneration &+ 1
         confirmations.removeAll(keepingCapacity: false)
         unableToProtectByPanel.removeAll(keepingCapacity: false)
@@ -135,13 +182,14 @@ final class AgentHibernationController {
         timer.schedule(deadline: .now() + 5, repeating: 30)
         timer.setEventHandler {
             let now = Date()
-            Task.detached(priority: .utility) {
+            Task { @MainActor in
+                guard !AgentHibernationController.shared.hibernationIndexLoadInFlight else { return }
+                AgentHibernationController.shared.hibernationIndexLoadInFlight = true
+                defer { AgentHibernationController.shared.hibernationIndexLoadInFlight = false }
                 let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-                await MainActor.run {
-                    let settings = AgentHibernationSettings.values()
-                    guard settings.enabled else { return }
-                    AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
-                }
+                let settings = AgentHibernationSettings.values()
+                guard settings.enabled else { return }
+                AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
             }
         }
         timer.resume()
@@ -170,7 +218,7 @@ final class AgentHibernationController {
         let isLiveByKey = Dictionary(uniqueKeysWithValues: records.map { record in
             (
                 record.key,
-                (record.terminalPanel.surface.hasLiveSurface || record.hasLiveProcess) &&
+                (record.terminalPanel.surface.hasLiveSurface || !record.processIDs.isEmpty) &&
                     !record.terminalPanel.isAgentHibernated
             )
         })
@@ -180,7 +228,7 @@ final class AgentHibernationController {
         let plannerInputs = records.map { record in
             let isLive = isLiveByKey[record.key] ?? false
             var effectiveLastActivityAt = record.lastActivityAt
-            if record.hasLiveProcess {
+            if !record.processEvidence.allowsHibernation || !record.satisfiesPromptAndCloseGates {
                 bumpTeardownValidationEpoch(record.key)
                 tailFingerprintSamples.removeValue(forKey: record.key)
                 confirmations.removeValue(forKey: record.key)
@@ -189,7 +237,8 @@ final class AgentHibernationController {
             if shouldMaintainTailSamples,
                isLive,
                !record.isProtected,
-               !record.hasLiveProcess,
+               record.processEvidence.allowsHibernation,
+               record.satisfiesPromptAndCloseGates,
                record.lifecycle.allowsHibernation,
                !record.hasUnconfirmedTerminalInput,
                let tailActivityAt = updateTailFingerprintSample(record: record, now: nowTime) {
@@ -205,7 +254,7 @@ final class AgentHibernationController {
                 key: record.key,
                 hasRestorableAgent: true,
                 isLive: isLive,
-                hasLiveProcess: record.hasLiveProcess,
+                processEvidence: record.processEvidence,
                 isProtected: record.isProtected,
                 lifecycle: record.lifecycle,
                 isTemporarilyUnableToProtect: unableToProtectMarkerApplies,
@@ -242,7 +291,8 @@ final class AgentHibernationController {
         guard record.lifecycle.allowsHibernation,
               !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
-              !record.hasLiveProcess,
+              record.processEvidence.allowsHibernation,
+              record.satisfiesPromptAndCloseGates,
               record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)
@@ -263,13 +313,18 @@ final class AgentHibernationController {
                 return nil
             }
             let requestID = UUID()
-            teardownInFlightByPanel[record.key] = InFlightTeardown(requestID: requestID)
+            let inFlight = InFlightTeardown(
+                requestID: requestID,
+                terminalSurface: record.terminalPanel.surface
+            )
+            teardownInFlightByPanel[record.key] = inFlight
             confirmations.removeValue(forKey: record.key)
             return ConfirmedTeardownRequest(
                 record: record,
                 confirmationFingerprint: confirmation.fingerprint,
                 effectiveLastActivityAt: effectiveLastActivityAt,
                 requestID: requestID,
+                inFlight: inFlight,
                 epoch: teardownValidationEpochByPanel[record.key] ?? 0,
                 generation: teardownValidationGeneration
             )
@@ -391,31 +446,9 @@ final class AgentHibernationController {
         )
     }
 
-    func terminateScopedProcessesForHibernation(record: AgentHibernationRecord) {
-        guard !record.processIDs.isEmpty else { return }
-        let currentProcessID = getpid()
-        let currentProcessGroupID = getpgrp()
-        var signaledProcessGroups: Set<pid_t> = []
-        for rawPID in record.processIDs.sorted(by: >) {
-            guard rawPID > 0, rawPID <= Int(Int32.max) else { continue }
-            let pid = pid_t(rawPID)
-            guard pid != currentProcessID else { continue }
-            guard let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: rawPID),
-                  process.matchesCMUXScope(workspaceId: record.key.workspaceId, surfaceId: record.key.panelId) else {
-                continue
-            }
-            let processGroupID = getpgid(pid)
-            if processGroupID > 1,
-               processGroupID != currentProcessGroupID,
-               signaledProcessGroups.insert(processGroupID).inserted {
-                _ = kill(-processGroupID, SIGTERM)
-            }
-            _ = kill(pid, SIGTERM)
-        }
-    }
-
     private func clearTrackingState() {
         cancelPostTeardownRestoreTasks()
+        teardownInFlightByPanel.values.forEach { $0.invalidate() }
         teardownValidationGeneration = teardownValidationGeneration &+ 1
         activityByPanel.removeAll(keepingCapacity: false)
         terminalInputByPanel.removeAll(keepingCapacity: false)
@@ -445,6 +478,7 @@ final class AgentHibernationController {
 
     func clearInFlightTeardown(_ key: AgentHibernationPanelKey, requestID: UUID) {
         guard teardownInFlightByPanel[key]?.requestID == requestID else { return }
+        teardownInFlightByPanel[key]?.invalidate()
         teardownInFlightByPanel.removeValue(forKey: key)
     }
 }

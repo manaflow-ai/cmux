@@ -361,9 +361,7 @@ extension CMUXCLI {
 
                 let legacyDefaultVisible = activeForWorkspace
                     || activeForSurface
-                    || record.isRestorable == true
-                    || launchBacked
-                    || transcriptBacked
+                    || (payload["hook_record_restorable"] as? Bool == true)
                 let defaultVisible = queryScope.includes(
                     recordRuntime: record.cmuxRuntime,
                     runRuntime: projectedRun.cmuxRuntime,

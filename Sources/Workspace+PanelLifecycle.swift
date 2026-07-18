@@ -137,7 +137,7 @@ extension Workspace {
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
         if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
-                AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
+                recordAgentHibernationProcessChange(panelId: changedPanelId)
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
@@ -271,7 +271,9 @@ extension Workspace {
             removeAgentPIDOwnership(key: key)
             didChange = true
         }
-        if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
+        if let changedPanelId = ownedPanelId ?? panelId, didChange {
+            recordAgentHibernationProcessChange(panelId: changedPanelId)
+        }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {

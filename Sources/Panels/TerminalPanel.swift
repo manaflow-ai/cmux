@@ -686,10 +686,50 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.teardownSurface()
     }
 
+    /// Restores an already-persisted hibernated model before its native surface
+    /// is created. This path never tears down a live runtime.
+    @discardableResult
     func enterAgentHibernation(
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date,
         hibernatedAt: Date = Date()
+    ) -> Bool {
+        guard surface.markRuntimeSurfaceSuspendedForRestoredAgentHibernation() else { return false }
+        commitAgentHibernationState(
+            agent: agent,
+            lastActivityAt: lastActivityAt,
+            hibernatedAt: hibernatedAt
+        )
+        return true
+    }
+
+    /// Suspends a live runtime only after the serialized native teardown lane
+    /// accepts its final validation and finishes freeing callback userdata.
+    func enterAgentHibernation(
+        agent: SessionRestorableAgentSnapshot,
+        lastActivityAt: Date,
+        hibernatedAt: Date = Date(),
+        finalValidation: @escaping @Sendable () async -> Bool
+    ) async -> Bool {
+        guard agentHibernationState == nil,
+              await surface.suspendRuntimeSurfaceForAgentHibernation(
+                  reason: "agentHibernation",
+                  finalValidation: finalValidation
+              ) else {
+            return false
+        }
+        commitAgentHibernationState(
+            agent: agent,
+            lastActivityAt: lastActivityAt,
+            hibernatedAt: hibernatedAt
+        )
+        return true
+    }
+
+    private func commitAgentHibernationState(
+        agent: SessionRestorableAgentSnapshot,
+        lastActivityAt: Date,
+        hibernatedAt: Date
     ) {
         agentHibernationState = AgentHibernationPanelState(
             agent: agent,
@@ -700,7 +740,6 @@ final class TerminalPanel: Panel, ObservableObject {
         searchState = nil
         hostedView.setVisibleInUI(false)
         TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "agentHibernation")
         requestViewReattach()
     }
 

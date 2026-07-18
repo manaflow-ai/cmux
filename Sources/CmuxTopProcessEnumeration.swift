@@ -3,6 +3,11 @@ import Foundation
 
 private nonisolated let cmuxTopPIDPathBufferSize = 4096
 
+enum CmuxTopTargetedPIDEnumeration: Sendable, Equatable {
+    case complete(Set<Int>)
+    case incomplete
+}
+
 extension CmuxTopProcessSnapshot {
     static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) -> [CmuxTopProcessInfo] {
         let sampledProcesses = allBSDProcesses()
@@ -73,6 +78,58 @@ extension CmuxTopProcessSnapshot {
             return nil
         }
         return Int64(statInfo.st_rdev)
+    }
+
+    /// `proc_listpids(PROC_TTY_ONLY)` scopes completeness to one terminal. A
+    /// process elsewhere on the machine that denies `proc_pidinfo` therefore
+    /// cannot prevent an otherwise safe pane from hibernating.
+    static func processIDs(forTTYDevice ttyDevice: Int64) -> CmuxTopTargetedPIDEnumeration {
+        guard ttyDevice > 0, ttyDevice <= Int64(UInt32.max) else { return .incomplete }
+        let pidStride = MemoryLayout<pid_t>.stride
+        var capacity = 16
+        for _ in 0..<4 {
+            var pids = Array(repeating: pid_t(), count: capacity)
+            let returnedBytes = pids.withUnsafeMutableBufferPointer { buffer in
+                proc_listpids(
+                    UInt32(PROC_TTY_ONLY),
+                    UInt32(ttyDevice),
+                    buffer.baseAddress,
+                    Int32(buffer.count * pidStride)
+                )
+            }
+            guard returnedBytes >= 0 else { return .incomplete }
+            let returnedCount = Int(returnedBytes) / pidStride
+            guard returnedCount <= pids.count else { return .incomplete }
+            if returnedCount < pids.count {
+                return .complete(Set(pids.prefix(returnedCount).map(Int.init).filter { $0 > 0 }))
+            }
+            capacity *= 2
+        }
+        return .incomplete
+    }
+
+    /// Direct-child enumeration is sufficient for a process-free proof: every
+    /// descendant has a direct child on the path from the terminal shell.
+    static func childProcessIDs(of pid: Int) -> CmuxTopTargetedPIDEnumeration {
+        guard pid > 0, pid <= Int(Int32.max) else { return .incomplete }
+        let pidStride = MemoryLayout<pid_t>.stride
+        var capacity = 8
+        for _ in 0..<4 {
+            var pids = Array(repeating: pid_t(), count: capacity)
+            let returnedCount = pids.withUnsafeMutableBufferPointer { buffer in
+                proc_listchildpids(
+                    pid_t(pid),
+                    buffer.baseAddress,
+                    Int32(buffer.count * pidStride)
+                )
+            }
+            guard returnedCount >= 0, Int(returnedCount) <= pids.count else { return .incomplete }
+            if Int(returnedCount) < pids.count {
+                return .complete(Set(pids.prefix(Int(returnedCount)).map(Int.init).filter { $0 > 0 }))
+            }
+            capacity *= 2
+        }
+        return .incomplete
     }
 
     private static func processInfo(
@@ -150,7 +207,12 @@ extension CmuxTopProcessSnapshot {
             residentBytes: residentBytes,
             residentMemorySource: residentMemorySource,
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
-            threadCount: Int(taskInfo?.pti_threadnum ?? 0)
+            threadCount: Int(taskInfo?.pti_threadnum ?? 0),
+            generationIdentity: AgentPIDProcessIdentity(
+                pid: pid_t(pid),
+                startSeconds: Int64(bsdInfo.pbi_start_tvsec),
+                startMicroseconds: Int64(bsdInfo.pbi_start_tvusec)
+            )
         ), cpuSampleKey)
     }
 

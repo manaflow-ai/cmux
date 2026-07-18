@@ -73,7 +73,7 @@ extension Workspace {
     }
 
     private func recordDetectedAgentLifecycleChange(panelId: UUID) {
-        AgentHibernationController.shared.recordAgentLifecycleChange(workspaceId: id, panelId: panelId)
+        recordAgentHibernationLifecycleChange(panelId: panelId)
     }
 }
 

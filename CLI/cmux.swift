@@ -12,6 +12,12 @@ import LocalAuthentication
 import Security
 #endif
 final class ClaudeHookSessionStore {
+    private enum PromptStopPreparation {
+        case apply(AgentHookSessionLineage)
+        case completed(AgentPromptStopCompletionReason, clearedActiveBoundary: Bool)
+        case rejected
+    }
+
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxSessionRecords = 10_000
@@ -362,6 +368,21 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return AgentPromptStopResult(accepted: false, nested: false) }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let lineage: AgentHookSessionLineage
+            switch preparePromptStop(in: &state, sessionId: normalized, pid: pid) {
+            case .apply(let preparedLineage):
+                lineage = preparedLineage
+            case .completed(let reason, let clearedActiveBoundary):
+                return AgentPromptStopResult(
+                    accepted: false,
+                    nested: false,
+                    completedGeneration: true,
+                    completionReason: reason,
+                    clearedActiveBoundary: clearedActiveBoundary
+                )
+            case .rejected:
+                return AgentPromptStopResult(accepted: false, nested: false)
+            }
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -387,7 +408,8 @@ final class ClaudeHookSessionStore {
                 updateLastNotificationStatus: updateLastNotificationStatus,
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
-                now: now
+                now: now,
+                preResolvedLineage: lineage
             ) else { return AgentPromptStopResult(accepted: false, nested: false) }
             appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
@@ -486,6 +508,44 @@ final class ClaudeHookSessionStore {
             return AgentPromptStopResult(accepted: true, nested: depthBeforeStop > 1)
         }
     }
+
+    private func preparePromptStop(
+        in state: inout ClaudeHookSessionStoreFile,
+        sessionId: String,
+        pid: Int?
+    ) -> PromptStopPreparation {
+        let existingRecord = state.sessions[sessionId]
+        let lineage = lineageResolver.resolve(
+            agentName: agentName,
+            sessionId: sessionId,
+            pid: pid,
+            environment: processEnv
+        )
+        switch AgentPromptStopLineagePolicy().decision(
+            record: existingRecord,
+            lineage: lineage,
+            incomingPID: pid
+        ) {
+        case .apply:
+            return .apply(lineage)
+        case .completeRecordedGeneration(let reason):
+            guard let existingRecord,
+                  AgentSessionTeardownConsumptionPolicy().canConsume(record: existingRecord) else {
+                return .rejected
+            }
+            let completed = completeSessionRecord(existingRecord)
+            state.sessions[sessionId] = completed
+            let clearedActiveBoundary = clearActiveSessionIfMatching(
+                &state,
+                removed: completed,
+                turnId: nil
+            )
+            return .completed(reason, clearedActiveBoundary: clearedActiveBoundary)
+        case .rejectStaleGeneration:
+            return .rejected
+        }
+    }
+
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -510,33 +570,9 @@ final class ClaudeHookSessionStore {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
-            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
-                sessionId: normalized,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: nil,
-                transcriptPath: nil,
-                pid: nil,
-                launchCommand: nil,
-                isRestorable: nil,
-                agentLifecycle: nil,
-                lastSubtitle: nil,
-                lastBody: nil,
-                lastNotificationStatus: nil,
-                lastEmittedNotificationFingerprint: nil,
-                lastEmittedNotificationAt: nil,
-                runtimeStatus: nil,
-                activePromptDepth: nil,
-                activePromptTurnId: nil,
-                activePromptTurnIds: nil,
-                lastPromptTurnId: nil,
-                terminalPromptTurnIds: nil,
-                startedAt: now,
-                updatedAt: now
-            )
-            guard update(
-                &record,
+            applyUpsert(
+                in: &state,
+                normalizedSessionId: normalized,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: cwd,
@@ -552,26 +588,170 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
-                now: now
-            ) else { return false }
-            state.sessions[normalized] = record
-            if markActive {
-                let activeRecord = ClaudeHookActiveSessionRecord(
-                    sessionId: normalized,
-                    turnId: normalizeOptional(turnId),
-                    allowsNewSessionReplacement: allowsNewSessionReplacement ? true : nil,
-                    updatedAt: now
-                )
-                if let normalizedWorkspace = normalizeOptional(workspaceId) {
-                    state.activeSessionsByWorkspace[normalizedWorkspace] = activeRecord
-                }
-                if let normalizedSurface = normalizeOptional(surfaceId) {
-                    state.activeSessionsBySurface[normalizedSurface] = activeRecord
-                }
-            }
-            return true
+                markActive: markActive,
+                turnId: turnId,
+                allowsNewSessionReplacement: allowsNewSessionReplacement,
+                preResolvedLineage: nil,
+                now: Date().timeIntervalSince1970
+            )
         }
     }
+
+    func upsertPromptStop(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String? = nil,
+        pid: Int? = nil,
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        isRestorable: Bool? = nil,
+        agentLifecycle: AgentHibernationLifecycleState? = nil,
+        lastSubtitle: String? = nil,
+        lastBody: String? = nil,
+        lastNotificationStatus: AgentHookNotificationStatus? = nil,
+        updateLastNotificationStatus: Bool = false,
+        runtimeStatus: AgentHookRuntimeStatus? = nil,
+        updateRuntimeStatus: Bool = false,
+        hadPendingBackgroundWorkAtStop: Bool? = nil,
+        markActive: Bool = false,
+        turnId: String? = nil,
+        allowsNewSessionReplacement: Bool = false
+    ) throws -> AgentPromptStopResult {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else {
+            return AgentPromptStopResult(accepted: false, nested: false)
+        }
+        return try withLockedState { state in
+            let lineage: AgentHookSessionLineage
+            switch preparePromptStop(in: &state, sessionId: normalized, pid: pid) {
+            case .apply(let preparedLineage):
+                lineage = preparedLineage
+            case .completed(let reason, let clearedActiveBoundary):
+                return AgentPromptStopResult(
+                    accepted: false,
+                    nested: false,
+                    completedGeneration: true,
+                    completionReason: reason,
+                    clearedActiveBoundary: clearedActiveBoundary
+                )
+            case .rejected:
+                return AgentPromptStopResult(accepted: false, nested: false)
+            }
+            let accepted = applyUpsert(
+                in: &state,
+                normalizedSessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: isRestorable,
+                agentLifecycle: agentLifecycle,
+                lastSubtitle: lastSubtitle,
+                lastBody: lastBody,
+                lastNotificationStatus: lastNotificationStatus,
+                updateLastNotificationStatus: updateLastNotificationStatus,
+                runtimeStatus: runtimeStatus,
+                updateRuntimeStatus: updateRuntimeStatus,
+                hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                markActive: markActive,
+                turnId: turnId,
+                allowsNewSessionReplacement: allowsNewSessionReplacement,
+                preResolvedLineage: lineage,
+                now: Date().timeIntervalSince1970
+            )
+            return AgentPromptStopResult(accepted: accepted, nested: false)
+        }
+    }
+
+    private func applyUpsert(
+        in state: inout ClaudeHookSessionStoreFile,
+        normalizedSessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String?,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool?,
+        agentLifecycle: AgentHibernationLifecycleState?,
+        lastSubtitle: String?,
+        lastBody: String?,
+        lastNotificationStatus: AgentHookNotificationStatus?,
+        updateLastNotificationStatus: Bool,
+        runtimeStatus: AgentHookRuntimeStatus?,
+        updateRuntimeStatus: Bool,
+        hadPendingBackgroundWorkAtStop: Bool?,
+        markActive: Bool,
+        turnId: String?,
+        allowsNewSessionReplacement: Bool,
+        preResolvedLineage: AgentHookSessionLineage?,
+        now: TimeInterval
+    ) -> Bool {
+        var record = state.sessions[normalizedSessionId] ?? ClaudeHookSessionRecord(
+            sessionId: normalizedSessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: nil,
+            transcriptPath: nil,
+            pid: nil,
+            launchCommand: nil,
+            isRestorable: nil,
+            agentLifecycle: nil,
+            lastSubtitle: nil,
+            lastBody: nil,
+            lastNotificationStatus: nil,
+            lastEmittedNotificationFingerprint: nil,
+            lastEmittedNotificationAt: nil,
+            runtimeStatus: nil,
+            activePromptDepth: nil,
+            activePromptTurnId: nil,
+            activePromptTurnIds: nil,
+            lastPromptTurnId: nil,
+            terminalPromptTurnIds: nil,
+            startedAt: now,
+            updatedAt: now
+        )
+        guard update(
+            &record,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: cwd,
+            transcriptPath: transcriptPath,
+            pid: pid,
+            launchCommand: launchCommand,
+            isRestorable: isRestorable,
+            agentLifecycle: agentLifecycle,
+            lastSubtitle: lastSubtitle,
+            lastBody: lastBody,
+            lastNotificationStatus: lastNotificationStatus,
+            updateLastNotificationStatus: updateLastNotificationStatus,
+            runtimeStatus: runtimeStatus,
+            updateRuntimeStatus: updateRuntimeStatus,
+            hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+            now: now,
+            preResolvedLineage: preResolvedLineage
+        ) else { return false }
+        state.sessions[normalizedSessionId] = record
+        if markActive {
+            let activeRecord = ClaudeHookActiveSessionRecord(
+                sessionId: normalizedSessionId,
+                turnId: normalizeOptional(turnId),
+                allowsNewSessionReplacement: allowsNewSessionReplacement ? true : nil,
+                updatedAt: now
+            )
+            if let normalizedWorkspace = normalizeOptional(workspaceId) {
+                state.activeSessionsByWorkspace[normalizedWorkspace] = activeRecord
+            }
+            if let normalizedSurface = normalizeOptional(surfaceId) {
+                state.activeSessionsBySurface[normalizedSurface] = activeRecord
+            }
+        }
+        return true
+    }
+
     @discardableResult
     func upsertCodexSessionStartIfFresh(
         sessionId: String,
@@ -927,9 +1107,10 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
-        now: TimeInterval
+        now: TimeInterval,
+        preResolvedLineage: AgentHookSessionLineage? = nil
     ) -> Bool {
-        let lineage = lineageResolver.resolve(
+        let lineage = preResolvedLineage ?? lineageResolver.resolve(
             agentName: agentName,
             sessionId: record.sessionId,
             pid: pid,
@@ -1298,11 +1479,13 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    @discardableResult
     private func clearActiveSessionIfMatching(
         _ state: inout ClaudeHookSessionStoreFile,
         removed: ClaudeHookSessionRecord,
         turnId: String?
-    ) {
+    ) -> Bool {
+        var cleared = false
         let incomingTurnId = normalizeOptional(turnId)
         func matches(_ active: ClaudeHookActiveSessionRecord) -> Bool {
             guard active.sessionId == removed.sessionId else { return false }
@@ -1317,10 +1500,13 @@ final class ClaudeHookSessionStore {
            let active = state.activeSessionsByWorkspace[workspaceId],
            matches(active) {
             state.activeSessionsByWorkspace.removeValue(forKey: workspaceId)
+            cleared = true
         }
         for (surfaceId, active) in state.activeSessionsBySurface where matches(active) {
             state.activeSessionsBySurface.removeValue(forKey: surfaceId)
+            cleared = true
         }
+        return cleared
     }
 
     private func fallbackRecord(
@@ -24073,8 +24259,9 @@ struct CMUXCLI {
                     parsedInput: parsedInput,
                     sessionRecord: mappedSession
                 )
+                var completedPromptStopGeneration = false
                 if !suppressVisibleMutations, let sessionId = parsedInput.sessionId {
-                    let acceptedStopUpdate = (try? sessionStore.upsert(
+                    let promptStopResult = (try? sessionStore.upsertPromptStop(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -24091,31 +24278,51 @@ struct CMUXCLI {
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                         markActive: true,
                         allowsNewSessionReplacement: true
-                    )) ?? false
-                    guard acceptedStopUpdate else {
-                        telemetry.breadcrumb("claude-hook.stop.rejected-generation"); printClaudeHookAck(); return
+                    )) ?? AgentPromptStopResult(accepted: false, nested: false)
+                    completedPromptStopGeneration = promptStopResult.completedGeneration
+                    guard promptStopResult.accepted || promptStopResult.completedGeneration else {
+                        telemetry.breadcrumb("claude-hook.stop.rejected-generation")
+                        printClaudeHookAck()
+                        return
                     }
-                    try? sessionStore.reconcileSemanticState(
-                        sessionId: sessionId,
-                        foregroundState: stopWasInterrupted ? .interrupted : .completed,
-                        attentionState: AgentAttentionState.none,
-                        workloads: semanticWorkloads
-                    )
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        kind: "claude",
-                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                        sessionId: sessionId,
-                        cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                        launchCommand: mappedSession?.launchCommand,
-                        observedPermissionMode: observedHookPermissionMode
-                            ?? mappedSession?.lastPermissionMode
-                    )
+                    if promptStopResult.shouldClearVisibleState {
+                        clearAgentSurfaceResumeBinding(
+                            client: client,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            sessionId: sessionId
+                        )
+                        _ = try? sendV1Command(
+                            "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --clear-status",
+                            client: client
+                        )
+                    } else if promptStopResult.accepted {
+                        try? sessionStore.reconcileSemanticState(
+                            sessionId: sessionId,
+                            foregroundState: stopWasInterrupted ? .interrupted : .completed,
+                            attentionState: AgentAttentionState.none,
+                            workloads: semanticWorkloads
+                        )
+                        publishAgentSurfaceResumeBinding(
+                            client: client,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            kind: "claude",
+                            displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                            sessionId: sessionId,
+                            cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                            launchCommand: mappedSession?.launchCommand,
+                            observedPermissionMode: observedHookPermissionMode
+                                ?? mappedSession?.lastPermissionMode
+                        )
+                    } else {
+                        telemetry.breadcrumb("claude-hook.stop.completed-stale-generation")
+                        printClaudeHookAck()
+                        return
+                    }
                 }
 
-                if !suppressVisibleMutations {
+                if !suppressVisibleMutations, !completedPromptStopGeneration {
                     setAgentLifecycle(
                         client: client,
                         key: Self.claudeCodeStatusKey,
@@ -31125,6 +31332,8 @@ export default CMUXSessionRestore;
                 terminalActivePromptTurnIdsForStop = []
             }
             let nestedPromptStop: Bool
+            var completedPromptStopGeneration = false
+            var shouldClearCompletedPromptStopVisibleState = false
             if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
                 let promptStopResult = (try? store.recordPromptStop(
                     sessionId: sessionId,
@@ -31146,9 +31355,18 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId
                     )
                 )) ?? AgentPromptStopResult(accepted: false, nested: false)
-                guard promptStopResult.accepted else {
+                completedPromptStopGeneration = promptStopResult.completedGeneration
+                shouldClearCompletedPromptStopVisibleState = promptStopResult.shouldClearVisibleState
+                guard promptStopResult.accepted || promptStopResult.completedGeneration else {
                     telemetry.breadcrumb("\(def.name)-hook.stop.rejected-generation"); didSendFeedTelemetry = true
                     print("{}"); return
+                }
+                if promptStopResult.completedGeneration,
+                   !promptStopResult.shouldClearVisibleState {
+                    telemetry.breadcrumb("\(def.name)-hook.stop.completed-stale-generation")
+                    didSendFeedTelemetry = true
+                    print("{}")
+                    return
                 }
                 nestedPromptStop = promptStopResult.nested
             } else {
@@ -31179,7 +31397,7 @@ export default CMUXSessionRestore;
                 )]
                 : []
 
-            if !sessionId.isEmpty, !suppressVisibleMutations {
+            if !sessionId.isEmpty, !suppressVisibleMutations, !completedPromptStopGeneration {
                 let acceptedStopUpdate = (try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
@@ -31210,19 +31428,35 @@ export default CMUXSessionRestore;
                 )
             }
             if !sessionId.isEmpty, !suppressVisibleMutations {
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                    cwd: cwd,
-                    launchCommand: resumeLaunchCommand
-                )
+                if completedPromptStopGeneration {
+                    clearAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
+                    )
+                } else {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: def.name,
+                        displayName: def.displayName,
+                        sessionId: sessionId,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        cwd: cwd,
+                        launchCommand: resumeLaunchCommand
+                    )
+                }
             }
-            if let pid, !suppressVisibleMutations {
+            if completedPromptStopGeneration,
+               shouldClearCompletedPromptStopVisibleState,
+               !suppressVisibleMutations {
+                _ = try? sendV1Command(
+                    "clear_agent_pid \(pidKey) --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --clear-status",
+                    client: client
+                )
+            } else if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -31303,7 +31537,7 @@ export default CMUXSessionRestore;
                 )
 #endif
             }
-            if !suppressVisibleMutations {
+            if !suppressVisibleMutations, !completedPromptStopGeneration {
                 if let codexFailure {
                     setAgentLifecycle(
                         client: client,
@@ -31362,7 +31596,10 @@ export default CMUXSessionRestore;
             // Gate the fork on the live setting (one cheap socket probe) so a
             // disabled feature spawns nothing extra on turn end; the detached
             // process re-probes to honor a toggle that lands mid-pass.
-            if autoNamingSource(for: def) != nil, !suppressVisibleMutations, !sessionId.isEmpty,
+            if autoNamingSource(for: def) != nil,
+               !suppressVisibleMutations,
+               !completedPromptStopGeneration,
+               !sessionId.isEmpty,
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
                    params: ["probe": true, "workspace_id": workspaceId]

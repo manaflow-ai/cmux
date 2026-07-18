@@ -384,6 +384,73 @@ struct AgentLaunchCaptureTrustTests {
                 kind: "kimi"
             ) == .interactive
         )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "kiro-cli",
+                arguments: ["kiro-cli", "chat", "--no-interactive", "fix this"],
+                kind: "kiro"
+            ) == .oneShot
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "kiro-cli",
+                arguments: ["kiro-cli", "doctor", "--no-interactive"],
+                kind: "kiro"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "acli",
+                arguments: ["acli", "rovodev", "run"],
+                kind: "rovodev"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "acli",
+                arguments: ["acli", "rovodev", "run", "fix this"],
+                kind: "rovodev"
+            ) == .oneShot
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "acli",
+                arguments: ["acli", "rovodev", "run", "--prompt-interactive", "fix this"],
+                kind: "rovodev"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "acli",
+                arguments: ["acli", "rovodev", "config"],
+                kind: "rovodev"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "droid",
+                arguments: [
+                    "droid", "exec",
+                    "--input-format", "stream-jsonrpc",
+                    "--output-format", "stream-jsonrpc",
+                ],
+                kind: "factory"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "codex",
+                arguments: ["codex", "--future-launch-mode", "exec", "fix this"],
+                kind: "codex"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "claude",
+                arguments: ["claude", "--background", "--print", "fix this"],
+                kind: "claude"
+            ) == .unknown
+        )
     }
 
     @Test func interpreterHostedLaunchRestorabilityStartsAfterTheAgentEntrypoint() {

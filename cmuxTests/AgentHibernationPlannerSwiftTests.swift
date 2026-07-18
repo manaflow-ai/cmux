@@ -133,8 +133,7 @@ struct AgentHibernationPlannerSwiftTests {
             hasUnconfirmedTerminalInput: false,
             lastActivityAt: 0,
             isProtected: false,
-            hasLiveProcess: false,
-            processIDs: []
+            processEvidence: .unverified(processIDs: [])
         )
         #expect(record.isStillOwnedByOriginalWorkspace)
 
@@ -165,7 +164,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: runningAgent,
                     hasRestorableAgent: true,
                     isLive: true,
-                    liveProcessEvidence: .unverified(processIDs: [42]),
+                    processEvidence: .unverified(processIDs: [42]),
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -175,6 +174,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: exitedAgent,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processEvidence: processFreeEvidence(for: exitedAgent),
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -189,15 +189,10 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @Test
-    func idleRestorableSessionOwnerWithLiveProcessCanHibernate() {
+    func onlyConfirmedProcessFreeSessionCanHibernate() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
-        let processIdentity = AgentPIDProcessIdentity(
-            pid: 42,
-            startSeconds: 100,
-            startMicroseconds: 200
-        )
-        let ownedIdleAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let processFreeAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let protectedAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let settings = AgentHibernationSettings.Values(
             enabled: true,
@@ -209,13 +204,10 @@ struct AgentHibernationPlannerSwiftTests {
         let selected = AgentHibernationPlanner.selectedPanelKeys(
             inputs: [
                 .init(
-                    key: ownedIdleAgent,
+                    key: processFreeAgent,
                     hasRestorableAgent: true,
                     isLive: true,
-                    liveProcessEvidence: .ownedIdleRestorableSession(
-                        processIDs: [42],
-                        processIdentities: [42: processIdentity]
-                    ),
+                    processEvidence: processFreeEvidence(for: processFreeAgent),
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -235,7 +227,7 @@ struct AgentHibernationPlannerSwiftTests {
             now: now
         )
 
-        #expect(selected == Set([ownedIdleAgent]))
+        #expect(selected == Set([processFreeAgent]))
     }
 
     @Test
@@ -257,6 +249,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: unableToProtectAgent,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processEvidence: processFreeEvidence(for: unableToProtectAgent),
                     isProtected: false,
                     lifecycle: .idle,
                     isTemporarilyUnableToProtect: true,
@@ -267,6 +260,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: safeAgent,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processEvidence: processFreeEvidence(for: safeAgent),
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -420,8 +414,7 @@ struct AgentHibernationPlannerSwiftTests {
             hasUnconfirmedTerminalInput: false,
             lastActivityAt: 100,
             isProtected: false,
-            hasLiveProcess: false,
-            processIDs: []
+            processEvidence: .unverified(processIDs: [])
         )
 
         #expect(controller.postSnapshotLifecycle(for: record, index: index) == .running)
@@ -442,5 +435,28 @@ struct AgentHibernationPlannerSwiftTests {
         controller.postSnapshotValidationIndexTask?.task.cancel()
         controller.postSnapshotValidationIndexSequence = 0
         controller.postSnapshotValidationIndexTask = nil
+    }
+
+    private func processFreeEvidence(
+        for key: AgentHibernationPanelKey
+    ) -> AgentHibernationProcessEvidence {
+        .confirmedProcessFree(AgentHibernationProcessFreeLease(
+            workspaceId: key.workspaceId,
+            panelId: key.panelId,
+            shellPID: 42,
+            shellIdentity: AgentPIDProcessIdentity(
+                pid: 42,
+                startSeconds: 100,
+                startMicroseconds: 200
+            ),
+            shellParentPID: 1,
+            shellName: "zsh",
+            executablePath: "/bin/zsh",
+            arguments: ["/bin/zsh", "-l"],
+            ttyDevice: 9_001,
+            sessionID: 42,
+            processGroupID: 42,
+            terminalProcessGroupID: 42
+        ))
     }
 }

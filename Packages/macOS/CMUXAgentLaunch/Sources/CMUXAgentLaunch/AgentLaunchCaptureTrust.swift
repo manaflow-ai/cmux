@@ -150,6 +150,38 @@ public enum AgentLaunchCaptureTrust {
         }
     }
 
+    /// Returns only the provider-owned argv tail for a trusted live process.
+    /// Interpreter and package-manager flags before the agent script are not
+    /// provider launch options and must not affect restorability classification.
+    static func nativeAgentLaunchArguments(
+        processName: String?,
+        arguments: [String],
+        kind: String
+    ) -> [String]? {
+        guard let normalizedKind = normalizedAgentName(kind),
+              nativeProcessDescribesKind(
+                  processName: processName,
+                  arguments: arguments,
+                  kind: normalizedKind
+              ),
+              !arguments.isEmpty else {
+            return nil
+        }
+        let hostBases = Set([
+            processBasename(processName),
+            processBasename(arguments.first),
+        ].compactMap { $0 })
+        guard hostBases.contains(where: isInterpreterHost) else {
+            return Array(arguments.dropFirst())
+        }
+        guard let entrypointIndex = arguments.indices.dropFirst().first(where: {
+            scriptArgument(arguments[$0], describes: normalizedKind)
+        }) else {
+            return nil
+        }
+        return Array(arguments[arguments.index(after: entrypointIndex)...])
+    }
+
     /// True when `parent` is a thin interpreter launcher that immediately
     /// relays into the real process for the same agent. Package-manager shims
     /// commonly use `node <agent>` and then either exec a native binary or
@@ -275,6 +307,20 @@ public enum AgentLaunchCaptureTrust {
         let normalized = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
         let scriptExtensions = [".cjs", ".js", ".mjs", ".py", ".rb", ".ts"]
         return normalized.contains("/") || scriptExtensions.contains(where: normalized.hasSuffix)
+    }
+
+    private static func scriptArgument(_ argument: String, describes kind: String) -> Bool {
+        guard looksLikeScriptPath(argument) else { return false }
+        let aliases = nativeProcessAliasesByKind[kind] ?? []
+        if let basename = scriptDescriptorBasename(argument),
+           basename == kind || aliases.contains(basename) || basename == "\(kind)-cli" {
+            return true
+        }
+        let normalizedPath = "/" + argument
+            .replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .lowercased()
+        return scriptPathMarkersByKind[kind]?.contains(where: normalizedPath.contains) == true
     }
 
     private static func scriptDescriptorBasename(_ argument: String) -> String? {
