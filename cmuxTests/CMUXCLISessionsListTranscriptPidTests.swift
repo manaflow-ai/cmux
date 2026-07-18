@@ -355,7 +355,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(fileManager.existenceCheckCount <= (count * 4) + 8)
     }
 
-    @Test func testClaudeSingleSiblingTranscriptReturnsOnlyNonExcludedMatch() throws {
+    @Test func testClaudeWorkflowContainerNeverInfersSiblingTranscript() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-sessions-list-claude-sibling-\(UUID().uuidString)", isDirectory: true)
         let projectRoot = root.appendingPathComponent("project", isDirectory: true)
@@ -373,13 +373,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
 
         let lookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: root.path)
-        let resolved = try #require(lookup.singleSiblingTranscript(
+        #expect(lookup.singleSiblingTranscript(
             projectRoots: [projectRoot.path],
             excludingSessionId: containerSessionId
-        ))
-
-        #expect(resolved.sessionId == siblingSessionId)
-        #expect(resolved.path == projectRoot.appendingPathComponent("\(siblingSessionId).jsonl").path)
+        ) == nil)
     }
 
     @Test func testClaudeSingleSiblingTranscriptStopsBeforeScanningEveryCachedTranscript() throws {

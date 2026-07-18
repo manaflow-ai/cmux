@@ -1126,7 +1126,7 @@ struct RestorableAgentSessionIndexTests {
     }
 
     @Test
-    func testClaudeWorkflowDirectorySessionUsesSiblingJsonlSessionForResume() throws {
+    func testClaudeWorkflowDirectorySessionDoesNotGuessSiblingSessionForResume() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-claude-workflow-directory-\(UUID().uuidString)", isDirectory: true)
@@ -1171,18 +1171,9 @@ struct RestorableAgentSessionIndexTests {
         )
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
-
-        XCTAssertEqual(snapshot.sessionId, resumableSessionId)
-        XCTAssertEqual(snapshot.workingDirectory, cwd.path)
-        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
-        XCTAssertTrue(
-            resumeCommand.contains(resumableSessionId),
-            "resume command must target the sibling transcript session; got: \(resumeCommand)"
-        )
-        XCTAssertFalse(
-            resumeCommand.contains(workflowContainerSessionId),
-            "The Workflow container id is not accepted by claude --resume."
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "A sibling transcript is not authoritative evidence for the hook's session identity"
         )
     }
 
