@@ -726,81 +726,100 @@ fn codex_last_turn_patch(
     repo_root: &Path,
     cancellation: &TrajectoryCancellation,
 ) -> Result<String, TrajectoryError> {
-    let mut current_turn = None::<String>;
-    let mut patch = String::new();
-    let mut apply_patch_inputs = HashMap::<String, String>::new();
-    let mut applied_patch_calls = HashSet::<String>::new();
+    let mut state = CodexTurnPatchState::default();
     for_json_lines(transcript, cancellation, |object| {
+        state.consume(object, repo_root)
+    })?;
+    state.finish(repo_root)
+}
+
+#[derive(Default)]
+struct CodexTurnPatchState {
+    current_turn: Option<String>,
+    patch: String,
+    apply_patch_inputs: HashMap<String, String>,
+    successful_apply_patch_calls: HashSet<String>,
+    successful_apply_patch_order: Vec<String>,
+    apply_patch_event_calls: HashSet<String>,
+}
+
+impl CodexTurnPatchState {
+    fn consume(&mut self, object: &Value, repo_root: &Path) -> Result<bool, TrajectoryError> {
         let Some(payload) = object.get("payload") else {
             return Ok(false);
         };
         let object_type = object.get("type").and_then(Value::as_str);
         let turn_id = codex_turn_id(payload);
         if object_type == Some("turn_context") {
-            if let Some(turn_id) = turn_id
-                && current_turn.as_deref() != Some(turn_id)
-            {
-                current_turn = Some(turn_id.to_owned());
-                patch.clear();
-                apply_patch_inputs.clear();
-                applied_patch_calls.clear();
-            } else if turn_id.is_none() {
-                current_turn = None;
-                patch.clear();
-                apply_patch_inputs.clear();
-                applied_patch_calls.clear();
-            }
+            self.consume_turn_context(turn_id);
             return Ok(false);
         }
         if object_type == Some("response_item") {
-            if current_turn.is_none() {
-                return Ok(false);
-            }
-            if let Some((call_id, input)) = codex_apply_patch_input(payload) {
-                apply_patch_inputs.insert(call_id, input);
-                return Ok(false);
-            }
-            if codex_apply_patch_output_succeeded(payload)
-                && let Some(call_id) = payload.get("call_id").and_then(Value::as_str)
-                && let Some(input) = apply_patch_inputs.get(call_id)
-                && applied_patch_calls.insert(call_id.to_owned())
-            {
-                append_codex_apply_patch_input(&mut patch, repo_root, input)?;
-            }
+            self.consume_response_item(payload);
             return Ok(false);
         }
         if object_type != Some("event_msg") {
             return Ok(false);
         }
+        self.consume_event(payload, turn_id, repo_root)?;
+        Ok(false)
+    }
+
+    fn consume_turn_context(&mut self, turn_id: Option<&str>) {
+        if turn_id.is_none() || self.current_turn.as_deref() != turn_id {
+            self.reset(turn_id);
+        }
+    }
+
+    fn consume_response_item(&mut self, payload: &Value) {
+        if self.current_turn.is_none() {
+            return;
+        }
+        if let Some((call_id, input)) = codex_apply_patch_input(payload) {
+            self.apply_patch_inputs.insert(call_id, input);
+            return;
+        }
+        if codex_apply_patch_output_succeeded(payload)
+            && let Some(call_id) = payload.get("call_id").and_then(Value::as_str)
+            && self.apply_patch_inputs.contains_key(call_id)
+            && self.successful_apply_patch_calls.insert(call_id.to_owned())
+        {
+            self.successful_apply_patch_order.push(call_id.to_owned());
+        }
+    }
+
+    fn consume_event(
+        &mut self,
+        payload: &Value,
+        turn_id: Option<&str>,
+        repo_root: &Path,
+    ) -> Result<(), TrajectoryError> {
         let event_type = payload.get("type").and_then(Value::as_str);
         if event_type == Some("task_started") {
             let Some(turn_id) = turn_id else {
-                current_turn = None;
-                patch.clear();
+                self.reset(None);
                 return Err(TrajectoryError::Invalid);
             };
-            current_turn = Some(turn_id.to_owned());
-            patch.clear();
-            apply_patch_inputs.clear();
-            applied_patch_calls.clear();
-            return Ok(false);
+            self.reset(Some(turn_id));
+            return Ok(());
         }
         if event_type != Some("patch_apply_end")
             || payload.get("success") != Some(&Value::Bool(true))
         {
-            return Ok(false);
+            return Ok(());
         }
         if let Some(turn_id) = turn_id {
-            if current_turn.as_deref() != Some(turn_id) {
-                current_turn = Some(turn_id.to_owned());
-                patch.clear();
-                apply_patch_inputs.clear();
-                applied_patch_calls.clear();
+            if self.current_turn.as_deref() != Some(turn_id) {
+                self.reset(Some(turn_id));
             }
-        } else if current_turn.is_none() {
+        } else if self.current_turn.is_none() {
             return Err(TrajectoryError::Invalid);
         }
         let changes = payload.get("changes").and_then(Value::as_object);
+        let call_id = payload.get("call_id").and_then(Value::as_str);
+        if let Some(call_id) = call_id {
+            self.apply_patch_event_calls.insert(call_id.to_owned());
+        }
         let changes_have_patch_data = changes.is_some_and(|changes| {
             !changes.is_empty() && changes.values().all(codex_change_has_patch_data)
         });
@@ -810,17 +829,45 @@ fn codex_last_turn_patch(
             for (path, change) in changes {
                 append_codex_change(&mut event_patch, repo_root, path, change)?;
             }
-            patch.push_str(&event_patch);
-            ensure_patch_limit(&patch)?;
-        } else if let Some(call_id) = payload.get("call_id").and_then(Value::as_str)
-            && let Some(input) = apply_patch_inputs.get(call_id)
-            && applied_patch_calls.insert(call_id.to_owned())
+            self.patch.push_str(&event_patch);
+            ensure_patch_limit(&self.patch)?;
+        } else if let Some(call_id) = call_id
+            && let Some(input) = self.apply_patch_inputs.get(call_id)
         {
-            append_codex_apply_patch_input(&mut patch, repo_root, input)?;
+            let mut structured_patch = String::new();
+            if append_codex_apply_patch_input(&mut structured_patch, repo_root, input).is_ok() {
+                self.patch.push_str(&structured_patch);
+                ensure_patch_limit(&self.patch)?;
+            }
         }
-        Ok(false)
-    })?;
-    Ok(patch)
+        Ok(())
+    }
+
+    fn reset(&mut self, turn_id: Option<&str>) {
+        self.current_turn = turn_id.map(str::to_owned);
+        self.patch.clear();
+        self.apply_patch_inputs.clear();
+        self.successful_apply_patch_calls.clear();
+        self.successful_apply_patch_order.clear();
+        self.apply_patch_event_calls.clear();
+    }
+
+    fn finish(mut self, repo_root: &Path) -> Result<String, TrajectoryError> {
+        for call_id in self.successful_apply_patch_order {
+            if self.apply_patch_event_calls.contains(&call_id) {
+                continue;
+            }
+            let Some(input) = self.apply_patch_inputs.get(&call_id) else {
+                continue;
+            };
+            let mut structured_patch = String::new();
+            if append_codex_apply_patch_input(&mut structured_patch, repo_root, input).is_ok() {
+                self.patch.push_str(&structured_patch);
+                ensure_patch_limit(&self.patch)?;
+            }
+        }
+        Ok(self.patch)
+    }
 }
 
 fn codex_apply_patch_input(payload: &Value) -> Option<(String, String)> {
@@ -992,6 +1039,9 @@ fn append_codex_apply_patch_section(
             append_added_file(output, &new_path, &content)
         }
         CodexApplyPatchOperation::Delete => {
+            if section.lines.is_empty() {
+                return Err(TrajectoryError::Invalid);
+            }
             let old_a = git_prefixed_path("a/", &old_path);
             let new_b = git_prefixed_path("b/", &new_path);
             write!(
@@ -999,9 +1049,7 @@ fn append_codex_apply_patch_section(
                 "diff --git {old_a} {new_b}\ndeleted file mode 100644\n--- {old_a}\n+++ /dev/null\n"
             )
             .map_err(|_| TrajectoryError::Invalid)?;
-            if !section.lines.is_empty() {
-                append_codex_apply_patch_hunks(output, &section.lines)?;
-            }
+            append_codex_apply_patch_hunks(output, &section.lines)?;
             ensure_patch_limit(output)
         }
         CodexApplyPatchOperation::Update => {
@@ -1039,20 +1087,10 @@ fn append_codex_apply_patch_hunks(
         hunks.push(("@@", body));
     }
     for (header, body) in hunks {
-        if header.starts_with("@@ -") {
-            writeln!(output, "{header}").map_err(|_| TrajectoryError::Invalid)?;
-        } else {
-            let old_lines = body
-                .iter()
-                .filter(|line| !line.starts_with('+') && !line.starts_with('\\'))
-                .count();
-            let new_lines = body
-                .iter()
-                .filter(|line| !line.starts_with('-') && !line.starts_with('\\'))
-                .count();
-            writeln!(output, "@@ -1,{old_lines} +1,{new_lines} @@")
-                .map_err(|_| TrajectoryError::Invalid)?;
+        if !header.starts_with("@@ -") {
+            return Err(TrajectoryError::Invalid);
         }
+        writeln!(output, "{header}").map_err(|_| TrajectoryError::Invalid)?;
         for line in body {
             if !matches!(line.as_bytes().first(), Some(b' ' | b'+' | b'-' | b'\\')) {
                 return Err(TrajectoryError::Invalid);
