@@ -246,6 +246,102 @@ struct CLIHookNoResponseTests {
         #expect(result.stdout == "{}\n")
     }
 
+    @Test func nativeCodexAdmissionReturnsBeforeUnresponsiveSocketAndFallback() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-native-admission-deadline-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux-hung-fallback", isDirectory: false)
+        let fallbackArgs = root.appendingPathComponent("fallback-args.txt", isDirectory: false)
+        let leaderPIDFile = root.appendingPathComponent("fallback-leader-pid.txt", isDirectory: false)
+        let descendantPIDFile = root.appendingPathComponent("fallback-descendant-pid.txt", isDirectory: false)
+        let socketPath = Self.makeSocketPath("native-admission")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 8)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            for pidFile in [leaderPIDFile, descendantPIDFile] {
+                if let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
+                   let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    Darwin.kill(pid, SIGKILL)
+                }
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let hookPath = try #require(
+            FileManager.default
+                .contentsOfDirectory(at: hooksDirectory, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
+        )
+        #expect(codexHookExecutableIsMachO(hookPath.path))
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s' \"$*\" > \"$CMUX_TEST_FALLBACK_ARGS\"",
+            "printf '%s' \"$$\" > \"$CMUX_TEST_LEADER_PID\"",
+            "/bin/sh -c 'trap \"\" TERM; printf \"%s\" \"$$\" > \"$CMUX_TEST_DESCENDANT_PID\"; while :; do :; done' &",
+            "trap 'exit 143' TERM",
+            "while :; do :; done",
+        ])
+        let server = Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 2)
+        let started = ContinuousClock().now
+        let result = runCodexHookProcess(
+            executablePath: hookPath.path,
+            arguments: [],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_AGENT_HOOK_DELIVERY_ID": "native-admission-deadline",
+                "CMUX_TEST_FALLBACK_ARGS": fallbackArgs.path,
+                "CMUX_TEST_LEADER_PID": leaderPIDFile.path,
+                "CMUX_TEST_DESCENDANT_PID": descendantPIDFile.path,
+            ],
+            standardInput: #"{"session_id":"deadline-session","hook_event_name":"SessionStart"}"#,
+            timeout: 0.35
+        )
+        let elapsed = started.duration(to: .now)
+
+        #expect(server.wait(timeout: 5), "Native helper did not reach the live socket")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(elapsed < .seconds(0.25), "Hook admission took \(elapsed)")
+        #expect(waitForCondition(timeout: 1) {
+            FileManager.default.fileExists(atPath: fallbackArgs.path)
+                && FileManager.default.fileExists(atPath: leaderPIDFile.path)
+                && FileManager.default.fileExists(atPath: descendantPIDFile.path)
+        })
+        #expect(
+            try String(contentsOf: fallbackArgs, encoding: .utf8)
+                == "--socket \(socketPath) hooks codex enqueue session-start"
+        )
+        for pidFile in [leaderPIDFile, descendantPIDFile] {
+            let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
+            let pid = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
+            #expect(waitForCondition(timeout: 2) {
+                errno = 0
+                return Darwin.kill(pid, 0) == -1 && errno == ESRCH
+            })
+        }
+    }
+
     private static func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: BundleProbe.self)
