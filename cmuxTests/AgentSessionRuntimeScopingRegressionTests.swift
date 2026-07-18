@@ -4359,6 +4359,174 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func startupReconciliationAppliesSavedStateLifecycleMatrix() throws {
+        enum ExpectedDisposition {
+            case active
+            case hibernated
+            case cleared
+        }
+        let cases: [(
+            name: String,
+            savedHibernated: Bool,
+            lifecycle: String?,
+            expected: ExpectedDisposition
+        )] = [
+            ("active-missing", false, nil, .active),
+            ("active-active", false, "active", .active),
+            ("active-hibernated", false, "hibernated", .hibernated),
+            ("active-restoring", false, "restoring", .hibernated),
+            ("active-ended", false, "ended", .cleared),
+            ("active-unknown", false, "future", .cleared),
+            ("hibernated-missing", true, nil, .cleared),
+            ("hibernated-active", true, "active", .cleared),
+            ("hibernated-hibernated", true, "hibernated", .hibernated),
+            ("hibernated-restoring", true, "restoring", .hibernated),
+            ("hibernated-ended", true, "ended", .cleared),
+            ("hibernated-unknown", true, "future", .cleared),
+        ]
+
+        for testCase in cases {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "cmux-startup-lifecycle-\(testCase.name)-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+            let environment = [
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            ]
+            let fixture = try makeHibernatedRestoreFixture(
+                root: root,
+                sessionID: "startup-lifecycle-\(testCase.name)"
+            )
+            var workspace = fixture.snapshot
+            let panelIndex = try #require(
+                workspace.panels.firstIndex { $0.id == fixture.sourcePanelID }
+            )
+            var terminal = try #require(workspace.panels[panelIndex].terminal)
+            if !testCase.savedHibernated {
+                terminal.hibernation = nil
+            }
+            terminal.wasAgentRunning = true
+            workspace.panels[panelIndex].terminal = terminal
+            try installStartupCanonicalOwner(
+                root: root,
+                registryURL: registryURL,
+                agent: fixture.agent,
+                workspaceId: fixture.source.id,
+                surfaceId: fixture.sourcePanelID,
+                lifecycle: testCase.lifecycle,
+                hibernatedAt: 30
+            )
+            var appSnapshot = appSessionSnapshot(containing: workspace)
+
+            let failures = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+                &appSnapshot,
+                homeDirectory: root.path,
+                environment: environment
+            )
+
+            #expect(failures.isEmpty, Comment(rawValue: testCase.name))
+            let reconciled = try #require(
+                appSnapshot.windows[0].tabManager.workspaces[0]
+                    .panels.first { $0.id == fixture.sourcePanelID }?.terminal
+            )
+            switch testCase.expected {
+            case .active:
+                #expect(reconciled.agent?.sessionId == fixture.agent.sessionId)
+                #expect(reconciled.resumeBinding?.checkpointId == fixture.agent.sessionId)
+                #expect(reconciled.hibernation == nil)
+                #expect(reconciled.wasAgentRunning)
+            case .hibernated:
+                #expect(reconciled.agent?.sessionId == fixture.agent.sessionId)
+                #expect(reconciled.resumeBinding?.checkpointId == fixture.agent.sessionId)
+                #expect(reconciled.hibernation?.hibernatedAt == 30)
+                #expect(!reconciled.wasAgentRunning)
+            case .cleared:
+                #expect(reconciled.agent == nil)
+                #expect(reconciled.resumeBinding == nil)
+                #expect(reconciled.hibernation == nil)
+                #expect(!reconciled.wasAgentRunning)
+            }
+        }
+    }
+
+    @MainActor
+    @Test func startupReconciliationRejectsMissingOrInvalidCanonicalCandidates() throws {
+        for name in [
+            "missing-row",
+            "completed-row",
+            "missing-surface-slot",
+            "detached-foreign-surface-slot",
+        ] {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "cmux-startup-invalid-\(name)-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+            let environment = [
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            ]
+            let fixture = try makeHibernatedRestoreFixture(
+                root: root,
+                sessionID: "startup-invalid-\(name)"
+            )
+            var workspace = fixture.snapshot
+            let panelIndex = try #require(
+                workspace.panels.firstIndex { $0.id == fixture.sourcePanelID }
+            )
+            var terminal = try #require(workspace.panels[panelIndex].terminal)
+            terminal.hibernation = nil
+            terminal.wasAgentRunning = true
+            workspace.panels[panelIndex].terminal = terminal
+
+            var storedAgent = fixture.agent
+            if name == "missing-row" {
+                storedAgent.sessionId = "different-session"
+            }
+            try installStartupCanonicalOwner(
+                root: root,
+                registryURL: registryURL,
+                agent: storedAgent,
+                workspaceId: fixture.source.id,
+                surfaceId: fixture.sourcePanelID,
+                lifecycle: "hibernated",
+                hibernatedAt: 30,
+                completedAt: name == "completed-row" ? 31 : nil,
+                detached: name == "detached-foreign-surface-slot",
+                includeSurfaceSlot: name != "missing-surface-slot",
+                surfaceSlotSessionId: name == "detached-foreign-surface-slot"
+                    ? "foreign-session"
+                    : nil
+            )
+            var appSnapshot = appSessionSnapshot(containing: workspace)
+
+            let failures = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+                &appSnapshot,
+                homeDirectory: root.path,
+                environment: environment
+            )
+
+            #expect(failures.isEmpty, Comment(rawValue: name))
+            let reconciled = try #require(
+                appSnapshot.windows[0].tabManager.workspaces[0]
+                    .panels.first { $0.id == fixture.sourcePanelID }?.terminal
+            )
+            #expect(reconciled.agent == nil, Comment(rawValue: name))
+            #expect(reconciled.resumeBinding == nil, Comment(rawValue: name))
+            #expect(reconciled.hibernation == nil, Comment(rawValue: name))
+            #expect(!reconciled.wasAgentRunning, Comment(rawValue: name))
+        }
+    }
+
+    @MainActor
     @Test func startupReconciliationRequiresTheExactCanonicalSurfaceOwner() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -4401,12 +4569,14 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: environment
         )
 
-        let unchangedTerminal = try #require(
+        let rejectedTerminal = try #require(
             appSnapshot.windows[0].tabManager.workspaces[0]
                 .panels.first { $0.id == fixture.sourcePanelID }?.terminal
         )
-        #expect(unchangedTerminal.hibernation == nil)
-        #expect(unchangedTerminal.wasAgentRunning == true)
+        #expect(rejectedTerminal.agent == nil)
+        #expect(rejectedTerminal.resumeBinding == nil)
+        #expect(rejectedTerminal.hibernation == nil)
+        #expect(!rejectedTerminal.wasAgentRunning)
     }
 
     @MainActor
@@ -5346,28 +5516,40 @@ extension CMUXCLIErrorOutputRegressionTests {
         agent: SessionRestorableAgentSnapshot,
         workspaceId: UUID,
         surfaceId: UUID,
-        lifecycle: String,
+        lifecycle: String?,
         hibernatedAt: TimeInterval,
         resumeAttemptId: UUID? = nil,
         runtime: [String: Any]? = nil,
         recordRestoreAuthority: Bool = true,
-        runRestoreAuthority: Bool = true
+        runRestoreAuthority: Bool = true,
+        completedAt: TimeInterval? = nil,
+        detached: Bool = false,
+        includeSurfaceSlot: Bool = true,
+        surfaceSlotSessionId: String? = nil
     ) throws -> CmuxAgentSessionRegistry {
         let updatedAt = hibernatedAt
         let activeSlot: [String: Any] = [
-            "sessionId": agent.sessionId,
+            "sessionId": surfaceSlotSessionId ?? agent.sessionId,
             "updatedAt": updatedAt,
         ]
         var record: [String: Any] = [
             "sessionId": agent.sessionId,
             "workspaceId": workspaceId.uuidString,
             "surfaceId": surfaceId.uuidString,
-            "sessionState": lifecycle,
             "restoreAuthority": recordRestoreAuthority,
             "cmuxHibernatedAt": hibernatedAt,
             "startedAt": 10.0,
             "updatedAt": updatedAt,
         ]
+        if let lifecycle {
+            record["sessionState"] = lifecycle
+        }
+        if let completedAt {
+            record["completedAt"] = completedAt
+        }
+        if detached {
+            record["cmuxHibernationDetached"] = true
+        }
         if let resumeAttemptId {
             record["cmuxHibernationResumeAttemptId"] = resumeAttemptId.uuidString
             record["cmuxHibernationResumeStartedAt"] = updatedAt
@@ -5384,12 +5566,15 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "updatedAt": updatedAt,
             ]]
         }
-        try JSONSerialization.data(withJSONObject: [
+        var store: [String: Any] = [
             "version": 2,
             "sessions": [agent.sessionId: record],
             "activeSessionsByWorkspace": [workspaceId.uuidString: activeSlot],
-            "activeSessionsBySurface": [surfaceId.uuidString: activeSlot],
-        ], options: [.sortedKeys]).write(
+        ]
+        if includeSurfaceSlot {
+            store["activeSessionsBySurface"] = [surfaceId.uuidString: activeSlot]
+        }
+        try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys]).write(
             to: root.appendingPathComponent("codex-hook-sessions.json"),
             options: .atomic
         )
