@@ -13,100 +13,6 @@ import CmuxTerminal
 #endif
 
 final class SessionPersistenceTests: XCTestCase {
-    private enum PrivateLauncherScriptFixture: String, CaseIterable, Sendable {
-        case agentResume
-        case surfaceResumeBinding
-        case sessionRestoredTerminal
-
-        var directoryName: String {
-            switch self {
-            case .agentResume:
-                "cmux-agent-resume"
-            case .surfaceResumeBinding:
-                "cmux-surface-resume"
-            case .sessionRestoredTerminal:
-                "cmux-session-terminal-command"
-            }
-        }
-
-        func writeScript(
-            marker: String,
-            temporaryDirectory: URL,
-            fileManager: FileManager = .default
-        ) -> URL? {
-            switch self {
-            case .agentResume:
-                let snapshot = SessionRestorableAgentSnapshot(
-                    kind: .codex,
-                    sessionId: marker,
-                    workingDirectory: "/tmp"
-                )
-                guard let command = snapshot.resumeStartupCommand(
-                    fileManager: fileManager,
-                    temporaryDirectory: temporaryDirectory
-                ) else {
-                    return nil
-                }
-                let prefix = "/bin/zsh '"
-                guard command.hasPrefix(prefix), command.hasSuffix("'") else { return nil }
-                return URL(fileURLWithPath: String(command.dropFirst(prefix.count).dropLast()))
-            case .surfaceResumeBinding:
-                let binding = SurfaceResumeBindingSnapshot(
-                    kind: "test",
-                    command: "printf '%s\\n' '\(marker)'",
-                    checkpointId: marker,
-                    source: "test"
-                )
-                return SurfaceResumeBindingScriptStore.writeLauncherScript(
-                    inlineInput: binding.inlineStartupInput ?? binding.command,
-                    binding: binding,
-                    fileManager: fileManager,
-                    temporaryDirectory: temporaryDirectory
-                )
-            case .sessionRestoredTerminal:
-                return SessionRestoredTerminalCommandStore.writeLauncherScript(
-                    command: "printf '%s\\n' '\(marker)'",
-                    workingDirectory: "/tmp",
-                    fileManager: fileManager,
-                    temporaryDirectory: temporaryDirectory
-                )
-            }
-        }
-    }
-
-    private final class ConcurrentLauncherScriptState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var storedURLs: [URL] = []
-        private var storedIssues: [String] = []
-
-        var urls: [URL] {
-            lock.lock()
-            defer { lock.unlock() }
-            return storedURLs
-        }
-
-        var issues: [String] {
-            lock.lock()
-            defer { lock.unlock() }
-            return storedIssues
-        }
-
-        func append(url: URL) {
-            lock.lock()
-            storedURLs.append(url)
-            lock.unlock()
-        }
-
-        func append(issue: String) {
-            lock.lock()
-            storedIssues.append(issue)
-            lock.unlock()
-        }
-    }
-
-    private static let privateLauncherScriptUmaskLock = NSLock()
-    private static let privateLauncherScriptDirectoryEntryBudget = 256
-
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
@@ -2025,6 +1931,100 @@ final class SessionPersistenceTests: XCTestCase {
 }
 
 final class SocketListenerAcceptPolicyTests: XCTestCase {
+    private enum PrivateLauncherScriptFixture: String, CaseIterable, Sendable {
+        case agentResume
+        case surfaceResumeBinding
+        case sessionRestoredTerminal
+
+        var directoryName: String {
+            switch self {
+            case .agentResume:
+                "cmux-agent-resume"
+            case .surfaceResumeBinding:
+                "cmux-surface-resume"
+            case .sessionRestoredTerminal:
+                "cmux-session-terminal-command"
+            }
+        }
+
+        func writeScript(
+            marker: String,
+            temporaryDirectory: URL,
+            fileManager: FileManager = .default
+        ) -> URL? {
+            switch self {
+            case .agentResume:
+                let snapshot = SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: marker,
+                    workingDirectory: "/tmp"
+                )
+                guard let command = snapshot.resumeStartupCommand(
+                    fileManager: fileManager,
+                    temporaryDirectory: temporaryDirectory
+                ) else {
+                    return nil
+                }
+                let prefix = "/bin/zsh '"
+                guard command.hasPrefix(prefix), command.hasSuffix("'") else { return nil }
+                return URL(fileURLWithPath: String(command.dropFirst(prefix.count).dropLast()))
+            case .surfaceResumeBinding:
+                let binding = SurfaceResumeBindingSnapshot(
+                    kind: "test",
+                    command: "printf '%s\\n' '\(marker)'",
+                    checkpointId: marker,
+                    source: "test"
+                )
+                return SurfaceResumeBindingScriptStore.writeLauncherScript(
+                    inlineInput: binding.inlineStartupInput ?? binding.command,
+                    binding: binding,
+                    fileManager: fileManager,
+                    temporaryDirectory: temporaryDirectory
+                )
+            case .sessionRestoredTerminal:
+                return SessionRestoredTerminalCommandStore.writeLauncherScript(
+                    command: "printf '%s\\n' '\(marker)'",
+                    workingDirectory: "/tmp",
+                    fileManager: fileManager,
+                    temporaryDirectory: temporaryDirectory
+                )
+            }
+        }
+    }
+
+    private final class ConcurrentLauncherScriptState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storedURLs: [URL] = []
+        private var storedIssues: [String] = []
+
+        var urls: [URL] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedURLs
+        }
+
+        var issues: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedIssues
+        }
+
+        func append(url: URL) {
+            lock.lock()
+            storedURLs.append(url)
+            lock.unlock()
+        }
+
+        func append(issue: String) {
+            lock.lock()
+            storedIssues.append(issue)
+            lock.unlock()
+        }
+    }
+
+    private static let privateLauncherScriptUmaskLock = NSLock()
+    private static let privateLauncherScriptDirectoryEntryBudget = 256
+
     func testClaudeResumeCommandRoutesThroughWrapperInsteadOfCapturedRealBinary() {
         // The captured launch executable is the real claude binary
         // (CMUX_AGENT_LAUNCH_EXECUTABLE). Resuming with it directly bypasses
