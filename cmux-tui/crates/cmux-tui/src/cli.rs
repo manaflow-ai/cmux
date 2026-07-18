@@ -1554,10 +1554,27 @@ mod tests {
             values: BTreeMap::from([
                 ("surface".to_string(), "9".to_string()),
                 ("mode".to_string(), "render".to_string()),
+                ("cols".to_string(), "120".to_string()),
+                ("rows".to_string(), "40".to_string()),
             ]),
             ..Default::default()
         };
-        assert_eq!(build_attach_surface(&flags).unwrap(), json!({"surface": 9, "mode": "render"}));
+        assert_eq!(
+            build_attach_surface(&flags).unwrap(),
+            json!({"surface": 9, "mode": "render", "cols": 120, "rows": 40})
+        );
+
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("cols".to_string(), "120".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_attach_surface(&flags).unwrap_err().0,
+            "--cols and --rows must be supplied together"
+        );
 
         let flags = FlagMap {
             values: BTreeMap::from([("tree-events".to_string(), "deltas".to_string())]),
