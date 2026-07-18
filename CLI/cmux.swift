@@ -1204,6 +1204,10 @@ final class SocketClient {
 struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
+    let agentSessionGraphOrdering: AgentSessionGraphOrdering
+    let agentSessionRunCanonicalizer: AgentSessionRunCanonicalizer
+    let agentStableProcessIdentityValidator: AgentStableProcessIdentityValidator
+    private let copilotHookConfig: CopilotHookConfig
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -1227,9 +1231,20 @@ struct CMUXCLI {
         return keys
     }
 
-    init(args: [String], initialSIGPIPEInspectionPayload: [String: Any]? = nil) {
+    init(
+        args: [String],
+        initialSIGPIPEInspectionPayload: [String: Any]? = nil,
+        agentSessionGraphOrdering: AgentSessionGraphOrdering = AgentSessionGraphOrdering(),
+        agentSessionRunCanonicalizer: AgentSessionRunCanonicalizer = AgentSessionRunCanonicalizer(),
+        agentStableProcessIdentityValidator: AgentStableProcessIdentityValidator = AgentStableProcessIdentityValidator(),
+        copilotHookConfig: CopilotHookConfig = CopilotHookConfig()
+    ) {
         self.args = args
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
+        self.agentSessionGraphOrdering = agentSessionGraphOrdering
+        self.agentSessionRunCanonicalizer = agentSessionRunCanonicalizer
+        self.agentStableProcessIdentityValidator = agentStableProcessIdentityValidator
+        self.copilotHookConfig = copilotHookConfig
     }
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
@@ -27739,7 +27754,7 @@ export default CMUXSessionRestore;
         let existingData = fm.contents(atPath: hooksURL.path)
         let newData: Data
         do {
-            newData = try CopilotHookConfig.installing(
+            newData = try copilotHookConfig.installing(
                 events: Self.copilotHookEvents(for: def),
                 in: existingData,
                 isOwnedCommand: isOwnedCommand
@@ -27756,7 +27771,7 @@ export default CMUXSessionRestore;
         let legacyRemoval: CopilotHookConfig.RemovalResult?
         do {
             legacyRemoval = try fm.contents(atPath: legacyURL.path).map { data in
-                try CopilotHookConfig.removingOwnedHooks(
+                try copilotHookConfig.removingOwnedHooks(
                     from: data,
                     isOwnedCommand: isOwnedCommand
                 )
@@ -27872,8 +27887,8 @@ export default CMUXSessionRestore;
             url: URL,
             transform: (Data, (String) -> Bool) throws -> CopilotHookConfig.RemovalResult
         )] = [
-            (hooksURL, { try CopilotHookConfig.uninstalling(from: $0, isOwnedCommand: $1) }),
-            (legacyURL, { try CopilotHookConfig.removingOwnedHooks(from: $0, isOwnedCommand: $1) }),
+            (hooksURL, { try copilotHookConfig.uninstalling(from: $0, isOwnedCommand: $1) }),
+            (legacyURL, { try copilotHookConfig.removingOwnedHooks(from: $0, isOwnedCommand: $1) }),
         ]
         for (url, transform) in candidates {
             guard let data = fm.contents(atPath: url.path) else { continue }

@@ -871,7 +871,7 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord,
         provider: String
     ) -> AgentSessionRunRecord {
-        AgentSessionRunCanonicalizer.projectedRun(record: record, provider: provider)
+        agentSessionRunCanonicalizer.projectedRun(record: record, provider: provider)
     }
 
     private func sessionsListNodeMatchesFilters(
