@@ -7,8 +7,8 @@ struct AgentNotificationOwnershipRegressionTests {
     @Test func debugEnvironmentCannotPromoteAManagedChild() throws {
         let result = try runManagedCodexHook(
             name: "codex-child-debug-override",
-            subcommand: "stop",
-            input: #"{"session_id":"child-debug-override","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            subcommand: "session-start",
+            input: #"{"session_id":"child-debug-override","cwd":"/tmp/x","hook_event_name":"SessionStart"}"#,
             suppressNotifications: nil,
             testRootVisibleMutations: true
         )
