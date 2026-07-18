@@ -140,6 +140,9 @@ private actor SimulatorThemePaneClient: SimulatorPaneClient {
     )
 
     func discoverDevices() async throws -> [SimulatorDevice] { [] }
+    func synchronizeOrientation(
+        _ orientation: SimulatorOrientation
+    ) async throws -> SimulatorDisplayMetadata? { nil }
     func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {}
     func shutdownDevice(id: String) async throws {}
     func subscribe() async -> SimulatorWorkerEventStream { events.stream }
