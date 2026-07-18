@@ -584,6 +584,89 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         ])
     }
 
+    @Test("bounded list joins canonically equivalent slot owner identities")
+    func boundedListJoinsCanonicalUnicodeSlotOwner() throws {
+        let fixture = try makeFixture()
+        let provider = "unicode-slot-owner"
+        let recordSessionID = "session-\u{00E9}"
+        let slotSessionID = "session-e\u{0301}"
+        #expect(recordSessionID == slotSessionID)
+        let record = try record(
+            provider: provider,
+            sessionID: recordSessionID,
+            workspaceID: "workspace",
+            surfaceID: "surface",
+            updatedAt: 100
+        )
+        let slotJSON = try JSONSerialization.data(withJSONObject: [
+            "sessionId": slotSessionID,
+            "updatedAt": 100.0,
+        ], options: [.sortedKeys])
+        try fixture.registry.apply(
+            provider: provider,
+            records: [record],
+            activeSlots: [.init(
+                provider: provider,
+                scope: .workspace,
+                scopeID: "workspace",
+                sessionID: slotSessionID,
+                updatedAt: 100,
+                json: slotJSON
+            )]
+        )
+
+        let bounded = try fixture.registry.hookBoundedRecentSnapshot(
+            provider: provider,
+            maximumRecords: 1
+        )
+
+        #expect(bounded.snapshot.records.map(\.sessionID) == [recordSessionID])
+        #expect(bounded.snapshot.activeSlots.count == 1)
+        #expect(bounded.snapshot.activeSlots.first?.sessionID == recordSessionID)
+    }
+
+    @Test("bounded legacy import preserves canonical storage failures")
+    func boundedLegacyImportPreservesCanonicalStorageFailure() throws {
+        let fixture = try makeFixture()
+        let provider = "legacy-storage-failure"
+        _ = try fixture.registry.snapshot(provider: provider)
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [
+                "legacy-session": [
+                    "sessionId": "legacy-session",
+                    "workspaceId": "workspace",
+                    "surfaceId": "surface",
+                    "updatedAt": 100.0,
+                ],
+            ],
+            "activeSessionsByWorkspace": [:],
+            "activeSessionsBySurface": [:],
+        ], options: [.sortedKeys]).write(to: fixture.legacyURL, options: .atomic)
+        try executeRegistrySQL(
+            at: fixture.directory.appendingPathComponent(CmuxAgentSessionRegistry.filename),
+            sql: """
+            CREATE TRIGGER reject_legacy_session_insert
+            BEFORE INSERT ON agent_sessions BEGIN
+                SELECT RAISE(ABORT, 'forced canonical storage failure');
+            END;
+            """
+        )
+
+        var caught: (any Error)?
+        do {
+            _ = try fixture.registry.boundedRecentSnapshotsImportingLegacy(
+                sources: [.init(provider: provider, url: fixture.legacyURL)],
+                maximumRecordsPerProvider: 1
+            )
+        } catch {
+            caught = error
+        }
+
+        #expect(caught != nil)
+        #expect(!(caught is CmuxAgentSessionRegistry.HookLegacySourceImportError))
+    }
+
     @Test("bounded list rejects a corrupt authoritative row outside top K")
     func boundedListValidatesOmittedRows() throws {
         let fixture = try makeFixture()
@@ -1942,6 +2025,22 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         sqlite3_bind_text(statement, 2, provider, -1, transient)
         sqlite3_bind_text(statement, 3, sessionID, -1, transient)
         guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw sqliteTestError(database)
+        }
+    }
+
+    private func executeRegistrySQL(at url: URL, sql: String) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(
+            url.path,
+            &database,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        ) == SQLITE_OK, let database else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        defer { sqlite3_close(database) }
+        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
             throw sqliteTestError(database)
         }
     }
