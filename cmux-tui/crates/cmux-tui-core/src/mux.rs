@@ -4810,4 +4810,31 @@ mod tests {
             assert_eq!(s.workspace_index(ws1), Some(2));
         });
     }
+
+    #[test]
+    fn move_workspace_right_uses_final_destination_index() {
+        let mux = test_mux();
+        mux.new_workspace(Some("one".into()), None).unwrap();
+        mux.new_workspace(Some("two".into()), None).unwrap();
+        mux.new_workspace(Some("three".into()), None).unwrap();
+        let (ws1, ws2, ws3) = mux.with_state(|state| {
+            (state.workspaces[0].id, state.workspaces[1].id, state.workspaces[2].id)
+        });
+
+        assert_eq!(mux.move_workspace_at_revision(ws1, 1, Some(3)).unwrap(), Some((4, true)));
+        mux.with_state(|state| {
+            assert_eq!(
+                state.workspaces.iter().map(|workspace| workspace.id).collect::<Vec<_>>(),
+                vec![ws2, ws1, ws3]
+            );
+        });
+
+        assert_eq!(mux.move_workspace_at_revision(ws1, 2, Some(4)).unwrap(), Some((5, true)));
+        mux.with_state(|state| {
+            assert_eq!(
+                state.workspaces.iter().map(|workspace| workspace.id).collect::<Vec<_>>(),
+                vec![ws2, ws3, ws1]
+            );
+        });
+    }
 }

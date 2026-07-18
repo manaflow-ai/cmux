@@ -4387,6 +4387,24 @@ mod tests {
     }
 
     #[test]
+    fn failed_secondary_attach_preserves_surviving_stream_size_lease() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let first = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let failed = writer.start_stream(&json!({"event": "test"})).unwrap();
+
+        mux.control_clients.attach_surface(client, surface.id, first).unwrap();
+        mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+        mux.control_clients.attach_surface(client, surface.id, failed.clone()).unwrap();
+        cleanup_failed_attach(&mux, client, surface.id, failed.id);
+
+        assert!(mux.control_clients.attached_client_ids().contains(&client));
+        assert_eq!(mux.client_surface_size(surface.id, client), Some((80, 24)));
+    }
+
+    #[test]
     fn failed_attach_setup_does_not_announce_or_suppress_retry() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
