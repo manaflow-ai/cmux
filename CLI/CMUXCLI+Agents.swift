@@ -220,8 +220,14 @@ struct AgentPrettyJSONStreamWriter {
 
 extension CMUXCLI {
     enum AgentsValueOptionContext {
-        case list
+        case agentsList
+        case sessionsList
         case tree
+    }
+
+    enum AgentsCommandInvocation: String {
+        case agents
+        case sessions
     }
 
     func runAgentsCommand(
@@ -229,7 +235,8 @@ extension CMUXCLI {
         jsonOutput: Bool,
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
-        terminalObservations: [CmuxAgentTerminalObservation] = []
+        terminalObservations: [CmuxAgentTerminalObservation] = [],
+        invocation: AgentsCommandInvocation = .agents
     ) throws {
         let subcommand = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if subcommand == "tree" {
@@ -247,7 +254,8 @@ extension CMUXCLI {
             jsonOutput: jsonOutput,
             processEnv: processEnv,
             fileManager: fileManager,
-            terminalObservations: terminalObservations
+            terminalObservations: terminalObservations,
+            invocation: invocation
         )
     }
 
@@ -331,7 +339,7 @@ extension CMUXCLI {
     ) -> CLIError {
         let isTreeContext = switch context {
         case .tree: true
-        case .list: false
+        case .agentsList, .sessionsList: false
         }
         let isGraphBudget = isTreeContext
             && (failure.scope == .legacyGraphNodes || failure.scope == .registryGraphNodes)
@@ -505,7 +513,7 @@ extension CMUXCLI {
                 "error": error,
             ]
             switch context {
-            case .list:
+            case .agentsList, .sessionsList:
                 payload["sessions"] = []
             case .tree:
                 payload["nodes"] = []
@@ -630,10 +638,10 @@ extension CMUXCLI {
         context: AgentsValueOptionContext
     ) -> String {
         let agentMessage = switch context {
-        case .list:
+        case .agentsList, .sessionsList:
             String(
                 localized: "cli.sessions.error.agentRequiresValue",
-                defaultValue: "sessions list: --agent requires a value"
+                defaultValue: "%@ list: --agent requires a value"
             )
         case .tree:
             String(
@@ -641,6 +649,14 @@ extension CMUXCLI {
                 defaultValue: "agents tree: --agent requires a value"
             )
         }
-        return agentMessage.replacingOccurrences(of: "--agent", with: name)
+        let optionMessage = agentMessage.replacingOccurrences(of: "--agent", with: name)
+        switch context {
+        case .agentsList:
+            return String(format: optionMessage, AgentsCommandInvocation.agents.rawValue)
+        case .sessionsList:
+            return String(format: optionMessage, AgentsCommandInvocation.sessions.rawValue)
+        case .tree:
+            return optionMessage
+        }
     }
 }

@@ -10,9 +10,14 @@ extension CMUXCLI {
         jsonOutput: Bool,
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
-        terminalObservations: [CmuxAgentTerminalObservation] = []
+        terminalObservations: [CmuxAgentTerminalObservation] = [],
+        invocation: AgentsCommandInvocation = .sessions
     ) throws {
         var args = rawArgs
+        let commandName = invocation.rawValue
+        let listContext: AgentsValueOptionContext = invocation == .agents
+            ? .agentsList
+            : .sessionsList
         let subcommand = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if subcommand == "debug" || subcommand == "list" {
             args.removeFirst()
@@ -21,22 +26,24 @@ extension CMUXCLI {
             return
         } else if let subcommand, !subcommand.hasPrefix("-") {
             throw CLIError(message: String(
-                format: String(localized: "cli.sessions.error.unknownSubcommand", defaultValue: "Unknown sessions subcommand: %@. Usage: cmux sessions list [options]"),
-                subcommand
+                format: String(localized: "cli.sessions.error.unknownSubcommand", defaultValue: "Unknown %@ subcommand: %@. Usage: cmux %@ list [options]"),
+                commandName,
+                subcommand,
+                commandName
             ))
         }
 
-        let (agentRaw, rem0) = try parseAgentsValueOption(args, name: "--agent", context: .list)
-        let (sessionRaw, rem1) = try parseAgentsValueOption(rem0, name: "--session", context: .list)
-        let (workspaceRaw, rem2) = try parseAgentsValueOption(rem1, name: "--workspace", context: .list)
-        let (surfaceRaw, rem3) = try parseAgentsValueOption(rem2, name: "--surface", context: .list)
-        let (cwdRaw, rem4) = try parseAgentsValueOption(rem3, name: "--cwd", context: .list)
-        let (stateDirRaw, rem5) = try parseAgentsValueOption(rem4, name: "--state-dir", context: .list)
-        let (codexHomeRaw, rem6) = try parseAgentsValueOption(rem5, name: "--codex-home", context: .list)
-        let (limitRaw, rem7) = try parseAgentsValueOption(rem6, name: "--limit", context: .list)
-        let (stateRaw, rem8) = try parseAgentsValueOption(rem7, name: "--state", context: .list)
-        let (activityRaw, rem9) = try parseAgentsValueOption(rem8, name: "--activity", context: .list)
-        let (workKindRaw, rem10) = try parseAgentsValueOption(rem9, name: "--work-kind", context: .list)
+        let (agentRaw, rem0) = try parseAgentsValueOption(args, name: "--agent", context: listContext)
+        let (sessionRaw, rem1) = try parseAgentsValueOption(rem0, name: "--session", context: listContext)
+        let (workspaceRaw, rem2) = try parseAgentsValueOption(rem1, name: "--workspace", context: listContext)
+        let (surfaceRaw, rem3) = try parseAgentsValueOption(rem2, name: "--surface", context: listContext)
+        let (cwdRaw, rem4) = try parseAgentsValueOption(rem3, name: "--cwd", context: listContext)
+        let (stateDirRaw, rem5) = try parseAgentsValueOption(rem4, name: "--state-dir", context: listContext)
+        let (codexHomeRaw, rem6) = try parseAgentsValueOption(rem5, name: "--codex-home", context: listContext)
+        let (limitRaw, rem7) = try parseAgentsValueOption(rem6, name: "--limit", context: listContext)
+        let (stateRaw, rem8) = try parseAgentsValueOption(rem7, name: "--state", context: listContext)
+        let (activityRaw, rem9) = try parseAgentsValueOption(rem8, name: "--activity", context: listContext)
+        let (workKindRaw, rem10) = try parseAgentsValueOption(rem9, name: "--work-kind", context: listContext)
 
         var includeAll = false
         var localJSONOutput = jsonOutput
@@ -53,13 +60,15 @@ extension CMUXCLI {
         }
         if let unknown = remaining.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(message: String(
-                format: String(localized: "cli.sessions.error.unknownFlag", defaultValue: "sessions list: unknown flag '%@'"),
+                format: String(localized: "cli.sessions.error.unknownFlag", defaultValue: "%@ list: unknown flag '%@'"),
+                commandName,
                 unknown
             ))
         }
         if let extra = remaining.first {
             throw CLIError(message: String(
-                format: String(localized: "cli.sessions.error.unexpectedArgument", defaultValue: "sessions list: unexpected argument '%@'"),
+                format: String(localized: "cli.sessions.error.unexpectedArgument", defaultValue: "%@ list: unexpected argument '%@'"),
+                commandName,
                 extra
             ))
         }
@@ -67,7 +76,10 @@ extension CMUXCLI {
         let limit: Int
         if let limitRaw {
             guard let parsed = Int(limitRaw), parsed > 0 else {
-                throw CLIError(message: String(localized: "cli.sessions.error.invalidLimit", defaultValue: "sessions list: --limit must be a positive integer"))
+                throw CLIError(message: String(
+                    format: String(localized: "cli.sessions.error.invalidLimit", defaultValue: "%@ list: --limit must be a positive integer"),
+                    commandName
+                ))
             }
             limit = parsed
         } else if includeAll {
@@ -101,7 +113,10 @@ extension CMUXCLI {
         let selectedSpecs: [SessionListAgentSpec]
         if let agentRaw, let normalized = requestedAgent {
             guard !normalized.isEmpty else {
-                throw CLIError(message: String(localized: "cli.sessions.error.agentRequiresValue", defaultValue: "sessions list: --agent requires a value"))
+                throw CLIError(message: String(
+                    format: String(localized: "cli.sessions.error.agentRequiresValue", defaultValue: "%@ list: --agent requires a value"),
+                    commandName
+                ))
             }
             let providerID = agentSessionProviderID(
                 for: normalized,
@@ -112,7 +127,8 @@ extension CMUXCLI {
             }
             guard providerID != nil || hasMatchingObservation else {
                 throw CLIError(message: String(
-                    format: String(localized: "cli.sessions.error.unknownAgent", defaultValue: "sessions list: unknown agent '%@'"),
+                    format: String(localized: "cli.sessions.error.unknownAgent", defaultValue: "%@ list: unknown agent '%@'"),
+                    commandName,
                     agentRaw
                 ))
             }
@@ -232,7 +248,7 @@ extension CMUXCLI {
                 fileManager: fileManager
             )
         } catch let failure as AgentHookSessionStoreLoadFailure {
-            throw agentsStoreLoadCLIError(failure, context: .list, jsonOutput: localJSONOutput)
+            throw agentsStoreLoadCLIError(failure, context: listContext, jsonOutput: localJSONOutput)
         }
         storeWarnings.append(contentsOf: snapshotLoad.warnings)
         for spec in selectedSpecs {
@@ -254,7 +270,7 @@ extension CMUXCLI {
                 do {
                     load = try bridge.loadForInspection(snapshot: snapshot)
                 } catch let failure as AgentHookSessionStoreLoadFailure {
-                    throw agentsStoreLoadCLIError(failure, context: .list, jsonOutput: localJSONOutput)
+                    throw agentsStoreLoadCLIError(failure, context: listContext, jsonOutput: localJSONOutput)
                 }
                 store = load.store
                 if let warning = load.warning { storeWarnings.append(warning) }

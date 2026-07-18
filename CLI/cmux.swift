@@ -1704,7 +1704,8 @@ struct CMUXCLI {
                 commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs,
                 jsonOutput: jsonOutput,
                 processEnv: queryEnvironment,
-                terminalObservations: terminalObservations
+                terminalObservations: terminalObservations,
+                invocation: command == "agents" ? .agents : .sessions
             )
             return
         }
