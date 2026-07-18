@@ -7494,6 +7494,28 @@ struct CMUXCLI {
             params["layout"] = layoutObj
         }
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
+        // Process-as-command: pass initial_command into workspace.create so Ghostty
+        // runs the command as the terminal process. Do NOT surface.send_text after
+        // create — that races interactive shell startup (.zshrc, neofetch, and any
+        // other login/rc work) and is not portable across shells. /bin/sh -c is
+        // shell-agnostic and does not source the user's interactive login rc.
+        // Keep in lockstep with Sources/TerminalProcessCommand.initialCommand.
+        // Layout surfaces define their own commands; combining --layout with
+        // --command is ambiguous and must not silently drop the flag.
+        let trimmedCommand = commandOpt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if layoutOpt != nil, !trimmedCommand.isEmpty {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspace.create.error.commandWithLayout",
+                    defaultValue: "%@: --command cannot be combined with --layout (layout surfaces define their own commands)"
+                ),
+                locale: .current,
+                commandName
+            ))
+        }
+        if layoutOpt == nil, !trimmedCommand.isEmpty {
+            params["initial_command"] = Self.workspaceCreateProcessCommand(trimmedCommand)
+        }
         let response = try client.sendV2(method: "workspace.create", params: params)
         let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
         if jsonOutput && honorJSONOutput {
@@ -7501,14 +7523,43 @@ struct CMUXCLI {
         } else {
             print("OK \(wsId)")
         }
-        if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
-            let text = unescapeSendText(commandText + "\\n")
-            let sendParams: [String: Any] = [
-                "text": text,
-                "workspace_id": wsId
-            ]
-            _ = try client.sendV2(method: "surface.send_text", params: sendParams)
+    }
+
+    /// Wrap a user `--command` string so Ghostty runs it as the surface process via
+    /// `/bin/sh -c`, without an interactive login shell (no zshrc/neofetch race).
+    /// Multi-word commands and shell metacharacters are handled portably.
+    ///
+    /// A minimal PATH is injected so user bins and common package-manager locations
+    /// (`~/bin`, Homebrew, `/usr/local`) resolve without sourcing the user's
+    /// interactive rc. Must match `TerminalProcessCommand(...).initialCommand` in Sources
+    /// (same PATH bootstrap and `TerminalStartupShellQuoting.singleQuoted` semantics).
+    private static func workspaceCreateProcessCommand(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Already a posix process wrapper — leave intact (resume scripts, dock scripts, etc.).
+        if trimmed.hasPrefix("/bin/sh -c ")
+            || trimmed.hasPrefix("/bin/bash -c ")
+            || trimmed.hasPrefix("/usr/bin/env ")
+            || (trimmed.hasPrefix("/") && !trimmed.contains(" ") && !trimmed.contains("'")) {
+            return trimmed
         }
+        // Single-line prefix (no line-continuation backslash): inside a single-quoted
+        // payload a trailing `\` would be literal and break the following command.
+        let bootstrap =
+            #"export PATH="${HOME}/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin${PATH:+:$PATH}"; "#
+        return "/bin/sh -c " + processCommandSingleQuoted(bootstrap + trimmed)
+    }
+
+    /// Shell single-quote matching `TerminalStartupShellQuoting.singleQuoted` in Sources
+    /// (printf-octal for non-ASCII UTF-8; `'\''` for ASCII apostrophes). Kept separate from
+    /// `shellSingleQuote` so freestyle cloud exports keep their existing quoting style.
+    private static func processCommandSingleQuoted(_ value: String) -> String {
+        if value.utf8.contains(where: { $0 >= 0x80 }) {
+            let octalBytes = value.utf8
+                .map { String(format: #"\%03o"#, Int($0)) }
+                .joined()
+            return #""$(printf '"# + octalBytes + #"')""#
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Parses repeatable `--env KEY=VALUE` / `--env=KEY=VALUE` and
@@ -15729,7 +15780,7 @@ struct CMUXCLI {
               cmux rename-tab --workspace workspace:2 --surface surface:5 --title "agent run"
             """
         case "new-workspace":
-            return """
+            return String(localized: "cli.new-workspace.usage", defaultValue: """
             Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--env KEY=VALUE]... [--env-file <path>]... [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
 
             Create a new workspace in the caller's window.
@@ -15738,7 +15789,10 @@ struct CMUXCLI {
               --name <title>       Set a custom name for the new workspace
               --description <text> Set a custom description for the new workspace
               --cwd <path>         Set the working directory for the new workspace
-              --command <text>     Send text+Enter to the new workspace after creation
+              --command <text>     Run as the initial terminal process (process-as-command
+                                   via /bin/sh -c; not typed into an interactive shell).
+                                   Pane stays open after the command exits (wait-after-command).
+                                   Cannot be combined with --layout.
               --env KEY=VALUE      Set a workspace environment variable. Repeatable.
                                    Reserved CMUX_* variables cannot be overridden.
               --env-file <path>    Load KEY=VALUE lines from a file. Repeatable.
@@ -15757,7 +15811,7 @@ struct CMUXCLI {
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
               cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
-            """
+            """)
         case "list-workspaces":
             return """
             Usage: cmux list-workspaces [--window <id|ref|index>]

@@ -31,6 +31,51 @@ enum TerminalStartupShellQuoting {
     }
 }
 
+/// Value type that owns a user/config command and exposes its Ghostty
+/// `initial_command` form for process-as-command launches.
+///
+/// Prefer this over typing into an interactive shell (`send_text` / `sendInputWhenReady`)
+/// when a command should be the surface's initial process: that path is shell-agnostic,
+/// does not race interactive login rc (neofetch, zshrc, etc.), and keeps the pane
+/// observable via wait-after-command.
+///
+/// Keep the CLI (`CMUXCLI.workspaceCreateProcessCommand`) in lockstep — the CLI target
+/// cannot share this type, but both must produce the same `/bin/sh -c` + PATH shape.
+nonisolated struct TerminalProcessCommand: Sendable, Equatable {
+    /// Ghostty `initial_command` string (already-wrapped process forms are unchanged).
+    let initialCommand: String
+
+    /// Minimal PATH so common user and package-manager bins resolve without sourcing
+    /// the user's interactive login rc. Order: `~/bin`, Homebrew, `/usr/local`, system.
+    private static let pathBootstrapPrefix =
+        #"export PATH="${HOME}/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin${PATH:+:$PATH}"; "#
+
+    /// Wraps `command` as a portable process-as-command. Empty input stays empty.
+    /// Already-wrapped process forms (`/bin/sh -c …`, absolute single tokens, etc.)
+    /// are left intact so resume/dock scripts are not double-wrapped.
+    init(_ command: String) {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            initialCommand = trimmed
+            return
+        }
+        if Self.isAlreadyProcessWrapper(trimmed) {
+            initialCommand = trimmed
+            return
+        }
+        initialCommand =
+            "/bin/sh -c " + TerminalStartupShellQuoting.singleQuoted(Self.pathBootstrapPrefix + trimmed)
+    }
+
+    /// True when `command` is already a process launch form that should not be re-wrapped.
+    private static func isAlreadyProcessWrapper(_ command: String) -> Bool {
+        command.hasPrefix("/bin/sh -c ")
+            || command.hasPrefix("/bin/bash -c ")
+            || command.hasPrefix("/usr/bin/env ")
+            || (command.hasPrefix("/") && !command.contains(" ") && !command.contains("'"))
+    }
+}
+
 fileprivate func shellSingleQuoted(_ value: String) -> String {
     TerminalStartupShellQuoting.singleQuoted(value)
 }
