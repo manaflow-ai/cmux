@@ -23,6 +23,7 @@ extension AgentLaunchSanitizer {
             "--rules",
             "--sandbox",
             "--session-id",
+            "-s",
             "--system-prompt-override",
             "--tools",
             "--worktree",
@@ -48,6 +49,7 @@ extension AgentLaunchSanitizer {
             "--no-subagents",
             "--oauth",
             "--verbatim",
+            "--check",
         ],
         nonRestorableCommands: [
             "agent",
@@ -83,6 +85,7 @@ extension AgentLaunchSanitizer {
             "-r",
             "--fork-session",
             "--session-id",
+            "-s",
             "--worktree",
             "--worktree-ref",
             "-w"
@@ -92,6 +95,7 @@ extension AgentLaunchSanitizer {
             "-r=",
             "--fork-session=",
             "--session-id=",
+            "-s=",
             "--worktree=",
             "--worktree-ref=",
             "-w="

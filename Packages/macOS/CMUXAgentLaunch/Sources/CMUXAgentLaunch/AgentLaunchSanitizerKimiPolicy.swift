@@ -14,6 +14,9 @@ extension AgentLaunchSanitizer {
             "--mcp-config-file", "--mcp-config", "--skills-dir",
             "--max-steps-per-turn", "--max-retries-per-step", "--max-ralph-iterations",
         ],
+        optionalValueOptions: [
+            "--session", "--resume", "-S", "-r",
+        ],
         booleanOptions: [
             "--auto-approve",
             "--debug",

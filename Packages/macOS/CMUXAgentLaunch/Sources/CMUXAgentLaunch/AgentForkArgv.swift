@@ -155,14 +155,6 @@ public struct AgentForkArgv: Sendable, Equatable {
                 executablePath: executablePath,
                 arguments: arguments
             )
-        case "omp":
-            return withForkSessionValue(
-                kind: "omp",
-                executable: "omp",
-                sessionId: sessionId,
-                executablePath: executablePath,
-                arguments: arguments
-            )
         default:
             return nil
         }

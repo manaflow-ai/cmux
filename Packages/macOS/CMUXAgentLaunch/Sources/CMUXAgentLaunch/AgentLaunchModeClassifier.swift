@@ -373,7 +373,11 @@ public enum AgentLaunchModeClassifier {
     }
 
     private static func nonSessionOptions(for kind: String) -> Set<String> {
-        AgentLaunchSanitizer.nonSessionMetadataOptions(kind: kind)
+        var options = AgentLaunchSanitizer.nonSessionMetadataOptions(kind: kind)
+        if kind == "gemini" {
+            options.formUnion(["--list-sessions", "--delete-session", "--list-extensions"])
+        }
+        return options
     }
 
     private static func oneShotCommandAllowsUnknownTrailingOptions(

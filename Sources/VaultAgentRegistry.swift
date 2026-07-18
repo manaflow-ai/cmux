@@ -155,8 +155,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
                 alternateArgvContains: ["@oh-my-pi/pi-coding-agent"]
             ),
             sessionIdSource: .piSessionFile,
-            resumeCommand: "{{executable}} --session {{sessionId}}",
-            forkCommand: "{{executable}} --fork {{sessionId}}",
+            resumeCommand: "{{executable}} --resume {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.omp/agent/sessions"
         )
@@ -166,7 +165,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         if matchesPersistedBuiltInHistory(current: Self.builtInPi) {
             return Self.builtInPi
         }
-        if matchesPersistedBuiltInHistory(current: Self.builtInOmp) {
+        if matchesPersistedBuiltInOmpHistory() {
             return Self.builtInOmp
         }
         if matchesPersistedBuiltInWithoutFork(current: Self.builtInGrok) {
@@ -186,6 +185,26 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         }
         var candidate = self
         candidate.iconAssetName = current.iconAssetName
+        candidate.forkCommand = current.forkCommand
+        return candidate == current
+    }
+
+    private func matchesPersistedBuiltInOmpHistory() -> Bool {
+        let current = Self.builtInOmp
+        let legacyResumeCommand = "{{executable}} --session {{sessionId}}"
+        let legacyForkCommands: Set<String> = [
+            "{{executable}} --fork {{sessionId}}",
+            "{{executable}} --session {{sessionId}} --fork",
+        ]
+        let hasKnownForkCommand = forkCommand.map(legacyForkCommands.contains) ?? true
+        guard resumeCommand == legacyResumeCommand,
+              hasKnownForkCommand,
+              iconAssetName == nil || iconAssetName == current.iconAssetName else {
+            return false
+        }
+        var candidate = self
+        candidate.iconAssetName = current.iconAssetName
+        candidate.resumeCommand = current.resumeCommand
         candidate.forkCommand = current.forkCommand
         return candidate == current
     }

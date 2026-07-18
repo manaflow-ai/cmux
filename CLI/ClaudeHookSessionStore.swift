@@ -1225,16 +1225,26 @@ final class ClaudeHookSessionStore {
         lineage: AgentHookSessionLineage,
         now: TimeInterval
     ) {
+        var effectiveLineage = lineage
+        switch lineage.processLaunchMode {
+        case .oneShot, .nonSession:
+            // Utility and print/exec processes may publish hooks while they are
+            // alive, but they never own an interactive conversation that cmux
+            // may replay after hibernation or app restore.
+            effectiveLineage.restoreAuthority = false
+        case .interactive, .unknown:
+            break
+        }
         let runs = AgentSessionRunReconciler(maximumRecords: Self.maxRunsPerSession).reconciling(
             record.runs ?? [],
             activeRunId: record.activeRunId,
-            lineage: lineage,
+            lineage: effectiveLineage,
             now: now
         )
         record.runs = runs
-        record.activeRunId = lineage.runId
-        record.runId = lineage.runId
-        let activeRun = runs.first { $0.runId == lineage.runId }
+        record.activeRunId = effectiveLineage.runId
+        record.runId = effectiveLineage.runId
+        let activeRun = runs.first { $0.runId == effectiveLineage.runId }
         record.cmuxRuntime = activeRun?.cmuxRuntime
         record.parentRunId = activeRun?.parentRunId
         record.restoreAuthority = activeRun?.restoreAuthority ?? false

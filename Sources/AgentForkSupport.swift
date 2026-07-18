@@ -56,10 +56,9 @@ enum AgentForkSupport {
     }
 
     static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
-    // Pi v0.60.0 and OMP v13.15.0 are the first releases containing the
-    // upstream CLI `--fork <path|id>` implementation.
+    // Pi v0.60.0 is the first release containing the upstream CLI
+    // `--fork <path|id>` implementation.
     static let minimumPiForkVersion = SemanticVersion(major: 0, minor: 60, patch: 0)
-    static let minimumOmpForkVersion = SemanticVersion(major: 13, minor: 15, patch: 0)
     private static let piFamilyBareVersionExpression = try! NSRegularExpression(
         pattern: #"^v?\d+\.\d+(?:\.\d+)?$"#
     )
@@ -369,8 +368,6 @@ enum AgentForkSupport {
             return registration.forkCommand == CmuxVaultAgentRegistration.builtInPi.forkCommand
         case .custom("pi"):
             return snapshot.registration?.forkCommand == CmuxVaultAgentRegistration.builtInPi.forkCommand
-        case .custom("omp"):
-            return snapshot.registration?.forkCommand == CmuxVaultAgentRegistration.builtInOmp.forkCommand
         default:
             return false
         }
@@ -435,19 +432,13 @@ enum AgentForkSupport {
         agentID: String,
         acceptsBareVersionOutput: Bool = false
     ) -> Bool {
+        guard agentID == "pi" else { return false }
         guard let version = piFamilyProbeVersion(
             in: output,
             agentID: agentID,
             acceptsBareVersionOutput: acceptsBareVersionOutput
         ) else { return false }
-        switch agentID {
-        case "pi":
-            return version >= minimumPiForkVersion
-        case "omp":
-            return version >= minimumOmpForkVersion
-        default:
-            return false
-        }
+        return version >= minimumPiForkVersion
     }
 
     private static func piFamilyProbeVersion(

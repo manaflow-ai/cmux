@@ -472,6 +472,7 @@ extension AgentLaunchSanitizer {
         ],
         booleanOptions: [
             "--accept-hooks",
+            "--checkpoints",
             "--dev",
             "--ignore-rules",
             "--ignore-user-config",

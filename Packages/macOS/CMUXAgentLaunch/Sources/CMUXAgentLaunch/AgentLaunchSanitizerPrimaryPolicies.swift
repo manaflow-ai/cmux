@@ -249,7 +249,12 @@ extension AgentLaunchSanitizer {
             "-e",
             "-n",
             "-r",
-            "-t"
+            "-t",
+            "-xt"
+        ],
+        optionalValueOptions: [
+            "--resume",
+            "-r"
         ],
         booleanOptions: [
             "--approve",
@@ -319,6 +324,8 @@ extension AgentLaunchSanitizer {
     /// Pi extensions may define the same spellings with different arity.
     static let ompPolicy: Policy = {
         var policy = piPolicy
+        // OMP 16.x has no Pi-compatible `-xt` alias.
+        policy.valueOptions.remove("-xt")
         policy.valueOptions.formUnion([
             "--approval-mode",
             "--config",
@@ -593,7 +600,6 @@ extension AgentLaunchSanitizer {
             "install-shell-integration",
             "login",
             "logout",
-            "ls",
             "mcp",
             "models",
             "rule",

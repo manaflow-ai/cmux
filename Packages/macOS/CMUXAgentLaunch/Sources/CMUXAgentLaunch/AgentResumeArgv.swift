@@ -364,7 +364,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "pi":
             return withOption("pi", executable: "pi", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "omp":
-            return withOption("omp", executable: "omp", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            return withOption("omp", executable: "omp", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "campfire":
             return withOption("campfire", executable: "campfire", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "amp":
