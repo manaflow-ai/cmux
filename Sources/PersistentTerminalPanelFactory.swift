@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxTerminalFrontend
 import Foundation
 
 /// Constructs terminals whose PTY, parser, and renderer are owned by the persistent backend.
@@ -46,7 +47,7 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
             initialEnvironmentOverrides: request.initialEnvironmentOverrides,
             additionalEnvironment: request.additionalEnvironment
         )
-        let runtime = PersistentTerminalExternalRuntime(
+        let backendRuntime = PersistentTerminalExternalRuntime(
             client: backendClient,
             launchResolver: launchResolver,
             launchRequest: launchRequest,
@@ -57,14 +58,28 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
             externalMutationRouter: remoteTmuxSurfaceRegistry?
                 .runtimeMutationRouter(surfaceID: request.id)
         )
+        let frontendPanel = TerminalFrontendPanel(
+            surfaceID: request.id,
+            workspaceID: request.workspaceId,
+            runtime: backendRuntime
+        )
         let panel = TerminalPanel(
             externalRequest: request,
             presentationDependencies: presentationDependencies,
-            externalRuntime: runtime
+            externalRuntime: frontendPanel
         )
+        guard
+            let interactionAdapter = panel.surface.compositorHostView
+                as? ExternalTerminalHostNSView
+        else {
+            preconditionFailure(
+                "Persistent panels require the external interaction compatibility adapter"
+            )
+        }
+        interactionAdapter.installFrontendPanel(frontendPanel)
         _ = presentationRegistry.mountCompositor(
             surfaceID: request.id,
-            in: panel.surface.compositorHostView
+            in: frontendPanel.surfaceView
         )
         return panel
     }

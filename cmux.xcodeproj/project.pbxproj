@@ -666,6 +666,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CBAC00000000000000000001 /* CmuxTerminalBackendService in Frameworks */ = {isa = PBXBuildFile; productRef = CBAC00000000000000000004 /* CmuxTerminalBackendService */; };
 		CBAC00000000000000000002 /* CmuxTerminalBackendService in Frameworks */ = {isa = PBXBuildFile; productRef = CBAC00000000000000000004 /* CmuxTerminalBackendService */; };
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
+		C7505F0000000000000000A3 /* CmuxTerminalFrontend in Frameworks */ = {isa = PBXBuildFile; productRef = C7505F0000000000000000A2 /* CmuxTerminalFrontend */; };
+		C7505F0000000000000000A4 /* CmuxTerminalFrontend in Frameworks */ = {isa = PBXBuildFile; productRef = C7505F0000000000000000A2 /* CmuxTerminalFrontend */; };
 		CBAD00000000000000000304 /* CmuxTerminalRenderCompositor in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000504 /* CmuxTerminalRenderCompositor */; };
 		CBAD00000000000000000302 /* CmuxTerminalRenderProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */; };
 		CBAD00000000000000000306 /* CmuxTerminalRenderProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */; };
@@ -4235,6 +4237,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000301 /* CmuxTerminalBackend in Frameworks */,
 				CBAC00000000000000000001 /* CmuxTerminalBackendService in Frameworks */,
 				C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */,
+				C7505F0000000000000000A3 /* CmuxTerminalFrontend in Frameworks */,
 				CBAD00000000000000000304 /* CmuxTerminalRenderCompositor in Frameworks */,
 				CBAD00000000000000000302 /* CmuxTerminalRenderProtocol in Frameworks */,
 				CBAD00000000000000000303 /* CmuxTerminalRenderTransport in Frameworks */,
@@ -4302,6 +4305,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				CBAD00000000000000000305 /* CmuxTerminalBackend in Frameworks */,
 				CBAC00000000000000000002 /* CmuxTerminalBackendService in Frameworks */,
+				C7505F0000000000000000A4 /* CmuxTerminalFrontend in Frameworks */,
 				CBAD00000000000000000306 /* CmuxTerminalRenderProtocol in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
@@ -6486,6 +6490,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */,
 				CBAD00000000000000000503 /* CmuxTerminalRenderTransport */,
 				CBAD00000000000000000504 /* CmuxTerminalRenderCompositor */,
+				C7505F0000000000000000A2 /* CmuxTerminalFrontend */,
 				5E55200000000000000000B2 /* CmuxWindowing */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C617000000000000000000A2 /* CmuxGit */,
@@ -6606,6 +6611,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000501 /* CmuxTerminalBackend */,
 				CBAC00000000000000000004 /* CmuxTerminalBackendService */,
 				CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */,
+				C7505F0000000000000000A2 /* CmuxTerminalFrontend */,
 				D7032A060000000000000002 /* CmuxBrowser */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
@@ -9759,6 +9765,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCSwiftPackageProductDependency;
 			package = C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */;
 			productName = CmuxTerminal;
+		};
+		C7505F0000000000000000A2 /* CmuxTerminalFrontend */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */;
+			productName = CmuxTerminalFrontend;
 		};
 		CBAD00000000000000000501 /* CmuxTerminalBackend */ = {
 			isa = XCSwiftPackageProductDependency;
