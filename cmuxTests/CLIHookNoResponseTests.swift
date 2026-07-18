@@ -342,6 +342,100 @@ struct CLIHookNoResponseTests {
         }
     }
 
+    @Test func nativeCodexAdmissionFallsBackToLegacyCommandForOlderApp() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-native-rolling-version-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux-legacy-fallback", isDirectory: false)
+        let fallbackArgs = root.appendingPathComponent("fallback-args.txt", isDirectory: false)
+        let fallbackInput = root.appendingPathComponent("fallback-input.json", isDirectory: false)
+        let socketPath = Self.makeSocketPath("native-rolling")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 8)
+        let state = MockSocketServerState()
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let hookPath = try #require(
+            FileManager.default
+                .contentsOfDirectory(at: hooksDirectory, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
+        )
+        #expect(codexHookExecutableIsMachO(hookPath.path))
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s' \"$*\" > \"$CMUX_TEST_FALLBACK_ARGS\"",
+            "cat > \"$CMUX_TEST_FALLBACK_INPUT\"",
+        ])
+        let server = Self.startMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: { line in
+                Self.jsonObject(line)?["method"] as? String == "agent.hook.enqueue"
+            }
+        ) { line in
+            guard let request = Self.jsonObject(line),
+                  let id = request["id"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(id: id, ok: false, error: [
+                "code": "unrecognized_method",
+                "message": "older cmux does not support agent.hook.enqueue",
+            ])
+        }
+        let payload = #"{"session_id":"rolling-version-session","hook_event_name":"SessionStart"}"#
+        let started = ContinuousClock().now
+        let result = runCodexHookProcess(
+            executablePath: hookPath.path,
+            arguments: [],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_AGENT_HOOK_DELIVERY_ID": "native-rolling-version",
+                "CMUX_TEST_FALLBACK_ARGS": fallbackArgs.path,
+                "CMUX_TEST_FALLBACK_INPUT": fallbackInput.path,
+            ],
+            standardInput: payload,
+            timeout: 0.35
+        )
+        let elapsed = started.duration(to: .now)
+
+        #expect(server.wait(timeout: 5), "Older app did not receive the queue capability probe")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(elapsed < .seconds(0.25), "Rolling-version fallback took \(elapsed)")
+        #expect(waitForCondition(timeout: 1) {
+            FileManager.default.fileExists(atPath: fallbackArgs.path)
+                && FileManager.default.fileExists(atPath: fallbackInput.path)
+        })
+        #expect(
+            try String(contentsOf: fallbackArgs, encoding: .utf8)
+                == "--socket \(socketPath) hooks codex session-start"
+        )
+        #expect(try String(contentsOf: fallbackInput, encoding: .utf8) == payload)
+    }
+
     private static func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: BundleProbe.self)
