@@ -1817,6 +1817,64 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertTrue(fork.contains("fork") && fork.contains(sid), "codex fork must use the fork verb and session id; got: \(fork)")
     }
 
+    // Records written before launch-capture validation can claim the correct
+    // launcher while carrying an unrelated interpreter entrypoint. Only the
+    // actual script token, not a later prompt/file argument named `codex`, can
+    // establish executable identity for automatic replay.
+    @Test
+    func testMisleadingInterpreterCaptureIsDiscardedForResumeAndFork() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-misleading-interpreter-capture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessionID = "99999999-9999-9999-9999-999999999999"
+        var record = driftedAgentHookRecord(
+            launcher: "codex",
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            panelId: panelID,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "codex",
+            "executablePath": "/usr/local/bin/node",
+            "arguments": [
+                "/usr/local/bin/node",
+                "/tmp/unrelated-tool.js",
+                "/tmp/codex",
+                "--print",
+            ],
+            "workingDirectory": dir.path,
+            "capturedAt": 10,
+            "source": "process",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sessionID: record]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: workspaceID, panelId: panelID)
+        )
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertFalse(resume.contains("'node'"), "codex resume must not run the unrelated interpreter; got: \(resume)")
+        XCTAssertFalse(resume.contains("unrelated-tool.js"), "codex resume must drop the unrelated script; got: \(resume)")
+        XCTAssertTrue(resume.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex resume must use canonical Codex replay; got: \(resume)")
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertFalse(fork.contains("'node'"), "codex fork must not run the unrelated interpreter; got: \(fork)")
+        XCTAssertFalse(fork.contains("unrelated-tool.js"), "codex fork must drop the unrelated script; got: \(fork)")
+        XCTAssertTrue(fork.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex fork must use canonical Codex replay; got: \(fork)")
+    }
+
     // Wrapper launchers legitimately differ from the hook kind; their captures must stay trusted.
     @Test
     func testWrapperLauncherCaptureStaysTrusted() throws {
