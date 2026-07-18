@@ -2444,6 +2444,71 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     @MainActor
     @Test(arguments: [true, false])
+    func preAdoptionForeignRuntimeUsesProcessGenerationWhenSocketIsUnavailable(
+        foreignProcessIsLive: Bool
+    ) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pre-adoption-process-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let currentIdentity = try #require(AgentPIDProcessIdentity(pid: getpid()))
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "new-runtime",
+        ]
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: foreignProcessIsLive ? "live-process-owner" : "recycled-process-owner"
+        )
+        let foreignRuntime: [String: Any] = [
+            "id": "old-runtime",
+            "processId": Int(currentIdentity.pid),
+            "processStartSeconds": foreignProcessIsLive
+                ? currentIdentity.startSeconds
+                : currentIdentity.startSeconds - 1,
+            "processStartMicroseconds": currentIdentity.startMicroseconds,
+        ]
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID,
+            runtime: foreignRuntime
+        )
+        let targetWorkspaceId = UUID()
+        let targetSurfaceId = UUID()
+        let writer = AgentHookSessionStateWriter(
+            homeDirectory: root.path,
+            environment: environment
+        )
+
+        let adopted = writer.recordRestoredHibernationSynchronously(
+            kind: .codex,
+            sessionId: fixture.agent.sessionId,
+            previousWorkspaceId: fixture.source.id.uuidString,
+            previousSurfaceId: fixture.sourcePanelID.uuidString,
+            workspaceId: targetWorkspaceId.uuidString,
+            surfaceId: targetSurfaceId.uuidString,
+            now: 30
+        )
+        let snapshot = try registry.snapshot(provider: "codex")
+        let stored = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: stored.json) as? [String: Any])
+
+        #expect(adopted == !foreignProcessIsLive)
+        #expect(object["workspaceId"] as? String == (
+            foreignProcessIsLive ? fixture.source.id.uuidString : targetWorkspaceId.uuidString
+        ))
+        #expect(object["surfaceId"] as? String == (
+            foreignProcessIsLive ? fixture.sourcePanelID.uuidString : targetSurfaceId.uuidString
+        ))
+    }
+
+    @MainActor
+    @Test(arguments: [true, false])
     func currentListenerOwnershipUsesConfiguredAndOverrideSocketPaths(
         usesEnvironmentOverride: Bool
     ) throws {
@@ -3339,7 +3404,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(!snapshot.activeSlots.contains { $0.scopeID == restoredPanelID.uuidString })
     }
 
-    @Test func hibernationMovesTheSessionIntoTheCurrentCmuxRuntime() throws {
+    @Test func hibernationTracksTheActualListenerSocketAcrossRebinds() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-runtime-hibernation-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -3371,14 +3436,17 @@ extension CMUXCLIErrorOutputRegressionTests {
         try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
             .write(to: stateURL, options: .atomic)
 
+        let firstSocketPath = "/tmp/cmux-current-first-\(UUID().uuidString).sock"
         AgentHookSessionStateWriter(
             homeDirectory: root.path,
             environment: [
                 "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
                 "CMUX_RUNTIME_ID": "current-runtime",
-                "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
                 "CMUX_BUNDLE_ID": "com.cmuxterm.current",
-            ]
+            ],
+            currentSocketStateResolver: { _ in
+                (activePath: firstSocketPath, pathOwnedByCurrentListener: true)
+            }
         ).setLifecycleSynchronously(
             kind: .codex,
             sessionId: "session",
@@ -3394,9 +3462,117 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(record["sessionState"] as? String == "hibernated")
         let recordRuntime = try #require(record["cmuxRuntime"] as? [String: Any])
         #expect(recordRuntime["id"] as? String == "current-runtime")
+        #expect(recordRuntime["socketPath"] as? String == firstSocketPath)
         let runs = try #require(record["runs"] as? [[String: Any]])
         let runRuntime = try #require(runs.first?["cmuxRuntime"] as? [String: Any])
         #expect(runRuntime["id"] as? String == "current-runtime")
+        #expect(runRuntime["socketPath"] as? String == firstSocketPath)
+
+        let reboundSocketPath = "/tmp/cmux-current-rebound-\(UUID().uuidString).sock"
+        AgentHookSessionStateWriter(
+            homeDirectory: root.path,
+            environment: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                "CMUX_RUNTIME_ID": "current-runtime",
+                "CMUX_BUNDLE_ID": "com.cmuxterm.current",
+            ],
+            currentSocketStateResolver: { _ in
+                (activePath: reboundSocketPath, pathOwnedByCurrentListener: true)
+            }
+        ).setLifecycleSynchronously(
+            kind: .codex,
+            sessionId: "session",
+            state: .restoring,
+            now: 201
+        )
+
+        let reboundRoot = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        let reboundSessions = try #require(reboundRoot["sessions"] as? [String: Any])
+        let reboundRecord = try #require(reboundSessions["session"] as? [String: Any])
+        let reboundRuntime = try #require(reboundRecord["cmuxRuntime"] as? [String: Any])
+        #expect(reboundRuntime["socketPath"] as? String == reboundSocketPath)
+    }
+
+    @MainActor
+    @Test(arguments: ["clear", "evict"])
+    func permanentlyDiscardedClosedHistoryReleasesHibernatedAuthority(
+        removal: String
+    ) async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-release-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "closed-history-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "closed-history-\(removal)"
+        )
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID
+        )
+        let hibernatedPanel = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.sourcePanelID }
+        )
+        let store = ClosedItemHistoryStore(capacity: removal == "evict" ? 1 : 2)
+        store.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: fixture.source.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: hibernatedPanel
+        )))
+
+        if removal == "clear" {
+            store.removeAll()
+        } else {
+            var replacementPanel = hibernatedPanel
+            replacementPanel.id = UUID()
+            replacementPanel.terminal?.agent = nil
+            replacementPanel.terminal?.hibernation = nil
+            store.push(.panel(ClosedPanelHistoryEntry(
+                workspaceId: UUID(),
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: replacementPanel
+            )))
+        }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        var registrySnapshot = try registry.snapshot(provider: "codex")
+        while clock.now < deadline {
+            guard let record = registrySnapshot.records.first,
+                  let object = try JSONSerialization.jsonObject(with: record.json) as? [String: Any],
+                  object["sessionState"] as? String != "ended" else {
+                break
+            }
+            try await clock.sleep(for: .milliseconds(10))
+            registrySnapshot = try registry.snapshot(provider: "codex")
+        }
+
+        let stored = try #require(registrySnapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: stored.json) as? [String: Any])
+        #expect(object["sessionState"] as? String == "ended")
+        #expect(object["restoreAuthority"] as? Bool == false)
+        #expect(registrySnapshot.activeSlots.isEmpty)
     }
 
     @Test func agentsTreeDefaultsToTheCallingCmuxRuntimeWhileAllIncludesHistory() throws {
