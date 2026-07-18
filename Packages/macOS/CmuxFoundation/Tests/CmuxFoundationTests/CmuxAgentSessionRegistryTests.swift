@@ -575,7 +575,10 @@ struct CmuxAgentSessionRegistryTests {
         defer { sqlite3_close(writer) }
         #expect(sqlite3_exec(
             writer,
-            "UPDATE agent_sessions SET record_json = X'7B' WHERE provider = 'codex' AND session_id = 'corrupt'",
+            // Keep the payload valid JSON so SQLite's JSON expression index
+            // accepts the fixture, while making it the wrong top-level shape
+            // for a registry session record.
+            "UPDATE agent_sessions SET record_json = X'5B5D' WHERE provider = 'codex' AND session_id = 'corrupt'",
             nil,
             nil,
             nil
