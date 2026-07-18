@@ -172,4 +172,88 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(snapshot.records.contains { $0.sessionID == "newest" })
         #expect(!snapshot.records.contains { $0.sessionID == "retained-0" })
     }
+
+    @Test func acceptedResumeHookClearsHibernationAttemptsAndPreservesFutureFields() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-hook-cleanup-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/usr/bin/yes", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let sessionID = "resumed-session"
+        let hibernationAttemptID = UUID().uuidString
+        let resumeAttemptID = UUID().uuidString
+        let restoreAdoptionID = UUID().uuidString
+        let original: [String: Any] = [
+            "version": 2,
+            "sessions": [sessionID: [
+                "sessionId": sessionID,
+                "workspaceId": "workspace-old",
+                "surfaceId": "surface-old",
+                "sessionState": "restoring",
+                "restoreAuthority": true,
+                "cmuxHibernationAttemptId": hibernationAttemptID,
+                "cmuxHibernatedAt": 100.0,
+                "cmuxHibernationDetached": true,
+                "cmuxHibernationResumeAttemptId": resumeAttemptID,
+                "cmuxHibernationResumeStartedAt": 200.0,
+                "cmuxHibernationResumeFromAttemptId": hibernationAttemptID,
+                "cmuxRestoreAdoptionId": restoreAdoptionID,
+                "futureWriterField": "preserve-me",
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+        ]
+        try JSONSerialization.data(withJSONObject: original, options: [.sortedKeys])
+            .write(to: stateURL, options: .atomic)
+
+        let store = ClaudeHookSessionStore(
+            processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+                "CMUX_RUNTIME_ID": "resumed-runtime",
+            ],
+            agentName: "codex"
+        )
+        #expect(try store.upsert(
+            sessionId: sessionID,
+            workspaceId: "workspace-new",
+            surfaceId: "surface-new",
+            cwd: root.path,
+            pid: Int(process.processIdentifier),
+            markActive: true
+        ))
+
+        let stored = try #require(
+            try CmuxAgentSessionRegistry(url: registryURL)
+                .snapshot(provider: "codex")
+                .records
+                .first { $0.sessionID == sessionID }
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: stored.json) as? [String: Any]
+        )
+        #expect(object["sessionState"] as? String == "active")
+        #expect(object["cmuxHibernationAttemptId"] == nil)
+        #expect(object["cmuxHibernatedAt"] == nil)
+        #expect(object["cmuxHibernationDetached"] == nil)
+        #expect(object["cmuxHibernationResumeAttemptId"] == nil)
+        #expect(object["cmuxHibernationResumeStartedAt"] == nil)
+        #expect(object["cmuxHibernationResumeFromAttemptId"] == nil)
+        #expect(object["cmuxRestoreAdoptionId"] == nil)
+        #expect(object["futureWriterField"] as? String == "preserve-me")
+    }
 }
