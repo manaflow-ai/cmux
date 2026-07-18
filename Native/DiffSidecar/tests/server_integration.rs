@@ -418,6 +418,7 @@ fn rpc_resolves_agent_turn_from_provider_and_session_id() {
         uuid::Uuid::new_v4()
     ));
     let home = prepare_agent_rpc_fixture(&root);
+    let expected_repo = std::fs::canonicalize(root.join("repo")).expect("canonical repo");
     let token = "0123456789abcdef";
     let request = serde_json::to_vec(&serde_json::json!({
         "id": "agent-session",
@@ -445,6 +446,10 @@ fn rpc_resolves_agent_turn_from_provider_and_session_id() {
             "provider": "claude",
             "sessionId": "claude-session"
         })
+    );
+    assert_eq!(
+        response["result"]["value"]["repoRoot"],
+        expected_repo.to_string_lossy().as_ref()
     );
     let patch_id = response["result"]["value"]["patch"]["id"]
         .as_str()

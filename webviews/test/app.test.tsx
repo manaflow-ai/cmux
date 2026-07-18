@@ -214,6 +214,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
 test("custom-scheme pending pages stream an agent trajectory session", async () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/last-turn.html");
   const requests: any[] = [];
+  const commentRequests: any[] = [];
   installDomGlobals(dom, () => new Response("", { status: 200 }));
   (dom.window as any).webkit = {
     messageHandlers: {
@@ -234,10 +235,17 @@ test("custom-scheme pending pages stream an agent trajectory session", async () 
                   revision: 1,
                 },
                 source: request.params.source,
+                repoRoot: "/tmp/resolved-repo",
               },
             },
             error: null,
           };
+        },
+      },
+      cmuxDiffComments: {
+        async postMessage(request: any) {
+          commentRequests.push(request);
+          return { ok: true, value: { comments: [] } };
         },
       },
     },
@@ -249,6 +257,7 @@ test("custom-scheme pending pages stream an agent trajectory session", async () 
       config={{ payload: {
         capabilityToken: "0123456789abcdef",
         pendingReplacement: true,
+        repoRoot: "/tmp/initial-repo",
         sessionSource: source,
         statusMessage: "Loading diff",
         transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
@@ -259,6 +268,7 @@ test("custom-scheme pending pages stream an agent trajectory session", async () 
 
   await waitFor(() => requests.some((request) => request.method === "sessionOpen"));
   expect(requests.find((request) => request.method === "sessionOpen").params.source).toEqual(source);
+  await waitFor(() => commentRequests.some((request) => request.params.repoRoot === "/tmp/resolved-repo"));
 });
 
 test("typed Rust empty diffs keep the localized source-specific message", async () => {

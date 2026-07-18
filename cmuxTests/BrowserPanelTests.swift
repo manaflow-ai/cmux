@@ -1022,6 +1022,26 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertFalse(DiffViewerLoadingPage.owns(url: completedURL, expectedURL: expectedURL))
     }
 
+    func testDiffViewerLoadingOwnershipRejectsSupersededOperation() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: DiffViewerLoadingPage.url,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+        let firstOperationID = panel.beginDiffViewerLoadingOperation()
+        let secondOperationID = panel.beginDiffViewerLoadingOperation()
+
+        XCTAssertFalse(panel.isShowingDiffViewerLoadingState(
+            expectedURL: DiffViewerLoadingPage.url.absoluteString,
+            operationID: firstOperationID
+        ))
+        XCTAssertTrue(panel.isShowingDiffViewerLoadingState(
+            expectedURL: DiffViewerLoadingPage.url.absoluteString,
+            operationID: secondOperationID
+        ))
+    }
+
     func testDiffViewerLoadingOwnershipYieldsToProvisionalUserNavigation() throws {
         let expectedURL = DiffViewerLoadingPage.url.absoluteString
         let userURL = try XCTUnwrap(URL(string: "https://example.com/user-navigation"))

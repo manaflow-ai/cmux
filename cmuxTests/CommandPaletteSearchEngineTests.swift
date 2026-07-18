@@ -8,6 +8,21 @@ import XCTest
 #endif
 
 final class CommandPaletteSearchEngineTests: XCTestCase {
+    func testCommandPaletteCommandsFingerprintChangesWithKeyboardShortcutRevision() {
+        let first = ContentView.commandPaletteCommandsFingerprint(
+            snapshotFingerprint: 11,
+            configRevision: 22,
+            keyboardShortcutRevision: 33
+        )
+        let second = ContentView.commandPaletteCommandsFingerprint(
+            snapshotFingerprint: 11,
+            configRevision: 22,
+            keyboardShortcutRevision: 34
+        )
+
+        XCTAssertNotEqual(first, second)
+    }
+
     private struct FixtureEntry {
         let id: String
         let rank: Int
