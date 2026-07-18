@@ -1826,9 +1826,111 @@ func consumeBrowserPTY() {
             {
                 "swift_terminal_draw_count": 0,
                 "swift_full_surface_blit_count": 2,
+                "swift_sanctioned_nonterminal_encoder_count": 1,
+                "swift_unclassified_encoder_count": 0,
                 "renderer_terminal_draw_count": 3,
+                "renderer_unclassified_encoder_count": 0,
             },
         )
+
+    def test_metal_metrics_reject_unclassified_swift_encoder(self) -> None:
+        root = acceptance.ET.fromstring(
+            """
+            <trace-query-result>
+              <node>
+                <schema name="metal-application-encoders-list">
+                  <col><mnemonic>process</mnemonic></col>
+                  <col><mnemonic>cmdbuffer-label</mnemonic></col>
+                  <col><mnemonic>encoder-label</mnemonic></col>
+                </schema>
+                <row>
+                  <process fmt="cmux DEV trace (1001)"><pid>1001</pid></process>
+                  <metal-object-label>unlabeled terminal command buffer</metal-object-label>
+                  <metal-object-label>unlabeled terminal draw</metal-object-label>
+                </row>
+              </node>
+            </trace-query-result>
+            """
+        )
+        with self.assertRaisesRegex(
+            acceptance.AcceptanceError,
+            "unclassified Swift Metal encoder",
+        ):
+            acceptance.derive_metal_metrics_from_export(
+                root,
+                process_roles={
+                    1001: "swift-host",
+                    1002: "terminal-backend",
+                    1003: "renderer-worker",
+                },
+                label="unclassified Swift trace",
+            )
+
+    def test_metal_metrics_reject_unclassified_renderer_encoder(self) -> None:
+        root = acceptance.ET.fromstring(
+            """
+            <trace-query-result>
+              <node>
+                <schema name="metal-application-encoders-list">
+                  <col><mnemonic>process</mnemonic></col>
+                  <col><mnemonic>cmdbuffer-label</mnemonic></col>
+                  <col><mnemonic>encoder-label</mnemonic></col>
+                </schema>
+                <row>
+                  <process fmt="cmux-terminal-renderer (1003)"><pid>1003</pid></process>
+                  <metal-object-label>unexpected worker command buffer</metal-object-label>
+                  <metal-object-label>unexpected worker encoder</metal-object-label>
+                </row>
+              </node>
+            </trace-query-result>
+            """
+        )
+        with self.assertRaisesRegex(
+            acceptance.AcceptanceError,
+            "unclassified renderer Metal encoder",
+        ):
+            acceptance.derive_metal_metrics_from_export(
+                root,
+                process_roles={
+                    1001: "swift-host",
+                    1002: "terminal-backend",
+                    1003: "renderer-worker",
+                },
+                label="unclassified renderer trace",
+            )
+
+    def test_metal_metrics_reject_backend_gpu_encoder(self) -> None:
+        root = acceptance.ET.fromstring(
+            """
+            <trace-query-result>
+              <node>
+                <schema name="metal-application-encoders-list">
+                  <col><mnemonic>process</mnemonic></col>
+                  <col><mnemonic>cmdbuffer-label</mnemonic></col>
+                  <col><mnemonic>encoder-label</mnemonic></col>
+                </schema>
+                <row>
+                  <process fmt="cmuxd (1002)"><pid>1002</pid></process>
+                  <metal-object-label>unexpected backend command buffer</metal-object-label>
+                  <metal-object-label>unexpected backend encoder</metal-object-label>
+                </row>
+              </node>
+            </trace-query-result>
+            """
+        )
+        with self.assertRaisesRegex(
+            acceptance.AcceptanceError,
+            "backend PID submitted a Metal encoder",
+        ):
+            acceptance.derive_metal_metrics_from_export(
+                root,
+                process_roles={
+                    1001: "swift-host",
+                    1002: "terminal-backend",
+                    1003: "renderer-worker",
+                },
+                label="backend GPU trace",
+            )
 
     def test_proc2_cross_artifact_check_uses_raw_frame_counters(self) -> None:
         with self.assertRaisesRegex(acceptance.AcceptanceError, "exceed raw admitted"):
