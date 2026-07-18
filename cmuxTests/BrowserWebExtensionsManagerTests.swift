@@ -293,6 +293,21 @@ struct BrowserWebExtensionsManagerTests {
         #expect(manager.pageConfiguration(for: URL(string: "https://example.com")!) == nil)
     }
 
+    @Test func baseWebViewConfigurationPreservesItsWebsiteDataStore() {
+        let extensionDataStore = WKWebsiteDataStore.nonPersistent()
+        let profileDataStore = WKWebsiteDataStore.nonPersistent()
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = extensionDataStore
+
+        let webView = BrowserPanel.makeWebView(
+            profileID: UUID(),
+            websiteDataStore: profileDataStore,
+            baseConfiguration: configuration
+        )
+
+        #expect(webView.configuration.websiteDataStore === extensionDataStore)
+    }
+
     @available(macOS 15.4, *)
     @Test func approvalLedgerRemainsReadableAcrossAppRestarts() async throws {
         let root = try Self.makeExtensionsRoot()
