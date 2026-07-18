@@ -1007,8 +1007,13 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
     func testDiffViewerLoadingOwnershipIncludesDeferredOpeningPage() throws {
         let token = UUID().uuidString.lowercased()
+        let unrelatedToken = UUID().uuidString.lowercased()
         let openingURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
             token: token,
+            requestPath: "/diff-group-opening.html"
+        ))
+        let unrelatedOpeningURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: unrelatedToken,
             requestPath: "/diff-group-opening.html"
         ))
         let completedURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
@@ -1017,9 +1022,26 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         ))
         let expectedURL = DiffViewerLoadingPage.url.absoluteString
 
-        XCTAssertTrue(DiffViewerLoadingPage.owns(url: DiffViewerLoadingPage.url, expectedURL: expectedURL))
-        XCTAssertTrue(DiffViewerLoadingPage.owns(url: openingURL, expectedURL: expectedURL))
-        XCTAssertFalse(DiffViewerLoadingPage.owns(url: completedURL, expectedURL: expectedURL))
+        XCTAssertTrue(DiffViewerLoadingPage.owns(
+            url: DiffViewerLoadingPage.url,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString
+        ))
+        XCTAssertTrue(DiffViewerLoadingPage.owns(
+            url: openingURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString
+        ))
+        XCTAssertFalse(DiffViewerLoadingPage.owns(
+            url: unrelatedOpeningURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString
+        ))
+        XCTAssertFalse(DiffViewerLoadingPage.owns(
+            url: completedURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString
+        ))
     }
 
     func testDiffViewerLoadingOwnershipYieldsToProvisionalUserNavigation() throws {
@@ -1033,7 +1055,11 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         )
 
         XCTAssertEqual(ownershipURL, userURL)
-        XCTAssertFalse(DiffViewerLoadingPage.owns(url: ownershipURL, expectedURL: expectedURL))
+        XCTAssertFalse(DiffViewerLoadingPage.owns(
+            url: ownershipURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: nil
+        ))
     }
 
     func testDiffViewerPendingOwnershipPreservesRenderedOpeningPageError() throws {
@@ -1047,16 +1073,19 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertTrue(DiffViewerLoadingPage.isPending(
             url: DiffViewerLoadingPage.url,
             expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString,
             openingDocumentHasPendingMarker: false
         ))
         XCTAssertTrue(DiffViewerLoadingPage.isPending(
             url: openingURL,
             expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString,
             openingDocumentHasPendingMarker: true
         ))
         XCTAssertFalse(DiffViewerLoadingPage.isPending(
             url: openingURL,
             expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString,
             openingDocumentHasPendingMarker: false
         ))
     }
