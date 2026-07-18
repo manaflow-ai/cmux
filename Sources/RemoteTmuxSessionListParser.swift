@@ -43,11 +43,13 @@ enum RemoteTmuxSessionListParser {
     /// - Returns: one ``RemoteTmuxSession`` per well-formed line, in input order.
     static func parse(_ output: String) -> [RemoteTmuxSession] {
         var sessions: [RemoteTmuxSession] = []
-        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            var line = String(rawLine)
-            if line.last == "\r" {
-                line.removeLast()
-            }
+        // Split on any newline via `Character.isNewline`, which matches `\n`, `\r`,
+        // AND the `\r\n` grapheme cluster. A plain `split(separator: "\n")` misses
+        // `\r\n` — Swift reads it as one grapheme, not a standalone `\n`, so a
+        // CRLF-terminated line never splits there and keeps a trailing `\r\n` that
+        // `line.last == "\r"` can't strip (its last Character is the `\r\n` cluster).
+        for rawLine in output.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline) {
+            let line = String(rawLine)
             if line.isEmpty { continue }
             // Unbounded split: the first four fields are id/windows/attached/
             // created, and the name (which may itself contain `:`) is reassembled
