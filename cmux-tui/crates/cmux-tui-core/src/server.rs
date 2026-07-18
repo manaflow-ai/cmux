@@ -3591,7 +3591,7 @@ mod tests {
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
-        assert_eq!(PROTOCOL_VERSION, 7);
+        assert_eq!(PROTOCOL_VERSION, 8);
     }
 
     #[test]

@@ -1248,6 +1248,11 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn stable_split_ids_require_protocol_8() {
+        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 8);
+    }
+
     #[cfg(unix)]
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
         stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
