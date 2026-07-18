@@ -1981,7 +1981,7 @@ struct CLICodexHookTimeoutRegressionTests {
     }
 
     private func codexInjectedHookCommandsByEvent(_ output: String) -> [String: String] {
-        output.utf8.split(separator: 0).compactMap { rawField in
+        let entries: [(String, String)] = output.utf8.split(separator: 0).compactMap { rawField -> (String, String)? in
             let field = String(decoding: rawField, as: UTF8.self)
             guard field.hasPrefix("hooks."),
                   let eventEnd = field.firstIndex(of: "=") else { return nil }
@@ -1991,7 +1991,8 @@ struct CLICodexHookTimeoutRegressionTests {
             let remainder = field[prefix.upperBound...]
             guard let suffix = remainder.range(of: "''',timeout=") else { return nil }
             return (event, String(remainder[..<suffix.lowerBound]))
-        }.reduce(into: [:]) { result, entry in
+        }
+        return entries.reduce(into: [String: String]()) { result, entry in
             result[entry.0] = entry.1
         }
     }
