@@ -1790,6 +1790,28 @@ mod tests {
     }
 
     #[test]
+    fn frontend_load_uses_only_the_daemon_renderer_snapshot() {
+        let daemon_colors = DefaultColors {
+            fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
+            bg: Some(Rgb { r: 0x11, g: 0x12, b: 0x13 }),
+            selection_bg: Some(Rgb { r: 0x21, g: 0x22, b: 0x23 }),
+            selection_fg: Some(Rgb { r: 0x31, g: 0x32, b: 0x33 }),
+            cursor_style: Some(CursorShape::Underline),
+            cursor_blink: Some(false),
+            ..DefaultColors::default()
+        };
+
+        let config = load_frontend(daemon_colors);
+
+        assert_eq!(config.terminal_defaults, daemon_colors);
+        assert!(config.resolved_renderer_config.is_empty());
+        assert_eq!(config.theme.selection_bg, Color::Rgb(0x21, 0x22, 0x23));
+        assert_eq!(config.theme.selection_fg, Some(Color::Rgb(0x31, 0x32, 0x33)));
+        assert_eq!(config.cursor_style, Some(CursorShape::Underline));
+        assert_eq!(config.cursor_blink, Some(false));
+    }
+
+    #[test]
     fn mux_json_selection_survives_light_chrome_defaults() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let dir =

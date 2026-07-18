@@ -1707,6 +1707,48 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn renderer_default_colors_are_queried_from_the_registered_daemon() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let querying = session.clone();
+        let query = std::thread::spawn(move || querying.renderer_default_colors());
+
+        let mut peer = BufReader::new(server);
+        let mut line = String::new();
+        peer.read_line(&mut line).unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["cmd"], "renderer-workers");
+        session.handle_line(json!({
+            "id": request["id"],
+            "ok": true,
+            "data": {
+                "default_colors": {
+                    "fg": "#010203",
+                    "bg": "#111213",
+                    "cursor": "#212223",
+                    "selection_bg": "#313233",
+                    "selection_fg": "#414243",
+                    "cursor_style": "underline",
+                    "cursor_blink": false,
+                    "palette": {"1": "#515253", "255": "#616263"}
+                }
+            }
+        }));
+
+        let colors = query.join().unwrap().unwrap();
+        assert_eq!(colors.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(colors.bg, Some(Rgb { r: 0x11, g: 0x12, b: 0x13 }));
+        assert_eq!(colors.cursor, Some(Rgb { r: 0x21, g: 0x22, b: 0x23 }));
+        assert_eq!(colors.selection_bg, Some(Rgb { r: 0x31, g: 0x32, b: 0x33 }));
+        assert_eq!(colors.selection_fg, Some(Rgb { r: 0x41, g: 0x42, b: 0x43 }));
+        assert_eq!(colors.cursor_style, Some(cmux_tui_core::CursorShape::Underline));
+        assert_eq!(colors.cursor_blink, Some(false));
+        assert_eq!(colors.palette[1], Some(Rgb { r: 0x51, g: 0x52, b: 0x53 }));
+        assert_eq!(colors.palette[255], Some(Rgb { r: 0x61, g: 0x62, b: 0x63 }));
+    }
+
+    #[cfg(unix)]
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
         stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
         Arc::new(RemoteSession {

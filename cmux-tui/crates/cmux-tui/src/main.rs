@@ -417,6 +417,38 @@ fn usage_exit(msg: &str) -> ! {
 mod tests {
     use super::*;
 
+    #[test]
+    fn frontend_color_resolution_is_read_only_and_host_scoped() {
+        let mux = Mux::new("frontend-renderer-colors", SurfaceOptions::default());
+        let daemon_colors = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0x10, g: 0x20, b: 0x30 }),
+            bg: Some(cmux_tui_core::Rgb { r: 0x40, g: 0x50, b: 0x60 }),
+            selection_bg: Some(cmux_tui_core::Rgb { r: 0x70, g: 0x80, b: 0x90 }),
+            ..Default::default()
+        };
+        mux.install_renderer_config(
+            b"foreground = #102030\nbackground = #405060\n".to_vec(),
+            daemon_colors,
+            Arc::<str>::from("test"),
+        )
+        .unwrap();
+        let before = mux.renderer_config_snapshot();
+        let host_colors = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0xaa, g: 0xbb, b: 0xcc }),
+            bg: Some(cmux_tui_core::Rgb { r: 0xdd, g: 0xee, b: 0xff }),
+            ..Default::default()
+        };
+
+        let (canonical, display) =
+            resolve_frontend_colors(&Session::Local(mux.clone()), host_colors).unwrap();
+
+        assert_eq!(canonical, daemon_colors);
+        assert_eq!(display.fg, host_colors.fg);
+        assert_eq!(display.bg, host_colors.bg);
+        assert_eq!(display.selection_bg, daemon_colors.selection_bg);
+        assert_eq!(mux.renderer_config_snapshot(), before);
+    }
+
     fn args(session: &str) -> Args {
         Args {
             attach: false,
