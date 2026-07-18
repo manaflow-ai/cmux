@@ -235,6 +235,28 @@ import Testing
         #expect(runtime.mutations == [.focus(true), .focus(false)])
     }
 
+    @Test func externallyOwnedResponderFocusReportsTransitionsWithoutRuntimeMutations() {
+        let runtime = FakeTerminalExternalRuntime()
+        var transitions: [Bool] = []
+        let view = TerminalFrontendInteractionView(
+            runtime: runtime,
+            responderFocusOwnership: .externalHost
+        )
+        view.responderFocusDidChange = { transitions.append($0) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+
+        #expect(window.makeFirstResponder(view))
+        #expect(window.makeFirstResponder(nil))
+        #expect(transitions == [true, false])
+        #expect(runtime.mutations.isEmpty)
+    }
+
     @Test func firstRectUsesCursorViewportCellMetricsAndScreenCoordinates() {
         let runtime = FakeTerminalExternalRuntime()
         runtime.snapshot = TerminalExternalRuntimeSnapshot(
