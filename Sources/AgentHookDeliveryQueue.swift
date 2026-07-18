@@ -913,6 +913,18 @@ actor AgentHookDeliveryQueue {
     private enum DrainCompletion: Sendable {
         case delivery(DeliveryCompletion)
         case processGroupReleased(pid_t)
+        case deliveryAvailable
+    }
+
+    private struct DeliveryWakeChannel: Sendable {
+        let stream: AsyncStream<Void>
+        let continuation: AsyncStream<Void>.Continuation
+
+        init() {
+            (stream, continuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+        }
     }
 
     private enum DeliveryProcessRace: Sendable {
@@ -944,6 +956,7 @@ actor AgentHookDeliveryQueue {
     private var retryTask: Task<Void, Never>?
     private var drainRequested = false
     private var deliveredSinceReceiptCleanup = 0
+    private let deliveryWakeChannel = DeliveryWakeChannel()
 
     init(
         databaseURL: URL? = nil,
@@ -995,6 +1008,7 @@ actor AgentHookDeliveryQueue {
     deinit {
         drainTask?.cancel()
         retryTask?.cancel()
+        deliveryWakeChannel.continuation.finish()
         if let database {
             sqlite3_close_v2(database)
         }
@@ -1169,6 +1183,10 @@ actor AgentHookDeliveryQueue {
         guard database != nil else { return }
         if drainTask != nil {
             drainRequested = true
+            // A retained descendant can outlive its delivery leader. Wake the
+            // drain immediately when new durable work arrives instead of
+            // waiting for that descendant's process group to exit.
+            deliveryWakeChannel.continuation.yield(())
             return
         }
         drainRequested = false
@@ -1203,6 +1221,12 @@ actor AgentHookDeliveryQueue {
             var activeSequences: Set<Int64> = []
             var activeOrderingKeys: Set<String> = []
             var retainedProcessGroups: Set<pid_t> = []
+            let deliveryWakeStream = deliveryWakeChannel.stream
+            group.addTask {
+                var iterator = deliveryWakeStream.makeAsyncIterator()
+                _ = await iterator.next()
+                return .deliveryAvailable
+            }
 
             while !Task.isCancelled {
                 do {
@@ -1253,6 +1277,7 @@ actor AgentHookDeliveryQueue {
                     if activeSequences.isEmpty, retainedProcessGroups.isEmpty {
                         try deleteExpiredReceipts(database: database)
                         try scheduleNextRetry(database: database)
+                        group.cancelAll()
                         return false
                     }
                     if launchedDelivery,
@@ -1290,6 +1315,13 @@ actor AgentHookDeliveryQueue {
                                 "Delivery process-group permit was released twice.",
                                 code: 12
                             )
+                        }
+                    case .deliveryAvailable:
+                        drainRequested = false
+                        group.addTask {
+                            var iterator = deliveryWakeStream.makeAsyncIterator()
+                            _ = await iterator.next()
+                            return .deliveryAvailable
                         }
                     }
                 } catch {
