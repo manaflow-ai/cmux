@@ -364,6 +364,12 @@ impl RemoteSurface {
     }
 }
 
+#[derive(Default)]
+struct SubscriptionRecoveryState {
+    generation: u64,
+    in_flight: bool,
+}
+
 pub struct RemoteSession {
     writer: Mutex<Box<dyn transport::Stream>>,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
@@ -374,8 +380,7 @@ pub struct RemoteSession {
     tree: Mutex<RemoteTreeCache>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
-    subscription_recovery_in_flight: AtomicBool,
-    subscription_recovery_generation: AtomicU64,
+    subscription_recovery: Mutex<SubscriptionRecoveryState>,
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
@@ -408,8 +413,7 @@ impl RemoteSession {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
-            subscription_recovery_in_flight: AtomicBool::new(false),
-            subscription_recovery_generation: AtomicU64::new(0),
+            subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
@@ -761,9 +765,13 @@ impl RemoteSession {
     }
 
     fn start_subscription_recovery(self: &Arc<Self>) {
-        self.subscription_recovery_generation.fetch_add(1, Ordering::AcqRel);
-        if self.subscription_recovery_in_flight.swap(true, Ordering::AcqRel) {
-            return;
+        {
+            let mut recovery = self.subscription_recovery.lock().unwrap();
+            recovery.generation = recovery.generation.wrapping_add(1).max(1);
+            if recovery.in_flight {
+                return;
+            }
+            recovery.in_flight = true;
         }
         self.emit(MuxEvent::Status("event subscription overflowed; resubscribing".to_string()));
         let session = self.clone();
@@ -771,7 +779,7 @@ impl RemoteSession {
             std::thread::Builder::new().name("remote-resubscribe".into()).spawn(move || {
                 loop {
                     let recovery_generation =
-                        session.subscription_recovery_generation.load(Ordering::Acquire);
+                        session.subscription_recovery.lock().unwrap().generation;
                     let first = session.request(json!({"cmd": "subscribe"}));
                     let result = match first {
                         Err(error) if Self::subscription_recovery_is_retryable(&error) => {
@@ -779,58 +787,37 @@ impl RemoteSession {
                         }
                         result => result,
                     };
-                    if let Err(error) = result {
-                        if session.subscription_recovery_generation.load(Ordering::Acquire)
-                            != recovery_generation
-                        {
-                            continue;
-                        }
-                        session.subscription_recovery_in_flight.store(false, Ordering::Release);
-                        if session.subscription_recovery_generation.load(Ordering::Acquire)
-                            != recovery_generation
-                        {
-                            if !session.subscription_recovery_in_flight.swap(true, Ordering::AcqRel)
-                            {
-                                continue;
-                            }
-                            return;
-                        }
-                        session.emit(MuxEvent::Status(format!(
-                            "event subscription overflowed; resubscribe failed: {error}"
-                        )));
-                        session.emit(MuxEvent::Empty);
-                        return;
-                    }
-                    if session.subscription_recovery_generation.load(Ordering::Acquire)
-                        != recovery_generation
-                    {
+                    let mut recovery = session.subscription_recovery.lock().unwrap();
+                    if recovery.generation != recovery_generation {
+                        drop(recovery);
                         continue;
                     }
-
-                    session.subscription_recovery_in_flight.store(false, Ordering::Release);
-                    if session.subscription_recovery_generation.load(Ordering::Acquire)
-                        != recovery_generation
-                    {
-                        if !session.subscription_recovery_in_flight.swap(true, Ordering::AcqRel) {
-                            continue;
+                    match result {
+                        Ok(_) => {
+                            session.emit(MuxEvent::Status(
+                                "event subscription overflowed; resubscribed".to_string(),
+                            ));
+                            session.emit(MuxEvent::TreeChanged);
+                            session.emit(MuxEvent::ClientListInvalidated);
                         }
-                        return;
+                        Err(error) => {
+                            session.emit(MuxEvent::Status(format!(
+                                "event subscription overflowed; resubscribe failed: {error}"
+                            )));
+                            session.emit(MuxEvent::Empty);
+                        }
                     }
-
-                    session.emit(MuxEvent::Status(
-                        "event subscription overflowed; resubscribed".to_string(),
-                    ));
-                    session.emit(MuxEvent::TreeChanged);
-                    session.emit(MuxEvent::ClientListInvalidated);
+                    recovery.in_flight = false;
                     return;
                 }
             });
         if let Err(error) = spawn {
-            self.subscription_recovery_in_flight.store(false, Ordering::Release);
+            let mut recovery = self.subscription_recovery.lock().unwrap();
             self.emit(MuxEvent::Status(format!(
                 "event subscription overflowed; resubscribe failed: {error}"
             )));
             self.emit(MuxEvent::Empty);
+            recovery.in_flight = false;
         }
     }
 
@@ -1274,8 +1261,7 @@ mod tests {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
-            subscription_recovery_in_flight: AtomicBool::new(false),
-            subscription_recovery_generation: AtomicU64::new(0),
+            subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
@@ -1824,8 +1810,9 @@ mod tests {
                 break;
             }
         }
-        assert!(!session.subscription_recovery_in_flight.load(Ordering::Acquire));
-        assert_eq!(session.subscription_recovery_generation.load(Ordering::Acquire), 2);
+        let recovery = session.subscription_recovery.lock().unwrap();
+        assert!(!recovery.in_flight);
+        assert_eq!(recovery.generation, 2);
     }
 
     #[cfg(unix)]
@@ -1861,7 +1848,7 @@ mod tests {
                 break;
             }
         }
-        assert!(!session.subscription_recovery_in_flight.load(Ordering::Acquire));
+        assert!(!session.subscription_recovery.lock().unwrap().in_flight);
     }
 
     #[test]
