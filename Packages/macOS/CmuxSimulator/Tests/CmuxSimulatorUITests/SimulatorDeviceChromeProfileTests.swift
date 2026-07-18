@@ -211,6 +211,22 @@ struct SimulatorDeviceChromeProfileTests {
         #expect(abs(radius - 56) < 0.6)
     }
 
+    @Test("Installed M5 iPad resolves compatible DeviceKit chrome artwork")
+    func installedM5IPadChromeFallback() async throws {
+        let profileURL = URL(fileURLWithPath:
+            "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPad Pro 13-inch (M5).simdevicetype"
+        )
+        guard FileManager.default.fileExists(atPath: profileURL.path) else { return }
+
+        let profile = await SimulatorDeviceChromeLoader().load(
+            deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB"
+        )
+
+        #expect(profile != nil)
+        #expect(profile?.assets.isEmpty == false)
+        #expect(profile?.buttons.isEmpty == false)
+    }
+
     private func profileFixture() -> SimulatorDeviceChromeProfile {
         SimulatorDeviceChromeProfile(
             screenWidth: 400,
