@@ -2923,13 +2923,23 @@ extension CMUXCLIErrorOutputRegressionTests {
             sessionIDs: [canonicalSessionID]
         )
         #expect(afterCorruption.first?.writerGeneration == CmuxAgentSessionRegistry.currentWriterGeneration)
-        #expect(afterCorruption.first?.json == try JSONSerialization.data(
+        let expectedCanonicalJSON = try JSONSerialization.data(
             withJSONObject: record(
                 sessionID: canonicalSessionID,
                 surfaceID: fixture.sourcePanelID
             ),
             options: [.sortedKeys]
-        ))
+        )
+        #expect(afterCorruption.first?.json == expectedCanonicalJSON)
+
+        var repeatedCorruptSnapshot = persistedSnapshot
+        let repeatedFailures = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+            &repeatedCorruptSnapshot,
+            homeDirectory: root.path,
+            environment: environment
+        )
+        #expect(repeatedFailures == [.codex])
+        #expect(restoredSessionIDs(repeatedCorruptSnapshot) == [canonicalSessionID])
 
         try legacyStoreData().write(to: stateURL, options: .atomic)
         try FileManager.default.setAttributes(

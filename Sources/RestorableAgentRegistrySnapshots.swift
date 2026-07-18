@@ -14,12 +14,23 @@ extension RestorableAgentSessionIndex {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Set<RestorableAgentKind> {
         var kinds = Set<RestorableAgentKind>()
+        var restoreOwners = Set<CmuxAgentSessionRegistry.RestoreOwnerContext>()
         for window in snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
             for workspace in window.tabManager.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
                 for panel in workspace.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace) {
                     guard panel.terminal?.hibernation != nil,
-                          let kind = panel.terminal?.agent?.kind else { continue }
+                          let agent = panel.terminal?.agent else { continue }
+                    let kind = agent.kind
                     kinds.insert(kind)
+                    let sessionID = agent.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let workspaceID = workspace.workspaceId, !sessionID.isEmpty {
+                        restoreOwners.insert(.init(
+                            provider: kind.rawValue,
+                            sessionID: sessionID,
+                            workspaceID: workspaceID.uuidString,
+                            surfaceID: panel.id.uuidString
+                        ))
+                    }
                 }
             }
         }
@@ -44,9 +55,15 @@ extension RestorableAgentSessionIndex {
             busyTimeoutMilliseconds: 25
         )
         let failedProviders: Set<String>
+        let verifiedCanonicalRestoreOwners: Set<CmuxAgentSessionRegistry.RestoreOwnerContext>
         do {
-            let result = try registry.refreshLegacySources(sources, fileManager: fileManager)
+            let result = try registry.refreshLegacySources(
+                sources,
+                preservingCanonicalRestoreOwners: restoreOwners,
+                fileManager: fileManager
+            )
             failedProviders = result.failedProviders
+            verifiedCanonicalRestoreOwners = result.verifiedCanonicalRestoreOwners
             if !failedProviders.isEmpty {
                 NSLog(
                     "[SessionRestore] legacy agent registry preparation skipped providers=%@",
@@ -56,6 +73,7 @@ extension RestorableAgentSessionIndex {
         } catch {
             NSLog("[SessionRestore] agent registry preparation unavailable error=%@", String(describing: error))
             failedProviders = Set(kinds.map(\.rawValue))
+            verifiedCanonicalRestoreOwners = []
         }
         guard !failedProviders.isEmpty else { return [] }
 
@@ -76,6 +94,24 @@ extension RestorableAgentSessionIndex {
                         terminal.hibernation != nil,
                         let kind = terminal.agent?.kind,
                         failedProviders.contains(kind.rawValue) else { continue }
+                    let sessionID = terminal.agent?.sessionId
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let owner = snapshot.windows[windowIndex]
+                        .tabManager.workspaces[workspaceIndex]
+                        .workspaceId.map {
+                            CmuxAgentSessionRegistry.RestoreOwnerContext(
+                                provider: kind.rawValue,
+                                sessionID: sessionID,
+                                workspaceID: $0.uuidString,
+                                surfaceID: snapshot.windows[windowIndex]
+                                    .tabManager.workspaces[workspaceIndex]
+                                    .panels[panelIndex]
+                                    .id.uuidString
+                            )
+                        }
+                    if let owner, verifiedCanonicalRestoreOwners.contains(owner) {
+                        continue
+                    }
                     terminal.agent = nil
                     terminal.hibernation = nil
                     terminal.resumeBinding = nil

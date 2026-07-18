@@ -2,6 +2,12 @@ import Foundation
 import SQLite3
 
 extension CmuxAgentSessionRegistry {
+    enum LegacySourceState: Equatable {
+        case changed
+        case imported
+        case quarantined
+    }
+
     func deleteLegacyRows(
         database: OpaquePointer,
         provider: String,
@@ -26,10 +32,26 @@ extension CmuxAgentSessionRegistry {
         provider: String,
         stamp: LegacyStamp
     ) throws -> Bool {
+        try legacySourceState(database: database, provider: provider, stamp: stamp) == .imported
+    }
+
+    func legacySourceCanBeSkippedForCanonicalRebind(
+        database: OpaquePointer,
+        provider: String,
+        stamp: LegacyStamp
+    ) throws -> Bool {
+        try legacySourceState(database: database, provider: provider, stamp: stamp) != .changed
+    }
+
+    func legacySourceState(
+        database: OpaquePointer,
+        provider: String,
+        stamp: LegacyStamp
+    ) throws -> LegacySourceState {
         let statement = try prepare(
             database,
             """
-            SELECT size, modified_at FROM agent_legacy_sources
+            SELECT size, modified_at, quarantined FROM agent_legacy_sources
             WHERE provider = ?1 AND path = ?2
             """
         )
@@ -37,10 +59,13 @@ extension CmuxAgentSessionRegistry {
         try bind(provider, to: 1, in: statement)
         try bind(stamp.path, to: 2, in: statement)
         guard try stepRow(statement, database: database, operation: "read legacy checkpoint") else {
-            return false
+            return .changed
         }
-        return sqlite3_column_int64(statement, 0) == stamp.size
-            && abs(sqlite3_column_double(statement, 1) - stamp.modifiedAt) < 0.000_001
+        guard sqlite3_column_int64(statement, 0) == stamp.size,
+              abs(sqlite3_column_double(statement, 1) - stamp.modifiedAt) < 0.000_001 else {
+            return .changed
+        }
+        return sqlite3_column_int(statement, 2) == 0 ? .imported : .quarantined
     }
 
     func replaceLegacy(
@@ -130,17 +155,21 @@ extension CmuxAgentSessionRegistry {
     func writeLegacyStamp(
         database: OpaquePointer,
         provider: String,
-        stamp: LegacyStamp
+        stamp: LegacyStamp,
+        quarantined: Bool = false
     ) throws {
         let statement = try prepare(
             database,
             """
-            INSERT INTO agent_legacy_sources (provider, path, size, modified_at, imported_at)
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            INSERT INTO agent_legacy_sources (
+                provider, path, size, modified_at, imported_at, quarantined
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             ON CONFLICT(provider, path) DO UPDATE SET
                 size = excluded.size,
                 modified_at = excluded.modified_at,
-                imported_at = excluded.imported_at
+                imported_at = excluded.imported_at,
+                quarantined = excluded.quarantined
             """
         )
         defer { sqlite3_finalize(statement) }
@@ -149,6 +178,7 @@ extension CmuxAgentSessionRegistry {
         sqlite3_bind_int64(statement, 3, stamp.size)
         sqlite3_bind_double(statement, 4, stamp.modifiedAt)
         sqlite3_bind_double(statement, 5, Date().timeIntervalSince1970)
+        sqlite3_bind_int(statement, 6, quarantined ? 1 : 0)
         try stepDone(statement, database: database, operation: "write legacy checkpoint")
     }
 }

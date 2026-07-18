@@ -1003,25 +1003,25 @@ extension CmuxAgentSessionRegistry {
                 )
             }
         }
-        guard try schemaVersion(database) < 5 else { return }
-        try transaction(database, retryBeginContention: false) {
-            guard try schemaVersion(database) < 5 else { return }
-            try execute(
-                database,
-                sql: """
-                ALTER TABLE agent_provider_metadata
-                    ADD COLUMN record_bytes INTEGER NOT NULL DEFAULT 0;
-                ALTER TABLE agent_provider_metadata
-                    ADD COLUMN slot_bytes INTEGER NOT NULL DEFAULT 0;
-                UPDATE agent_provider_metadata SET
-                    record_bytes = COALESCE((
-                        SELECT SUM(length(record_json)) FROM agent_sessions
-                        WHERE agent_sessions.provider = agent_provider_metadata.provider
-                    ), 0),
-                    slot_bytes = COALESCE((
-                        SELECT SUM(length(record_json)) FROM agent_active_slots
-                        WHERE agent_active_slots.provider = agent_provider_metadata.provider
-                    ), 0);
+        if try schemaVersion(database) < 5 {
+            try transaction(database, retryBeginContention: false) {
+                guard try schemaVersion(database) < 5 else { return }
+                try execute(
+                    database,
+                    sql: """
+                    ALTER TABLE agent_provider_metadata
+                        ADD COLUMN record_bytes INTEGER NOT NULL DEFAULT 0;
+                    ALTER TABLE agent_provider_metadata
+                        ADD COLUMN slot_bytes INTEGER NOT NULL DEFAULT 0;
+                    UPDATE agent_provider_metadata SET
+                        record_bytes = COALESCE((
+                            SELECT SUM(length(record_json)) FROM agent_sessions
+                            WHERE agent_sessions.provider = agent_provider_metadata.provider
+                        ), 0),
+                        slot_bytes = COALESCE((
+                            SELECT SUM(length(record_json)) FROM agent_active_slots
+                            WHERE agent_active_slots.provider = agent_provider_metadata.provider
+                        ), 0);
 
                 DROP TRIGGER IF EXISTS agent_sessions_revision_insert;
                 DROP TRIGGER IF EXISTS agent_sessions_revision_update;
@@ -1100,28 +1100,41 @@ extension CmuxAgentSessionRegistry {
                 END;
                 PRAGMA user_version=5;
                 """
-            )
-            let oversized = try prepare(
-                database,
-                """
-                SELECT provider FROM agent_provider_metadata
-                WHERE record_bytes + slot_bytes > ?1 ORDER BY provider
-                """
-            )
-            defer { sqlite3_finalize(oversized) }
-            sqlite3_bind_int64(oversized, 1, sqlite3_int64(Self.maximumHookProviderBytes))
-            var oversizedProviders: [String] = []
-            while try stepRow(oversized, database: database, operation: "read oversized providers") {
-                if let provider = text(oversized, column: 0) { oversizedProviders.append(provider) }
-            }
-            for provider in oversizedProviders {
-                try reconcileHookProviderStorageLimit(
-                    database: database,
-                    provider: provider,
-                    protectedSessionIDs: [],
-                    previousBytes: .max
                 )
+                let oversized = try prepare(
+                    database,
+                    """
+                    SELECT provider FROM agent_provider_metadata
+                    WHERE record_bytes + slot_bytes > ?1 ORDER BY provider
+                    """
+                )
+                defer { sqlite3_finalize(oversized) }
+                sqlite3_bind_int64(oversized, 1, sqlite3_int64(Self.maximumHookProviderBytes))
+                var oversizedProviders: [String] = []
+                while try stepRow(oversized, database: database, operation: "read oversized providers") {
+                    if let provider = text(oversized, column: 0) { oversizedProviders.append(provider) }
+                }
+                for provider in oversizedProviders {
+                    try reconcileHookProviderStorageLimit(
+                        database: database,
+                        provider: provider,
+                        protectedSessionIDs: [],
+                        previousBytes: .max
+                    )
+                }
             }
+        }
+        guard try schemaVersion(database) < 6 else { return }
+        try transaction(database, retryBeginContention: false) {
+            guard try schemaVersion(database) < 6 else { return }
+            try execute(
+                database,
+                sql: """
+                ALTER TABLE agent_legacy_sources
+                    ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;
+                PRAGMA user_version=6;
+                """
+            )
         }
     }
 

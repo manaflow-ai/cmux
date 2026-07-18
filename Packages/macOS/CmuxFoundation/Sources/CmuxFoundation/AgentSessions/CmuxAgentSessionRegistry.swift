@@ -266,39 +266,97 @@ public struct CmuxAgentSessionRegistry: Sendable {
     /// database failures still abort the preflight so callers can fail closed.
     public func refreshLegacySources(
         _ sources: [LegacySource],
+        preservingCanonicalRestoreOwners restoreOwners: Set<RestoreOwnerContext> = [],
         fileManager: FileManager = .default
     ) throws -> LegacyRefreshResult {
         let uniqueSources = Dictionary(
             sources.map { ($0.provider, $0) },
             uniquingKeysWith: { _, latest in latest }
         ).values.sorted { $0.provider < $1.provider }
+        let restoreOwnersByProvider = Dictionary(
+            grouping: restoreOwners,
+            by: \.provider
+        )
         return try withDatabase { database in
             var changed: [(source: LegacySource, stamp: LegacyStamp, payload: LegacyPayload)] = []
+            var malformed: [(
+                source: LegacySource,
+                stamp: LegacyStamp,
+                needsQuarantineWrite: Bool
+            )] = []
             var failedProviders = Set<String>()
+            var verifiedCanonicalRestoreOwners = Set<RestoreOwnerContext>()
             for source in uniqueSources {
                 guard let stamp = LegacyStamp.read(path: source.url.path, fileManager: fileManager) else {
                     // SQLite is canonical after migration. A removed
                     // compatibility projection is harmless when this provider
                     // already has durable rows; first-time restore with neither
                     // source remains unavailable and is sanitized by the caller.
-                    if try !hasRecord(database: database, provider: source.provider) {
+                    let providerRestoreOwners = Set(restoreOwnersByProvider[source.provider] ?? [])
+                    if !providerRestoreOwners.isEmpty {
+                        let verified = try verifyCanonicalRestoreOwners(
+                            database: database,
+                            provider: source.provider,
+                            candidates: providerRestoreOwners
+                        )
+                        verifiedCanonicalRestoreOwners.formUnion(verified)
+                        if verified.count != providerRestoreOwners.count {
+                            failedProviders.insert(source.provider)
+                        }
+                    } else if try !hasRecord(database: database, provider: source.provider) {
                         failedProviders.insert(source.provider)
                     }
                     continue
                 }
-                guard try !legacySourceIsCurrent(
+                let sourceState = try legacySourceState(
                     database: database,
                     provider: source.provider,
                     stamp: stamp
-                ) else { continue }
+                )
+                if sourceState == .imported { continue }
+                if sourceState == .quarantined {
+                    failedProviders.insert(source.provider)
+                    malformed.append((source, stamp, false))
+                    continue
+                }
                 do {
                     let data = try readHookLegacySourceData(at: source.url)
                     changed.append((source, stamp, try legacyPayload(provider: source.provider, json: data)))
                 } catch {
                     failedProviders.insert(source.provider)
+                    malformed.append((source, stamp, true))
                 }
             }
-            if !changed.isEmpty {
+            func verifyMalformedOwners(
+                _ items: [(source: LegacySource, stamp: LegacyStamp, needsQuarantineWrite: Bool)]
+            ) throws {
+                for item in items {
+                    let candidates = Set(restoreOwnersByProvider[item.source.provider] ?? [])
+                    guard !candidates.isEmpty else { continue }
+                    let verified = try verifyCanonicalRestoreOwners(
+                        database: database,
+                        provider: item.source.provider,
+                        candidates: candidates
+                    )
+                    guard !verified.isEmpty else { continue }
+                    verifiedCanonicalRestoreOwners.formUnion(verified)
+                    guard item.needsQuarantineWrite else { continue }
+                    // Quarantine only this malformed revision. Restore can now
+                    // adopt the independently verified canonical rows; any
+                    // later compatibility rewrite has a different stamp and is
+                    // imported normally on the next refresh.
+                    try writeLegacyStamp(
+                        database: database,
+                        provider: item.source.provider,
+                        stamp: item.stamp,
+                        quarantined: true
+                    )
+                }
+            }
+            let needsWriteTransaction = !changed.isEmpty || malformed.contains {
+                $0.needsQuarantineWrite
+            }
+            if needsWriteTransaction {
                 // This API is used synchronously immediately before panel
                 // restore. One busy timeout is its complete lock-wait budget.
                 try transaction(database, retryBeginContention: false) {
@@ -310,13 +368,73 @@ public struct CmuxAgentSessionRegistry: Sendable {
                             payload: item.payload
                         )
                     }
+                    try verifyMalformedOwners(malformed)
+                }
+            } else if !malformed.isEmpty {
+                try readTransaction(database) {
+                    try verifyMalformedOwners(malformed)
                 }
             }
             return LegacyRefreshResult(
                 refreshedProviders: Set(changed.map { $0.source.provider }),
-                failedProviders: failedProviders
+                failedProviders: failedProviders,
+                verifiedCanonicalRestoreOwners: verifiedCanonicalRestoreOwners
             )
         }
+    }
+
+    /// Verifies only the requested session row and its singular surface lease.
+    /// Both reads use primary keys, so corrupt-sidecar recovery scales with the
+    /// bounded restore snapshot instead of provider history.
+    private func verifyCanonicalRestoreOwners(
+        database: OpaquePointer,
+        provider: String,
+        candidates: Set<RestoreOwnerContext>
+    ) throws -> Set<RestoreOwnerContext> {
+        var verified = Set<RestoreOwnerContext>()
+        verified.reserveCapacity(candidates.count)
+        for candidate in candidates where candidate.provider == provider {
+            guard let record = try readRecord(
+                database: database,
+                provider: provider,
+                sessionID: candidate.sessionID
+            ),
+            record.writerGeneration >= Self.currentWriterGeneration,
+            let surfaceSlot = try readSlot(
+                database: database,
+                provider: provider,
+                scope: .surface,
+                scopeID: candidate.surfaceID
+            ),
+            surfaceSlot.writerGeneration >= Self.currentWriterGeneration,
+            surfaceSlot.sessionID == candidate.sessionID,
+            let recordObject = try? JSONSerialization.jsonObject(with: record.json) as? [String: Any],
+            recordObject["sessionId"] as? String == candidate.sessionID,
+            identifiersEqual(recordObject["workspaceId"] as? String, candidate.workspaceID),
+            identifiersEqual(recordObject["surfaceId"] as? String, candidate.surfaceID),
+            recordObject["sessionState"] as? String == "hibernated",
+            recordObject["restoreAuthority"] as? Bool != false,
+            recordObject["updatedAt"] is TimeInterval,
+            !hasCompletion(recordObject),
+            let slotObject = try? JSONSerialization.jsonObject(with: surfaceSlot.json) as? [String: Any],
+            slotObject["sessionId"] as? String == candidate.sessionID,
+            slotObject["updatedAt"] is TimeInterval else {
+                continue
+            }
+            verified.insert(candidate)
+        }
+        return verified
+    }
+
+    private func identifiersEqual(_ value: String?, _ expected: String) -> Bool {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return false }
+        return value.caseInsensitiveCompare(expected) == .orderedSame
+    }
+
+    private func hasCompletion(_ record: [String: Any]) -> Bool {
+        guard let completedAt = record["completedAt"] else { return false }
+        return !(completedAt is NSNull)
     }
 
     /// Refreshes all changed compatibility files and reads every requested
@@ -693,7 +811,11 @@ public struct CmuxAgentSessionRegistry: Sendable {
         return try withDatabase { database in
             let changedLegacy: (stamp: LegacyStamp, payload: LegacyPayload)?
             if let stamp = LegacyStamp.read(path: legacyURL.path, fileManager: fileManager),
-               try !legacySourceIsCurrent(database: database, provider: provider, stamp: stamp) {
+               try !legacySourceCanBeSkippedForCanonicalRebind(
+                   database: database,
+                   provider: provider,
+                   stamp: stamp
+               ) {
                 changedLegacy = (
                     stamp,
                     try legacyPayload(
