@@ -66,7 +66,8 @@ struct SidebarAppKitRowCellTests {
             accessibilityWorkspaceCount: 1,
             unreadCount: 0,
             latestNotificationText: nil,
-            showsAgentActivity: resolvedSettings.details.showAgentActivity,
+            showsAgentActivity: resolvedSettings.details.showAgentActivity
+                && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
             rowSpacing: 8,
             isBeingDragged: false,
             topDropIndicatorVisible: false,
@@ -104,7 +105,8 @@ struct SidebarAppKitRowCellTests {
             canCloseWorkspace: true,
             unreadCount: 0,
             latestNotificationText: nil,
-            showsAgentActivity: settings.details.showAgentActivity,
+            showsAgentActivity: settings.details.showAgentActivity
+                && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
             rowSpacing: 8,
             showsModifierShortcutHints: false,
             isPointerHovering: false,

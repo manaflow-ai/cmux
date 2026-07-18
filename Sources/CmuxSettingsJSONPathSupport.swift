@@ -47,15 +47,15 @@ extension SidebarWorkspaceDetailDefaults {
     }
 
     static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
-        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showPullRequests)
+        UserDefaultsSettingsClient(defaults: defaults).value(for: sidebar.showPullRequests)
     }
 
     static func showBranchDirectoryValue(defaults: UserDefaults) -> Bool {
-        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showBranchDirectory)
+        UserDefaultsSettingsClient(defaults: defaults).value(for: sidebar.showBranchDirectory)
     }
 
     static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
-        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().watchGitStatus)
+        UserDefaultsSettingsClient(defaults: defaults).value(for: sidebar.watchGitStatus)
     }
 
     static func auxiliaryDetailVisibility(defaults: UserDefaults) -> SidebarWorkspaceAuxiliaryDetailVisibility {
