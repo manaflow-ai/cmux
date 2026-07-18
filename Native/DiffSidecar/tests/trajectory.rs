@@ -227,6 +227,78 @@ fn codex_resolver_fails_closed_when_latest_turn_has_no_id() {
 }
 
 #[test]
+fn codex_resolver_ignores_patch_events_without_explicit_success() {
+    let fixture = FixtureRoot::new("codex-missing-success");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("codex-missing-success.jsonl");
+    let changed_path = fixture.repo().join("changed.txt");
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn"}}),
+            serde_json::json!({
+                "type":"event_msg",
+                "payload":{
+                    "type":"patch_apply_end",
+                    "turn_id":"turn",
+                    "changes":{
+                        changed_path.to_string_lossy(): {
+                            "type":"update",
+                            "unified_diff":"@@ -1 +1 @@\n-old\n+unconfirmed\n"
+                        }
+                    }
+                }
+            }),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "session",
+        &fixture.repo(),
+        Some(&transcript),
+    );
+
+    let error = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect_err("an event without success=true must not become a patch");
+
+    assert_eq!(error.to_string(), "agent turn has no recorded patches");
+}
+
+#[test]
+fn codex_turn_context_without_identity_clears_the_previous_turn() {
+    let fixture = FixtureRoot::new("codex-context-without-id");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("codex-context-without-id.jsonl");
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}),
+            codex_patch_event("old-turn", &fixture.repo().join("old.txt"), "+stale"),
+            serde_json::json!({"type":"turn_context","payload":{"cwd":fixture.repo()}}),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "session",
+        &fixture.repo(),
+        Some(&transcript),
+    );
+
+    let error = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect_err("a context without a turn ID must retire the preceding patch");
+
+    assert_eq!(error.to_string(), "agent turn has no recorded patches");
+}
+
+#[test]
 fn codex_resolver_uses_hook_or_database_record_atomically() {
     let fixture = FixtureRoot::new("codex-atomic-record");
     prepare_common_directories(&fixture);
@@ -783,6 +855,68 @@ fn claude_create_with_empty_structured_patch_uses_recorded_content() {
     assert!(resolved.patch.contains("new file mode 100644"));
     assert!(resolved.patch.contains("+++ b/created.txt"));
     assert!(resolved.patch.contains("+created"));
+}
+
+#[test]
+fn claude_delete_results_emit_deleted_file_patches() {
+    let fixture = FixtureRoot::new("claude-delete");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("claude-delete.jsonl");
+    let repo = fixture.repo();
+    let mut structured_delete = claude_patch_result(
+        "prompt",
+        &repo.join("structured.txt"),
+        "-removed",
+        "+replacement",
+    );
+    structured_delete["toolUseResult"]["type"] = serde_json::json!("delete");
+    structured_delete["toolUseResult"]["structuredPatch"][0]["newLines"] = serde_json::json!(0);
+    structured_delete["toolUseResult"]["structuredPatch"][0]["lines"] =
+        serde_json::json!(["-removed"]);
+    write_lines(
+        &transcript,
+        &[
+            claude_prompt("prompt", "delete files"),
+            serde_json::json!({
+                "type":"user",
+                "promptId":"prompt",
+                "message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"delete-empty"}]},
+                "toolUseResult":{
+                    "type":"delete",
+                    "filePath":repo.join("recorded.txt"),
+                    "content":"first\nsecond",
+                    "structuredPatch":[]
+                }
+            }),
+            structured_delete,
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "claude",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve Claude deletions");
+
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/recorded.txt b/recorded.txt\ndeleted file mode 100644")
+    );
+    assert!(resolved.patch.contains("-first\n-second\n"));
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/structured.txt b/structured.txt\ndeleted file mode 100644")
+    );
+    assert_eq!(resolved.patch.matches("+++ /dev/null").count(), 2);
 }
 
 #[test]

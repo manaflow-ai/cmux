@@ -1128,6 +1128,7 @@ fn ensure_patch_limit(output: &str) -> Result<(), TrajectoryError> {
 mod environment_tests {
     use super::*;
     use std::ffi::OsString;
+    use std::io::Write as _;
 
     #[test]
     fn claude_specific_hook_path_wins_and_expands_home() {
@@ -1153,5 +1154,35 @@ mod environment_tests {
             roots.hook_store(AgentProvider::Codex),
             PathBuf::from("/tmp/cmux-home/generic-hook-state/codex-hook-sessions.json")
         );
+    }
+
+    #[test]
+    fn jsonl_scan_stops_at_the_file_length_captured_when_opened() {
+        let path = std::env::temp_dir().join(format!(
+            "cmux-trajectory-growing-{}-{}.jsonl",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&path, b"{\"record\":1}\n{\"record\":2}\n")
+            .expect("write initial transcript");
+        let mut count = 0;
+
+        for_json_lines(&path, &TrajectoryCancellation::default(), |_| {
+            count += 1;
+            if count == 1 {
+                let mut transcript = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&path)
+                    .expect("open growing transcript");
+                transcript
+                    .write_all(b"{\"record\":3}\n")
+                    .expect("append concurrent record");
+            }
+            Ok(false)
+        })
+        .expect("scan transcript snapshot");
+        let _ = std::fs::remove_file(path);
+
+        assert_eq!(count, 2);
     }
 }

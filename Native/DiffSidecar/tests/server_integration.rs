@@ -504,6 +504,53 @@ fn rpc_rejects_agent_turn_outside_the_token_repository_scope() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[test]
+fn rpc_authorizes_agent_repository_before_parsing_its_transcript() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-agent-preauthorization-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = prepare_agent_rpc_fixture(&root);
+    let token = "0123456789abcdef";
+    let unauthorized_repo = root.join("unauthorized-repo");
+    std::fs::create_dir_all(&unauthorized_repo).expect("create unauthorized repo");
+    std::fs::write(home.join("claude-session.jsonl"), b"malformed transcript\n")
+        .expect("corrupt out-of-scope transcript");
+    std::fs::write(
+        root.join(".branch-session-agent-test.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "groupID": "agent-test",
+            "allowedRepoRoots": [unauthorized_repo]
+        }))
+        .expect("encode restricted authorization"),
+    )
+    .expect("restrict authorization");
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "agent-session-preauthorization",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {
+            "source": {
+                "kind": "agentTurn",
+                "provider": "claude",
+                "sessionId": "claude-session"
+            },
+            "capabilityToken": token
+        }
+    }))
+    .expect("encode request");
+
+    let output = run_stdio_rpc_in_root_with_home(&request, &root, Some(&home));
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["error"]["code"], "notAllowed", "{response}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 fn prepare_agent_rpc_fixture(root: &Path) -> std::path::PathBuf {
     let home = root.join("home");
     let repo = root.join("repo");
