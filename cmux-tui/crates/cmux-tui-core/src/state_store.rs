@@ -6,6 +6,7 @@
 //! process identifiers are deliberately absent from this format.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -644,6 +645,79 @@ impl StateStore {
         self.root.join("sessions").join(format!("{key}.journal"))
     }
 
+    /// Immutable pre-migration files retained for an explicit version-2 rollback.
+    ///
+    /// Migration never overwrites these files. A failed or rolled-back release
+    /// can therefore restore the exact checkpoint and journal bytes understood
+    /// by the previous daemon instead of discovering that startup destroyed its
+    /// only compatible state.
+    pub fn version_two_backup_paths(&self, session: &str) -> (PathBuf, PathBuf) {
+        (
+            migration_backup_path(&self.session_path(session), 2),
+            migration_backup_path(&self.journal_path(session), 2),
+        )
+    }
+
+    /// Restore the exact version-2 bytes retained before migration.
+    ///
+    /// The caller must stop the active daemon first. The session lock prevents
+    /// a concurrent daemon from observing the journal/checkpoint replacement.
+    /// Backups remain after restore, so an interrupted rollback is retryable.
+    pub fn restore_version_two_backup(&self, session: &str) -> Result<(), StateStoreError> {
+        let _lock = self.lock_session(session)?;
+        let checkpoint_path = self.session_path(session);
+        let journal_path = self.journal_path(session);
+        let (checkpoint_backup, journal_backup) = self.version_two_backup_paths(session);
+        let checkpoint_bytes = read_bounded(&checkpoint_backup, self.limits.max_checkpoint_bytes)?
+            .ok_or_else(|| {
+                StateStoreError::corrupt(
+                    &checkpoint_backup,
+                    "version-2 migration checkpoint backup is missing",
+                )
+            })?;
+        let journal_bytes = read_bounded(
+            &journal_backup,
+            self.limits.max_journal_bytes.saturating_add(self.limits.max_journal_record_bytes),
+        )?
+        .ok_or_else(|| {
+            StateStoreError::corrupt(
+                &journal_backup,
+                "version-2 migration journal backup is missing",
+            )
+        })?;
+
+        let value =
+            serde_json::from_slice::<serde_json::Value>(&checkpoint_bytes).map_err(|error| {
+                StateStoreError::corrupt(
+                    &checkpoint_backup,
+                    format!("invalid version-2 backup JSON: {error}"),
+                )
+            })?;
+        let envelope = serde_json::from_value::<CheckpointEnvelopeV2>(value).map_err(|error| {
+            StateStoreError::corrupt(
+                &checkpoint_backup,
+                format!("invalid version-2 backup checkpoint: {error}"),
+            )
+        })?;
+        validate_checkpoint_v2(&checkpoint_backup, session, &envelope)?;
+        replay_journal_v2_bytes(
+            &journal_backup,
+            &journal_bytes,
+            envelope.body.epoch,
+            envelope.body.sequence,
+            envelope.body.state.clone().into(),
+            self.limits,
+            false,
+        )?;
+
+        // Restore journal first. If the process exits between replacements,
+        // the still-version-3 checkpoint rejects the old journal rather than
+        // opening silently mixed state. The final checkpoint rename makes the
+        // pair readable by the previous daemon after it acquires this lock.
+        replace_file_atomically(&journal_path, &journal_bytes)?;
+        replace_file_atomically(&checkpoint_path, &checkpoint_bytes)
+    }
+
     /// Open a session while holding its exclusive lock for the returned
     /// daemon lifetime. Recovery validates the checkpoint before replaying
     /// strictly ordered, checksummed journal entries.
@@ -814,6 +888,13 @@ impl StateStore {
                 .epoch
                 .checked_add(1)
                 .ok_or_else(|| StateStoreError::corrupt(path, "checkpoint epoch exhausted"))?;
+            let journal_bytes = read_bounded(
+                journal_path,
+                self.limits.max_journal_bytes.saturating_add(self.limits.max_journal_record_bytes),
+            )?
+            .unwrap_or_default();
+            preserve_migration_backup(path, 2, &bytes)?;
+            preserve_migration_backup(journal_path, 2, &journal_bytes)?;
             write_checkpoint_atomic(path, session, epoch, 0, &replay.state, self.limits)?;
             // The new checkpoint uses a later epoch. If the process exits
             // before this atomic reset, the v3 loader recognizes the older
@@ -1030,7 +1111,7 @@ fn replay_journal_v2(
     path: &Path,
     checkpoint_epoch: u64,
     checkpoint_sequence: u64,
-    mut state: PersistedSessionState,
+    state: PersistedSessionState,
     limits: StateStoreLimits,
 ) -> Result<JournalReplay, StateStoreError> {
     let Some(bytes) = read_bounded(
@@ -1047,6 +1128,26 @@ fn replay_journal_v2(
             quarantined_tail: None,
         });
     };
+    replay_journal_v2_bytes(
+        path,
+        &bytes,
+        checkpoint_epoch,
+        checkpoint_sequence,
+        state,
+        limits,
+        true,
+    )
+}
+
+fn replay_journal_v2_bytes(
+    path: &Path,
+    bytes: &[u8],
+    checkpoint_epoch: u64,
+    checkpoint_sequence: u64,
+    mut state: PersistedSessionState,
+    limits: StateStoreLimits,
+    quarantine_invalid_tail: bool,
+) -> Result<JournalReplay, StateStoreError> {
     let mut epoch = checkpoint_epoch;
     let mut sequence = checkpoint_sequence;
     let mut record_count = 0usize;
@@ -1167,7 +1268,13 @@ fn replay_journal_v2(
     }
 
     let quarantined_tail = if let Some(start) = invalid_tail {
-        Some(quarantine_tail(path, &bytes, start)?)
+        if !quarantine_invalid_tail {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-2 backup journal has a truncated or invalid tail",
+            ));
+        }
+        Some(quarantine_tail(path, bytes, start)?)
     } else {
         None
     };
@@ -1727,6 +1834,29 @@ fn append_synced(path: &Path, bytes: &[u8]) -> Result<(), StateStoreError> {
     file.write_all(bytes)
         .and_then(|()| file.sync_all())
         .map_err(|error| StateStoreError::io(path, error))
+}
+
+fn migration_backup_path(path: &Path, version: u32) -> PathBuf {
+    let file_name = path.file_name().and_then(OsStr::to_str).unwrap_or("state");
+    path.with_file_name(format!("{file_name}.v{version}.backup"))
+}
+
+fn preserve_migration_backup(
+    source_path: &Path,
+    version: u32,
+    bytes: &[u8],
+) -> Result<(), StateStoreError> {
+    let backup = migration_backup_path(source_path, version);
+    if let Some(existing) = read_bounded(&backup, bytes.len().saturating_add(1))? {
+        if existing != bytes {
+            return Err(StateStoreError::corrupt(
+                &backup,
+                "immutable migration backup differs from the source state",
+            ));
+        }
+        return Ok(());
+    }
+    replace_file_atomically(&backup, bytes)
 }
 
 fn replace_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), StateStoreError> {
@@ -2521,7 +2651,8 @@ mod tests {
             checksum: checksum_json(&checkpoint_body).unwrap(),
             body: checkpoint_body,
         };
-        write_private_fixture(&checkpoint_path, &serde_json::to_vec_pretty(&checkpoint).unwrap());
+        let checkpoint_bytes = serde_json::to_vec_pretty(&checkpoint).unwrap();
+        write_private_fixture(&checkpoint_path, &checkpoint_bytes);
 
         let mut journal_state = checkpoint_state;
         journal_state.topology_revision = 1;
@@ -2552,9 +2683,91 @@ mod tests {
         drop(opened.durable);
         assert!(fs::read(&journal_path).unwrap().is_empty());
         let value: serde_json::Value =
-            serde_json::from_slice(&fs::read(checkpoint_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&checkpoint_path).unwrap()).unwrap();
         assert_eq!(value["body"]["version"], STATE_STORE_VERSION);
         assert_eq!(value["body"]["epoch"], 5);
+
+        let (checkpoint_backup, journal_backup) = store.version_two_backup_paths("main");
+        assert_eq!(fs::read(&checkpoint_backup).unwrap(), checkpoint_bytes);
+        assert_eq!(fs::read(&journal_backup).unwrap(), journal_bytes);
+
+        store.restore_version_two_backup("main").unwrap();
+        assert_eq!(fs::read(&checkpoint_path).unwrap(), checkpoint_bytes);
+        assert_eq!(fs::read(&journal_path).unwrap(), journal_bytes);
+        let restored_checkpoint: CheckpointEnvelopeV2 =
+            serde_json::from_slice(&fs::read(&checkpoint_path).unwrap()).unwrap();
+        validate_checkpoint_v2(&checkpoint_path, "main", &restored_checkpoint).unwrap();
+        let restored = replay_journal_v2(
+            &journal_path,
+            restored_checkpoint.body.epoch,
+            restored_checkpoint.body.sequence,
+            restored_checkpoint.body.state.into(),
+            store.limits,
+        )
+        .unwrap();
+        assert_eq!(restored.state.session_id, session_id);
+        assert_eq!(restored.state.topology_revision, 1);
+
+        // A retried upgrade consumes the same immutable backup instead of
+        // overwriting the rollback point with already-migrated bytes.
+        assert_eq!(store.load_or_create_session("main").unwrap(), session_id);
+        assert_eq!(fs::read(checkpoint_backup).unwrap(), checkpoint_bytes);
+        assert_eq!(fs::read(&journal_backup).unwrap(), journal_bytes);
+
+        // Rollback validates backups without repairing or truncating them. A
+        // tampered rollback point must leave the active version-3 state and
+        // the forensic backup bytes untouched.
+        let active_checkpoint = fs::read(&checkpoint_path).unwrap();
+        let active_journal = fs::read(&journal_path).unwrap();
+        let mut tampered_journal_backup = journal_bytes.clone();
+        tampered_journal_backup.extend_from_slice(b"truncated");
+        fs::write(&journal_backup, &tampered_journal_backup).unwrap();
+        let error = store.restore_version_two_backup("main").unwrap_err();
+        assert!(error.to_string().contains("truncated or invalid tail"));
+        assert_eq!(fs::read(&checkpoint_path).unwrap(), active_checkpoint);
+        assert_eq!(fs::read(&journal_path).unwrap(), active_journal);
+        assert_eq!(fs::read(journal_backup).unwrap(), tampered_journal_backup);
+    }
+
+    #[test]
+    fn version_two_migration_refuses_to_overwrite_a_different_backup() {
+        let directory = TestDirectory::new("v2-migration-backup-mismatch");
+        let store = StateStore::new(&directory.0);
+        let checkpoint_path = store.session_path("main");
+        let journal_path = store.journal_path("main");
+        let session_id = SessionId::new();
+        let body = CheckpointBodyV2 {
+            version: 2,
+            format: CHECKPOINT_FORMAT.to_string(),
+            session: "main".to_string(),
+            epoch: 1,
+            sequence: 0,
+            state: PersistedSessionStateV2 {
+                session_id,
+                topology_revision: 0,
+                active_workspace: None,
+                workspaces: Vec::new(),
+                panes: Vec::new(),
+                surfaces: Vec::new(),
+                tombstones: Vec::new(),
+                idempotency_results: Vec::new(),
+            },
+        };
+        let checkpoint = CheckpointEnvelopeV2 { checksum: checksum_json(&body).unwrap(), body };
+        let checkpoint_bytes = serde_json::to_vec_pretty(&checkpoint).unwrap();
+        write_private_fixture(&checkpoint_path, &checkpoint_bytes);
+        write_private_fixture(&journal_path, &[]);
+        let (checkpoint_backup, _) = store.version_two_backup_paths("main");
+        write_private_fixture(&checkpoint_backup, b"different rollback point");
+
+        let error = match store.open_session("main") {
+            Ok(_) => panic!("migration unexpectedly overwrote a different backup"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("immutable migration backup differs"));
+        assert_eq!(fs::read(checkpoint_path).unwrap(), checkpoint_bytes);
+        assert!(fs::read(journal_path).unwrap().is_empty());
+        assert_eq!(fs::read(checkpoint_backup).unwrap(), b"different rollback point");
     }
 
     #[test]

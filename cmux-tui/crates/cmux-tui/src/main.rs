@@ -67,6 +67,7 @@ OPTIONS:
   --app-service-layout
                      Use cmux's environment-independent macOS service paths.
   --recover-state    Archive corrupt session metadata and issue a new identity.
+  --restore-v2-state Restore the immutable pre-v3 checkpoint and exit.
   --headless         Run only the control socket, no TUI.
   --ws <addr>        Also listen for WebSocket clients (default: off).
   --ws-token <token> Allow a static-token bypass for interactive pairing.
@@ -127,6 +128,7 @@ struct Args {
     state_dir: Option<PathBuf>,
     app_service_layout: bool,
     recover_state: bool,
+    restore_v2_state: bool,
     headless: bool,
     ws: Option<String>,
     ws_token: Option<String>,
@@ -142,6 +144,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
         state_dir: None,
         app_service_layout: false,
         recover_state: false,
+        restore_v2_state: false,
         headless: false,
         ws: None,
         ws_token: None,
@@ -170,6 +173,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
             }
             "--app-service-layout" => out.app_service_layout = true,
             "--recover-state" => out.recover_state = true,
+            "--restore-v2-state" => out.restore_v2_state = true,
             "--headless" => out.headless = true,
             "--ws" => {
                 out.ws = Some(args.next().unwrap_or_else(|| usage_exit("--ws needs a value")));
@@ -197,8 +201,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
             other => usage_exit(&format!("unknown argument {other:?}")),
         }
     }
-    if out.attach && out.recover_state {
-        usage_exit("--recover-state is only valid when starting a daemon session");
+    if out.attach && (out.recover_state || out.restore_v2_state) {
+        usage_exit("state recovery options are only valid for a local daemon session");
+    }
+    if out.recover_state && out.restore_v2_state {
+        usage_exit("--recover-state and --restore-v2-state are mutually exclusive");
     }
     if out.app_service_layout && (out.socket.is_some() || out.state_dir.is_some()) {
         usage_exit("--app-service-layout cannot be combined with --socket or --state-dir");
@@ -290,6 +297,11 @@ fn run_server(args: Args) -> anyhow::Result<()> {
         if let Some(path) = recovery.archived_corrupt_state {
             eprintln!("cmux-tui: archived corrupt session metadata at {}", path.display());
         }
+    }
+    if args.restore_v2_state {
+        state_store.restore_version_two_backup(&args.session)?;
+        eprintln!("cmux-tui: restored immutable version-2 state for session {:?}", args.session);
+        return Ok(());
     }
     let mux = Mux::recover_from_state_store(args.session.clone(), surface_options, &state_store)?;
     if app_service_layout {
@@ -413,6 +425,7 @@ mod tests {
             state_dir: None,
             app_service_layout: false,
             recover_state: false,
+            restore_v2_state: false,
             headless: true,
             ws: None,
             ws_token: None,
@@ -438,5 +451,22 @@ mod tests {
         args.socket = Some(PathBuf::from("/tmp/explicit.sock"));
 
         assert_eq!(resolved_socket_path(&args), PathBuf::from("/tmp/explicit.sock"));
+    }
+
+    #[test]
+    fn version_two_restore_is_an_explicit_local_state_operation() {
+        let parsed = parse_args([
+            "--session".to_string(),
+            "rollback".to_string(),
+            "--state-dir".to_string(),
+            "/tmp/cmux-state-rollback-test".to_string(),
+            "--restore-v2-state".to_string(),
+        ]);
+
+        assert_eq!(parsed.session, "rollback");
+        assert_eq!(parsed.state_dir, Some(PathBuf::from("/tmp/cmux-state-rollback-test")));
+        assert!(parsed.restore_v2_state);
+        assert!(!parsed.recover_state);
+        assert!(!parsed.attach);
     }
 }
