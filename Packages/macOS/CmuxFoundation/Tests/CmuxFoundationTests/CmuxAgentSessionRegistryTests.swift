@@ -54,6 +54,37 @@ struct CmuxAgentSessionRegistryTests {
         #expect(stored.writerGeneration == 2)
     }
 
+    @Test("partial legacy snapshots cannot erase the last complete import")
+    func partialLegacySnapshotDoesNotReplaceCompleteImport() throws {
+        let fixture = try Fixture()
+        let original = try fixture.legacyStore(
+            sessions: ["durable": fixture.object(sessionID: "durable", updatedAt: 10)]
+        )
+        try fixture.registry.importLegacyStoreJSON(
+            provider: "codex",
+            stamp: CmuxAgentSessionRegistry.LegacyStamp(path: "legacy", size: Int64(original.count), modifiedAt: 10),
+            json: original
+        )
+        let partial = try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [
+                "durable": fixture.object(sessionID: "durable", updatedAt: 11),
+                "partial": "incomplete-record",
+            ],
+        ])
+
+        #expect(throws: (any Error).self) {
+            try fixture.registry.importLegacyStoreJSON(
+                provider: "codex",
+                stamp: CmuxAgentSessionRegistry.LegacyStamp(path: "legacy", size: Int64(partial.count), modifiedAt: 11),
+                json: partial
+            )
+        }
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        #expect(snapshot.records.map(\.sessionID) == ["durable"])
+        #expect(snapshot.records.first?.updatedAt == 10)
+    }
+
     @Test("lifecycle patches preserve unknown future keys")
     func patchPreservesUnknownKeys() throws {
         let fixture = try Fixture()
