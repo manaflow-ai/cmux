@@ -26689,7 +26689,7 @@ struct CMUXCLI {
     private static let openCodeSessionPluginMarker = "cmux-opencode-session-plugin-marker"
     private static let openCodeSessionPluginFilename = "cmux-session.js"
     private static let openCodeSessionPluginSource = #"""
-// cmux-opencode-session-plugin-marker v2
+// cmux-opencode-session-plugin-marker v3
 // Bridges OpenCode session lifecycle events into cmux's restorable session store.
 // Installed by `cmux hooks opencode install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
@@ -26702,14 +26702,25 @@ const CMUX_PLUGIN_INSTALLED_KEY = Symbol.for("cmux.session.restore.plugin.instal
 const MAX_TRACKED_SESSIONS = 100;
 const MAX_ACTIVE_HOOKS = 4;
 const MAX_PENDING_HOOKS = 256;
+const MAX_PENDING_RECONCILIATION_ENDS = 10000;
 const HOOK_TIMEOUT_MS = 5000;
+const HOOK_SHUTDOWN_TIMEOUT_MS = 10000;
 const messageRoles = new Map();
 const sessions = new Map();
 const pendingHooks = [];
+const pendingReconciliationEnds = new Map();
+const shutdownFinalHooks = new Map();
 const activeHookSessions = new Set();
+const activeHookDispatches = new Map();
 const reservedTerminalSessions = new Set();
 let activeHookCount = 0;
 let hookDrainScheduled = false;
+let nextHookSequence = 1;
+let drainingHooksForShutdown = false;
+let hookShutdownDeadlineExpired = false;
+let hookShutdownPromise = null;
+let hookShutdownResolve = null;
+let hookShutdownDeadline = null;
 
 function firstString(...values) {
   for (const value of values) {
@@ -26886,9 +26897,28 @@ function scheduleHookDrain() {
 }
 
 function finishHookDispatch(sessionId) {
+  activeHookDispatches.delete(sessionId);
   activeHookSessions.delete(sessionId);
   activeHookCount = Math.max(0, activeHookCount - 1);
   drainHookQueue();
+}
+
+function hookDispatcherIsDrained() {
+  if (drainingHooksForShutdown) {
+    return activeHookCount === 0 && shutdownFinalHooks.size === 0;
+  }
+  return activeHookCount === 0
+    && pendingHooks.length === 0
+    && pendingReconciliationEnds.size === 0;
+}
+
+function resolveHookShutdownIfNeeded() {
+  if (!drainingHooksForShutdown || !hookShutdownResolve || !hookDispatcherIsDrained()) return;
+  if (hookShutdownDeadline) clearTimeout(hookShutdownDeadline);
+  hookShutdownDeadline = null;
+  const resolve = hookShutdownResolve;
+  hookShutdownResolve = null;
+  resolve();
 }
 
 function dispatchHook(invocation) {
@@ -26904,7 +26934,7 @@ function dispatchHook(invocation) {
 
   try {
     child = spawn(invocation.cmux, ["hooks", "opencode", invocation.subcommand], {
-      env: invocation.env,
+      env: hookEnvironment(invocation.cwd),
       stdio: ["pipe", "ignore", "ignore"],
       detached: true,
     });
@@ -26926,26 +26956,87 @@ function dispatchHook(invocation) {
         settle();
       }
     }, HOOK_TIMEOUT_MS);
-    timeout.unref?.();
+    activeHookDispatches.set(invocation.sessionId, { child, timeout, invocation, settle });
+    if (drainingHooksForShutdown) {
+      child.ref();
+      timeout.ref?.();
+    } else {
+      timeout.unref?.();
+    }
   } catch (_) {
     settle();
   }
 }
 
 function drainHookQueue() {
-  while (activeHookCount < MAX_ACTIVE_HOOKS && pendingHooks.length > 0) {
-    const index = pendingHooks.findIndex(
-      (invocation) => !activeHookSessions.has(invocation.sessionId)
-    );
-    if (index < 0) return;
-    const [invocation] = pendingHooks.splice(index, 1);
+  if (hookShutdownDeadlineExpired) {
+    resolveHookShutdownIfNeeded();
+    return;
+  }
+  while (activeHookCount < MAX_ACTIVE_HOOKS) {
+    let invocation = null;
+    if (drainingHooksForShutdown) {
+      for (const [sessionId, pending] of shutdownFinalHooks) {
+        if (activeHookSessions.has(sessionId)) continue;
+        shutdownFinalHooks.delete(sessionId);
+        invocation = pending;
+        break;
+      }
+    } else {
+      for (const [sessionId, pending] of pendingReconciliationEnds) {
+        if (activeHookSessions.has(sessionId)) continue;
+        pendingReconciliationEnds.delete(sessionId);
+        invocation = pending;
+        break;
+      }
+      if (!invocation) {
+        const index = pendingHooks.findIndex(
+          (pending) => !activeHookSessions.has(pending.sessionId)
+        );
+        if (index >= 0) [invocation] = pendingHooks.splice(index, 1);
+      }
+    }
+    if (!invocation) break;
     activeHookSessions.add(invocation.sessionId);
     activeHookCount += 1;
     dispatchHook(invocation);
   }
+  resolveHookShutdownIfNeeded();
+}
+
+function enqueueShutdownFinal(invocation) {
+  if (hookShutdownDeadlineExpired) return false;
+  const existing = shutdownFinalHooks.get(invocation.sessionId);
+  if (existing || shutdownFinalHooks.size < MAX_PENDING_RECONCILIATION_ENDS) {
+    if (!existing || invocation.sequence >= existing.sequence) {
+      shutdownFinalHooks.set(invocation.sessionId, invocation);
+    }
+    scheduleHookDrain();
+    return true;
+  }
+  return false;
+}
+
+function enqueueReconciliationEnd(invocation) {
+  if (pendingReconciliationEnds.has(invocation.sessionId)) {
+    pendingReconciliationEnds.set(invocation.sessionId, invocation);
+    scheduleHookDrain();
+    return true;
+  }
+  // The canonical provider store retains at most 10,000 inactive rows. Keep a
+  // compact final-state intent for each possible restart reconciliation while
+  // the 256-slot ordered lifecycle queue is saturated.
+  if (pendingReconciliationEnds.size >= MAX_PENDING_RECONCILIATION_ENDS) return false;
+  pendingReconciliationEnds.set(invocation.sessionId, invocation);
+  scheduleHookDrain();
+  return true;
 }
 
 function enqueueHook(invocation) {
+  invocation.sequence = nextHookSequence;
+  nextHookSequence += 1;
+  if (drainingHooksForShutdown) return enqueueShutdownFinal(invocation);
+
   // Coalesce only the newest uninterrupted run of this session's same event.
   // Crossing another lifecycle event is an ordering boundary: start, stop,
   // end, start must remain four ordered transitions even when dispatch stalls.
@@ -26963,6 +27054,12 @@ function enqueueHook(invocation) {
   const isStart = invocation.subcommand === "session-start";
   const isEnd = invocation.subcommand === "session-end";
   const hasTerminalReservation = reservedTerminalSessions.has(invocation.sessionId);
+  if (isEnd && !hasTerminalReservation
+      && pendingReconciliationEnds.has(invocation.sessionId)) {
+    pendingReconciliationEnds.set(invocation.sessionId, invocation);
+    scheduleHookDrain();
+    return true;
+  }
   if (isStart && hasTerminalReservation) {
     // The durable session already has an accepted start. A pruned in-memory
     // metadata entry must not generate another one.
@@ -26981,7 +27078,11 @@ function enqueueHook(invocation) {
     pendingHooks.splice(stopIndex, 1);
     projectedCost -= 1;
   }
-  if (projectedCost > MAX_PENDING_HOOKS) return false;
+  if (projectedCost > MAX_PENDING_HOOKS) {
+    return isEnd && !hasTerminalReservation
+      ? enqueueReconciliationEnd(invocation)
+      : false;
+  }
 
   pendingHooks.push(invocation);
   if (isStart) reservedTerminalSessions.add(invocation.sessionId);
@@ -26991,6 +27092,45 @@ function enqueueHook(invocation) {
   scheduleHookDrain();
   return true;
 }
+
+function drainHooksForShutdown() {
+  if (hookShutdownPromise) return hookShutdownPromise;
+  drainingHooksForShutdown = true;
+  // Once OpenCode begins teardown, intermediate transitions are stale. Retain
+  // only each session's newest queued durable outcome, while allowing its one
+  // already-running hook to finish first. This preserves start/end order
+  // without serializing a saturated same-session backlog during process exit.
+  for (const invocation of pendingHooks) enqueueShutdownFinal(invocation);
+  for (const invocation of pendingReconciliationEnds.values()) {
+    enqueueShutdownFinal(invocation);
+  }
+  pendingHooks.length = 0;
+  pendingReconciliationEnds.clear();
+  reservedTerminalSessions.clear();
+  for (const { child, timeout } of activeHookDispatches.values()) {
+    child.ref();
+    timeout.ref?.();
+  }
+  hookShutdownPromise = new Promise((resolve) => {
+    hookShutdownResolve = resolve;
+  });
+  hookShutdownDeadline = setTimeout(() => {
+    hookShutdownDeadlineExpired = true;
+    shutdownFinalHooks.clear();
+    for (const { child, settle } of Array.from(activeHookDispatches.values())) {
+      try { child.kill("SIGKILL"); } catch (_) {}
+      child.unref();
+      settle();
+    }
+    resolveHookShutdownIfNeeded();
+  }, HOOK_SHUTDOWN_TIMEOUT_MS);
+  drainHookQueue();
+  return hookShutdownPromise;
+}
+
+process.once("beforeExit", () => {
+  if (!hookDispatcherIsDrained()) void drainHooksForShutdown();
+});
 
 function sendHook(subcommand, ctx, event, extra = {}) {
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return false;
@@ -27017,7 +27157,7 @@ function sendHook(subcommand, ctx, event, extra = {}) {
     subcommand,
     sessionId,
     payload: JSON.stringify(payload),
-    env: hookEnvironment(cwd),
+    cwd,
   });
 }
 
@@ -27064,6 +27204,9 @@ const CMUXSessionRestore = async (ctx) => {
   if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
   globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
   return {
+    dispose: async () => {
+      await drainHooksForShutdown();
+    },
     event: async ({ event }) => {
       trackMessage(event);
       const props = eventProperties(event);
