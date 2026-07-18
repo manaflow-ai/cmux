@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -211,6 +211,30 @@ pub fn resolve_last_turn_patch_cancellable(
     }
 }
 
+/// Resolves only the canonical repository associated with an agent session.
+///
+/// Callers can authorize this path before scanning the potentially large
+/// trajectory that contains the turn's patches.
+///
+/// # Errors
+///
+/// Returns [`TrajectoryError`] when the identity or provider metadata is invalid
+/// or unavailable.
+pub fn resolve_agent_turn_repository(
+    identity: &AgentTurnIdentity,
+    roots: &TrajectoryRoots,
+) -> Result<PathBuf, TrajectoryError> {
+    validate_session_id(&identity.session_id)?;
+    let cancellation = TrajectoryCancellation::default();
+    match identity.provider {
+        AgentProvider::Codex => codex_location(identity, roots).map(|(_, repo_root)| repo_root),
+        AgentProvider::Claude => {
+            claude_location(identity, roots, &cancellation).map(|(_, repo_root)| repo_root)
+        }
+        AgentProvider::OpenCode => opencode_repository(identity, roots),
+    }
+}
+
 fn validate_session_id(session_id: &str) -> Result<(), TrajectoryError> {
     if session_id.is_empty()
         || session_id.len() > MAX_SESSION_ID_BYTES
@@ -228,6 +252,15 @@ fn resolve_codex(
     roots: &TrajectoryRoots,
     cancellation: &TrajectoryCancellation,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
+    let (transcript, repo_root) = codex_location(identity, roots)?;
+    let patch = codex_last_turn_patch(&transcript, &repo_root, cancellation)?;
+    finish(repo_root, patch)
+}
+
+fn codex_location(
+    identity: &AgentTurnIdentity,
+    roots: &TrajectoryRoots,
+) -> Result<(PathBuf, PathBuf), TrajectoryError> {
     let hook = read_hook_record(roots, identity.provider, &identity.session_id);
     let (transcript, repo_root) = if let Some(record) =
         hook.filter(|record| record.transcript_path.is_some() && record.cwd.is_some())
@@ -251,8 +284,7 @@ fn resolve_codex(
         )
     };
     let repo_root = canonical_repository_root(&repo_root)?;
-    let patch = codex_last_turn_patch(&transcript, &repo_root, cancellation)?;
-    finish(repo_root, patch)
+    Ok((transcript, repo_root))
 }
 
 fn resolve_claude(
@@ -260,6 +292,16 @@ fn resolve_claude(
     roots: &TrajectoryRoots,
     cancellation: &TrajectoryCancellation,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
+    let (transcript, repo_root) = claude_location(identity, roots, cancellation)?;
+    let patch = claude_last_turn_patch(&transcript, &repo_root, cancellation)?;
+    finish(repo_root, patch)
+}
+
+fn claude_location(
+    identity: &AgentTurnIdentity,
+    roots: &TrajectoryRoots,
+    cancellation: &TrajectoryCancellation,
+) -> Result<(PathBuf, PathBuf), TrajectoryError> {
     let hook = read_hook_record(roots, identity.provider, &identity.session_id);
     let (transcript, repo_root) = if let Some(record) =
         hook.filter(|record| record.transcript_path.is_some() && record.cwd.is_some())
@@ -281,8 +323,7 @@ fn resolve_claude(
         (transcript, repo_root)
     };
     let repo_root = canonical_repository_root(&repo_root)?;
-    let patch = claude_last_turn_patch(&transcript, &repo_root, cancellation)?;
-    finish(repo_root, patch)
+    Ok((transcript, repo_root))
 }
 
 fn resolve_opencode(
@@ -292,16 +333,7 @@ fn resolve_opencode(
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
     cancellation.check()?;
     let connection = open_read_only_database(&roots.opencode_database())?;
-    let repo: String = connection
-        .query_row(
-            "SELECT directory FROM session WHERE id = ?1 LIMIT 1",
-            [&identity.session_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|_| TrajectoryError::Invalid)?
-        .ok_or(TrajectoryError::Unavailable)?;
-    let repo_root = canonical_repository_root(&expanded_path(&repo))?;
+    let repo_root = opencode_repository_from_connection(identity, &connection)?;
     cancellation.check()?;
     let user_message: String = connection
         .query_row(
@@ -340,6 +372,30 @@ fn resolve_opencode(
         )?;
     }
     finish(repo_root, patch)
+}
+
+fn opencode_repository(
+    identity: &AgentTurnIdentity,
+    roots: &TrajectoryRoots,
+) -> Result<PathBuf, TrajectoryError> {
+    let connection = open_read_only_database(&roots.opencode_database())?;
+    opencode_repository_from_connection(identity, &connection)
+}
+
+fn opencode_repository_from_connection(
+    identity: &AgentTurnIdentity,
+    connection: &Connection,
+) -> Result<PathBuf, TrajectoryError> {
+    let repo: String = connection
+        .query_row(
+            "SELECT directory FROM session WHERE id = ?1 LIMIT 1",
+            [&identity.session_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| TrajectoryError::Invalid)?
+        .ok_or(TrajectoryError::Unavailable)?;
+    canonical_repository_root(&expanded_path(&repo))
 }
 
 fn finish(repo_root: PathBuf, patch: String) -> Result<ResolvedTurnPatch, TrajectoryError> {
@@ -438,6 +494,9 @@ fn codex_last_turn_patch(
             {
                 current_turn = Some(turn_id.to_owned());
                 patch.clear();
+            } else if turn_id.is_none() {
+                current_turn = None;
+                patch.clear();
             }
             return Ok(false);
         }
@@ -456,7 +515,7 @@ fn codex_last_turn_patch(
             return Ok(false);
         }
         if event_type != Some("patch_apply_end")
-            || payload.get("success") == Some(&Value::Bool(false))
+            || payload.get("success") != Some(&Value::Bool(true))
         {
             return Ok(false);
         }
@@ -731,7 +790,9 @@ fn append_claude_result(
         .get("structuredPatch")
         .and_then(Value::as_array)
         .ok_or(TrajectoryError::Invalid)?;
-    let is_create = result.get("type").and_then(Value::as_str) == Some("create");
+    let result_type = result.get("type").and_then(Value::as_str);
+    let is_create = result_type == Some("create");
+    let is_delete = result_type == Some("delete");
     if hunks.is_empty() {
         if is_create {
             let content = result
@@ -739,6 +800,20 @@ fn append_claude_result(
                 .and_then(Value::as_str)
                 .ok_or(TrajectoryError::Invalid)?;
             return append_added_file(output, &path, content);
+        }
+        if is_delete {
+            let content = result
+                .get("content")
+                .and_then(Value::as_str)
+                .ok_or(TrajectoryError::Invalid)?;
+            let old_a = git_prefixed_path("a/", &path);
+            let new_b = git_prefixed_path("b/", &path);
+            write!(
+                output,
+                "diff --git {old_a} {new_b}\ndeleted file mode 100644\n--- {old_a}\n+++ /dev/null\n"
+            )
+            .map_err(|_| TrajectoryError::Invalid)?;
+            return append_deleted_content(output, content);
         }
         return Ok(());
     }
@@ -748,6 +823,12 @@ fn append_claude_result(
     if is_create {
         write!(output, "new file mode 100644\n--- /dev/null\n+++ {new_b}\n")
             .map_err(|_| TrajectoryError::Invalid)?;
+    } else if is_delete {
+        write!(
+            output,
+            "deleted file mode 100644\n--- {old_a}\n+++ /dev/null\n"
+        )
+        .map_err(|_| TrajectoryError::Invalid)?;
     } else {
         write!(output, "--- {old_a}\n+++ {new_b}\n").map_err(|_| TrajectoryError::Invalid)?;
     }
@@ -791,15 +872,14 @@ fn for_json_lines(
     mut consume: impl FnMut(&Value) -> Result<bool, TrajectoryError>,
 ) -> Result<(), TrajectoryError> {
     let file = File::open(path).map_err(|_| TrajectoryError::Unavailable)?;
-    if file
+    let transcript_len = file
         .metadata()
         .map_err(|_| TrajectoryError::Unavailable)?
-        .len()
-        > MAX_TRANSCRIPT_BYTES
-    {
+        .len();
+    if transcript_len > MAX_TRANSCRIPT_BYTES {
         return Err(TrajectoryError::Invalid);
     }
-    let mut reader = BufReader::new(file);
+    let mut reader = BufReader::new(file.take(transcript_len));
     let mut line = Vec::new();
     while let Some(terminated) = read_capped_json_line(&mut reader, &mut line, cancellation)? {
         cancellation.check()?;

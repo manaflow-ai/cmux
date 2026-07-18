@@ -53,7 +53,7 @@ use crate::protocol::{
 };
 use crate::trajectory::{
     AgentTurnIdentity, ResolvedTurnPatch, TrajectoryCancellation, TrajectoryError, TrajectoryRoots,
-    resolve_last_turn_patch_cancellable,
+    resolve_agent_turn_repository, resolve_last_turn_patch_cancellable,
 };
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
@@ -782,25 +782,47 @@ async fn open_session(
             source: params.source,
         });
     }
-    let resolved_turn = if let DiffSource::AgentTurn {
+    let authorized_agent_turn = if let DiffSource::AgentTurn {
         provider,
         session_id,
     } = &params.source
     {
-        if !authorize_agent_turn_for_token(state, &params.capability_token).await {
+        let authorizations = load_token_authorizations(state, &params.capability_token)
+            .await
+            .ok_or(SessionOpenError::Unauthorized)?;
+        let identity = AgentTurnIdentity::new(*provider, session_id.clone());
+        let worker_identity = identity.clone();
+        let permit = state
+            .child_processes
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| SessionOpenError::Failed)?;
+        let repo_root = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let roots = TrajectoryRoots::from_environment()?;
+            resolve_agent_turn_repository(&worker_identity, &roots)
+        })
+        .await
+        .map_err(|_| SessionOpenError::Failed)?
+        .map_err(|_| SessionOpenError::Failed)?;
+        if !authorizations_allow_repo(&authorizations, &repo_root).await {
             return Err(SessionOpenError::Unauthorized);
         }
-        let identity = AgentTurnIdentity::new(*provider, session_id.clone());
-        Some(
-            resolve_agent_turn_coalesced(state, identity)
-                .await
-                .map_err(|error| match error {
-                    TrajectoryError::Empty => SessionOpenError::Empty,
-                    TrajectoryError::Unavailable | TrajectoryError::Invalid => {
-                        SessionOpenError::Failed
-                    }
-                })?,
-        )
+        Some((identity, repo_root))
+    } else {
+        None
+    };
+    let resolved_turn = if let Some((identity, authorized_repo_root)) = authorized_agent_turn {
+        let resolved = resolve_agent_turn_coalesced(state, identity)
+            .await
+            .map_err(|error| match error {
+                TrajectoryError::Empty => SessionOpenError::Empty,
+                TrajectoryError::Unavailable | TrajectoryError::Invalid => SessionOpenError::Failed,
+            })?;
+        if resolved.repo_root != authorized_repo_root {
+            return Err(SessionOpenError::Unauthorized);
+        }
+        Some(resolved)
     } else {
         None
     };
@@ -828,7 +850,9 @@ async fn open_session(
             .ok_or(SessionOpenError::Unauthorized)?,
         (DiffSource::AgentTurn { .. }, None) | (DiffSource::Patch { .. }, _) => unreachable!(),
     };
-    if !authorize_repo_for_token(state, &params.capability_token, repo).await {
+    if resolved_turn.is_none()
+        && !authorize_repo_for_token(state, &params.capability_token, repo).await
+    {
         return Err(SessionOpenError::Unauthorized);
     }
     let canonical_repo = if let Some(resolved) = &resolved_turn {
@@ -1965,15 +1989,26 @@ fn trusted_browser_request(headers: &HeaderMap, port: u16) -> bool {
 }
 
 async fn authorize_repo_for_token(state: &AppState, token: &str, repo: &str) -> bool {
-    if !valid_token(token) {
-        return false;
-    }
     let Ok(canonical_repo) = tokio::fs::canonicalize(repo).await else {
         return false;
     };
-    let Ok(mut entries) = tokio::fs::read_dir(&state.config.root).await else {
+    let Some(authorizations) = load_token_authorizations(state, token).await else {
         return false;
     };
+    authorizations_allow_repo(&authorizations, &canonical_repo).await
+}
+
+async fn load_token_authorizations(
+    state: &AppState,
+    token: &str,
+) -> Option<Vec<BranchSessionAuthorization>> {
+    if !valid_token(token) {
+        return None;
+    }
+    let Ok(mut entries) = tokio::fs::read_dir(&state.config.root).await else {
+        return None;
+    };
+    let mut authorizations = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -1983,30 +2018,19 @@ async fn authorize_repo_for_token(state: &AppState, token: &str, repo: &str) -> 
         let Ok(session) = read_branch_session(&entry.path()).await else {
             continue;
         };
-        if session.token == token && session_allows_repo(&session, &canonical_repo).await {
-            return true;
+        if session.token == token {
+            authorizations.push(session);
         }
     }
-    false
+    (!authorizations.is_empty()).then_some(authorizations)
 }
 
-async fn authorize_agent_turn_for_token(state: &AppState, token: &str) -> bool {
-    if !valid_token(token) {
-        return false;
-    }
-    let Ok(mut entries) = tokio::fs::read_dir(&state.config.root).await else {
-        return false;
-    };
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if !name.starts_with(".branch-session-") || !name.ends_with(".json") {
-            continue;
-        }
-        if read_branch_session(&entry.path())
-            .await
-            .is_ok_and(|session| session.token == token)
-        {
+async fn authorizations_allow_repo(
+    authorizations: &[BranchSessionAuthorization],
+    canonical_repo: &Path,
+) -> bool {
+    for authorization in authorizations {
+        if session_allows_repo(authorization, canonical_repo).await {
             return true;
         }
     }
