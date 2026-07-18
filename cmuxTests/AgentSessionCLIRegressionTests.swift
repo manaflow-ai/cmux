@@ -649,6 +649,24 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect((result.stdout + result.stderr).contains("unknown agent 'definitely-not-an-agent'"))
     }
 
+    @Test func agentsTreeRejectsBlankAgentFilter() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--agent", "", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status != 0)
+        #expect((result.stdout + result.stderr).contains("--agent requires a value"))
+    }
+
 }
 
 private func makeTerminalObservation(
