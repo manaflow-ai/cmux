@@ -834,10 +834,16 @@ class AcceptanceToolTests(unittest.TestCase):
             app = root / "cmux.app"
             link_map = root / "host-attestation-LinkMap.txt"
             link_map.write_text("fixture link map\n", encoding="utf-8")
+            graph_binding_sha256 = acceptance.sha256_json(
+                {
+                    "swiftpm_graph_sha256": "a" * 64,
+                    "xcode_target_sha256": "e" * 64,
+                }
+            )
             report = {
                 "schema_version": 2,
                 "graph_sha256": "a" * 64,
-                "graph_binding_sha256": "f" * 64,
+                "graph_binding_sha256": graph_binding_sha256,
                 "product_closure": {
                     "nodes": [
                         {"package": "CmuxTerminal", "target": "CmuxTerminalDomain"},
@@ -919,7 +925,7 @@ class AcceptanceToolTests(unittest.TestCase):
                 {
                     "source_commit": "d" * 40,
                     "graph_sha256": "a" * 64,
-                    "graph_binding_sha256": "f" * 64,
+                    "graph_binding_sha256": graph_binding_sha256,
                     "xcode_target_sha256": "e" * 64,
                     "link_map_sha256": acceptance.sha256_file(link_map),
                     "host_attestation_sha256": "c" * 64,

@@ -15,6 +15,7 @@ import pathlib
 import platform
 import plistlib
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -32,6 +33,8 @@ IDENTITY_TOOL = REPO_ROOT / "scripts/terminal-backend-identity.py"
 BACKEND_ONLY_PRODUCT_VERIFIER = REPO_ROOT / "scripts/verify-cmux-backend-only-product.py"
 BACKEND_ONLY_LINKAGE_AUDITOR = REPO_ROOT / "scripts/audit-cmux-backend-only-linkage.sh"
 TERMINAL_FRONTEND_PACKAGE = REPO_ROOT / "Packages/macOS/CmuxTerminal"
+BACKEND_ONLY_XCODE_PROJECT = REPO_ROOT / "cmux.xcodeproj/project.pbxproj"
+BACKEND_ONLY_XCODE_TARGET = "cmux-backend-only"
 SCHEMA_VERSION = 1
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -238,6 +241,9 @@ ARTIFACT_REQUIRED_METRICS: dict[str, set[str]] = {
     "host-backend-only-attestation": {
         "source_commit",
         "graph_sha256",
+        "graph_binding_sha256",
+        "xcode_target_sha256",
+        "link_map_sha256",
         "host_attestation_sha256",
         "host_load_closure_binary_count",
         "frontend_target_count",
@@ -3086,7 +3092,10 @@ def _provenance_is_complete(value: Any) -> bool:
     return required.issubset(value) and all(value[name] not in (None, "") for name in required)
 
 
-def _backend_only_product_report(app_bundle: pathlib.Path) -> dict[str, Any]:
+def _backend_only_product_report(
+    app_bundle: pathlib.Path,
+    link_map: pathlib.Path,
+) -> dict[str, Any]:
     """Recompute the frontend product graph and recursive host Mach-O audit."""
     rendered = run(
         [
@@ -3098,6 +3107,12 @@ def _backend_only_product_report(app_bundle: pathlib.Path) -> dict[str, Any]:
             "CmuxTerminalFrontend",
             "--app-bundle",
             str(app_bundle),
+            "--xcode-project",
+            str(BACKEND_ONLY_XCODE_PROJECT),
+            "--xcode-target",
+            BACKEND_ONLY_XCODE_TARGET,
+            "--link-map",
+            str(link_map),
         ]
     )
     try:
@@ -3118,12 +3133,18 @@ def _derive_host_backend_only_attestation_metrics(
     *,
     source_commit: str | None,
     app_bundle: pathlib.Path | None,
+    artifact_path: pathlib.Path,
 ) -> dict[str, Any]:
     expected_context_keys = {
         "source_commit",
         "app_path",
         "verifier_sha256",
         "linkage_auditor_sha256",
+        "xcode_project_path",
+        "xcode_project_sha256",
+        "xcode_target",
+        "link_map_path",
+        "link_map_sha256",
     }
     if set(context) != expected_context_keys:
         raise AcceptanceError(
@@ -3142,18 +3163,56 @@ def _derive_host_backend_only_attestation_metrics(
         raise AcceptanceError(f"{label} product verifier hash changed")
     if context.get("linkage_auditor_sha256") != sha256_file(BACKEND_ONLY_LINKAGE_AUDITOR):
         raise AcceptanceError(f"{label} linkage auditor hash changed")
+    expected_project = BACKEND_ONLY_XCODE_PROJECT.resolve()
+    if context.get("xcode_project_path") != str(expected_project):
+        raise AcceptanceError(f"{label} does not bind the production Xcode project")
+    if context.get("xcode_project_sha256") != sha256_file(expected_project):
+        raise AcceptanceError(f"{label} Xcode project hash changed")
+    if context.get("xcode_target") != BACKEND_ONLY_XCODE_TARGET:
+        raise AcceptanceError(f"{label} does not bind the exact backend-only Xcode target")
+    link_map_relative = _raw_string(
+        context.get("link_map_path"), f"{label} link map path"
+    )
+    link_map = resolve_evidence_path(artifact_path.parent, link_map_relative)
+    if not link_map.is_file():
+        raise AcceptanceError(f"{label} link map must be a file")
+    link_map_sha256 = _raw_string(
+        context.get("link_map_sha256"), f"{label} link map hash"
+    )
+    expect_sha256(link_map_sha256, f"{label} link map hash")
+    if sha256_file(link_map) != link_map_sha256:
+        raise AcceptanceError(f"{label} link map hash changed")
     if len(records) != 1 or not isinstance(records[0], dict):
         raise AcceptanceError(f"{label} needs exactly one verifier report")
 
-    report = _backend_only_product_report(resolved_app)
+    report = _backend_only_product_report(resolved_app, link_map)
     if records[0] != report:
         raise AcceptanceError(
             f"{label} does not match a fresh backend-only product and host audit"
         )
-    if report.get("schema_version") != 1:
+    if report.get("schema_version") != 2:
         raise AcceptanceError(f"{label} verifier report schema is unsupported")
     graph_sha256 = _raw_string(report.get("graph_sha256"), f"{label} graph hash")
     expect_sha256(graph_sha256, f"{label} graph hash")
+    xcode_target = _raw_dict(report.get("xcode_target"), f"{label} Xcode target")
+    if xcode_target.get("target") != BACKEND_ONLY_XCODE_TARGET:
+        raise AcceptanceError(f"{label} does not attest the exact backend-only Xcode target")
+    xcode_target_sha256 = _raw_string(
+        xcode_target.get("sha256"), f"{label} Xcode target hash"
+    )
+    expect_sha256(xcode_target_sha256, f"{label} Xcode target hash")
+    graph_binding_sha256 = _raw_string(
+        report.get("graph_binding_sha256"), f"{label} graph binding hash"
+    )
+    expect_sha256(graph_binding_sha256, f"{label} graph binding hash")
+    expected_graph_binding = sha256_json(
+        {
+            "swiftpm_graph_sha256": graph_sha256,
+            "xcode_target_sha256": xcode_target_sha256,
+        }
+    )
+    if graph_binding_sha256 != expected_graph_binding:
+        raise AcceptanceError(f"{label} graph and Xcode target binding hash is invalid")
     closure = _raw_dict(report.get("product_closure"), f"{label} product closure")
     nodes = closure.get("nodes")
     if not isinstance(nodes, list):
@@ -3165,6 +3224,12 @@ def _derive_host_backend_only_attestation_metrics(
     if frontend_target_count != 1:
         raise AcceptanceError(f"{label} needs exactly one frontend product target")
     host = _raw_dict(report.get("host_artifact"), f"{label} host artifact")
+    link_map_report = _raw_dict(host.get("link_map"), f"{label} host link map")
+    if (
+        link_map_report.get("path") != link_map.name
+        or link_map_report.get("sha256") != link_map_sha256
+    ):
+        raise AcceptanceError(f"{label} host artifact does not bind the evidence link map")
     attestation_sha256 = _raw_string(
         host.get("attestation_sha256"), f"{label} host attestation hash"
     )
@@ -3175,6 +3240,9 @@ def _derive_host_backend_only_attestation_metrics(
     return {
         "source_commit": source_commit,
         "graph_sha256": graph_sha256,
+        "graph_binding_sha256": graph_binding_sha256,
+        "xcode_target_sha256": xcode_target_sha256,
+        "link_map_sha256": link_map_sha256,
         "host_attestation_sha256": attestation_sha256,
         "host_load_closure_binary_count": len(load_closure),
         "frontend_target_count": frontend_target_count,
@@ -3203,6 +3271,7 @@ def derive_structured_metrics(
             label,
             source_commit=source_commit,
             app_bundle=app_bundle,
+            artifact_path=path,
         )
     if kind == "accessibility-tree":
         text = context.get("text")
@@ -5386,19 +5455,6 @@ def collect_host_backend_only_attestation(arguments: argparse.Namespace) -> path
                 f"host attestation packaged {executable['role']} executable changed"
             )
 
-    report = _backend_only_product_report(app)
-    payload = {
-        "schema_version": 1,
-        "artifact_kind": "host-backend-only-attestation",
-        "context": {
-            "source_commit": expected_commit,
-            "app_path": str(app),
-            "verifier_sha256": sha256_file(BACKEND_ONLY_PRODUCT_VERIFIER),
-            "linkage_auditor_sha256": sha256_file(BACKEND_ONLY_LINKAGE_AUDITOR),
-        },
-        "records": [report],
-    }
-
     run_root = manifest_path.parent
     output = (run_root / arguments.output).resolve()
     try:
@@ -5410,10 +5466,56 @@ def collect_host_backend_only_attestation(arguments: argparse.Namespace) -> path
     if output.exists() and not arguments.replace:
         raise AcceptanceError(f"host attestation already exists: {output}; pass --replace")
 
-    after_commit, after_submodules = assert_clean_source()
-    if (after_commit, after_submodules) != (expected_commit, expected_submodules):
-        raise AcceptanceError("source changed while the host attestation was collected")
-    atomic_write_json(output, payload)
+    try:
+        source_link_map = arguments.link_map.expanduser().resolve(strict=True)
+    except OSError as error:
+        raise AcceptanceError(f"host attestation link map is unavailable: {error}") from error
+    if not source_link_map.is_file():
+        raise AcceptanceError("host attestation link map must be a file")
+    link_map_copy = output.with_name(f"{output.stem}.linkmap.txt")
+    if link_map_copy.exists() and not arguments.replace:
+        raise AcceptanceError(
+            f"host attestation link map already exists: {link_map_copy}; pass --replace"
+        )
+    source_link_map_sha256 = sha256_file(source_link_map)
+    link_map_copy.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=".host-attestation-link-map.",
+        dir=link_map_copy.parent,
+    ) as staging_directory:
+        staged_link_map = pathlib.Path(staging_directory) / link_map_copy.name
+        shutil.copyfile(source_link_map, staged_link_map)
+        if (
+            sha256_file(source_link_map) != source_link_map_sha256
+            or sha256_file(staged_link_map) != source_link_map_sha256
+        ):
+            raise AcceptanceError("host attestation link map changed while it was copied")
+
+        # The staged and durable names are identical, so the verifier's report
+        # remains byte-for-byte reproducible after the atomic move.
+        report = _backend_only_product_report(app, staged_link_map)
+        payload = {
+            "schema_version": 1,
+            "artifact_kind": "host-backend-only-attestation",
+            "context": {
+                "source_commit": expected_commit,
+                "app_path": str(app),
+                "verifier_sha256": sha256_file(BACKEND_ONLY_PRODUCT_VERIFIER),
+                "linkage_auditor_sha256": sha256_file(BACKEND_ONLY_LINKAGE_AUDITOR),
+                "xcode_project_path": str(BACKEND_ONLY_XCODE_PROJECT.resolve()),
+                "xcode_project_sha256": sha256_file(BACKEND_ONLY_XCODE_PROJECT),
+                "xcode_target": BACKEND_ONLY_XCODE_TARGET,
+                "link_map_path": link_map_copy.name,
+                "link_map_sha256": source_link_map_sha256,
+            },
+            "records": [report],
+        }
+
+        after_commit, after_submodules = assert_clean_source()
+        if (after_commit, after_submodules) != (expected_commit, expected_submodules):
+            raise AcceptanceError("source changed while the host attestation was collected")
+        os.replace(staged_link_map, link_map_copy)
+        atomic_write_json(output, payload)
     return output
 
 
@@ -6186,6 +6288,7 @@ def parser() -> argparse.ArgumentParser:
     )
     host_attestation_parser.add_argument("--manifest", type=pathlib.Path, required=True)
     host_attestation_parser.add_argument("--output", required=True)
+    host_attestation_parser.add_argument("--link-map", type=pathlib.Path, required=True)
     host_attestation_parser.add_argument("--replace", action="store_true")
 
     linkage_parser = subparsers.add_parser(

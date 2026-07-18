@@ -125,10 +125,6 @@ REQUIRED_XCODE_PRODUCTS = frozenset(
 )
 FORBIDDEN_XCODE_SOURCE_PATTERNS = (
     (
-        "legacy terminal import",
-        re.compile(r"(?m)^\s*(?:public\s+|internal\s+)?import\s+(?:CmuxTerminal|CmuxTerminalCore|GhosttyKit)\s*$"),
-    ),
-    (
         "legacy terminal identity",
         re.compile(
             r"\b(?:GhosttyApp|GhosttyNSView|GhosttyTerminalView|EmbeddedTerminalPanelFactory|"
@@ -512,6 +508,135 @@ def resolve_xcode_file_path(
     return candidate
 
 
+def xcode_reference_names(
+    identifier: str,
+    objects: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Resolve every stable product/file name reachable from one Xcode reference."""
+
+    queue = deque([identifier])
+    visited: set[str] = set()
+    names: set[str] = set()
+    while queue:
+        current = queue.popleft()
+        if current in visited:
+            continue
+        visited.add(current)
+        item = objects.get(current)
+        if not isinstance(item, dict):
+            raise VerificationError(f"Xcode linked reference is missing: {current}")
+        for key in ("productName", "name", "path"):
+            value = item.get(key)
+            if isinstance(value, str) and value:
+                names.add(value)
+        for key in ("productRef", "fileRef", "remoteRef", "productReference"):
+            child = item.get(key)
+            if isinstance(child, str):
+                queue.append(child)
+        remote_target = item.get("remoteGlobalIDString")
+        if isinstance(remote_target, str) and remote_target in objects:
+            queue.append(remote_target)
+    return sorted(names)
+
+
+def canonical_xcode_link_name(value: str) -> str:
+    """Normalize an Xcode product/file label to its linkable product identity."""
+
+    name = Path(value).name
+    lowered = name.lower()
+    for suffix in (".xcframework", ".framework", ".dylib", ".tbd", ".a"):
+        if lowered.endswith(suffix):
+            name = name[: -len(suffix)]
+            lowered = name.lower()
+            break
+    if lowered.startswith("lib") and len(name) > 3:
+        name = name[3:]
+    return name
+
+
+def xcode_framework_links(
+    *,
+    target_name: str,
+    target: dict[str, Any],
+    objects: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], set[str], set[str]]:
+    """Return exact Frameworks-phase links and the package products they link."""
+
+    records: list[dict[str, Any]] = []
+    linked_names: set[str] = set()
+    linked_package_products: set[str] = set()
+    for phase_identifier in target.get("buildPhases", []):
+        phase = objects.get(phase_identifier, {})
+        if phase.get("isa") != "PBXFrameworksBuildPhase":
+            continue
+        for build_file_identifier in phase.get("files", []):
+            build_file = objects.get(build_file_identifier)
+            if not isinstance(build_file, dict) or build_file.get("isa") != "PBXBuildFile":
+                raise VerificationError(
+                    f"Xcode target {target_name} Frameworks phase has invalid build file "
+                    f"{build_file_identifier}"
+                )
+            references = [
+                (kind, build_file.get(kind))
+                for kind in ("productRef", "fileRef")
+                if isinstance(build_file.get(kind), str)
+            ]
+            if len(references) != 1:
+                raise VerificationError(
+                    f"Xcode target {target_name} Frameworks build file "
+                    f"{build_file_identifier} must have exactly one productRef or fileRef"
+                )
+            reference_kind, reference_identifier = references[0]
+            assert isinstance(reference_identifier, str)
+            reference = objects.get(reference_identifier)
+            if not isinstance(reference, dict):
+                raise VerificationError(
+                    f"Xcode target {target_name} linked reference is missing: "
+                    f"{reference_identifier}"
+                )
+            raw_names = xcode_reference_names(reference_identifier, objects)
+            normalized_names = sorted(
+                {
+                    canonical_xcode_link_name(name)
+                    for name in raw_names
+                    if canonical_xcode_link_name(name)
+                }
+            )
+            if not normalized_names:
+                raise VerificationError(
+                    f"Xcode target {target_name} cannot identify linked reference "
+                    f"{reference_identifier}"
+                )
+            linked_names.update(normalized_names)
+            is_package_product = (
+                reference_kind == "productRef"
+                and reference.get("isa") == "XCSwiftPackageProductDependency"
+            )
+            if is_package_product:
+                product_name = reference.get("productName")
+                if not isinstance(product_name, str) or not product_name:
+                    raise VerificationError(
+                        f"Xcode target {target_name} package product "
+                        f"{reference_identifier} has no productName"
+                    )
+                linked_package_products.add(product_name)
+            records.append(
+                {
+                    "build_file_id": str(build_file_identifier),
+                    "reference_id": reference_identifier,
+                    "reference_kind": reference_kind,
+                    "reference_isa": str(reference.get("isa", "")),
+                    "names": raw_names,
+                    "normalized_names": normalized_names,
+                }
+            )
+    return (
+        sorted(records, key=lambda item: item["build_file_id"]),
+        linked_names,
+        linked_package_products,
+    )
+
+
 def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
     raw = load_xcode_project(project_file)
     objects = raw.get("objects")
@@ -541,18 +666,30 @@ def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
     for dependency_identifier in target.get("packageProductDependencies", []):
         dependency = objects.get(dependency_identifier, {})
         product_name = dependency.get("productName")
-        if isinstance(product_name, str):
-            product_names.add(product_name)
-    forbidden_products = sorted(product_names & FORBIDDEN_XCODE_PRODUCTS)
+        if not isinstance(product_name, str) or not product_name:
+            raise VerificationError(
+                f"Xcode target {target_name} package dependency "
+                f"{dependency_identifier} has no productName"
+            )
+        product_names.add(product_name)
+
+    framework_links, linked_names, linked_package_products = xcode_framework_links(
+        target_name=target_name,
+        target=target,
+        objects=objects,
+    )
+    forbidden_products = sorted(
+        (product_names | linked_names | linked_package_products) & FORBIDDEN_XCODE_PRODUCTS
+    )
     if forbidden_products:
         raise VerificationError(
             f"Xcode target {target_name} links forbidden products: "
             + ", ".join(forbidden_products)
         )
-    missing_products = sorted(REQUIRED_XCODE_PRODUCTS - product_names)
+    missing_products = sorted(REQUIRED_XCODE_PRODUCTS - linked_package_products)
     if missing_products:
         raise VerificationError(
-            f"Xcode target {target_name} is missing backend products: "
+            f"Xcode target {target_name} does not link backend products: "
             + ", ".join(missing_products)
         )
 
@@ -582,6 +719,12 @@ def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
     for source_path in sorted(source_paths):
         contents = source_path.read_text(encoding="utf-8")
         relative = source_path.relative_to(source_root).as_posix()
+        for imported_module in swift_imports(contents):
+            if imported_module in FORBIDDEN_XCODE_PRODUCTS:
+                raise VerificationError(
+                    f"Xcode target {target_name} source {relative} contains "
+                    f"legacy terminal import {imported_module}"
+                )
         for description, pattern in FORBIDDEN_XCODE_SOURCE_PATTERNS:
             if pattern.search(contents):
                 raise VerificationError(
@@ -625,6 +768,9 @@ def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
         "target_id": target_identifier,
         "target": target_name,
         "products": sorted(product_names),
+        "linked_products": sorted(linked_names),
+        "linked_package_products": sorted(linked_package_products),
+        "framework_links": framework_links,
         "sources": source_records,
         "configurations": sorted(configuration_records, key=lambda item: item["name"]),
     }

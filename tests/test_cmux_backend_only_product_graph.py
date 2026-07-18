@@ -443,6 +443,8 @@ def test_xcode_target_and_link_map_bind_the_actual_host_boundary() -> None:
         project = write_xcode_target_fixture(root)
         report = verifier.xcode_target_report(project, "cmux-backend-only")
         assert report["target"] == "cmux-backend-only"
+        assert set(report["linked_package_products"]) == verifier.REQUIRED_XCODE_PRODUCTS
+        assert len(report["framework_links"]) == len(verifier.REQUIRED_XCODE_PRODUCTS)
         assert report["sources"] == [
             {
                 "path": "Sources/BackendHost.swift",
@@ -508,6 +510,17 @@ def test_xcode_target_and_link_map_bind_the_actual_host_boundary() -> None:
             assert "links forbidden products: CmuxTerminal" in str(error)
         else:
             raise AssertionError("legacy terminal product was accepted")
+
+        project = write_xcode_target_fixture(root / "missing-link")
+        raw = json.loads(project.read_text(encoding="utf-8"))
+        raw["objects"]["FRAMEWORKS"]["files"].remove("PRODUCT-BUILD-0")
+        project.write_text(json.dumps(raw), encoding="utf-8")
+        try:
+            verifier.xcode_target_report(project, "cmux-backend-only")
+        except verifier.VerificationError as error:
+            assert "does not link backend products" in str(error)
+        else:
+            raise AssertionError("declared but unlinked backend product was accepted")
 
 
 def test_xcode_frameworks_phase_cannot_hide_a_legacy_product_or_file_reference() -> None:

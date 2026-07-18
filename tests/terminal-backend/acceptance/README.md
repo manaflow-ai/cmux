@@ -42,11 +42,12 @@ Discover shell PIDs from the manifest-bound backend socket, not from a global pr
 
 Place raw payloads and derived receipts under the manifest directory. A passing receipt cannot supply its own measurements. The verifier parses the primary payload again and requires exact equality with repository-derived metrics.
 
-PROC-1 audits the actual tagged app before inspecting live processes. The collector traverses the `CmuxTerminalFrontend` SwiftPM closure, recursively resolves every in-bundle Mach-O load, rejects Ghostty and PTY symbols, rejects legacy runtime identities and dynamic-load escape hatches, and requires `CMUXTerminalRuntimeOwnership=backend-only`. Receipt derivation and final verification rerun that audit against the manifest-bound app.
+PROC-1 audits the actual tagged app before inspecting live processes. The collector attests the fixed `cmux-backend-only` native target in `cmux.xcodeproj`, its Frameworks phase, the `CmuxTerminalFrontend` SwiftPM closure, a copied and hash-bound link map, and every in-bundle Mach-O load. It rejects Ghostty and PTY symbols, legacy runtime identities, and dynamic-load escape hatches, and requires `CMUXTerminalRuntimeOwnership=backend-only`. Receipt derivation and final verification rerun that audit against the manifest-bound app and copied link map.
 
 ```bash
 ./scripts/verify-terminal-backend-acceptance.py collect-host-backend-only-attestation \
   --manifest <manifest> \
+  --link-map <tagged-build-LinkMap.txt> \
   --output proc-1/host-backend-only-attestation-raw.json
 ./scripts/verify-terminal-backend-acceptance.py derive-receipt \
   --manifest <manifest> \
