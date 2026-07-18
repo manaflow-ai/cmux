@@ -712,9 +712,13 @@ extension TerminalController {
                     }
                 }
                 let windowGrid = session.connection.windowsByID[windowId]
-                let publicationReady = !session.connection.hasPendingSizingSettlementWork(
-                    windowId: windowId
-                )
+                // `hasPendingSizingSettlementWork` is a GA-connection test-support
+                // probe, not a production source requirement; a multiplexer channel
+                // supplies its own settlement signal (Phase 3). Treat a non-GA source
+                // as ready here so the GA harness stays exact without widening the
+                // production protocol with a debug-only member.
+                let publicationReady = (session.connection as? RemoteTmuxControlConnection)
+                    .map { !$0.hasPendingSizingSettlementWork(windowId: windowId) } ?? true
                 let sizingReady = !mirror.sizingPassScheduled
                     && mirror.lastCompletedSizingInputs != nil
                     && nativeGeometryReady
