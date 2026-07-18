@@ -1103,6 +1103,9 @@ final class SharedLiveAgentIndex {
         var processedPanelIdsByWorkspaceId: [UUID: Set<UUID>] = [:]
         let pendingRequestsByProbeKey = pendingForkValidationRequests
         let pendingRequestBatches = Self.forkValidationRequestBatches(from: pendingRequestsByProbeKey)
+        var unprocessedRequestSlicesByProbeKey = Self.forkValidationRequestDictionary(
+            from: pendingRequestBatches[...]
+        ).mapValues { $0[...] }
         markProcessingForkValidationRequests(pendingRequestsByProbeKey)
         clearPendingForkValidations()
         guard !Task.isCancelled else {
@@ -1116,12 +1119,20 @@ final class SharedLiveAgentIndex {
         for batchIndex in pendingRequestBatches.indices {
             let probeKey = pendingRequestBatches[batchIndex].probeKey
             let pendingRequests = pendingRequestBatches[batchIndex].requests
-            let unprocessedRequestsByProbeKey = Self.forkValidationRequestDictionary(
-                from: pendingRequestBatches[batchIndex...]
-            )
             let pendingRequestIDsForProbe = Set(pendingRequests.map { $0.id })
+            let unprocessedRequestsByProbeKey: () -> ForkValidationRequestsByProbeKey = {
+                unprocessedRequestSlicesByProbeKey.mapValues(Array.init)
+            }
             var requeuedPendingRequests = false
             defer {
+                if let remainingRequests = unprocessedRequestSlicesByProbeKey[probeKey] {
+                    let laterRequests = remainingRequests.dropFirst(pendingRequests.count)
+                    if laterRequests.isEmpty {
+                        unprocessedRequestSlicesByProbeKey.removeValue(forKey: probeKey)
+                    } else {
+                        unprocessedRequestSlicesByProbeKey[probeKey] = laterRequests
+                    }
+                }
                 if !requeuedPendingRequests {
                     retireProcessingForkValidationRequests(
                         probeKey: probeKey,
@@ -1138,7 +1149,7 @@ final class SharedLiveAgentIndex {
             guard !Task.isCancelled else {
                 markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                 restorePendingForkValidationsAfterCancellation(
-                    unprocessedRequestsByProbeKey,
+                    unprocessedRequestsByProbeKey(),
                     dropping: pendingRequestIDsToRemoveOnCancellation
                 )
                 return processedPanelIdsByWorkspaceId
@@ -1184,12 +1195,8 @@ final class SharedLiveAgentIndex {
                     isRemoteContext: probeKey.isRemoteContext
                 )
                 guard !activeForkSupportValidationKeys.contains(resolvedProbeKey) else {
-                    var requestsToRestore = Self.forkValidationRequestDictionary(
-                        from: pendingRequestBatches[(batchIndex + 1)...]
-                    )
-                    requestsToRestore[probeKey, default: []].append(contentsOf: pendingRequests)
                     restorePendingForkValidationsAfterCancellation(
-                        requestsToRestore,
+                        unprocessedRequestsByProbeKey(),
                         dropping: [probeKey: cancelledRequestIDsForProbe],
                         restartIfPending: false
                     )
@@ -1257,7 +1264,7 @@ final class SharedLiveAgentIndex {
                             markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                             removeForkSupportValidation(for: resolvedProbeKey)
                             restorePendingForkValidationsAfterCancellation(
-                                unprocessedRequestsByProbeKey,
+                                unprocessedRequestsByProbeKey(),
                                 dropping: pendingRequestIDsToRemoveOnCancellation
                             )
                             return processedPanelIdsByWorkspaceId
@@ -1310,7 +1317,7 @@ final class SharedLiveAgentIndex {
                         markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                         removeForkSupportValidation(for: resolvedProbeKey)
                         restorePendingForkValidationsAfterCancellation(
-                            unprocessedRequestsByProbeKey,
+                            unprocessedRequestsByProbeKey(),
                             dropping: pendingRequestIDsToRemoveOnCancellation
                         )
                         return processedPanelIdsByWorkspaceId
@@ -1324,7 +1331,7 @@ final class SharedLiveAgentIndex {
                             markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                             removeForkSupportValidation(for: resolvedProbeKey)
                             restorePendingForkValidationsAfterCancellation(
-                                unprocessedRequestsByProbeKey,
+                                unprocessedRequestsByProbeKey(),
                                 dropping: pendingRequestIDsToRemoveOnCancellation
                             )
                             return processedPanelIdsByWorkspaceId
@@ -1343,7 +1350,7 @@ final class SharedLiveAgentIndex {
                                 self.markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                                 self.removeForkSupportValidation(for: resolvedProbeKey)
                                 self.restorePendingForkValidationsAfterCancellation(
-                                    unprocessedRequestsByProbeKey,
+                                    unprocessedRequestsByProbeKey(),
                                     dropping: pendingRequestIDsToRemoveOnCancellation
                                 )
                             }
