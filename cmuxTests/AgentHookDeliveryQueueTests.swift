@@ -1068,6 +1068,314 @@ struct AgentHookDeliveryQueueTests {
         #expect(Set(try lines(at: root.appendingPathComponent("delivered"))).count == 36)
     }
 
+    @Test func detachedDoubleForksRetainTheConfiguredProcessGroupBudget() async throws {
+        let root = try temporaryDirectory(named: "detached-process-group-budget")
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        let firstForkURL = root.appendingPathComponent("first-fork.sh")
+        let lingerURL = root.appendingPathComponent("linger.sh")
+        defer {
+            if let descendantPIDs = try? lines(at: root.appendingPathComponent("descendant-pids")) {
+                for rawPID in descendantPIDs {
+                    if let pid = Int32(rawPID) {
+                        Darwin.kill(pid, SIGKILL)
+                    }
+                }
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            /bin/sh "$TMPDIR/first-fork.sh" "$CMUX_AGENT_HOOK_DELIVERY_ID" &
+            exit 0
+            """
+        )
+        try writeExecutable(
+            at: firstForkURL,
+            contents: """
+            #!/bin/sh
+            /bin/sh "$TMPDIR/linger.sh" "$1" &
+            exit 0
+            """
+        )
+        try writeExecutable(
+            at: lingerURL,
+            contents: """
+            #!/bin/sh
+            delivery_id="$1"
+            printf '%s\n' "$$" >> "$TMPDIR/descendant-pids"
+            active="$TMPDIR/active-$delivery_id"
+            /bin/mkdir "$active"
+            set -- "$TMPDIR"/active-*
+            printf '%s\n' "$#" >> "$TMPDIR/process-group-counts"
+            /bin/sleep 0.4
+            /bin/rmdir "$active"
+            printf '%s\n' "$delivery_id" >> "$TMPDIR/descendants-finished"
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            terminationGrace: 0.05,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60,
+            maximumConcurrentDeliveries: 8
+        )
+
+        for index in 0..<64 {
+            let event = try #require(makeEvent(
+                deliveryID: "detached-budget-\(index)",
+                payload: Data(),
+                environment: testEnvironment(root: root, surfaceID: "surface:detached-budget-\(index)")
+            ))
+            try queue.enqueue(event)
+        }
+        await queue.waitUntilCurrentDrainFinishes()
+
+        let observedProcessGroups = try lines(
+            at: root.appendingPathComponent("process-group-counts")
+        ).compactMap(Int.init)
+        #expect(observedProcessGroups.count == 64)
+        #expect(observedProcessGroups.max() == 8)
+        #expect(observedProcessGroups.allSatisfy { $0 <= 8 })
+        #expect(Set(try lines(at: root.appendingPathComponent("descendants-finished"))).count == 64)
+        #expect(
+            (try FileManager.default.contentsOfDirectory(atPath: root.path))
+                .allSatisfy { !$0.hasPrefix("active-") }
+        )
+        for rawPID in try lines(at: root.appendingPathComponent("descendant-pids")) {
+            let pid = try #require(Int32(rawPID))
+            errno = 0
+            #expect(Darwin.kill(pid, 0) == -1)
+            #expect(errno == ESRCH)
+        }
+    }
+
+    @Test func completedLeaderFreesItsSurfaceLaneWhileDescendantRetainsPermit() async throws {
+        let root = try temporaryDirectory(named: "detached-lane-release")
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        let firstForkURL = root.appendingPathComponent("first-fork.sh")
+        let lingerURL = root.appendingPathComponent("linger.sh")
+        let descendantPIDFile = root.appendingPathComponent("descendant.pid")
+        defer {
+            if let rawPID = try? String(contentsOf: descendantPIDFile, encoding: .utf8),
+               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                Darwin.kill(pid, SIGKILL)
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            if [ "$CMUX_AGENT_HOOK_DELIVERY_ID" = "lane-first" ]; then
+              /bin/sh "$TMPDIR/first-fork.sh" &
+              exit 0
+            fi
+            if [ -e "$TMPDIR/first-descendant-active" ]; then
+              : > "$TMPDIR/later-started-before-descendant-exit"
+            fi
+            printf '%s\n' "$CMUX_AGENT_HOOK_DELIVERY_ID" >> "$TMPDIR/leaders-finished"
+            """
+        )
+        try writeExecutable(
+            at: firstForkURL,
+            contents: """
+            #!/bin/sh
+            /bin/sh "$TMPDIR/linger.sh" &
+            exit 0
+            """
+        )
+        try writeExecutable(
+            at: lingerURL,
+            contents: """
+            #!/bin/sh
+            printf '%s' "$$" > "$TMPDIR/descendant.pid"
+            : > "$TMPDIR/first-descendant-active"
+            /bin/sleep 0.5
+            /bin/rm -f "$TMPDIR/first-descendant-active"
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            terminationGrace: 0.05,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60,
+            maximumConcurrentDeliveries: 2
+        )
+        let first = try #require(makeEvent(
+            deliveryID: "lane-first",
+            payload: Data(),
+            environment: testEnvironment(root: root)
+        ))
+        let later = try #require(makeEvent(
+            deliveryID: "lane-later",
+            payload: Data(),
+            environment: testEnvironment(root: root)
+        ))
+
+        try queue.enqueue(first)
+        try queue.enqueue(later)
+        await queue.waitUntilCurrentDrainFinishes()
+
+        #expect(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("later-started-before-descendant-exit").path
+        ))
+        #expect(try lines(at: root.appendingPathComponent("leaders-finished")) == ["lane-later"])
+        let descendantPID = try #require(Int32(
+            String(contentsOf: descendantPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        errno = 0
+        #expect(Darwin.kill(descendantPID, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
+    @Test func leaderExitDoesNotLetHungDescendantOutliveDeliveryDeadline() async throws {
+        let root = try temporaryDirectory(named: "detached-process-group-timeout")
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        let firstForkURL = root.appendingPathComponent("first-fork.sh")
+        let lingerURL = root.appendingPathComponent("linger.sh")
+        let descendantPIDFile = root.appendingPathComponent("descendant.pid")
+        defer {
+            if let rawPID = try? String(contentsOf: descendantPIDFile, encoding: .utf8),
+               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                Darwin.kill(pid, SIGKILL)
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            /bin/sh "$TMPDIR/first-fork.sh" &
+            exit 0
+            """
+        )
+        try writeExecutable(
+            at: firstForkURL,
+            contents: """
+            #!/bin/sh
+            /bin/sh "$TMPDIR/linger.sh" &
+            exit 0
+            """
+        )
+        try writeExecutable(
+            at: lingerURL,
+            contents: """
+            #!/bin/sh
+            printf '%s' "$$" > "$TMPDIR/descendant.pid"
+            trap '' TERM
+            while :; do /bin/sleep 1; done
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 0.3,
+            terminationGrace: 0.05,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60,
+            maximumConcurrentDeliveries: 1
+        )
+        let event = try #require(makeEvent(
+            deliveryID: "detached-timeout",
+            payload: Data(),
+            environment: testEnvironment(root: root)
+        ))
+
+        try queue.enqueue(event)
+        await queue.waitUntilCurrentDrainFinishes()
+
+        let status = try await queue.diagnosticStatus(for: event.deliveryID)
+        #expect(status?["state"] == "delivered")
+        let descendantPID = try #require(Int32(
+            String(contentsOf: descendantPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        errno = 0
+        #expect(Darwin.kill(descendantPID, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
+    @Test func cancellingDrainKillsTransferredProcessGroupPermit() async throws {
+        let root = try temporaryDirectory(named: "detached-process-group-cancel")
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        let firstForkURL = root.appendingPathComponent("first-fork.sh")
+        let lingerURL = root.appendingPathComponent("linger.sh")
+        let descendantPIDFile = root.appendingPathComponent("descendant.pid")
+        defer {
+            if let rawPID = try? String(contentsOf: descendantPIDFile, encoding: .utf8),
+               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                Darwin.kill(pid, SIGKILL)
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            /bin/sh "$TMPDIR/first-fork.sh" &
+            exit 0
+            """
+        )
+        try writeExecutable(
+            at: firstForkURL,
+            contents: """
+            #!/bin/sh
+            /bin/sh "$TMPDIR/linger.sh" &
+            exit 0
+            """
+        )
+        try writeExecutable(
+            at: lingerURL,
+            contents: """
+            #!/bin/sh
+            printf '%s' "$$" > "$TMPDIR/descendant.pid"
+            trap '' TERM
+            while :; do /bin/sleep 1; done
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 30,
+            terminationGrace: 0.05,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60,
+            maximumConcurrentDeliveries: 1
+        )
+        let event = try #require(makeEvent(
+            deliveryID: "detached-cancel",
+            payload: Data(),
+            environment: testEnvironment(root: root)
+        ))
+
+        try queue.enqueue(event)
+        let permitTransferred = await waitUntil(timeout: .seconds(2)) {
+            FileManager.default.fileExists(atPath: descendantPIDFile.path)
+                && (try? await queue.diagnosticStatus(for: event.deliveryID)?["state"]) == "delivered"
+        }
+        #expect(permitTransferred)
+        await queue.cancelCurrentDrainForTesting()
+
+        let descendantPID = try #require(Int32(
+            String(contentsOf: descendantPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        let descendantExited = await waitUntil(timeout: .seconds(1)) {
+            Darwin.kill(descendantPID, 0) == -1
+        }
+        #expect(descendantExited)
+        errno = 0
+        #expect(Darwin.kill(descendantPID, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
     @Test func legacyPendingRowsAreBackfilledBeforeNewEventsDrain() async throws {
         let root = try temporaryDirectory(named: "ordering-migration")
         defer { try? FileManager.default.removeItem(at: root) }
