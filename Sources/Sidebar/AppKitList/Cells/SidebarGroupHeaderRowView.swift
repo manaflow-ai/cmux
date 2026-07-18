@@ -102,7 +102,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidClose: @escaping () -> Void
     ) {
         let previous = self.model
-        self.actions = actions
+        updateActions(actions)
         self.contextMenuDidOpen = contextMenuDidOpen
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
@@ -111,6 +111,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         self.model = model
         applyModel(model)
         needsLayout = true
+    }
+
+    func updateActions(_ actions: SidebarGroupHeaderRowActions) {
+        self.actions = actions
     }
 
     private func applyModel(_ model: SidebarGroupHeaderRowModel) {

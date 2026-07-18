@@ -9,6 +9,7 @@ struct SidebarWorkspaceTableActions {
     let attachScrollView: (NSScrollView) -> Void
     let closeWorkspace: (UUID) -> Void
     let createWorkspaceAtEnd: () -> Void
+    let canCreateEmptyWorkspaceGroup: Bool
     let createEmptyWorkspaceGroup: () -> Void
     let beginWorkspaceDrag: (UUID) -> Void
     let endWorkspaceDrag: () -> Void

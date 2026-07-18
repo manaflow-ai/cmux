@@ -34,7 +34,7 @@ extension SidebarLazyLayoutScaleTests {
         ))
     }
 
-    fileprivate static func viewUpdateFaultMessages(since startDate: Date) throws -> [String] {
+    static func viewUpdateFaultMessages(since startDate: Date) throws -> [String] {
         let store = try OSLogStore(scope: .currentProcessIdentifier)
         let entries = try store.getEntries(at: store.position(date: startDate))
         let faultFragments = [
@@ -57,44 +57,64 @@ extension SidebarLazyLayoutScaleTests {
 
     /// A stationary pointer over a row must survive the highest-risk sidebar
     /// churn without producing SwiftUI view-update or NSHostingView reentrant
-    /// layout faults. The injectable window makes the production pointer owner
-    /// see a real in-row pointer without requiring a key window or physical
-    /// mouse, while scroll, remount, unread, and appearance changes exercise
-    /// the #8004 lifecycle path.
+    /// layout faults. The synthetic mouse event is delivered through the
+    /// production table's always-active tracking path, then native-cell chrome
+    /// proves the hover owner changed without evaluating a SwiftUI row body.
     @Test
     @MainActor
     func testStationaryPointerChurnHasNoViewUpdateFaultsAndConverges() async throws {
-        let logStart = Date()
         let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
-        #expect(
-            harness.window.acceptsMouseMovedEvents,
-            "A mounted sidebar must enable mouse movement without discovering SwiftUI's private scroll-view hierarchy."
-        )
         let rootView = try #require(harness.window.contentView)
-        let scrollView = try #require(Self.firstScrollView(in: rootView))
-        let pointerInScrollView = NSPoint(
-            x: scrollView.bounds.midX,
-            y: scrollView.bounds.maxY - 80
+        let table = try #require(Self.tableView(in: rootView))
+        let scrollView = try #require(table.enclosingScrollView)
+        table.updateTrackingAreas()
+        let pointerTrackingArea = try #require(table.trackingAreas.first { area in
+            area.options.contains(.mouseEnteredAndExited)
+                && area.options.contains(.mouseMoved)
+                && area.options.contains(.inVisibleRect)
+                && area.options.contains(.activeAlways)
+        })
+        #expect(pointerTrackingArea.owner === table)
+
+        let visibleRows = table.rows(in: table.visibleRect)
+        let workspaceRow = try #require(
+            (visibleRows.location..<(visibleRows.location + visibleRows.length)).first { row in
+                table.view(atColumn: 0, row: row, makeIfNecessary: false)
+                    is SidebarWorkspaceRowTableCellView
+            }
         )
-        let pointerInWindow = scrollView.convert(pointerInScrollView, to: nil)
-        harness.window.injectedMouseLocation = pointerInWindow
+        let workspaceCell = try #require(
+            table.view(atColumn: 0, row: workspaceRow, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        let closeButton = try #require(
+            workspaceCell.subviews.first { $0 is SidebarHeaderGlyphButton }
+                as? SidebarHeaderGlyphButton
+        )
+        #expect(closeButton.isHidden)
+        let pointerInWindow = table.convert(
+            NSPoint(x: table.bounds.midX, y: table.rect(ofRow: workspaceRow).midY),
+            to: nil
+        )
+        let logStart = Date()
 
         harness.counter.reset()
-        NSApp.sendEvent(try Self.mouseMovedEvent(
+        table.mouseMoved(with: try Self.mouseMovedEvent(
             at: pointerInWindow,
             window: harness.window
         ))
         await Self.drainMainRunLoop(for: harness.window, iterations: 4)
+        #expect(table.lastPointerWindowLocation == pointerInWindow)
+        #expect(!closeButton.isHidden, "Table-owned hover must reveal native workspace-row chrome.")
         let hoverFlipEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
         #expect(
-            (1...2).contains(hoverFlipEvals),
+            hoverFlipEvals == 0,
             """
-            One hover-owner change evaluated \(hoverFlipEvals) row bodies. The parent may \
-            recompute row values, but Equatable rows must limit body work to the old/new hover \
-            targets (at most two rows).
+            One native table hover change evaluated \(hoverFlipEvals) SwiftUI row bodies. \
+            AppKit cells must own hover without crossing the SwiftUI row boundary.
             """
         )
 

@@ -1,8 +1,6 @@
 import AppKit
-import Combine
 import CmuxFoundation
 import CmuxSidebar
-import CmuxWorkspaces
 import SwiftUI
 
 /// Pure-AppKit workspace row cell: renders every TabItemView slot without
@@ -54,40 +52,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var contextMenuDidOpen: (() -> Void)?
     private var contextMenuDidClose: (() -> Void)?
     private var isEditing = false
-    private var pumpCancellables: [AnyCancellable] = []
 
-    /// Per-row churn pump: mirrors TabItemView's onReceive subscriptions so
-    /// metadata/branch/PR updates repaint just this cell without any
-    /// container re-render. Installed per configure; replaced on reuse.
-    func installPump(
-        workspace: Workspace,
-        rebuild: @escaping @MainActor () -> Void
-    ) {
-        pumpCancellables.removeAll()
-        workspace.sidebarImmediateObservationPublisher
-            .receive(on: RunLoop.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
-            }
-            .store(in: &pumpCancellables)
-        workspace.sidebarObservationPublisher
-            .debounce(for: .milliseconds(40), scheduler: RunLoop.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
-            }
-            .store(in: &pumpCancellables)
-    }
-
-    /// Measurement/apply entry used by the pump path.
-    func applyRebuiltModel(_ model: SidebarWorkspaceRowModel) {
-        guard self.model != model else { return }
-        self.model = model
-        applyModel(model)
-        needsLayout = true
-    }
-
-    var currentModelForMeasurement: SidebarWorkspaceRowModel? { model }
-
+    /// Drag initiation is disabled while the inline rename editor owns the row.
+    var suppressesWorkspaceDrag: Bool { isEditing }
     /// Paints the FULL selected treatment instantly on press by applying a
     /// selection-flipped copy of the model — every selection-derived color
     /// (background, title, secondary text, notification preview, badges)
@@ -202,7 +169,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contextMenuDidClose: @escaping () -> Void
     ) {
         let previous = self.model
-        self.actions = actions
+        updateActions(actions)
         self.contextMenuDidOpen = contextMenuDidOpen
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
@@ -214,6 +181,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         self.model = model
         applyModel(model)
         needsLayout = true
+    }
+
+    func updateActions(_ actions: SidebarAppKitRowActions) {
+        self.actions = actions
+        checklistSection.updateActions(actions)
     }
 
     private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
@@ -446,12 +418,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             in: self
         )
         let agentCount = model.snapshot.activeCodingAgentCount
-        let tooltip = agentCount == 1
-            ? String(localized: "sidebar.agentActivity.tooltip.one", defaultValue: "Loading (1 active task)")
-            : String.localizedStringWithFormat(
-                String(localized: "sidebar.agentActivity.tooltip.many", defaultValue: "Loading (%lld active tasks)"),
-                agentCount
-            )
+        let tooltip = SidebarWorkspaceLoadingTooltip.text(count: agentCount)
         leadingSpinner?.toolTip = tooltip
         trailingSpinner?.toolTip = tooltip
     }

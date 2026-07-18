@@ -1,4 +1,6 @@
 import AppKit
+import Bonsplit
+import CmuxFoundation
 import SwiftUI
 import Testing
 
@@ -22,7 +24,7 @@ struct SidebarWorkspaceTableTests {
                 && area.options.contains(.inVisibleRect)
         })
 
-        #expect(container.tableView.style == .fullWidth)
+        #expect(container.tableView.style == .plain)
         #expect(container.scrollView.contentInsets.left == 0)
         #expect(container.scrollView.contentInsets.right == 0)
         #expect(container.tableView.intercellSpacing.width == 0)
@@ -31,6 +33,29 @@ struct SidebarWorkspaceTableTests {
         #expect(column.resizingMask.contains(.autoresizingMask))
         #expect(hoverTrackingArea.options.contains(.activeAlways))
         #expect(!hoverTrackingArea.options.contains(.activeInKeyWindow))
+    }
+
+    @Test
+    @MainActor
+    func tableApplyCoalescesAndMutatesAfterTheCurrentCallbackReturns() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let actions = makeTableActions()
+        controller.apply(
+            rows: [first], actions: actions, workspaceIds: [first.workspaceId],
+            selectedWorkspaceId: nil, selectedScrollTargetWorkspaceId: nil
+        )
+        controller.apply(
+            rows: [first, second], actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil, selectedScrollTargetWorkspaceId: nil
+        )
+
+        #expect(container.tableView.numberOfRows == 0)
+        flushStagedTableMutations()
+        #expect(container.tableView.numberOfRows == 2)
     }
 
     @Test
@@ -140,64 +165,25 @@ struct SidebarWorkspaceTableTests {
         }
 
         for _ in 0..<500 {
-            #expect(cache.prepareHostedRowsIfWidthChanged([row], columnWidth: 200) == nil)
+            #expect(cache.prepareNativeRowsIfWidthChanged([row], columnWidth: 200) == nil)
             #expect(cache.height(for: row, columnWidth: 200) == 44)
         }
 
         #expect(measurementCount == 1)
     }
 
-#if DEBUG
     @Test
     @MainActor
-    func equivalentCellConfigurationDoesNotRenderAgain() {
-        let cell = SidebarWorkspaceTableCellView()
+    func nativeCellReusePreservesItsSubviewGraph() {
+        let cell = SidebarWorkspaceRowTableCellView()
         let workspaceId = UUID()
-        var renders = 0
-        cell.reconfigurationProbe = { renders += 1 }
 
         configure(cell, row: makeRowConfiguration(workspaceId: workspaceId))
+        let initialSubviews = cell.subviews.map(ObjectIdentifier.init)
         configure(cell, row: makeRowConfiguration(workspaceId: workspaceId))
-
-        #expect(renders == 1)
-    }
-
-    @Test
-    @MainActor
-    func hoverFlipRendersOnlyTheAffectedCell() {
-        let firstCell = SidebarWorkspaceTableCellView()
-        let secondCell = SidebarWorkspaceTableCellView()
-        let firstRow = makeRowConfiguration()
-        let secondRow = makeRowConfiguration()
-        var firstRenders = 0
-        var secondRenders = 0
-        firstCell.reconfigurationProbe = { firstRenders += 1 }
-        secondCell.reconfigurationProbe = { secondRenders += 1 }
-
-        configure(firstCell, row: firstRow)
-        configure(secondCell, row: secondRow)
-        configure(firstCell, row: firstRow, isPointerHovering: true)
-        configure(firstCell, row: firstRow, isPointerHovering: true)
-
-        #expect(firstRenders == 2)
-        #expect(secondRenders == 1)
-    }
-
-    @Test
-    @MainActor
-    func cellReusePreservesOneHostingViewAndStableRootIdentity() {
-        let cell = SidebarWorkspaceTableCellView()
-        let hostingIdentity = cell.hostingViewIdentity
-        let rootIdentity = cell.hostedRootIdentity
-        let reusedWorkspaceId = UUID()
-
         configure(cell, row: makeRowConfiguration())
-        configure(cell, row: makeRowConfiguration(workspaceId: reusedWorkspaceId))
 
-        #expect(cell.subviews.count == 1)
-        #expect(cell.hostingViewIdentity == hostingIdentity)
-        #expect(cell.hostedRootIdentity == rootIdentity)
-        #expect(cell.representedRowId == .workspace(reusedWorkspaceId))
+        #expect(cell.subviews.map(ObjectIdentifier.init) == initialSubviews)
     }
 
     @Test
@@ -220,6 +206,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        flushStagedTableMutations()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
         var computations = 0
@@ -227,6 +214,7 @@ struct SidebarWorkspaceTableTests {
 
         controller.viewportDidChange()
         controller.viewportDidChange()
+        flushStagedTableMutations()
         #expect(computations == 0)
 
         controller.workspaceDragSessionDidBegin()
@@ -234,14 +222,101 @@ struct SidebarWorkspaceTableTests {
         #expect(container.reorderDropView.targets.map(\.workspaceId) == [workspaceId])
 
         controller.viewportDidChange()
+        flushStagedTableMutations()
         #expect(computations == 2)
 
         controller.workspaceDragSessionDidEnd()
         #expect(container.reorderDropView.targets.isEmpty)
         controller.viewportDidChange()
+        flushStagedTableMutations()
         #expect(computations == 2)
     }
-#endif
+
+    @Test
+    @MainActor
+    func contextMenuTransitionsReconfigureTheStationaryHoveredRow() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        let window = NSWindow(contentViewController: NSViewController())
+        window.contentView = container
+        controller.apply(
+            rows: [row], actions: makeTableActions(), workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil, selectedScrollTargetWorkspaceId: nil
+        )
+        flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let rect = container.tableView.rect(ofRow: 0)
+        container.tableView.setPointerWindowLocation(
+            container.tableView.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+        )
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        let closeButton = try #require(
+            cell.subviews.compactMap { $0 as? SidebarHeaderGlyphButton }.first
+        )
+        controller.recomputeHoveredRow()
+        #expect(closeButton.isEnabled)
+        controller.contextMenuDidOpen(rowId: row.id)
+        #expect(!closeButton.isEnabled)
+        controller.contextMenuDidClose(rowId: row.id)
+        #expect(closeButton.isEnabled)
+    }
+
+    @Test
+    @MainActor
+    func emptyAreaGroupCreationRespectsCapability() throws {
+        let controller = SidebarWorkspaceTableController()
+        _ = controller.makeContainerView()
+        var creations = 0
+        controller.apply(
+            rows: [],
+            actions: makeTableActions(
+                canCreateEmptyWorkspaceGroup: false,
+                createEmptyWorkspaceGroup: { creations += 1 }
+            ),
+            workspaceIds: [], selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        flushStagedTableMutations()
+
+        #expect(try #require(controller.emptyAreaMenu().items.first).isEnabled == false)
+        controller.createEmptyWorkspaceGroup()
+        #expect(creations == 0)
+    }
+
+    @Test
+    @MainActor
+    func bonsplitDropTranslatesVisibleIndicatorToGlobalWorkspaceIndex() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let ids = (0..<4).map { _ in UUID() }
+        var receivedIndex: Int?
+        controller.apply(
+            rows: ids.map { makeRowConfiguration(workspaceId: $0) },
+            actions: makeTableActions(moveBonsplitToNewWorkspace: { index, _ in
+                receivedIndex = index
+                return UUID()
+            }),
+            workspaceIds: ids, selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        flushStagedTableMutations()
+        let transfer = try JSONDecoder().decode(
+            BonsplitTabDragPayload.Transfer.self,
+            from: Data(
+                "{\"tab\":{\"id\":\"\(UUID())\"},\"sourcePaneId\":\"\(UUID())\",\"sourceProcessId\":0}".utf8
+            )
+        )
+
+        #expect(container.bonsplitDropView.performNewWorkspaceMove(
+            0, SidebarDropIndicator(tabId: ids[2], edge: .bottom), transfer
+        ))
+        #expect(receivedIndex == 3)
+    }
 
     @Test
     func hoverRecomputesFromStationaryWindowPointAfterScrollAndReorder() throws {
@@ -274,40 +349,64 @@ struct SidebarWorkspaceTableTests {
         fontMagnificationPercent: Int = 100,
         colorScheme: ColorScheme = .light
     ) -> SidebarWorkspaceTableRowConfiguration {
-#if DEBUG
-        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: colorScheme,
-            globalFontMagnificationPercent: fontMagnificationPercent,
-            lazyContractProbe: SidebarLazyContractProbe()
-        )
-#else
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: colorScheme,
             globalFontMagnificationPercent: fontMagnificationPercent
         )
-#endif
-        return SidebarWorkspaceTableRowConfiguration(
-            id: .workspace(workspaceId),
+        let defaultsSuiteName = "SidebarWorkspaceTableTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsSuiteName)!
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        let model = SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
+            index: 0,
+            snapshot: SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(
+                title: "workspace-\(contentToken)"
+            ),
+            settings: settings,
+            isActive: false,
+            isMultiSelected: false,
+            canCloseWorkspace: true,
+            accessibilityWorkspaceCount: 2,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsAgentActivity: false,
+            rowSpacing: 2,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false,
+            isGrouped: false,
+            isFirstRow: true,
+            shortcutHintText: nil,
+            showsShortcutHints: false,
+            colorSchemeIsDark: colorScheme == .dark,
+            globalFontMagnificationPercent: fontMagnificationPercent,
+            isChecklistExpanded: false,
+            checklistAddFieldActivationToken: 0
+        )
+        return SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: makeRowActions(),
             groupId: nil,
-            isGroupHeader: false,
             isPinned: false,
-            environment: environment,
-            equivalenceValue: TestRowContent(token: contentToken)
-        ) { _, _ in
-            AnyView(TestRowContent(token: contentToken))
-        }
+            environment: environment
+        )
     }
 
-#if DEBUG
     @MainActor
     private func configure(
-        _ cell: SidebarWorkspaceTableCellView,
+        _ cell: SidebarWorkspaceRowTableCellView,
         row: SidebarWorkspaceTableRowConfiguration,
         isPointerHovering: Bool = false
     ) {
+        guard let model = row.appKitWorkspaceRowModel,
+              let actions = row.appKitWorkspaceRowActions else {
+            Issue.record("Expected a native workspace-row configuration")
+            return
+        }
         cell.configure(
-            row: row,
+            model: model,
+            actions: actions,
             isPointerHovering: isPointerHovering,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -315,12 +414,65 @@ struct SidebarWorkspaceTableTests {
     }
 
     @MainActor
-    private func makeTableActions() -> SidebarWorkspaceTableActions {
+    private func makeRowActions() -> SidebarAppKitRowActions {
+        let workspace = Workspace(
+            title: "Test",
+            initialSurface: .browser,
+            initialBrowserURL: URL(string: "about:blank")
+        )
+        let commands = SidebarWorkspaceRowCommands(
+            tab: workspace,
+            tabManager: nil,
+            notificationStore: nil,
+            index: 0,
+            contextMenuWorkspaceIds: [],
+            remoteContextMenuWorkspaceIds: [],
+            allRemoteContextMenuTargetsConnecting: false,
+            allRemoteContextMenuTargetsDisconnected: false,
+            contextMenuPinState: nil,
+            workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
+            refreshSnapshot: {},
+            readSelectedTabIds: { [] },
+            writeSelectedTabIds: { _ in },
+            readLastSelectionIndex: { nil },
+            writeLastSelectionIndex: { _ in },
+            setSelectionToTabs: {},
+            snapshotProvider: { nil }
+        )
+        return SidebarAppKitRowActions(
+            commands: commands,
+            onOpenPullRequest: { _ in },
+            onOpenPort: { _ in },
+            onToggleChecklistExpansion: {},
+            onConsumeChecklistAddFieldActivation: {},
+            checklistSetItemState: { _, _ in },
+            checklistRemoveItem: { _ in },
+            checklistAddItem: { _ in },
+            checklistEditItem: { _, _ in },
+            commitRename: { _ in }
+        )
+    }
+
+    @MainActor
+    private func flushStagedTableMutations() {
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+    }
+
+    @MainActor
+    private func makeTableActions(
+        canCreateEmptyWorkspaceGroup: Bool = true,
+        createEmptyWorkspaceGroup: @escaping () -> Void = {},
+        moveBonsplitToNewWorkspace: @escaping (
+            Int,
+            BonsplitTabDragPayload.Transfer
+        ) -> UUID? = { _, _ in nil }
+    ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in },
             closeWorkspace: { _ in },
             createWorkspaceAtEnd: {},
-            createEmptyWorkspaceGroup: {},
+            canCreateEmptyWorkspaceGroup: canCreateEmptyWorkspaceGroup,
+            createEmptyWorkspaceGroup: createEmptyWorkspaceGroup,
             beginWorkspaceDrag: { _ in },
             endWorkspaceDrag: {},
             isValidWorkspaceDrag: { true },
@@ -332,20 +484,11 @@ struct SidebarWorkspaceTableTests {
             setWorkspaceDropTargetCollectionActive: { _ in },
             canPerformBonsplitAction: { _, _ in false },
             moveBonsplitToExistingWorkspace: { _, _ in false },
-            moveBonsplitToNewWorkspace: { _, _ in nil },
+            moveBonsplitToNewWorkspace: moveBonsplitToNewWorkspace,
             didMoveBonsplitToWorkspace: { _ in },
             updateDragAutoscroll: {},
             setBonsplitDropTargetCollectionActive: { _ in },
             setBonsplitDropIndicator: { _ in }
         )
-    }
-#endif
-
-    private struct TestRowContent: View, Equatable {
-        let token: Int
-
-        var body: some View {
-            EmptyView()
-        }
     }
 }

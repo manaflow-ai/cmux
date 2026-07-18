@@ -415,7 +415,7 @@ final class SidebarRowChecklistSection: NSView {
         actions: SidebarAppKitRowActions
     ) {
         self.model = model
-        self.actions = actions
+        updateActions(actions)
         let snapshot = model.snapshot
         let mounted = !snapshot.checklistItems.isEmpty || model.checklistAddFieldActivationToken > 0
         isHidden = !mounted
@@ -499,6 +499,10 @@ final class SidebarRowChecklistSection: NSView {
             window?.makeFirstResponder(addField)
         }
         needsLayout = true
+    }
+
+    func updateActions(_ actions: SidebarAppKitRowActions) {
+        self.actions = actions
     }
 
     private func beginAdding() {

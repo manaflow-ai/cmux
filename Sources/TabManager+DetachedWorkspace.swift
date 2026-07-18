@@ -83,6 +83,9 @@ extension TabManager {
             let insertIndex = Self.clampedDetachedWorkspaceInsertIndex(plannedInsertIndex, workspaces: updatedTabs)
             updatedTabs.insert(newWorkspace, at: insertIndex)
             tabs = updatedTabs
+            if !workspaceGroups.isEmpty {
+                workspaces.normalizeWorkspaceGroupContiguity()
+            }
 
             if select {
 #if DEBUG

@@ -10862,18 +10862,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 visibleWorkspaceRowIds: visibleWorkspaceRowIds
             )
         } ?? []
-#if DEBUG
-        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: sidebarColorScheme,
-            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-            lazyContractProbe: sidebarLazyContractProbe
-        )
-#else
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent
         )
-#endif
         let renderContext = WorkspaceListRenderContext(
             environment: tableEnvironment,
             tabs: tabs,
@@ -10935,7 +10927,7 @@ struct VerticalTabsSidebar: View, Equatable {
 #if DEBUG
                 cmuxDebugLog("sidebar.close workspace=\(workspaceId.uuidString.prefix(5)) method=middleClick")
 #endif
-                tabManager.closeWorkspaceWithConfirmation(workspace)
+                _ = tabManager.closeWorkspaceFromCloseTabGesture(workspace)
             }
             if showModifierHoldHints {
                 modifierKeyMonitor.setHostWindow(observedWindow)
@@ -11040,14 +11032,53 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        // The AppKit NSTableView sidebar is opt-in while it soaks; default stays
-        // on the SwiftUI list. The flag key is declared only in FeatureFlags.swift.
+        // The AppKit NSTableView sidebar is the default. The feature flag stays
+        // available as an explicit remote-false rollback to the SwiftUI list.
         Group {
             if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
                 AnyView(appKitWorkspaceScrollArea(renderContext: renderContext))
             } else {
                 AnyView(legacyWorkspaceScrollArea(renderContext: renderContext))
             }
+        }
+        // Workspace publisher observations and their snapshot owner feed both
+        // list implementations. Keeping this lifecycle on the shared parent is
+        // essential: the AppKit rollout unmounts the legacy subtree entirely.
+        .sidebarProcessTitleObservations(
+            ids: renderContext.workspaceIds,
+            models: renderContext.tabs.map(\.sidebarProcessTitleObservation)
+        ) { workspaceId in
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+        }
+        .sidebarAgentRuntimeObservations(
+            ids: renderContext.workspaceIds,
+            models: renderContext.tabs.map(\.sidebarAgentRuntimeObservation)
+        ) { workspaceId in
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+        }
+        .sidebarWorkspaceObservations(
+            ids: renderContext.workspaceIds,
+            workspaces: renderContext.tabs,
+            debouncedInterval: .seconds(
+                Self.extensionSidebarObservationCoalesceInterval.magnitude
+            )
+        ) { workspaceId in
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+        }
+        .onAppear {
+            refreshWorkspaceSnapshots()
+        }
+        .onChange(of: renderContext.workspaceIds) { _, _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onChange(of: renderContext.tabItemSettings) { _, _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onChange(of: renderContext.showsAgentActivity) { _, _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onDisappear {
+            workspaceSnapshotRefreshCoalescer.cancel()
         }
     }
 
@@ -11178,40 +11209,6 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         }
-        .sidebarProcessTitleObservations(
-            ids: renderContext.workspaceIds,
-            models: renderContext.tabs.map(\.sidebarProcessTitleObservation)
-        ) { workspaceId in
-            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
-        }
-        .sidebarAgentRuntimeObservations(
-            ids: renderContext.workspaceIds,
-            models: renderContext.tabs.map(\.sidebarAgentRuntimeObservation)
-        ) { workspaceId in
-            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
-        }
-        .sidebarWorkspaceObservations(
-            ids: renderContext.workspaceIds,
-            workspaces: renderContext.tabs,
-            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
-        ) { workspaceId in
-            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
-        }
-        .onAppear {
-            refreshWorkspaceSnapshots()
-        }
-        .onChange(of: renderContext.workspaceIds) { _, _ in
-            refreshWorkspaceSnapshots()
-        }
-        .onChange(of: renderContext.tabItemSettings) { _, _ in
-            refreshWorkspaceSnapshots()
-        }
-        .onChange(of: renderContext.showsAgentActivity) { _, _ in
-            refreshWorkspaceSnapshots()
-        }
-        .onDisappear {
-            workspaceSnapshotRefreshCoalescer.cancel()
-        }
     }
 
     private func requestSelectedWorkspaceScroll(
@@ -11302,7 +11299,8 @@ struct VerticalTabsSidebar: View, Equatable {
             actions: workspaceTableActions(renderContext: renderContext),
             workspaceIds: renderContext.workspaceIds,
             selectedWorkspaceId: tabManager.selectedTabId,
-            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
+            isDividerDragActive: isDividerDragActive
         )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .mask(
@@ -11455,7 +11453,7 @@ struct VerticalTabsSidebar: View, Equatable {
 #if DEBUG
                 cmuxDebugLog("sidebar.close workspace=\(workspaceId.uuidString.prefix(5)) method=middleClick")
 #endif
-                tabManager.closeWorkspaceWithConfirmation(workspace)
+                _ = tabManager.closeWorkspaceFromCloseTabGesture(workspace)
             },
             createWorkspaceAtEnd: {
                 if tabManager.selectedTab?.isRemoteTmuxMirror == true {
@@ -11472,6 +11470,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 }
                 selection = .tabs
             },
+            canCreateEmptyWorkspaceGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
             createEmptyWorkspaceGroup: {
                 _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
             },

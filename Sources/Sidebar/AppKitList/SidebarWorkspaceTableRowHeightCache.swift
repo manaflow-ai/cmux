@@ -1,8 +1,7 @@
 import AppKit
 import Foundation
-import SwiftUI
 
-/// Stores exact hosted-row heights without measuring from AppKit's layout callbacks.
+/// Stores exact native-row heights without measuring from AppKit's layout callbacks.
 @MainActor
 final class SidebarWorkspaceTableRowHeightCache {
     typealias Measurement = (
@@ -25,23 +24,22 @@ final class SidebarWorkspaceTableRowHeightCache {
     }
 
     private var entries: [SidebarWorkspaceRenderItemID: Entry] = [:]
-    private let prototypeView = NSHostingView(rootView: AnyView(EmptyView()))
     private let prototypeRowView = SidebarWorkspaceRowTableCellView()
     private var preparedColumnWidth: CGFloat?
 
-    func prepareHostedRows(
+    func prepareNativeRows(
         _ rows: [SidebarWorkspaceTableRowConfiguration],
         columnWidth: CGFloat
     ) -> IndexSet {
-        return prepare(rows: rows, columnWidth: columnWidth, measure: measureHostedRow)
+        prepare(rows: rows, columnWidth: columnWidth, measure: measureNativeRow)
     }
 
-    func prepareHostedRowsIfWidthChanged(
+    func prepareNativeRowsIfWidthChanged(
         _ rows: [SidebarWorkspaceTableRowConfiguration],
         columnWidth: CGFloat
     ) -> IndexSet? {
         guard columnWidth > 0, preparedColumnWidth != columnWidth else { return nil }
-        return prepareHostedRows(rows, columnWidth: columnWidth)
+        return prepareNativeRows(rows, columnWidth: columnWidth)
     }
 
     /// Measures only missing or invalid entries. Call from render updates or
@@ -101,12 +99,10 @@ final class SidebarWorkspaceTableRowHeightCache {
         ceil(max(1, height))
     }
 
-    private func measureHostedRow(
+    private func measureNativeRow(
         row: SidebarWorkspaceTableRowConfiguration,
         columnWidth: CGFloat
     ) -> CGFloat {
-        // Pure-AppKit rows have deterministic heights; never spin up the
-        // hosted SwiftUI measurement path for them.
         if let headerModel = row.appKitGroupHeaderModel {
             return SidebarGroupHeaderTableCellView.preferredHeight(model: headerModel)
         }
@@ -121,17 +117,7 @@ final class SidebarWorkspaceTableRowHeightCache {
             )
             return prototypeRowView.layoutContent(model: rowModel, width: columnWidth, apply: false)
         }
-        let contextMenuActions = SidebarWorkspaceTableContextMenuActions(
-            didOpen: {},
-            didClose: {}
-        )
-        prototypeView.rootView = AnyView(
-            row.makeContent(false, contextMenuActions)
-                .frame(width: columnWidth, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-        )
-        prototypeView.frame = NSRect(x: 0, y: 0, width: columnWidth, height: 1)
-        prototypeView.layoutSubtreeIfNeeded()
-        return prototypeView.fittingSize.height
+        assertionFailure("Sidebar table row \(row.id) has no native cell model")
+        return row.estimatedHeight
     }
 }

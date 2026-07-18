@@ -47,7 +47,7 @@ final class CmuxFeatureFlags {
     private static let agentChatUIDefault = false
     private static let sidebarWorkspaceAgentSpinnerDefault = false
     private static let workspaceTodoControlsDefault = false
-    private static let appKitSidebarListDefault = false
+    private static let appKitSidebarListDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
 
@@ -154,10 +154,11 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
             // Renders the workspace sidebar with the AppKit NSTableView list
             // (virtualized rows, measured-once heights) instead of the SwiftUI
-            // LazyVStack. Off by default while the rewrite soaks.
+            // LazyVStack. Default-on; an explicit remote false restores the
+            // legacy list as a rollback switch.
             CmuxFeatureFlagDefinition(
                 key: "sidebar-appkit-list-experiment",
                 title: String(

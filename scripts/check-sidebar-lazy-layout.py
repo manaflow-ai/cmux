@@ -1,67 +1,35 @@
 #!/usr/bin/env python3
-"""Regression guard for the workspace-sidebar lazy-layout contract.
+"""Guard the AppKit-owned default sidebar list boundary.
 
-The workspace sidebar renders its rows as a `LazyVStack` inside a vertical
-`ScrollView`. Keeping that stack lazy at *measure time* is load-bearing: the
-sidebar is re-diffed on every workspace/telemetry update, so any code that
-forces SwiftUI to realize and measure the whole row list on each layout pass
-turns a routine update into a multi-second `GraphHost.flushTransactions()`
-main-thread livelock once enough workspaces/surfaces are open.
+History: the workspace sidebar livelocked repeatedly while it was a SwiftUI
+`LazyVStack` (#2586, #5323, #5764, #5845, #5970, #6210, #6556, #6707, #7136,
+#8004). Every incident was some invalidation edge firing during the lazy
+container's placement pass. The replacement path is one container-level
+`NSViewRepresentable` (`SidebarWorkspaceTableView`) wrapping an `NSTableView`;
+native AppKit workspace/header cells own each realized row, and all list
+mutations are owned by `SidebarWorkspaceTableController`. `apply()` and
+viewport notifications only stage immutable inputs; actual table mutations
+flush after the originating SwiftUI/AppKit callback returns. The legacy
+SwiftUI list remains behind the rollout kill switch while the AppKit path
+soaks, so this guard checks the router and the AppKit helper independently.
 
-This exact class of bug has regressed four times:
+This guard keeps that topology from regressing:
 
-  * #2586  GeometryReader + PreferenceKey -> @State height feedback loop
-  * #5764  per-row String id allocation in the ForEach diff
-  * #5845  same livelock family, reintroduced
-  * #6033 -> #6210  `SidebarRowsFillLayout`, a custom `Layout` that called
-           `subview.sizeThatFits(ProposedViewSize(width:, height: nil))` on the
-           `LazyVStack` in both `sizeThatFits` and `placeSubviews`, realizing
-           every row each pass. Removed in #6188.
+  * `workspaceScrollArea` must route the rollout flag to the AppKit and legacy
+    helpers; `appKitWorkspaceScrollArea` must mount
+    `SidebarWorkspaceTableView` without a SwiftUI list/scroll container.
+  * Row types stay measurement-free and platform-view-free; geometry probes
+    and stray representables are still per-cell waste and were the historical
+    livelock ingredients.
+  * AppKit-list sources must never reload/reconfigure the table from an AppKit
+    layout lifecycle callback (`layout`, `updateTrackingAreas`,
+    `viewDidMoveToWindow`); mutations enter only through `apply()`, input
+    events, or scroll notifications.
+  * Custom `Layout`-conforming types (under ANY name) may not wrap sidebar
+    rows; a renamed `SidebarRowsFillLayout` is discovered project-wide.
 
-  * #6384  the user-reported ~1s beachball that #6188 fixed.
-
-Until now the contract was defended only by inline comments, which CI cannot
-enforce. This guard scans the two functions that define the sidebar's
-steady-state scroll layout in `Sources/ContentView.swift`
-(`workspaceScrollContent` and `workspaceRows`) and fails if either:
-
-  1. reintroduces a whole-list measurement signature
-     (`GeometryReader`, `ProposedViewSize(... nil ...)`, `.sizeThatFits(`, the
-     deleted `SidebarRowsFillLayout`, or ANY custom `Layout`-conforming type
-     discovered in the codebase being applied to the rows -- so renaming the
-     force-measuring layout does not dodge the guard), or
-  2. drops one of the lazy-fill primitives the fix relies on
-     (`LazyVStack(` in `workspaceRows`, `.frame(minHeight:` in
-     `workspaceScrollContent`).
-
-Comments and string literals are neutralized before scanning, so the historical
-explanatory comments in those functions (which deliberately name the very
-anti-patterns this guard forbids) do not trip it.
-
-The drag-only drop-target reader (`rowsWithGatedDropTargetReader`) is *not*
-scanned: it intentionally uses a `GeometryReader` to resolve per-row drop
-anchors and is gated behind an active drag (#5325), so it never runs during the
-steady-state layout this guard protects.
-
-Scope: the guard protects the rows layout *as expressed in*
-`workspaceScrollContent` / `workspaceRows`. It deliberately does not chase a
-force-measure that a future refactor relocates into some other
-transitively-called helper function: tracking arbitrary call graphs in a
-source-pattern lint is fragile, and extracting the rows layout into a new helper
-is a large enough change that it should re-review this guard directly (the
-"could not locate function" failure already trips on the most common such
-rename). Custom `Layout` types are the exception that *is* chased across files,
-because a renamed force-measuring layout is the concrete historical regression
-(#6033).
-
-Usage:
-    scripts/check-sidebar-lazy-layout.py [--file PATH]
-
-Exit codes:
-    0  the scanned file satisfies the lazy-layout contract
-    1  an anti-pattern was found, a required primitive is missing, or one of the
-       guarded functions could not be located (treated as a failure so the guard
-       cannot silently rot into a no-op when the code is renamed).
+The guard fails loudly when a required type/function/file is renamed so it
+cannot silently become a no-op.
 """
 
 import argparse
@@ -69,538 +37,631 @@ import os
 import re
 import sys
 
-# Functions that define the sidebar's steady-state scroll layout. Both must
-# exist; a rename should fail the guard loudly rather than silently skip.
-GUARDED_FUNCTIONS = ("workspaceScrollContent", "workspaceRows")
 
-# Tokens that mean "the whole row list is being measured/realized on every
-# layout pass" if they appear in the guarded functions' code (not comments).
-FORBIDDEN_PATTERNS = (
-    (re.compile(r"\bGeometryReader\b"),
-     "GeometryReader (reading the rows' size feeds the #2586 layout feedback "
-     "loop / forces row realization at measure time)"),
-    (re.compile(r"\bSidebarRowsFillLayout\b"),
-     "SidebarRowsFillLayout (the custom Layout removed in #6188 that "
-     "force-measured the LazyVStack every pass; do not reintroduce it)"),
-    (re.compile(r"\.sizeThatFits\s*\("),
-     "manual .sizeThatFits( call (measuring a subview by hand realizes the "
-     "lazy rows; let SwiftUI size the stack)"),
-    (re.compile(r"\bProposedViewSize\s*\([^)]*\bnil\b"),
-     "ProposedViewSize(..., nil) (proposing nil on an axis asks the LazyVStack "
-     "for its natural size, realizing every row -- the #6210 force-measure)"),
-)
-
-# Declaration of a type conforming to SwiftUI's `Layout` protocol. A custom
-# Layout applied to the sidebar rows is the #6033/#6210 force-measure shape no
-# matter what the type is named, so the guard discovers every such type in the
-# codebase and bans ALL of their names from the guarded functions -- not just the
-# literal `SidebarRowsFillLayout`. This closes the "rename the layout to dodge the
-# guard" bypass (#6870 review).
-CUSTOM_LAYOUT_DECL = re.compile(
-    r"\b(?:struct|final\s+class|class|enum|extension)\s+([A-Z]\w*)\b[^{]*?\bLayout\b[^{]*?\{",
-    re.DOTALL,
-)
-
-# An always-mounted NSViewRepresentable below the LazyVStack can run AppKit
-# lifecycle callbacks while SwiftUI is updating the same row. Issue #8004's
-# hover and menu helpers wrote row state from that stack and re-entered
-# NSHostingView layout. Discover conformers across repo-owned sources so moving
-# or renaming one cannot bypass the guard, then reject their use in row bodies.
-NSVIEW_REPRESENTABLE_DECL = re.compile(
-    r"\b(?:struct|final\s+class|class|enum|extension)\s+([A-Z]\w*)\b[^{]*?"
-    r"\bNSViewRepresentable\b[^{]*?\{",
-    re.DOTALL,
-)
-
-# These are condition-gated leaf controls. SidebarInlineRenameField exists only
-# during inline rename, and GPUSpinner is mounted indirectly by
-# SidebarWorkspaceLoadingSpinner only while agent activity is visible. Neither
-# writes row state from representable lifecycle callbacks.
-ROW_NSVIEW_REPRESENTABLE_ALLOWLIST = frozenset({
-    "SidebarInlineRenameField",
-    "GPUSpinner",
-})
-
-# Row-view regions guarded against per-row geometry feedback. Four of the five
-# historical regressions in this class entered through the row views, not the
-# container functions above: the #2586/#6556 GeometryReader -> @State row-height
-# probes lived in `TabItemView` and `SidebarWorkspaceGroupHeaderView` (deleted
-# by #6111, reintroduced by #4385, deleted by #7117 -- and the reintroduction
-# shipped in stable v0.64.17, which livelocked in the wild on 2026-07-02). The
-# per-row `.anchorPreference` aggregation of #5323 is the same shape: a row
-# publishing its own geometry forces SwiftUI to realize every row per pass.
-#
-# Rows must not measure themselves, period. Row heights are implicit; the ONLY
-# sanctioned geometry path is the container's drag-gated reader
-# (`rowsWithGatedDropTargetReader` + `SidebarWorkspaceFrameAnchorModifier`),
-# which lives outside these regions. A future legitimate need must extend this
-# guard consciously rather than slip past it.
 GUARDED_ROW_TYPES = (
     "TabItemView",
     "SidebarWorkspaceRowView",
     "SidebarWorkspaceGroupHeaderView",
     "SidebarWorkspaceGroupRowView",
 )
-
+REPRESENTABLE_ALLOWLIST = {"SidebarInlineRenameField", "GPUSpinner"}
+LAYOUT_CALLBACKS = ("layout", "updateTrackingAreas", "viewDidMoveToWindow")
+TABLE_MUTATION_PATTERNS = (
+    re.compile(r"\breloadData\s*\("),
+    re.compile(r"\bnoteHeightOfRows\s*\("),
+    re.compile(r"\breconfigure(?:Visible)?Rows\s*\("),
+    re.compile(r"\bscrollRowToVisible\s*\("),
+    re.compile(r"\.rootView\s*="),
+)
+SWIFTUI_LIST_CONTAINERS = (
+    "ScrollView",
+    "ScrollViewReader",
+    "LazyVStack",
+    "LazyHStack",
+    "List",
+    "GeometryReader",
+)
 ROW_FORBIDDEN_PATTERNS = (
     (re.compile(r"\bGeometryReader\b"),
-     "GeometryReader (a row measuring itself feeds the #2586/#6556 "
-     "GeometryReader -> @State row-height livelock; row heights are implicit)"),
+     "GeometryReader (a row measuring itself was the #2586/#6556 "
+     "GeometryReader -> @State row-height livelock ingredient; row heights "
+     "are owned by the table controller's explicit cache)"),
     (re.compile(r"\bonGeometryChange\b"),
      "onGeometryChange (geometry-driven state writes in a row re-trigger "
      "layout the same way the #6556 GeometryReader probes did)"),
     (re.compile(r"\.sizeThatFits\s*\("),
-     "manual .sizeThatFits( call (measuring from a row realizes lazy "
-     "siblings; let SwiftUI size the row)"),
+     "manual .sizeThatFits( call (row measurement belongs to AppKit's live "
+     "table-height cache, never a separate row-body measurement path)"),
     (re.compile(r"\bProposedViewSize\s*\([^)]*\bnil\b"),
-     "ProposedViewSize(..., nil) (natural-size measurement realizes the lazy "
-     "list -- the #6210 force-measure)"),
+     "ProposedViewSize(..., nil) (natural-size measurement -- the #6210 "
+     "force-measure shape)"),
     (re.compile(r"\.anchorPreference\s*\("),
-     ".anchorPreference( in a row (per-row frame publication aggregated by an "
-     "ancestor is the #5323 virtualization defeat; only the container's "
-     "drag-gated SidebarWorkspaceFrameAnchorModifier may collect row frames)"),
+     ".anchorPreference( in a row (per-row frame publication was the #5323 "
+     "virtualization defeat; the table controller owns row geometry)"),
     (re.compile(r"\.overlayPreferenceValue\s*\("),
      ".overlayPreferenceValue( in a row (consuming aggregated row geometry "
      "inside a row is the #5323 feedback shape)"),
 )
-
-# Lazy-fill primitives the #6188 fix depends on. Each must remain present in the
-# named function (after comments/strings are stripped).
-REQUIRED_PRIMITIVES = (
-    ("workspaceRows", re.compile(r"\bLazyVStack\s*\("),
-     "LazyVStack( -- the rows must stay lazy; a plain VStack realizes every "
-     "row on each pass and re-livelocks at scale"),
-    ("workspaceScrollContent", re.compile(r"\.frame\s*\(\s*minHeight:"),
-     ".frame(minHeight:) -- the measurement-free fill primitive that replaced "
-     "SidebarRowsFillLayout; do not remove it"),
+# Declaration of a type conforming to SwiftUI's `Layout` protocol. A custom
+# Layout applied to sidebar rows is the #6033/#6210 force-measure shape no
+# matter what the type is called; discovery is project-wide so a rename
+# cannot dodge the guard.
+CUSTOM_LAYOUT_DECLARATION = re.compile(
+    r"\b(?:struct|final\s+class|class|enum|extension)\s+([A-Z]\w*)\b[^{]*?\bLayout\b[^{]*?\{",
+    re.DOTALL,
 )
 
 
 def neutralize_swift(source):
-    """Return ``source`` with comment and string-literal *contents* replaced by
-    spaces, preserving every character's position and all newlines.
-
-    Token and brace scanning runs on this neutralized text so that tokens which
-    appear only inside the explanatory comments (e.g. the words
-    ``SidebarRowsFillLayout`` or ``sizeThatFits(height: nil)``) are invisible to
-    the guard, and so braces/parens inside comments or strings never corrupt the
-    function-body matching.
-    """
+    """Blank comments and string contents while preserving source positions."""
     out = []
     i = 0
-    n = len(source)
-    LINE_COMMENT, BLOCK_COMMENT, STRING, MULTILINE_STRING = 1, 2, 3, 4
-    state = 0
-    while i < n:
+    state = "code"
+    block_depth = 0
+    while i < len(source):
         ch = source[i]
-        nxt = source[i + 1] if i + 1 < n else ""
-        if state == 0:
-            if ch == "/" and nxt == "/":
-                out.append("  ")
+        pair = source[i:i + 2]
+        triple = source[i:i + 3]
+        if state == "code":
+            if pair == "//":
+                out.extend("  ")
                 i += 2
-                state = LINE_COMMENT
-                continue
-            if ch == "/" and nxt == "*":
-                out.append("  ")
+                state = "line"
+            elif pair == "/*":
+                out.extend("  ")
                 i += 2
-                state = BLOCK_COMMENT
-                continue
-            if source[i:i + 3] == '"""':
-                # Swift multi-line string literal: only a closing `"""` ends it,
-                # so a bare `"` inside must NOT toggle string state -- otherwise
-                # the inner quote would close the literal early and expose the
-                # rest (e.g. a forbidden token named in prose) as apparent code,
-                # tripping the guard with a false positive. (#6870 review)
-                out.append('"""')
+                state = "block"
+                block_depth = 1
+            elif triple == '\"\"\"':
+                out.extend('\"\"\"')
                 i += 3
-                state = MULTILINE_STRING
-                continue
-            if ch == '"':
-                out.append('"')
+                state = "multiline"
+            elif ch == '\"':
+                out.append(ch)
                 i += 1
-                state = STRING
-                continue
-            out.append(ch)
-            i += 1
-            continue
-        if state == LINE_COMMENT:
-            if ch == "\n":
-                out.append("\n")
-                state = 0
+                state = "string"
             else:
-                out.append(" ")
+                out.append(ch)
+                i += 1
+        elif state == "line":
+            out.append("\n" if ch == "\n" else " ")
             i += 1
-            continue
-        if state == BLOCK_COMMENT:
-            if ch == "*" and nxt == "/":
-                out.append("  ")
+            if ch == "\n":
+                state = "code"
+        elif state == "block":
+            if pair == "/*":
+                out.extend("  ")
+                block_depth += 1
                 i += 2
-                state = 0
+            elif pair == "*/":
+                out.extend("  ")
+                block_depth -= 1
+                i += 2
+                if block_depth == 0:
+                    state = "code"
             else:
                 out.append("\n" if ch == "\n" else " ")
                 i += 1
-            continue
-        if state == STRING:
-            if ch == "\\" and nxt != "":
-                # Preserve the escape pair as spaces so positions stay aligned.
-                out.append("  ")
+        elif state == "string":
+            if ch == "\\" and i + 1 < len(source):
+                out.extend("  ")
                 i += 2
-                continue
-            if ch == '"':
-                out.append('"')
+            elif ch == '\"':
+                out.append(ch)
                 i += 1
-                state = 0
-                continue
-            out.append("\n" if ch == "\n" else " ")
-            i += 1
-            continue
-        if state == MULTILINE_STRING:
-            if source[i:i + 3] == '"""':
-                out.append('"""')
+                state = "code"
+            else:
+                out.append("\n" if ch == "\n" else " ")
+                i += 1
+        else:
+            if triple == '\"\"\"':
+                out.extend('\"\"\"')
                 i += 3
-                state = 0
-                continue
-            # A lone `"` does not close a multi-line string; only `"""` does.
-            out.append("\n" if ch == "\n" else " ")
-            i += 1
-            continue
+                state = "code"
+            else:
+                out.append("\n" if ch == "\n" else " ")
+                i += 1
     return "".join(out)
 
 
-def extract_function_body(neutralized, func_name):
-    """Return the brace-matched body text of ``func <func_name>(`` in the
-    neutralized source, or ``None`` if the function is not found.
-
-    Handles multi-line signatures by walking parenthesis depth until the
-    parameter list closes, then brace-matching from the body's opening ``{``.
-    """
-    match = re.search(r"\bfunc\s+" + re.escape(func_name) + r"\s*\(", neutralized)
+def extract_braced_declaration(source, pattern):
+    match = re.search(pattern, source)
     if not match:
         return None
-    i = match.end() - 1  # at the opening '(' of the parameter list
-    n = len(neutralized)
-    paren_depth = 0
-    # Walk until the parameter-list parens balance back to zero.
-    while i < n:
-        ch = neutralized[i]
-        if ch == "(":
-            paren_depth += 1
-        elif ch == ")":
-            paren_depth -= 1
-            if paren_depth == 0:
-                i += 1
-                break
-        i += 1
-    else:
+    opening = source.find("{", match.end())
+    if opening < 0:
         return None
-    # Find the body's opening brace (skip the `-> some View` return clause).
-    while i < n and neutralized[i] != "{":
-        # A premature ';' or top-level '}' means there was no body.
-        if neutralized[i] == "}":
-            return None
-        i += 1
-    if i >= n:
-        return None
-    brace_depth = 0
-    start = i
-    while i < n:
-        ch = neutralized[i]
-        if ch == "{":
-            brace_depth += 1
-        elif ch == "}":
-            brace_depth -= 1
-            if brace_depth == 0:
-                return neutralized[start:i + 1]
-        i += 1
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[opening:index + 1]
     return None
 
 
-def extract_type_body(neutralized, type_name):
-    """Return the brace-matched body text of ``struct/class <type_name>`` in the
-    neutralized source, or ``None`` if the declaration is not found.
-
-    Walks from the declaration keyword to the body's opening ``{`` (skipping
-    generic parameters and the conformance list), then brace-matches.
-    """
-    match = re.search(
-        r"\b(?:struct|final\s+class|class)\s+" + re.escape(type_name) + r"\b",
-        neutralized,
+def extract_function_body(source, name):
+    return extract_braced_declaration(
+        source,
+        r"\bfunc\s+" + re.escape(name) + r"\s*\(",
     )
-    if not match:
-        return None
-    i = match.end()
-    n = len(neutralized)
-    while i < n and neutralized[i] != "{":
-        if neutralized[i] == ";":
-            return None
-        i += 1
-    if i >= n:
-        return None
-    brace_depth = 0
-    start = i
-    while i < n:
-        ch = neutralized[i]
-        if ch == "{":
-            brace_depth += 1
-        elif ch == "}":
-            brace_depth -= 1
-            if brace_depth == 0:
-                return neutralized[start:i + 1]
-        i += 1
+
+
+def closing_brace_offset(source, opening):
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
     return None
 
 
-# Directory names that hold build artifacts, VCS data, or vendored third-party
-# code. Pruned from the repo-owned Swift walk: a Layout pulled from an external
-# dependency is out of scope (you would have to import it), and SwiftPM checkout
-# trees under `.build` are huge.
-EXCLUDED_DIR_NAMES = frozenset({
-    ".build", ".git", "DerivedData", "Vendor", "vendor", "ThirdParty",
-    "third_party", "Pods", "Carthage", "node_modules",
-})
+def closing_parenthesis_offset(source, opening):
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "(":
+            depth += 1
+        elif source[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
 
 
-def repo_owned_swift_files(repo_root):
-    """Yield every repo-owned Swift source path under ``Sources/`` and
-    ``Packages/`` (where cmux migrates app code), pruning build/VCS/vendored
-    directories. Scanning both keeps the custom-Layout discovery from being
-    bypassed by defining the force-measuring layout in a package. (#6870 review)
-    """
-    for top in ("Sources", "Packages"):
-        root = os.path.join(repo_root, top)
-        if not os.path.isdir(root):
+def top_level_arguments(source, opening):
+    """Split a neutralized Swift parameter/call list at top-level commas."""
+    end = closing_parenthesis_offset(source, opening)
+    if end is None:
+        return None
+    contents = source[opening + 1:end - 1]
+    if not contents.strip():
+        return []
+    counts = {"(": 0, "[": 0, "{": 0}
+    closers = {")": "(", "]": "[", "}": "{"}
+    angle_depth = 0
+    result = []
+    start = 0
+    for index, character in enumerate(contents):
+        if character in counts:
+            counts[character] += 1
+        elif character in closers and counts[closers[character]] > 0:
+            counts[closers[character]] -= 1
+        elif character == "<" and not any(counts.values()):
+            # Swift generic arguments are adjacent to their base (`Foo<Bar>`).
+            # Requiring adjacency plus a later close avoids treating ordinary
+            # spaced comparisons such as `a < b && c > d` as generic nesting.
+            has_adjacent_base = index > 0 and not contents[index - 1].isspace()
+            has_adjacent_argument = index + 1 < len(contents) and not contents[index + 1].isspace()
+            if has_adjacent_base and has_adjacent_argument and ">" in contents[index + 1:]:
+                angle_depth += 1
+        elif character == ">" and angle_depth > 0 and not any(counts.values()):
+            angle_depth -= 1
+        elif character == "," and not any(counts.values()) and angle_depth == 0:
+            result.append(contents[start:index])
+            start = index + 1
+    result.append(contents[start:])
+    return result
+
+
+def declaration_signature(source, opening):
+    arguments = top_level_arguments(source, opening)
+    if arguments is None:
+        return None
+    labels = []
+    defaults = []
+    variadic_index = None
+    for argument in arguments:
+        prefix = argument.split(":", 1)[0]
+        tokens = re.findall(r"[A-Za-z_]\w*|_", prefix)
+        if not tokens:
+            return None
+        labels.append(tokens[-2] if len(tokens) > 1 else tokens[-1])
+        defaults.append(bool(re.search(r"(?<![<>=!])=(?!=)", argument)))
+        if "..." in argument:
+            variadic_index = len(labels) - 1
+    final_parameter_is_closure = bool(
+        arguments
+        and re.search(
+            r":\s*(?:(?:@escaping|@Sendable|@MainActor)\s+)*"
+            r"\([^)]*\)\s*(?:async\s*)?(?:throws\s*)?->",
+            arguments[-1],
+        )
+    )
+    return tuple(labels), tuple(defaults), variadic_index, final_parameter_is_closure
+
+
+def call_external_labels(source, opening):
+    arguments = top_level_arguments(source, opening)
+    if arguments is None:
+        return None
+    labels = []
+    for argument in arguments:
+        match = re.match(r"\s*([A-Za-z_]\w*)\s*:", argument)
+        labels.append(match.group(1) if match else "_")
+    return tuple(labels)
+
+
+def extract_type_scoped_function_bodies(source):
+    """Return method bodies by Swift type, merging same-type extensions."""
+    scopes = []
+    type_pattern = re.compile(
+        r"\b(?:struct|class|final\s+class|enum|actor|extension)\s+([A-Za-z_]\w*)\b"
+    )
+    for match in type_pattern.finditer(source):
+        opening = source.find("{", match.end())
+        if opening < 0:
             continue
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIR_NAMES]
-            for filename in filenames:
-                if filename.endswith(".swift"):
-                    yield os.path.join(dirpath, filename)
+        end = closing_brace_offset(source, opening)
+        if end is not None:
+            scopes.append((match.group(1), opening, end))
+
+    bodies = {}
+    function_pattern = re.compile(r"\bfunc\s+([A-Za-z_]\w*)\s*\(")
+    for match in function_pattern.finditer(source):
+        parameter_opening = match.end() - 1
+        signature = declaration_signature(source, parameter_opening)
+        parameter_end = closing_parenthesis_offset(source, parameter_opening)
+        if signature is None or parameter_end is None:
+            continue
+        opening = source.find("{", parameter_end)
+        if opening < 0:
+            continue
+        end = closing_brace_offset(source, opening)
+        if end is None:
+            continue
+        owners = [scope for scope in scopes if scope[1] < match.start() < scope[2]]
+        if not owners:
+            continue
+        owner = min(owners, key=lambda scope: scope[2] - scope[1])[0]
+        key = (match.group(1), *signature)
+        bodies.setdefault(owner, {}).setdefault(key, []).append(
+            source[opening:end]
+        )
+    return bodies
 
 
-def find_custom_layout_type_names(paths):
-    """Return the set of type names conforming to SwiftUI's `Layout` protocol
-    across ``paths`` (comment/string-neutralized so a `: Layout` in prose is not
-    counted). Cheap-filtered to files that mention ``Layout`` at all.
-    """
+def merge_type_scoped_function_bodies(scoped_bodies_by_file):
+    """Merge method bodies for one Swift type across its declaration files."""
+    merged = {}
+    for scoped_bodies in scoped_bodies_by_file.values():
+        for owner, function_bodies in scoped_bodies.items():
+            owner_bodies = merged.setdefault(owner, {})
+            for key, bodies in function_bodies.items():
+                owner_bodies.setdefault(key, []).extend(bodies)
+    return merged
+
+
+def called_local_functions(body, local_names):
+    """Find bare/self helper calls, excluding calls on other receivers."""
+    result = set()
+    parenthesized_pattern = re.compile(
+        r"(?<![\w.])(?:self\s*\.\s*)?([A-Za-z_]\w*)\s*\("
+    )
+    for match in parenthesized_pattern.finditer(body):
+        name = match.group(1)
+        call_opening = match.end() - 1
+        labels = call_external_labels(body, call_opening)
+        call_end = closing_parenthesis_offset(body, call_opening)
+        has_trailing_closure = bool(
+            call_end is not None and re.match(r"\s*\{", body[call_end:])
+        )
+        prefix = body[max(0, match.start() - 12):match.start()]
+        if re.search(r"\bfunc\s*$", prefix):
+            continue
+        for key in local_names:
+            matches_parenthesized_arguments = not has_trailing_closure and call_matches_declaration(
+                labels, key[1], key[2], key[3]
+            )
+            matches_trailing_closure = has_trailing_closure and call_with_trailing_closure_matches_declaration(
+                labels, key[1], key[2], key[3], key[4]
+            )
+            if key[0] == name and (
+                matches_parenthesized_arguments or matches_trailing_closure
+            ):
+                result.add(key)
+
+    # Swift permits a single closure argument without parentheses (`refresh
+    # { ... }`). Trace both bare and `self.` calls while retaining the same
+    # receiver and declaration filtering as the parenthesized path.
+    trailing_closure_pattern = re.compile(
+        r"(?<![\w.])(?:self\s*\.\s*)?([A-Za-z_]\w*)\s*(?=\{)"
+    )
+    for match in trailing_closure_pattern.finditer(body):
+        name = match.group(1)
+        prefix = body[max(0, match.start() - 12):match.start()]
+        if re.search(r"\bfunc\s*$", prefix):
+            continue
+        for key in local_names:
+            if key[0] == name and trailing_closure_matches_declaration(
+                key[1], key[2], key[3], key[4]
+            ):
+                result.add(key)
+    return result
+
+
+def trailing_closure_matches_declaration(
+    declaration_labels,
+    defaults,
+    variadic_index,
+    final_parameter_is_closure,
+):
+    """Match `helper {}` with Swift's omitted final closure label."""
+    if not final_parameter_is_closure or not declaration_labels:
+        return False
+    return all(
+        defaults[index] or variadic_index == index
+        for index in range(len(declaration_labels) - 1)
+    )
+
+
+def call_with_trailing_closure_matches_declaration(
+    call_labels,
+    declaration_labels,
+    defaults,
+    variadic_index,
+    final_parameter_is_closure,
+):
+    """Match `helper(arguments) {}` with an omitted final closure label."""
+    if not final_parameter_is_closure or not declaration_labels:
+        return False
+    return call_matches_declaration(
+        call_labels,
+        declaration_labels[:-1],
+        defaults[:-1],
+        variadic_index,
+    )
+
+
+def call_matches_declaration(call_labels, declaration_labels, defaults, variadic_index):
+    """Match Swift calls while allowing omitted defaults and variadic values."""
+    if call_labels is None:
+        return False
+    call_index = 0
+    declaration_index = 0
+    while call_index < len(call_labels) and declaration_index < len(declaration_labels):
+        if variadic_index == declaration_index:
+            if any(label != declaration_labels[declaration_index] for label in call_labels[call_index:]):
+                return False
+            return True
+        if call_labels[call_index] == declaration_labels[declaration_index]:
+            call_index += 1
+            declaration_index += 1
+        elif defaults[declaration_index]:
+            declaration_index += 1
+        else:
+            return False
+    if call_index < len(call_labels):
+        return False
+    return all(
+        defaults[index] or variadic_index == index
+        for index in range(declaration_index, len(declaration_labels))
+    )
+
+
+def mutation_path(body, function_bodies, visited=None):
+    """Return a local helper path to a table mutation, if one exists."""
+    visited = set() if visited is None else visited
+    if any(pattern.search(body) for pattern in TABLE_MUTATION_PATTERNS):
+        return []
+    for key in sorted(called_local_functions(body, set(function_bodies)), key=repr):
+        if key in visited:
+            continue
+        next_visited = visited | {key}
+        for helper_body in function_bodies[key]:
+            path = mutation_path(helper_body, function_bodies, next_visited)
+            if path is not None:
+                return [key[0]] + path
+    return None
+
+
+def extract_type_body(source, name):
+    return extract_braced_declaration(
+        source,
+        r"\b(?:struct|class|final\s+class)\s+" + re.escape(name) + r"\b",
+    )
+
+
+def extract_rollout_branch_bodies(source):
+    """Return the explicit enabled/disabled sidebar rollout branch bodies."""
+    condition = "CmuxFeatureFlags.shared.isAppKitSidebarListEnabled"
+    match = re.search(r"\bif\s+" + re.escape(condition) + r"\s*\{", source)
+    if match is None:
+        return None
+    enabled_opening = source.find("{", match.start())
+    enabled_end = closing_brace_offset(source, enabled_opening)
+    if enabled_end is None:
+        return None
+    else_match = re.match(r"\s*else\s*\{", source[enabled_end:])
+    if else_match is None:
+        return None
+    disabled_opening = enabled_end + else_match.end() - 1
+    disabled_end = closing_brace_offset(source, disabled_opening)
+    if disabled_end is None:
+        return None
+    return (
+        source[enabled_opening:enabled_end],
+        source[disabled_opening:disabled_end],
+    )
+
+
+def discovered_representables(swift_sources):
     names = set()
-    seen = set()
-    for path in paths:
-        try:
-            real = os.path.realpath(path)
-        except OSError:
+    # Multiline declarations and `extension Foo: NSViewRepresentable` both
+    # count; conformance position in the inheritance clause is irrelevant.
+    pattern = re.compile(
+        r"\b(?:struct|class|final\s+class|extension)\s+([A-Za-z_]\w*)\b[^{]*?\bNSViewRepresentable\b[^{]*?\{",
+        re.DOTALL,
+    )
+    for source in swift_sources:
+        clean = neutralize_swift(source)
+        if "NSViewRepresentable" not in clean:
             continue
-        if real in seen:
-            continue
-        seen.add(real)
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                text = handle.read()
-        except OSError:
-            continue
-        if "Layout" not in text:
-            continue
-        for match in CUSTOM_LAYOUT_DECL.finditer(neutralize_swift(text)):
-            names.add(match.group(1))
+        names.update(pattern.findall(clean))
     return names
 
 
-def find_nsview_representable_type_names(paths):
-    """Return repo-owned NSViewRepresentable-conforming type names in ``paths``.
-
-    Sources are comment/string-neutralized before matching, using the same scan
-    discipline as custom Layout discovery.
-    """
+def discovered_custom_layouts(swift_sources):
     names = set()
-    seen = set()
-    for path in paths:
-        try:
-            real = os.path.realpath(path)
-        except OSError:
+    for source in swift_sources:
+        if "Layout" not in source:
             continue
-        if real in seen:
-            continue
-        seen.add(real)
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                text = handle.read()
-        except OSError:
-            continue
-        if "NSViewRepresentable" not in text:
-            continue
-        for match in NSVIEW_REPRESENTABLE_DECL.finditer(neutralize_swift(text)):
-            names.add(match.group(1))
-    return names
+        names.update(CUSTOM_LAYOUT_DECLARATION.findall(neutralize_swift(source)))
+    # SwiftUI's own protocols/types are not violations by themselves.
+    return {name for name in names if name not in {"Layout", "AnyLayout"}}
 
 
-def nsview_representable_violations(body, region_name, type_names):
-    """Return violations for disallowed representable references in ``body``."""
+def check_content_view(source):
+    clean = neutralize_swift(source)
     violations = []
-    for name in sorted(type_names - ROW_NSVIEW_REPRESENTABLE_ALLOWLIST):
+    body = extract_function_body(clean, "workspaceScrollArea")
+    if body is None:
+        return ["could not locate func workspaceScrollArea(...); update this guard for the renamed boundary"]
+    if "CmuxFeatureFlags.shared.isAppKitSidebarListEnabled" not in body:
+        violations.append("workspaceScrollArea does not preserve the AppKit-sidebar rollout flag")
+    rollout_branches = extract_rollout_branch_bodies(body)
+    if rollout_branches is None:
+        violations.append("workspaceScrollArea does not preserve explicit AppKit-sidebar rollout branches")
+    else:
+        enabled_body, disabled_body = rollout_branches
+        if (
+            not re.search(r"\bappKitWorkspaceScrollArea\s*\(", enabled_body)
+            or re.search(r"\blegacyWorkspaceScrollArea\s*\(", enabled_body)
+        ):
+            violations.append("workspaceScrollArea reverses the enabled AppKit-sidebar rollout branch")
+        if (
+            not re.search(r"\blegacyWorkspaceScrollArea\s*\(", disabled_body)
+            or re.search(r"\bappKitWorkspaceScrollArea\s*\(", disabled_body)
+        ):
+            violations.append("workspaceScrollArea reverses the disabled legacy-sidebar rollout branch")
+    for helper in ("appKitWorkspaceScrollArea", "legacyWorkspaceScrollArea"):
+        if not re.search(r"\b" + helper + r"\s*\(", body):
+            violations.append(f"workspaceScrollArea does not route through {helper}")
+    for token in SWIFTUI_LIST_CONTAINERS:
+        if re.search(r"\b" + token + r"\s*[({]", body):
+            violations.append("workspaceScrollArea reintroduces SwiftUI container: " + token)
+    appkit_body = extract_function_body(clean, "appKitWorkspaceScrollArea")
+    if appkit_body is None:
+        violations.append("could not locate func appKitWorkspaceScrollArea(...); update this guard for the renamed AppKit boundary")
+        return violations
+    if not re.search(r"\bSidebarWorkspaceTableView\s*\(", appkit_body):
+        violations.append("appKitWorkspaceScrollArea does not mount SidebarWorkspaceTableView")
+    for token in SWIFTUI_LIST_CONTAINERS:
+        if re.search(r"\b" + token + r"\s*[({]", appkit_body):
+            violations.append("appKitWorkspaceScrollArea reintroduces SwiftUI container: " + token)
+    return violations
+
+
+def check_row_source(
+    source,
+    required_type,
+    representable_names,
+    custom_layout_names,
+):
+    clean = neutralize_swift(source)
+    body = extract_type_body(clean, required_type)
+    if body is None:
+        return [f"could not locate row type {required_type}; update this guard for the rename"]
+    violations = []
+    for pattern, description in ROW_FORBIDDEN_PATTERNS:
+        if pattern.search(body):
+            violations.append(f"{required_type} contains forbidden {description}")
+    forbidden = representable_names - REPRESENTABLE_ALLOWLIST - {"SidebarWorkspaceTableView"}
+    for name in sorted(forbidden):
         if re.search(r"\b" + re.escape(name) + r"\b", body):
+            violations.append(f"{required_type} mounts forbidden per-row NSViewRepresentable {name}")
+    for name in sorted(custom_layout_names):
+        if re.search(r"\b" + re.escape(name) + r"\s*[({]", body):
             violations.append(
-                "{0} references always-mounted NSViewRepresentable `{1}`. "
-                "Sidebar row bodies must be value-only so AppKit lifecycle "
-                "callbacks cannot mutate row state during SwiftUI layout "
-                "(issue #8004).".format(region_name, name)
+                f"{required_type} applies the custom Layout `{name}` "
+                "(the #6033/#6210 force-measure shape under any name)"
             )
     return violations
 
 
-def check_source(
-    source,
-    custom_layout_names=None,
-    nsview_representable_names=None,
-    require_functions=True,
-    required_row_types=(),
-    required_row_functions=(),
-    scan_all_rows=False,
-    required_markers=(),
-):
-    """Return a list of human-readable violation strings (empty == clean).
-
-    ``require_functions`` controls whether the two container functions must be
-    present: True for ContentView.swift, False for row-view files like
-    SidebarWorkspaceGroupHeaderView.swift (which do not contain them), or
-    "auto" for ad-hoc ``--file`` runs -- container checks then apply only when
-    at least one guarded function exists in the source, so a row-view file
-    scans cleanly while a fixture that renamed ONE function still fails loudly.
-    ``required_row_types`` names GUARDED_ROW_TYPES that must exist in this
-    source -- a rename fails loudly instead of silently skipping the region.
-    Row types that are merely present are always scanned.
-
-    ``scan_all_rows`` applies the row-forbidden patterns to the ENTIRE
-    neutralized source instead of extracted type regions. Used for row-wrapper
-    files (e.g. VerticalTabsSidebar+WorkspaceGroups.swift) whose modifier
-    sites wrap a row before it enters the LazyVStack: a GeometryReader or
-    anchorPreference added around the header there defeats laziness exactly
-    like one inside the row view. ``required_markers`` are substrings that
-    must appear in the source so a rename/move fails loudly.
-    """
-    custom_layout_names = custom_layout_names or set()
-    nsview_representable_names = nsview_representable_names or set()
-    neutralized = neutralize_swift(source)
+def check_appkit_sources(sources_by_name, require_all_files=True):
     violations = []
-    bodies = {}
-    if require_functions == "auto":
-        require_functions = any(
-            re.search(r"\bfunc\s+" + re.escape(name) + r"\s*\(", neutralized)
-            for name in GUARDED_FUNCTIONS
-        )
-    if require_functions:
-        for func_name in GUARDED_FUNCTIONS:
-            body = extract_function_body(neutralized, func_name)
-            if body is None:
-                violations.append(
-                    "could not locate func {0}(...) in the source. The sidebar "
-                    "lazy-layout guard must be updated to track the renamed "
-                    "function (refusing to pass as a no-op).".format(func_name)
-                )
-                continue
-            bodies[func_name] = body
-
-    for func_name, body in bodies.items():
-        for pattern, description in FORBIDDEN_PATTERNS:
-            if pattern.search(body):
-                violations.append(
-                    "{0}(...) reintroduces a forbidden whole-list measurement: "
-                    "{1}".format(func_name, description)
-                )
-        # A custom Layout (under ANY name) applied to the rows wraps the
-        # LazyVStack and measures it every pass -- the #6210 shape. Banning the
-        # whole discovered set, not just the deleted name, blocks the rename
-        # dodge (#6870 review).
-        for name in sorted(custom_layout_names):
-            if re.search(r"\b" + re.escape(name) + r"\b", body):
-                violations.append(
-                    "{0}(...) applies the custom Layout `{1}` to the sidebar rows. "
-                    "A custom Layout wrapping the LazyVStack measures it on every "
-                    "pass (the #6210 force-measure shape, regardless of the type's "
-                    "name); size the rows with .frame(minHeight:) instead.".format(
-                        func_name, name
-                    )
-                )
-
-    for func_name, pattern, description in REQUIRED_PRIMITIVES:
-        body = bodies.get(func_name)
-        if body is None:
-            continue  # already reported as a missing-function violation
-        if not pattern.search(body):
-            violations.append(
-                "{0}(...) is missing a required lazy-fill primitive: {1}".format(
-                    func_name, description
-                )
-            )
-
-    for marker in required_markers:
-        if marker not in neutralized:
-            violations.append(
-                "could not locate `{0}` in the source. The sidebar lazy-layout "
-                "guard must be updated to track the renamed/moved row wrapper "
-                "(refusing to pass as a no-op).".format(marker)
-            )
-
-    for func_name in required_row_functions:
-        body = extract_function_body(neutralized, func_name)
-        if body is None:
-            violations.append(
-                "could not locate row-builder func {0}(...). The sidebar "
-                "NSViewRepresentable guard must be updated to track the "
-                "renamed function (refusing to pass as a no-op).".format(func_name)
-            )
+    required = {
+        "SidebarWorkspaceTableView.swift": ("NSViewRepresentable", "makeNSView", "updateNSView"),
+        "SidebarWorkspaceTableController.swift": (
+            "@MainActor", "NSTableViewDataSource", "NSTableViewDelegate",
+            "SidebarWorkspaceTableMutationScheduler", "SidebarWorkspaceRowTableCellView",
+            "SidebarGroupHeaderTableCellView",
+        ),
+        "Cells/SidebarWorkspaceRowCellView.swift": (
+            "SidebarWorkspaceRowTableCellView", "NSTableCellView", "beginInlineRename",
+        ),
+        "Cells/SidebarGroupHeaderRowView.swift": (
+            "SidebarGroupHeaderTableCellView", "NSTableCellView",
+        ),
+        "SidebarWorkspaceTableViewImpl.swift": ("NSTableView", "updateTrackingAreas", "otherMouseDown"),
+        "SidebarWorkspaceTableRowConfiguration.swift": (
+            "hasEquivalentContent", "appKitWorkspaceRowModel", "appKitGroupHeaderModel",
+        ),
+    }
+    for filename, markers in required.items():
+        source = sources_by_name.get(filename)
+        if source is None:
+            if require_all_files:
+                violations.append(f"missing required AppKit-list file {filename}")
             continue
-        violations.extend(nsview_representable_violations(
-            body,
-            "{0}(...)".format(func_name),
-            nsview_representable_names,
-        ))
+        clean = neutralize_swift(source)
+        for marker in markers:
+            if marker not in clean:
+                violations.append(f"{filename} is missing required marker {marker}")
 
-    if scan_all_rows:
-        for pattern, description in ROW_FORBIDDEN_PATTERNS:
-            if pattern.search(neutralized):
-                violations.append(
-                    "row-wrapper file contains forbidden per-row geometry "
-                    "feedback: {0}".format(description)
-                )
-        for name in sorted(custom_layout_names):
-            if re.search(r"\b" + re.escape(name) + r"\b", neutralized):
-                violations.append(
-                    "row-wrapper file applies the custom Layout `{0}` (the "
-                    "#6210 force-measure shape); row wrappers must stay "
-                    "measurement-free.".format(name)
-                )
+    clean_sources = {
+        filename: neutralize_swift(source)
+        for filename, source in sources_by_name.items()
+    }
+    scoped_bodies_by_file = {
+        filename: extract_type_scoped_function_bodies(clean)
+        for filename, clean in clean_sources.items()
+    }
+    merged_bodies_by_type = merge_type_scoped_function_bodies(scoped_bodies_by_file)
 
-    # Row-view regions: rows must never measure or publish their own geometry.
-    for type_name in GUARDED_ROW_TYPES:
-        body = extract_type_body(neutralized, type_name)
-        if body is None:
-            if type_name in required_row_types:
-                violations.append(
-                    "could not locate type {0} in the source. The sidebar "
-                    "lazy-layout guard must be updated to track the renamed "
-                    "row view (refusing to pass as a no-op).".format(type_name)
-                )
-            continue
-        for pattern, description in ROW_FORBIDDEN_PATTERNS:
-            if pattern.search(body):
-                violations.append(
-                    "{0} contains forbidden per-row geometry feedback: "
-                    "{1}".format(type_name, description)
-                )
-        for name in sorted(custom_layout_names):
-            if re.search(r"\b" + re.escape(name) + r"\b", body):
-                violations.append(
-                    "{0} applies the custom Layout `{1}`. A custom Layout in a "
-                    "sidebar row measures its subtree every pass (the #6210 "
-                    "force-measure shape); rows must stay measurement-free.".format(
-                        type_name, name
-                    )
-                )
-        violations.extend(nsview_representable_violations(
-            body,
-            type_name,
-            nsview_representable_names,
-        ))
-
+    for filename, clean in clean_sources.items():
+        for owner, local_function_bodies in scoped_bodies_by_file[filename].items():
+            function_bodies = merged_bodies_by_type[owner]
+            for callback in LAYOUT_CALLBACKS:
+                callback_keys = [key for key in local_function_bodies if key[0] == callback]
+                for callback_key in callback_keys:
+                    for body in local_function_bodies[callback_key]:
+                        path = mutation_path(body, function_bodies, visited={callback_key})
+                        if path is not None:
+                            via = " via " + " -> ".join(path) if path else ""
+                            violations.append(
+                                f"{filename}.{callback} mutates/reconfigures the table "
+                                f"from a layout callback{via}"
+                            )
+            staging_callbacks = ()
+            if filename == "SidebarWorkspaceTableView.swift":
+                staging_callbacks = ("updateNSView",)
+            elif filename == "SidebarWorkspaceTableController.swift":
+                staging_callbacks = ("apply", "viewportDidChange")
+            for callback in staging_callbacks:
+                callback_keys = [key for key in local_function_bodies if key[0] == callback]
+                for callback_key in callback_keys:
+                    for body in local_function_bodies[callback_key]:
+                        path = mutation_path(body, function_bodies, visited={callback_key})
+                        if path is not None:
+                            via = " via " + " -> ".join(path) if path else ""
+                            violations.append(
+                                f"{filename}.{callback} performs a table mutation before its "
+                                f"callback returns{via}"
+                            )
+        for pattern, label in (
+            (r"\bObservableObject\b", "ObservableObject"),
+            (r"@Published\b", "@Published"),
+            (r"DispatchQueue\.main\.async", "DispatchQueue.main.async"),
+            (r"\.asyncAfter\s*\(", "asyncAfter"),
+        ):
+            if re.search(pattern, clean):
+                violations.append(f"{filename} introduces forbidden {label}")
     return violations
 
 
@@ -608,134 +669,79 @@ def repo_root_dir():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def default_targets():
-    """(path, require_functions, required_row_types, required_row_functions,
-    scan_all_rows, required_markers) per scanned file.
+def read(path):
+    with open(path, "r", encoding="utf-8") as handle:
+        return handle.read()
 
-    ContentView.swift holds the container functions and TabItemView; the group
-    header row view lives in its own file with neither container function; the
-    group-header row builder (`sidebarWorkspaceGroupRow(...)`) lives in a
-    third file whose modifier sites wrap the header before it enters the
-    LazyVStack. The two immutable wrapper views live in their own files and are
-    guarded as row regions as well.
-    """
-    root = repo_root_dir()
-    return (
-        (
-            os.path.join(root, "Sources", "ContentView.swift"),
-            True,
-            ("TabItemView",),
-            ("workspaceRow",),
-            False,
-            (),
-        ),
-        (
-            os.path.join(root, "Sources", "SidebarWorkspaceGroupHeaderView.swift"),
-            False,
-            ("SidebarWorkspaceGroupHeaderView",),
-            (),
-            False,
-            (),
-        ),
-        (
-            os.path.join(root, "Sources", "VerticalTabsSidebar+WorkspaceGroups.swift"),
-            False,
-            (),
-            ("sidebarWorkspaceGroupRow",),
-            True,
-            ("sidebarWorkspaceGroupRow",),
-        ),
-        (
-            os.path.join(root, "Sources", "SidebarWorkspaceRowView.swift"),
-            False,
-            ("SidebarWorkspaceRowView",),
-            (),
-            False,
-            (),
-        ),
-        (
-            os.path.join(root, "Sources", "SidebarWorkspaceGroupRowView.swift"),
-            False,
-            ("SidebarWorkspaceGroupRowView",),
-            (),
-            False,
-            (),
-        ),
+
+def repo_owned_swift_sources(root):
+    sources = []
+    for base in ("Sources", os.path.join("Packages",)):
+        top = os.path.join(root, base)
+        for directory, dirnames, filenames in os.walk(top):
+            dirnames[:] = [d for d in dirnames if d not in {".build", "checkouts"}]
+            for filename in filenames:
+                if filename.endswith(".swift"):
+                    try:
+                        sources.append(read(os.path.join(directory, filename)))
+                    except OSError:
+                        pass
+    return sources
+
+
+def default_violations(root):
+    appkit_dir = os.path.join(root, "Sources", "Sidebar", "AppKitList")
+    try:
+        appkit_sources = {}
+        for directory, _, filenames in os.walk(appkit_dir):
+            for name in filenames:
+                if name.endswith(".swift"):
+                    path = os.path.join(directory, name)
+                    appkit_sources[os.path.relpath(path, appkit_dir)] = read(path)
+        content = read(os.path.join(root, "Sources", "ContentView.swift"))
+        row_view = read(os.path.join(root, "Sources", "SidebarWorkspaceRowView.swift"))
+        group_header = read(os.path.join(root, "Sources", "SidebarWorkspaceGroupHeaderView.swift"))
+        group_row = read(os.path.join(root, "Sources", "SidebarWorkspaceGroupRowView.swift"))
+    except OSError as error:
+        return [f"cannot read required sidebar source: {error}"]
+
+    all_sources = repo_owned_swift_sources(root)
+    representables = discovered_representables(all_sources)
+    custom_layouts = discovered_custom_layouts(all_sources)
+    row_checks = (
+        (content, "TabItemView"),
+        (row_view, "SidebarWorkspaceRowView"),
+        (group_header, "SidebarWorkspaceGroupHeaderView"),
+        (group_row, "SidebarWorkspaceGroupRowView"),
     )
+    violations = check_content_view(content)
+    for source, row_type in row_checks:
+        violations += check_row_source(source, row_type, representables, custom_layouts)
+    violations += check_appkit_sources(appkit_sources)
+    return violations
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--file",
-        default=None,
-        help="Swift source file to scan (defaults to Sources/ContentView.swift "
-             "+ Sources/SidebarWorkspaceGroupHeaderView.swift).",
-    )
+    parser.add_argument("--file", help="scan one AppKit-list Swift file for layout-callback mutations")
     args = parser.parse_args(argv)
-
     if args.file:
-        # "auto": ad-hoc scans of a row-view file (no container functions)
-        # skip the container checks instead of failing on their absence; a
-        # source containing any guarded function still has both enforced.
-        targets = ((args.file, "auto", (), (), False, ()),)
-    else:
-        targets = default_targets()
-
-    # Discover custom Layout type names from the target files plus every
-    # repo-owned Swift source (Sources/ and Packages/), so a renamed
-    # force-measuring layout defined in any app file or package is still banned
-    # from the guarded regions.
-    layout_scan_paths = [target[0] for target in targets]
-    layout_scan_paths.extend(sorted(repo_owned_swift_files(repo_root_dir())))
-    custom_layout_names = find_custom_layout_type_names(layout_scan_paths)
-    nsview_representable_names = find_nsview_representable_type_names(layout_scan_paths)
-
-    exit_code = 0
-    for (
-        target,
-        require_functions,
-        required_row_types,
-        required_row_functions,
-        scan_all_rows,
-        required_markers,
-    ) in targets:
         try:
-            with open(target, "r", encoding="utf-8") as handle:
-                source = handle.read()
-        except OSError as error:
-            print("check-sidebar-lazy-layout: cannot read {0}: {1}".format(target, error),
-                  file=sys.stderr)
-            exit_code = 1
-            continue
-
-        violations = check_source(
-            source,
-            custom_layout_names,
-            nsview_representable_names,
-            require_functions=require_functions,
-            required_row_types=required_row_types,
-            required_row_functions=required_row_functions,
-            scan_all_rows=scan_all_rows,
-            required_markers=required_markers,
-        )
-        if violations:
-            print("check-sidebar-lazy-layout: FAILED for {0}".format(target),
-                  file=sys.stderr)
-            for violation in violations:
-                print("  - {0}".format(violation), file=sys.stderr)
-            print(
-                "\nThe workspace sidebar must keep its rows lazy at measure time "
-                "and its rows measurement-free. See #6188 / #6210 / #6384 / #6556 "
-                "and the comments in workspaceScrollContent / workspaceRows.",
-                file=sys.stderr,
+            violations = check_appkit_sources(
+                {os.path.basename(args.file): read(args.file)},
+                require_all_files=False,
             )
-            exit_code = 1
-            continue
-
-        print("check-sidebar-lazy-layout: ok ({0})".format(target))
-
-    return exit_code
+        except OSError as error:
+            violations = [f"cannot read {args.file}: {error}"]
+    else:
+        violations = default_violations(repo_root_dir())
+    if violations:
+        print("check-sidebar-lazy-layout: FAILED", file=sys.stderr)
+        for violation in violations:
+            print("  - " + violation, file=sys.stderr)
+        return 1
+    print("check-sidebar-lazy-layout: ok (AppKit NSTableView boundary)")
+    return 0
 
 
 if __name__ == "__main__":

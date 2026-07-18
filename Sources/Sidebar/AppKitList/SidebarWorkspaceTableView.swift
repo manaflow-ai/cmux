@@ -7,10 +7,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     let workspaceIds: [UUID]
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
-
-#if DEBUG
-    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
-#endif
+    let isDividerDragActive: Bool
 
     func makeCoordinator() -> SidebarWorkspaceTableController {
         SidebarWorkspaceTableController()
@@ -21,15 +18,13 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: SidebarWorkspaceTableContainerView, context: Context) {
-#if DEBUG
-        context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
-#endif
         context.coordinator.apply(
             rows: rows,
             actions: actions,
             workspaceIds: workspaceIds,
             selectedWorkspaceId: selectedWorkspaceId,
-            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
+            isDividerDragActive: isDividerDragActive
         )
     }
 }

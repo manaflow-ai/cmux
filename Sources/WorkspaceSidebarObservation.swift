@@ -1,9 +1,26 @@
 import Combine
 import CmuxCore
+import CmuxSidebar
 import CmuxWorkspaces
 import Foundation
-import CmuxSidebar
 import SwiftUI
+
+private extension AsyncStream.Continuation {
+    /// Retains every identity while keeping the legacy-Combine bridge to one buffered set.
+    func yieldCoalescingWorkspaceId(_ workspaceId: UUID) where Element == Set<UUID> {
+        var mergedWorkspaceIds: Set<UUID> = [workspaceId]
+        while true {
+            switch yield(mergedWorkspaceIds) {
+            case .dropped(let displacedWorkspaceIds):
+                let nextWorkspaceIds = mergedWorkspaceIds.union(displacedWorkspaceIds)
+                guard nextWorkspaceIds != mergedWorkspaceIds else { return }
+                mergedWorkspaceIds = nextWorkspaceIds
+            default:
+                return
+            }
+        }
+    }
+}
 
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
@@ -14,42 +31,103 @@ private struct SidebarPanelObservationState: Equatable {
 }
 
 extension View {
-    /// Observes row-affecting workspace publishers above the lazy-list boundary.
+    /// Observes row-affecting workspace publishers above the AppKit table boundary.
     ///
-    /// Each task retains the workspace identity that produced a change, so a
-    /// status/metadata/title update rebuilds one immutable row projection
-    /// instead of walking every workspace. The initial CombineLatest value is
-    /// intentionally delivered: it closes the gap between the owner's first
-    /// snapshot and subscription setup, while the snapshot equality guard makes
-    /// an unchanged initial value a no-op.
+    /// The merged streams retain the workspace identity that produced each
+    /// change. Both publisher families accumulate keyed changes before bounded
+    /// coalescing, so a simultaneous N-workspace burst cannot publish and
+    /// re-project the full list N times or lose a quiet workspace behind a
+    /// noisy one. Initial CombineLatest values close the subscription-setup gap.
     func sidebarWorkspaceObservations(
         ids: [UUID],
         workspaces: [Workspace],
-        debouncedInterval: RunLoop.SchedulerTimeType.Stride,
+        debouncedInterval: Duration,
         onChange: @MainActor @escaping (UUID) -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
-            await withTaskGroup(of: Void.self) { group in
-                for (id, workspace) in zip(ids, workspaces) {
-                    let immediateChanges = workspace.sidebarImmediateObservationPublisher
-                        .values
-                    let debouncedChanges = workspace.sidebarObservationPublisher
-                        .receive(on: RunLoop.main)
-                        .debounce(for: debouncedInterval, scheduler: RunLoop.main)
-                        .values
+            let sources = zip(ids, workspaces).map { id, workspace in
+                (id: id, workspace: workspace)
+            }
+            let immediateBatch = SidebarWorkspaceObservationBatch(
+                deliveryInterval: .seconds(
+                    Workspace.sidebarImmediateObservationCoalesceInterval.magnitude
+                )
+            )
+            let debouncedBatch = SidebarWorkspaceObservationBatch(
+                deliveryInterval: debouncedInterval
+            )
+            let immediateChanges = AsyncStream<Set<UUID>>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let debouncedChanges = AsyncStream<Set<UUID>>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let immediateSubscription = Publishers.MergeMany(sources.map { source in
+                source.workspace.sidebarImmediateObservationPublisher
+                    .map { source.id }
+                    .eraseToAnyPublisher()
+            })
+            .receive(on: RunLoop.main)
+            .sink(
+                receiveCompletion: { _ in immediateChanges.continuation.finish() },
+                receiveValue: { immediateChanges.continuation.yieldCoalescingWorkspaceId($0) }
+            )
+            let debouncedSubscription = Publishers.MergeMany(sources.map { source in
+                source.workspace.sidebarObservationPublisher
+                    .map { source.id }
+                    .eraseToAnyPublisher()
+            })
+            .receive(on: RunLoop.main)
+            .sink(
+                receiveCompletion: { _ in debouncedChanges.continuation.finish() },
+                receiveValue: { debouncedChanges.continuation.yieldCoalescingWorkspaceId($0) }
+            )
+            defer {
+                immediateSubscription.cancel()
+                debouncedSubscription.cancel()
+                immediateChanges.continuation.finish()
+                debouncedChanges.continuation.finish()
+            }
+
+            await withTaskCancellationHandler {
+                await withTaskGroup(of: Void.self) { group in
                     group.addTask { @MainActor in
-                        for await _ in immediateChanges {
+                        for await workspaceIds in immediateChanges.stream {
                             if Task.isCancelled { break }
-                            onChange(id)
+                            await immediateBatch.record(contentsOf: workspaceIds)
+                        }
+                        await immediateBatch.cancel()
+                    }
+                    group.addTask { @MainActor in
+                        for await workspaceIds in immediateBatch.changes {
+                            if Task.isCancelled { break }
+                            for workspaceId in workspaceIds {
+                                onChange(workspaceId)
+                            }
                         }
                     }
                     group.addTask { @MainActor in
-                        for await _ in debouncedChanges {
+                        for await workspaceIds in debouncedChanges.stream {
                             if Task.isCancelled { break }
-                            onChange(id)
+                            await debouncedBatch.record(contentsOf: workspaceIds)
+                        }
+                        await debouncedBatch.cancel()
+                    }
+                    group.addTask { @MainActor in
+                        for await workspaceIds in debouncedBatch.changes {
+                            if Task.isCancelled { break }
+                            for workspaceId in workspaceIds {
+                                onChange(workspaceId)
+                            }
                         }
                     }
                 }
+            } onCancel: {
+                // AsyncStream iteration does not wake solely because its task
+                // was cancelled. Finish the producer bridges so both input
+                // tasks can cancel their batch actors and release the group.
+                immediateChanges.continuation.finish()
+                debouncedChanges.continuation.finish()
             }
         }
     }
@@ -110,7 +188,7 @@ extension View {
         }
     }
 
-    /// Observes every default-sidebar workspace above the lazy row boundary.
+    /// Observes every default-sidebar workspace above the AppKit table boundary.
     /// The callback identifies the changed workspace so the owner can rebuild
     /// its immutable projection without mounting an observation task per row.
     func sidebarProcessTitleObservations(
@@ -196,7 +274,7 @@ extension Workspace {
     // process titles settle separately: agent TUIs can animate their terminal
     // title at 10 Hz, and per-workspace burst coalescing cannot reduce changes
     // spaced farther apart than its window. Waiting for the title to settle
-    // prevents those frames from continuously invalidating LazyVStack rows,
+    // prevents those frames from continuously invalidating native table rows,
     // and the settle model's deferral deadline still republishes during
     // sustained churn so a row's title cannot stay stale until the agent
     // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.

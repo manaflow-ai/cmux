@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Value fields only: action closures live in ``SidebarGroupHeaderRowActions``
 /// and are excluded from equality so recycled cells can reconfigure cheaply
-/// (same discipline as the hosted rows' Equatable snapshot contract).
+/// (same discipline as the native workspace rows' Equatable value contract).
 struct SidebarGroupHeaderRowModel: Equatable {
     let groupId: UUID
     let anchorWorkspaceId: UUID
