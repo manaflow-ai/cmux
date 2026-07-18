@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
-    @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
+    @Test func agentHookSurfaceResumeStartupInputRoutesCustomAbsoluteCodexThroughWrapper() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "'/opt/company/bin/codex' 'resume' 'session-custom-cli'",
@@ -20,7 +20,9 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("'/opt/company/bin/codex'"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex"), "\(startupInput)")
+        #expect(startupInput.contains("'resume' 'session-custom-cli'"), "\(startupInput)")
     }
 
     @Test func decodingAgentHookBindingRewritesPersistedPATHManagedAgentExecutable() throws {
@@ -412,7 +414,9 @@ import Testing
         )
 
         let startupInput = try #require(binding.startupInput)
-        #expect(startupInput.contains("codex 'resume' 'session-existing-cli'") && !startupInput.contains(executable.path), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=\(executable.path)"), "\(startupInput)")
+        #expect(startupInput.contains("'resume' 'session-existing-cli'"), "\(startupInput)")
     }
 
     @Test func agentHookSurfaceResumeStartupInputFallsBackWhenRecordedAgentExecutableMoved() throws {

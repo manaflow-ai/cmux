@@ -564,6 +564,138 @@ struct AgentLaunchCaptureTrustTests {
         )
     }
 
+    @Test func codexUtilityCommandsAreNonSessionAndNeverRestorable() {
+        let utilityCommands = [
+            "plugin",
+            "remote-control",
+            "archive",
+            "delete",
+            "unarchive",
+            "update",
+            "doctor",
+        ]
+
+        for command in utilityCommands {
+            let arguments = ["codex", command]
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "codex",
+                    arguments: arguments,
+                    kind: "codex"
+                ) == .nonSession,
+                "codex \(command)"
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments,
+                    launcher: "codex",
+                    fallbackKind: "codex"
+                ) == nil,
+                "codex \(command)"
+            )
+        }
+
+        for command in ["app-server", "mcp-server", "exec-server"] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "codex",
+                    arguments: ["codex", command],
+                    kind: "codex"
+                ) == .interactive,
+                "codex \(command)"
+            )
+        }
+    }
+
+    @Test func grokUtilityCommandsAreNonSessionAndNeverRestorable() {
+        for command in [
+            "completions",
+            "dashboard",
+            "export",
+            "logout",
+            "plugin",
+            "wrap",
+        ] {
+            let arguments = ["grok", command]
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "grok",
+                    arguments: arguments,
+                    kind: "grok"
+                ) == .nonSession,
+                "grok \(command)"
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments,
+                    launcher: "grok",
+                    fallbackKind: "grok"
+                ) == nil,
+                "grok \(command)"
+            )
+        }
+    }
+
+    @Test func commonOneShotFlagsDoNotHideTerminalLaunches() {
+        let oneShotLaunches: [(kind: String, executable: String, arguments: [String])] = [
+            ("kimi", "kimi", ["--print", "fix this", "--yolo"]),
+            ("gemini", "gemini", ["-p", "fix this", "--yolo"]),
+            ("grok", "grok", ["--single", "fix this", "--always-approve"]),
+            ("pi", "pi", ["-p", "fix this", "--verbose"]),
+            ("cursor", "cursor-agent", ["-p", "fix this", "--auto-review"]),
+            ("amp", "amp", ["-x", "fix this", "--no-archive-after-execute"]),
+            ("amp", "amp", ["-x", "fix this", "--plugin-ready-timeout", "30"]),
+        ]
+        for launch in oneShotLaunches {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: launch.executable,
+                    arguments: [launch.executable] + launch.arguments,
+                    kind: launch.kind
+                ) == .oneShot,
+                "\(launch.kind) \(launch.arguments)"
+            )
+        }
+
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "pi",
+                arguments: ["pi", "-p", "fix this", "--future-output-mode"],
+                kind: "pi"
+            ) == .unknown
+        )
+    }
+
+    @Test func openCodeRunUsesRunOptionContractsInBothModes() {
+        let runValues = [
+            "--format", "json",
+            "--command", "build",
+            "--share",
+            "--pure",
+        ]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "opencode",
+                arguments: ["opencode", "run", "fix this"] + runValues,
+                kind: "opencode"
+            ) == .oneShot
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "opencode",
+                arguments: ["opencode", "run", "--interactive", "fix this"] + runValues,
+                kind: "opencode"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "opencode",
+                arguments: ["opencode", "run", "fix this", "--future-run-mode"],
+                kind: "opencode"
+            ) == .unknown
+        )
+    }
+
     @Test func interpreterHostedLaunchRestorabilityStartsAfterTheAgentEntrypoint() {
         #expect(
             AgentLaunchModeClassifier.processMode(

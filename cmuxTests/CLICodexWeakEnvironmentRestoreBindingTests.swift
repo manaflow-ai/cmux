@@ -244,6 +244,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(resume["cwd"] as? String, repo.path)
         XCTAssertTrue((resume["command"] as? String)?.contains("codex") == true)
         XCTAssertTrue(
+            (resume["command"] as? String)?.contains("CMUX_CODEX_WRAPPER_SHIM") == true,
+            "a captured Codex executable must still route through cmux's hook wrapper: \(resume)"
+        )
+        XCTAssertTrue(
+            (resume["command"] as? String)?.contains("CMUX_CUSTOM_CODEX_PATH=/usr/local/bin/codex") == true,
+            "wrapper routing must retain the trusted Codex binary selection: \(resume)"
+        )
+        XCTAssertTrue(
             (resume["command"] as? String)?.contains(expectedFlag) == true,
             "a transcript-backed Codex resume must preserve safe launch flags: \(resume)"
         )

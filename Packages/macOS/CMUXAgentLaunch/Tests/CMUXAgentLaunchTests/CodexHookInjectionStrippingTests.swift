@@ -156,6 +156,37 @@ struct CodexHookInjectionStrippingTests {
         #expect(fork.first == codexExecutable)
     }
 
+    @Test("Wrapper-routed Codex replay drops stale cmux hook injection")
+    func wrapperRoutedReplayDropsStaleCmuxHookInjection() throws {
+        let expectedPrefix = [
+            "env",
+            "CMUX_CUSTOM_CODEX_PATH=\(codexExecutable)",
+            "codex",
+        ]
+        let resume = try #require(AgentResumeArgv().builtInKind(
+            kind: "codex",
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            executablePath: codexExecutable,
+            arguments: realisticCodexHookArgv()
+        ))
+        let fork = try #require(AgentForkArgv().builtInKind(
+            kind: "codex",
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            executablePath: codexExecutable,
+            arguments: realisticCodexHookArgv()
+        ))
+
+        #expect(Array(resume.prefix(expectedPrefix.count)) == expectedPrefix)
+        #expect(Array(fork.prefix(expectedPrefix.count)) == expectedPrefix)
+        for replay in [resume, fork] {
+            #expect(!replay.contains("--dangerously-bypass-hook-trust"))
+            #expect(!replay.contains { $0.contains("/.cmux/hooks/cmux-codex-hook-") })
+            #expect(replay.contains("--dangerously-bypass-approvals-and-sandbox"))
+            #expect(replay.contains("gpt-5.5"))
+            #expect(replay.contains("model_reasoning_effort=xhigh"))
+        }
+    }
+
     @Test("Claude cmux hook settings preserve captured executable")
     func claudeCmuxHookSettingsPreserveCapturedExecutable() {
         let hookSettings = #"{"env":{"USER_FLAG":"1"},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"hooks claude session-start"}]}]},"preferredNotifChannel":"notifications_disabled"}"#

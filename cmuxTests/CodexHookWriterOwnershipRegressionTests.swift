@@ -3,6 +3,128 @@ import Foundation
 import XCTest
 
 final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
+    func testWrapperRoutesResumeAndForkThroughCustomCodexWithHookOwnership() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux codex custom path \(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux test cli", isDirectory: false)
+        let fakeCodex = root.appendingPathComponent("Custom Codex Builds/codex", isDirectory: false)
+        let cliCapture = root.appendingPathComponent("cli-invocations.txt", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("replay")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        try FileManager.default.createDirectory(
+            at: fakeCodex.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"$TEST_CLI_CAPTURE\"",
+            "exit 0",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeCodex, lines: [
+            "#!/bin/sh",
+            "printf 'owner=%s\\nlaunch=%s\\nargs=%s\\n' \"${CMUX_CODEX_WRAPPER_HOOK_OWNER:-unset}\" \"${CMUX_AGENT_LAUNCH_EXECUTABLE:-unset}\" \"$*\" > \"$TEST_CAPTURE\"",
+        ])
+
+        let wrapper = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/bin/cmux-codex-wrapper", isDirectory: false)
+        let sessionID = "019dad34-d218-7943-b81a-eddac5c87951"
+        for command in ["resume", "fork"] {
+            let capture = root.appendingPathComponent("\(command)-capture.txt", isDirectory: false)
+            let result = runCodexHookProcess(
+                executablePath: wrapper.path,
+                arguments: [command, sessionID, "--model", "gpt-5.4"],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "CMUX_SURFACE_ID": "surface-replay",
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                    "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
+                    "TEST_CAPTURE": capture.path,
+                    "TEST_CLI_CAPTURE": cliCapture.path,
+                ],
+                timeout: 3
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            let captured = try String(contentsOf: capture, encoding: .utf8)
+            XCTAssertTrue(captured.contains("owner=1"), "\(command): \(captured)")
+            XCTAssertTrue(captured.contains("launch=\(fakeCodex.path)"), "\(command): \(captured)")
+            XCTAssertTrue(
+                captured.contains("args=\(command) \(sessionID) --model gpt-5.4"),
+                "\(command): \(captured)"
+            )
+        }
+
+        XCTAssertTrue(waitForFile(cliCapture, containing: "hooks codex install --yes", timeout: 1))
+        XCTAssertTrue(waitForFile(cliCapture, containing: "hooks codex session-start", timeout: 1))
+    }
+
+    func testWrapperFallsBackSafelyFromStaleAndNonExecutableCustomCodexPaths() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-custom-fallback-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let fallbackCodex = bin.appendingPathComponent("codex", isDirectory: false)
+        let nonExecutableCodex = root.appendingPathComponent("not executable/codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: nonExecutableCodex.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeCodexHookExecutableShellFile(at: fallbackCodex, lines: [
+            "#!/bin/sh",
+            "printf 'fallback=%s\\nargs=%s\\n' \"$0\" \"$*\" > \"$TEST_CAPTURE\"",
+        ])
+        try "#!/bin/sh\nexit 99\n".write(
+            to: nonExecutableCodex,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: nonExecutableCodex.path
+        )
+
+        let wrapper = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/bin/cmux-codex-wrapper", isDirectory: false)
+        let invalidPaths = [
+            root.appendingPathComponent("moved Codex/codex", isDirectory: false).path,
+            nonExecutableCodex.path,
+        ]
+        for (index, customPath) in invalidPaths.enumerated() {
+            let capture = root.appendingPathComponent("fallback-\(index).txt", isDirectory: false)
+            let result = runCodexHookProcess(
+                executablePath: wrapper.path,
+                arguments: ["review", "--help"],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "\(bin.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                    "CMUX_CUSTOM_CODEX_PATH": customPath,
+                    "TEST_CAPTURE": capture.path,
+                ],
+                timeout: 3
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            let captured = try String(contentsOf: capture, encoding: .utf8)
+            XCTAssertTrue(captured.contains("fallback=\(fallbackCodex.path)"), captured)
+            XCTAssertTrue(captured.contains("args=review --help"), captured)
+        }
+    }
+
     func testExplicitDisableWinsOverInheritedWrapperOwnership() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-opt-out-\(UUID().uuidString)", isDirectory: true)
