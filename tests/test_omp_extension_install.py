@@ -16,7 +16,11 @@ import time
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import (
+    isolated_hook_environment,
+    resolve_cmux_cli,
+    run_root_hook_process,
+)
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -173,7 +177,7 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
         "anthropic/claude-sonnet-4-5",
         "initial prompt should not persist",
     ]
-    hook_env = base_env.copy()
+    hook_env = isolated_hook_environment(base_env)
     hook_env.pop("PI_CODING_AGENT_DIR", None)
     hook_env.update(
         {
@@ -189,7 +193,6 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
             ).decode("ascii"),
             "CMUX_AGENT_LAUNCH_CWD": str(workspace),
             "CMUX_CLI_SENTRY_DISABLED": "1",
-            "CMUX_TEST_AGENT_ROOT_VISIBLE_MUTATIONS": "1",
             "PI_CONFIG_DIR": ".custom-omp",
             "OPENAI_API_KEY": "secret-should-not-persist",
         }
@@ -204,13 +207,12 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
     )
 
     with MockCmuxSocket(socket_path, workspace_id=workspace_id, surface_id=surface_id) as server:
-        result = subprocess.run(
+        result = run_root_hook_process(
             [cli_path, "hooks", "omp", "session-start"],
             input=hook_input,
-            capture_output=True,
-            text=True,
-            check=False,
             env=hook_env,
+            cwd=workspace,
+            root=root,
             timeout=20,
         )
         if result.returncode != 0 or result.stdout != "{}\n":
