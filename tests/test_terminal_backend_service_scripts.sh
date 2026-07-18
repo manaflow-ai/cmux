@@ -13,6 +13,7 @@ LEGACY_TAG="backend-service-legacy-$$"
 MIXED_TAG="backend-service-mixed-$$"
 WRONG_ID_TAG="backend-service-wrong-id-$$"
 MUTATING_TAG="backend-service-mutating-$$"
+MARKER_TAG="backend-service-marker-$$"
 cleanup() {
   if [[ "${CMUX_KEEP_TEST_ROOT:-0}" == "1" ]]; then
     printf 'preserved test root: %s\n' "$TEST_ROOT" >&2
@@ -26,7 +27,8 @@ cleanup() {
     "/tmp/cmux-$LEGACY_TAG" \
     "/tmp/cmux-$MIXED_TAG" \
     "/tmp/cmux-$WRONG_ID_TAG" \
-    "/tmp/cmux-$MUTATING_TAG"
+    "/tmp/cmux-$MUTATING_TAG" \
+    "/tmp/cmux-$MARKER_TAG"
   rm -f "/tmp/cmux-debug-$PASS_TAG.sock" "/tmp/cmux-debug-$PASS_TAG.log" "/tmp/cmux-reload-$PASS_TAG.log"
   rm -f "/tmp/cmux-debug-$FAIL_TAG.sock" "/tmp/cmux-debug-$FAIL_TAG.log" "/tmp/cmux-reload-$FAIL_TAG.log"
   rm -f "/tmp/cmux-debug-$INACTIVE_TAG.sock" "/tmp/cmux-debug-$INACTIVE_TAG.log" "/tmp/cmux-reload-$INACTIVE_TAG.log"
@@ -34,6 +36,7 @@ cleanup() {
   rm -f "/tmp/cmux-debug-$MIXED_TAG.sock" "/tmp/cmux-debug-$MIXED_TAG.log" "/tmp/cmux-reload-$MIXED_TAG.log"
   rm -f "/tmp/cmux-debug-$WRONG_ID_TAG.sock" "/tmp/cmux-debug-$WRONG_ID_TAG.log" "/tmp/cmux-reload-$WRONG_ID_TAG.log"
   rm -f "/tmp/cmux-debug-$MUTATING_TAG.sock" "/tmp/cmux-debug-$MUTATING_TAG.log" "/tmp/cmux-reload-$MUTATING_TAG.log"
+  rm -f "/tmp/cmux-debug-$MARKER_TAG.sock" "/tmp/cmux-debug-$MARKER_TAG.log" "/tmp/cmux-reload-$MARKER_TAG.log"
 }
 trap cleanup EXIT
 
@@ -79,7 +82,15 @@ grep -Fq 'Ghostty IOSurface terminal render target' \
   "$ROOT/ghostty/src/renderer/metal/Target.zig"
 
 "$ROOT/scripts/reload.sh" --help | grep -q -- '--terminal-backend'
+"$ROOT/scripts/reload.sh" --help | grep -q -- '--backend-only'
 grep -q 'CMUX_TERMINAL_BACKEND_ENABLED=YES' "$ROOT/scripts/reload.sh"
+grep -q 'XCODE_SCHEME="cmux-backend-only"' "$ROOT/scripts/reload.sh"
+grep -q '\[\[ "$BACKEND_ONLY" -eq 0 \]\]' "$ROOT/scripts/reload.sh"
+grep -q 'last-reload-app-path' "$ROOT/scripts/reload.sh"
+grep -q 'swap_tagged_app_bundle' "$ROOT/scripts/reload.sh"
+grep -q 'terminal-backend-service-status' "$ROOT/scripts/reload.sh"
+grep -q 'verify-cmux-backend-only-product.py' "$ROOT/scripts/reload.sh"
+grep -q 'last-reload-app-path' "$ROOT/scripts/cleanup-dev-builds.sh"
 grep -q 'CMUX_SOURCE_COMMIT=' "$ROOT/scripts/reload.sh"
 grep -q 'CMUX_SOURCE_DIRTY=' "$ROOT/scripts/reload.sh"
 /usr/libexec/PlistBuddy -c 'Print :CMUXSourceCommit' "$ROOT/Resources/Info.plist" \
@@ -260,10 +271,17 @@ wrong_info="$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$WRONG_ID_T
   -c 'Set :CFBundleIdentifier com.cmuxterm.app.debug.someone-else' \
   "$wrong_info"
 make_cleanup_fixture "$MUTATING_TAG" not-registered 0 1
+make_cleanup_fixture "$MARKER_TAG" not-registered 0
+marker_app="$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$MARKER_TAG/Build/Products/Debug/cmux DEV $MARKER_TAG.app"
+mkdir -p "$TEST_ROOT/state"
+printf '%s\n' "$MARKER_TAG" > "$TEST_ROOT/state/last-reload-tag"
+printf '%s\n' "$marker_app" > "$TEST_ROOT/state/last-reload-app-path"
+chmod 600 "$TEST_ROOT/state/last-reload-tag" "$TEST_ROOT/state/last-reload-app-path"
 legacy_derived="$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$LEGACY_TAG"
 mkdir -p "$legacy_derived"
 cleanup_output="$TEST_ROOT/cleanup-output.txt"
-HOME="$TEST_ROOT/home" "$ROOT/scripts/cleanup-dev-builds.sh" --apply >"$cleanup_output" 2>&1
+HOME="$TEST_ROOT/home" CMUX_STATE_DIR="$TEST_ROOT/state" \
+  "$ROOT/scripts/cleanup-dev-builds.sh" --apply >"$cleanup_output" 2>&1
 grep -q 'persistent terminal backend' "$cleanup_output"
 [[ -d "$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$PASS_TAG" ]]
 [[ -d "$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$FAIL_TAG" ]]
@@ -272,10 +290,12 @@ grep -q 'persistent terminal backend' "$cleanup_output"
 [[ -d "$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$MIXED_TAG" ]]
 [[ -d "$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$WRONG_ID_TAG" ]]
 [[ -d "$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$MUTATING_TAG" ]]
+[[ -d "$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$MARKER_TAG" ]]
 grep -q 'maintenance identity is unsafe' "$cleanup_output"
 grep -q 'changed after planning' "$cleanup_output"
 
-HOME="$TEST_ROOT/home" "$ROOT/scripts/cleanup-dev-builds.sh" \
+HOME="$TEST_ROOT/home" CMUX_STATE_DIR="$TEST_ROOT/state" \
+  "$ROOT/scripts/cleanup-dev-builds.sh" \
   --apply \
   --keep "$MUTATING_TAG" \
   --terminate-terminal-backends >"$cleanup_output" 2>&1
@@ -284,6 +304,7 @@ grep -q 'terminates every PTY' "$cleanup_output"
 [[ -d "$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$FAIL_TAG" ]]
 [[ -d "$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$MIXED_TAG" ]]
 [[ -d "$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$WRONG_ID_TAG" ]]
+[[ -d "$TEST_ROOT/home/Library/Developer/Xcode/DerivedData/cmux-$MARKER_TAG" ]]
 grep -q "skipped: $FAIL_TAG" "$cleanup_output"
 
 echo "terminal backend service scripts verified"

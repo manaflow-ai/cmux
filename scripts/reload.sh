@@ -8,6 +8,7 @@ source "$SCRIPT_DIR/lib/mobile-attach.sh"
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
+XCODE_SCHEME="cmux"
 DERIVED_DATA=""
 NAME_SET=0
 BUNDLE_SET=0
@@ -33,9 +34,12 @@ NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # `set -euo pipefail`; an empty result falls back to $HOME.
 _cmux_account_home="$(perl -e 'print((getpwuid($<))[7])' 2>/dev/null || true)"
 LAST_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/.local/state/cmux"
+LAST_RELOAD_TAG_FILE="$LAST_SOCKET_PATH_DIR/last-reload-tag"
+LAST_RELOAD_APP_PATH_FILE="$LAST_SOCKET_PATH_DIR/last-reload-app-path"
 AUTO_SKIP_ZIG_BUILD_REASON=""
 SWIFT_FRONTEND_WORKAROUND=0
 TERMINAL_BACKEND_ENABLED=0
+BACKEND_ONLY=0
 XCODEBUILD_STARTED=0
 XCODEBUILD_OUTPUT_VALID=0
 XCODEBUILD_CLEANED_OUTPUTS=0
@@ -267,6 +271,9 @@ Options:
                          or PATH cmux-dev shims. Useful for isolated dogfood.
   --terminal-backend     Bake CMUX_TERMINAL_BACKEND_ENABLED=YES into this tagged
                          artifact. The checked-in production gate remains off.
+  --backend-only        Build the isolated cmux-backend-only app target. This
+                         implies --terminal-backend and omits GhosttyKit, the
+                         Ghostty CLI helper, and the legacy cmuxd helper.
   --swift-frontend-workaround
                          Work around Swift arm64 frontend spins for this reload
                          only by disabling batch mode, debug symbol emission,
@@ -356,6 +363,47 @@ tagged_derived_data_path() {
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
 }
 
+publish_reload_app_marker() {
+  local tag="$1"
+  local app_path="$2"
+  local tag_staging="${LAST_RELOAD_TAG_FILE}.$$"
+  local app_staging="${LAST_RELOAD_APP_PATH_FILE}.$$"
+  mkdir -p "$LAST_SOCKET_PATH_DIR"
+  (umask 077; printf '%s\n' "$tag" > "$tag_staging")
+  (umask 077; printf '%s\n' "$app_path" > "$app_staging")
+  mv -f "$tag_staging" "$LAST_RELOAD_TAG_FILE"
+  mv -f "$app_staging" "$LAST_RELOAD_APP_PATH_FILE"
+}
+
+swap_tagged_app_bundle() {
+  local staging="$1"
+  local final="$2"
+  if [[ ! -e "$final" ]]; then
+    mv "$staging" "$final"
+    return 0
+  fi
+  /usr/bin/python3 - "$staging" "$final" <<'PY'
+import ctypes
+import os
+import sys
+
+staging = os.fsencode(sys.argv[1])
+final = os.fsencode(sys.argv[2])
+libc = ctypes.CDLL(None, use_errno=True)
+renameatx_np = libc.renameatx_np
+renameatx_np.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+renameatx_np.restype = ctypes.c_int
+AT_FDCWD = -2
+RENAME_SWAP = 0x00000002
+if renameatx_np(AT_FDCWD, staging, AT_FDCWD, final, RENAME_SWAP) != 0:
+    error = ctypes.get_errno()
+    raise OSError(error, os.strerror(error), sys.argv[2])
+PY
+  # RENAME_SWAP leaves the prior proven app at the staging path. Only erase it
+  # after the new app occupies the canonical tag path.
+  remove_app_bundle_output "$staging"
+}
+
 remove_app_bundle_output() {
   local path="${1:-}"
   if [[ -z "$path" || ! -e "$path" ]]; then
@@ -381,7 +429,6 @@ cleanup_incomplete_xcodebuild_outputs() {
   fi
   XCODEBUILD_CLEANED_OUTPUTS=1
   remove_app_bundle_output "${XCODEBUILD_SOURCE_APP_PATH:-}"
-  remove_app_bundle_output "${XCODEBUILD_TAG_APP_PATH:-}"
   remove_app_bundle_output "${TAG_APP_STAGING_PATH:-}"
 }
 
@@ -407,6 +454,7 @@ validate_app_bundle() {
 
 print_tag_cleanup_reminder() {
   local current_slug="$1"
+  local current_executable="$2"
   local path=""
   local tag=""
   local seen=" "
@@ -450,14 +498,14 @@ print_tag_cleanup_reminder() {
     done
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
-      echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
+      echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/\""
       echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
       echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
     done
   fi
   echo "After you verify current tag, cleanup command:"
-  echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
+  echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/${current_executable}\""
   echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
   echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
@@ -510,6 +558,13 @@ while [[ $# -gt 0 ]]; do
       ;;
     --terminal-backend)
       TERMINAL_BACKEND_ENABLED=1
+      shift
+      ;;
+    --backend-only)
+      BACKEND_ONLY=1
+      TERMINAL_BACKEND_ENABLED=1
+      BASE_APP_NAME="cmux Backend"
+      XCODE_SCHEME="cmux-backend-only"
       shift
       ;;
     --swift-disable-global-isel)
@@ -668,7 +723,9 @@ trap reload_finalize EXIT
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 
-"$PWD/scripts/ensure-ghosttykit.sh"
+if [[ "$BACKEND_ONLY" -eq 0 ]]; then
+  "$PWD/scripts/ensure-ghosttykit.sh"
+fi
 
 if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
@@ -676,7 +733,7 @@ fi
 
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
-  -scheme cmux
+  -scheme "$XCODE_SCHEME"
   -configuration Debug
   -destination 'platform=macOS'
 )
@@ -960,21 +1017,32 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
-      CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
       CMUX_AUTH_CALLBACK_SCHEME_VALUE="cmux-dev-${TAG_SLUG}"
-      write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
+      if [[ "$BACKEND_ONLY" -eq 1 ]]; then
+        BACKEND_SOCKET_FILE="$("$PWD/scripts/terminal-backend-identity.py" \
+          --bundle-id "$BUNDLE_ID" \
+          --field socketFileName)"
+        BACKEND_SERVICE_SOCKET_PATH="/tmp/cmux-tui-$(id -u)/${BACKEND_SOCKET_FILE}"
+        CMUX_SOCKET_PATH_VALUE=""
+        write_last_socket_path "$BACKEND_SERVICE_SOCKET_PATH"
+      else
+        CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
+        write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
+      fi
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       set_plist_url_scheme "$INFO_PLIST" "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_BUNDLE_ID "$BUNDLE_ID"
-      set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
-      set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
+      if [[ "$BACKEND_ONLY" -eq 0 ]]; then
+        set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
+        set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
+        set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
+        set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
+      fi
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
       set_plist_env "$INFO_PLIST" CMUX_TAG "$TAG_SLUG"
       set_plist_env "$INFO_PLIST" CMUX_AUTH_CALLBACK_SCHEME "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
-      set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
-      set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
       set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
       set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$TAG_APP_FINAL_PATH/Contents/Resources/bin/cmux"
@@ -987,13 +1055,13 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_IROH_BROKER_BASE_URL "$CMUX_IROH_BROKER_BASE_URL_VALUE"
-      if [[ -S "$CMUXD_SOCKET" ]]; then
+      if [[ "$BACKEND_ONLY" -eq 0 && -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
         done
         rm -f "$CMUXD_SOCKET"
       fi
-      if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
+      if [[ "$BACKEND_ONLY" -eq 0 && -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
         rm -f "$CMUX_SOCKET_PATH_VALUE"
       fi
     fi
@@ -1002,14 +1070,16 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
 fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
-publish_reload_cli_path "$CLI_PATH"
+if [[ "$BACKEND_ONLY" -eq 0 ]]; then
+  publish_reload_cli_path "$CLI_PATH"
+fi
 
 # Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
-if [[ -d "$PWD/cmuxd" ]]; then
+if [[ "$BACKEND_ONLY" -eq 0 && -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
 fi
-if [[ -d "$PWD/ghostty" ]]; then
+if [[ "$BACKEND_ONLY" -eq 0 && -d "$PWD/ghostty" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   GHOSTTY_HELPER_DEST="$BIN_DIR/ghostty"
   if [[ -x "$GHOSTTY_HELPER_DEST" ]]; then
@@ -1021,7 +1091,7 @@ if [[ -d "$PWD/ghostty" ]]; then
     "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_DEST"
   fi
 fi
-if [[ -x "$CMUXD_SRC" ]]; then
+if [[ "$BACKEND_ONLY" -eq 0 && -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   mkdir -p "$BIN_DIR"
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
@@ -1054,13 +1124,37 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     exit 1
   fi
 fi
+if [[ "$BACKEND_ONLY" -eq 1 ]]; then
+  BACKEND_LINK_MAPS=()
+  while IFS= read -r -d '' BACKEND_LINK_MAP; do
+    BACKEND_LINK_MAPS+=("$BACKEND_LINK_MAP")
+  done < <(
+    find "$APP_PATH/Contents/Resources" -maxdepth 1 -type f \
+      -name 'cmux-backend-only-*.map' -print0 2>/dev/null
+  )
+  if [[ "${#BACKEND_LINK_MAPS[@]}" -eq 0 ]]; then
+    echo "error: backend-only app is missing its packaged link map" >&2
+    exit 1
+  fi
+  for BACKEND_LINK_MAP in "${BACKEND_LINK_MAPS[@]}"; do
+    "$PWD/scripts/verify-cmux-backend-only-product.py" \
+      --package-path "$PWD/Packages/macOS/CmuxTerminal" \
+      --product CmuxTerminalBackendHost \
+      --app-bundle "$APP_PATH" \
+      --xcode-project "$PWD/cmux.xcodeproj/project.pbxproj" \
+      --xcode-target cmux-backend-only \
+      --link-map "$BACKEND_LINK_MAP" >/dev/null
+  done
+fi
 if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
-  rm -rf "$TAG_APP_FINAL_PATH"
-  mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
+  swap_tagged_app_bundle "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-publish_reload_cli_path "$CLI_PATH"
+if [[ "$BACKEND_ONLY" -eq 0 ]]; then
+  publish_reload_cli_path "$CLI_PATH"
+fi
+publish_reload_app_marker "$TAG_SLUG" "$APP_PATH"
 
 # Tag mode: always terminate the existing same-tag instance after a successful build,
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
@@ -1211,7 +1305,31 @@ if [[ "$LAUNCH" -eq 1 ]]; then
       fi
     done
   fi
-  if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
+  if [[ -n "${TAG_SLUG:-}" && "$BACKEND_ONLY" -eq 1 ]]; then
+    BACKEND_READY=0
+    BACKEND_STATUS="unknown"
+    for _ in {1..80}; do
+      BACKEND_STATUS="$("$APP_EXECUTABLE" --terminal-backend-service-status 2>/dev/null || true)"
+      if [[ "$BACKEND_STATUS" == "enabled" && -S "${BACKEND_SERVICE_SOCKET_PATH:-}" ]]; then
+        BACKEND_READY=1
+        break
+      fi
+      if ! pgrep -f "${APP_PATH}/Contents/MacOS/" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.1
+    done
+    if [[ "$BACKEND_READY" -ne 1 ]]; then
+      echo "error: tagged backend-only app did not activate its terminal backend" >&2
+      echo "Backend status: $BACKEND_STATUS" >&2
+      echo "Backend socket: ${BACKEND_SERVICE_SOCKET_PATH:-unknown}" >&2
+      if [[ -n "${TAG_LAUNCH_LOG:-}" && -f "$TAG_LAUNCH_LOG" ]]; then
+        echo "Launch log: $TAG_LAUNCH_LOG" >&2
+        tail -n 80 "$TAG_LAUNCH_LOG" >&2 || true
+      fi
+      exit 1
+    fi
+  elif [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
     SOCKET_READY=0
     for _ in {1..80}; do
       if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
@@ -1239,5 +1357,5 @@ fi
 # tag-cleanup reminder still runs here, but its output goes to $RELOAD_LOG
 # (visible by tail -f or by inspecting the log path printed in the summary).
 if [[ -n "${TAG_SLUG:-}" ]]; then
-  print_tag_cleanup_reminder "$TAG_SLUG"
+  print_tag_cleanup_reminder "$TAG_SLUG" "$BASE_APP_NAME"
 fi
