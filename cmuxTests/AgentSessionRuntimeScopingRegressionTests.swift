@@ -2121,6 +2121,84 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func detachedClosedHibernationCanBeAdoptedWithoutStaleActiveSlots() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-detached-hibernation-adoption-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let runtimeID = "detached-hibernation-adoption-runtime"
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": runtimeID,
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "detached-hibernation-adoption-session"
+        )
+        let runtime: [String: Any] = ["id": runtimeID]
+        let record: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "workspaceId": fixture.source.id.uuidString,
+            "surfaceId": fixture.sourcePanelID.uuidString,
+            "sessionState": "hibernated",
+            "restoreAuthority": true,
+            "activeRunId": "detached-run",
+            "cmuxRuntime": runtime,
+            "runs": [[
+                "runId": "detached-run",
+                "restoreAuthority": true,
+                "cmuxRuntime": runtime,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+            "cmuxHibernationAttemptId": UUID().uuidString,
+            "cmuxHibernationDetached": true,
+            "startedAt": 10.0,
+            "updatedAt": 20.0,
+        ]
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(
+            provider: "codex",
+            records: [.init(
+                provider: "codex",
+                sessionID: fixture.agent.sessionId,
+                updatedAt: 20,
+                json: try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            )],
+            activeSlots: []
+        )
+
+        let restored = Workspace()
+        let mapping = restored.restoreSessionSnapshot(fixture.snapshot)
+        let restoredPanelID = try #require(mapping[fixture.sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(restoredPanel.isAgentHibernated)
+        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+
+        let saved = try registry.snapshot(provider: "codex")
+        let savedRecord = try #require(saved.records.first)
+        let savedObject = try #require(
+            JSONSerialization.jsonObject(with: savedRecord.json) as? [String: Any]
+        )
+        #expect(savedObject["workspaceId"] as? String == restored.id.uuidString)
+        #expect(savedObject["surfaceId"] as? String == restoredPanelID.uuidString)
+        #expect(savedObject["cmuxHibernationDetached"] as? Bool == false)
+        #expect(saved.activeSlots.count == 1)
+        #expect(saved.activeSlots.first?.scope == .surface)
+        #expect(saved.activeSlots.first?.scopeID == restoredPanelID.uuidString)
+    }
+
+    @MainActor
     @Test func liveHibernationSnapshotCarriesCanonicalAuthorityGeneration() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-live-hibernation-generation-\(UUID().uuidString)", isDirectory: true)
