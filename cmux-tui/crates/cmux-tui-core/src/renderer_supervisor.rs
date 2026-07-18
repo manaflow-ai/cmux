@@ -35,6 +35,7 @@ use serde::Serialize;
 const DEFAULT_HELPER_NAME: &str = "cmux-terminal-renderer";
 const CONTROL_FD: i32 = 198;
 const CHILD_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const WORKER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 const WORKER_RETIREMENT_DEADLINE: Duration = Duration::from_millis(250);
 const COORDINATOR_RETIREMENT_DEADLINE: Duration = Duration::ZERO;
 const WORKER_REAP_POLL_INTERVAL: Duration = Duration::from_millis(2);
@@ -1059,6 +1060,7 @@ struct Worker<P> {
     failure_streak: u32,
     state: RendererWorkerState,
     retry_at: Option<Duration>,
+    ready_deadline: Option<Duration>,
     last_error: Option<String>,
     encoder: Option<RendererControlEncoder>,
     decoder: Option<RendererControlIncrementalDecoder>,
@@ -1396,6 +1398,7 @@ where
                         failure_streak: 1,
                         state: RendererWorkerState::Backoff,
                         retry_at: None,
+                        ready_deadline: None,
                         last_error: Some(error.to_string()),
                         encoder: None,
                         decoder: None,
@@ -1450,6 +1453,7 @@ where
                         failure_streak,
                         state: RendererWorkerState::Starting,
                         retry_at: None,
+                        ready_deadline: Some(self.clock.now().saturating_add(WORKER_READY_TIMEOUT)),
                         last_error: None,
                         encoder: Some(encoder),
                         decoder: Some(RendererControlIncrementalDecoder::new(
@@ -1523,6 +1527,7 @@ where
             failure_streak,
             state: RendererWorkerState::Backoff,
             retry_at: Some(self.clock.now().saturating_add(delay)),
+            ready_deadline: None,
             last_error: Some(error),
             encoder: None,
             decoder: None,
@@ -1586,6 +1591,19 @@ where
         }
         self.workers_failed(failures);
         let now = self.clock.now();
+        let expired = self
+            .workers
+            .iter()
+            .filter_map(|(workspace, worker)| {
+                (worker.state == RendererWorkerState::Starting
+                    && worker.ready_deadline.is_some_and(|deadline| deadline <= now))
+                .then_some((
+                    *workspace,
+                    "renderer worker did not become ready before deadline".to_owned(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        self.workers_failed(expired);
         let due = self
             .workers
             .iter()
@@ -1690,6 +1708,7 @@ where
         match envelope.message {
             RendererControlMessage::Ready(ready) => {
                 worker.state = RendererWorkerState::Ready;
+                worker.ready_deadline = None;
                 worker.failure_streak = 0;
                 worker.last_error = None;
                 worker.effective_user_id = Some(ready.effective_user_id);
@@ -1806,7 +1825,8 @@ where
         let now = self.clock.now();
         self.workers
             .values()
-            .filter_map(|worker| worker.retry_at)
+            .flat_map(|worker| [worker.retry_at, worker.ready_deadline])
+            .flatten()
             .map(|retry_at| retry_at.saturating_sub(now))
             .min()
             .unwrap_or(CHILD_POLL_INTERVAL)
@@ -3314,6 +3334,70 @@ mod tests {
         assert_ne!(restarted.renderer_epoch, first.renderer_epoch);
         assert_ne!(restarted.pid, first.pid);
         assert_eq!(spawner.spawn_count(), 2);
+    }
+
+    #[test]
+    fn worker_that_never_becomes_ready_is_retired_and_restarted() {
+        let spawner = FakeSpawner::default();
+        let clock = ManualClock::default();
+        let mut core = new_core(spawner.clone(), clock.clone());
+        let workspace = workspace("20000000-0000-4000-8000-000000000004");
+        core.set_presentation_workspace(
+            presentation("30000000-0000-4000-8000-000000000004"),
+            Some(workspace),
+        );
+        let first = core.statuses()[0].clone();
+        let first_pid = first.pid.unwrap();
+
+        clock.advance(WORKER_READY_TIMEOUT);
+        core.tick();
+
+        let backoff = core.statuses()[0].clone();
+        assert_eq!(backoff.state, RendererWorkerState::Backoff);
+        assert_eq!(backoff.pid, None);
+        assert_eq!(backoff.restart_count, 1);
+        assert!(backoff.last_error.as_deref().is_some_and(|error| error.contains("ready")));
+        let (terminated, _, _) = spawner.record(first_pid);
+        assert!(spawner.control_closed(first_pid));
+        assert!(terminated);
+        assert!(matches!(
+            core.take_events().as_slice(),
+            [RendererSupervisorEvent::WorkerUnavailable { reason, .. }]
+                if reason.contains("ready")
+        ));
+
+        clock.advance(Duration::from_millis(121));
+        core.tick();
+        let restarted = core.statuses()[0].clone();
+        assert_eq!(restarted.state, RendererWorkerState::Starting);
+        assert_ne!(restarted.renderer_epoch, first.renderer_epoch);
+        assert_ne!(restarted.pid, first.pid);
+        assert_eq!(spawner.spawn_count(), 2);
+    }
+
+    #[test]
+    fn ready_message_at_deadline_wins_before_timeout_reconciliation() {
+        let spawner = FakeSpawner::default();
+        let clock = ManualClock::default();
+        let mut core = new_core(spawner, clock.clone());
+        let workspace = workspace("20000000-0000-4000-8000-000000000005");
+        core.set_presentation_workspace(
+            presentation("30000000-0000-4000-8000-000000000005"),
+            Some(workspace),
+        );
+        let starting = core.statuses()[0].clone();
+        let pid = starting.pid.unwrap();
+
+        clock.advance(WORKER_READY_TIMEOUT);
+        core.accept_worker_envelope(workspace, starting.renderer_epoch, pid, ready_envelope(pid))
+            .unwrap();
+        core.tick();
+
+        assert_eq!(core.statuses()[0].state, RendererWorkerState::Ready);
+        assert!(matches!(
+            core.take_events().as_slice(),
+            [RendererSupervisorEvent::WorkerReady { process_id, .. }] if *process_id == pid
+        ));
     }
 
     #[test]
