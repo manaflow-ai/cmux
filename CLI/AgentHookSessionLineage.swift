@@ -13,6 +13,8 @@ struct AgentHookSessionLineage: Sendable, Equatable {
     /// Whether the live provider argv is expected to exit after its turn.
     /// Replay safety is a separate axis and never controls Stop completion.
     var processLaunchMode: AgentProcessLaunchMode = .unknown
+    /// Exact app-issued claim inherited by a hibernated resume process.
+    var hibernationResumeAttemptId: UUID? = nil
     var cmuxRuntime: AgentCmuxRuntimeIdentity? = nil
     var parentRunId: String?
     var parentSessionId: String?

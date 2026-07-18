@@ -105,6 +105,9 @@ struct AgentHookSessionLineageResolver: Sendable {
                 kind: agentName
             )
         } ?? .unknown
+        let hibernationResumeAttemptId = Self.normalized(
+            environment[AgentHibernationResumeEvidence.environmentKey]
+        ).flatMap { UUID(uuidString: $0) }
         let cmuxRuntime = AgentCmuxRuntimeIdentity(environment: environment)
         let ancestorResolution = identity.map {
             agentAncestor(startingAt: $0.parentPID, descendant: $0, agentName: agentName)
@@ -129,6 +132,7 @@ struct AgentHookSessionLineageResolver: Sendable {
             processStartedAt: identity?.startedAt,
             processDescribesAgent: processDescribesAgent,
             processLaunchMode: processLaunchMode,
+            hibernationResumeAttemptId: hibernationResumeAttemptId,
             cmuxRuntime: cmuxRuntime,
             parentRunId: parentRunId,
             parentSessionId: parentSessionId,
