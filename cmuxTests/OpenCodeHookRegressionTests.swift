@@ -553,6 +553,59 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(output["commands"] as? [String], ["session-start", "session-end"])
     }
 
+    func testOpenCodeDisposeAllowsPluginToReloadInSameProcess() throws {
+        let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
+            "payload=\"$(cat)\"",
+            "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
+        var environment = fixture.environment
+        environment["TEST_HOOK_CAPTURE"] = capture.path
+        let harness = fixture.root.appendingPathComponent("dispose-reload.mjs", isDirectory: false)
+        try """
+        import firstPlugin from \(javaScriptString(fixture.pluginURL.absoluteString));
+
+        const firstHooks = await firstPlugin({ directory: process.cwd() });
+        const firstInfo = { id: "session-before-reload", directory: process.cwd() };
+        await firstHooks.event({ event: { type: "session.created", properties: { info: firstInfo } } });
+        await firstHooks.dispose();
+
+        const secondModule = await import(\(javaScriptString(fixture.pluginURL.absoluteString + "?reload=1")));
+        const secondHooks = await secondModule.default({ directory: process.cwd() });
+        if (typeof secondHooks.event !== "function") {
+          throw new Error("reloaded OpenCode plugin did not install its event hook");
+        }
+        const secondInfo = { id: "session-after-reload", directory: process.cwd() };
+        await secondHooks.event({ event: { type: "session.created", properties: { info: secondInfo } } });
+        await secondHooks.dispose();
+        """.write(to: harness, atomically: true, encoding: .utf8)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["node", harness.path],
+            environment: environment,
+            timeout: 3
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let sessionIDs = try String(contentsOf: capture, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { line -> String? in
+                guard let separator = line.firstIndex(of: "|") else { return nil }
+                let payload = line[line.index(after: separator)...]
+                guard let object = try? JSONSerialization.jsonObject(
+                    with: Data(String(payload).utf8)
+                ) as? [String: Any] else {
+                    return nil
+                }
+                return object["session_id"] as? String
+            }
+        XCTAssertEqual(sessionIDs, ["session-before-reload", "session-after-reload"])
+    }
+
     func testOpenCodeNaturalExitDrainsQueuedLifecycleHooks() throws {
         let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
             "payload=\"$(cat)\"",
