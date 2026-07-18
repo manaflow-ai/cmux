@@ -250,6 +250,110 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.snapshots["codex"]?.activeSlots.isEmpty == true)
     }
 
+    @Test func hibernationIndexDoesNotInspectUnrelatedHistoricalProcesses() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-index-projection-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let selectedWorkspaceID = UUID()
+        let selectedPanelID = UUID()
+        let selectedSessionID = "selected-session"
+        let selectedPID = 91_001
+        let unrelatedSessionID = "unrelated-session"
+        let unrelatedPID = 91_002
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+
+        func record(
+            sessionID: String,
+            workspaceID: UUID,
+            panelID: UUID,
+            pid: Int
+        ) throws -> CmuxAgentSessionRegistry.Record {
+            let object: [String: Any] = [
+                "sessionId": sessionID,
+                "workspaceId": workspaceID.uuidString,
+                "surfaceId": panelID.uuidString,
+                "cwd": root.path,
+                "pid": pid,
+                "isRestorable": true,
+                "restoreAuthority": true,
+                "updatedAt": 100.0,
+                "launchCommand": [
+                    "launcher": "codex",
+                    "executablePath": "/usr/local/bin/codex",
+                    "arguments": ["/usr/local/bin/codex"],
+                    "workingDirectory": root.path,
+                    "capturedAt": 100.0,
+                    "source": "test",
+                ],
+            ]
+            return .init(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 100,
+                json: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            )
+        }
+
+        let slotJSON = try JSONSerialization.data(withJSONObject: [
+            "sessionId": selectedSessionID,
+            "updatedAt": 100.0,
+        ], options: [.sortedKeys])
+        try registry.apply(
+            provider: "codex",
+            records: [
+                try record(
+                    sessionID: selectedSessionID,
+                    workspaceID: selectedWorkspaceID,
+                    panelID: selectedPanelID,
+                    pid: selectedPID
+                ),
+                try record(
+                    sessionID: unrelatedSessionID,
+                    workspaceID: UUID(),
+                    panelID: UUID(),
+                    pid: unrelatedPID
+                ),
+            ],
+            activeSlots: [
+                .init(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: selectedPanelID.uuidString,
+                    sessionID: selectedSessionID,
+                    updatedAt: 100,
+                    json: slotJSON
+                ),
+            ]
+        )
+
+        var inspectedProcessIDs = Set<Int>()
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            hibernationPanelKeys: [
+                .init(workspaceId: selectedWorkspaceID, panelId: selectedPanelID),
+            ],
+            processArgumentsProvider: { pid in
+                inspectedProcessIDs.insert(pid)
+                return nil
+            }
+        )
+
+        #expect(index.exactEntry(
+            workspaceId: selectedWorkspaceID,
+            panelId: selectedPanelID
+        )?.snapshot.sessionId == selectedSessionID)
+        #expect(inspectedProcessIDs == [selectedPID])
+        #expect(!inspectedProcessIDs.contains(unrelatedPID))
+    }
+
     @Test func agentHookRuntimeIdentityPrefersTheConnectedSocketOverMissingOrStaleEnvironment() throws {
         let socketCapabilities: [String: Any] = [
             "runtime_id": "socket-runtime",
