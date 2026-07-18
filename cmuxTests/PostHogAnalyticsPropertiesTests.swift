@@ -6,6 +6,31 @@ import Testing
 
 @Suite(.serialized)
 struct PostHogAnalyticsPropertiesTests {
+    @MainActor
+    @Test("Feed feature flag defaults on in Debug and follows remote rollout values")
+    func feedFeatureFlagDefaultsOnInDebugAndFollowsRemoteRolloutValues() throws {
+        let definition = try #require(CmuxFeatureFlags.allFlags.first { $0.key == "feed-ui-enabled-release" })
+        #expect(definition.defaultWhenUnavailable)
+
+        let suiteName = "cmux.feature.flags.feed.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var remoteValue: Any?
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            key == definition.key ? remoteValue : nil
+        }
+        #expect(flags.isFeedUIEnabled)
+
+        remoteValue = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isFeedUIEnabled)
+
+        remoteValue = true
+        flags.applyLoadedFlags()
+        #expect(flags.isFeedUIEnabled)
+    }
+
     @Test("feature flag bool coercion accepts PostHog bool-like values")
     func featureFlagBoolCoercionAcceptsPostHogBoolLikeValues() {
         #expect(CmuxFeatureFlags.coerceBoolFlagValue(true, default: false))

@@ -57,10 +57,10 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "workspace.create", "browser.url.get",
             "browser.open_split", "browser.get.title", "browser.frame.main",
-            "mobile.terminal.create", "feed.jump", "vmx.create", "",
+            "mobile.terminal.create", "vmx.create", "",
             // Focus-intent verbs stay on the main lane until the mutations
             // tranche decides them deliberately.
-            "surface.focus", "workspace.select", "pane.focus", "window.focus",
+            "surface.focus", "workspace.select", "pane.focus", "window.focus", "feed.jump",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
             #expect(policy == .mainActor, "\(method)")

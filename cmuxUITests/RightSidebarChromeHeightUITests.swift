@@ -14,7 +14,6 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += ["-workspacePresentationMode", "minimal"]
-        app.launchArguments += ["-rightSidebar.beta.feed.enabled", "YES"]
         app.launchArguments += ["-rightSidebar.beta.dock.enabled", "YES"]
         app.launch()
         defer { app.terminate() }
@@ -72,21 +71,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         let feedButton = app.buttons["RightSidebarModeButton.feed"]
         XCTAssertTrue(feedButton.waitForExistence(timeout: 5))
         feedButton.click()
-
-        let feedControlHeightKeys = [
-            "rightSidebarSecondaryControl_feed_actionableHeight",
-            "rightSidebarSecondaryControl_feed_activityHeight",
-        ]
-        guard let feedGeometry = waitForJSONNumbers(feedControlHeightKeys, greaterThan: 1, atPath: dataPath, timeout: 5),
-              let feedSecondaryBarHeight = Double(feedGeometry["rightSidebarSecondaryBarHeight"] ?? ""),
-              let actionableControlHeight = Double(feedGeometry["rightSidebarSecondaryControl_feed_actionableHeight"] ?? ""),
-              let activityControlHeight = Double(feedGeometry["rightSidebarSecondaryControl_feed_activityHeight"] ?? "") else {
-            XCTFail("Timed out waiting for feed secondary bar geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
-        XCTAssertEqual(feedSecondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected feed secondary bar to match the mode bar. geometry=\(feedGeometry)")
-        XCTAssertEqual(actionableControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed Actionable pill to match mode button height. geometry=\(feedGeometry)")
-        XCTAssertEqual(activityControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed All Activity pill to match mode button height. geometry=\(feedGeometry)")
+        XCTAssertFalse(app.buttons["All Activity"].exists, "Feed no longer exposes activity history")
 
         let dockButton = app.buttons["RightSidebarModeButton.dock"]
         XCTAssertTrue(dockButton.waitForExistence(timeout: 5))

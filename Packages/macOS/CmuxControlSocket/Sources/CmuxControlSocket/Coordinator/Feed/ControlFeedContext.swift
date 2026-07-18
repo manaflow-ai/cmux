@@ -14,15 +14,13 @@
 /// disappear once the domain moves onto the coordinator.
 @MainActor
 public protocol ControlFeedContext: AnyObject {
-    /// Resolves whether a workstream id maps to a known cmux surface for
-    /// `feed.jump`, mirroring the legacy `FeedCoordinator.resolvePossibleSurface`
-    /// probe (the MVP returns only whether the id is known so callers can show a
-    /// toast).
+    /// Starts the same terminal-focus action used by a Feed row for
+    /// `feed.jump`.
     ///
     /// - Parameter workstreamID: The caller-supplied `workstream_id`, untrimmed,
     ///   exactly as the legacy body forwarded it.
-    /// - Returns: Whether the id matched a possible surface.
-    func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool
+    /// - Returns: Whether the id matched a surface and navigation completed.
+    func controlFeedJump(workstreamID: String) -> Bool
 
     /// Snapshots the workstream feed items for `feed.list`, already shaped as the
     /// per-item JSON the legacy `FeedSocketEncoding.itemDict` produced and bridged

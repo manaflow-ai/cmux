@@ -338,11 +338,11 @@ enum FeedButtonDebugSettings {
     }
 
     static var compactVerticalPadding: Double {
-        double(forKey: compactVerticalPaddingKey, defaultValue: 4)
+        double(forKey: compactVerticalPaddingKey, defaultValue: 5)
     }
 
     static var mediumVerticalPadding: Double {
-        double(forKey: mediumVerticalPaddingKey, defaultValue: 5)
+        double(forKey: mediumVerticalPaddingKey, defaultValue: 7)
     }
 
     static var glassTintOpacity: Double {
@@ -870,9 +870,9 @@ private struct FeedButtonStyleDebugView: View {
     @AppStorage(FeedButtonDebugSettings.mediumHorizontalPaddingKey)
     private var mediumHorizontalPadding = 12.0
     @AppStorage(FeedButtonDebugSettings.compactVerticalPaddingKey)
-    private var compactVerticalPadding = 4.0
+    private var compactVerticalPadding = 5.0
     @AppStorage(FeedButtonDebugSettings.mediumVerticalPaddingKey)
-    private var mediumVerticalPadding = 5.0
+    private var mediumVerticalPadding = 7.0
     @AppStorage(FeedButtonDebugSettings.glassTintOpacityKey)
     private var glassTintOpacity = 0.42
     @AppStorage(FeedButtonDebugSettings.borderWidthKey)
@@ -929,8 +929,8 @@ private struct FeedButtonStyleDebugView: View {
                 mediumCornerRadius = 6.0
                 compactHorizontalPadding = 8.0
                 mediumHorizontalPadding = 12.0
-                compactVerticalPadding = 4.0
-                mediumVerticalPadding = 5.0
+                compactVerticalPadding = 5.0
+                mediumVerticalPadding = 7.0
                 glassTintOpacity = 0.42
                 borderWidth = 0.9
             }

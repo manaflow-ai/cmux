@@ -100,6 +100,19 @@ extension AppDelegate {
             case .cloud:
                 let cloudMenu = TitlebarCloudVMButton.makeCloudVMMenu()
                 addRenderedSection(cloudMenu.items)
+            case .feed:
+                let item = NSMenuItem(
+                    title: String(localized: "rightSidebar.mode.feed", defaultValue: "Feed"),
+                    action: #selector(performNewFeedWorkspaceMenuItem(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = context.windowId as NSUUID
+                item.image = NSImage(
+                    systemSymbolName: RightSidebarMode.feed.symbolName,
+                    accessibilityDescription: nil
+                )
+                addRenderedSection([item])
             case .layouts(let rows):
                 var items: [NSMenuItem] = [
                     .sectionHeader(title: String(

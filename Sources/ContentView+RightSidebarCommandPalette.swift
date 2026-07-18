@@ -153,7 +153,8 @@ extension ContentView {
 
     static func commandPaletteRightSidebarToolPaneCommandDescriptors() -> [(mode: RightSidebarMode, commandId: String, title: String)] {
         RightSidebarMode.paneModes.compactMap { mode in
-            guard let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
+            guard mode.isAvailable(),
+                  let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
                   let title = commandPaletteRightSidebarToolPaneTitle(mode) else {
                 return nil
             }
@@ -169,7 +170,9 @@ extension ContentView {
             return "palette.openFindPane"
         case .sessions:
             return "palette.openVaultPane"
-        case .feed, .dock, .customSidebar:
+        case .feed:
+            return "palette.openFeedPane"
+        case .dock, .customSidebar:
             return nil
         }
     }
@@ -182,7 +185,9 @@ extension ContentView {
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
         case .sessions:
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
-        case .feed, .dock, .customSidebar:
+        case .feed:
+            return String(localized: "command.openFeedPane.title", defaultValue: "Open Feed as Pane")
+        case .dock, .customSidebar:
             return nil
         }
     }

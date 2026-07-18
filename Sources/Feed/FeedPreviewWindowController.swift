@@ -116,6 +116,7 @@ private struct FeedPreviewCardHost: View {
 
     @State private var stopDraft = FeedStopDraft()
     @State private var stopFocusRequest = 0
+    @State private var focusScopeID = UUID()
 
     var body: some View {
         FeedItemRow(
@@ -133,7 +134,9 @@ private struct FeedPreviewCardHost: View {
             stopDraft: $stopDraft,
             stopDraftValue: stopDraft,
             stopFocusRequest: $stopFocusRequest,
-            stopFocusRequestValue: stopFocusRequest
+            stopFocusRequestValue: stopFocusRequest,
+            placement: .pane,
+            focusScopeID: focusScopeID
         )
     }
 }
@@ -149,7 +152,11 @@ private enum FeedPreviewActions {
                 print("preview.exitPlan \(id) \(mode) feedback=\(feedback ?? "nil")")
             },
             jump: { ws in print("preview.jump \(ws)") },
-            sendText: { ws, text in print("preview.sendText \(ws) \(text)") }
+            remove: { id in print("preview.remove \(id)") },
+            sendText: { ws, text, completion in
+                print("preview.sendText \(ws) \(text)")
+                completion(true)
+            }
         )
     }
 }

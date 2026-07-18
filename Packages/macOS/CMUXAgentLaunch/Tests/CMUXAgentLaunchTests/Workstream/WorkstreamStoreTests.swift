@@ -39,38 +39,63 @@ struct WorkstreamStoreTests {
         #expect(store.items.last?.workstreamId == "s4")
     }
 
-    @Test("start loads a small recent slice and pages older persisted rows on demand")
-    func lazyLoadPersistedHistory() async throws {
+    @Test("start restores only the newest pending items within the memory ring")
+    func boundedPendingRestore() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-workstream-store-page-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: tmp) }
         let persistence = WorkstreamPersistence(fileURL: tmp)
-        for i in 0..<5 {
-            try await persistence.append(WorkstreamItem(
+        let items = (0..<5).map { i in
+            WorkstreamItem(
                 workstreamId: "s\(i)",
                 source: .claude,
                 kind: .permissionRequest,
                 payload: .permissionRequest(requestId: "r\(i)", toolName: "t", toolInputJSON: "{}", pattern: nil)
-            ))
+            )
         }
+        try await persistence.replacePendingItems(items, generation: 1)
 
         let store = WorkstreamStore(
             persistence: persistence,
-            ringCapacity: 10,
-            initialLoadLimit: 2,
-            historyPageSize: 2
+            ringCapacity: 2
         )
         await store.start()
         #expect(store.items.map(\.workstreamId) == ["s3", "s4"])
-        #expect(store.hasMorePersistedItems)
+    }
 
-        await store.loadOlderItems()
-        #expect(store.items.map(\.workstreamId) == ["s1", "s2", "s3", "s4"])
-        #expect(store.hasMorePersistedItems)
+    @Test("removing an item hides it immediately and after restart")
+    func removeItemPersists() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-store-remove-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: tmp)
+            try? FileManager.default.removeItem(
+                at: WorkstreamPersistence.removedItemsFileURL(for: tmp)
+            )
+        }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let kept = WorkstreamItem(
+            workstreamId: "kept",
+            source: .opencode,
+            kind: .question,
+            payload: .question(requestId: "kept", questions: [])
+        )
+        let removed = WorkstreamItem(
+            workstreamId: "removed",
+            source: .opencode,
+            kind: .question,
+            payload: .question(requestId: "removed", questions: [])
+        )
+        try await persistence.replacePendingItems([kept, removed], generation: 1)
 
-        await store.loadOlderItems()
-        #expect(store.items.map(\.workstreamId) == ["s0", "s1", "s2", "s3", "s4"])
-        #expect(!store.hasMorePersistedItems)
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await store.start()
+        #expect(try await store.removeItem(id: removed.id))
+        #expect(store.items.map(\.id) == [kept.id])
+
+        let restored = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await restored.start()
+        #expect(restored.items.map(\.id) == [kept.id])
     }
 
     @Test("expireAbandonedItems expires items whose agent PID is dead")
@@ -115,9 +140,75 @@ struct WorkstreamStoreTests {
             source: "claude",
             toolName: "Read"
         ))
-        #expect(store.items.count == 1)
+        #expect(store.items.isEmpty)
         #expect(store.pending.isEmpty)
-        #expect(store.items[0].kind == .toolUse)
+    }
+
+    @Test("Telemetry enriches actionable cards without entering retained Feed state")
+    func telemetryOnlyEnrichesActionableItems() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "s1",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            toolInputJSON: #"{"prompt":"keep this context only"}"#
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "s1",
+            hookEventName: .preToolUse,
+            source: "claude",
+            toolName: "Read",
+            toolInputJSON: #"{"path":"/tmp/file"}"#
+        ))
+        store.ingest(.permission("s1", requestId: "r1"))
+
+        #expect(store.items.count == 1)
+        #expect(store.items[0].kind == .permissionRequest)
+        #expect(store.items[0].context?.lastUserMessage == "keep this context only")
+    }
+
+    @Test("Default Feed retention keeps memory bounded")
+    func defaultRetentionIsBounded() {
+        let store = WorkstreamStore()
+        for i in 0..<500 {
+            store.ingest(.permission("s\(i)", requestId: "r\(i)"))
+        }
+
+        #expect(WorkstreamDefaultRingCapacity <= 200)
+        #expect(store.items.count == WorkstreamDefaultRingCapacity)
+        #expect(store.items.last?.workstreamId == "s499")
+    }
+
+    @Test("Restart restores pending decisions only and compacts legacy activity")
+    func restartRestoresOnlyPendingDecisions() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-store-compact-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let legacyItems = [WorkstreamItem(
+            workstreamId: "telemetry",
+            source: .claude,
+            kind: .toolUse,
+            payload: .toolUse(toolName: "Read", toolInputJSON: "{}")
+        ), WorkstreamItem(
+            workstreamId: "resolved",
+            source: .claude,
+            kind: .question,
+            status: .resolved(.question(selections: ["Done"]), at: Date()),
+            payload: .question(requestId: "resolved", questions: [])
+        ), WorkstreamItem(
+            workstreamId: "pending",
+            source: .claude,
+            kind: .question,
+            payload: .question(requestId: "pending", questions: [])
+        )]
+        try writeLegacyItems(legacyItems, to: tmp)
+
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await store.start()
+
+        #expect(store.items.map(\.workstreamId) == ["pending"])
+        #expect(try await persistence.loadRecent(limit: 10).map(\.workstreamId) == ["pending"])
     }
 
     @Test("Codex CLI lifecycle feed events stay telemetry")
@@ -151,51 +242,8 @@ struct WorkstreamStoreTests {
             ))
         }
 
-        #expect(store.items.count == events.count)
+        #expect(store.items.isEmpty)
         #expect(store.pending.isEmpty)
-        #expect(store.items.allSatisfy { $0.status == .telemetry })
-        #expect(store.items.map(\.title).contains("Compaction"))
-        #expect(store.items.map(\.title).contains("Subagent"))
-        #expect(!store.items.map(\.title).contains("PreCompact"))
-        #expect(!store.items.map(\.title).contains("PostCompact"))
-        #expect(!store.items.map(\.title).contains("SubagentStart"))
-        #expect(!store.items.contains { $0.kind == .sessionStart })
-        #expect(!store.items.contains { $0.kind == .stop })
-        if let compactionStartItem = store.items.first(where: {
-            $0.title == "Compaction" && $0.kind == .toolUse
-        }) {
-            if case .toolUse(let toolName, _) = compactionStartItem.payload {
-                #expect(toolName == "Compaction")
-            } else {
-                Issue.record("expected PreCompact to decode as toolUse telemetry")
-            }
-        } else {
-            Issue.record("expected PreCompact item")
-        }
-        if let subagentStartItem = store.items.first(where: {
-            $0.title == "Subagent" && $0.kind == .toolUse
-        }) {
-            #expect(subagentStartItem.kind == .toolUse)
-            if case .toolUse(let toolName, _) = subagentStartItem.payload {
-                #expect(toolName == "Subagent")
-            } else {
-                Issue.record("expected SubagentStart to decode as toolUse telemetry")
-            }
-        } else {
-            Issue.record("expected SubagentStart item")
-        }
-        if let subagentStopItem = store.items.first(where: {
-            $0.title == "Subagent" && $0.kind == .toolResult
-        }) {
-            #expect(subagentStopItem.kind == .toolResult)
-            if case .toolResult(let toolName, _, _) = subagentStopItem.payload {
-                #expect(toolName == "Subagent")
-            } else {
-                Issue.record("expected SubagentStop to decode as toolResult telemetry")
-            }
-        } else {
-            Issue.record("expected SubagentStop item")
-        }
     }
 
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
@@ -220,22 +268,7 @@ struct WorkstreamStoreTests {
             toolInputJSON: #"{"todos":[{"id":"t1","content":"test","status":"in_progress"}]}"#
         ))
 
-        if case .userPrompt(let text) = store.items[0].payload {
-            #expect(text == "ship it")
-        } else {
-            Issue.record("expected user prompt payload")
-        }
-        if case .stop(let reason) = store.items[1].payload {
-            #expect(reason == "done")
-        } else {
-            Issue.record("expected stop payload")
-        }
-        if case .todos(let todos) = store.items[2].payload {
-            #expect(todos.first?.content == "test")
-            #expect(todos.first?.state == .inProgress)
-        } else {
-            Issue.record("expected todos payload")
-        }
+        #expect(store.items.isEmpty)
     }
 
     @Test("Prompt context carries into later permission requests")
@@ -257,8 +290,8 @@ struct WorkstreamStoreTests {
             requestId: "r1"
         ))
 
-        #expect(store.items[1].context?.lastUserMessage == "demo the permission UI")
-        #expect(store.items[1].context?.permissionMode == "plan")
+        #expect(store.items[0].context?.lastUserMessage == "demo the permission UI")
+        #expect(store.items[0].context?.permissionMode == "plan")
     }
 
     @Test("Exit plan context parses plan JSON")
@@ -288,6 +321,17 @@ struct WorkstreamStoreTests {
         #expect(item.context?.allowedPrompts.first?.tool == "Bash")
         #expect(item.context?.allowedPrompts.first?.prompt == "run reload.sh --tag feedctx")
     }
+}
+
+private func writeLegacyItems(_ items: [WorkstreamItem], to url: URL) throws {
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    var data = Data()
+    for item in items {
+        data.append(try encoder.encode(item))
+        data.append(0x0A)
+    }
+    try data.write(to: url)
 }
 
 /// Mutable clock wrapper safe to capture by a `@Sendable` closure in tests.

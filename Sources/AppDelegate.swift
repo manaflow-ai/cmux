@@ -508,6 +508,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
+    lazy var feedOpeningCoordinator = FeedOpeningCoordinator(
+        isEnabled: { CmuxFeatureFlags.shared.isFeedUIEnabled }
+    )
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
@@ -1320,18 +1323,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: .reactGrabDidCopySelection,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleFeedRequestFocus(_:)),
-            name: .feedRequestFocus,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleFeedRequestSendText(_:)),
-            name: .feedRequestSendText,
-            object: nil
-        )
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -1407,6 +1398,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
         }
         if !isRunningUnderXCTest {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleFeedFeatureFlagChange(_:)),
+                name: .cmuxFeatureFlagsDidChange,
+                object: CmuxFeatureFlags.shared
+            )
             CmuxFeatureFlags.shared.start()
         }
 
@@ -4730,7 +4727,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func locateBonsplitSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
         let bonsplitTabId = TabID(uuid: tabId)
-        for context in mainWindowContexts.values {
+        for context in Array(mainWindowContexts.values) {
             for workspace in context.tabManager.tabs {
                 if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
                     return (context.windowId, workspace.id, panelId, context.tabManager)
@@ -7314,6 +7311,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     if focusInitialBrowserAddressBarOnCreate {
                         focusInitialBrowserAddressBar(in: workspace)
                     }
+                case .feed:
+                    if let workspace = feedOpeningCoordinator.openPinnedWorkspace(
+                        in: context.tabManager
+                    ) {
+                        closeInitialWorkspaceIfNeeded(
+                            initialWorkspaceId: initialWorkspace?.id,
+                            in: context
+                        )
+                        createdWorkspaceHandler?(workspace)
+                    }
                 case .cloudVMLoading:
                     let workspace = context.tabManager.addWorkspace(initialSurface: .cloudVMLoading)
                     closeInitialWorkspaceIfNeeded(
@@ -9317,58 +9324,119 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.setString(payload, forType: .string)
     }
 
-    @objc private func handleFeedRequestFocus(_ notification: Notification) {
-        guard let workspaceId = notification.userInfo?["workspaceId"] as? String,
-              let surfaceId = notification.userInfo?["surfaceId"] as? String
-        else { return }
+    @discardableResult
+    func routeFeedFocus(workspaceId _: String, surfaceId: String) -> Bool {
+        guard let claimedSurfaceID = UUID(uuidString: surfaceId) else { return false }
+        // Hook session stores persist CMUX_SURFACE_ID, which is the panel UUID.
+        // Older records may contain the Bonsplit tab UUID, so preserve that as
+        // a compatibility fallback and normalize both forms to a panel route.
+        let located = locateSurface(surfaceId: claimedSurfaceID).map {
+            (
+                windowId: $0.windowId,
+                workspaceId: $0.workspaceId,
+                panelId: claimedSurfaceID,
+                tabManager: $0.tabManager
+            )
+        } ?? locateBonsplitSurface(tabId: claimedSurfaceID)
+        guard let located else { return false }
+        // Workspace IDs are placement metadata and change during restoration
+        // or moves. Panel IDs are stable and globally identify the terminal,
+        // so its current live owner is the navigation authority.
+        let targetWorkspaceID = located.workspaceId
+        guard let workspace = located.tabManager.tabs.first(where: {
+            $0.id == targetWorkspaceID
+        }) else { return false }
 
-        // Invoke the existing V2 commands so the Feed-layer focus request
-        // goes through the same code path as a socket-initiated focus.
-        // Serialize through JSON so we reuse the v2 command parser.
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
-        }
-        invoke("workspace.select", ["workspace_id": workspaceId])
-        invoke("surface.focus", ["surface_id": surfaceId])
-        // Flash the terminal's own focus ring (same visual as
-        // cmd+shift+H / Flash Focused Panel) so the user's eye is
-        // pulled to the terminal content the Feed jumped to.
-        invoke("surface.trigger_flash", ["surface_id": surfaceId])
+        // Use the same window-aware navigation owner as `surface.focus`.
+        // Feed can itself occupy a right-sidebar-tool workspace, so directly
+        // mutating the located TabManager leaves two focus paths competing as
+        // AppKit settles. The control surface route owns window activation,
+        // active-manager selection, workspace selection, and panel focus.
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: true,
+            windowID: located.windowId,
+            groupID: nil,
+            workspaceID: targetWorkspaceID,
+            surfaceID: located.panelId,
+            paneID: nil
+        )
+        guard case .focused(let windowID, let workspaceID, let surfaceID) =
+            TerminalController.shared.controlSurfaceFocus(
+                routing: routing,
+                surfaceID: located.panelId
+            ),
+            windowID == located.windowId,
+            workspaceID == targetWorkspaceID,
+            surfaceID == located.panelId
+        else { return false }
+
+        workspace.triggerFocusFlash(panelId: located.panelId)
+        return located.tabManager.selectedTabId == targetWorkspaceID
+            && workspace.focusedPanelId == located.panelId
     }
 
-    @objc private func handleFeedRequestSendText(_ notification: Notification) {
-        guard let surfaceId = notification.userInfo?["surfaceId"] as? String,
-              let text = notification.userInfo?["text"] as? String,
-              !text.isEmpty
-        else { return }
+    @discardableResult
+    func routeFeedText(surfaceId: String, text: String) -> Bool {
+        guard !text.isEmpty else { return false }
 
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
-        }
         // Terminal-mode Return is CR. sendNamedKey "Return" also works
         // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
+        return invokeFeedSocketCommand("surface.send_text", params: [
             "surface_id": surfaceId,
             "text": text + "\r",
         ])
+    }
+
+    private func invokeFeedSocketCommand(
+        _ method: String,
+        params: [String: Any]
+    ) -> Bool {
+        let payload: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params,
+        ]
+        guard let requestData = try? JSONSerialization.data(withJSONObject: payload),
+              let requestLine = String(data: requestData, encoding: .utf8),
+              let responseData = TerminalController.shared.handleSocketLine(requestLine).data(using: .utf8),
+              let response = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        else {
+            return false
+        }
+        return response["ok"] as? Bool == true
+    }
+
+    @objc private func handleFeedFeatureFlagChange(_ notification: Notification) {
+        _ = notification
+        guard !CmuxFeatureFlags.shared.isFeedUIEnabled else { return }
+        reconcileDisabledFeedSurfaces()
+    }
+
+    private func reconcileDisabledFeedSurfaces() {
+        var visitedManagers: Set<ObjectIdentifier> = []
+        for context in mainWindowContexts.values {
+            let manager = context.tabManager
+            guard visitedManagers.insert(ObjectIdentifier(manager)).inserted else { continue }
+            let feedOnlyWorkspaces = manager.tabs.filter { workspace in
+                !workspace.panels.isEmpty && workspace.panels.values.allSatisfy { panel in
+                    (panel as? RightSidebarToolPanel)?.mode == .feed
+                }
+            }
+            if manager.tabs.count == feedOnlyWorkspaces.count, !feedOnlyWorkspaces.isEmpty {
+                _ = manager.addWorkspace()
+            }
+            for workspace in feedOnlyWorkspaces {
+                manager.closeWorkspace(workspace, recordHistory: false)
+            }
+            for workspace in manager.tabs {
+                let feedPanelIDs = workspace.panels.compactMap { panelID, panel in
+                    (panel as? RightSidebarToolPanel)?.mode == .feed ? panelID : nil
+                }
+                for panelID in feedPanelIDs {
+                    _ = workspace.closePanel(panelID, force: true)
+                }
+            }
+        }
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
