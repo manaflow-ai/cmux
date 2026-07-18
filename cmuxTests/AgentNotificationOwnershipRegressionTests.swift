@@ -2,25 +2,18 @@ import Dispatch
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
 @Suite(.serialized)
 struct AgentNotificationOwnershipRegressionTests {
-    @Test func debugEnvironmentCannotPromoteAManagedChild() {
-        let cli = CMUXCLI(args: [])
+    @Test func debugEnvironmentCannotPromoteAManagedChild() throws {
+        let result = try runManagedCodexHook(
+            name: "codex-child-debug-override",
+            subcommand: "stop",
+            input: #"{"session_id":"child-debug-override","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            suppressNotifications: nil,
+            testRootVisibleMutations: true
+        )
 
-        #expect(cli.shouldSuppressNestedAgentVisibleMutations(
-            currentAgentPID: nil,
-            agentName: "codex",
-            env: [
-                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
-                "CMUX_TEST_AGENT_ROOT_VISIBLE_MUTATIONS": "1",
-            ]
-        ))
+        expectNoVisibleOwnership(result.commands)
     }
 
     @Test func managedCodexStopCanNotifyWithoutTakingVisibleOwnership() throws {
@@ -63,7 +56,8 @@ struct AgentNotificationOwnershipRegressionTests {
         name: String,
         subcommand: String,
         input: String,
-        suppressNotifications: Bool?
+        suppressNotifications: Bool?,
+        testRootVisibleMutations: Bool = false
     ) throws -> (commands: [String], workspaceId: String, surfaceId: String) {
         let harness = ClaudeHookSurfaceResolutionSwiftTests()
         let context = try harness.makeClaudeHookContext(name: name)
@@ -88,6 +82,9 @@ struct AgentNotificationOwnershipRegressionTests {
         environment["CMUX_CODEX_TEAMS_DEPTH"] = "1"
         if let suppressNotifications {
             environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = suppressNotifications ? "1" : "0"
+        }
+        if testRootVisibleMutations {
+            environment["CMUX_TEST_AGENT_ROOT_VISIBLE_MUTATIONS"] = "1"
         }
         let process = harness.runProcess(
             executablePath: context.cliPath,
