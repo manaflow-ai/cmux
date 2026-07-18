@@ -10951,6 +10951,60 @@ mod tests {
         mux.close_surface(surface.id).unwrap();
     }
 
+    #[test]
+    fn pane_cursor_and_active_border_yield_to_builtin_and_plugin_sidebars() {
+        let mux = Mux::new("sidebar-cursor-focus-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 0, y: 0, width: 22, height: 10 },
+            bar: Some(Rect { x: 0, y: 0, width: 22, height: 1 }),
+            omnibar: None,
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            track: None,
+        });
+
+        for plugin in [false, true] {
+            app.config.sidebar.plugin = plugin.then(|| cmux_tui_core::SidebarPluginOptions {
+                command: vec!["/bin/sh".to_string()],
+                cwd: None,
+            });
+            app.sidebar_focused = false;
+            app.reset_frame_cursor_spec();
+            let mut pane_cursor = None;
+            let mut terminal = Terminal::new(TestBackend::new(30, 12)).unwrap();
+            terminal
+                .draw(|frame| pane_cursor = crate::ui::pane::draw_all(&mut app, frame))
+                .unwrap();
+            assert!(pane_cursor.is_some(), "active pane cursor missing for plugin={plugin}");
+            assert!(matches!(app.desired_outer_cursor, OuterCursorSpec::Terminal { .. }));
+            assert_eq!(
+                terminal.backend().buffer()[(0, 1)].fg,
+                app.config.theme.border_active,
+                "active pane border missing for plugin={plugin}"
+            );
+
+            app.sidebar_focused = true;
+            app.reset_frame_cursor_spec();
+            terminal
+                .draw(|frame| pane_cursor = crate::ui::pane::draw_all(&mut app, frame))
+                .unwrap();
+            assert!(pane_cursor.is_none(), "sidebar leaked pane cursor for plugin={plugin}");
+            assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
+            assert_eq!(
+                terminal.backend().buffer()[(0, 1)].fg,
+                app.config.theme.border_inactive,
+                "sidebar focus left pane border active for plugin={plugin}"
+            );
+        }
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
     fn test_mouse_motion() -> MouseInput {
         MouseInput {
             action: MouseAction::Motion,

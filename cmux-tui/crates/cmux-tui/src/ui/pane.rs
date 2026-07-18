@@ -82,10 +82,11 @@ pub(crate) fn client_border_labels(clients: &[ClientInfo]) -> HashMap<u64, Strin
 /// position for the focused pane, if visible.
 pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let active_pane = app.tree.active_screen().map(|screen| screen.active_pane);
+    let panes_accept_focus = !app.sidebar_focused;
     let areas = app.pane_areas.clone();
     let mut cursor = None;
     for area in &areas {
-        let focused = Some(area.pane) == active_pane;
+        let focused = panes_accept_focus && Some(area.pane) == active_pane;
         draw_box(app, frame, area, focused);
         if area.bar.is_some() {
             draw_tab_bar(app, frame, area, focused);
