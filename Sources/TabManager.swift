@@ -19,6 +19,10 @@ import CoreServices
 import Darwin
 import OSLog
 import CmuxTerminal
+import enum CmuxTerminalBackend.BackendSplitDirection
+import struct CmuxTerminalBackend.BackendTerminalLaunch
+import struct CmuxTerminalBackend.SurfaceID
+import struct CmuxTerminalBackend.TopologySnapshot
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
@@ -177,12 +181,22 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 
 @MainActor
 class TabManager: ObservableObject {
+    private struct PendingBackendInitialWorkspaceRequest {
+        let title: String?
+        let workingDirectory: String?
+        let initialTerminalInput: String?
+        let autoWelcomeIfNeeded: Bool
+    }
+
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
     /// Stable identifier of the owning macOS window. Used only for opt-in title
     /// templates that expose a WM-matchable per-window token.
     var windowId: UUID?
+    weak var terminalBackendTopologyProjectionRegistry:
+        TerminalBackendTopologyProjectionRegistry?
+    var terminalBackendProjectionPresentationID: UUID?
 
     // Wave-4 sub-model (TabManager decomposition): the workspace list, the
     // sidebar group sections, and the selected-workspace id storage live in
@@ -226,6 +240,7 @@ class TabManager: ObservableObject {
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false
+    private var pendingBackendInitialWorkspaceRequest: PendingBackendInitialWorkspaceRequest?
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
@@ -542,12 +557,21 @@ class TabManager: ObservableObject {
         workspaces.attach(host: self)
         workspaceReordering.attach(host: self)
         workspaceGrouping.attach(host: self)
-        addWorkspace(
-            title: initialWorkspaceTitle,
-            workingDirectory: initialWorkingDirectory,
-            initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
-        )
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
+            pendingBackendInitialWorkspaceRequest = PendingBackendInitialWorkspaceRequest(
+                title: initialWorkspaceTitle,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            )
+        } else {
+            _ = requestAddWorkspace(
+                title: initialWorkspaceTitle,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            )
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -1038,8 +1062,266 @@ class TabManager: ObservableObject {
     }
 #endif
 
+    /// Routes daemon-owned surface creation through cmuxd while retaining
+    /// synchronous creation for client overlays and embedded mode.
     @discardableResult
-    func addWorkspace(
+    func requestAddWorkspace(
+        title: String? = nil,
+        workingDirectory overrideWorkingDirectory: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
+        initialTerminalCommand: String? = nil,
+        initialTerminalInput: String? = nil,
+        initialTerminalEnvironment: [String: String] = [:],
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
+        workspaceEnvironment: [String: String] = [:],
+        inheritWorkingDirectory: Bool = true,
+        select: Bool = true,
+        eagerLoadTerminal: Bool = false,
+        placementOverride: WorkspacePlacement? = nil,
+        autoWelcomeIfNeeded: Bool = true,
+        autoRefreshMetadata: Bool = true,
+        normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        allowTextBoxFocusDefault: Bool = true,
+        onProjected: (@MainActor (Workspace) -> Void)? = nil,
+        onFailure: (@MainActor () -> Void)? = nil,
+        bootstrapClaim: TerminalBackendEmptyTopologyBootstrapClaim? = nil
+    ) -> WorkspaceCreationOutcome {
+        guard let mutationCoordinator = terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator else {
+            return .created(addLocalWorkspace(
+                title: title,
+                workingDirectory: overrideWorkingDirectory,
+                initialSurface: initialSurface,
+                initialTerminalCommand: initialTerminalCommand,
+                initialTerminalInput: initialTerminalInput,
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                workspaceEnvironment: workspaceEnvironment,
+                inheritWorkingDirectory: inheritWorkingDirectory,
+                select: select,
+                eagerLoadTerminal: eagerLoadTerminal,
+                placementOverride: placementOverride,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+                autoRefreshMetadata: autoRefreshMetadata,
+                normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            ))
+        }
+        guard initialSurface != .cloudVMLoading else {
+            return .created(addLocalWorkspace(
+                title: title,
+                workingDirectory: overrideWorkingDirectory,
+                initialSurface: initialSurface,
+                workspaceEnvironment: workspaceEnvironment,
+                inheritWorkingDirectory: inheritWorkingDirectory,
+                select: select,
+                eagerLoadTerminal: eagerLoadTerminal,
+                placementOverride: placementOverride,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+                autoRefreshMetadata: autoRefreshMetadata,
+                normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            ))
+        }
+        let sourceWorkspace = selectedWorkspace
+        let inheritedWorkingDirectory = inheritWorkingDirectory
+            ? implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
+            : nil
+        let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
+            ?? inheritedWorkingDirectory
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let ownerReservation: TerminalBackendTopologyWorkspaceOwnerReservation?
+        do {
+            ownerReservation = try terminalBackendTopologyProjectionRegistry?.reserveWorkspaceOwner(
+                workspaceID: workspaceID,
+                for: self
+            )
+        } catch {
+            onFailure?()
+            mutationCoordinator.reportFailure(for: .createWorkspace)
+            return .failed
+        }
+        let defaultTitle: String
+        switch initialSurface {
+        case .terminal:
+            defaultTitle = "Terminal \(tabs.count + 1)"
+        case .browser:
+            defaultTitle = String(localized: "browser.newTab", defaultValue: "New tab")
+        case .cloudVMLoading:
+            defaultTitle = String(
+                localized: "workspace.cloudVM.defaultTitle",
+                defaultValue: "Cloud VM"
+            )
+        }
+        let trimmedCommand = initialTerminalCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let launch = BackendTerminalLaunch(
+            workingDirectory: workingDirectory,
+            command: trimmedCommand?.isEmpty == false ? trimmedCommand : nil,
+            environment: Workspace.startupEnvironment(
+                workspaceEnvironment: workspaceEnvironment,
+                overlaying: initialTerminalEnvironment
+            ),
+            initialInput: initialTerminalInput
+        )
+        let browserSurfaceID = SurfaceID(rawValue: surfaceID)
+        if initialSurface == .browser {
+            let registered = terminalClientComposition.nativeBrowserPresentationRegistry.register(
+                TerminalBackendNativeBrowserPresentationRequest(
+                    url: initialBrowserURL,
+                    profileID: nil,
+                    omnibarVisible: initialBrowserOmnibarVisible,
+                    transparentBackground: initialBrowserTransparentBackground
+                ),
+                for: browserSurfaceID
+            )
+            guard registered else {
+                if let ownerReservation {
+                    terminalBackendTopologyProjectionRegistry?
+                        .cancelWorkspaceOwnerReservation(ownerReservation)
+                }
+                if let bootstrapClaim {
+                    terminalBackendTopologyProjectionRegistry?
+                        .releaseEmptyTopologyBootstrap(bootstrapClaim)
+                }
+                onFailure?()
+                mutationCoordinator.reportFailure(for: .createWorkspace)
+                return .failed
+            }
+        }
+        let projectionHandler: TerminalBackendTopologyMutationCoordinator.ProjectionHandler = {
+            [weak self] _ in
+                guard let self,
+                      let workspace = self.tabs.first(where: { $0.id == workspaceID }) else {
+                    return
+                }
+                if select {
+                    self.selectedTabId = workspaceID
+                    NotificationCenter.default.post(
+                        name: .ghosttyDidFocusTab,
+                        object: nil,
+                        userInfo: [GhosttyNotificationKey.tabId: workspaceID]
+                    )
+                }
+                if initialSurface == .terminal, autoRefreshMetadata,
+                   let terminalPanel = workspace.focusedTerminalPanel {
+                    self.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+                        workspaceId: workspaceID,
+                        panelId: terminalPanel.id
+                    )
+                }
+                if initialSurface == .terminal, autoWelcomeIfNeeded, select,
+                   !UserDefaults.standard.bool(
+                    forKey: AccountCatalogSection().welcomeShown.userDefaultsKey
+                   ) {
+                    if let appDelegate = AppDelegate.shared {
+                        appDelegate.sendWelcomeCommandWhenReady(
+                            to: workspace,
+                            markShownOnSend: true
+                        )
+                    } else {
+                        self.sendWelcomeWhenReady(to: workspace)
+                    }
+                }
+                if initialSurface == .browser,
+                   let browserPanel = workspace.panels[surfaceID] as? BrowserPanel,
+                   browserPanel.endpointProvenance.canonicalSurfaceID == browserSurfaceID {
+                    self.terminalClientComposition.nativeBrowserPresentationRegistry
+                        .remove(browserSurfaceID)
+                    _ = browserPanel.setOmnibarVisible(initialBrowserOmnibarVisible)
+                    if initialBrowserOmnibarVisible {
+                        _ = browserPanel.requestAddressBarFocus(selectionIntent: .selectAll)
+                    }
+                }
+                onProjected?(workspace)
+            }
+        let submission: TerminalBackendTopologyMutationSubmission
+        let failureHandler: TerminalBackendTopologyMutationCoordinator.RequestFailureHandler = {
+            [weak registry = terminalBackendTopologyProjectionRegistry,
+             weak browserRegistry = terminalClientComposition.nativeBrowserPresentationRegistry] in
+            onFailure?()
+            if let ownerReservation {
+                registry?.cancelWorkspaceOwnerReservation(ownerReservation)
+            }
+            if let bootstrapClaim {
+                registry?.releaseEmptyTopologyBootstrap(bootstrapClaim)
+            }
+            if initialSurface == .browser {
+                browserRegistry?.remove(browserSurfaceID)
+            }
+        }
+        switch initialSurface {
+        case .terminal:
+            submission = mutationCoordinator.requestCreateWorkspace(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                name: title ?? defaultTitle,
+                launch: launch,
+                projectionOwnerID: ownerReservation?.presentationID
+                    ?? terminalBackendProjectionPresentationID,
+                onProjected: projectionHandler,
+                onFailure: failureHandler
+            )
+        case .browser:
+            submission = mutationCoordinator.requestCreateBrowserWorkspace(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                name: title ?? defaultTitle,
+                url: initialBrowserURL ?? URL(string: "about:blank")!,
+                projectionOwnerID: ownerReservation?.presentationID
+                    ?? terminalBackendProjectionPresentationID,
+                onProjected: projectionHandler,
+                onFailure: failureHandler
+            )
+        case .cloudVMLoading:
+            return .failed
+        }
+        return .submittedToBackend(submission)
+    }
+
+    /// Resolves the initial empty-window placeholder only after cmuxd has
+    /// published its retained topology. A non-empty daemon snapshot always
+    /// wins over Swift's launch defaults and session snapshot.
+    func canonicalTopologyDidProject(_ snapshot: TopologySnapshot) {
+        guard let pending = pendingBackendInitialWorkspaceRequest else { return }
+        guard snapshot.topology.workspaces.isEmpty else {
+            pendingBackendInitialWorkspaceRequest = nil
+            return
+        }
+        let bootstrapClaim: TerminalBackendEmptyTopologyBootstrapClaim?
+        if let registry = terminalBackendTopologyProjectionRegistry {
+            guard let claim = registry.claimEmptyTopologyBootstrap(
+                authority: snapshot.authority,
+                for: self
+            ) else {
+                return
+            }
+            bootstrapClaim = claim
+        } else {
+            bootstrapClaim = nil
+        }
+        pendingBackendInitialWorkspaceRequest = nil
+        _ = requestAddWorkspace(
+            title: pending.title,
+            workingDirectory: pending.workingDirectory,
+            initialTerminalInput: pending.initialTerminalInput,
+            autoWelcomeIfNeeded: pending.autoWelcomeIfNeeded,
+            onFailure: { [weak self] in
+                self?.pendingBackendInitialWorkspaceRequest = pending
+            },
+            bootstrapClaim: bootstrapClaim
+        )
+    }
+
+    /// Synchronous client-owned workspace allocation. Terminal UI and control
+    /// entrypoints must use `requestAddWorkspace` in persistent mode.
+    @discardableResult
+    func addLocalWorkspace(
         title: String? = nil,
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
@@ -1059,12 +1341,6 @@ class TabManager: ObservableObject {
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
-        if !isRestoringSessionSnapshot,
-           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
-           let existingWorkspace = selectedWorkspace ?? tabs.first {
-            mutationCoordinator.reject(.createWorkspace)
-            return existingWorkspace
-        }
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
         // Snapshot the selected tab from the pinned workspace instead of rereading the
@@ -1200,7 +1476,7 @@ class TabManager: ObservableObject {
     }
 
     @MainActor
-    private func sendWelcomeWhenReady(to workspace: Workspace) {
+    func sendWelcomeWhenReady(to workspace: Workspace) {
         if let terminalPanel = workspace.focusedTerminalPanel,
            terminalPanel.surface.surface != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -1319,10 +1595,10 @@ class TabManager: ObservableObject {
         }
     }
 
-    // Keep addTab as convenience alias
+    // Keep a local-only alias for restore and focused embedded-runtime tests.
     @discardableResult
-    func addTab(select: Bool = true, eagerLoadTerminal: Bool = false) -> Workspace {
-        addWorkspace(select: select, eagerLoadTerminal: eagerLoadTerminal)
+    func addLocalTab(select: Bool = true, eagerLoadTerminal: Bool = false) -> Workspace {
+        addLocalWorkspace(select: select, eagerLoadTerminal: eagerLoadTerminal)
     }
 
     func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
@@ -1559,73 +1835,126 @@ class TabManager: ObservableObject {
         workspace.panels.values.contains(where: { $0 is TerminalPanel })
     }
 
-    /// Converts a row-space reorder into the daemon's terminal-workspace index
-    /// without changing the observable Swift array ahead of projection.
+    /// Converts row-space ordering into one complete canonical transaction.
+    /// Client-only rows form a stable suffix and are applied only after the
+    /// matching canonical revision projects successfully.
+    private func requestBackendWorkspaceOrder(
+        _ desiredWorkspaceIDs: [UUID]
+    ) -> Bool? {
+        guard let mutationCoordinator = terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator else {
+            return nil
+        }
+        let currentIDs = tabs.map(\.id)
+        guard desiredWorkspaceIDs.count == currentIDs.count,
+              Set(desiredWorkspaceIDs) == Set(currentIDs) else {
+            return false
+        }
+        let canonicalIDs = desiredWorkspaceIDs.filter { id in
+            tabs.first(where: { $0.id == id }).map(hasCanonicalTerminal) == true
+        }
+        let clientOnlyIDs = desiredWorkspaceIDs.filter { id in
+            tabs.first(where: { $0.id == id }).map(hasCanonicalTerminal) == false
+        }
+        let currentCanonicalIDs = tabs.filter(hasCanonicalTerminal).map(\.id)
+        if canonicalIDs == currentCanonicalIDs {
+            applyProjectedClientWorkspaceOrder(clientOnlyIDs)
+            return true
+        }
+        _ = mutationCoordinator.requestReorderWorkspaces(
+            canonicalIDs,
+            onProjected: { [weak self] _ in
+                self?.applyProjectedClientWorkspaceOrder(clientOnlyIDs)
+            }
+        )
+        return true
+    }
+
+    private func applyProjectedClientWorkspaceOrder(_ desiredIDs: [UUID]) {
+        let canonical = tabs.filter(hasCanonicalTerminal)
+        let currentClientOnly = tabs.filter { !hasCanonicalTerminal($0) }
+        let clientsByID = Dictionary(
+            uniqueKeysWithValues: currentClientOnly.map { ($0.id, $0) }
+        )
+        var seen: Set<UUID> = []
+        let orderedClientOnly = desiredIDs.compactMap { id -> Workspace? in
+            guard seen.insert(id).inserted else { return nil }
+            return clientsByID[id]
+        } + currentClientOnly.filter { !seen.contains($0.id) }
+        let updated = canonical + orderedClientOnly
+        let previousIDs = tabs.map(\.id)
+        guard updated.map(\.id) != previousIDs else { return }
+        tabs = updated
+        let updatedIndexes = Dictionary(
+            uniqueKeysWithValues: updated.enumerated().map { ($0.element.id, $0.offset) }
+        )
+        let movedIDs = updated.compactMap { workspace in
+            guard let oldIndex = previousIDs.firstIndex(of: workspace.id),
+                  updatedIndexes[workspace.id] != oldIndex else {
+                return nil
+            }
+            return workspace.id
+        }
+        workspaceOrderDidChange(movedWorkspaceIds: movedIDs)
+    }
+
+    private func desiredWorkspaceOrderMovingToTierFront(_ tabIDs: Set<UUID>) -> [UUID] {
+        let selected = tabs.filter { tabIDs.contains($0.id) }
+        let remaining = tabs.filter { !tabIDs.contains($0.id) }
+        return selected.filter(\.isPinned).map(\.id)
+            + remaining.filter(\.isPinned).map(\.id)
+            + selected.filter { !$0.isPinned }.map(\.id)
+            + remaining.filter { !$0.isPinned }.map(\.id)
+    }
+
+    /// Converts a row-space reorder into a complete canonical order without
+    /// changing Swift presentation state ahead of projection.
     private func requestCanonicalWorkspaceReorder(
         tabId: UUID,
         toIndex targetIndex: Int
     ) -> Bool? {
-        guard let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
-              let plan = workspaceReordering.workspaceReorderPlan(
-                  tabId: tabId,
-                  toIndex: targetIndex
-              ),
-              hasCanonicalTerminal(tabs[plan.fromIndex]) else {
+        guard terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil else {
             return nil
         }
+        guard let plan = workspaceReordering.workspaceReorderPlan(
+            tabId: tabId,
+            toIndex: targetIndex
+        ) else { return false }
         var desired = tabs
         let moved = desired.remove(at: plan.fromIndex)
         desired.insert(moved, at: plan.toIndex)
-        let canonicalOrder = desired.filter(hasCanonicalTerminal)
-        guard let canonicalIndex = canonicalOrder.firstIndex(where: { $0.id == tabId }) else {
-            return false
-        }
-        let currentCanonicalOrder = tabs.filter(hasCanonicalTerminal)
-        if currentCanonicalOrder.firstIndex(where: { $0.id == tabId }) == canonicalIndex {
-            return true
-        }
-        return mutationCoordinator.requestMoveWorkspace(tabId, to: canonicalIndex)
+        return requestBackendWorkspaceOrder(desired.map(\.id))
     }
 
     func moveTabToTop(_ tabId: UUID) {
-        if let workspace = tabs.first(where: { $0.id == tabId }),
-           hasCanonicalTerminal(workspace),
-           terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
-            _ = requestCanonicalWorkspaceReorder(tabId: tabId, toIndex: 0)
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
+            _ = requestBackendWorkspaceOrder(
+                desiredWorkspaceOrderMovingToTierFront([tabId])
+            )
         } else {
             workspaceReordering.moveTabToTop(tabId)
         }
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
-        let canonicalIDs = tabs.filter {
-            tabIds.contains($0.id) && hasCanonicalTerminal($0)
-        }.map(\.id)
-        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil,
-           !canonicalIDs.isEmpty {
-            for (index, tabId) in canonicalIDs.enumerated() {
-                _ = requestCanonicalWorkspaceReorder(tabId: tabId, toIndex: index)
-            }
-            let clientOnlyIDs = tabIds.subtracting(canonicalIDs)
-            if !clientOnlyIDs.isEmpty {
-                workspaceReordering.moveTabsToTop(clientOnlyIDs)
-            }
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
+            _ = requestBackendWorkspaceOrder(
+                desiredWorkspaceOrderMovingToTierFront(tabIds)
+            )
         } else {
             workspaceReordering.moveTabsToTop(tabIds)
         }
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
-        if let workspace = tabs.first(where: { $0.id == tabId }),
-           hasCanonicalTerminal(workspace),
-           terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
-            let canonicalPinnedCount = tabs.filter {
-                hasCanonicalTerminal($0) && $0.isPinned
-            }.count
-            _ = requestCanonicalWorkspaceReorder(
-                tabId: tabId,
-                toIndex: canonicalPinnedCount
-            )
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil,
+           let index = tabs.firstIndex(where: { $0.id == tabId }),
+           !tabs[index].isPinned {
+            var desired = tabs
+            let moved = desired.remove(at: index)
+            let pinnedCount = desired.filter(\.isPinned).count
+            desired.insert(moved, at: min(pinnedCount, desired.count))
+            _ = requestBackendWorkspaceOrder(desired.map(\.id))
         } else {
             workspaceReordering.moveTabToTopForNotification(tabId)
         }
@@ -1780,20 +2109,21 @@ class TabManager: ObservableObject {
     ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {
         if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil,
            !dryRun,
-           orderedWorkspaceIds.contains(where: { id in
-               tabs.first(where: { $0.id == id }).map(hasCanonicalTerminal) == true
-           }) {
+           !orderedWorkspaceIds.isEmpty {
             let planResult = workspaceReordering.workspaceBatchReorderPlan(
                 orderedWorkspaceIds: orderedWorkspaceIds
             )
             guard case .success(let plan) = planResult else { return planResult }
-            let canonicalOrder = orderedWorkspaceIds.filter { id in
-                tabs.first(where: { $0.id == id }).map(hasCanonicalTerminal) == true
+            let orderedSet = Set(orderedWorkspaceIds)
+            let requested = orderedWorkspaceIds.compactMap { id in
+                tabs.first(where: { $0.id == id })
             }
-            for (index, workspaceID) in canonicalOrder.enumerated() {
-                _ = terminalClientComposition.terminalBackendTopologyMutationCoordinator?
-                    .requestMoveWorkspace(workspaceID, to: index)
-            }
+            let remaining = tabs.filter { !orderedSet.contains($0.id) }
+            let desired = requested.filter(\.isPinned)
+                + remaining.filter(\.isPinned)
+                + requested.filter { !$0.isPinned }
+                + remaining.filter { !$0.isPinned }
+            _ = requestBackendWorkspaceOrder(desired.map(\.id))
             return .success(plan)
         }
         return workspaceReordering.reorderWorkspaces(
@@ -1875,6 +2205,11 @@ class TabManager: ObservableObject {
         selectAnchor: Bool = true,
         collapseSidebarSelection: Bool = true
     ) -> UUID? {
+        if let mutationCoordinator = terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator {
+            mutationCoordinator.reportFailure(for: .createWorkspace)
+            return nil
+        }
         workspaceGrouping.createWorkspaceGroup(
             name: name,
             childWorkspaceIds: childWorkspaceIds,
@@ -1884,6 +2219,52 @@ class TabManager: ObservableObject {
         )
     }
 
+    @discardableResult
+    func requestCreateWorkspaceInGroup(
+        groupId: UUID,
+        placement explicitPlacement: WorkspaceGroupNewPlacement? = nil,
+        referenceWorkspaceId: UUID? = nil,
+        select: Bool = true,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
+        title: String? = nil,
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false
+    ) -> WorkspaceCreationOutcome? {
+        if initialSurface != .cloudVMLoading,
+           terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
+            return requestAddWorkspace(
+                title: title,
+                initialSurface: initialSurface,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                select: select,
+                autoWelcomeIfNeeded: false,
+                onProjected: { [weak self] workspace in
+                    self?.addWorkspaceToGroup(
+                        workspaceId: workspace.id,
+                        groupId: groupId,
+                        placement: explicitPlacement,
+                        referenceWorkspaceId: referenceWorkspaceId
+                    )
+                }
+            )
+        }
+        return workspaceGrouping.createWorkspaceInGroup(
+            groupId: groupId,
+            placement: explicitPlacement,
+            referenceWorkspaceId: referenceWorkspaceId,
+            select: select,
+            initialSurface: initialSurface,
+            title: title,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground
+        ).map(WorkspaceCreationOutcome.created)
+    }
+
+    /// Embedded compatibility shim for synchronous callers.
     @discardableResult
     func createWorkspaceInGroup(
         groupId: UUID,
@@ -1896,7 +2277,7 @@ class TabManager: ObservableObject {
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false
     ) -> Workspace? {
-        workspaceGrouping.createWorkspaceInGroup(
+        guard case .created(let workspace)? = requestCreateWorkspaceInGroup(
             groupId: groupId,
             placement: explicitPlacement,
             referenceWorkspaceId: referenceWorkspaceId,
@@ -1906,7 +2287,10 @@ class TabManager: ObservableObject {
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground
-        )
+        ) else {
+            return nil
+        }
+        return workspace
     }
 
     func addWorkspaceToGroup(
@@ -1986,7 +2370,7 @@ class TabManager: ObservableObject {
         inheritWorkingDirectory: Bool,
         select: Bool
     ) -> Workspace {
-        addWorkspace(
+        addLocalWorkspace(
             title: title,
             workingDirectory: workingDirectory,
             inheritWorkingDirectory: inheritWorkingDirectory,
@@ -2007,7 +2391,7 @@ class TabManager: ObservableObject {
         inheritWorkingDirectory: Bool,
         select: Bool
     ) -> Workspace {
-        addWorkspace(
+        addLocalWorkspace(
             title: title,
             workingDirectory: workingDirectory,
             initialSurface: initialSurface,
@@ -2125,11 +2509,29 @@ class TabManager: ObservableObject {
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         if workspace.panels.values.contains(where: { $0 is TerminalPanel }),
            let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            guard workspace.panels.values.allSatisfy({ $0 is TerminalPanel }) else {
-                mutationCoordinator.reportFailure(for: .closeWorkspace)
-                return
+            let clientOwnedPanelIDs = workspace.panels.compactMap { panelID, panel in
+                panel is TerminalPanel ? nil : panelID
             }
-            _ = mutationCoordinator.requestCloseWorkspace(workspace.id)
+            _ = mutationCoordinator.requestCloseWorkspace(
+                workspace.id,
+                onProjected: { [weak self, weak workspace] _ in
+                    guard let self, let workspace,
+                          self.tabs.contains(where: { $0 === workspace }) else {
+                        return
+                    }
+                    workspace.withClosedPanelHistorySuppressed {
+                        for panelID in clientOwnedPanelIDs
+                            where !(workspace.panels[panelID] is TerminalPanel) {
+                            _ = workspace.closePanel(panelID, force: true)
+                        }
+                    }
+                    guard workspace.panels.isEmpty,
+                          self.tabs.contains(where: { $0 === workspace }) else {
+                        return
+                    }
+                    self.closeWorkspace(workspace, recordHistory: false)
+                }
+            )
             return
         }
         guard tabs.count > 1 else { return }
@@ -2225,7 +2627,7 @@ class TabManager: ObservableObject {
         if tabs.isEmpty {
             if provisionReplacementIfEmpty {
                 // Standalone callers preserve the legacy nonempty-window invariant.
-                _ = addWorkspace()
+                _ = requestAddWorkspace()
             } else {
                 // AppDelegate closes the empty source window only after the
                 // process-wide ownership transfer has committed.
@@ -3996,6 +4398,32 @@ class TabManager: ObservableObject {
             return false
         }
 
+        if let mutationCoordinator = terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator,
+           !tab.isApplyingCanonicalTopologyProjection {
+            guard let adjustment = tab.bonsplitController.treeSnapshot()
+                .resizeDividerAdjustment(
+                    targetPaneId: paneUUID.uuidString,
+                    direction: direction,
+                    amountPixels: amount
+                ) else {
+                return false
+            }
+            let backendDirection: BackendSplitDirection
+            switch direction {
+            case .left: backendDirection = .left
+            case .right: backendDirection = .right
+            case .up: backendDirection = .up
+            case .down: backendDirection = .down
+            }
+            mutationCoordinator.requestSetSplitRatio(
+                around: paneUUID,
+                direction: backendDirection,
+                ratio: Float(adjustment.position)
+            )
+            return true
+        }
+
         return paneLayout.resizeSplit(
             in: tab.bonsplitController.treeSnapshot(),
             targetPaneId: paneUUID.uuidString,
@@ -4052,7 +4480,7 @@ class TabManager: ObservableObject {
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSplit(
+        return tab.requestNewBrowserSplit(
             from: fromPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
@@ -4060,7 +4488,7 @@ class TabManager: ObservableObject {
             preferredProfileID: preferredProfileID,
             focus: focus,
             initialDividerPosition: initialDividerPosition
-        )?.id
+        ).surfaceID
     }
 
     /// Create a new browser surface in a pane
@@ -4072,11 +4500,11 @@ class TabManager: ObservableObject {
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSurface(
+        return tab.requestNewBrowserSurface(
             inPane: paneId,
             url: url,
             preferredProfileID: preferredProfileID
-        )?.id
+        ).surfaceID
     }
 
     /// Get a browser panel by ID
@@ -4102,15 +4530,15 @@ class TabManager: ObservableObject {
 
         if preferSplitRight {
             if let targetPaneId = workspace.topRightBrowserReusePane(),
-               let browserPanel = workspace.newBrowserSurface(
+               let surfaceID = workspace.requestNewBrowserSurface(
                    inPane: targetPaneId,
                    url: url,
                    focus: true,
                    insertAtEnd: insertAtEnd,
                    preferredProfileID: preferredProfileID
-               ) {
-                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-                return browserPanel.id
+               ).surfaceID {
+                rememberFocusedSurface(tabId: tabId, surfaceId: surfaceID)
+                return surfaceID
             }
 
             let splitSourcePanelId: UUID? = {
@@ -4129,30 +4557,30 @@ class TabManager: ObservableObject {
             }()
 
             if let splitSourcePanelId,
-               let browserPanel = workspace.newBrowserSplit(
+               let surfaceID = workspace.requestNewBrowserSplit(
                    from: splitSourcePanelId,
                    orientation: .horizontal,
                    url: url,
                    preferredProfileID: preferredProfileID,
                    focus: true
-               ) {
-                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-                return browserPanel.id
+               ).surfaceID {
+                rememberFocusedSurface(tabId: tabId, surfaceId: surfaceID)
+                return surfaceID
             }
         }
 
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
-              let browserPanel = workspace.newBrowserSurface(
+              let surfaceID = workspace.requestNewBrowserSurface(
                   inPane: paneId,
                   url: url,
                   focus: true,
                   insertAtEnd: insertAtEnd,
                   preferredProfileID: preferredProfileID
-              ) else {
+              ).surfaceID else {
             return nil
         }
-        rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-        return browserPanel.id
+        rememberFocusedSurface(tabId: tabId, surfaceId: surfaceID)
+        return surfaceID
     }
 
     /// Open a browser in the currently focused pane (as a new surface)
@@ -4204,12 +4632,17 @@ class TabManager: ObservableObject {
                 )
             }
 
-            if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
-                enforceReopenedBrowserFocus(
-                    tabId: targetWorkspace.id,
-                    reopenedPanelId: reopenedPanelId,
-                    preReopenFocusedPanelId: preReopenFocusedPanelId
-                )
+            if reopenClosedBrowserPanel(
+                snapshot,
+                in: targetWorkspace,
+                onProjected: { [weak self] reopenedPanel in
+                    self?.enforceReopenedBrowserFocus(
+                        tabId: targetWorkspace.id,
+                        reopenedPanelId: reopenedPanel.id,
+                        preReopenFocusedPanelId: preReopenFocusedPanelId
+                    )
+                }
+            ) != nil {
                 return true
             }
         }
@@ -4299,8 +4732,14 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
+        if let mutationCoordinator = terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator,
+           !isRestoringSessionSnapshot {
+            mutationCoordinator.reportFailure(for: .createWorkspace)
+            return false
+        }
         let preRestoreFocus = currentFocusHistoryEntry
-        let workspace = addWorkspace(
+        let workspace = addLocalWorkspace(
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
@@ -4415,46 +4854,57 @@ class TabManager: ObservableObject {
 
     private func reopenClosedBrowserPanel(
         _ snapshot: ClosedBrowserPanelRestoreSnapshot,
-        in workspace: Workspace
+        in workspace: Workspace,
+        onProjected: @escaping (BrowserPanel) -> Void
     ) -> UUID? {
-        if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
-           let browserPanel = workspace.newBrowserSurface(
+        if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }) {
+            let creation = workspace.requestNewBrowserSurface(
                inPane: originalPane,
                url: snapshot.url,
                focus: true,
-               preferredProfileID: snapshot.profileID
-           ) {
-            let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
-            let maxIndex = max(0, tabCount - 1)
-            let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
-            _ = workspace.reorderSurface(panelId: browserPanel.id, toIndex: targetIndex)
-            return browserPanel.id
+               preferredProfileID: snapshot.profileID,
+               onProjected: { [weak workspace] panel in
+                   guard let workspace else { return }
+                   let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
+                   let maxIndex = max(0, tabCount - 1)
+                   let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
+                   _ = workspace.reorderSurface(panelId: panel.id, toIndex: targetIndex)
+                   onProjected(panel)
+               }
+           )
+            if let surfaceID = creation.surfaceID {
+                return surfaceID
+            }
         }
 
         if let orientation = snapshot.fallbackSplitOrientation,
            let fallbackAnchorPaneId = snapshot.fallbackAnchorPaneId,
            let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
            let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
-           let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
-           let browserPanelId = workspace.newBrowserSplit(
+           let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id) {
+            let creation = workspace.requestNewBrowserSplit(
                from: anchorPanelId,
                orientation: orientation,
                insertFirst: snapshot.fallbackSplitInsertFirst,
                url: snapshot.url,
-               preferredProfileID: snapshot.profileID
-           )?.id {
-            return browserPanelId
+               preferredProfileID: snapshot.profileID,
+               onProjected: onProjected
+           )
+            if let surfaceID = creation.surfaceID {
+                return surfaceID
+            }
         }
 
         guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return nil
         }
-        return workspace.newBrowserSurface(
+        return workspace.requestNewBrowserSurface(
             inPane: focusedPane,
             url: snapshot.url,
             focus: true,
-            preferredProfileID: snapshot.profileID
-        )?.id
+            preferredProfileID: snapshot.profileID,
+            onProjected: onProjected
+        ).surfaceID
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.
@@ -6095,6 +6545,84 @@ extension TabManager {
         return !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Swift session snapshots retain only noncanonical presentation overlays.
+    /// Canonical terminal and browser placement comes from cmuxd, while a
+    /// browser source is recovered only through its private runtime claim.
+    private static func persistentPresentationRestoreSnapshot(
+        _ snapshot: SessionWorkspaceSnapshot
+    ) -> SessionWorkspaceSnapshot? {
+        let panels = snapshot.panels.filter {
+            $0.type != .terminal && $0.type != .browser
+        }
+        let panelIDs = Set(panels.map(\.id))
+        guard !panelIDs.isEmpty,
+              let layout = prunedPersistentPresentationLayout(
+                snapshot.layout,
+                keeping: panelIDs
+              ) else {
+            return nil
+        }
+
+        var filtered = snapshot
+        filtered.panels = panels
+        filtered.layout = layout
+        filtered.focusedPanelId = snapshot.focusedPanelId.flatMap {
+            panelIDs.contains($0) ? $0 : nil
+        }
+        filtered.canvasPanes = snapshot.canvasPanes?.compactMap { pane in
+            var pane = pane
+            let retainedIDs = (pane.panelIds ?? [pane.panelId]).filter(panelIDs.contains)
+            guard let firstID = retainedIDs.first else { return nil }
+            pane.panelId = firstID
+            pane.panelIds = retainedIDs
+            pane.selectedPanelId = pane.selectedPanelId.flatMap {
+                panelIDs.contains($0) ? $0 : nil
+            } ?? firstID
+            return pane
+        }
+        // Remote producer metadata and workspace environment remain durable.
+        // Workspace.restoreSessionSnapshot validates both before reconnecting;
+        // dropping them here leaves a retained daemon parser with no producer
+        // after the Swift presentation process restarts.
+        return filtered
+    }
+
+    private static func prunedPersistentPresentationLayout(
+        _ node: SessionWorkspaceLayoutSnapshot,
+        keeping panelIDs: Set<UUID>
+    ) -> SessionWorkspaceLayoutSnapshot? {
+        switch node {
+        case .pane(let pane):
+            let retainedIDs = pane.panelIds.filter(panelIDs.contains)
+            guard let firstID = retainedIDs.first else { return nil }
+            return .pane(SessionPaneLayoutSnapshot(
+                panelIds: retainedIDs,
+                selectedPanelId: pane.selectedPanelId.flatMap {
+                    panelIDs.contains($0) ? $0 : nil
+                } ?? firstID,
+                isFullWidthTabMode: pane.isFullWidthTabMode
+            ))
+        case .split(let split):
+            let first = prunedPersistentPresentationLayout(split.first, keeping: panelIDs)
+            let second = prunedPersistentPresentationLayout(split.second, keeping: panelIDs)
+            switch (first, second) {
+            case (.some(let first), .some(let second)):
+                return .split(SessionSplitLayoutSnapshot(
+                    orientation: split.orientation,
+                    dividerPosition: split.dividerPosition,
+                    first: first,
+                    second: second
+                ))
+            case (.some(let first), .none):
+                return first
+            case (.none, .some(let second)):
+                return second
+            case (.none, .none):
+                return nil
+            }
+        }
+    }
+
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
@@ -6132,10 +6660,20 @@ extension TabManager {
             snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
             selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex
         )
-        let workspaceSnapshots = normalizedWorkspaceSnapshots
-            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        let boundedWorkspaceSnapshots = Array(normalizedWorkspaceSnapshots
+            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow))
+        let indexedWorkspaceSnapshots = Array(boundedWorkspaceSnapshots.enumerated())
+        let workspaceSnapshots: [(sourceIndex: Int, snapshot: SessionWorkspaceSnapshot)] =
+            terminalClientComposition.terminalBackendTopologyMutationCoordinator == nil
+            ? indexedWorkspaceSnapshots.map { ($0.offset, $0.element) }
+            : indexedWorkspaceSnapshots.compactMap { sourceIndex, snapshot in
+                Self.persistentPresentationRestoreSnapshot(snapshot).map {
+                    (sourceIndex, $0)
+                }
+            }
         var restoredOriginalWorkspaceIds: [UUID?] = []
-        for workspaceSnapshot in workspaceSnapshots {
+        var restoredSourceWorkspaceIndices: [Int] = []
+        for (sourceIndex, workspaceSnapshot) in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let restoredWorkspaceID = terminalClientComposition
@@ -6147,6 +6685,10 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
+                initialSurface: terminalClientComposition
+                    .terminalBackendTopologyMutationCoordinator == nil
+                    ? .terminal
+                    : .cloudVMLoading,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 terminalClientComposition: terminalClientComposition,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
@@ -6157,9 +6699,11 @@ extension TabManager {
             newTabs.append(workspace)
             restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)
             restoredOriginalWorkspaceIds.append(workspaceSnapshot.workspaceId)
+            restoredSourceWorkspaceIndices.append(sourceIndex)
         }
 
-        if newTabs.isEmpty {
+        if newTabs.isEmpty,
+           terminalClientComposition.terminalBackendTopologyMutationCoordinator == nil {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let fallback = Workspace(
@@ -6177,8 +6721,11 @@ extension TabManager {
         // Determine selection before mutating @Published properties.
         let newSelectedId: UUID?
         if let selectedWorkspaceIndex,
-           newTabs.indices.contains(selectedWorkspaceIndex) {
-            newSelectedId = newTabs[selectedWorkspaceIndex].id
+           let restoredSelectionIndex = restoredSourceWorkspaceIndices.firstIndex(
+            of: selectedWorkspaceIndex
+           ),
+           newTabs.indices.contains(restoredSelectionIndex) {
+            newSelectedId = newTabs[restoredSelectionIndex].id
         } else {
             newSelectedId = newTabs.first?.id
         }

@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxSettings
 import CmuxCore
+import struct CmuxTerminalBackend.SurfaceID
 import Darwin
 import Foundation
 import CmuxSidebar
@@ -376,6 +377,13 @@ extension Workspace {
         }
 
         let closedAgentRuntimeState = agentRuntimeState(forPanelId: panelId)
+        if !isApplyingCanonicalTopologyProjection {
+            terminalClientComposition.nativeBrowserRuntimeCoordinator?
+                .releaseLocalState(surfaceID: SurfaceID(rawValue: panelId))
+            terminalClientComposition.nativeBrowserPresentationRegistry.remove(
+                SurfaceID(rawValue: panelId)
+            )
+        }
         removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()

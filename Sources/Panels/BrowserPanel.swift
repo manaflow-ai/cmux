@@ -3065,6 +3065,9 @@ final class BrowserPanel: Panel, ObservableObject {
     var isUsingMicrophone: Bool { mediaActivity.isUsingMicrophone }
     var isUsingCamera: Bool { mediaActivity.isUsingCamera }
     var onMediaActivityChanged: ((BrowserMediaActivity) -> Void)?
+    /// Private runtime bridge for canonical frontend-native browsers. The URL
+    /// is emitted only after WebKit commits the main-frame navigation.
+    var onCommittedCanonicalSourceURL: ((URL) -> Void)?
     /// Frame ids reporting playing media; keeps hidden panes alive while non-empty.
     private var playingMediaFrameIDs: Set<String> = []
     private var audibleMediaFrameIDs: Set<String> = []
@@ -3795,6 +3798,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 // navigations, so a persisting SPA video keeps its frame id.
                 self.resetMediaPlaybackTracking()
                 self.publishCommittedURL(from: webView)
+                if let committedURL = self.currentURL {
+                    self.onCommittedCanonicalSourceURL?(committedURL)
+                }
                 self.applyMuteState(to: webView, reason: "navigationCommit")
                 if self.shouldTreatCommitAsDiscardedRestoreCommit(from: webView) {
                     self.noteDiscardedWebViewRestoreNavigationCommitted()
@@ -3990,10 +3996,10 @@ final class BrowserPanel: Panel, ObservableObject {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
-        if case .backend(let endpoint) = endpointProvenance {
+        if let canonicalSurfaceID = endpointProvenance.canonicalSurfaceID {
             precondition(
-                endpoint.surfaceID.rawValue == id,
-                "backend browser panel ID must equal its canonical SurfaceID"
+                canonicalSurfaceID.rawValue == id,
+                "canonical browser panel ID must equal its SurfaceID"
             )
         }
         self.id = id
@@ -4855,9 +4861,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
-        guard endpointProvenance == .clientOverlay else {
-            // cmuxd owns canonical browser placement and runtime identity. A
-            // local session snapshot must never recreate it as a WKWebView.
+        if endpointProvenance.canonicalSurfaceID != nil {
+            // Canonical browser placement and source are recovered through the
+            // daemon's private connection claim. Serializing WebKit URL/history
+            // here would create a second durable source of truth.
             return false
         }
         // Diff viewer surfaces are otherwise treated as temporary. Persist them
@@ -5393,6 +5400,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
+        onCommittedCanonicalSourceURL = nil
         detachWebViewObservers()
         faviconTask?.cancel(); faviconTask = nil
     }
@@ -6427,14 +6435,14 @@ extension BrowserPanel {
 #endif
             return
         }
-        guard let _ = workspace.newBrowserSurface(
+        guard workspace.requestNewBrowserSurface(
             inPane: paneId,
             url: seed.url,
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
-        ) else {
+        ).isAccepted else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")
 #endif

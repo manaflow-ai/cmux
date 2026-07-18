@@ -52,6 +52,14 @@ private final class TabManagerTopologyProjectionState {
         let workspace: Workspace
     }
 
+    struct CloudTerminalAdoption {
+        let workspace: Workspace
+        let pane: Bonsplit.PaneID
+        let index: Int
+        let loadingTransfer: Workspace.DetachedSurfaceTransfer
+        let terminalPanel: TerminalPanel
+    }
+
     struct TerminalMovementOrigin {
         let workspace: Workspace
         let pane: Bonsplit.PaneID?
@@ -68,6 +76,7 @@ private final class TabManagerTopologyProjectionState {
     var terminalMovementOrigins: [UUID: TerminalMovementOrigin] = [:]
     var browserPlacementAdoptions: [BrowserPlacementAdoption] = []
     var browserCreations: [BrowserCreation] = []
+    var cloudTerminalAdoptions: [CloudTerminalAdoption] = []
     var browserMovementOrigins: [UUID: TerminalMovementOrigin] = [:]
     private(set) var touchedWorkspaces: [Workspace] = []
     private var touchedWorkspaceIdentities: Set<ObjectIdentifier> = []
@@ -92,6 +101,13 @@ private final class TabManagerTopologyProjectionState {
         }
         touchedWorkspaces.append(workspace)
     }
+}
+
+private struct TerminalBackendClientOverlayTabPlacement {
+    let tabID: TabID
+    let precedingCanonicalTabID: TabID?
+    let followingCanonicalTabID: TabID?
+    let fallbackSlot: Int
 }
 
 /// Reconciles daemon-owned terminal structure while retaining every unchanged
@@ -134,6 +150,44 @@ extension TabManager: TerminalBackendTopologyProjecting {
         Set(tabs.map(\.id))
     }
 
+    func frontendNativeBrowserSourceURL(surfaceID: SurfaceID) -> URL? {
+        tabs.lazy.compactMap { workspace in
+            guard let panel = workspace.panels[surfaceID.rawValue] as? BrowserPanel,
+                  panel.endpointProvenance == .frontendNativeCanonical(surfaceID) else {
+                return nil
+            }
+            return panel.currentURLForTabDuplication
+                ?? panel.preferredURLStringForOmnibar().flatMap(URL.init(string:))
+        }.first
+    }
+
+    func frontendNativeBrowserIsPresented(surfaceID: SurfaceID) -> Bool {
+        tabs.contains { workspace in
+            guard let panel = workspace.panels[surfaceID.rawValue] as? BrowserPanel else {
+                return false
+            }
+            return panel.endpointProvenance == .frontendNativeCanonical(surfaceID)
+        }
+    }
+
+    func installFrontendNativeBrowserClaimSourceURL(
+        _ sourceURL: URL,
+        surfaceID: SurfaceID
+    ) {
+        for workspace in tabs {
+            guard let panel = workspace.panels[surfaceID.rawValue] as? BrowserPanel,
+                  panel.endpointProvenance == .frontendNativeCanonical(surfaceID) else {
+                continue
+            }
+            guard panel.currentURLForTabDuplication != sourceURL else { return }
+            panel.navigateWithoutInsecureHTTPPrompt(
+                to: sourceURL,
+                recordTypedNavigation: false
+            )
+            return
+        }
+    }
+
     func prepareCanonicalTopology(
         _ snapshot: TopologySnapshot,
         plan: TerminalBackendTopologyProjectionPlan
@@ -146,7 +200,15 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 try self.commitCanonicalTopology(snapshot, plan: plan, state: state)
             },
             finalize: { [weak self] in
-                self?.finalizeCanonicalTopology(state)
+                guard let self else { return }
+                self.finalizeCanonicalTopology(state)
+                self.terminalClientComposition
+                    .terminalBackendTopologyMutationCoordinator?
+                    .canonicalProjectionDidInstall(
+                        snapshot,
+                        presentationID: self.terminalBackendProjectionPresentationID
+                    )
+                self.canonicalTopologyDidProject(snapshot)
             },
             rollback: { [weak self] in
                 guard let self else { return }
@@ -203,7 +265,15 @@ extension TabManager: TerminalBackendTopologyProjecting {
             let expectedType = try panelType(for: target.surface)
             if let owner = currentOwnerBySurface[surfaceID],
                let panel = owner.panels[surfaceID] {
-                guard panel.panelType.rawValue == expectedType.rawValue else {
+                let permitsCloudAdoption = owner.id == target.workspaceID
+                    && permitsCloudTerminalAdoption(
+                        panel: panel,
+                        expectedType: expectedType,
+                        workspaceID: target.workspaceID,
+                        surfaceID: surfaceID
+                    )
+                guard panel.panelType.rawValue == expectedType.rawValue
+                        || permitsCloudAdoption else {
                     throw TerminalBackendTopologyProjectionError.projectionFailed(
                         "canonical surface kind changed for an existing presentation"
                     )
@@ -267,7 +337,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
                         panelID, panel in
                         if panel is TerminalPanel { return panelID }
                         if let browser = panel as? BrowserPanel,
-                           case .backend = browser.endpointProvenance {
+                           browser.endpointProvenance.canonicalSurfaceID != nil {
                             return panelID
                         }
                         return nil
@@ -397,6 +467,39 @@ extension TabManager: TerminalBackendTopologyProjecting {
             for surface in orderedSurfaces {
                 let surfaceID = surface.uuid.rawValue
                 let expectedType = try panelType(for: surface)
+                var cloudLoadingAdoption: (
+                    pane: Bonsplit.PaneID,
+                    index: Int,
+                    transfer: Workspace.DetachedSurfaceTransfer
+                )?
+                if let panel = workspace.panels[surfaceID],
+                   panel.panelType.rawValue != expectedType.rawValue,
+                   permitsCloudTerminalAdoption(
+                       panel: panel,
+                       expectedType: expectedType,
+                       workspaceID: workspaceID,
+                       surfaceID: surfaceID
+                   ) {
+                    guard let pane = workspace.paneId(forPanelId: surfaceID),
+                          let tabID = workspace.surfaceIdFromPanelId(surfaceID),
+                          let index = workspace.bonsplitController.tabs(inPane: pane)
+                            .firstIndex(where: { $0.id == tabID }),
+                          let transfer = workspace.detachSurface(
+                            panelId: surfaceID,
+                            publishLifecycleEvent: false
+                          ) else {
+                        throw TerminalBackendTopologyProjectionError.projectionFailed(
+                            "canonical cloud terminal adoption staging"
+                        )
+                    }
+                    cloudLoadingAdoption = (pane, index, transfer)
+                    state.retirements.append(.init(
+                        workspace: workspace,
+                        pane: pane,
+                        index: index,
+                        transfer: transfer
+                    ))
+                }
                 if let panel = workspace.panels[surfaceID] {
                     guard panel.panelType.rawValue == expectedType.rawValue else {
                         throw TerminalBackendTopologyProjectionError.projectionFailed(
@@ -455,10 +558,32 @@ extension TabManager: TerminalBackendTopologyProjecting {
                     ) else {
                         throw TerminalBackendTopologyProjectionError.missingSurface(surfaceID)
                     }
-                    state.terminalCreations.append(.init(
-                        panel: panel,
-                        workspace: workspace
-                    ))
+                    if let cloudLoadingAdoption {
+                        guard let stagedRetirementIndex = state.retirements.lastIndex(where: {
+                            $0.transfer.panelId == surfaceID
+                                && $0.workspace === workspace
+                        }) else {
+                            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                                "canonical cloud terminal adoption retirement"
+                            )
+                        }
+                        state.retirements.remove(at: stagedRetirementIndex)
+                        panel.adoptStableSurfaceId(
+                            cloudLoadingAdoption.transfer.panel.stableSurfaceId
+                        )
+                        state.cloudTerminalAdoptions.append(.init(
+                            workspace: workspace,
+                            pane: cloudLoadingAdoption.pane,
+                            index: cloudLoadingAdoption.index,
+                            loadingTransfer: cloudLoadingAdoption.transfer,
+                            terminalPanel: panel
+                        ))
+                    } else {
+                        state.terminalCreations.append(.init(
+                            panel: panel,
+                            workspace: workspace
+                        ))
+                    }
                 } else if expectedType == .browser {
                     let endpoint = try browserResolver.endpoint(
                         authority: snapshot.authority,
@@ -489,7 +614,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 guard !targetSurfaceIDs.contains(panelID) else { return nil }
                 if panel is TerminalPanel { return panelID }
                 if let browser = panel as? BrowserPanel,
-                   case .backend = browser.endpointProvenance {
+                   browser.endpointProvenance.canonicalSurfaceID != nil {
                     return panelID
                 }
                 return nil
@@ -537,7 +662,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
             let canonicalPresentationIDs: [UUID] = workspace.panels.compactMap { panelID, panel in
                 if panel is TerminalPanel { return panelID }
                 if let browser = panel as? BrowserPanel,
-                   case .backend = browser.endpointProvenance {
+                   browser.endpointProvenance.canonicalSurfaceID != nil {
                     return panelID
                 }
                 return nil
@@ -584,6 +709,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
             factory: terminalClientComposition.browserEndpointFactory
         )
         var existingPanels: [UUID: any Panel] = [:]
+        var existingPanelWorkspaceIDs: [UUID: UUID] = [:]
         var existingWorkspaceIDs: Set<UUID> = []
         for workspace in tabs {
             guard existingWorkspaceIDs.insert(workspace.id).inserted else {
@@ -597,6 +723,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
                         "one surface is presented more than once in this window"
                     )
                 }
+                existingPanelWorkspaceIDs[panelID] = workspace.id
             }
         }
 
@@ -651,7 +778,16 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 }
                 let expectedType = try panelType(for: surface)
                 if let existing = existingPanels[surfaceID] {
-                    guard existing.panelType.rawValue == expectedType.rawValue else {
+                    let permitsCloudAdoption = existingPanelWorkspaceIDs[surfaceID]
+                        == workspacePlan.canonical.uuid.rawValue
+                        && permitsCloudTerminalAdoption(
+                            panel: existing,
+                            expectedType: expectedType,
+                            workspaceID: workspacePlan.canonical.uuid.rawValue,
+                            surfaceID: surfaceID
+                        )
+                    guard existing.panelType.rawValue == expectedType.rawValue
+                            || permitsCloudAdoption else {
                         throw TerminalBackendTopologyProjectionError.projectionFailed(
                             "canonical surface kind changed for an existing presentation"
                         )
@@ -684,7 +820,15 @@ extension TabManager: TerminalBackendTopologyProjecting {
                     continue
                 }
                 let expectedType = try panelType(for: dormantSurface)
-                guard dormantPanel.panelType == expectedType else {
+                let permitsCloudAdoption = existingPanelWorkspaceIDs[dormantSurfaceID]
+                    == workspacePlan.canonical.uuid.rawValue
+                    && permitsCloudTerminalAdoption(
+                        panel: dormantPanel,
+                        expectedType: expectedType,
+                        workspaceID: workspacePlan.canonical.uuid.rawValue,
+                        surfaceID: dormantSurfaceID
+                    )
+                guard dormantPanel.panelType == expectedType || permitsCloudAdoption else {
                     throw TerminalBackendTopologyProjectionError.projectionFailed(
                         "dormant canonical surface kind changed for an existing presentation"
                     )
@@ -701,6 +845,23 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 }
             }
         }
+    }
+
+    private func permitsCloudTerminalAdoption(
+        panel: any Panel,
+        expectedType: PanelType,
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> Bool {
+        guard panel is CloudVMLoadingPanel,
+              expectedType == .terminal else {
+            return false
+        }
+        return terminalClientComposition.terminalBackendTopologyAdoptionRegistry?
+            .permitsCloudTerminalAdoption(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ) == true
     }
 
     private func captureTopologyProjectionState() throws -> TabManagerTopologyProjectionState {
@@ -821,7 +982,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
     ) throws {
         guard let panel = workspace.panels[panelID],
               panel is TerminalPanel || (panel as? BrowserPanel).map({ browser in
-                  if case .backend = browser.endpointProvenance { return true }
+                  if browser.endpointProvenance.canonicalSurfaceID != nil { return true }
                   return false
               }) == true,
               let tabID = workspace.surfaceIdFromPanelId(panelID),
@@ -847,6 +1008,28 @@ extension TabManager: TerminalBackendTopologyProjecting {
     private func finalizeCanonicalTopology(
         _ state: TabManagerTopologyProjectionState
     ) {
+        for adoption in state.cloudTerminalAdoptions {
+            adoption.workspace.publishCmuxSurfaceClosed(
+                adoption.loadingTransfer.panelId,
+                paneId: adoption.pane,
+                panel: adoption.loadingTransfer.panel,
+                origin: "terminal_backend_cloud_adoption"
+            )
+            adoption.workspace.publishCmuxSurfaceCreated(
+                adoption.terminalPanel.id,
+                paneId: adoption.workspace.paneId(forPanelId: adoption.terminalPanel.id),
+                kind: "terminal",
+                origin: "terminal_backend_cloud_adoption",
+                focused: false
+            )
+            adoption.loadingTransfer.panel.close()
+            _ = terminalClientComposition.terminalBackendTopologyAdoptionRegistry?
+                .consumeCloudTerminalAdoption(
+                    workspaceID: adoption.workspace.id,
+                    surfaceID: adoption.terminalPanel.id
+                )
+        }
+        state.cloudTerminalAdoptions.removeAll()
         for adoption in state.terminalPlacementAdoptions {
             adoption.panel.finalizeStagedCanonicalWorkspaceId(adoption.workspaceID)
             adoption.sourceWorkspace.publishCmuxSurfaceClosed(
@@ -925,6 +1108,9 @@ extension TabManager: TerminalBackendTopologyProjecting {
             retirement.transfer.panel.close()
         }
         state.retirements.removeAll()
+        for workspace in tabs {
+            workspace.rememberBackendCanonicalTabPlacementBaseline()
+        }
         let liveWorkspaceIdentities = Set(tabs.map(ObjectIdentifier.init))
         for workspace in state.touchedWorkspaces
             where !liveWorkspaceIdentities.contains(ObjectIdentifier(workspace))
@@ -955,6 +1141,39 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 workspace.isApplyingCanonicalTopologyProjection = false
             }
         }
+
+        for adoption in state.cloudTerminalAdoptions.reversed() {
+            if adoption.workspace.panels[adoption.terminalPanel.id]
+                === adoption.terminalPanel {
+                guard let terminalTransfer = adoption.workspace.detachSurface(
+                    panelId: adoption.terminalPanel.id,
+                    publishLifecycleEvent: false
+                ) else {
+                    recordFailure("adopted cloud terminal could not be detached during rollback")
+                    continue
+                }
+                adoption.terminalPanel.surface
+                    .detachExternalPresentationPreservingCanonicalTerminal()
+                terminalTransfer.panel.close()
+            }
+            let rollbackPane = adoption.workspace.bonsplitController.allPaneIds
+                .contains(adoption.pane)
+                ? adoption.pane
+                : adoption.workspace.bonsplitController.allPaneIds.first
+            guard let rollbackPane,
+                  adoption.workspace.attachDetachedSurface(
+                    adoption.loadingTransfer,
+                    inPane: rollbackPane,
+                    atIndex: adoption.index,
+                    focus: false,
+                    publishLifecycleEvent: false,
+                    adoptCanonicalTerminalPlacement: false
+                  ) == adoption.loadingTransfer.panelId else {
+                recordFailure("cloud loading surface could not be restored during rollback")
+                continue
+            }
+        }
+        state.cloudTerminalAdoptions.removeAll()
 
         for retirement in state.retirements {
             let pane = retirement.workspace.bonsplitController.allPaneIds.contains(retirement.pane)
@@ -1190,7 +1409,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
             }
         )
         let existingTree = workspace.bonsplitController.treeSnapshot()
-        var overlaysByCanonicalPane: [UUID: [TabID]] = [:]
+        var overlaysByCanonicalPane: [UUID: [TerminalBackendClientOverlayTabPlacement]] = [:]
         var standaloneOverlayTabs: Set<TabID> = []
         for pane in existingPanes(in: existingTree) {
             guard let existingPaneID = UUID(uuidString: pane.id) else { continue }
@@ -1198,12 +1417,27 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 guard let tabID = UUID(uuidString: tab.id) else { return nil }
                 return TabID(uuid: tabID)
             }
-            let overlays = paneTabIDs.filter { tabID in
+            let overlayTabIDs = paneTabIDs.filter { tabID in
                 guard let panelID = workspace.panelIdFromSurfaceId(tabID),
                       let panel = workspace.panels[panelID] else { return false }
                 return !(panel is TerminalPanel) && !canonicalSurfaceIDs.contains(panelID)
             }
-            guard !overlays.isEmpty else { continue }
+            guard !overlayTabIDs.isEmpty else { continue }
+            let overlays = overlayTabIDs.compactMap { tabID -> TerminalBackendClientOverlayTabPlacement? in
+                guard let index = paneTabIDs.firstIndex(of: tabID) else { return nil }
+                let preceding = paneTabIDs[..<index].last(where: canonicalTabIDs.contains)
+                let following = paneTabIDs[paneTabIDs.index(after: index)...]
+                    .first(where: canonicalTabIDs.contains)
+                let fallbackSlot = paneTabIDs[..<index].reduce(into: 0) { count, candidate in
+                    if canonicalTabIDs.contains(candidate) { count += 1 }
+                }
+                return TerminalBackendClientOverlayTabPlacement(
+                    tabID: tabID,
+                    precedingCanonicalTabID: preceding,
+                    followingCanonicalTabID: following,
+                    fallbackSlot: fallbackSlot
+                )
+            }
             let targetPaneID = canonicalPaneIDs.contains(existingPaneID)
                 ? existingPaneID
                 : paneTabIDs.compactMap { tabID in
@@ -1214,7 +1448,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
             if let targetPaneID {
                 overlaysByCanonicalPane[targetPaneID, default: []].append(contentsOf: overlays)
             } else {
-                standaloneOverlayTabs.formUnion(overlays)
+                standaloneOverlayTabs.formUnion(overlays.map(\.tabID))
             }
         }
 
@@ -1285,7 +1519,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
         panesByID: [UUID: CanonicalPane],
         workspace: Workspace,
         existing: ExternalTreeNode?,
-        overlayTabsByPane: inout [UUID: [TabID]]
+        overlayTabsByPane: inout [UUID: [TerminalBackendClientOverlayTabPlacement]]
     ) throws -> BonsplitAuthoritativeTree.Node? {
         switch layout {
         case .leaf(_, let paneUUID):
@@ -1303,7 +1537,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 return tabID
             }
             if let overlayTabs = overlayTabsByPane.removeValue(forKey: paneUUID.rawValue) {
-                tabIDs.append(contentsOf: overlayTabs)
+                tabIDs = mergeClientOverlayTabs(overlayTabs, into: tabIDs)
             }
             guard !tabIDs.isEmpty else { return nil }
             return .pane(BonsplitAuthoritativeTree.Pane(
@@ -1348,6 +1582,36 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 return nil
             }
         }
+    }
+
+    private func mergeClientOverlayTabs(
+        _ overlays: [TerminalBackendClientOverlayTabPlacement],
+        into canonicalTabs: [TabID]
+    ) -> [TabID] {
+        var overlaysBySlot: [Int: [TabID]] = [:]
+        for overlay in overlays {
+            let slot: Int
+            if let preceding = overlay.precedingCanonicalTabID,
+               let index = canonicalTabs.firstIndex(of: preceding) {
+                slot = index + 1
+            } else if let following = overlay.followingCanonicalTabID,
+                      let index = canonicalTabs.firstIndex(of: following) {
+                slot = index
+            } else {
+                slot = min(max(overlay.fallbackSlot, 0), canonicalTabs.count)
+            }
+            overlaysBySlot[slot, default: []].append(overlay.tabID)
+        }
+
+        var merged: [TabID] = []
+        merged.reserveCapacity(canonicalTabs.count + overlays.count)
+        for slot in 0...canonicalTabs.count {
+            merged.append(contentsOf: overlaysBySlot[slot] ?? [])
+            if slot < canonicalTabs.count {
+                merged.append(canonicalTabs[slot])
+            }
+        }
+        return merged
     }
 
     private func existingPanes(in node: ExternalTreeNode) -> [ExternalPaneNode] {
@@ -1558,16 +1822,15 @@ extension TabManager: TerminalBackendTopologyProjecting {
         }
     }
 
-    /// `frontend-optional` browser endpoints stay in the daemon topology and
-    /// identity namespace but do not become local AppKit panels until Swift
-    /// implements their advertised frame transport. Missing descriptors and
-    /// older descriptors remain projectable so preflight fails closed.
+    /// Native WebKit endpoints are canonical placement projected by Swift.
+    /// Daemon-rendered endpoints stay in the topology but remain omitted when
+    /// their descriptor explicitly permits a frontend without frame support.
     private func shouldProjectCanonicalSurface(_ surface: CanonicalSurface) -> Bool {
         guard surface.kind.lowercased() == "browser",
               surface.browserEndpoint?.frontendProjection == .frontendOptional else {
             return true
         }
-        return false
+        return surface.browserEndpoint?.transport == .frontendNativeV1
     }
 
     private func applyCanonicalSurfaceName(

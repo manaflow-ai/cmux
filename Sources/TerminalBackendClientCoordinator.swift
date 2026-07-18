@@ -11,7 +11,8 @@ actor TerminalBackendClientCoordinator:
     TerminalBackendProjectionStateServing,
     TerminalBackendTopologyMutating,
     TerminalBackendExternalTerminalServing,
-    TerminalBackendFrontendNativeBrowserServing
+    TerminalBackendFrontendNativeBrowserServing,
+    TerminalBackendFrontendConnectionRecovering
 {
     typealias ReadinessProvider = @Sendable () async throws -> BackendServiceBootstrapResult
     typealias SessionFactory = @Sendable (BackendServiceReadiness) -> any TerminalBackendSessionServing
@@ -75,6 +76,8 @@ actor TerminalBackendClientCoordinator:
     private var topologyMutationInFlight = false
     private var topologyMutationWaiters: [CheckedContinuation<Void, Never>] = []
     private var topologyRevisionWaiters: [UUID: TopologyRevisionWaiter] = [:]
+    private var frontendRecoveryGeneration: UUID?
+    private var frontendRecoveryStartCount = 0
 
     init(
         bootstrapCoordinator: BackendServiceBootstrapCoordinator,
@@ -181,6 +184,28 @@ actor TerminalBackendClientCoordinator:
     }
 
     func disconnectFrontend() async {
+        frontendRecoveryGeneration = nil
+        await disconnectFrontendPreservingRecoveryGeneration()
+    }
+
+    /// Browser lease failures invalidate every connection-private claim. Keep
+    /// one recovery generation active until a replacement session is usable so
+    /// simultaneous failures cannot each tear down the process-wide frontend.
+    func recoverFrontendConnection() async {
+        guard frontendRecoveryGeneration == nil else { return }
+        let generation = UUID()
+        frontendRecoveryGeneration = generation
+        frontendRecoveryStartCount += 1
+        await disconnectFrontendPreservingRecoveryGeneration()
+        guard frontendRecoveryGeneration == generation else { return }
+        ensureConnectionSupervisor()
+    }
+
+    var debugFrontendRecoveryStartCount: Int {
+        frontendRecoveryStartCount
+    }
+
+    private func disconnectFrontendPreservingRecoveryGeneration() async {
         connectionSupervisorID = UUID()
         connectionSupervisorTask?.cancel()
         connectionSupervisorTask = nil
@@ -2342,6 +2367,7 @@ actor TerminalBackendClientCoordinator:
                 latestActivitySnapshot = nil
             }
             observe(result, attemptID: attemptID)
+            frontendRecoveryGeneration = nil
             if case .readWrite = compatibility {
                 await flushTerminalReceiptAcknowledgements(on: result)
                 if let workers = try? await result.session.rendererWorkers(),

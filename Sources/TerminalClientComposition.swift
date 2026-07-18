@@ -1,5 +1,6 @@
 import CmuxTerminal
 import CmuxTerminalBackend
+import Foundation
 
 /// Process-scoped terminal client dependencies shared by every window,
 /// workspace, and Dock in one cmux process.
@@ -10,7 +11,13 @@ final class TerminalClientComposition {
     let terminalPresentationRegistry: TerminalBackendPresentationRegistry?
     let terminalBackendTopologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate?
     let terminalBackendTopologyMutationCoordinator: TerminalBackendTopologyMutationCoordinator?
+    let terminalBackendTopologyAdoptionRegistry: TerminalBackendTopologyAdoptionRegistry?
+    let nativeBrowserPresentationRegistry: TerminalBackendNativeBrowserPresentationRegistry
+    let nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator?
     let browserEndpointFactory: any TerminalBackendBrowserEndpointCreating
+    /// Whether Swift can present a canonical browser endpoint. Production
+    /// supports frontend-native WebKit endpoints, not daemon PNG frames.
+    let canonicalBrowserProjectionAvailable: Bool
 
     init(
         terminalPanelFactory: any TerminalPanelCreating,
@@ -18,15 +25,24 @@ final class TerminalClientComposition {
         terminalPresentationRegistry: TerminalBackendPresentationRegistry? = nil,
         terminalBackendTopologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate? = nil,
         terminalBackendTopologyMutationCoordinator: TerminalBackendTopologyMutationCoordinator? = nil,
-        browserEndpointFactory: (any TerminalBackendBrowserEndpointCreating)? = nil
+        terminalBackendTopologyAdoptionRegistry: TerminalBackendTopologyAdoptionRegistry? = nil,
+        nativeBrowserPresentationRegistry: TerminalBackendNativeBrowserPresentationRegistry? = nil,
+        nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator? = nil,
+        browserEndpointFactory: (any TerminalBackendBrowserEndpointCreating)? = nil,
+        canonicalBrowserProjectionAvailable: Bool = false
     ) {
         self.terminalPanelFactory = terminalPanelFactory
         self.terminalBackendClient = terminalBackendClient
         self.terminalPresentationRegistry = terminalPresentationRegistry
         self.terminalBackendTopologyAuthorizationGate = terminalBackendTopologyAuthorizationGate
         self.terminalBackendTopologyMutationCoordinator = terminalBackendTopologyMutationCoordinator
+        self.terminalBackendTopologyAdoptionRegistry = terminalBackendTopologyAdoptionRegistry
+        self.nativeBrowserPresentationRegistry = nativeBrowserPresentationRegistry
+            ?? TerminalBackendNativeBrowserPresentationRegistry()
+        self.nativeBrowserRuntimeCoordinator = nativeBrowserRuntimeCoordinator
         self.browserEndpointFactory = browserEndpointFactory
             ?? UnsupportedTerminalBackendBrowserEndpointFactory()
+        self.canonicalBrowserProjectionAvailable = canonicalBrowserProjectionAvailable
     }
 
     static func embedded() -> TerminalClientComposition {
@@ -44,6 +60,7 @@ final class TerminalClientComposition {
     ) -> TerminalClientComposition where Client: TerminalBackendClient & TerminalBackendTopologyMutating {
         let registry = TerminalBackendPresentationRegistry()
         let topologyAuthorizationGate = TerminalBackendTopologyAuthorizationGate()
+        let topologyAdoptionRegistry = TerminalBackendTopologyAdoptionRegistry()
         let topologyMutationCoordinator = TerminalBackendTopologyMutationCoordinator(
             mutator: backendClient,
             failureReporter: topologyFailureReporter
@@ -59,12 +76,37 @@ final class TerminalClientComposition {
             renderConfigSource: renderConfigSource,
             topologyAuthorizationGate: topologyAuthorizationGate
         )
+        let nativeBrowserPresentationRegistry =
+            TerminalBackendNativeBrowserPresentationRegistry()
+        let nativeBrowserRuntimeCoordinator =
+            (backendClient as? any TerminalBackendFrontendNativeBrowserServing).map {
+                let recoveringClient = backendClient as?
+                    any TerminalBackendFrontendConnectionRecovering
+                return TerminalBackendNativeBrowserRuntimeCoordinator(
+                    service: $0,
+                    presentationRegistry: nativeBrowserPresentationRegistry,
+                    failureReporter: topologyFailureReporter,
+                    recoveryHandler: {
+                        await recoveringClient?.recoverFrontendConnection()
+                    }
+                )
+            }
         return TerminalClientComposition(
             terminalPanelFactory: factory,
             terminalBackendClient: backendClient,
             terminalPresentationRegistry: registry,
             terminalBackendTopologyAuthorizationGate: topologyAuthorizationGate,
-            terminalBackendTopologyMutationCoordinator: topologyMutationCoordinator
+            terminalBackendTopologyMutationCoordinator: topologyMutationCoordinator,
+            terminalBackendTopologyAdoptionRegistry: topologyAdoptionRegistry,
+            nativeBrowserPresentationRegistry: nativeBrowserPresentationRegistry,
+            nativeBrowserRuntimeCoordinator: nativeBrowserRuntimeCoordinator,
+            browserEndpointFactory: NativeTerminalBackendBrowserEndpointFactory(
+                presentationRegistry: nativeBrowserPresentationRegistry,
+                claimedSourceURL: { [nativeBrowserRuntimeCoordinator] surfaceID in
+                    nativeBrowserRuntimeCoordinator?.claimedSourceURL(surfaceID: surfaceID)
+                }
+            ),
+            canonicalBrowserProjectionAvailable: true
         )
     }
 
@@ -82,5 +124,55 @@ final class TerminalClientComposition {
     /// Reader-specific daemon activity used to derive sidebar unread state.
     func terminalActivitySnapshots() async -> AsyncStream<BackendTerminalActivitySnapshot>? {
         await terminalBackendClient?.terminalActivitySnapshots()
+    }
+}
+
+/// Exact, one-shot authorization for a client-owned loading surface to become
+/// a daemon-owned terminal at the same stable workspace and surface IDs.
+/// Arbitrary panel-kind changes remain rejected by canonical preflight.
+@MainActor
+final class TerminalBackendTopologyAdoptionRegistry {
+    struct Key: Hashable, Sendable {
+        let workspaceID: UUID
+        let surfaceID: UUID
+    }
+
+    private var permitTokens: [Key: UUID] = [:]
+
+    @discardableResult
+    func beginCloudTerminalAdoption(
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> UUID {
+        let token = UUID()
+        permitTokens[Key(workspaceID: workspaceID, surfaceID: surfaceID)] = token
+        return token
+    }
+
+    func permitsCloudTerminalAdoption(
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> Bool {
+        permitTokens[Key(workspaceID: workspaceID, surfaceID: surfaceID)] != nil
+    }
+
+    func cancelCloudTerminalAdoption(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        token: UUID
+    ) {
+        let key = Key(workspaceID: workspaceID, surfaceID: surfaceID)
+        guard permitTokens[key] == token else { return }
+        permitTokens.removeValue(forKey: key)
+    }
+
+    @discardableResult
+    func consumeCloudTerminalAdoption(
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> Bool {
+        permitTokens.removeValue(
+            forKey: Key(workspaceID: workspaceID, surfaceID: surfaceID)
+        ) != nil
     }
 }

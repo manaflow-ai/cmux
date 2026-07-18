@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Bonsplit
+import enum CmuxTerminalBackend.BackendSplitDirection
 
 extension TerminalController {
     enum V2PaneResizeDirection: String {
@@ -103,12 +104,6 @@ extension TerminalController {
         axis: String,
         targetPixels: CGFloat
     ) -> (splitId: UUID, oldPosition: CGFloat, newPosition: CGFloat)? {
-        if workspace.panels.values.contains(where: { $0 is TerminalPanel }),
-           let mutationCoordinator = workspace.terminalClientComposition.terminalBackendTopologyMutationCoordinator,
-           !workspace.isApplyingCanonicalTopologyProjection {
-            mutationCoordinator.reject(.changeSplitRatio)
-            return nil
-        }
         guard targetPixels > 0 else { return nil }
         let orientationName: String
         switch axis.lowercased() {
@@ -134,6 +129,23 @@ extension TerminalController {
         let targetFraction = targetPixels / candidate.axisPixels
         let requested = candidate.paneInFirstChild ? targetFraction : (1 - targetFraction)
         let clamped = min(max(requested, 0.1), 0.9)
+        if let mutationCoordinator = workspace.terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator,
+           !workspace.isApplyingCanonicalTopologyProjection {
+            let direction: BackendSplitDirection
+            switch (orientationName, candidate.paneInFirstChild) {
+            case ("horizontal", true): direction = .right
+            case ("horizontal", false): direction = .left
+            case ("vertical", true): direction = .down
+            default: direction = .up
+            }
+            mutationCoordinator.requestSetSplitRatio(
+                around: paneUUID,
+                direction: direction,
+                ratio: Float(clamped)
+            )
+            return (candidate.splitId, candidate.dividerPosition, clamped)
+        }
         guard workspace.bonsplitController.setDividerPosition(
             clamped,
             forSplit: candidate.splitId,

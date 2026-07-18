@@ -30,3 +30,51 @@ enum TerminalPanelCreationOutcome {
         return nil
     }
 }
+
+/// Workspace creation either returns the newly allocated local overlay or a
+/// stable daemon request whose workspace arrives through canonical projection.
+enum WorkspaceCreationOutcome {
+    case created(Workspace)
+    case submittedToBackend(TerminalBackendTopologyMutationSubmission)
+    case failed
+
+    var workspace: Workspace? {
+        if case .created(let workspace) = self { return workspace }
+        return nil
+    }
+
+    var isAccepted: Bool {
+        switch self {
+        case .created, .submittedToBackend: true
+        case .failed: false
+        }
+    }
+}
+
+/// Browser creation is synchronous in embedded mode and canonical/asynchronous
+/// when cmuxd owns placement while Swift owns the WKWebView runtime.
+enum BrowserPanelCreationOutcome {
+    case created(BrowserPanel)
+    case submittedToBackend(TerminalBackendTopologyMutationSubmission)
+    case failed
+
+    var panel: BrowserPanel? {
+        if case .created(let panel) = self { return panel }
+        return nil
+    }
+
+    var surfaceID: UUID? {
+        switch self {
+        case .created(let panel): panel.id
+        case .submittedToBackend(let submission): submission.surfaceID
+        case .failed: nil
+        }
+    }
+
+    var isAccepted: Bool {
+        switch self {
+        case .created, .submittedToBackend: true
+        case .failed: false
+        }
+    }
+}

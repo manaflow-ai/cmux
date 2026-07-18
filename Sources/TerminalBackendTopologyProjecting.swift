@@ -72,6 +72,12 @@ protocol TerminalBackendTopologyProjecting: AnyObject {
     func presentationWorkspaceIDs() -> Set<UUID>
     func allPresentationPlacements() -> Set<TerminalBackendTopologyPlacement>
     func legacyTerminalPlacements() -> Set<TerminalBackendTopologyPlacement>
+    func frontendNativeBrowserIsPresented(surfaceID: SurfaceID) -> Bool
+    func frontendNativeBrowserSourceURL(surfaceID: SurfaceID) -> URL?
+    func installFrontendNativeBrowserClaimSourceURL(
+        _ sourceURL: URL,
+        surfaceID: SurfaceID
+    )
     func prepareCanonicalTopology(
         _ snapshot: TopologySnapshot,
         plan: TerminalBackendTopologyProjectionPlan
@@ -87,6 +93,16 @@ extension TerminalBackendTopologyProjecting {
     func allPresentationPlacements() -> Set<TerminalBackendTopologyPlacement> {
         legacyTerminalPlacements()
     }
+    func frontendNativeBrowserSourceURL(surfaceID _: SurfaceID) -> URL? {
+        nil
+    }
+    func frontendNativeBrowserIsPresented(surfaceID _: SurfaceID) -> Bool {
+        false
+    }
+    func installFrontendNativeBrowserClaimSourceURL(
+        _ sourceURL: URL,
+        surfaceID: SurfaceID
+    ) {}
 
     func installCanonicalTopology(
         _ snapshot: TopologySnapshot,

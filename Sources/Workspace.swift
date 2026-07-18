@@ -7,7 +7,9 @@ import CmuxRemoteSession
 import CmuxRemoteWorkspace
 import CmuxWorkspaces
 import CmuxTerminal
-import CmuxTerminalBackend
+import struct CmuxTerminalBackend.BackendTerminalLaunch
+import enum CmuxTerminalBackend.BackendSplitDirection
+import struct CmuxTerminalBackend.SurfaceID
 import SwiftUI
 import AppKit
 import CmuxFoundation
@@ -1607,7 +1609,11 @@ extension Workspace {
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration,
                 transparentBackground: snapshot.browser?.transparentBackground ?? false,
-                restoredSurfaceId: snapshot.id
+                restoredSurfaceId: snapshot.id,
+                endpointProvenance: terminalClientComposition
+                    .terminalBackendTopologyMutationCoordinator == nil
+                    ? .clientOverlay
+                    : .frontendNativeCanonical(SurfaceID(rawValue: snapshot.id))
             ) else {
                 return nil
             }
@@ -2163,6 +2169,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Allows the canonical topology projector to use local Bonsplit construction
     /// APIs while all user-initiated terminal structure changes remain fail-closed.
     var isApplyingCanonicalTopologyProjection = false
+    var backendDividerPositionsBeforeDrag: [UUID: Double]?
+    var backendCanonicalPanelOrderByPane: [UUID: [UUID]] = [:]
+    var backendOptimisticTabMutationInFlight = false
+    var isRollingBackBackendOptimisticTabMutation = false
     private var debugStressPreloadSelectionDepth = 0
 
     /// `tmuxStartCommand` is embedded-Ghostty launch metadata. Persistent
@@ -2977,9 +2987,9 @@ final class Workspace: Identifiable, ObservableObject {
             allowSplits: true,
             allowCloseTabs: !CloseTabWarningStore(defaults: closeTabWarningDefaults).hidesTabCloseButton,
             allowCloseLastPane: false,
-            allowTabReordering: terminalClientComposition.terminalBackendTopologyMutationCoordinator == nil,
-            allowCrossPaneTabMove: terminalClientComposition.terminalBackendTopologyMutationCoordinator == nil,
-            allowDividerResizing: terminalClientComposition.terminalBackendTopologyMutationCoordinator == nil,
+            allowTabReordering: true,
+            allowCrossPaneTabMove: true,
+            allowDividerResizing: true,
             autoCloseEmptyPanes: true,
             contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
@@ -3022,10 +3032,10 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = surfaceIdFromPanelId(initialDetachedSurface.panelId)
             }
         } else if let browserPanel = initialCanonicalBrowserPanel {
-            guard case .backend(let endpoint) = browserPanel.endpointProvenance else {
-                preconditionFailure("canonical browser workspace requires backend provenance")
+            guard let canonicalSurfaceID = browserPanel.endpointProvenance.canonicalSurfaceID else {
+                preconditionFailure("canonical browser workspace requires canonical provenance")
             }
-            precondition(endpoint.surfaceID.rawValue == browserPanel.id)
+            precondition(canonicalSurfaceID.rawValue == browserPanel.id)
             precondition(browserPanel.workspaceId == id)
             configureBrowserPanel(browserPanel)
             panels[browserPanel.id] = browserPanel
@@ -3682,6 +3692,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+        if case .frontendNativeCanonical(let surfaceID) = browserPanel.endpointProvenance,
+           let runtimeCoordinator = terminalClientComposition.nativeBrowserRuntimeCoordinator {
+            browserPanel.onCommittedCanonicalSourceURL = { [weak runtimeCoordinator] sourceURL in
+                runtimeCoordinator?.browserDidCommitSourceURL(
+                    sourceURL,
+                    surfaceID: surfaceID
+                )
+            }
+        } else {
+            browserPanel.onCommittedCanonicalSourceURL = nil
+        }
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
             guard self.panels[browserPanel.id] is BrowserPanel else { return }
@@ -3956,6 +3977,22 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? BrowserPanel
     }
 
+    func backendCanonicalSurfaceID(for panelID: UUID) -> UUID? {
+        if let terminal = terminalPanel(for: panelID),
+           terminal.surface.isExternallyManaged {
+            return terminal.id
+        }
+        if let browser = browserPanel(for: panelID),
+           let surfaceID = browser.endpointProvenance.canonicalSurfaceID {
+            return surfaceID.rawValue
+        }
+        return nil
+    }
+
+    func isBackendCanonicalPanel(_ panelID: UUID) -> Bool {
+        backendCanonicalSurfaceID(for: panelID) != nil
+    }
+
     func markdownPanel(for panelId: UUID) -> MarkdownPanel? {
         panels[panelId] as? MarkdownPanel
     }
@@ -4137,7 +4174,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func setPanelCustomTitle(panelId: UUID, title: String?, source: CustomTitleSource = .user) -> Bool {
         guard panels[panelId] != nil else { return false }
-        if panels[panelId] is TerminalPanel,
+        if isBackendCanonicalPanel(panelId),
            let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
            !isApplyingCanonicalTopologyProjection {
             let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -6964,7 +7001,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``
     /// but distinguishes a split routed to the remote tmux mirror from a genuine
-    /// failure, so socket/CLI handlers can report the routed request as accepted.
+    /// failure, so socket/CLI handlers can report a remote route or a queued
+    /// backend request without claiming daemon acceptance.
     /// (Reporting an error makes automation retry and duplicate remote panes.)
     func newTerminalSplitOutcome(
         from panelId: UUID,
@@ -7319,7 +7357,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Like ``newTerminalSurface(inPane:focus:workingDirectory:initialCommand:tmuxStartCommand:initialInput:startupEnvironment:autoRefreshMetadata:preserveFocusWhenUnfocused:remotePTYSessionID:suppressWorkspaceRemoteStartupCommand:)``
     /// but distinguishes a request routed to the remote tmux mirror from a genuine
-    /// failure, so socket/CLI handlers can report the routed request as accepted.
+    /// failure, so socket/CLI handlers can report a remote route or a queued
+    /// backend request without claiming daemon acceptance.
     func newTerminalSurfaceOutcome(
         inPane paneId: PaneID,
         focus: Bool? = nil,
@@ -7755,7 +7794,80 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func replaceCloudVMLoadingSurfaceWithTerminal(
+    func requestCloudVMLoadingSurfaceTerminalReplacement(
+        workspaceId: UUID,
+        initialCommand: String,
+        focus: Bool = true
+    ) -> TerminalPanelCreationOutcome {
+        guard workspaceId == id,
+              let pair = panels.first(where: {
+                  $0.value.panelType == .cloudVMLoading
+              }),
+              let loadingPanel = pair.value as? CloudVMLoadingPanel else {
+            return .failed
+        }
+        let trimmedCommand = initialCommand
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty else {
+            loadingPanel.showFailure(String(
+                localized: "panel.cloudVM.loading.failed.missingCommand",
+                defaultValue: "Cloud VM attach command was empty."
+            ))
+            return .failed
+        }
+        guard let mutationCoordinator = terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator else {
+            guard let panel = replaceCloudVMLoadingSurfaceWithLocalTerminal(
+                workspaceId: workspaceId,
+                initialCommand: trimmedCommand,
+                focus: focus
+            ) else {
+                return .failed
+            }
+            return .created(panel)
+        }
+        guard let adoptionRegistry = terminalClientComposition
+            .terminalBackendTopologyAdoptionRegistry else {
+            mutationCoordinator.reportFailure(for: .attachSurface)
+            return .failed
+        }
+
+        let permitToken = adoptionRegistry.beginCloudTerminalAdoption(
+            workspaceID: id,
+            surfaceID: pair.key
+        )
+        let submission = mutationCoordinator.requestCreateWorkspace(
+            workspaceID: id,
+            surfaceID: pair.key,
+            name: title,
+            launch: BackendTerminalLaunch(
+                workingDirectory: currentDirectory,
+                command: trimmedCommand,
+                environment: startupEnvironmentMergingWorkspaceEnvironment([:]),
+                waitAfterCommand: true
+            ),
+            onProjected: { [weak self] _ in
+                guard focus, let self,
+                      self.panels[pair.key] is TerminalPanel else {
+                    return
+                }
+                self.focusPanel(pair.key)
+            },
+            onFailure: { [weak adoptionRegistry] in
+                adoptionRegistry?.cancelCloudTerminalAdoption(
+                    workspaceID: workspaceId,
+                    surfaceID: pair.key,
+                    token: permitToken
+                )
+            }
+        )
+        return .submittedToBackend(submission)
+    }
+
+    /// Embedded-runtime implementation. Persistent mode uses the exact-ID
+    /// adoption request above and never replaces the loading panel early.
+    @discardableResult
+    func replaceCloudVMLoadingSurfaceWithLocalTerminal(
         workspaceId: UUID,
         initialCommand: String,
         focus: Bool = true
@@ -7774,16 +7886,6 @@ final class Workspace: Identifiable, ObservableObject {
                 localized: "panel.cloudVM.loading.failed.missingCommand",
                 defaultValue: "Cloud VM attach command was empty."
             ))
-            return nil
-        }
-
-        // A local Cloud VM loading panel has no canonical daemon placement yet.
-        // Constructing its external runtime here would wait forever at the
-        // topology authorization gate. Keep the loading panel intact until the
-        // backend can atomically adopt these stable workspace/surface IDs and a
-        // canonical snapshot authorizes presentation attachment.
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            _ = mutationCoordinator.reject(.attachSurface)
             return nil
         }
 
@@ -7846,7 +7948,106 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
     @discardableResult
-    func respawnTerminalSurface(
+    func requestRespawnTerminalSurface(
+        panelId: UUID,
+        command: String,
+        workingDirectory: String? = nil,
+        tmuxStartCommand: String? = nil,
+        focus: Bool? = nil,
+        waitAfterCommand: Bool? = nil,
+        replayScrollback: String? = nil,
+        replayFileURL: URL? = nil,
+        allowTextBoxFocusDefault: Bool = true,
+        onReady: (@MainActor (TerminalPanel) -> Void)? = nil,
+        onFailure: (@MainActor () -> Void)? = nil
+    ) -> TerminalPanelCreationOutcome {
+        guard let oldPanel = terminalPanel(for: panelId),
+              let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId) else {
+            return .failed
+        }
+        let trimmedCommand = command
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty else { return .failed }
+        guard let mutationCoordinator = terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator else {
+            guard let panel = respawnLocalTerminalSurface(
+                panelId: panelId,
+                command: command,
+                workingDirectory: workingDirectory,
+                tmuxStartCommand: tmuxStartCommand,
+                focus: focus,
+                waitAfterCommand: waitAfterCommand,
+                replayScrollback: replayScrollback,
+                replayFileURL: replayFileURL,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            ) else {
+                return .failed
+            }
+            onReady?(panel)
+            return .created(panel)
+        }
+
+        let selectedInPane = bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+        let paneWasFocused = bonsplitController.focusedPaneId == paneId
+        let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
+        let requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+            requestedWorkingDirectory: workingDirectory,
+            sourcePanelId: panelId
+        )
+        let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
+        var environment = oldPanel.surface.respawnInitialEnvironmentOverrides
+            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
+        environment.merge(
+            startupEnvironmentMergingWorkspaceEnvironment(
+                oldPanel.surface.respawnAdditionalEnvironment.filter {
+                    oldSeededWorkspaceEnvironment[$0.key] != $0.value
+                }
+            ),
+            uniquingKeysWith: { _, replacement in replacement }
+        )
+        let effectiveReplayFileURL = replayFileURL
+            ?? SessionScrollbackReplayStore.replayFileURL(for: replayScrollback)
+        for (key, value) in SessionScrollbackReplayStore.replayEnvironment(
+            forFileURL: effectiveReplayFileURL
+        ) {
+            environment[key] = value
+        }
+        let submission = mutationCoordinator.requestRespawnTerminal(
+            surfaceID: panelId,
+            launch: BackendTerminalLaunch(
+                workingDirectory: requestedWorkingDirectory,
+                command: trimmedCommand,
+                environment: environment,
+                waitAfterCommand: waitAfterCommand
+                    ?? oldPanel.surface.debugWaitAfterCommand()
+            ),
+            onProjected: { [weak self, weak oldPanel] _ in
+                guard let self, let oldPanel,
+                      self.terminalPanel(for: panelId) === oldPanel else {
+                    return
+                }
+                oldPanel.adoptOwnedSessionScrollbackReplayArtifact(
+                    effectiveReplayFileURL
+                )
+                if shouldFocus {
+                    self.bonsplitController.focusPane(paneId)
+                    self.bonsplitController.selectTab(tabId)
+                    self.focusPanel(panelId)
+                }
+                self.scheduleTerminalGeometryReconcile()
+                self.scheduleFocusReconcile()
+                onReady?(oldPanel)
+            },
+            onFailure: onFailure
+        )
+        return .submittedToBackend(submission)
+    }
+
+    /// Embedded-runtime implementation. Persistent mode keeps the panel and
+    /// swaps only the daemon-owned runtime at a canonical revision.
+    @discardableResult
+    func respawnLocalTerminalSurface(
         panelId: UUID,
         command: String,
         workingDirectory: String? = nil,
@@ -7860,16 +8061,6 @@ final class Workspace: Identifiable, ObservableObject {
         guard let oldPanel = terminalPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId) else {
-            return nil
-        }
-
-        // Reconstructing a PersistentTerminalExternalRuntime with the same app
-        // surface UUID only re-runs idempotent ensureTerminal. It does not replace
-        // the daemon-owned PTY, and tearing down the old surface first races an
-        // asynchronous canonical close against that ensure. Preserve the live
-        // panel until cmuxd exposes an atomic stable-ID respawn operation.
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            _ = mutationCoordinator.reject(.attachSurface)
             return nil
         }
 
@@ -8015,6 +8206,217 @@ final class Workspace: Identifiable, ObservableObject {
         return command
     }
 
+    @discardableResult
+    func requestNewBrowserSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil,
+        focus: Bool = true,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool = false,
+        initialDividerPosition: CGFloat? = nil,
+        onProjected: ((BrowserPanel) -> Void)? = nil
+    ) -> BrowserPanelCreationOutcome {
+        guard let mutationCoordinator = terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator else {
+            guard let panel = newBrowserSplit(
+                from: panelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                url: url,
+                preferredProfileID: preferredProfileID,
+                focus: focus,
+                creationPolicy: creationPolicy,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy,
+                initialDividerPosition: initialDividerPosition
+            ) else { return .failed }
+            onProjected?(panel)
+            return .created(panel)
+        }
+        guard !isRemoteTmuxMirror,
+              BrowserAvailabilitySettings.isEnabled()
+                || creationPolicy.permitsCreationWhenBrowserDisabled,
+              let sourcePaneID = paneId(forPanelId: panelId) else {
+            return .failed
+        }
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let resolvedURL = url ?? URL(string: "about:blank")!
+        guard registerPendingNativeBrowserPresentation(
+            surfaceID: surfaceID,
+            sourcePanelID: panelId,
+            url: url,
+            initialRequest: nil,
+            preferredProfileID: preferredProfileID,
+            creationPolicy: creationPolicy,
+            bypassInsecureHTTPHostOnce: nil,
+            omnibarVisible: omnibarVisible,
+            transparentBackground: transparentBackground,
+            bypassRemoteProxy: bypassRemoteProxy
+        ) else { return .failed }
+        let direction: BackendSplitDirection
+        switch (orientation, insertFirst) {
+        case (.horizontal, true): direction = .left
+        case (.horizontal, false): direction = .right
+        case (.vertical, true): direction = .up
+        case (.vertical, false): direction = .down
+        }
+        let ratio = Float(initialDividerPosition.map(Double.init) ?? 0.5)
+        let submission = mutationCoordinator.requestSplitBrowserPane(
+            surfaceID: surfaceID.rawValue,
+            sourcePaneID.id,
+            direction: direction,
+            initialRatio: ratio,
+            url: resolvedURL,
+            onProjected: { [weak self] _ in
+                guard let panel = self?.finishNativeBrowserProjection(
+                    surfaceID: surfaceID,
+                    focus: focus
+                ) else { return }
+                onProjected?(panel)
+            },
+            onFailure: { [weak registry = terminalClientComposition.nativeBrowserPresentationRegistry] in
+                registry?.remove(surfaceID)
+            }
+        )
+        return .submittedToBackend(submission)
+    }
+
+    @discardableResult
+    func requestNewBrowserSurface(
+        inPane paneId: PaneID,
+        url: URL? = nil,
+        initialRequest: URLRequest? = nil,
+        focus: Bool? = nil,
+        selectWhenNotFocused: Bool = false,
+        insertAtEnd: Bool = false,
+        preferredProfileID: UUID? = nil,
+        bypassInsecureHTTPHostOnce: String? = nil,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool = false,
+        onProjected: ((BrowserPanel) -> Void)? = nil
+    ) -> BrowserPanelCreationOutcome {
+        guard let mutationCoordinator = terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator else {
+            guard let panel = newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                initialRequest: initialRequest,
+                focus: focus,
+                selectWhenNotFocused: selectWhenNotFocused,
+                insertAtEnd: insertAtEnd,
+                preferredProfileID: preferredProfileID,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+                creationPolicy: creationPolicy,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy
+            ) else { return .failed }
+            onProjected?(panel)
+            return .created(panel)
+        }
+        guard !isRemoteTmuxMirror,
+              bonsplitController.allPaneIds.contains(paneId),
+              BrowserAvailabilitySettings.isEnabled()
+                || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            return .failed
+        }
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let sourcePanelID = effectiveSelectedPanelId(inPane: paneId)
+        let resolvedURL = url ?? initialRequest?.url ?? URL(string: "about:blank")!
+        guard registerPendingNativeBrowserPresentation(
+            surfaceID: surfaceID,
+            sourcePanelID: sourcePanelID,
+            url: url,
+            initialRequest: initialRequest,
+            preferredProfileID: preferredProfileID,
+            creationPolicy: creationPolicy,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            omnibarVisible: omnibarVisible,
+            transparentBackground: transparentBackground,
+            bypassRemoteProxy: bypassRemoteProxy
+        ) else { return .failed }
+        let shouldFocus = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let submission = mutationCoordinator.requestCreateBrowserTab(
+            surfaceID: surfaceID.rawValue,
+            in: paneId.id,
+            url: resolvedURL,
+            onProjected: { [weak self] _ in
+                guard let panel = self?.finishNativeBrowserProjection(
+                    surfaceID: surfaceID,
+                    focus: shouldFocus
+                ) else { return }
+                onProjected?(panel)
+            },
+            onFailure: { [weak registry = terminalClientComposition.nativeBrowserPresentationRegistry] in
+                registry?.remove(surfaceID)
+            }
+        )
+        return .submittedToBackend(submission)
+    }
+
+    @discardableResult
+    private func registerPendingNativeBrowserPresentation(
+        surfaceID: SurfaceID,
+        sourcePanelID: UUID?,
+        url: URL?,
+        initialRequest: URLRequest?,
+        preferredProfileID: UUID?,
+        creationPolicy: BrowserPanelCreationPolicy,
+        bypassInsecureHTTPHostOnce: String?,
+        omnibarVisible: Bool,
+        transparentBackground: Bool,
+        bypassRemoteProxy: Bool
+    ) -> Bool {
+        terminalClientComposition.nativeBrowserPresentationRegistry.register(
+            TerminalBackendNativeBrowserPresentationRequest(
+                url: url,
+                initialRequest: initialRequest,
+                profileID: resolvedNewBrowserProfileID(
+                    preferredProfileID: preferredProfileID,
+                    sourcePanelId: sourcePanelID
+                ),
+                preloadInitialNavigationInBackground:
+                    creationPolicy.preloadsInitialNavigationInBackground,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                proxyEndpoint: remoteProxyEndpoint,
+                bypassRemoteProxy: bypassRemoteProxy,
+                isRemoteWorkspace: isRemoteWorkspace,
+                remoteWebsiteDataStoreIdentifier:
+                    isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            ),
+            for: surfaceID
+        )
+    }
+
+    private func finishNativeBrowserProjection(
+        surfaceID: SurfaceID,
+        focus: Bool
+    ) -> BrowserPanel? {
+        guard let panel = panels[surfaceID.rawValue] as? BrowserPanel,
+              panel.endpointProvenance.canonicalSurfaceID == surfaceID else {
+            return nil
+        }
+        terminalClientComposition.nativeBrowserPresentationRegistry.remove(surfaceID)
+        guard focus,
+              let paneID = paneId(forPanelId: panel.id),
+              let tabID = surfaceIdFromPanelId(panel.id) else { return panel }
+        bonsplitController.focusPane(paneID)
+        bonsplitController.selectTab(tabID)
+        panel.focus()
+        applyTabSelection(tabId: tabID, inPane: paneID)
+        return panel
+    }
+
     /// Create a new browser panel split
     @discardableResult
     func newBrowserSplit(
@@ -8030,6 +8432,24 @@ final class Workspace: Identifiable, ObservableObject {
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil,
+           !isApplyingCanonicalTopologyProjection,
+           creationPolicy != .restoration {
+            _ = requestNewBrowserSplit(
+                from: panelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                url: url,
+                preferredProfileID: preferredProfileID,
+                focus: focus,
+                creationPolicy: creationPolicy,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy,
+                initialDividerPosition: initialDividerPosition
+            )
+            return nil
+        }
         // No local browser surfaces in a remote tmux mirror workspace (it is a
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
@@ -8143,8 +8563,28 @@ final class Workspace: Identifiable, ObservableObject {
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
-        restoredSurfaceId: UUID? = nil
+        restoredSurfaceId: UUID? = nil,
+        endpointProvenance: BrowserPanelEndpointProvenance = .clientOverlay
     ) -> BrowserPanel? {
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil,
+           !isApplyingCanonicalTopologyProjection,
+           creationPolicy != .restoration {
+            _ = requestNewBrowserSurface(
+                inPane: paneId,
+                url: url,
+                initialRequest: initialRequest,
+                focus: focus,
+                selectWhenNotFocused: selectWhenNotFocused,
+                insertAtEnd: insertAtEnd,
+                preferredProfileID: preferredProfileID,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+                creationPolicy: creationPolicy,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy
+            )
+            return nil
+        }
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
         // that the mirror's rebuild() never reconciles, breaking the 1:1
@@ -8166,6 +8606,7 @@ final class Workspace: Identifiable, ObservableObject {
         let browserPanel = BrowserPanel(
             id: restoredSurfaceId ?? UUID(),
             workspaceId: id,
+            endpointProvenance: endpointProvenance,
             profileID: resolvedNewBrowserProfileID(
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: sourcePanelId
@@ -8247,8 +8688,8 @@ final class Workspace: Identifiable, ObservableObject {
               bonsplitController.allPaneIds.contains(paneId),
               panels[browserPanel.id] == nil,
               browserPanel.workspaceId == id,
-              case .backend(let endpoint) = browserPanel.endpointProvenance,
-              endpoint.surfaceID.rawValue == browserPanel.id else {
+              browserPanel.endpointProvenance.canonicalSurfaceID?.rawValue
+                == browserPanel.id else {
             return nil
         }
 
@@ -9287,7 +9728,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func moveSurface(panelId: UUID, toPane paneId: PaneID, atIndex index: Int? = nil, focus: Bool = true) -> Bool {
-        if panels[panelId] is TerminalPanel,
+        if isBackendCanonicalPanel(panelId),
            let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
            !isApplyingCanonicalTopologyProjection {
             guard bonsplitController.allPaneIds.contains(paneId) else { return false }
@@ -10984,33 +11425,50 @@ final class Workspace: Identifiable, ObservableObject {
     private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         let preferredProfileID = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0)?.profileID }
-        guard let newPanel = newBrowserSurface(
+        _ = requestNewBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
-            preferredProfileID: preferredProfileID
-        ) else { return }
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+            preferredProfileID: preferredProfileID,
+            onProjected: { [weak self] panel in
+                _ = self?.reorderSurface(panelId: panel.id, toIndex: targetIndex)
+            }
+        )
     }
 
     @discardableResult
-    func duplicateBrowserToRight(panelId: UUID, focus: Bool = true) -> BrowserPanel? {
+    func requestDuplicateBrowserToRight(
+        panelId: UUID,
+        focus: Bool = true
+    ) -> BrowserPanelCreationOutcome {
         guard let anchorTabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId),
-              let browser = browserPanel(for: panelId) else { return nil }
+              let browser = browserPanel(for: panelId) else { return .failed }
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        guard let newPanel = newBrowserSurface(
+        let shouldMute = browser.isMuted
+        return requestNewBrowserSurface(
             inPane: paneId,
             url: browser.currentURLForTabDuplication,
             focus: focus,
             preferredProfileID: browser.profileID,
             omnibarVisible: browser.isOmnibarVisible,
-            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication
-        ) else { return nil }
-        newPanel.setMuted(browser.isMuted)
-        syncBrowserAudioMuteStateForPanel(newPanel.id, browserPanel: newPanel)
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
-        return newPanel
+            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
+            onProjected: { [weak self] panel in
+                guard let self else { return }
+                panel.setMuted(shouldMute)
+                syncBrowserAudioMuteStateForPanel(panel.id, browserPanel: panel)
+                _ = reorderSurface(
+                    panelId: panel.id,
+                    toIndex: targetIndex,
+                    focus: focus
+                )
+            }
+        )
+    }
+
+    @discardableResult
+    func duplicateBrowserToRight(panelId: UUID, focus: Bool = true) -> BrowserPanel? {
+        requestDuplicateBrowserToRight(panelId: panelId, focus: focus).panel
     }
 
     private func promptRenamePanel(tabId: TabID) {
@@ -12171,6 +12629,24 @@ extension Workspace: BonsplitDelegate {
                 _ = mutationCoordinator.requestClose(terminalPanel)
                 return false
             }
+            if let panelId = panelIdFromSurfaceId(tab.id),
+               let browser = panels[panelId] as? BrowserPanel,
+               browser.endpointProvenance.canonicalSurfaceID != nil,
+                let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+               !isApplyingCanonicalTopologyProjection {
+                forceCloseTabIds.remove(tab.id)
+                stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+                terminalClientComposition.nativeBrowserPresentationRegistry.remove(
+                    SurfaceID(rawValue: panelId)
+                )
+                _ = mutationCoordinator.requestCloseSurface(
+                    panelId,
+                    onFailure: { [weak self] in
+                        self?.clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+                    }
+                )
+                return false
+            }
             if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
                 stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             } else {
@@ -12204,7 +12680,7 @@ extension Workspace: BonsplitDelegate {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
             if let panelId = panelIdFromSurfaceId(tab.id),
-               panels[panelId] is TerminalPanel,
+               isBackendCanonicalPanel(panelId),
                let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
                !isApplyingCanonicalTopologyProjection {
                 _ = mutationCoordinator.requestCloseWorkspace(id)
@@ -12277,6 +12753,22 @@ extension Workspace: BonsplitDelegate {
            let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
            !isApplyingCanonicalTopologyProjection {
             _ = mutationCoordinator.requestClose(terminalPanel)
+            return false
+        }
+        if let browser = panels[panelId] as? BrowserPanel,
+           browser.endpointProvenance.canonicalSurfaceID != nil,
+           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !isApplyingCanonicalTopologyProjection {
+            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+            terminalClientComposition.nativeBrowserPresentationRegistry.remove(
+                SurfaceID(rawValue: panelId)
+            )
+            _ = mutationCoordinator.requestCloseSurface(
+                panelId,
+                onFailure: { [weak self] in
+                    self?.clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+                }
+            )
             return false
         }
         if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
@@ -12482,7 +12974,19 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
         if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
            !isApplyingCanonicalTopologyProjection {
-            return mutationCoordinator.reject(.splitPane)
+            guard let selectedTab = controller.selectedTab(inPane: pane),
+                  let selectedPanelID = panelIdFromSurfaceId(selectedTab.id),
+                  isBackendCanonicalPanel(selectedPanelID) else {
+                return true
+            }
+            let direction: BackendSplitDirection = orientation == .horizontal
+                ? .right
+                : .down
+            _ = mutationCoordinator.requestSplitPane(
+                pane.id,
+                direction: direction
+            )
+            return false
         }
         // In a remote tmux mirror, split means tmux `split-window`; always veto
         // local splits so the mirror never gains an orphan pane.
@@ -12496,13 +13000,17 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
         // A remote tmux mirror tab reorder propagates to tmux window order.
-        guard isRemoteTmuxMirror else { return }
-        let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
-        guard !orderedPanelIds.isEmpty else { return }
-        _ = remoteTmuxWindowOrderSync?(orderedPanelIds, nil)
+        if isRemoteTmuxMirror {
+            let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
+            guard !orderedPanelIds.isEmpty else { return }
+            _ = remoteTmuxWindowOrderSync?(orderedPanelIds, nil)
+            return
+        }
+        _ = handleBackendTabReorder(in: pane, orderedTabIDs: orderedTabIds)
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
+        _ = handleBackendTabMove(tab, from: source, to: destination)
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
         let sincePrev: String
@@ -12652,12 +13160,22 @@ extension Workspace: BonsplitDelegate {
             let panePanels = tabs.compactMap { tab in
                 panelIdFromSurfaceId(tab.id).flatMap { panels[$0] }
             }
-            if panePanels.contains(where: { $0 is TerminalPanel }) {
-                guard panePanels.allSatisfy({ $0 is TerminalPanel }) else {
-                    mutationCoordinator.reportFailure(for: .closePane)
-                    return false
+            if panePanels.contains(where: { isBackendCanonicalPanel($0.id) }) {
+                let clientOwnedPanelIDs = panePanels.compactMap { panel in
+                    isBackendCanonicalPanel(panel.id) ? nil : panel.id
                 }
-                _ = mutationCoordinator.requestClosePane(pane.id)
+                _ = mutationCoordinator.requestClosePane(
+                    pane.id,
+                    onProjected: { [weak self] _ in
+                        guard let self else { return }
+                        self.withClosedPanelHistorySuppressed {
+                            for panelID in clientOwnedPanelIDs
+                                where !self.isBackendCanonicalPanel(panelID) {
+                                _ = self.closePanel(panelID, force: true)
+                            }
+                        }
+                    }
+                )
                 return false
             }
         }
@@ -12904,7 +13422,7 @@ extension Workspace: BonsplitDelegate {
         if let builtInAction = executable.builtInAction {
             switch builtInAction {
             case .newWorkspace:
-                owningTabManager?.addWorkspace()
+                _ = owningTabManager?.requestAddWorkspace()
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
@@ -13004,7 +13522,7 @@ extension Workspace: BonsplitDelegate {
         case "terminal":
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         case "browser":
-            _ = newBrowserSurface(inPane: pane)
+            _ = requestNewBrowserSurface(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         }

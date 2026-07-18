@@ -12,6 +12,7 @@ final class TerminalBackendTopologyCoordinator {
     typealias ActivitySource = @Sendable () async -> AsyncStream<BackendTerminalActivitySnapshot>?
     typealias ActivityReporter = @MainActor (Set<UUID>) -> Void
     typealias FailureReporter = @MainActor (String?) -> Void
+    typealias DisconnectHandler = @MainActor () -> Void
 
     private let eventSource: EventSource
     private let projector: any TerminalBackendTopologyProjecting
@@ -20,6 +21,9 @@ final class TerminalBackendTopologyCoordinator {
     private let activitySource: ActivitySource?
     private let activityReporter: ActivityReporter
     private let failureReporter: FailureReporter
+    private let mutationCoordinator: TerminalBackendTopologyMutationCoordinator?
+    private let disconnectHandler: DisconnectHandler
+    private let nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator?
 
     private var observationTask: Task<Void, Never>?
     private var activityTask: Task<Void, Never>?
@@ -46,7 +50,10 @@ final class TerminalBackendTopologyCoordinator {
         },
         activitySource: ActivitySource? = nil,
         activityReporter: @escaping ActivityReporter = { _ in },
-        failureReporter: @escaping FailureReporter = { _ in }
+        failureReporter: @escaping FailureReporter = { _ in },
+        mutationCoordinator: TerminalBackendTopologyMutationCoordinator? = nil,
+        disconnectHandler: @escaping DisconnectHandler = {},
+        nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator? = nil
     ) {
         self.eventSource = {
             let snapshots = try await snapshotSource()
@@ -68,6 +75,9 @@ final class TerminalBackendTopologyCoordinator {
         self.activitySource = activitySource
         self.activityReporter = activityReporter
         self.failureReporter = failureReporter
+        self.mutationCoordinator = mutationCoordinator
+        self.disconnectHandler = disconnectHandler
+        self.nativeBrowserRuntimeCoordinator = nativeBrowserRuntimeCoordinator
     }
 
     init(
@@ -79,7 +89,10 @@ final class TerminalBackendTopologyCoordinator {
         },
         activitySource: ActivitySource? = nil,
         activityReporter: @escaping ActivityReporter = { _ in },
-        failureReporter: @escaping FailureReporter = { _ in }
+        failureReporter: @escaping FailureReporter = { _ in },
+        mutationCoordinator: TerminalBackendTopologyMutationCoordinator? = nil,
+        disconnectHandler: @escaping DisconnectHandler = {},
+        nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator? = nil
     ) {
         self.eventSource = eventSource
         self.projector = projector
@@ -89,6 +102,9 @@ final class TerminalBackendTopologyCoordinator {
         self.activitySource = activitySource
         self.activityReporter = activityReporter
         self.failureReporter = failureReporter
+        self.mutationCoordinator = mutationCoordinator
+        self.disconnectHandler = disconnectHandler
+        self.nativeBrowserRuntimeCoordinator = nativeBrowserRuntimeCoordinator
     }
 
     convenience init?(
@@ -116,7 +132,16 @@ final class TerminalBackendTopologyCoordinator {
                 await composition.terminalActivitySnapshots()
             },
             activityReporter: activityReporter,
-            failureReporter: failureReporter
+            failureReporter: failureReporter,
+            mutationCoordinator: composition.terminalBackendTopologyMutationCoordinator,
+            disconnectHandler: {
+                if let runtimeCoordinator = composition.nativeBrowserRuntimeCoordinator {
+                    runtimeCoordinator.backendDidDisconnect()
+                } else {
+                    composition.nativeBrowserPresentationRegistry.removeAll()
+                }
+            },
+            nativeBrowserRuntimeCoordinator: composition.nativeBrowserRuntimeCoordinator
         )
     }
 
@@ -216,6 +241,8 @@ final class TerminalBackendTopologyCoordinator {
             ))
         case .disconnected(let authority):
             guard (latestSnapshot?.authority ?? installedAuthority) == authority else { return }
+            disconnectHandler()
+            mutationCoordinator?.authorityDidDisconnect(authority)
             advanceAdmissionEpoch()
             let installedRevisionToRevoke = installedAuthority == authority
                 ? installedRevision
@@ -268,6 +295,12 @@ final class TerminalBackendTopologyCoordinator {
            latestSnapshot.authority == snapshot.authority,
            snapshot.revision <= latestSnapshot.revision {
             return
+        }
+
+        if let previousAuthority = latestSnapshot?.authority ?? installedAuthority,
+           previousAuthority != snapshot.authority {
+            disconnectHandler()
+            mutationCoordinator?.authorityDidDisconnect(previousAuthority)
         }
 
         // Invalidate old placement admission synchronously before any actor
@@ -365,6 +398,18 @@ final class TerminalBackendTopologyCoordinator {
             generation: generation,
             admissionEpoch: admissionEpoch
         ) else { return }
+        if let nativeBrowserRuntimeCoordinator {
+            try await nativeBrowserRuntimeCoordinator.claimBeforeProjection(
+                authority: snapshot.authority,
+                surfaceIDs: plan.frontendNativeBrowserSurfaceIDs,
+                projector: projector
+            )
+            guard isCurrent(
+                snapshot,
+                generation: generation,
+                admissionEpoch: admissionEpoch
+            ) else { return }
+        }
         if let expectedLegacyPlacements,
            expectedLegacyGeneration == generation {
             guard expectedLegacyPlacements.isSubset(of: plan.placements) else {
@@ -470,6 +515,10 @@ final class TerminalBackendTopologyCoordinator {
             return
         }
         try projector.installCanonicalTopology(snapshot, plan: plan)
+        nativeBrowserRuntimeCoordinator?.projectionDidInstall(
+            surfaceIDs: plan.frontendNativeBrowserSurfaceIDs,
+            projector: projector
+        )
         guard isCurrent(
             snapshot,
             generation: generation,
@@ -563,6 +612,10 @@ final class TerminalBackendTopologyCoordinator {
     }
 
     private func fail(_ message: String?) {
+        disconnectHandler()
+        if let authority = latestSnapshot?.authority ?? installedAuthority {
+            mutationCoordinator?.authorityDidDisconnect(authority)
+        }
         advanceAdmissionEpoch()
         snapshotGeneration &+= 1
         failureReporter(message)

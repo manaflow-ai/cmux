@@ -51,6 +51,18 @@ final class TerminalBackendTopologyWorkspaceOwnershipTransfer {
     }
 }
 
+struct TerminalBackendTopologyWorkspaceOwnerReservation: Equatable, Sendable {
+    let workspaceID: UUID
+    let presentationID: UUID
+    let token: UUID
+}
+
+struct TerminalBackendEmptyTopologyBootstrapClaim: Equatable, Sendable {
+    let authority: BackendAuthority
+    let presentationID: UUID
+    let token: UUID
+}
+
 /// Process-wide presentation graph for daemon-owned terminal topology.
 ///
 /// Canonical workspaces remain owned by cmuxd. This sidecar records only which
@@ -83,6 +95,10 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
     /// close so closing one presentation does not make its persistent backend
     /// workspaces jump into another window.
     private var workspaceOwners: [UUID: UUID] = [:]
+    private var pendingWorkspaceOwnerReservations: [
+        UUID: TerminalBackendTopologyWorkspaceOwnerReservation
+    ] = [:]
+    private var emptyTopologyBootstrapClaim: TerminalBackendEmptyTopologyBootstrapClaim?
     private var selectedScreens: [ScreenSelectionKey: UUID] = [:]
 
     private let projectionStateStore: (any TerminalBackendProjectionStateServing)?
@@ -149,6 +165,10 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
         )
         registrationOrder.removeAll { $0 == presentationID }
         registrationOrder.append(presentationID)
+        if let tabManager = projector as? TabManager {
+            tabManager.terminalBackendTopologyProjectionRegistry = self
+            tabManager.terminalBackendProjectionPresentationID = presentationID
+        }
         if isPrimary || primaryPresentationID == nil {
             primaryPresentationID = presentationID
         } else if primaryPresentationID == presentationID {
@@ -167,6 +187,71 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
         if projectionStateStore != nil, projectionStateHydrationStarted {
             beginProjectionStateHydration()
         }
+    }
+
+    func reserveWorkspaceOwner(
+        workspaceID: UUID,
+        for projector: any TerminalBackendTopologyProjecting
+    ) throws -> TerminalBackendTopologyWorkspaceOwnerReservation {
+        purgeDeadEntries()
+        guard let presentationID = liveEntries().first(where: {
+            $0.projector === projector
+        })?.presentationID else {
+            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                "workspace creation references an unregistered presentation"
+            )
+        }
+        guard workspaceOwners[workspaceID] == nil,
+              pendingWorkspaceOwnerReservations[workspaceID] == nil else {
+            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                "workspace creation identity already has a presentation owner"
+            )
+        }
+        let reservation = TerminalBackendTopologyWorkspaceOwnerReservation(
+            workspaceID: workspaceID,
+            presentationID: presentationID,
+            token: UUID()
+        )
+        pendingWorkspaceOwnerReservations[workspaceID] = reservation
+        return reservation
+    }
+
+    func cancelWorkspaceOwnerReservation(
+        _ reservation: TerminalBackendTopologyWorkspaceOwnerReservation
+    ) {
+        guard pendingWorkspaceOwnerReservations[reservation.workspaceID] == reservation else {
+            return
+        }
+        pendingWorkspaceOwnerReservations.removeValue(forKey: reservation.workspaceID)
+    }
+
+    func claimEmptyTopologyBootstrap(
+        authority: BackendAuthority,
+        for projector: any TerminalBackendTopologyProjecting
+    ) -> TerminalBackendEmptyTopologyBootstrapClaim? {
+        purgeDeadEntries()
+        guard let presentationID = liveEntries().first(where: {
+            $0.projector === projector
+        })?.presentationID else { return nil }
+        if let claim = emptyTopologyBootstrapClaim {
+            guard claim.authority != authority else { return nil }
+            emptyTopologyBootstrapClaim = nil
+        }
+        let claim = TerminalBackendEmptyTopologyBootstrapClaim(
+            authority: authority,
+            presentationID: presentationID,
+            token: UUID()
+        )
+        emptyTopologyBootstrapClaim = claim
+        return claim
+    }
+
+    func releaseEmptyTopologyBootstrap(
+        _ claim: TerminalBackendEmptyTopologyBootstrapClaim
+    ) {
+        guard emptyTopologyBootstrapClaim == claim else { return }
+        emptyTopologyBootstrapClaim = nil
+        projectionStateDidChange?()
     }
 
     /// Deletes backend placement only for a user-confirmed AppKit window close.
@@ -361,6 +446,7 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
                 owners.formUnion(surfaceOwners[surfaceID] ?? [])
             }
             let owner = workspaceOwners[workspaceID]
+                ?? pendingWorkspaceOwnerReservations[workspaceID]?.presentationID
                 ?? exactOwners.first
                 ?? (matchingOwners.count == 1 ? matchingOwners.first : nil)
                 ?? primaryPresentationID
@@ -413,6 +499,34 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
         }
     }
 
+    func frontendNativeBrowserSourceURL(surfaceID: SurfaceID) -> URL? {
+        purgeDeadEntries()
+        return liveEntries().lazy.compactMap { entry in
+            entry.projector?.frontendNativeBrowserSourceURL(surfaceID: surfaceID)
+        }.first
+    }
+
+    func frontendNativeBrowserIsPresented(surfaceID: SurfaceID) -> Bool {
+        purgeDeadEntries()
+        return liveEntries().contains { entry in
+            entry.projector?.frontendNativeBrowserIsPresented(surfaceID: surfaceID)
+                == true
+        }
+    }
+
+    func installFrontendNativeBrowserClaimSourceURL(
+        _ sourceURL: URL,
+        surfaceID: SurfaceID
+    ) {
+        purgeDeadEntries()
+        for entry in liveEntries() {
+            entry.projector?.installFrontendNativeBrowserClaimSourceURL(
+                sourceURL,
+                surfaceID: surfaceID
+            )
+        }
+    }
+
     func prepareCanonicalTopology(
         _ snapshot: TopologySnapshot,
         plan: TerminalBackendTopologyProjectionPlan
@@ -441,6 +555,12 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
         }
 
         let previousWorkspaceOwners = workspaceOwners
+        let previousOwnerReservations = pendingWorkspaceOwnerReservations
+        let previousBootstrapClaim = emptyTopologyBootstrapClaim
+        if let claim = emptyTopologyBootstrapClaim,
+           claim.authority != snapshot.authority || !plan.workspaces.isEmpty {
+            emptyTopologyBootstrapClaim = nil
+        }
         let canonicalWorkspaceIDs = Set(plan.workspaces.map { $0.canonical.uuid.rawValue })
         var candidateWorkspaceOwners = workspaceOwners.filter {
             canonicalWorkspaceIDs.contains($0.key)
@@ -460,6 +580,16 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
                         "canonical workspace presentation moved without an ownership transfer"
                     )
                 }
+                continue
+            }
+
+            if let reservation = pendingWorkspaceOwnerReservations[workspaceID] {
+                guard entries[reservation.presentationID]?.projector != nil else {
+                    throw TerminalBackendTopologyProjectionError.projectionFailed(
+                        "reserved workspace presentation is no longer registered"
+                    )
+                }
+                candidateWorkspaceOwners[workspaceID] = reservation.presentationID
                 continue
             }
 
@@ -526,6 +656,18 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
                     try child.commit()
                 }
                 self?.workspaceOwners = candidateWorkspaceOwners
+                if let self {
+                    let committedReservationWorkspaceIDs = self
+                        .pendingWorkspaceOwnerReservations
+                        .compactMap { workspaceID, reservation in
+                            candidateWorkspaceOwners[workspaceID] == reservation.presentationID
+                                ? workspaceID
+                                : nil
+                        }
+                    for workspaceID in committedReservationWorkspaceIDs {
+                        self.pendingWorkspaceOwnerReservations.removeValue(forKey: workspaceID)
+                    }
+                }
             },
             finalize: {
                 for child in preparedChildren {
@@ -545,6 +687,8 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
                     }
                 }
                 self?.workspaceOwners = previousWorkspaceOwners
+                self?.pendingWorkspaceOwnerReservations = previousOwnerReservations
+                self?.emptyTopologyBootstrapClaim = previousBootstrapClaim
                 if let firstRollbackError {
                     throw firstRollbackError
                 }
@@ -816,10 +960,22 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
             entry.projector === projector ? presentationID : nil
         }
         for identifier in identifiers {
+            if let tabManager = entries[identifier]?.projector as? TabManager,
+               tabManager.terminalBackendTopologyProjectionRegistry === self {
+                tabManager.terminalBackendTopologyProjectionRegistry = nil
+                tabManager.terminalBackendProjectionPresentationID = nil
+            }
             entries.removeValue(forKey: identifier)
             registrationOrder.removeAll { $0 == identifier }
             if primaryPresentationID == identifier {
                 primaryPresentationID = nil
+            }
+            pendingWorkspaceOwnerReservations = pendingWorkspaceOwnerReservations.filter {
+                $0.value.presentationID != identifier
+            }
+            if emptyTopologyBootstrapClaim?.presentationID == identifier {
+                emptyTopologyBootstrapClaim = nil
+                projectionStateDidChange?()
             }
         }
     }
@@ -833,6 +989,12 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
             registrationOrder.removeAll { $0 == identifier }
             if primaryPresentationID == identifier {
                 primaryPresentationID = nil
+            }
+            pendingWorkspaceOwnerReservations = pendingWorkspaceOwnerReservations.filter {
+                $0.value.presentationID != identifier
+            }
+            if emptyTopologyBootstrapClaim?.presentationID == identifier {
+                emptyTopologyBootstrapClaim = nil
             }
         }
         if primaryPresentationID == nil {

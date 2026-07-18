@@ -961,6 +961,68 @@ struct TerminalBackendTopologyCoordinatorTests {
     }
 
     @Test @MainActor
+    func newWorkspaceReservationProjectsIntoRequestingSecondaryWindow() throws {
+        let primaryWindowID = UUID()
+        let secondaryWindowID = UUID()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let primary = RecordingTopologyProjector()
+        let secondary = RecordingTopologyProjector()
+        let registry = TerminalBackendTopologyProjectionRegistry()
+        registry.register(primary, presentationID: primaryWindowID, isPrimary: true)
+        registry.register(secondary, presentationID: secondaryWindowID, isPrimary: false)
+
+        let reservation = try registry.reserveWorkspaceOwner(
+            workspaceID: workspaceID,
+            for: secondary
+        )
+        #expect(reservation.presentationID == secondaryWindowID)
+        let snapshot = try makeSnapshot(
+            authority: makeAuthority(),
+            revision: 1,
+            workspaces: [makeWorkspace(
+                workspaceID: workspaceID,
+                surfaceIDs: [surfaceID]
+            )]
+        )
+        try registry.installCanonicalTopology(
+            snapshot,
+            plan: TerminalBackendTopologyProjectionPlan(topology: snapshot.topology)
+        )
+
+        #expect(primary.installedPlans.last?.workspaces.isEmpty == true)
+        #expect(secondary.installedPlans.last?.workspaces.map {
+            $0.canonical.uuid.rawValue
+        } == [workspaceID])
+        #expect(registry.debugWorkspaceOwner(workspaceID) == secondaryWindowID)
+    }
+
+    @Test @MainActor
+    func emptyTopologyBootstrapClaimDeduplicatesWindowsAndTransfersAfterFailure() throws {
+        let authority = makeAuthority()
+        let primary = RecordingTopologyProjector()
+        let secondary = RecordingTopologyProjector()
+        let registry = TerminalBackendTopologyProjectionRegistry()
+        registry.register(primary, presentationID: UUID(), isPrimary: true)
+        registry.register(secondary, presentationID: UUID(), isPrimary: false)
+
+        let firstClaim = try #require(registry.claimEmptyTopologyBootstrap(
+            authority: authority,
+            for: primary
+        ))
+        #expect(registry.claimEmptyTopologyBootstrap(
+            authority: authority,
+            for: secondary
+        ) == nil)
+
+        registry.releaseEmptyTopologyBootstrap(firstClaim)
+        #expect(registry.claimEmptyTopologyBootstrap(
+            authority: authority,
+            for: secondary
+        ) != nil)
+    }
+
+    @Test @MainActor
     func processRegistryRoutesMovedBrowserEndpointByStableSurfaceIdentity() throws {
         let primaryWindowID = UUID()
         let browserWindowID = UUID()
@@ -1514,6 +1576,83 @@ struct TerminalBackendTopologyCoordinatorTests {
     }
 
     @Test @MainActor
+    func projectionCallbacksWaitForOwningWindowAcrossBothFinalizeOrders() async throws {
+        let authority = makeAuthority()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let primaryWindowID = UUID()
+        let secondaryWindowID = UUID()
+        let placement = try makeSurfacePlacement(
+            authority: authority,
+            revision: 2,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let snapshot = try makeSnapshot(
+            authority: authority,
+            revision: 2,
+            workspaces: [makeWorkspace(
+                workspaceID: workspaceID,
+                surfaceIDs: [surfaceID]
+            )]
+        )
+
+        var receiptFirstCallbacks = 0
+        let receiptFirst = TerminalBackendTopologyMutationCoordinator(
+            mutator: RejectingTopologyMutator(createWorkspacePlacement: placement)
+        )
+        let receiptFirstSubmission = receiptFirst.requestCreateWorkspace(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            projectionOwnerID: secondaryWindowID,
+            onProjected: { _ in receiptFirstCallbacks += 1 }
+        )
+        await settle()
+        #expect(receiptFirst.submissionStatus(
+            requestID: receiptFirstSubmission.requestID
+        ) == .committed(placement.receipt))
+
+        receiptFirst.canonicalProjectionDidInstall(
+            snapshot,
+            presentationID: primaryWindowID
+        )
+        #expect(receiptFirstCallbacks == 0)
+        #expect(receiptFirst.submissionStatus(
+            requestID: receiptFirstSubmission.requestID
+        ) == .committed(placement.receipt))
+
+        receiptFirst.canonicalProjectionDidInstall(
+            snapshot,
+            presentationID: secondaryWindowID
+        )
+        #expect(receiptFirstCallbacks == 1)
+        #expect(receiptFirst.submissionStatus(
+            requestID: receiptFirstSubmission.requestID
+        ) == .projected(placement.receipt))
+
+        var projectionFirstCallbacks = 0
+        let projectionFirst = TerminalBackendTopologyMutationCoordinator(
+            mutator: RejectingTopologyMutator(createWorkspacePlacement: placement)
+        )
+        let projectionFirstSubmission = projectionFirst.requestCreateWorkspace(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            projectionOwnerID: secondaryWindowID,
+            onProjected: { _ in projectionFirstCallbacks += 1 }
+        )
+        projectionFirst.canonicalProjectionDidInstall(
+            snapshot,
+            presentationID: secondaryWindowID
+        )
+        await settle()
+
+        #expect(projectionFirstCallbacks == 1)
+        #expect(projectionFirst.submissionStatus(
+            requestID: projectionFirstSubmission.requestID
+        ) == .projected(placement.receipt))
+    }
+
+    @Test @MainActor
     func projectionUsesCanonicalWorkspaceAndSurfaceIDsAcrossWorkspaceMove() throws {
         let composition = makeProjectionComposition()
         let manager = TabManager(
@@ -1636,6 +1775,112 @@ struct TerminalBackendTopologyCoordinatorTests {
     }
 
     @Test @MainActor
+    func exactCloudLoadingPermitAdoptsCanonicalTerminalInPlace() throws {
+        let composition = makeProjectionComposition()
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        let previousWorkspace = try #require(manager.tabs.first)
+        previousWorkspace.teardownAllPanels()
+        let workspaceID = UUID()
+        let workspace = Workspace(
+            id: workspaceID,
+            initialSurface: .cloudVMLoading,
+            terminalClientComposition: composition
+        )
+        workspace.owningTabManager = manager
+        manager.tabs = [workspace]
+        manager.selectedTabId = workspaceID
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let loading = try #require(
+            workspace.panels.values.first { $0 is CloudVMLoadingPanel }
+                as? CloudVMLoadingPanel
+        )
+        let surfaceID = loading.id
+        let stableSurfaceID = loading.stableSurfaceId
+        let adoptionRegistry = try #require(
+            composition.terminalBackendTopologyAdoptionRegistry
+        )
+        adoptionRegistry.beginCloudTerminalAdoption(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+
+        try manager.installCanonicalTopology(try makeSnapshot(
+            authority: makeAuthority(),
+            revision: 1,
+            workspaces: [makeWorkspace(
+                workspaceID: workspaceID,
+                surfaceIDs: [surfaceID]
+            )]
+        ))
+
+        let terminal = try #require(workspace.panels[surfaceID] as? TerminalPanel)
+        #expect(terminal.id == surfaceID)
+        #expect(terminal.stableSurfaceId == stableSurfaceID)
+        #expect(!adoptionRegistry.permitsCloudTerminalAdoption(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        ))
+    }
+
+    @Test @MainActor
+    func cloudTerminalAdoptionRollbackRestoresLoadingPanelAndPermit() throws {
+        let composition = makeProjectionComposition()
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        let previousWorkspace = try #require(manager.tabs.first)
+        previousWorkspace.teardownAllPanels()
+        let workspaceID = UUID()
+        let workspace = Workspace(
+            id: workspaceID,
+            initialSurface: .cloudVMLoading,
+            terminalClientComposition: composition
+        )
+        workspace.owningTabManager = manager
+        manager.tabs = [workspace]
+        manager.selectedTabId = workspaceID
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let loading = try #require(
+            workspace.panels.values.first { $0 is CloudVMLoadingPanel }
+                as? CloudVMLoadingPanel
+        )
+        let surfaceID = loading.id
+        let adoptionRegistry = try #require(
+            composition.terminalBackendTopologyAdoptionRegistry
+        )
+        adoptionRegistry.beginCloudTerminalAdoption(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let snapshot = try makeSnapshot(
+            authority: makeAuthority(),
+            revision: 1,
+            workspaces: [makeWorkspace(
+                workspaceID: workspaceID,
+                surfaceIDs: [surfaceID]
+            )]
+        )
+        let prepared = try manager.prepareCanonicalTopology(
+            snapshot,
+            plan: TerminalBackendTopologyProjectionPlan(topology: snapshot.topology)
+        )
+
+        try prepared.commit()
+        #expect(workspace.panels[surfaceID] is TerminalPanel)
+        try prepared.rollback()
+
+        #expect(workspace.panels[surfaceID] === loading)
+        #expect(adoptionRegistry.permitsCloudTerminalAdoption(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        ))
+    }
+
+    @Test @MainActor
     func projectionPreservesStandaloneBrowserSplitStructure() throws {
         let manager = TabManager(
             autoWelcomeIfNeeded: false,
@@ -1690,6 +1935,348 @@ struct TerminalBackendTopologyCoordinatorTests {
             browserPane.id,
         ])
         #expect(workspace.panels[browser.id] === browser)
+    }
+
+    @Test @MainActor
+    func canonicalNativeBrowserRestoresOnlyThroughPrivateClaim() async throws {
+        let authority = makeAuthority()
+        let workspaceID = UUID()
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let sourceURL = try #require(URL(string: "https://example.com/private-source"))
+        let service = RecordingNativeBrowserService(
+            authority: authority,
+            retainedSources: [surfaceID: sourceURL]
+        )
+        let first = makeNativeBrowserProjectionComposition(service: service)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: first.composition
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let canonical = makeBrowserWorkspace(
+            workspaceID: workspaceID,
+            surface: makeFrontendNativeBrowserSurface(id: 1, uuid: surfaceID.rawValue)
+        )
+        let snapshot = try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [canonical]
+        )
+        let plan = try TerminalBackendTopologyProjectionPlan(topology: snapshot.topology)
+
+        try await first.runtime.claimBeforeProjection(
+            authority: authority,
+            surfaceIDs: plan.frontendNativeBrowserSurfaceIDs,
+            projector: manager
+        )
+        try manager.installCanonicalTopology(snapshot, plan: plan)
+        first.runtime.projectionDidInstall(
+            surfaceIDs: plan.frontendNativeBrowserSurfaceIDs,
+            projector: manager
+        )
+
+        let browser = try #require(manager.tabs.first?.panels[surfaceID.rawValue] as? BrowserPanel)
+        #expect(browser.endpointProvenance == .frontendNativeCanonical(surfaceID))
+        #expect(browser.currentURLForTabDuplication == sourceURL)
+        #expect(!browser.shouldPersistSessionSnapshot())
+        let swiftSnapshot = manager.sessionSnapshot(includeScrollback: false)
+        #expect(swiftSnapshot.workspaces.flatMap(\.panels).allSatisfy {
+            $0.type != .browser
+        })
+
+        let second = makeNativeBrowserProjectionComposition(service: service)
+        let restored = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: second.composition
+        )
+        defer { restored.tabs.forEach { $0.teardownAllPanels() } }
+        restored.restoreSessionSnapshot(swiftSnapshot)
+        #expect(restored.tabs.flatMap { $0.panels.values }.allSatisfy {
+            !($0 is BrowserPanel)
+        })
+
+        try await second.runtime.claimBeforeProjection(
+            authority: authority,
+            surfaceIDs: plan.frontendNativeBrowserSurfaceIDs,
+            projector: restored
+        )
+        try restored.installCanonicalTopology(snapshot, plan: plan)
+        second.runtime.projectionDidInstall(
+            surfaceIDs: plan.frontendNativeBrowserSurfaceIDs,
+            projector: restored
+        )
+        let restoredBrowser = try #require(
+            restored.tabs.first?.panels[surfaceID.rawValue] as? BrowserPanel
+        )
+        #expect(restoredBrowser.currentURLForTabDuplication == sourceURL)
+    }
+
+    @Test @MainActor
+    func nativeBrowserPrivateRequestRegistryFailsClosedAtCapacity() throws {
+        let registry = TerminalBackendNativeBrowserPresentationRegistry(
+            maximumPendingRequestCount: 2
+        )
+        let firstSurfaceID = SurfaceID(rawValue: UUID())
+        let secondSurfaceID = SurfaceID(rawValue: UUID())
+        let rejectedSurfaceID = SurfaceID(rawValue: UUID())
+        var credentialRequest = URLRequest(
+            url: try #require(URL(string: "https://example.com/private"))
+        )
+        credentialRequest.setValue(
+            "Bearer private-token",
+            forHTTPHeaderField: "Authorization"
+        )
+        let privateRequest = TerminalBackendNativeBrowserPresentationRequest(
+            url: credentialRequest.url,
+            initialRequest: credentialRequest,
+            profileID: nil,
+            omnibarVisible: true,
+            transparentBackground: false
+        )
+        let ordinaryRequest = TerminalBackendNativeBrowserPresentationRequest(
+            url: try #require(URL(string: "https://example.com/second")),
+            profileID: nil,
+            omnibarVisible: true,
+            transparentBackground: false
+        )
+
+        #expect(registry.register(privateRequest, for: firstSurfaceID))
+        #expect(registry.register(ordinaryRequest, for: secondSurfaceID))
+        #expect(!registry.register(ordinaryRequest, for: rejectedSurfaceID))
+        #expect(registry.pendingRequestCount == 2)
+        #expect(registry.request(for: firstSurfaceID)?.initialRequest?
+            .value(forHTTPHeaderField: "Authorization") == "Bearer private-token")
+
+        registry.remove(firstSurfaceID)
+        #expect(registry.register(ordinaryRequest, for: rejectedSurfaceID))
+        #expect(registry.pendingRequestCount == 2)
+    }
+
+    @Test @MainActor
+    func nativeBrowserProjectionRollbackRetainsCredentialRequestUntilRetryCommits() async throws {
+        let authority = makeAuthority()
+        let workspaceID = UUID()
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let sourceURL = try #require(URL(string: "https://example.com/credentialed"))
+        var credentialRequest = URLRequest(url: sourceURL)
+        credentialRequest.setValue(
+            "Bearer retry-token",
+            forHTTPHeaderField: "Authorization"
+        )
+        let service = RecordingNativeBrowserService(authority: authority)
+        let native = makeNativeBrowserProjectionComposition(service: service)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: native.composition
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        #expect(native.registry.register(
+            TerminalBackendNativeBrowserPresentationRequest(
+                url: sourceURL,
+                initialRequest: credentialRequest,
+                profileID: nil,
+                omnibarVisible: true,
+                transparentBackground: false
+            ),
+            for: surfaceID
+        ))
+        let snapshot = try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [makeBrowserWorkspace(
+                workspaceID: workspaceID,
+                surface: makeFrontendNativeBrowserSurface(
+                    id: 1,
+                    uuid: surfaceID.rawValue
+                )
+            )]
+        )
+        let plan = try TerminalBackendTopologyProjectionPlan(
+            topology: snapshot.topology
+        )
+        try await native.runtime.claimBeforeProjection(
+            authority: authority,
+            surfaceIDs: plan.frontendNativeBrowserSurfaceIDs,
+            projector: manager
+        )
+
+        let firstAttempt = try manager.prepareCanonicalTopology(snapshot, plan: plan)
+        try firstAttempt.commit()
+        try firstAttempt.rollback()
+        #expect(native.registry.request(for: surfaceID)?.initialRequest?
+            .value(forHTTPHeaderField: "Authorization") == "Bearer retry-token")
+
+        let retry = try manager.prepareCanonicalTopology(snapshot, plan: plan)
+        try retry.commit()
+        retry.finalize()
+        native.runtime.projectionDidInstall(
+            surfaceIDs: plan.frontendNativeBrowserSurfaceIDs,
+            projector: manager
+        )
+        #expect(native.registry.request(for: surfaceID) == nil)
+        #expect(await service.claimCallSnapshot().count == 1)
+    }
+
+    @Test @MainActor
+    func nativeBrowserClaimsUseBoundedConcurrency() async throws {
+        let authority = makeAuthority()
+        let surfaceIDs = (0..<40).map { _ in SurfaceID(rawValue: UUID()) }
+        let service = RecordingNativeBrowserService(authority: authority)
+        await service.setClaimDelay(nanoseconds: 10_000_000)
+        let runtime = TerminalBackendNativeBrowserRuntimeCoordinator(
+            service: service,
+            presentationRegistry: TerminalBackendNativeBrowserPresentationRegistry(),
+            maximumConcurrentClaimCount: 16
+        )
+
+        try await runtime.claimBeforeProjection(
+            authority: authority,
+            surfaceIDs: surfaceIDs,
+            projector: RecordingTopologyProjector()
+        )
+
+        #expect(await service.claimCallSnapshot().count == surfaceIDs.count)
+        #expect(await service.maximumConcurrentClaimCount() == 16)
+    }
+
+    @Test @MainActor
+    func nativeBrowserSourceCommitDispatchesWithoutDebounce() async throws {
+        let authority = makeAuthority()
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let service = RecordingNativeBrowserService(authority: authority)
+        let runtime = TerminalBackendNativeBrowserRuntimeCoordinator(
+            service: service,
+            presentationRegistry: TerminalBackendNativeBrowserPresentationRegistry()
+        )
+        try await runtime.claimBeforeProjection(
+            authority: authority,
+            surfaceIDs: [surfaceID],
+            projector: RecordingTopologyProjector()
+        )
+        runtime.projectionDidInstall(
+            surfaceIDs: [surfaceID],
+            projector: RecordingTopologyProjector()
+        )
+        let committedURL = try #require(URL(string: "https://example.com/committed"))
+
+        runtime.browserDidCommitSourceURL(committedURL, surfaceID: surfaceID)
+
+        #expect(await service.waitForSourceUpdateCount(1))
+        #expect(await service.sourceUpdateCallSnapshot().map(\.sourceURL) == [committedURL])
+    }
+
+    @Test @MainActor
+    func nativeBrowserSourceUpdatesCoalesceRedirectsOnlyWhileRequestIsInFlight() async throws {
+        let authority = makeAuthority()
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let service = RecordingNativeBrowserService(authority: authority)
+        await service.setBlocksFirstSourceUpdate(true)
+        let runtime = TerminalBackendNativeBrowserRuntimeCoordinator(
+            service: service,
+            presentationRegistry: TerminalBackendNativeBrowserPresentationRegistry()
+        )
+        try await runtime.claimBeforeProjection(
+            authority: authority,
+            surfaceIDs: [surfaceID],
+            projector: RecordingTopologyProjector()
+        )
+        runtime.projectionDidInstall(
+            surfaceIDs: [surfaceID],
+            projector: RecordingTopologyProjector()
+        )
+        let firstURL = try #require(URL(string: "https://example.com/redirect-1"))
+        let supersededURL = try #require(URL(string: "https://example.com/redirect-2"))
+        let finalURL = try #require(URL(string: "https://example.com/final"))
+
+        runtime.browserDidCommitSourceURL(firstURL, surfaceID: surfaceID)
+        #expect(await service.waitForSourceUpdateCount(1))
+        runtime.browserDidCommitSourceURL(supersededURL, surfaceID: surfaceID)
+        runtime.browserDidCommitSourceURL(finalURL, surfaceID: surfaceID)
+        await service.releaseFirstSourceUpdate()
+
+        #expect(await service.waitForSourceUpdateCount(2))
+        #expect(await service.sourceUpdateCallSnapshot().map(\.sourceURL) == [
+            firstURL,
+            finalURL,
+        ])
+    }
+
+    @Test @MainActor
+    func sixtyFifthNativeBrowserSourceUpdateFailsExplicitlyAndRecovers() async throws {
+        let authority = makeAuthority()
+        let surfaceIDs = (0..<65).map { _ in SurfaceID(rawValue: UUID()) }
+        let service = RecordingNativeBrowserService(authority: authority)
+        let recovery = NativeBrowserRecoveryCounter()
+        var failures: [String] = []
+        let runtime = TerminalBackendNativeBrowserRuntimeCoordinator(
+            service: service,
+            presentationRegistry: TerminalBackendNativeBrowserPresentationRegistry(),
+            maximumPendingSourceUpdateCount: 64,
+            failureReporter: { failures.append($0) },
+            recoveryHandler: { [recovery] in await recovery.record() }
+        )
+        try await runtime.claimBeforeProjection(
+            authority: authority,
+            surfaceIDs: surfaceIDs,
+            projector: RecordingTopologyProjector()
+        )
+        runtime.projectionDidInstall(
+            surfaceIDs: surfaceIDs,
+            projector: RecordingTopologyProjector()
+        )
+
+        for (index, surfaceID) in surfaceIDs.enumerated() {
+            let sourceURL = try #require(URL(
+                string: "https://example.com/source-\(index)"
+            ))
+            runtime.browserDidCommitSourceURL(sourceURL, surfaceID: surfaceID)
+        }
+
+        #expect(failures.count == 1)
+        #expect(await recovery.waitForRecovery())
+        #expect(await recovery.value() == 1)
+    }
+
+    @Test @MainActor
+    func simultaneousNativeBrowserLeaseFailuresStartOneFrontendRecoveryGeneration() async throws {
+        let authority = makeAuthority()
+        let surfaceIDs = [SurfaceID(rawValue: UUID()), SurfaceID(rawValue: UUID())]
+        let service = RecordingNativeBrowserService(authority: authority)
+        await service.setFailsSourceUpdates(true)
+        let client = TerminalBackendClientCoordinator(
+            readinessProvider: { .backendUnavailable },
+            sessionFactory: { _ in fatalError("unavailable readiness must not create a session") },
+            reconnectPolicy: .immediate
+        )
+        let runtime = TerminalBackendNativeBrowserRuntimeCoordinator(
+            service: service,
+            presentationRegistry: TerminalBackendNativeBrowserPresentationRegistry(),
+            recoveryHandler: { [client] in
+                await client.recoverFrontendConnection()
+            }
+        )
+        try await runtime.claimBeforeProjection(
+            authority: authority,
+            surfaceIDs: surfaceIDs,
+            projector: RecordingTopologyProjector()
+        )
+        runtime.projectionDidInstall(
+            surfaceIDs: surfaceIDs,
+            projector: RecordingTopologyProjector()
+        )
+        let firstURL = try #require(URL(string: "https://example.com/failed-1"))
+        let secondURL = try #require(URL(string: "https://example.com/failed-2"))
+
+        runtime.browserDidCommitSourceURL(firstURL, surfaceID: surfaceIDs[0])
+        runtime.browserDidCommitSourceURL(secondURL, surfaceID: surfaceIDs[1])
+        #expect(await service.waitForSourceUpdateCount(2))
+        for _ in 0..<200 {
+            if await client.debugFrontendRecoveryStartCount > 0 { break }
+            await Task.yield()
+        }
+
+        #expect(await client.debugFrontendRecoveryStartCount == 1)
+        await client.disconnectFrontend()
     }
 
     @Test @MainActor
@@ -2314,11 +2901,49 @@ struct TerminalBackendTopologyCoordinatorTests {
                 dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
             ),
             terminalBackendTopologyMutationCoordinator: TerminalBackendTopologyMutationCoordinator(
+                mutator: RejectingTopologyMutator(),
                 failureReporter: failureReporter
             ),
+            terminalBackendTopologyAdoptionRegistry: TerminalBackendTopologyAdoptionRegistry(),
             browserEndpointFactory: browserEndpointFactory
                 ?? UnsupportedTerminalBackendBrowserEndpointFactory()
         )
+    }
+
+    @MainActor
+    private func makeNativeBrowserProjectionComposition(
+        service: any TerminalBackendFrontendNativeBrowserServing
+    ) -> (
+        composition: TerminalClientComposition,
+        runtime: TerminalBackendNativeBrowserRuntimeCoordinator,
+        registry: TerminalBackendNativeBrowserPresentationRegistry
+    ) {
+        let registry = TerminalBackendNativeBrowserPresentationRegistry()
+        let runtime = TerminalBackendNativeBrowserRuntimeCoordinator(
+            service: service,
+            presentationRegistry: registry
+        )
+        let composition = TerminalClientComposition(
+            terminalPanelFactory: EmbeddedTerminalPanelFactory(
+                dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+            ),
+            terminalBackendTopologyMutationCoordinator:
+                TerminalBackendTopologyMutationCoordinator(
+                    mutator: RejectingTopologyMutator()
+                ),
+            terminalBackendTopologyAdoptionRegistry:
+                TerminalBackendTopologyAdoptionRegistry(),
+            nativeBrowserPresentationRegistry: registry,
+            nativeBrowserRuntimeCoordinator: runtime,
+            browserEndpointFactory: NativeTerminalBackendBrowserEndpointFactory(
+                presentationRegistry: registry,
+                claimedSourceURL: { [runtime] surfaceID in
+                    runtime.claimedSourceURL(surfaceID: surfaceID)
+                }
+            ),
+            canonicalBrowserProjectionAvailable: true
+        )
+        return (composition, runtime, registry)
     }
 
     @MainActor
@@ -2331,6 +2956,31 @@ struct TerminalBackendTopologyCoordinatorTests {
             daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
             sessionID: sessionID
         )
+    }
+
+    private func makeSurfacePlacement(
+        authority: BackendAuthority,
+        revision: UInt64,
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) throws -> BackendSurfacePlacement {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "request_id": UUID().uuidString.lowercased(),
+            "daemon_instance_id": authority.daemonInstanceID.rawValue.uuidString.lowercased(),
+            "session_id": authority.sessionID.rawValue.uuidString.lowercased(),
+            "base_revision": revision - 1,
+            "revision": revision,
+            "replayed": false,
+            "surface": 1,
+            "surface_uuid": surfaceID.uuidString.lowercased(),
+            "pane": 1,
+            "pane_uuid": UUID().uuidString.lowercased(),
+            "screen": 1,
+            "screen_uuid": UUID().uuidString.lowercased(),
+            "workspace": 1,
+            "workspace_uuid": workspaceID.uuidString.lowercased(),
+        ])
+        return try JSONDecoder().decode(BackendSurfacePlacement.self, from: data)
     }
 
     private func makeSnapshot(
@@ -2414,6 +3064,22 @@ struct TerminalBackendTopologyCoordinatorTests {
                 transport: .cmuxdPNGFrameStreamV1,
                 source: .launched,
                 frontendProjection: .frontendOptional
+            )
+        )
+    }
+
+    private func makeFrontendNativeBrowserSurface(
+        id: UInt64,
+        uuid: UUID
+    ) -> CanonicalSurface {
+        CanonicalSurface(
+            id: id,
+            uuid: SurfaceID(rawValue: uuid),
+            kind: "browser",
+            name: "browser",
+            browserEndpoint: CanonicalBrowserEndpoint(
+                transport: .frontendNativeV1,
+                source: .launched
             )
         )
     }
@@ -2642,6 +3308,271 @@ private actor RecordingProjectionStateStore: TerminalBackendProjectionStateServi
     func setAvailable(_ available: Bool) {
         isAvailable = available
     }
+}
+
+private actor RecordingNativeBrowserService:
+    TerminalBackendFrontendNativeBrowserServing
+{
+    struct ClaimCall: Sendable {
+        let surfaceID: SurfaceID
+        let requestID: UUID
+        let sourceURL: URL?
+    }
+
+    struct SourceUpdateCall: Sendable {
+        let surfaceID: SurfaceID
+        let requestID: UUID
+        let sourceURL: URL
+    }
+
+    private let authority: BackendAuthority
+    private var retainedSources: [SurfaceID: URL]
+    private var claimCalls: [ClaimCall] = []
+    private var sourceUpdateCalls: [SourceUpdateCall] = []
+    private var activeClaimCount = 0
+    private var maximumActiveClaimCount = 0
+    private var claimDelayNanoseconds: UInt64 = 0
+    private var blocksFirstSourceUpdate = false
+    private var firstSourceUpdateContinuation: CheckedContinuation<Void, Never>?
+    private var failsSourceUpdates = false
+
+    init(
+        authority: BackendAuthority,
+        retainedSources: [SurfaceID: URL] = [:]
+    ) {
+        self.authority = authority
+        self.retainedSources = retainedSources
+    }
+
+    func claimFrontendNativeBrowser(
+        surfaceID: SurfaceID,
+        requestID: UUID,
+        sourceURL: URL?
+    ) async throws -> BackendFrontendNativeBrowserClaimReceipt {
+        claimCalls.append(ClaimCall(
+            surfaceID: surfaceID,
+            requestID: requestID,
+            sourceURL: sourceURL
+        ))
+        activeClaimCount += 1
+        maximumActiveClaimCount = max(maximumActiveClaimCount, activeClaimCount)
+        defer { activeClaimCount -= 1 }
+        if claimDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: claimDelayNanoseconds)
+        }
+        let resolvedSource = retainedSources[surfaceID] ?? sourceURL
+        if let resolvedSource {
+            retainedSources[surfaceID] = resolvedSource
+        }
+        return BackendFrontendNativeBrowserClaimReceipt(
+            requestID: requestID,
+            daemonInstanceID: authority.daemonInstanceID,
+            sessionID: authority.sessionID,
+            surfaceID: surfaceID,
+            ownerGeneration: 1,
+            sourceURL: resolvedSource,
+            replayed: false
+        )
+    }
+
+    func updateFrontendNativeBrowserSource(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        sourceURL: URL
+    ) async throws -> BackendFrontendNativeBrowserSourceReceipt {
+        sourceUpdateCalls.append(SourceUpdateCall(
+            surfaceID: surfaceID,
+            requestID: requestID,
+            sourceURL: sourceURL
+        ))
+        if blocksFirstSourceUpdate, sourceUpdateCalls.count == 1 {
+            await withCheckedContinuation { continuation in
+                firstSourceUpdateContinuation = continuation
+            }
+        }
+        if failsSourceUpdates {
+            throw ProjectionTestError()
+        }
+        retainedSources[surfaceID] = sourceURL
+        return BackendFrontendNativeBrowserSourceReceipt(
+            requestID: requestID,
+            daemonInstanceID: authority.daemonInstanceID,
+            sessionID: authority.sessionID,
+            surfaceID: surfaceID,
+            ownerGeneration: ownerGeneration,
+            replayed: false
+        )
+    }
+
+    func setClaimDelay(nanoseconds: UInt64) {
+        claimDelayNanoseconds = nanoseconds
+    }
+
+    func setBlocksFirstSourceUpdate(_ blocks: Bool) {
+        blocksFirstSourceUpdate = blocks
+    }
+
+    func releaseFirstSourceUpdate() {
+        firstSourceUpdateContinuation?.resume()
+        firstSourceUpdateContinuation = nil
+    }
+
+    func setFailsSourceUpdates(_ fails: Bool) {
+        failsSourceUpdates = fails
+    }
+
+    func claimCallSnapshot() -> [ClaimCall] {
+        claimCalls
+    }
+
+    func sourceUpdateCallSnapshot() -> [SourceUpdateCall] {
+        sourceUpdateCalls
+    }
+
+    func maximumConcurrentClaimCount() -> Int {
+        maximumActiveClaimCount
+    }
+
+    func waitForSourceUpdateCount(_ expectedCount: Int) async -> Bool {
+        for _ in 0..<200 {
+            if sourceUpdateCalls.count >= expectedCount { return true }
+            await Task.yield()
+        }
+        return sourceUpdateCalls.count >= expectedCount
+    }
+}
+
+private actor NativeBrowserRecoveryCounter {
+    private var count = 0
+
+    func record() {
+        count += 1
+    }
+
+    func value() -> Int {
+        count
+    }
+
+    func waitForRecovery() async -> Bool {
+        for _ in 0..<200 {
+            if count > 0 { return true }
+            await Task.yield()
+        }
+        return count > 0
+    }
+}
+
+private struct RejectingTopologyMutator: TerminalBackendTopologyMutating {
+    let createWorkspacePlacement: BackendSurfacePlacement?
+
+    init(createWorkspacePlacement: BackendSurfacePlacement? = nil) {
+        self.createWorkspacePlacement = createWorkspacePlacement
+    }
+
+    private func reject<T>() throws -> T {
+        throw BackendProtocolError.connectionClosed
+    }
+
+    func createWorkspace(
+        requestID: UUID, workspaceID: WorkspaceID, surfaceID: SurfaceID,
+        name: String?, launch: BackendTerminalLaunch, columns: UInt16?, rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        if let createWorkspacePlacement { return createWorkspacePlacement }
+        return try reject()
+    }
+
+    func createTerminalTab(
+        requestID: UUID, surfaceID: SurfaceID, in paneID: CmuxTerminalBackend.PaneID,
+        launch: BackendTerminalLaunch, columns: UInt16?, rows: UInt16?
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
+    func createBrowserWorkspace(
+        requestID: UUID, workspaceID: WorkspaceID, surfaceID: SurfaceID,
+        name: String?, url: URL, columns: UInt16?, rows: UInt16?
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
+    func createBrowserTab(
+        requestID: UUID, surfaceID: SurfaceID, in paneID: CmuxTerminalBackend.PaneID,
+        url: URL, columns: UInt16?, rows: UInt16?
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
+    func splitBrowserPane(
+        requestID: UUID, surfaceID: SurfaceID, _ paneID: CmuxTerminalBackend.PaneID,
+        direction: BackendSplitDirection, initialRatio: Float, url: URL,
+        columns: UInt16?, rows: UInt16?
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
+    func materializeTerminal(
+        requestID: UUID, workspaceID: WorkspaceID, surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch, columns: UInt16?, rows: UInt16?
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
+    func respawnTerminal(
+        requestID: UUID, surfaceID: SurfaceID, launch: BackendTerminalLaunch,
+        columns: UInt16?, rows: UInt16?
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
+    func materializeExternalTerminal(
+        requestID: UUID, workspaceID: WorkspaceID, surfaceID: SurfaceID,
+        columns: UInt16, rows: UInt16, noReflow: Bool
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
+    func splitPane(
+        requestID: UUID, surfaceID: SurfaceID, _ paneID: CmuxTerminalBackend.PaneID,
+        direction: BackendSplitDirection, initialRatio: Float,
+        launch: BackendTerminalLaunch, columns: UInt16?, rows: UInt16?
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
+    func splitTab(
+        requestID: UUID, _ surfaceID: SurfaceID,
+        around paneID: CmuxTerminalBackend.PaneID,
+        direction: BackendSplitDirection, initialRatio: Float
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
+    func closePane(
+        requestID: UUID, _ paneID: CmuxTerminalBackend.PaneID
+    ) async throws -> BackendTopologyMutationReceipt { try reject() }
+
+    func closeSurface(
+        requestID: UUID, _ surfaceID: SurfaceID
+    ) async throws -> BackendTopologyMutationReceipt { try reject() }
+
+    func closeWorkspace(
+        requestID: UUID, _ workspaceID: WorkspaceID
+    ) async throws -> BackendTopologyMutationReceipt { try reject() }
+
+    func renameWorkspace(
+        requestID: UUID, _ workspaceID: WorkspaceID, name: String
+    ) async throws -> BackendTopologyMutationReceipt { try reject() }
+
+    func renameSurface(
+        requestID: UUID, _ surfaceID: SurfaceID, name: String
+    ) async throws -> BackendTopologyMutationReceipt { try reject() }
+
+    func moveTab(
+        requestID: UUID, _ surfaceID: SurfaceID,
+        to paneID: CmuxTerminalBackend.PaneID, index: Int
+    ) async throws -> BackendTopologyMutationReceipt { try reject() }
+
+    func reorderTabs(
+        requestID: UUID, in paneID: CmuxTerminalBackend.PaneID,
+        surfaceIDs: [SurfaceID]
+    ) async throws -> BackendTopologyMutationReceipt { try reject() }
+
+    func reorderWorkspaces(
+        requestID: UUID, _ workspaceIDs: [WorkspaceID]
+    ) async throws -> BackendTopologyMutationReceipt { try reject() }
+
+    func moveTabToNewWorkspace(
+        requestID: UUID, _ surfaceID: SurfaceID, workspaceID: WorkspaceID,
+        name: String?, index: Int?
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
+    func setSplitRatio(
+        requestID: UUID, around paneID: CmuxTerminalBackend.PaneID,
+        direction: BackendSplitDirection, ratio: Float
+    ) async throws -> BackendTopologyMutationReceipt { try reject() }
 }
 
 private actor SuspendedTopologyPlanBuilder {

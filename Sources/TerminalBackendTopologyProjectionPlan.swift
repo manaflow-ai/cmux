@@ -154,6 +154,20 @@ struct TerminalBackendTopologyProjectionPlan: Equatable, Sendable {
         )
     }
 
+    var frontendNativeBrowserSurfaceIDs: [SurfaceID] {
+        workspaces.flatMap { workspace in
+            workspace.screen.panes.flatMap { pane in
+                pane.tabs.compactMap { surface in
+                    guard surface.kind.lowercased() == "browser",
+                          surface.browserEndpoint?.transport == .frontendNativeV1 else {
+                        return nil
+                    }
+                    return surface.uuid
+                }
+            }
+        }
+    }
+
     private static func isTerminalKind(_ kind: String) -> Bool {
         switch kind.lowercased() {
         case "pty", "terminal":
