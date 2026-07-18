@@ -715,6 +715,7 @@
 		A91C0D100000000000000002 /* CompletedRestoredAgentInputRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91C0D100000000000000001 /* CompletedRestoredAgentInputRoutingTests.swift */; };
 		C0A710A00000000000000002 /* ComputerUseCursorOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710A00000000000000001 /* ComputerUseCursorOverlayController.swift */; };
 		C0A710020000000000000002 /* ComputerUseDriverState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710020000000000000001 /* ComputerUseDriverState.swift */; };
+		C0A7101A0000000000000002 /* ComputerUseLegacyHelperCleanupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A7101A0000000000000001 /* ComputerUseLegacyHelperCleanupService.swift */; };
 		C0A710FF0000000000000002 /* ComputerUseLiveSettingRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710FF0000000000000001 /* ComputerUseLiveSettingRepository.swift */; };
 		C0A710090000000000000002 /* ComputerUseMenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710090000000000000001 /* ComputerUseMenuBarController.swift */; };
 		C0A710180000000000000002 /* ComputerUseMenuBarRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710180000000000000001 /* ComputerUseMenuBarRefreshPolicy.swift */; };
@@ -2776,6 +2777,7 @@
 		A91C0D100000000000000001 /* CompletedRestoredAgentInputRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletedRestoredAgentInputRoutingTests.swift; sourceTree = "<group>"; };
 		C0A710A00000000000000001 /* ComputerUseCursorOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseCursorOverlayController.swift; sourceTree = "<group>"; };
 		C0A710020000000000000001 /* ComputerUseDriverState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseDriverState.swift; sourceTree = "<group>"; };
+		C0A7101A0000000000000001 /* ComputerUseLegacyHelperCleanupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseLegacyHelperCleanupService.swift; sourceTree = "<group>"; };
 		C0A710FF0000000000000001 /* ComputerUseLiveSettingRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseLiveSettingRepository.swift; sourceTree = "<group>"; };
 		C0A710090000000000000001 /* ComputerUseMenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarController.swift; sourceTree = "<group>"; };
 		C0A710180000000000000001 /* ComputerUseMenuBarRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarRefreshPolicy.swift; sourceTree = "<group>"; };
@@ -4689,6 +4691,7 @@
 					C0A710100000000000000001 /* ComputerUseOnboardingView.swift */,
 					C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */,
 					C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */,
+					C0A7101A0000000000000001 /* ComputerUseLegacyHelperCleanupService.swift */,
 					C0A710010000000000000001 /* ComputerUsePermissionService.swift */,
 					C0A710030000000000000001 /* ComputerUseSessionProcessScope.swift */,
 					C0A710050000000000000001 /* ComputerUseStateRepository.swift */,
@@ -7116,6 +7119,7 @@
 				C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */,
 					C0A710A00000000000000002 /* ComputerUseCursorOverlayController.swift in Sources */,
 					C0A710020000000000000002 /* ComputerUseDriverState.swift in Sources */,
+					C0A7101A0000000000000002 /* ComputerUseLegacyHelperCleanupService.swift in Sources */,
 					C0A710FF0000000000000002 /* ComputerUseLiveSettingRepository.swift in Sources */,
 					C0A710090000000000000002 /* ComputerUseMenuBarController.swift in Sources */,
 					C0A710180000000000000002 /* ComputerUseMenuBarRefreshPolicy.swift in Sources */,

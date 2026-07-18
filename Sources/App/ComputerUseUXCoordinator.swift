@@ -13,6 +13,7 @@ final class ComputerUseUXCoordinator {
     private let showInMenuBarKey: JSONKey<Bool>
     private let liveSettingRepository: ComputerUseLiveSettingRepository
     private let permissionService: ComputerUsePermissionService
+    private let legacyHelperCleanupService: ComputerUseLegacyHelperCleanupService
     private let userDefaults: UserDefaults
     private let workspaceTitle: @MainActor (UUID) -> String?
     private let featureEnabled: @MainActor () -> Bool
@@ -23,6 +24,7 @@ final class ComputerUseUXCoordinator {
     private var onboardingWindowController: ComputerUseOnboardingWindowController?
     private var enabledSettingTask: Task<Void, Never>?
     private var toolInvocationTask: Task<Void, Never>?
+    private var legacyHelperCleanupTask: Task<Void, Never>?
 
     init(
         liveAgentIndex: SharedLiveAgentIndex,
@@ -33,6 +35,7 @@ final class ComputerUseUXCoordinator {
         showInMenuBarKey: JSONKey<Bool>,
         liveSettingRepository: ComputerUseLiveSettingRepository,
         permissionService: ComputerUsePermissionService,
+        legacyHelperCleanupService: ComputerUseLegacyHelperCleanupService = ComputerUseLegacyHelperCleanupService(),
         userDefaults: UserDefaults,
         workspaceTitle: @escaping @MainActor (UUID) -> String?,
         featureEnabled: @escaping @MainActor () -> Bool
@@ -45,6 +48,7 @@ final class ComputerUseUXCoordinator {
         self.showInMenuBarKey = showInMenuBarKey
         self.liveSettingRepository = liveSettingRepository
         self.permissionService = permissionService
+        self.legacyHelperCleanupService = legacyHelperCleanupService
         self.userDefaults = userDefaults
         self.workspaceTitle = workspaceTitle
         self.featureEnabled = featureEnabled
@@ -53,6 +57,7 @@ final class ComputerUseUXCoordinator {
     deinit {
         enabledSettingTask?.cancel()
         toolInvocationTask?.cancel()
+        legacyHelperCleanupTask?.cancel()
     }
 
     static func isComputerUseToolInvocation(_ event: WorkstreamEvent) -> Bool {
@@ -69,6 +74,10 @@ final class ComputerUseUXCoordinator {
 
     func install(onFocusTerminal: @escaping @MainActor (UUID, UUID) -> Void) {
         guard menuBarController == nil else { return }
+
+        legacyHelperCleanupTask = Task { [legacyHelperCleanupService] in
+            await legacyHelperCleanupService.cleanup()
+        }
 
         let initialComputerUseEnabled = configStore.snapshotValue(for: enabledKey)
         enabledSettingTask = Task { [configStore, enabledKey, liveSettingRepository] in
