@@ -134,6 +134,8 @@ struct AgentHookSessionStateWriter: Sendable {
     }
     private struct RestoredHibernationOwnerPreflight: Sendable {
         let recordFingerprint: Data
+        let canonicalWorkspaceId: String?
+        let canonicalSurfaceId: String?
         let hasProvablyLiveForeignRuntime: Bool
     }
     private enum LegacyReadLockMode: Sendable, Equatable {
@@ -1027,35 +1029,41 @@ struct AgentHookSessionStateWriter: Sendable {
                 adopted.reserveCapacity(normalizedRequests.count)
                 for (request, sessionId) in normalizedRequests {
                     if cancellationCheck() { throw CancellationError() }
-                    let previousSurfaceSlot = CmuxAgentSessionRegistry.ActiveSlotKey(
+                    guard let ownerPreflight = ownerPreflights[sessionId],
+                          let canonicalWorkspaceId = ownerPreflight.canonicalWorkspaceId,
+                          let canonicalSurfaceId = ownerPreflight.canonicalSurfaceId,
+                          !ownerPreflight.hasProvablyLiveForeignRuntime else {
+                        outcomes[request.surfaceId] = .rejected
+                        continue
+                    }
+                    let canonicalSurfaceSlot = CmuxAgentSessionRegistry.ActiveSlotKey(
                         scope: .surface,
-                        scopeID: request.previousSurfaceId.uuidString
+                        scopeID: canonicalSurfaceId
                     )
                     let activeSurfaceSlot = CmuxAgentSessionRegistry.ActiveSlotKey(
                         scope: .surface,
                         scopeID: request.surfaceId.uuidString
                     )
-                    let previousSurfaceOwner = try batch.activeSlotSessionID(
+                    let canonicalSurfaceOwner = try batch.activeSlotSessionID(
                         provider: provider,
-                        key: previousSurfaceSlot
+                        key: canonicalSurfaceSlot
                     )
                     let activeSurfaceOwner = try batch.activeSlotSessionID(
                         provider: provider,
                         key: activeSurfaceSlot
                     )
-                    let previousWorkspaceSlot = request.previousWorkspaceId.map {
-                        CmuxAgentSessionRegistry.ActiveSlotKey(
-                            scope: .workspace,
-                            scopeID: $0.uuidString
-                        )
-                    }
-                    let rebindWorkspaceActiveSlot = try previousWorkspaceSlot.map {
-                        try batch.activeSlotSessionID(provider: provider, key: $0) == sessionId
-                    } ?? false
-                    var previousSlots = [previousSurfaceSlot]
+                    let canonicalWorkspaceSlot = CmuxAgentSessionRegistry.ActiveSlotKey(
+                        scope: .workspace,
+                        scopeID: canonicalWorkspaceId
+                    )
+                    let rebindWorkspaceActiveSlot = try batch.activeSlotSessionID(
+                        provider: provider,
+                        key: canonicalWorkspaceSlot
+                    ) == sessionId
+                    var previousSlots = [canonicalSurfaceSlot]
                     var activeSlots = [activeSurfaceSlot]
-                    if let previousWorkspaceSlot, rebindWorkspaceActiveSlot {
-                        previousSlots.append(previousWorkspaceSlot)
+                    if rebindWorkspaceActiveSlot {
+                        previousSlots.append(canonicalWorkspaceSlot)
                         activeSlots.append(
                             CmuxAgentSessionRegistry.ActiveSlotKey(
                                 scope: .workspace,
@@ -1073,22 +1081,20 @@ struct AgentHookSessionStateWriter: Sendable {
                         shouldMutate: { record in
                             guard restoredRecordCanBeAdopted(
                                 record,
-                                previousWorkspaceId: request.previousWorkspaceId?.uuidString,
-                                previousSurfaceId: request.previousSurfaceId.uuidString,
+                                canonicalWorkspaceId: canonicalWorkspaceId,
+                                canonicalSurfaceId: canonicalSurfaceId,
                                 workspaceId: request.workspaceId.uuidString,
                                 surfaceId: request.surfaceId.uuidString
                             ),
-                            let ownerPreflight = ownerPreflights[sessionId],
-                            !ownerPreflight.hasProvablyLiveForeignRuntime,
                             restoredHibernationRecordFingerprint(record)
                                 == ownerPreflight.recordFingerprint,
                             let recordWorkspaceId = normalized(record["workspaceId"] as? String),
                             let recordSurfaceId = normalized(record["surfaceId"] as? String) else {
                                 return false
                             }
-                            // A record still on its persisted binding needs the
-                            // old singular surface slot. An idempotent repeat
-                            // after a successful transfer instead needs the new
+                            // A record still on the exact preflight binding
+                            // needs that canonical surface slot. An idempotent
+                            // repeat after transfer instead needs the target
                             // slot. Workspace slots differ: sibling panels can
                             // share one workspace, so only its actual owner
                             // transfers that optional slot above.
@@ -1101,7 +1107,7 @@ struct AgentHookSessionStateWriter: Sendable {
                             )
                             return alreadyAdopted
                                 ? activeSurfaceOwner == sessionId
-                                : previousSurfaceOwner == sessionId
+                                : canonicalSurfaceOwner == sessionId
                         }
                     ) { record in
                         let effectiveNow = max(now, record["updatedAt"] as? TimeInterval ?? now)
@@ -1203,8 +1209,8 @@ struct AgentHookSessionStateWriter: Sendable {
 
     private func restoredRecordCanBeAdopted(
         _ record: [String: Any],
-        previousWorkspaceId: String?,
-        previousSurfaceId: String,
+        canonicalWorkspaceId: String,
+        canonicalSurfaceId: String,
         workspaceId: String,
         surfaceId: String
     ) -> Bool {
@@ -1218,12 +1224,9 @@ struct AgentHookSessionStateWriter: Sendable {
         }
         let alreadyAdopted = identifiersEqual(recordWorkspaceId, workspaceId)
             && identifiersEqual(recordSurfaceId, surfaceId)
-        let matchesPreviousWorkspace = previousWorkspaceId.map {
-            identifiersEqual(recordWorkspaceId, $0)
-        } ?? true
-        let matchesPreviousBinding = matchesPreviousWorkspace
-            && identifiersEqual(recordSurfaceId, previousSurfaceId)
-        return alreadyAdopted || matchesPreviousBinding
+        let matchesCanonicalBinding = identifiersEqual(recordWorkspaceId, canonicalWorkspaceId)
+            && identifiersEqual(recordSurfaceId, canonicalSurfaceId)
+        return alreadyAdopted || matchesCanonicalBinding
     }
 
     private func preparedRegistry(
@@ -1394,6 +1397,8 @@ struct AgentHookSessionStateWriter: Sendable {
             }
             result[sessionId] = RestoredHibernationOwnerPreflight(
                 recordFingerprint: fingerprint,
+                canonicalWorkspaceId: normalized(record["workspaceId"] as? String),
+                canonicalSurfaceId: normalized(record["surfaceId"] as? String),
                 hasProvablyLiveForeignRuntime: recordHasProvablyLiveForeignRuntime(
                     record,
                     currentSocketState: &currentSocketState,
