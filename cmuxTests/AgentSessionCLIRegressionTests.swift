@@ -507,6 +507,43 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(iterator.next() == nil)
     }
 
+    @Test func agentsTreeDepthLimitDoesNotReemitDescendantsAsRoots() throws {
+        func node(sessionID: String, runID: String) -> AgentSessionGraphNode {
+            AgentSessionGraphNode(
+                provider: "opencode", sessionId: sessionID, runId: runID,
+                pid: nil, processStartedAt: nil, cmuxRuntime: nil,
+                workspaceId: "workspace-\(sessionID)", surfaceId: "surface-\(sessionID)",
+                processState: .unknown, sessionState: .active,
+                foregroundState: .idle, attentionState: .none,
+                activity: AgentActivitySnapshot(state: .idle, busy: false, modes: [], counts: .init()),
+                effectiveState: .idle, workloads: [], restoreAuthority: true,
+                startedAt: 100, updatedAt: 100, endedAt: nil
+            )
+        }
+
+        let root = node(sessionID: "root", runID: "root-run")
+        let child = node(sessionID: "child", runID: "child-run")
+        let grandchild = node(sessionID: "grandchild", runID: "grandchild-run")
+        let snapshot = AgentSessionGraphSnapshot(
+            nodes: [root, child, grandchild],
+            edges: [
+                AgentSessionGraphEdge(
+                    fromRunId: root.runId, fromSessionId: root.sessionId,
+                    toNodeId: child.nodeId, toRunId: child.runId, relationship: .spawned
+                ),
+                AgentSessionGraphEdge(
+                    fromRunId: child.runId, fromSessionId: child.sessionId,
+                    toNodeId: grandchild.nodeId, toRunId: grandchild.runId, relationship: .spawned
+                ),
+            ]
+        )
+        var iterator = AgentTreeTextLineSequence(snapshot: snapshot, maximumDepth: 1).makeIterator()
+
+        #expect(iterator.next()?.contains("opencode root ") == true)
+        #expect(iterator.next()?.contains("opencode child ") == true)
+        #expect(iterator.next() == nil)
+    }
+
     @Test func limitedAgentListRetainsOnlyTheExactSortedPrefix() {
         var entries = SessionListEntryAccumulator(limit: 2)
         entries.insert(updatedAt: 10, payload: ["session_id": "session-a"])
