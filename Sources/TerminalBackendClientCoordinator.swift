@@ -8,7 +8,8 @@ import Foundation
 /// Process-wide owner of trusted backend connection replacement and terminal commands.
 actor TerminalBackendClientCoordinator:
     TerminalBackendClient,
-    TerminalBackendProjectionStateServing
+    TerminalBackendProjectionStateServing,
+    TerminalBackendTopologyMutating
 {
     typealias ReadinessProvider = @Sendable () async throws -> BackendServiceBootstrapResult
     typealias SessionFactory = @Sendable (BackendServiceReadiness) -> any TerminalBackendSessionServing
@@ -39,6 +40,12 @@ actor TerminalBackendClientCoordinator:
         let continuation: CheckedContinuation<TerminalBackendTerminalBinding, any Error>
     }
 
+    private struct TopologyRevisionWaiter {
+        let authority: BackendAuthority
+        let revision: UInt64
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
     private var connected: TerminalBackendConnectedSession?
     private var latestSnapshot: TopologySnapshot?
     private var latestActivitySnapshot: BackendTerminalActivitySnapshot?
@@ -63,6 +70,9 @@ actor TerminalBackendClientCoordinator:
     private var terminalRequestsAwaitingRecovery: Set<UUID> = []
     private var pendingTerminalReceiptAcknowledgements:
         Set<PendingTerminalReceiptAcknowledgement> = []
+    private var topologyMutationInFlight = false
+    private var topologyMutationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var topologyRevisionWaiters: [UUID: TopologyRevisionWaiter] = [:]
 
     init(
         bootstrapCoordinator: BackendServiceBootstrapCoordinator,
@@ -179,6 +189,7 @@ actor TerminalBackendClientCoordinator:
         eventTask = nil
         rendererPresentations.removeAll()
         latestSnapshot = nil
+        failTopologyRevisionWaiters(BackendCanonicalSessionError.notConnected)
         let previous = connected
         connected = nil
         if let authority = previous?.readiness.authority {
@@ -186,6 +197,300 @@ actor TerminalBackendClientCoordinator:
         }
         await compatibilityReporter(nil)
         await previous?.session.close()
+    }
+
+    func createWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-new-workspace",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            try await session.newWorkspace(
+                expectation: expectation,
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                name: name,
+                launch: launch,
+                columns: columns,
+                rows: rows
+            )
+        }
+    }
+
+    func createTerminalTab(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        in paneID: PaneID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-new-tab",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.newTerminalTab(
+                expectation: expectation,
+                paneID: paneID,
+                surfaceID: surfaceID,
+                launch: launch,
+                columns: columns,
+                rows: rows
+            )
+            guard placement.paneID == paneID, placement.surfaceID == surfaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
+    func splitPane(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        _ paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        guard initialRatio.isFinite, initialRatio > 0, initialRatio < 1 else {
+            throw TerminalBackendTopologyMutationError.invalidSplitRatio(initialRatio)
+        }
+        return try await performCanonicalTopologyMutation(
+            command: "canonical-split-pane",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.splitPane(
+                expectation: expectation,
+                paneID: paneID,
+                surfaceID: surfaceID,
+                direction: direction,
+                initialRatio: initialRatio,
+                launch: launch,
+                columns: columns,
+                rows: rows
+            )
+            guard placement.surfaceID == surfaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
+    func splitTab(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        around paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float
+    ) async throws -> BackendSurfacePlacement {
+        guard initialRatio.isFinite, initialRatio > 0, initialRatio < 1 else {
+            throw TerminalBackendTopologyMutationError.invalidSplitRatio(initialRatio)
+        }
+        return try await performCanonicalTopologyMutation(
+            command: "canonical-split-tab",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.splitTab(
+                expectation: expectation,
+                surfaceID: surfaceID,
+                paneID: paneID,
+                direction: direction,
+                initialRatio: initialRatio
+            )
+            guard placement.surfaceID == surfaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
+    func closePane(
+        requestID: UUID,
+        _ paneID: PaneID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-close-pane",
+            requestID: requestID,
+            receipt: { $0 }
+        ) { session, expectation in
+            try await session.closePane(expectation: expectation, paneID: paneID)
+        }
+    }
+
+    func closeWorkspace(
+        requestID: UUID,
+        _ workspaceID: WorkspaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-close-workspace",
+            requestID: requestID,
+            receipt: { $0 }
+        ) { session, expectation in
+            try await session.closeWorkspace(
+                expectation: expectation,
+                workspaceID: workspaceID
+            )
+        }
+    }
+
+    func renameWorkspace(
+        requestID: UUID,
+        _ workspaceID: WorkspaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-rename-workspace",
+            requestID: requestID,
+            receipt: { $0 }
+        ) { session, expectation in
+            try await session.renameWorkspace(
+                expectation: expectation,
+                workspaceID: workspaceID,
+                name: name
+            )
+        }
+    }
+
+    func renameSurface(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-rename-surface",
+            requestID: requestID,
+            receipt: { $0 }
+        ) { session, expectation in
+            try await session.renameSurface(
+                expectation: expectation,
+                surfaceID: surfaceID,
+                name: name
+            )
+        }
+    }
+
+    func moveTab(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        to paneID: PaneID,
+        index: Int
+    ) async throws -> BackendTopologyMutationReceipt {
+        let wireIndex = try topologyMutationIndex(index)
+        return try await performCanonicalTopologyMutation(
+            command: "canonical-move-tab",
+            requestID: requestID,
+            receipt: { $0 }
+        ) { session, expectation in
+            try await session.moveTab(
+                expectation: expectation,
+                surfaceID: surfaceID,
+                paneID: paneID,
+                index: wireIndex
+            )
+        }
+    }
+
+    func reorderTabs(
+        requestID: UUID,
+        in paneID: PaneID,
+        surfaceIDs: [SurfaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-reorder-tabs",
+            requestID: requestID,
+            receipt: { $0 }
+        ) { session, expectation in
+            try await session.reorderTabs(
+                expectation: expectation,
+                paneID: paneID,
+                surfaceIDs: surfaceIDs
+            )
+        }
+    }
+
+    func reorderWorkspaces(
+        requestID: UUID,
+        _ workspaceIDs: [WorkspaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-reorder-workspaces",
+            requestID: requestID,
+            receipt: { $0 }
+        ) { session, expectation in
+            try await session.reorderWorkspaces(
+                expectation: expectation,
+                workspaceIDs: workspaceIDs
+            )
+        }
+    }
+
+    func moveTabToNewWorkspace(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        workspaceID: WorkspaceID,
+        name: String?,
+        index: Int?
+    ) async throws -> BackendSurfacePlacement {
+        let wireIndex: UInt64?
+        if let index {
+            wireIndex = try topologyMutationIndex(index)
+        } else {
+            wireIndex = nil
+        }
+        return try await performCanonicalTopologyMutation(
+            command: "canonical-move-tab-to-new-workspace",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.moveTabToNewWorkspace(
+                expectation: expectation,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                name: name,
+                index: wireIndex
+            )
+            guard placement.surfaceID == surfaceID,
+                  placement.workspaceID == workspaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
+    func setSplitRatio(
+        requestID: UUID,
+        around paneID: PaneID,
+        direction: BackendSplitDirection,
+        ratio: Float
+    ) async throws -> BackendTopologyMutationReceipt {
+        guard ratio.isFinite, ratio > 0, ratio < 1 else {
+            throw TerminalBackendTopologyMutationError.invalidSplitRatio(ratio)
+        }
+        return try await performCanonicalTopologyMutation(
+            command: "canonical-set-split-ratio",
+            requestID: requestID,
+            receipt: { $0 }
+        ) { session, expectation in
+            try await session.setSplitRatio(
+                expectation: expectation,
+                paneID: paneID,
+                direction: direction,
+                ratio: ratio
+            )
+        }
     }
 
     func claimProjectionState(
@@ -1524,6 +1829,180 @@ actor TerminalBackendClientCoordinator:
         return connection
     }
 
+    private func canonicalMutationContext(
+        command: String
+    ) async throws -> (
+        connection: TerminalBackendConnectedSession,
+        snapshot: TopologySnapshot
+    ) {
+        let connection = try await connectedSession()
+        let compatibility = try await connection.session.backendCompatibility()
+        guard connected?.readiness == connection.readiness else {
+            throw TerminalBackendTopologyMutationError.canonicalSnapshotUnavailable
+        }
+        if case .readOnly(let diagnostic) = compatibility {
+            throw BackendProtocolError.mutationUnavailableInReadOnlyMode(
+                command: command,
+                compatibility: diagnostic
+            )
+        }
+        guard let snapshot = latestSnapshot else {
+            throw TerminalBackendTopologyMutationError.canonicalSnapshotUnavailable
+        }
+        guard snapshot.authority == connection.readiness.authority else {
+            throw TerminalBackendTopologyMutationError.authorityChanged(
+                expected: connection.readiness.authority,
+                actual: snapshot.authority
+            )
+        }
+        return (connection, snapshot)
+    }
+
+    private func performCanonicalTopologyMutation<Result: Sendable>(
+        command: String,
+        requestID: UUID,
+        receipt receiptForResult: @Sendable (Result) -> BackendTopologyMutationReceipt,
+        operation: @Sendable (
+            any TerminalBackendSessionServing,
+            BackendTopologyMutationExpectation
+        ) async throws -> Result
+    ) async throws -> Result {
+        await acquireTopologyMutationPermit()
+        defer { releaseTopologyMutationPermit() }
+        try Task.checkCancellation()
+        let context = try await canonicalMutationContext(command: command)
+        let expectation = BackendTopologyMutationExpectation(
+            requestID: requestID,
+            authority: context.snapshot.authority,
+            revision: context.snapshot.revision
+        )
+        let result = try await operation(context.connection.session, expectation)
+        let receipt = receiptForResult(result)
+        let (expectedRevision, revisionOverflow) = receipt.baseRevision.addingReportingOverflow(1)
+        guard receipt.requestID == requestID,
+              receipt.authority == expectation.authority,
+              !revisionOverflow,
+              receipt.revision == expectedRevision else {
+            throw BackendProtocolError.peerIdentityMismatch
+        }
+        try await awaitCanonicalTopologyReceipt(receipt, from: context.connection)
+        return result
+    }
+
+    private func acquireTopologyMutationPermit() async {
+        if !topologyMutationInFlight {
+            topologyMutationInFlight = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            topologyMutationWaiters.append(continuation)
+        }
+    }
+
+    private func releaseTopologyMutationPermit() {
+        if topologyMutationWaiters.isEmpty {
+            topologyMutationInFlight = false
+        } else {
+            topologyMutationWaiters.removeFirst().resume()
+        }
+    }
+
+    private func awaitCanonicalTopologyReceipt(
+        _ receipt: BackendTopologyMutationReceipt,
+        from connection: TerminalBackendConnectedSession
+    ) async throws {
+        guard connected?.readiness == connection.readiness else {
+            throw TerminalBackendTopologyMutationError.canonicalSnapshotUnavailable
+        }
+        if let latestSnapshot,
+           latestSnapshot.authority == receipt.authority,
+           latestSnapshot.revision >= receipt.revision {
+            return
+        }
+        let identifier = UUID()
+        try await withCheckedThrowingContinuation { continuation in
+            topologyRevisionWaiters[identifier] = TopologyRevisionWaiter(
+                authority: receipt.authority,
+                revision: receipt.revision,
+                continuation: continuation
+            )
+        }
+    }
+
+    private func resumeTopologyRevisionWaiters(with snapshot: TopologySnapshot) {
+        let ready = topologyRevisionWaiters.filter { _, waiter in
+            waiter.authority == snapshot.authority && waiter.revision <= snapshot.revision
+        }
+        for (identifier, waiter) in ready {
+            topologyRevisionWaiters.removeValue(forKey: identifier)
+            waiter.continuation.resume()
+        }
+    }
+
+    private func failTopologyRevisionWaiters(_ error: any Error) {
+        let waiters = topologyRevisionWaiters.values
+        topologyRevisionWaiters.removeAll()
+        for waiter in waiters {
+            waiter.continuation.resume(throwing: error)
+        }
+    }
+
+    private func topologyMutationIndex(_ index: Int) throws -> UInt64 {
+        guard let index = UInt64(exactly: index) else {
+            throw TerminalBackendTopologyMutationError.invalidIndex(index)
+        }
+        return index
+    }
+
+    private func resolveWorkspace(
+        _ workspaceID: WorkspaceID,
+        in snapshot: TopologySnapshot
+    ) throws -> CanonicalWorkspace {
+        guard let workspace = snapshot.topology.workspaces.first(where: {
+            $0.uuid == workspaceID
+        }) else {
+            throw TerminalBackendTopologyMutationError.workspaceNotFound(workspaceID)
+        }
+        return workspace
+    }
+
+    private func resolvePane(
+        _ paneID: PaneID,
+        in snapshot: TopologySnapshot
+    ) throws -> CanonicalPane {
+        for workspace in snapshot.topology.workspaces {
+            for screen in workspace.screens {
+                if let pane = screen.panes.first(where: { $0.uuid == paneID }) {
+                    return pane
+                }
+            }
+        }
+        throw TerminalBackendTopologyMutationError.paneNotFound(paneID)
+    }
+
+    private func resolveSurface(
+        _ surfaceID: SurfaceID,
+        in snapshot: TopologySnapshot
+    ) throws -> CanonicalSurface {
+        try resolveSurfaceAndPane(surfaceID, in: snapshot).surface
+    }
+
+    private func resolveSurfaceAndPane(
+        _ surfaceID: SurfaceID,
+        in snapshot: TopologySnapshot
+    ) throws -> (surface: CanonicalSurface, pane: CanonicalPane) {
+        for workspace in snapshot.topology.workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    if let surface = pane.tabs.first(where: { $0.uuid == surfaceID }) {
+                        return (surface, pane)
+                    }
+                }
+            }
+        }
+        throw TerminalBackendTopologyMutationError.surfaceNotFound(surfaceID)
+    }
+
     private func connectedSession() async throws -> TerminalBackendConnectedSession {
         ensureConnectionSupervisor()
         if let connected { return connected }
@@ -1634,6 +2113,7 @@ actor TerminalBackendClientCoordinator:
     ) {
         guard connected?.readiness == connection.readiness else { return }
         latestSnapshot = snapshot
+        resumeTopologyRevisionWaiters(with: snapshot)
         publishSnapshot(snapshot)
         publishTopology(.snapshot(snapshot))
     }
@@ -1649,6 +2129,7 @@ actor TerminalBackendClientCoordinator:
             topology: delta.replacement
         )
         latestSnapshot = snapshot
+        resumeTopologyRevisionWaiters(with: snapshot)
         publishSnapshot(snapshot)
         publishTopology(.delta(delta))
     }
@@ -1710,6 +2191,7 @@ actor TerminalBackendClientCoordinator:
               connected?.readiness == connection.readiness else { return }
         connected = nil
         latestSnapshot = nil
+        failTopologyRevisionWaiters(BackendCanonicalSessionError.notConnected)
         rendererPresentations.removeAll()
         publishRenderer(.connectionLost(connection.readiness.authority))
         publishTopology(.disconnected(connection.readiness.authority))
@@ -1732,6 +2214,7 @@ actor TerminalBackendClientCoordinator:
         connectionSupervisorTask = nil
         connected = nil
         latestSnapshot = nil
+        failTopologyRevisionWaiters(BackendCanonicalSessionError.notConnected)
         rendererPresentations.removeAll()
         publishRenderer(.connectionLost(connection.readiness.authority))
         publishTopology(.disconnected(connection.readiness.authority))

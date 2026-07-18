@@ -11,6 +11,7 @@ public extension BackendProtocolClient {
             parameters: [
                 "protocol_min": .unsignedInteger(UInt64(supportedRange.lowerBound)),
                 "protocol_max": .unsignedInteger(UInt64(supportedRange.upperBound)),
+                "client_kind": .string("swift-shell"),
                 "client_uuid": .string(identity.clientUUID.uuidString.lowercased()),
                 "process_instance_uuid": .string(
                     identity.processInstanceUUID.uuidString.lowercased()

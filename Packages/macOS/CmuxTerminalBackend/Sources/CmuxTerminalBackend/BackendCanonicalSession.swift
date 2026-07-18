@@ -11,6 +11,7 @@ public actor BackendCanonicalSession {
     private static let maximumAutomationDelegationTTLMilliseconds: UInt64 = 10_000
     private static let terminalLeaseRefreshMarginMilliseconds: UInt64 = 1_000
     private static let ensureTerminalsCapability = "ensure-terminals-v1"
+    private static let canonicalTopologyMutationsCapability = "canonical-topology-mutations-v1"
     private static let canonicalTopologyReadCapabilities: Set<String> = [
         "canonical-topology-snapshot-v1",
         "topology-resume-v1",
@@ -292,13 +293,24 @@ public actor BackendCanonicalSession {
 
     /// Creates the first terminal in a new backend workspace.
     public func newWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
         name: String? = nil,
+        launch: BackendTerminalLaunch = BackendTerminalLaunch(),
         columns: UInt16? = nil,
         rows: UInt16? = nil
     ) async throws -> BackendSurfacePlacement {
-        try requireConnected()
-        try requireMutationAccess(command: "new-workspace")
-        return try await client.newWorkspace(name: name, columns: columns, rows: rows)
+        try requireCanonicalTopologyMutation(command: "canonical-new-workspace")
+        return try await client.canonicalNewWorkspace(
+            expectation: expectation,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            name: name,
+            launch: launch,
+            columns: columns,
+            rows: rows
+        )
     }
 
     /// Idempotently creates or reattaches one stable caller-identified terminal.
@@ -934,20 +946,188 @@ public actor BackendCanonicalSession {
         )
     }
 
-    /// Creates a terminal tab in one backend pane.
+    /// Creates an exactly identified terminal tab in one stable backend pane.
     public func newTerminalTab(
-        pane: UInt64? = nil,
-        workingDirectory: String? = nil,
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch = BackendTerminalLaunch(),
         columns: UInt16? = nil,
         rows: UInt16? = nil
     ) async throws -> BackendSurfacePlacement {
-        try requireConnected()
-        try requireMutationAccess(command: "new-tab")
-        return try await client.newTerminalTab(
-            pane: pane,
-            workingDirectory: workingDirectory,
+        try requireCanonicalTopologyMutation(command: "canonical-new-tab")
+        return try await client.canonicalNewTerminalTab(
+            expectation: expectation,
+            paneID: paneID,
+            surfaceID: surfaceID,
+            launch: launch,
             columns: columns,
             rows: rows
+        )
+    }
+
+    public func splitPane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        launch: BackendTerminalLaunch = BackendTerminalLaunch(),
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        try requireCanonicalTopologyMutation(command: "canonical-split-pane")
+        guard initialRatio.isFinite, initialRatio > 0, initialRatio < 1 else {
+            throw BackendProtocolError.malformedMessage
+        }
+        return try await client.canonicalSplitPane(
+            expectation: expectation,
+            paneID: paneID,
+            surfaceID: surfaceID,
+            direction: direction,
+            initialRatio: initialRatio,
+            launch: launch,
+            columns: columns,
+            rows: rows
+        )
+    }
+
+    public func splitTab(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float
+    ) async throws -> BackendSurfacePlacement {
+        try requireCanonicalTopologyMutation(command: "canonical-split-tab")
+        guard initialRatio.isFinite, initialRatio > 0, initialRatio < 1 else {
+            throw BackendProtocolError.malformedMessage
+        }
+        return try await client.canonicalSplitTab(
+            expectation: expectation,
+            surfaceID: surfaceID,
+            paneID: paneID,
+            direction: direction,
+            initialRatio: initialRatio
+        )
+    }
+
+    public func closePane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try requireCanonicalTopologyMutation(command: "canonical-close-pane")
+        return try await client.canonicalClosePane(expectation: expectation, paneID: paneID)
+    }
+
+    public func closeWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try requireCanonicalTopologyMutation(command: "canonical-close-workspace")
+        return try await client.canonicalCloseWorkspace(
+            expectation: expectation,
+            workspaceID: workspaceID
+        )
+    }
+
+    public func renameWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        try requireCanonicalTopologyMutation(command: "canonical-rename-workspace")
+        return try await client.canonicalRenameWorkspace(
+            expectation: expectation,
+            workspaceID: workspaceID,
+            name: name
+        )
+    }
+
+    public func renameSurface(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        try requireCanonicalTopologyMutation(command: "canonical-rename-surface")
+        return try await client.canonicalRenameSurface(
+            expectation: expectation,
+            surfaceID: surfaceID,
+            name: name
+        )
+    }
+
+    public func moveTab(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        paneID: PaneID,
+        index: UInt64
+    ) async throws -> BackendTopologyMutationReceipt {
+        try requireCanonicalTopologyMutation(command: "canonical-move-tab")
+        return try await client.canonicalMoveTab(
+            expectation: expectation,
+            surfaceID: surfaceID,
+            paneID: paneID,
+            index: index
+        )
+    }
+
+    public func reorderTabs(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceIDs: [SurfaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        try requireCanonicalTopologyMutation(command: "canonical-reorder-tabs")
+        return try await client.canonicalReorderTabs(
+            expectation: expectation,
+            paneID: paneID,
+            surfaceIDs: surfaceIDs
+        )
+    }
+
+    public func reorderWorkspaces(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceIDs: [WorkspaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        try requireCanonicalTopologyMutation(command: "canonical-reorder-workspaces")
+        return try await client.canonicalReorderWorkspaces(
+            expectation: expectation,
+            workspaceIDs: workspaceIDs
+        )
+    }
+
+    public func moveTabToNewWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        workspaceID: WorkspaceID,
+        name: String? = nil,
+        index: UInt64? = nil
+    ) async throws -> BackendSurfacePlacement {
+        try requireCanonicalTopologyMutation(command: "canonical-move-tab-to-new-workspace")
+        return try await client.canonicalMoveTabToNewWorkspace(
+            expectation: expectation,
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            name: name,
+            index: index
+        )
+    }
+
+    public func setSplitRatio(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        direction: BackendSplitDirection,
+        ratio: Float
+    ) async throws -> BackendTopologyMutationReceipt {
+        try requireCanonicalTopologyMutation(command: "canonical-set-split-ratio")
+        guard ratio.isFinite, ratio > 0, ratio < 1 else {
+            throw BackendProtocolError.malformedMessage
+        }
+        return try await client.canonicalSetSplitRatio(
+            expectation: expectation,
+            paneID: paneID,
+            direction: direction,
+            ratio: ratio
         )
     }
 
@@ -1545,6 +1725,18 @@ public actor BackendCanonicalSession {
             command: command,
             compatibility: diagnostic
         )
+    }
+
+    private func requireCanonicalTopologyMutation(command: String) throws {
+        try requireConnected()
+        try requireMutationAccess(command: command)
+        try requireCapability(Self.canonicalTopologyMutationsCapability)
+    }
+
+    private func requireCapability(_ capability: String) throws {
+        guard advertisedCapabilities.contains(capability) else {
+            throw BackendProtocolError.missingCapabilities([capability])
+        }
     }
 
     private func finish(_ error: BackendCanonicalSessionError) async {

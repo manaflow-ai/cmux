@@ -966,6 +966,7 @@ struct BackendCanonicalSessionTests {
                 "protocol_min": 8,
                 "protocol_max": 9,
                 "capabilities": [
+                    "canonical-topology-mutations-v1",
                     "canonical-topology-snapshot-v1",
                     "durable-session-identity-v1",
                     "ensure-terminal-v1",
@@ -1001,6 +1002,7 @@ struct BackendCanonicalSessionTests {
 
         let register = try requestObject(await transport.nextSent())
         #expect(register["cmd"] as? String == "register-client")
+        #expect(register["client_kind"] as? String == "swift-shell")
         #expect(try uint64(register, "protocol_min") == 9)
         #expect(try uint64(register, "protocol_max") == 9)
         #expect(
@@ -1210,6 +1212,7 @@ struct BackendCanonicalSessionTests {
                 "protocol_min": 8,
                 "protocol_max": 8,
                 "capabilities": [
+                    "canonical-topology-mutations-v1",
                     "canonical-topology-snapshot-v1",
                     "durable-session-identity-v1",
                     "ensure-terminal-v1",

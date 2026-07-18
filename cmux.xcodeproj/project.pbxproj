@@ -1753,8 +1753,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7D200000000000000000101 /* TerminalBackendTopologyAuthorizationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000201 /* TerminalBackendTopologyAuthorizationGate.swift */; };
 		C7D200000000000000000102 /* TerminalBackendTopologyCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000202 /* TerminalBackendTopologyCoordinator.swift */; };
 		C7D200000000000000000110 /* TerminalBackendTopologyCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000210 /* TerminalBackendTopologyCoordinatorTests.swift */; };
+		CBAD00000000000000000122 /* TerminalBackendTopologyMutating.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000222 /* TerminalBackendTopologyMutating.swift */; };
 		C7D200000000000000000103 /* TerminalBackendTopologyMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000203 /* TerminalBackendTopologyMutation.swift */; };
 		C7D200000000000000000104 /* TerminalBackendTopologyMutationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000204 /* TerminalBackendTopologyMutationCoordinator.swift */; };
+		CBAD00000000000000000123 /* TerminalBackendTopologyMutationError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000223 /* TerminalBackendTopologyMutationError.swift */; };
 		C7D200000000000000000105 /* TerminalBackendTopologyPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000205 /* TerminalBackendTopologyPlacement.swift */; };
 		C7D200000000000000000106 /* TerminalBackendTopologyProjecting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000206 /* TerminalBackendTopologyProjecting.swift */; };
 		C7D200000000000000000107 /* TerminalBackendTopologyProjectionError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000207 /* TerminalBackendTopologyProjectionError.swift */; };
@@ -3832,8 +3834,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C7D200000000000000000201 /* TerminalBackendTopologyAuthorizationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyAuthorizationGate.swift; sourceTree = "<group>"; };
 		C7D200000000000000000202 /* TerminalBackendTopologyCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyCoordinator.swift; sourceTree = "<group>"; };
 		C7D200000000000000000210 /* TerminalBackendTopologyCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyCoordinatorTests.swift; sourceTree = "<group>"; };
+		CBAD00000000000000000222 /* TerminalBackendTopologyMutating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyMutating.swift; sourceTree = "<group>"; };
 		C7D200000000000000000203 /* TerminalBackendTopologyMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyMutation.swift; sourceTree = "<group>"; };
 		C7D200000000000000000204 /* TerminalBackendTopologyMutationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyMutationCoordinator.swift; sourceTree = "<group>"; };
+		CBAD00000000000000000223 /* TerminalBackendTopologyMutationError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyMutationError.swift; sourceTree = "<group>"; };
 		C7D200000000000000000205 /* TerminalBackendTopologyPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyPlacement.swift; sourceTree = "<group>"; };
 		C7D200000000000000000206 /* TerminalBackendTopologyProjecting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyProjecting.swift; sourceTree = "<group>"; };
 		C7D200000000000000000207 /* TerminalBackendTopologyProjectionError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyProjectionError.swift; sourceTree = "<group>"; };
@@ -4531,6 +4535,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000218 /* TerminalBackendSessionServing.swift */,
 				CBAD00000000000000000219 /* TerminalBackendTerminalBinding.swift */,
 				CBAD00000000000000000220 /* TerminalBackendTerminalRequest.swift */,
+				CBAD00000000000000000222 /* TerminalBackendTopologyMutating.swift */,
+				CBAD00000000000000000223 /* TerminalBackendTopologyMutationError.swift */,
 				CBAD00000000000000000221 /* TerminalBackendRenderConfigSource.swift */,
 				C7D200000000000000000201 /* TerminalBackendTopologyAuthorizationGate.swift */,
 				C7D200000000000000000202 /* TerminalBackendTopologyCoordinator.swift */,
@@ -7986,8 +7992,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000120 /* TerminalBackendTerminalRequest.swift in Sources */,
 				C7D200000000000000000101 /* TerminalBackendTopologyAuthorizationGate.swift in Sources */,
 				C7D200000000000000000102 /* TerminalBackendTopologyCoordinator.swift in Sources */,
+				CBAD00000000000000000122 /* TerminalBackendTopologyMutating.swift in Sources */,
 				C7D200000000000000000103 /* TerminalBackendTopologyMutation.swift in Sources */,
 				C7D200000000000000000104 /* TerminalBackendTopologyMutationCoordinator.swift in Sources */,
+				CBAD00000000000000000123 /* TerminalBackendTopologyMutationError.swift in Sources */,
 				C7D200000000000000000105 /* TerminalBackendTopologyPlacement.swift in Sources */,
 				C7D200000000000000000106 /* TerminalBackendTopologyProjecting.swift in Sources */,
 				C7D200000000000000000107 /* TerminalBackendTopologyProjectionError.swift in Sources */,

@@ -33,6 +33,87 @@ protocol TerminalBackendSessionServing: Sendable {
         workspaceID: WorkspaceID
     ) async throws -> BackendReparentedTerminalPlacement
 
+    func newWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+    func newTerminalTab(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+    func splitPane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+    func splitTab(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float
+    ) async throws -> BackendSurfacePlacement
+    func closePane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID
+    ) async throws -> BackendTopologyMutationReceipt
+    func closeWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID
+    ) async throws -> BackendTopologyMutationReceipt
+    func renameWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt
+    func renameSurface(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt
+    func moveTab(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        paneID: PaneID,
+        index: UInt64
+    ) async throws -> BackendTopologyMutationReceipt
+    func reorderTabs(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceIDs: [SurfaceID]
+    ) async throws -> BackendTopologyMutationReceipt
+    func reorderWorkspaces(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceIDs: [WorkspaceID]
+    ) async throws -> BackendTopologyMutationReceipt
+    func moveTabToNewWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        workspaceID: WorkspaceID,
+        name: String?,
+        index: UInt64?
+    ) async throws -> BackendSurfacePlacement
+    func setSplitRatio(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        direction: BackendSplitDirection,
+        ratio: Float
+    ) async throws -> BackendTopologyMutationReceipt
+
     func openPresentation(
         view: BackendPresentationView,
         zoom: BackendPresentationZoom,
@@ -197,6 +278,179 @@ protocol TerminalBackendSessionServing: Sendable {
 }
 
 extension TerminalBackendSessionServing {
+    func newWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = workspaceID
+        _ = surfaceID
+        _ = name
+        _ = launch
+        _ = columns
+        _ = rows
+        throw BackendProtocolError.notConnected
+    }
+
+    func newTerminalTab(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = paneID
+        _ = surfaceID
+        _ = launch
+        _ = columns
+        _ = rows
+        throw BackendProtocolError.notConnected
+    }
+
+    func splitPane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = paneID
+        _ = surfaceID
+        _ = direction
+        _ = initialRatio
+        _ = launch
+        _ = columns
+        _ = rows
+        throw BackendProtocolError.notConnected
+    }
+
+    func splitTab(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = surfaceID
+        _ = paneID
+        _ = direction
+        _ = initialRatio
+        throw BackendProtocolError.notConnected
+    }
+
+    func closePane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID
+    ) async throws -> BackendTopologyMutationReceipt {
+        _ = expectation
+        _ = paneID
+        throw BackendProtocolError.notConnected
+    }
+
+    func closeWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        _ = expectation
+        _ = workspaceID
+        throw BackendProtocolError.notConnected
+    }
+
+    func renameWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        _ = expectation
+        _ = workspaceID
+        _ = name
+        throw BackendProtocolError.notConnected
+    }
+
+    func renameSurface(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        _ = expectation
+        _ = surfaceID
+        _ = name
+        throw BackendProtocolError.notConnected
+    }
+
+    func moveTab(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        paneID: PaneID,
+        index: UInt64
+    ) async throws -> BackendTopologyMutationReceipt {
+        _ = expectation
+        _ = surfaceID
+        _ = paneID
+        _ = index
+        throw BackendProtocolError.notConnected
+    }
+
+    func reorderTabs(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceIDs: [SurfaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        _ = expectation
+        _ = paneID
+        _ = surfaceIDs
+        throw BackendProtocolError.notConnected
+    }
+
+    func reorderWorkspaces(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceIDs: [WorkspaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        _ = expectation
+        _ = workspaceIDs
+        throw BackendProtocolError.notConnected
+    }
+
+    func moveTabToNewWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        workspaceID: WorkspaceID,
+        name: String?,
+        index: UInt64?
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = surfaceID
+        _ = workspaceID
+        _ = name
+        _ = index
+        throw BackendProtocolError.notConnected
+    }
+
+    func setSplitRatio(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        direction: BackendSplitDirection,
+        ratio: Float
+    ) async throws -> BackendTopologyMutationReceipt {
+        _ = expectation
+        _ = paneID
+        _ = direction
+        _ = ratio
+        throw BackendProtocolError.notConnected
+    }
+
     func backendCompatibility() async throws -> BackendCompatibilityResult {
         throw BackendProtocolError.notConnected
     }

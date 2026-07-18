@@ -22,6 +22,7 @@ public struct BackendHandshakePolicy: Equatable, Sendable {
         minimumReadWriteProtocol: 9,
         requiredCapabilities: Set([
             "canonical-topology-snapshot-v1",
+            "canonical-topology-mutations-v1",
             "durable-session-identity-v1",
             "ensure-terminal-v1",
             "presentation-registry-v1",

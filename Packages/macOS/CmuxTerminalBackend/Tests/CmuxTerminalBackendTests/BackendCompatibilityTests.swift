@@ -108,7 +108,17 @@ struct BackendCompatibilityTests {
                 let commandLog = await connection.transport.commandLog()
                 let stateDigest = await connection.transport.stateDigest()
                 do {
-                    _ = try await connection.session.newWorkspace(name: "must-not-dispatch")
+                    let authority = connection.authority
+                    _ = try await connection.session.newWorkspace(
+                        expectation: BackendTopologyMutationExpectation(
+                            requestID: UUID(),
+                            authority: authority,
+                            revision: 0
+                        ),
+                        workspaceID: WorkspaceID(rawValue: UUID()),
+                        surfaceID: SurfaceID(rawValue: UUID()),
+                        name: "must-not-dispatch"
+                    )
                     Issue.record("\(scenario.name): read-only mutation unexpectedly succeeded")
                 } catch let error as BackendProtocolError {
                     guard case .mutationUnavailableInReadOnlyMode(
@@ -118,7 +128,7 @@ struct BackendCompatibilityTests {
                         Issue.record("\(scenario.name): unexpected mutation error \(error)")
                         continue
                     }
-                    #expect(command == "new-workspace")
+                    #expect(command == "canonical-new-workspace")
                     #expect(rejectedDiagnostic == diagnostic)
                 }
                 #expect(await connection.transport.commandLog() == commandLog)

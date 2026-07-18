@@ -46,7 +46,9 @@ use tungstenite::{Message, WebSocket, accept_with_config};
 
 use crate::model::{Screen, State};
 use crate::mux::{
-    EnsureTerminalRequest, RendererPreedit, RendererPresentationConfiguration, clamp_terminal_size,
+    CanonicalMutationExpectation, CanonicalMutationReceipt, CanonicalSurfacePlacement,
+    EnsureTerminalRequest, RendererPreedit, RendererPresentationConfiguration,
+    TerminalLaunchRequest, clamp_terminal_size,
 };
 use crate::platform::{self, transport};
 use crate::presentation::normalize_presentation;
@@ -82,6 +84,7 @@ pub const PROTOCOL_CAPABILITIES: &[&str] = &[
     "ensure-terminal-v1",
     "ensure-terminals-v1",
     "reparent-terminal-v1",
+    "canonical-topology-mutations-v1",
     "canonical-topology-snapshot-v1",
     "presentation-registry-v1",
     "projection-state-reconnect-v1",
@@ -165,6 +168,25 @@ struct CommandEnvelope<'a> {
 struct EnsureTerminalEnvironment {
     name: String,
     value: String,
+}
+
+#[derive(Deserialize)]
+struct CanonicalMutationWire {
+    request_id: uuid::Uuid,
+    daemon_instance_id: DaemonInstanceId,
+    session_id: crate::SessionId,
+    expected_revision: u64,
+}
+
+impl From<CanonicalMutationWire> for CanonicalMutationExpectation {
+    fn from(value: CanonicalMutationWire) -> Self {
+        Self {
+            request_id: value.request_id,
+            daemon_instance_id: value.daemon_instance_id,
+            session_id: value.session_id,
+            expected_revision: value.expected_revision,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -727,6 +749,16 @@ enum Command {
         pane: Option<PaneId>,
         #[serde(default)]
         cwd: Option<String>,
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        env: Vec<EnsureTerminalEnvironment>,
+        #[serde(default)]
+        initial_input: Option<String>,
+        #[serde(default)]
+        wait_after_command: bool,
         /// Expected content size in cells (spawn-at-size avoids shell
         /// redraw artifacts).
         #[serde(default)]
@@ -805,9 +837,156 @@ enum Command {
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        env: Vec<EnsureTerminalEnvironment>,
+        #[serde(default)]
+        initial_input: Option<String>,
+        #[serde(default)]
+        wait_after_command: bool,
+        #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+    },
+    CanonicalNewWorkspace {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        workspace_uuid: WorkspaceUuid,
+        surface_uuid: SurfaceUuid,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        env: Vec<EnsureTerminalEnvironment>,
+        #[serde(default)]
+        initial_input: Option<String>,
+        #[serde(default)]
+        wait_after_command: bool,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    CanonicalNewTab {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        pane_uuid: crate::PaneUuid,
+        surface_uuid: SurfaceUuid,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        env: Vec<EnsureTerminalEnvironment>,
+        #[serde(default)]
+        initial_input: Option<String>,
+        #[serde(default)]
+        wait_after_command: bool,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    CanonicalSplitPane {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        pane_uuid: crate::PaneUuid,
+        surface_uuid: SurfaceUuid,
+        dir: String,
+        ratio: f32,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        env: Vec<EnsureTerminalEnvironment>,
+        #[serde(default)]
+        initial_input: Option<String>,
+        #[serde(default)]
+        wait_after_command: bool,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    CanonicalSplitTab {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        surface_uuid: SurfaceUuid,
+        pane_uuid: crate::PaneUuid,
+        dir: String,
+        ratio: f32,
+    },
+    CanonicalClosePane {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        pane_uuid: crate::PaneUuid,
+    },
+    CanonicalCloseWorkspace {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        workspace_uuid: WorkspaceUuid,
+    },
+    CanonicalRenameWorkspace {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        workspace_uuid: WorkspaceUuid,
+        name: String,
+    },
+    CanonicalRenameSurface {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        surface_uuid: SurfaceUuid,
+        name: String,
+    },
+    CanonicalMoveTab {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        surface_uuid: SurfaceUuid,
+        pane_uuid: crate::PaneUuid,
+        index: usize,
+    },
+    CanonicalReorderTabs {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        pane_uuid: crate::PaneUuid,
+        surface_uuids: Vec<SurfaceUuid>,
+    },
+    CanonicalReorderWorkspaces {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        workspace_uuids: Vec<WorkspaceUuid>,
+    },
+    CanonicalMoveTabToNewWorkspace {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        surface_uuid: SurfaceUuid,
+        workspace_uuid: WorkspaceUuid,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    CanonicalSetSplitRatio {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        pane_uuid: crate::PaneUuid,
+        dir: String,
+        ratio: f32,
     },
     /// New screen in a workspace (default: the active one).
     NewScreen {
@@ -820,8 +999,22 @@ enum Command {
     },
     Split {
         pane: PaneId,
-        /// "right" or "down"
+        /// "left", "right", "up", or "down"
         dir: String,
+        #[serde(default)]
+        ratio: Option<f32>,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        env: Vec<EnsureTerminalEnvironment>,
+        #[serde(default)]
+        initial_input: Option<String>,
+        #[serde(default)]
+        wait_after_command: bool,
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -1233,6 +1426,9 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
         }
         "ensure-terminal"
         | "ensure-terminals"
+        | "canonical-new-workspace"
+        | "canonical-new-tab"
+        | "canonical-split-pane"
         | "update-projection-state"
         | "update-projection-states"
         | "configure-renderer-presentation"
@@ -1251,6 +1447,19 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
         "ensure-terminal"
             | "ensure-terminals"
             | "reparent-terminal"
+            | "canonical-new-workspace"
+            | "canonical-new-tab"
+            | "canonical-split-pane"
+            | "canonical-split-tab"
+            | "canonical-close-pane"
+            | "canonical-close-workspace"
+            | "canonical-rename-workspace"
+            | "canonical-rename-surface"
+            | "canonical-move-tab"
+            | "canonical-reorder-tabs"
+            | "canonical-reorder-workspaces"
+            | "canonical-move-tab-to-new-workspace"
+            | "canonical-set-split-ratio"
             | "renderer-workers"
             | "configure-renderer-presentation"
             | "detach-renderer-presentation"
@@ -1264,6 +1473,19 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
     policy.protocol_v9 = matches!(
         command,
         "activate-terminal-presentation"
+            | "canonical-new-workspace"
+            | "canonical-new-tab"
+            | "canonical-split-pane"
+            | "canonical-split-tab"
+            | "canonical-close-pane"
+            | "canonical-close-workspace"
+            | "canonical-rename-workspace"
+            | "canonical-rename-surface"
+            | "canonical-move-tab"
+            | "canonical-reorder-tabs"
+            | "canonical-reorder-workspaces"
+            | "canonical-move-tab-to-new-workspace"
+            | "canonical-set-split-ratio"
             | "claim-projection-state"
             | "update-projection-state"
             | "update-projection-states"
@@ -3060,6 +3282,61 @@ fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u
     cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
 }
 
+fn terminal_launch_request(
+    cwd: Option<String>,
+    argv: Option<Vec<String>>,
+    command: Option<String>,
+    env: Vec<EnsureTerminalEnvironment>,
+    initial_input: Option<String>,
+    wait_after_command: bool,
+) -> TerminalLaunchRequest {
+    TerminalLaunchRequest {
+        cwd,
+        argv,
+        command,
+        env: env.into_iter().map(|entry| (entry.name, entry.value)).collect(),
+        initial_input,
+        wait_after_command,
+    }
+}
+
+fn parse_canonical_split_edge(dir: &str) -> anyhow::Result<(SplitDir, bool)> {
+    match dir {
+        "left" => Ok((SplitDir::Right, true)),
+        "right" => Ok((SplitDir::Right, false)),
+        "up" => Ok((SplitDir::Down, true)),
+        "down" => Ok((SplitDir::Down, false)),
+        other => anyhow::bail!(
+            "bad dir {other:?} (want \"left\", \"right\", \"up\", or \"down\")"
+        ),
+    }
+}
+
+fn canonical_mutation_receipt_json(receipt: CanonicalMutationReceipt) -> Value {
+    json!({
+        "request_id": receipt.request_id,
+        "daemon_instance_id": receipt.daemon_instance_id,
+        "session_id": receipt.session_id,
+        "base_revision": receipt.base_revision,
+        "revision": receipt.revision,
+        "replayed": receipt.replayed,
+    })
+}
+
+fn canonical_surface_placement_json(placement: CanonicalSurfacePlacement) -> Value {
+    let mut value = canonical_mutation_receipt_json(placement.receipt);
+    let object = value.as_object_mut().expect("receipt JSON is an object");
+    object.insert("workspace".into(), json!(placement.workspace));
+    object.insert("workspace_uuid".into(), json!(placement.workspace_uuid));
+    object.insert("screen".into(), json!(placement.screen));
+    object.insert("screen_uuid".into(), json!(placement.screen_uuid));
+    object.insert("pane".into(), json!(placement.pane));
+    object.insert("pane_uuid".into(), json!(placement.pane_uuid));
+    object.insert("surface".into(), json!(placement.surface));
+    object.insert("surface_uuid".into(), json!(placement.surface_uuid));
+    value
+}
+
 fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
     match dir {
         "left" => Ok(Direction::Left),
@@ -3422,11 +3699,17 @@ fn surface_placement_json(mux: &Mux, surface: SurfaceId) -> anyhow::Result<Value
         let (workspace_index, screen_index) = state.screen_of(pane)?;
         let workspace = state.workspaces.get(workspace_index)?;
         let screen = workspace.screens.get(screen_index)?;
+        let pane_uuid = state.panes.get(&pane)?.uuid;
+        let surface_uuid = state.surface_uuid(surface)?;
         Some(json!({
             "surface": surface,
+            "surface_uuid": surface_uuid,
             "pane": pane,
+            "pane_uuid": pane_uuid,
             "screen": screen.id,
+            "screen_uuid": screen.uuid,
             "workspace": workspace.id,
+            "workspace_uuid": workspace.uuid,
         }))
     })
     .ok_or_else(|| anyhow::anyhow!("surface {surface} has no canonical topology placement"))
@@ -4325,6 +4608,7 @@ fn handle_command(
             Ok(json!({
                 "app": "cmux-tui",
                 "version": env!("CARGO_PKG_VERSION"),
+                "build_id": crate::build_identity::BUILD_ID,
                 "protocol": PROTOCOL_VERSION,
                 "protocol_min": PROTOCOL_MIN_VERSION,
                 "protocol_max": PROTOCOL_MAX_VERSION,
@@ -4345,6 +4629,7 @@ fn handle_command(
             Ok(json!({
                 "ok": true,
                 "version": env!("CARGO_PKG_VERSION"),
+                "build_id": crate::build_identity::BUILD_ID,
                 "protocol": PROTOCOL_VERSION,
                 "protocol_min": PROTOCOL_MIN_VERSION,
                 "protocol_max": PROTOCOL_MAX_VERSION,
@@ -6098,8 +6383,30 @@ fn handle_command(
                 "data": base64::engine::general_purpose::STANDARD.encode(replay),
             }))
         }
-        Command::NewTab { pane, cwd, cols, rows } => {
-            let surface = mux.new_tab(pane, cwd, optional_surface_size(cols, rows))?;
+        Command::NewTab {
+            pane,
+            cwd,
+            argv,
+            command,
+            env,
+            initial_input,
+            wait_after_command,
+            cols,
+            rows,
+        } => {
+            let launch = terminal_launch_request(
+                cwd,
+                argv,
+                command,
+                env,
+                initial_input,
+                wait_after_command,
+            );
+            let surface = mux.new_tab_with_launch(
+                pane,
+                optional_surface_size(cols, rows),
+                launch,
+            )?;
             surface_placement_json(mux, surface.id)
         }
         Command::NewBrowserTab { url, pane, cols, rows } => {
@@ -6212,17 +6519,242 @@ fn handle_command(
             surface.browser_activate()?;
             Ok(json!({}))
         }
-        Command::NewWorkspace { name, cols, rows } => {
-            let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
+        Command::NewWorkspace {
+            name,
+            cwd,
+            argv,
+            command,
+            env,
+            initial_input,
+            wait_after_command,
+            cols,
+            rows,
+        } => {
+            let launch = terminal_launch_request(
+                cwd,
+                argv,
+                command,
+                env,
+                initial_input,
+                wait_after_command,
+            );
+            let surface = mux.new_workspace_with_launch(
+                name,
+                optional_surface_size(cols, rows),
+                launch,
+            )?;
             surface_placement_json(mux, surface.id)
+        }
+        Command::CanonicalNewWorkspace {
+            mutation,
+            workspace_uuid,
+            surface_uuid,
+            name,
+            cwd,
+            argv,
+            command,
+            env,
+            initial_input,
+            wait_after_command,
+            cols,
+            rows,
+        } => Ok(canonical_surface_placement_json(mux.canonical_new_workspace(
+            mutation.into(),
+            workspace_uuid,
+            surface_uuid,
+            name,
+            optional_surface_size(cols, rows),
+            terminal_launch_request(
+                cwd,
+                argv,
+                command,
+                env,
+                initial_input,
+                wait_after_command,
+            ),
+        )?)),
+        Command::CanonicalNewTab {
+            mutation,
+            pane_uuid,
+            surface_uuid,
+            cwd,
+            argv,
+            command,
+            env,
+            initial_input,
+            wait_after_command,
+            cols,
+            rows,
+        } => Ok(canonical_surface_placement_json(mux.canonical_new_tab(
+            mutation.into(),
+            pane_uuid,
+            surface_uuid,
+            optional_surface_size(cols, rows),
+            terminal_launch_request(
+                cwd,
+                argv,
+                command,
+                env,
+                initial_input,
+                wait_after_command,
+            ),
+        )?)),
+        Command::CanonicalSplitPane {
+            mutation,
+            pane_uuid,
+            surface_uuid,
+            dir,
+            ratio,
+            cwd,
+            argv,
+            command,
+            env,
+            initial_input,
+            wait_after_command,
+            cols,
+            rows,
+        } => {
+            let (split_dir, insert_first) = parse_canonical_split_edge(&dir)?;
+            Ok(canonical_surface_placement_json(mux.canonical_split_pane(
+                mutation.into(),
+                pane_uuid,
+                surface_uuid,
+                split_dir,
+                insert_first,
+                ratio,
+                optional_surface_size(cols, rows),
+                terminal_launch_request(
+                    cwd,
+                    argv,
+                    command,
+                    env,
+                    initial_input,
+                    wait_after_command,
+                ),
+            )?))
+        }
+        Command::CanonicalSplitTab {
+            mutation,
+            surface_uuid,
+            pane_uuid,
+            dir,
+            ratio,
+        } => {
+            let (split_dir, insert_first) = parse_canonical_split_edge(&dir)?;
+            Ok(canonical_surface_placement_json(mux.canonical_split_tab(
+                mutation.into(),
+                surface_uuid,
+                pane_uuid,
+                split_dir,
+                insert_first,
+                ratio,
+            )?))
+        }
+        Command::CanonicalClosePane { mutation, pane_uuid } => Ok(
+            canonical_mutation_receipt_json(mux.canonical_close_pane(
+                mutation.into(),
+                pane_uuid,
+            )?),
+        ),
+        Command::CanonicalCloseWorkspace { mutation, workspace_uuid } => Ok(
+            canonical_mutation_receipt_json(mux.canonical_close_workspace(
+                mutation.into(),
+                workspace_uuid,
+            )?),
+        ),
+        Command::CanonicalRenameWorkspace { mutation, workspace_uuid, name } => Ok(
+            canonical_mutation_receipt_json(mux.canonical_rename_workspace(
+                mutation.into(),
+                workspace_uuid,
+                name,
+            )?),
+        ),
+        Command::CanonicalRenameSurface { mutation, surface_uuid, name } => Ok(
+            canonical_mutation_receipt_json(mux.canonical_rename_surface(
+                mutation.into(),
+                surface_uuid,
+                name,
+            )?),
+        ),
+        Command::CanonicalMoveTab { mutation, surface_uuid, pane_uuid, index } => Ok(
+            canonical_mutation_receipt_json(mux.canonical_move_tab(
+                mutation.into(),
+                surface_uuid,
+                pane_uuid,
+                index,
+            )?),
+        ),
+        Command::CanonicalReorderTabs { mutation, pane_uuid, surface_uuids } => Ok(
+            canonical_mutation_receipt_json(mux.canonical_reorder_tabs(
+                mutation.into(),
+                pane_uuid,
+                surface_uuids,
+            )?),
+        ),
+        Command::CanonicalReorderWorkspaces { mutation, workspace_uuids } => Ok(
+            canonical_mutation_receipt_json(mux.canonical_reorder_workspaces(
+                mutation.into(),
+                workspace_uuids,
+            )?),
+        ),
+        Command::CanonicalMoveTabToNewWorkspace {
+            mutation,
+            surface_uuid,
+            workspace_uuid,
+            name,
+            index,
+        } => Ok(canonical_surface_placement_json(
+            mux.canonical_move_tab_to_new_workspace(
+                mutation.into(),
+                surface_uuid,
+                workspace_uuid,
+                name,
+                index,
+            )?,
+        )),
+        Command::CanonicalSetSplitRatio { mutation, pane_uuid, dir, ratio } => {
+            let (split_dir, insert_first) = parse_canonical_split_edge(&dir)?;
+            Ok(canonical_mutation_receipt_json(mux.canonical_set_split_ratio(
+                mutation.into(),
+                pane_uuid,
+                split_dir,
+                !insert_first,
+                ratio,
+            )?))
         }
         Command::NewScreen { workspace, cols, rows } => {
             let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
             surface_placement_json(mux, surface.id)
         }
-        Command::Split { pane, dir, cols, rows } => {
-            let dir = parse_split_dir(&dir)?;
-            let surface = mux.split(pane, dir, optional_surface_size(cols, rows))?;
+        Command::Split {
+            pane,
+            dir,
+            ratio,
+            cwd,
+            argv,
+            command,
+            env,
+            initial_input,
+            wait_after_command,
+            cols,
+            rows,
+        } => {
+            let (dir, insert_first) = parse_canonical_split_edge(&dir)?;
+            let surface = mux.split_with_launch(
+                pane,
+                dir,
+                insert_first,
+                ratio.unwrap_or(0.5),
+                optional_surface_size(cols, rows),
+                terminal_launch_request(
+                    cwd,
+                    argv,
+                    command,
+                    env,
+                    initial_input,
+                    wait_after_command,
+                ),
+            )?;
             surface_placement_json(mux, surface.id)
         }
         Command::SetRatio { pane, dir, ratio } => {
@@ -9402,6 +9934,12 @@ mod tests {
             0,
             Command::NewWorkspace {
                 name: Some("placement".to_string()),
+                cwd: None,
+                argv: None,
+                command: None,
+                env: Vec::new(),
+                initial_input: None,
+                wait_after_command: false,
                 cols: Some(80),
                 rows: Some(24),
             },

@@ -67,21 +67,31 @@ impl Node {
         }
     }
 
-    pub(crate) fn split_leaf(&mut self, target: PaneId, dir: SplitDir, new_pane: PaneId) -> bool {
+    pub(crate) fn split_leaf(
+        &mut self,
+        target: PaneId,
+        dir: SplitDir,
+        new_pane: PaneId,
+        insert_first: bool,
+        ratio: f32,
+    ) -> bool {
         match self {
             Node::Leaf(id) if *id == target => {
                 let old = Node::Leaf(*id);
+                let new = Node::Leaf(new_pane);
+                let (a, b) = if insert_first { (new, old) } else { (old, new) };
                 *self = Node::Split {
                     dir,
-                    ratio: 0.5,
-                    a: Box::new(old),
-                    b: Box::new(Node::Leaf(new_pane)),
+                    ratio,
+                    a: Box::new(a),
+                    b: Box::new(b),
                 };
                 true
             }
             Node::Leaf(_) => false,
             Node::Split { a, b, .. } => {
-                a.split_leaf(target, dir, new_pane) || b.split_leaf(target, dir, new_pane)
+                a.split_leaf(target, dir, new_pane, insert_first, ratio)
+                    || b.split_leaf(target, dir, new_pane, insert_first, ratio)
             }
         }
     }
@@ -147,10 +157,62 @@ impl Node {
             (true, true) => ChangeState::Changed,
         }
     }
+
+    /// Sets the deepest split on one exact edge of a pane. `target_in_first`
+    /// distinguishes right/down dividers from left/up dividers when nested
+    /// splits share the same orientation.
+    pub(crate) fn set_deepest_ratio_on_edge(
+        &mut self,
+        target: PaneId,
+        dir: SplitDir,
+        target_in_first: bool,
+        new_ratio: f32,
+    ) -> ChangeState {
+        fn walk(
+            node: &mut Node,
+            target: PaneId,
+            dir: SplitDir,
+            target_in_first: bool,
+            new_ratio: f32,
+        ) -> (bool, bool, bool) {
+            match node {
+                Node::Leaf(id) => (*id == target, false, false),
+                Node::Split { dir: split_dir, ratio, a, b } => {
+                    let (a_contains, a_matched, a_updated) =
+                        walk(a, target, dir, target_in_first, new_ratio);
+                    if a_matched {
+                        return (true, true, a_updated);
+                    }
+                    let (b_contains, b_matched, b_updated) =
+                        walk(b, target, dir, target_in_first, new_ratio);
+                    if b_matched {
+                        return (true, true, b_updated);
+                    }
+                    let contains = a_contains || b_contains;
+                    let on_requested_edge = if target_in_first { a_contains } else { b_contains };
+                    if on_requested_edge && *split_dir == dir {
+                        let changed = *ratio != new_ratio;
+                        *ratio = new_ratio;
+                        (true, true, changed)
+                    } else {
+                        (contains, false, false)
+                    }
+                }
+            }
+        }
+
+        let (_, matched, changed) =
+            walk(self, target, dir, target_in_first, new_ratio);
+        match (matched, changed) {
+            (false, _) => ChangeState::Missing,
+            (true, false) => ChangeState::Unchanged,
+            (true, true) => ChangeState::Changed,
+        }
+    }
 }
 
 /// A split-tree leaf: an ordered list of tabs (surfaces) with one active.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pane {
     pub id: PaneId,
     pub uuid: PaneUuid,
@@ -169,7 +231,7 @@ impl Pane {
 
 /// One split-tree of panes. A workspace can hold many screens; exactly
 /// one is visible at a time (the status bar switches between them).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Screen {
     pub id: ScreenId,
     pub uuid: ScreenUuid,
@@ -180,7 +242,7 @@ pub struct Screen {
     pub zoomed_pane: Option<PaneId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Workspace {
     pub id: WorkspaceId,
     pub uuid: WorkspaceUuid,
@@ -197,6 +259,7 @@ impl Workspace {
 
 /// The full mutable session state, exposed to [`crate::Mux::with_state`]
 /// closures.
+#[derive(Clone)]
 pub struct State {
     pub workspaces: Vec<Workspace>,
     pub active_workspace: usize,

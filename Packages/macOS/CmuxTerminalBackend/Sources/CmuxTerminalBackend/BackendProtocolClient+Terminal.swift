@@ -67,7 +67,7 @@ public extension BackendProtocolClient {
         surfaceID: SurfaceID,
         workspaceID: WorkspaceID
     ) async throws -> BackendReparentedTerminalPlacement {
-        try await call(
+        return try await call(
             command: "reparent-terminal",
             parameters: [
                 "surface_uuid": .string(surfaceID.description),
@@ -148,39 +148,245 @@ public extension BackendProtocolClient {
         try await call(command: "renderer-workers", as: BackendRendererWorkersResponse.self)
     }
 
-    /// Creates the first terminal in a new canonical workspace.
-    func newWorkspace(
+    /// Creates the first exactly identified terminal in a new canonical workspace.
+    func canonicalNewWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
         name: String? = nil,
+        launch: BackendTerminalLaunch = BackendTerminalLaunch(),
         columns: UInt16? = nil,
         rows: UInt16? = nil
     ) async throws -> BackendSurfacePlacement {
-        var parameters: [String: BackendJSONValue] = [:]
+        var parameters = try launch.validatedJSONParameters()
+        parameters.merge(expectation.jsonParameters) { _, new in new }
+        parameters["workspace_uuid"] = .string(workspaceID.description)
+        parameters["surface_uuid"] = .string(surfaceID.description)
         if let name { parameters["name"] = .string(name) }
         if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
         if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
         return try await call(
-            command: "new-workspace",
+            command: "canonical-new-workspace",
             parameters: parameters,
             as: BackendSurfacePlacement.self
         )
     }
 
-    /// Creates another terminal tab in an existing canonical pane.
-    func newTerminalTab(
-        pane: UInt64? = nil,
-        workingDirectory: String? = nil,
+    /// Creates another exactly identified terminal tab in a stable pane.
+    func canonicalNewTerminalTab(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch = BackendTerminalLaunch(),
         columns: UInt16? = nil,
         rows: UInt16? = nil
     ) async throws -> BackendSurfacePlacement {
-        var parameters: [String: BackendJSONValue] = [:]
-        if let pane { parameters["pane"] = .unsignedInteger(pane) }
-        if let workingDirectory { parameters["cwd"] = .string(workingDirectory) }
+        var parameters = try launch.validatedJSONParameters()
+        parameters.merge(expectation.jsonParameters) { _, new in new }
+        parameters["pane_uuid"] = .string(paneID.description)
+        parameters["surface_uuid"] = .string(surfaceID.description)
         if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
         if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
         return try await call(
-            command: "new-tab",
+            command: "canonical-new-tab",
             parameters: parameters,
             as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Creates one terminal in a new pane adjacent to an existing pane.
+    func canonicalSplitPane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        launch: BackendTerminalLaunch = BackendTerminalLaunch(),
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        var parameters = try launch.validatedJSONParameters()
+        parameters.merge(expectation.jsonParameters) { _, new in new }
+        parameters["pane_uuid"] = .string(paneID.description)
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        parameters["dir"] = .string(direction.rawValue)
+        parameters["ratio"] = .number(Double(initialRatio))
+        if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
+        if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
+        return try await call(
+            command: "canonical-split-pane",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Moves an existing terminal into a newly split pane without replacing its runtime.
+    func canonicalSplitTab(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float
+    ) async throws -> BackendSurfacePlacement {
+        var parameters = expectation.jsonParameters
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        parameters["pane_uuid"] = .string(paneID.description)
+        parameters["dir"] = .string(direction.rawValue)
+        parameters["ratio"] = .number(Double(initialRatio))
+        return try await call(
+            command: "canonical-split-tab",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Closes one canonical pane and its contained terminal tabs.
+    func canonicalClosePane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID
+    ) async throws -> BackendTopologyMutationReceipt {
+        var parameters = expectation.jsonParameters
+        parameters["pane_uuid"] = .string(paneID.description)
+        return try await call(
+            command: "canonical-close-pane",
+            parameters: parameters,
+            as: BackendTopologyMutationReceipt.self
+        )
+    }
+
+    /// Closes one canonical workspace and its contained terminals.
+    func canonicalCloseWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        var parameters = expectation.jsonParameters
+        parameters["workspace_uuid"] = .string(workspaceID.description)
+        return try await call(
+            command: "canonical-close-workspace",
+            parameters: parameters,
+            as: BackendTopologyMutationReceipt.self
+        )
+    }
+
+    /// Renames one canonical workspace. An empty name remains daemon-defined behavior.
+    func canonicalRenameWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        var parameters = expectation.jsonParameters
+        parameters["workspace_uuid"] = .string(workspaceID.description)
+        parameters["name"] = .string(name)
+        return try await call(
+            command: "canonical-rename-workspace",
+            parameters: parameters,
+            as: BackendTopologyMutationReceipt.self
+        )
+    }
+
+    /// Renames one canonical surface. An empty name clears its custom label.
+    func canonicalRenameSurface(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        var parameters = expectation.jsonParameters
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        parameters["name"] = .string(name)
+        return try await call(
+            command: "canonical-rename-surface",
+            parameters: parameters,
+            as: BackendTopologyMutationReceipt.self
+        )
+    }
+
+    /// Moves or reorders one surface at an exact pane tab index.
+    func canonicalMoveTab(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        paneID: PaneID,
+        index: UInt64
+    ) async throws -> BackendTopologyMutationReceipt {
+        var parameters = expectation.jsonParameters
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        parameters["pane_uuid"] = .string(paneID.description)
+        parameters["index"] = .unsignedInteger(index)
+        return try await call(
+            command: "canonical-move-tab",
+            parameters: parameters,
+            as: BackendTopologyMutationReceipt.self
+        )
+    }
+
+    /// Reorders one pane's entire tab vector in one commit.
+    func canonicalReorderTabs(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceIDs: [SurfaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        var parameters = expectation.jsonParameters
+        parameters["pane_uuid"] = .string(paneID.description)
+        parameters["surface_uuids"] = .array(
+            surfaceIDs.map { .string($0.description) }
+        )
+        return try await call(
+            command: "canonical-reorder-tabs",
+            parameters: parameters,
+            as: BackendTopologyMutationReceipt.self
+        )
+    }
+
+    /// Reorders the complete workspace vector in one commit.
+    func canonicalReorderWorkspaces(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceIDs: [WorkspaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        var parameters = expectation.jsonParameters
+        parameters["workspace_uuids"] = .array(
+            workspaceIDs.map { .string($0.description) }
+        )
+        return try await call(
+            command: "canonical-reorder-workspaces",
+            parameters: parameters,
+            as: BackendTopologyMutationReceipt.self
+        )
+    }
+
+    /// Wraps an existing terminal in a newly created workspace without replacing its runtime.
+    func canonicalMoveTabToNewWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        workspaceID: WorkspaceID,
+        name: String?,
+        index: UInt64?
+    ) async throws -> BackendSurfacePlacement {
+        var parameters = expectation.jsonParameters
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        parameters["workspace_uuid"] = .string(workspaceID.description)
+        if let name { parameters["name"] = .string(name) }
+        if let index { parameters["index"] = .unsignedInteger(index) }
+        return try await call(
+            command: "canonical-move-tab-to-new-workspace",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Sets the canonical split ratio addressed from one pane edge.
+    func canonicalSetSplitRatio(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        direction: BackendSplitDirection,
+        ratio: Float
+    ) async throws -> BackendTopologyMutationReceipt {
+        var parameters = expectation.jsonParameters
+        parameters["pane_uuid"] = .string(paneID.description)
+        parameters["dir"] = .string(direction.rawValue)
+        parameters["ratio"] = .number(Double(ratio))
+        return try await call(
+            command: "canonical-set-split-ratio",
+            parameters: parameters,
+            as: BackendTopologyMutationReceipt.self
         )
     }
 

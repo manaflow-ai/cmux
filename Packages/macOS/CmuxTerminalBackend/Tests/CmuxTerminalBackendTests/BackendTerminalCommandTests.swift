@@ -188,17 +188,63 @@ struct BackendTerminalCommandTests {
         let client = BackendProtocolClient(transport: transport)
         try await client.connect()
 
+        let daemonID = DaemonInstanceID(rawValue: try #require(UUID(
+            uuidString: "10101010-1010-4010-8010-101010101010"
+        )))
+        let sessionID = SessionID(rawValue: try #require(UUID(
+            uuidString: "20202020-2020-4020-8020-202020202020"
+        )))
+        let workspaceID = WorkspaceID(rawValue: try #require(UUID(
+            uuidString: "30303030-3030-4030-8030-303030303030"
+        )))
+        let surfaceID = SurfaceID(rawValue: try #require(UUID(
+            uuidString: "40404040-4040-4040-8040-404040404040"
+        )))
+        let requestID = try #require(UUID(uuidString: "50505050-5050-4050-8050-505050505050"))
+        let expectation = BackendTopologyMutationExpectation(
+            requestID: requestID,
+            authority: BackendAuthority(daemonInstanceID: daemonID, sessionID: sessionID),
+            revision: 7
+        )
         let task = Task {
-            try await client.newWorkspace(name: "agents", columns: 132, rows: 43)
+            try await client.canonicalNewWorkspace(
+                expectation: expectation,
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                name: "agents",
+                columns: 132,
+                rows: 43
+            )
         }
         let request = try requestObject(await transport.nextSent())
-        #expect(request["cmd"] as? String == "new-workspace")
+        #expect(request["cmd"] as? String == "canonical-new-workspace")
+        #expect(request["request_id"] as? String == requestID.uuidString.lowercased())
+        #expect(request["daemon_instance_id"] as? String == daemonID.description)
+        #expect(request["session_id"] as? String == sessionID.description)
+        #expect(try uint64(request, "expected_revision") == 7)
+        #expect(request["workspace_uuid"] as? String == workspaceID.description)
+        #expect(request["surface_uuid"] as? String == surfaceID.description)
         #expect(request["name"] as? String == "agents")
         #expect(try uint64(request, "cols") == 132)
         #expect(try uint64(request, "rows") == 43)
         await transport.enqueue(try response(
             to: request,
-            data: ["surface": 41, "pane": 31, "screen": 21, "workspace": 11]
+            data: [
+                "request_id": requestID.uuidString,
+                "daemon_instance_id": daemonID.description,
+                "session_id": sessionID.description,
+                "base_revision": 7,
+                "revision": 8,
+                "replayed": false,
+                "surface": 41,
+                "surface_uuid": surfaceID.description,
+                "pane": 31,
+                "pane_uuid": "60606060-6060-4060-8060-606060606060",
+                "screen": 21,
+                "screen_uuid": "70707070-7070-4070-8070-707070707070",
+                "workspace": 11,
+                "workspace_uuid": workspaceID.description,
+            ]
         ))
 
         let placement = try await task.value
@@ -206,6 +252,7 @@ struct BackendTerminalCommandTests {
         #expect(placement.pane == 31)
         #expect(placement.screen == 21)
         #expect(placement.workspace == 11)
+        #expect(placement.receipt.revision == 8)
         await client.close()
     }
 
@@ -255,21 +302,46 @@ struct BackendTerminalCommandTests {
         let client = BackendProtocolClient(transport: transport)
         try await client.connect()
 
+        let daemonID = DaemonInstanceID(rawValue: UUID())
+        let sessionID = SessionID(rawValue: UUID())
+        let paneID = PaneID(rawValue: UUID())
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let expectation = BackendTopologyMutationExpectation(
+            requestID: UUID(),
+            authority: BackendAuthority(daemonInstanceID: daemonID, sessionID: sessionID),
+            revision: 2
+        )
         let tabTask = Task {
-            try await client.newTerminalTab(
-                pane: 31,
-                workingDirectory: "/tmp/project",
+            try await client.canonicalNewTerminalTab(
+                expectation: expectation,
+                paneID: paneID,
+                surfaceID: surfaceID,
+                launch: BackendTerminalLaunch(workingDirectory: "/tmp/project"),
                 columns: 80,
                 rows: 24
             )
         }
         let tab = try requestObject(await transport.nextSent())
-        #expect(tab["cmd"] as? String == "new-tab")
-        #expect(try uint64(tab, "pane") == 31)
+        #expect(tab["cmd"] as? String == "canonical-new-tab")
+        #expect(tab["pane_uuid"] as? String == paneID.description)
         #expect(tab["cwd"] as? String == "/tmp/project")
         await transport.enqueue(try response(
             to: tab,
-            data: ["surface": 42, "pane": 31, "screen": 21, "workspace": 11]
+            data: [
+                "request_id": expectation.requestID.uuidString,
+                "daemon_instance_id": daemonID.description,
+                "session_id": sessionID.description,
+                "base_revision": 2,
+                "revision": 3,
+                "surface": 42,
+                "surface_uuid": surfaceID.description,
+                "pane": 31,
+                "pane_uuid": paneID.description,
+                "screen": 21,
+                "screen_uuid": UUID().uuidString,
+                "workspace": 11,
+                "workspace_uuid": UUID().uuidString,
+            ]
         ))
         #expect(try await tabTask.value.surface == 42)
 

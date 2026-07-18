@@ -32,6 +32,7 @@ struct BackendTerminalControlCommandTests {
         #expect(registrationRequest["cmd"] as? String == "register-client")
         #expect(try terminalControlUInt64(registrationRequest, "protocol_min") == 9)
         #expect(try terminalControlUInt64(registrationRequest, "protocol_max") == 9)
+        #expect(registrationRequest["client_kind"] as? String == "swift-shell")
         #expect(registrationRequest["client_uuid"] as? String == clientUUID.uuidString.lowercased())
         #expect(
             registrationRequest["process_instance_uuid"] as? String
