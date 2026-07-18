@@ -954,6 +954,20 @@ mod tests {
     }
 
     #[test]
+    fn new_pane_requires_protocol_nine() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(8),
+        };
+        let error = client.require_protocol(9, "new-pane").unwrap_err();
+        assert_eq!(error.to_string(), "new-pane requires protocol 9; server uses protocol 8");
+    }
+
+    #[test]
     fn overflow_decodes_recovery_fields() {
         let event = parse_event(serde_json::json!({
             "event": "overflow",
