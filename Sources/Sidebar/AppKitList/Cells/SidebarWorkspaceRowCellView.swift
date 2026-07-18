@@ -100,7 +100,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     var currentModelForMeasurement: SidebarWorkspaceRowModel? { model }
 
-    /// Paints the FULL selected treatment instantly on press by applying a
+    /// Paints the full selected treatment instantly on completed click by applying a
     /// selection-flipped copy of the model — every selection-derived color
     /// (background, title, secondary text, notification preview, badges)
     /// flips with the highlight instead of trailing in with the terminal
@@ -125,6 +125,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         optimistic.isActive = false
         optimistic.isMultiSelected = false
         applyModel(optimistic)
+        needsLayout = true
+    }
+
+    /// Reapplies the stored model after signal-owned optimistic feedback ends.
+    func restoreAuthoritativeSelectionAppearance() {
+        guard let model else { return }
+        applyModel(model)
         needsLayout = true
     }
 

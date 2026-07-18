@@ -20,6 +20,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var clipBoundsObserver: NSObjectProtocol?
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
+    private let selectionInteraction = SignalClickDragInteraction<UUID, NSEvent.ModifierFlags>()
+    private lazy var selectionInteractionEffect = selectionInteraction.observePhase { [weak self] phase, context in
+        guard let self,
+              case let .activating(workspaceId, modifiers) = phase else { return }
+        let extendsSelection = modifiers.contains(.command) || modifiers.contains(.shift)
+        if !extendsSelection {
+            self.previewSelection(workspaceId: workspaceId)
+            context.onCleanup { [weak self] in
+                self?.restoreAuthoritativeSelectionAppearance()
+            }
+        }
+        self.commitSelection(workspaceId: workspaceId, modifiers: modifiers)
+    }
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
@@ -37,6 +50,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
         containerView = container
+        _ = selectionInteractionEffect
 
         let table = container.tableView
         table.workspaceController = self
@@ -148,6 +162,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 containerView.tableView.noteHeightOfRows(withIndexesChanged: heightChanges)
             }
         }
+        reconcileSelectionInteraction(in: nextRows)
 
         let shouldScrollAfterWorkspaceChange = SidebarSelectedWorkspaceScrollPolicy
             .shouldScrollSelectedWorkspace(
@@ -176,20 +191,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
 #endif
         guard rows.indices.contains(row) else { return }
-        if let actions = rows[row].appKitWorkspaceRowActions {
-            // Capture modifiers at click time: a coalesced (trailing) apply
-            // must not re-read the keyboard ~100ms later.
-            let modifiers = NSEvent.modifierFlags
-            if modifiers.contains(.command) || modifiers.contains(.shift) {
-                // Multi-select mutations are order-dependent; apply in order,
-                // never dropping intermediates.
-                selectionCoalescer.cancel()
-                actions.commands.updateSelection(modifiers: modifiers)
-            } else {
-                selectionCoalescer.request {
-                    actions.commands.updateSelection(modifiers: modifiers)
-                }
-            }
+        if rows[row].appKitWorkspaceRowActions != nil {
+            let workspaceId = rows[row].workspaceId
+            // The action is AppKit's completed-click event. A drag moves the
+            // signal to `.dragging`, so it cannot pass this activation gate.
+            selectionInteraction.mouseUpWithoutDrag(on: workspaceId)
         } else if let headerActions = rows[row].appKitGroupHeaderActions {
             headerActions.onFocusAnchor()
         }
@@ -262,6 +268,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // group. Headers are not row-draggable in the SwiftUI sidebar either.
         guard rows.indices.contains(row), !rows[row].isGroupHeader, let actions else { return nil }
         let workspaceId = rows[row].workspaceId
+        selectionInteraction.dragDidBegin(on: workspaceId)
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()
         let item = NSPasteboardItem()
@@ -280,6 +287,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     ) {
         actions?.endWorkspaceDrag()
         workspaceDragSessionDidEnd()
+        selectionInteraction.dragDidEnd()
     }
 
     func workspaceDragSessionDidBegin() {
@@ -293,28 +301,86 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         dropTargetGeometry.setReorderTargetCollectionActive(false, rows: rows)
     }
 
-    /// Optimistic press highlight: paints the clicked workspace cell as
-    /// selected immediately and, for a plain click, peels the highlight off
-    /// the outgoing rows so old and new selection never show together while
-    /// the authoritative render is queued behind the terminal-view swap.
-    /// The authoritative apply reconciles right after.
-    func previewSelection(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) {
+    /// Begins a signal-owned pointer interaction without changing selection.
+    /// AppKit decides whether this press becomes a drag or a completed click.
+    func pointerMouseDown(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) {
         guard rows.indices.contains(row),
               rows[row].appKitWorkspaceRowModel != nil,
               let table = containerView?.tableView,
               let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView else { return }
         if let hitView, cell.selectionPreviewShouldIgnore(hitView) { return }
-        let extendsSelection = modifiers.contains(.command) || modifiers.contains(.shift)
-        if !extendsSelection {
-            let visibleRows = table.rows(in: table.visibleRect)
-            for visibleRow in visibleRows.lowerBound..<(visibleRows.lowerBound + visibleRows.length)
-            where visibleRow != row {
-                (table.view(atColumn: 0, row: visibleRow, makeIfNecessary: false)
-                    as? SidebarWorkspaceRowTableCellView)?.showOptimisticDeselection()
-            }
+        selectionInteraction.mouseDown(on: rows[row].workspaceId, context: modifiers)
+    }
+
+    func pointerTrackingDidEnd() {
+        selectionInteraction.trackingDidEnd()
+    }
+
+    /// Completed-click highlight: paints the clicked workspace cell as
+    /// selected immediately on mouse-up and peels the highlight off
+    /// the outgoing rows so old and new selection never show together while
+    /// the authoritative render is queued behind the terminal-view swap.
+    /// The signal cleanup reconciles after the authoritative apply.
+    private func previewSelection(workspaceId: UUID) {
+        guard let row = rows.firstIndex(where: { $0.workspaceId == workspaceId }),
+              rows[row].appKitWorkspaceRowModel != nil,
+              let table = containerView?.tableView,
+              let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView else { return }
+        let visibleRows = table.rows(in: table.visibleRect)
+        for visibleRow in visibleRows.lowerBound..<(visibleRows.lowerBound + visibleRows.length)
+        where visibleRow != row {
+            (table.view(atColumn: 0, row: visibleRow, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView)?.showOptimisticDeselection()
         }
         cell.showOptimisticSelectionHighlight()
+    }
+
+    private func restoreAuthoritativeSelectionAppearance() {
+        guard let table = containerView?.tableView else { return }
+        let visibleRows = table.rows(in: table.visibleRect)
+        for row in visibleRows.lowerBound..<(visibleRows.lowerBound + visibleRows.length) {
+            (table.view(atColumn: 0, row: row, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView)?.restoreAuthoritativeSelectionAppearance()
+        }
+    }
+
+    /// The signal effect is the single selection-commit owner. It resolves the
+    /// row action at effect time and preserves mouse-down modifiers across any
+    /// coalesced trailing commit.
+    private func commitSelection(workspaceId: UUID, modifiers: NSEvent.ModifierFlags) {
+        guard let row = rows.first(where: { $0.workspaceId == workspaceId }),
+              let actions = row.appKitWorkspaceRowActions else { return }
+        if modifiers.contains(.command) || modifiers.contains(.shift) {
+            // Multi-select mutations are order-dependent; apply in order,
+            // never dropping intermediates.
+            selectionCoalescer.cancel()
+            actions.commands.updateSelection(modifiers: modifiers)
+            // Modified selection commits synchronously and does not use
+            // optimistic blue feedback, so no reconciliation wait is needed.
+            selectionInteraction.activationDidReconcile(id: workspaceId)
+        } else {
+            selectionCoalescer.request {
+                actions.commands.updateSelection(modifiers: modifiers)
+            }
+            // Clicking the already-active workspace is an authoritative no-op,
+            // so no later apply exists to close the activation phase.
+            if row.appKitWorkspaceRowModel?.isActive == true {
+                selectionInteraction.activationDidReconcile(id: workspaceId)
+            }
+        }
+    }
+
+    private func reconcileSelectionInteraction(in nextRows: [SidebarWorkspaceTableRowConfiguration]) {
+        guard case let .activating(workspaceId, modifiers) = selectionInteraction.phase else { return }
+        if modifiers.contains(.command) || modifiers.contains(.shift) {
+            selectionInteraction.activationDidReconcile(id: workspaceId)
+            return
+        }
+        guard nextRows.first(where: { $0.workspaceId == workspaceId })?
+            .appKitWorkspaceRowModel?.isActive == true else { return }
+        selectionInteraction.activationDidReconcile(id: workspaceId)
     }
 
     func middleClick(row: Int) {

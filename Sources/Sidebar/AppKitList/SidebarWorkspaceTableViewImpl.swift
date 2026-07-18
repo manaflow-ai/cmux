@@ -50,17 +50,18 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
-        // Arc-feel: paint the selection highlight on press, before the
-        // click tracking loop and the model round trip confirm it.
+        // Record the press without selecting. AppKit's tracking loop below
+        // resolves it through either the drag-source callback or table action.
         if clickedRow >= 0 {
             let hitView = superview.flatMap { hitTest($0.convert(event.locationInWindow, from: nil)) }
-            workspaceController?.previewSelection(
+            workspaceController?.pointerMouseDown(
                 row: clickedRow,
                 modifiers: event.modifierFlags,
                 hitView: hitView
             )
         }
         super.mouseDown(with: event)
+        workspaceController?.pointerTrackingDidEnd()
         if event.clickCount == 2, clickedRow < 0 {
             workspaceController?.doubleClickEmptyArea()
         }
