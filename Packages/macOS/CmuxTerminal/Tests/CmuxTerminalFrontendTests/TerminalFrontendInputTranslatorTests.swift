@@ -88,6 +88,29 @@ import Testing
         #expect(translated.action == .release)
     }
 
+    @Test func flagsChangedUsesTheChangedModifiersDeviceSide() throws {
+        let rawFlags = NSEvent.ModifierFlags.shift.rawValue
+            | UInt(NX_DEVICELSHIFTKEYMASK)
+        let event = try #require(NSEvent.keyEvent(
+            with: .flagsChanged,
+            location: .zero,
+            modifierFlags: NSEvent.ModifierFlags(rawValue: rawFlags),
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 60
+        ))
+
+        let translated = translator.keyEvent(from: event, interpretedText: nil)
+
+        #expect(translated.key == TerminalW3CKey.shiftRight.rawValue)
+        #expect(translated.modifiers == [.shift])
+        #expect(translated.action == .release)
+    }
+
     @Test func splitsCommittedControlCharactersIntoCanonicalOrderedInputs() {
         let inputs = translator.committedInputs(
             from: "a\r\nb\t\u{1B}c",

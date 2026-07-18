@@ -23,6 +23,8 @@ import Testing
             TerminalExternalViewportState.self,
             TerminalExternalTextKind.self,
             TerminalExternalTextInput.self,
+            TerminalW3CKey.self,
+            TerminalMacOSKeyMap.self,
             TerminalExternalKeyModifiers.self,
             TerminalExternalKeyAction.self,
             TerminalExternalKeyEvent.self,
@@ -44,7 +46,7 @@ import Testing
             TerminalExternalScreenTextRequest.self,
         ]
 
-        #expect(exportedValueTypes.count == 38)
+        #expect(exportedValueTypes.count == 40)
     }
 
     private func acceptsExportedProtocols(

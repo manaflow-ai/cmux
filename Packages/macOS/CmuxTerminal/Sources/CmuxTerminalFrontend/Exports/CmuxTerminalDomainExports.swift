@@ -42,6 +42,10 @@ public typealias TerminalExternalTextKind =
     CmuxTerminalDomain.TerminalExternalTextKind
 public typealias TerminalExternalTextInput =
     CmuxTerminalDomain.TerminalExternalTextInput
+public typealias TerminalW3CKey =
+    CmuxTerminalDomain.TerminalW3CKey
+public typealias TerminalMacOSKeyMap =
+    CmuxTerminalDomain.TerminalMacOSKeyMap
 public typealias TerminalExternalKeyModifiers =
     CmuxTerminalDomain.TerminalExternalKeyModifiers
 public typealias TerminalExternalKeyAction =
