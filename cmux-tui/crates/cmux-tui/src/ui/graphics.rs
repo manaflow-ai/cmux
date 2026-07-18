@@ -228,4 +228,22 @@ mod tests {
         let bytes = String::from_utf8(delete_image(41)).unwrap();
         assert_eq!(bytes, "\x1b_Ga=d,d=i,i=42,q=2;\x1b\\");
     }
+
+    #[test]
+    fn zero_sized_placement_hides_a_previously_visible_image() {
+        let visible = GraphicPlacement {
+            surface: 7,
+            rect: Rect { x: 4, y: 6, width: 80, height: 24 },
+            seq: 1,
+            data_b64: "frame".to_string(),
+        };
+        let collapsed = GraphicPlacement {
+            rect: Rect { height: 0, ..visible.rect },
+            ..visible.clone()
+        };
+        let mut state = GraphicsState::default();
+
+        assert!(!state.frame_batches(&[visible]).is_empty());
+        assert_eq!(state.frame_batches(&[collapsed]), vec![delete_image(7)]);
+    }
 }
