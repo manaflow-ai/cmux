@@ -48,6 +48,11 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// a `DaemonHello`. Reverse-relay still stays off, but SSH-backed VM workspaces can talk to
     /// the baked daemon through an SSH local forward to `/run/cmuxd-remote.sock`.
     public let skipDaemonBootstrap: Bool
+    /// Runtime generation assigned by the native-SSH connection owner.
+    ///
+    /// This value is deliberately excluded from configuration equality: it
+    /// identifies one broker lease, not a user-visible connection setting.
+    public let sshControlMasterLeaseGeneration: UUID?
 
     /// Creates a configuration, normalizing the agent socket path and gating
     /// the persistent daemon slot on `preserveAfterTerminalExit` exactly like
@@ -71,7 +76,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
-        skipDaemonBootstrap: Bool = false
+        skipDaemonBootstrap: Bool = false,
+        sshControlMasterLeaseGeneration: UUID? = nil
     ) {
         self.transport = transport
         self.destination = destination
@@ -94,6 +100,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             ? Self.normalizedPersistentDaemonSlot(persistentDaemonSlot)
             : nil
         self.skipDaemonBootstrap = skipDaemonBootstrap
+        self.sshControlMasterLeaseGeneration = sshControlMasterLeaseGeneration
     }
 
     public init(
@@ -114,7 +121,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
-        skipDaemonBootstrap: Bool = false
+        skipDaemonBootstrap: Bool = false,
+        sshControlMasterLeaseGeneration: UUID? = nil
     ) {
         self.init(
             transport: transport,
@@ -135,8 +143,32 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
-            skipDaemonBootstrap: skipDaemonBootstrap
+            skipDaemonBootstrap: skipDaemonBootstrap,
+            sshControlMasterLeaseGeneration: sshControlMasterLeaseGeneration
         )
+    }
+
+    /// Compares user-visible connection settings while ignoring the runtime lease generation.
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.transport == rhs.transport &&
+            lhs.destination == rhs.destination &&
+            lhs.port == rhs.port &&
+            lhs.identityFile == rhs.identityFile &&
+            lhs.sshOptions == rhs.sshOptions &&
+            lhs.localProxyPort == rhs.localProxyPort &&
+            lhs.relayPort == rhs.relayPort &&
+            lhs.relayID == rhs.relayID &&
+            lhs.relayToken == rhs.relayToken &&
+            lhs.localSocketPath == rhs.localSocketPath &&
+            lhs.ownerWorkspaceID == rhs.ownerWorkspaceID &&
+            lhs.managedCloudVMID == rhs.managedCloudVMID &&
+            lhs.terminalStartupCommand == rhs.terminalStartupCommand &&
+            lhs.foregroundAuthToken == rhs.foregroundAuthToken &&
+            lhs.agentSocketPath == rhs.agentSocketPath &&
+            lhs.daemonWebSocketEndpoint == rhs.daemonWebSocketEndpoint &&
+            lhs.preserveAfterTerminalExit == rhs.preserveAfterTerminalExit &&
+            lhs.persistentDaemonSlot == rhs.persistentDaemonSlot &&
+            lhs.skipDaemonBootstrap == rhs.skipDaemonBootstrap
     }
 
     /// Resolves the SSH agent socket to use for a remote configuration from an explicit socket or durable options.
@@ -289,6 +321,32 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
+        )
+    }
+
+    /// Returns a copy carrying the broker generation for one native-SSH lease.
+    public func withSSHControlMasterLeaseGeneration(_ generation: UUID) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            transport: transport,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions,
+            localProxyPort: localProxyPort,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath,
+            ownerWorkspaceID: ownerWorkspaceID,
+            managedCloudVMID: managedCloudVMID,
+            terminalStartupCommand: terminalStartupCommand,
+            foregroundAuthToken: foregroundAuthToken,
+            agentSocketPath: agentSocketPath,
+            daemonWebSocketEndpoint: daemonWebSocketEndpoint,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap,
+            sshControlMasterLeaseGeneration: generation
         )
     }
 }

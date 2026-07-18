@@ -28,8 +28,8 @@ async function main(): Promise<void> {
     const splitTree = await client.listWorkspaces();
     const layout = findLayoutForSurface(splitTree, created.surface);
     assert(layout?.type === "split", "split layout not found");
-    if (identify.protocol >= 7) {
-      assert(layout.split !== undefined, "protocol v7 split id missing");
+    if (identify.protocol >= 8) {
+      assert(layout.split !== undefined, "protocol v8 split id missing");
       const splitId = layout.split;
       await client.setSplitRatio(splitId, 0.65);
       const resizedLayout = findLayoutForSurface(await client.listWorkspaces(), created.surface);

@@ -25,6 +25,10 @@ Bindings must:
 
 SDKs that expose protocol v7 should provide a version-gated render attachment iterator whose first item is typed `render-state` and whose later union is `render-delta | scroll-changed | detached`; it must preserve plain UTF-8 run text, exact optional fields, resolved colors, row indexes, and unknown-event fallback without routing render events through a VT emulator. Subscribe APIs should default to `tree_events:"coarse"` and expose explicit `"deltas"` opt-in. Delta event unions add every workspace/screen/pane/tab lifecycle event with typed subject and parent ids plus the exact `list-workspaces` entity payload, while retaining `tree-changed` as an explicit resync case rather than an ordinary-change dependency. Detailed per-language API design, generated models, and conformance fixtures are deferred to a later SDK round.
 
+## Protocol v8 SDK Expectations
+
+SDKs must treat `layout.split` and `set-split-ratio` as protocol-v8 features. A client connected to protocol 7 must not require the field or send the command.
+
 ## Rust
 
 Rust bindings should use typed request and response structs with Serde serialization. Public methods should return `Result<T, CmuxError>`, where `CmuxError` separates command errors, decode errors, connection errors, timeouts, and protocol-version errors.

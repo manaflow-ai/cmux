@@ -157,9 +157,9 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v8. It refuses servers reporting any other protocol version because it relies on stack layouts, resized attach replays, authoritative title events, and stable `split` ids in canonical layout nodes.
+The remote TUI requires protocol v8. It rejects protocol-v7 servers before loading their workspace tree because v7 split nodes have no stable `split` id. Protocol v8 also includes stack layouts and `new-pane`.
 
-Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v7 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v8 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v7 server.
+Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Clients must not send `new-pane` to a protocol-v7 server.
 
 Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
 

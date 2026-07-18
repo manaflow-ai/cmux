@@ -827,7 +827,7 @@ Example:
 | --- | --- |
 | event | `agent-state-changed` |
 | status | proposed |
-| since | proposed protocol 8 |
+| since | proposed protocol 9 |
 
 Payload:
 
@@ -857,7 +857,7 @@ Example:
 | --- | --- |
 | event | `notification` |
 | status | proposed |
-| since | proposed protocol 8 |
+| since | proposed protocol 9 |
 
 Payload:
 

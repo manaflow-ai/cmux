@@ -382,7 +382,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn protocol_v7_parser_preserves_split_ids() {
+    fn protocol_v8_parser_preserves_split_ids() {
         let tree = parse_tree(&json!({
             "workspaces": [{
                 "id": 1,

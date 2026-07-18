@@ -1053,7 +1053,7 @@ Example:
 {"id":11,"ok":true,"data":{}}
 ```
 
-`set-ratio` remains supported in protocol v7 for existing clients. Its pane-and-direction lookup can be ambiguous when same-direction splits are nested, so new frontends should use `set-split-ratio` with the canonical layout's stable split id.
+`set-ratio` remains supported in protocol v8 for existing clients. Its pane-and-direction lookup can be ambiguous when same-direction splits are nested, so new frontends should use `set-split-ratio` with the canonical layout's stable split id.
 
 ### set-split-ratio
 
@@ -1061,7 +1061,7 @@ Example:
 | --- | --- |
 | name | `set-split-ratio` |
 | status | implemented |
-| since | protocol 7 |
+| since | protocol 8 |
 
 Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged.
 
