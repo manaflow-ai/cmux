@@ -52,8 +52,9 @@ use crate::protocol::{
     DiffSource, NavigationResult, OpenSessionRequest, SessionOpened, SessionRequest, handshake,
 };
 use crate::trajectory::{
-    AgentTurnIdentity, ResolvedTurnPatch, TrajectoryCancellation, TrajectoryError, TrajectoryRoots,
-    resolve_agent_turn_repository, resolve_last_turn_patch_cancellable,
+    AgentTurnIdentity, AgentTurnLocation, ResolvedTurnPatch, TrajectoryCancellation,
+    TrajectoryError, TrajectoryRoots, resolve_agent_turn_location_cancellable,
+    resolve_last_turn_patch_at_location_cancellable,
 };
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
@@ -127,6 +128,7 @@ const SESSION_OPEN_TIMEOUT: Duration = Duration::from_mins(2);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
 const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_mins(2);
 const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_hours(24);
+const ORPHAN_SESSION_SWEEP_INTERVAL: Duration = Duration::from_hours(1);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
 const MAX_ORPHAN_REMOVALS: usize = 64;
 const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
@@ -246,16 +248,29 @@ pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
         MAX_ORPHAN_SCAN_ENTRIES,
     )
     .await;
+    let sweep_root = config.root.clone();
+    let rpc_session = async move {
+        tokio::select! {
+            result = run_rpc_session(config) => result,
+            () = sweep_orphaned_sessions_periodically(
+                sweep_root,
+                ORPHAN_SESSION_SWEEP_INTERVAL,
+                ORPHAN_SESSION_TEMP_MIN_AGE,
+                ORPHAN_SESSION_FINAL_MIN_AGE,
+                MAX_ORPHAN_SCAN_ENTRIES,
+            ) => Err("RPC orphan sweeper stopped".to_owned()),
+        }
+    };
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|error| error.to_string())?;
     #[cfg(unix)]
     tokio::select! {
-        result = run_rpc_session(config) => result,
+        result = rpc_session => result,
         _ = terminate.recv() => Err("RPC request was cancelled".to_owned()),
     }
     #[cfg(not(unix))]
-    run_rpc_session(config).await
+    rpc_session.await
 }
 
 async fn run_rpc_session(config: ServerConfig) -> Result<(), String> {
@@ -677,9 +692,18 @@ enum SessionOpenError {
     Failed,
 }
 
+struct CancelTrajectoryOnDrop(TrajectoryCancellation);
+
+impl Drop for CancelTrajectoryOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
 async fn resolve_agent_turn_coalesced(
     state: &AppState,
     identity: AgentTurnIdentity,
+    location: AgentTurnLocation,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
     let (mut receiver, producer) = {
         let mut scans = state.trajectory_scans.lock().await;
@@ -697,6 +721,7 @@ async fn resolve_agent_turn_coalesced(
         let scans = Arc::clone(&state.trajectory_scans);
         let child_processes = Arc::clone(&state.child_processes);
         let map_identity = identity.clone();
+        let worker_location = location;
         tokio::spawn(async move {
             let cancellation = TrajectoryCancellation::default();
             let cancellation_monitor = cancellation.clone();
@@ -721,7 +746,12 @@ async fn resolve_agent_turn_coalesced(
                     // itself owns the permit until its transcript scan finishes.
                     let _permit = permit;
                     let roots = TrajectoryRoots::from_environment()?;
-                    resolve_last_turn_patch_cancellable(&worker_identity, &roots, &cancellation)
+                    resolve_last_turn_patch_at_location_cancellable(
+                        &worker_identity,
+                        &roots,
+                        &worker_location,
+                        &cancellation,
+                    )
                 })
                 .await
                 .map_or(Err(TrajectoryError::Unavailable), |result| result),
@@ -793,28 +823,33 @@ async fn open_session(
             .ok_or(SessionOpenError::Unauthorized)?;
         let identity = AgentTurnIdentity::new(*provider, session_id.clone());
         let worker_identity = identity.clone();
+        let cancellation = TrajectoryCancellation::default();
+        let worker_cancellation = cancellation.clone();
         let permit = state
             .child_processes
             .clone()
             .try_acquire_owned()
             .map_err(|_| SessionOpenError::Failed)?;
-        let repo_root = tokio::task::spawn_blocking(move || {
+        let cancellation_guard = CancelTrajectoryOnDrop(cancellation);
+        let location = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let roots = TrajectoryRoots::from_environment()?;
-            resolve_agent_turn_repository(&worker_identity, &roots)
+            resolve_agent_turn_location_cancellable(&worker_identity, &roots, &worker_cancellation)
         })
         .await
         .map_err(|_| SessionOpenError::Failed)?
         .map_err(|_| SessionOpenError::Failed)?;
-        if !authorizations_allow_repo(&authorizations, &repo_root).await {
+        drop(cancellation_guard);
+        if !authorizations_allow_repo(&authorizations, location.repo_root()).await {
             return Err(SessionOpenError::Unauthorized);
         }
-        Some((identity, repo_root))
+        Some((identity, location))
     } else {
         None
     };
-    let resolved_turn = if let Some((identity, authorized_repo_root)) = authorized_agent_turn {
-        let resolved = resolve_agent_turn_coalesced(state, identity)
+    let resolved_turn = if let Some((identity, location)) = authorized_agent_turn {
+        let authorized_repo_root = location.repo_root().to_owned();
+        let resolved = resolve_agent_turn_coalesced(state, identity, location)
             .await
             .map_err(|error| match error {
                 TrajectoryError::Empty => SessionOpenError::Empty,
@@ -1241,6 +1276,28 @@ async fn prune_orphaned_session_temp_files(
         })
     })
     .await;
+}
+
+async fn sweep_orphaned_sessions_periodically(
+    root: PathBuf,
+    interval: Duration,
+    temporary_minimum_age: Duration,
+    final_minimum_age: Duration,
+    scan_limit: usize,
+) {
+    let first_sweep = tokio::time::Instant::now() + interval;
+    let mut ticker = tokio::time::interval_at(first_sweep, interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        ticker.tick().await;
+        prune_orphaned_session_temp_files(
+            &root,
+            temporary_minimum_age,
+            final_minimum_age,
+            scan_limit,
+        )
+        .await;
+    }
 }
 
 fn reconcile_session_owners(root: &Path, minimum_age: Duration, scan_limit: usize) {
@@ -2273,7 +2330,7 @@ mod tests {
         TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
         prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
         remove_trajectory_scan_if_current, reserve_session_owner, run_git_patch_with_limit,
-        session_lease_lock_is_active, valid_group_id,
+        session_lease_lock_is_active, sweep_orphaned_sessions_periodically, valid_group_id,
     };
 
     #[test]

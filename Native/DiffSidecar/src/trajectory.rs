@@ -16,9 +16,11 @@ use crate::protocol::AgentProvider;
 
 const MAX_SESSION_ID_BYTES: usize = 512;
 const MAX_JSONL_LINE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_HOOK_STORE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TRANSCRIPT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_PATCH_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CLAUDE_SUBAGENT_TRANSCRIPTS: usize = 128;
+const MAX_CLAUDE_PROJECT_DIRECTORIES: usize = 4096;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AgentTurnIdentity {
@@ -144,6 +146,19 @@ pub struct ResolvedTurnPatch {
     pub patch: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct AgentTurnLocation {
+    repo_root: PathBuf,
+    transcript: Option<PathBuf>,
+}
+
+impl AgentTurnLocation {
+    #[must_use]
+    pub fn repo_root(&self) -> &Path {
+        &self.repo_root
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrajectoryError {
     Unavailable,
@@ -202,11 +217,41 @@ pub fn resolve_last_turn_patch_cancellable(
     roots: &TrajectoryRoots,
     cancellation: &TrajectoryCancellation,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
+    let location = resolve_agent_turn_location_cancellable(identity, roots, cancellation)?;
+    resolve_last_turn_patch_at_location_cancellable(identity, roots, &location, cancellation)
+}
+
+/// Resolves a turn from provider metadata that was already located and authorized.
+///
+/// # Errors
+///
+/// Returns [`TrajectoryError`] when the stored location is incomplete or the
+/// trajectory is unavailable, invalid, empty, or cancelled.
+pub fn resolve_last_turn_patch_at_location_cancellable(
+    identity: &AgentTurnIdentity,
+    roots: &TrajectoryRoots,
+    location: &AgentTurnLocation,
+    cancellation: &TrajectoryCancellation,
+) -> Result<ResolvedTurnPatch, TrajectoryError> {
     cancellation.check()?;
     validate_session_id(&identity.session_id)?;
     match identity.provider {
-        AgentProvider::Codex => resolve_codex(identity, roots, cancellation),
-        AgentProvider::Claude => resolve_claude(identity, roots, cancellation),
+        AgentProvider::Codex => {
+            let transcript = location
+                .transcript
+                .as_deref()
+                .ok_or(TrajectoryError::Unavailable)?;
+            let patch = codex_last_turn_patch(transcript, &location.repo_root, cancellation)?;
+            finish(location.repo_root.clone(), patch)
+        }
+        AgentProvider::Claude => {
+            let transcript = location
+                .transcript
+                .as_deref()
+                .ok_or(TrajectoryError::Unavailable)?;
+            let patch = claude_last_turn_patch(transcript, &location.repo_root, cancellation)?;
+            finish(location.repo_root.clone(), patch)
+        }
         AgentProvider::OpenCode => resolve_opencode(identity, roots, cancellation),
     }
 }
@@ -224,14 +269,45 @@ pub fn resolve_agent_turn_repository(
     identity: &AgentTurnIdentity,
     roots: &TrajectoryRoots,
 ) -> Result<PathBuf, TrajectoryError> {
-    validate_session_id(&identity.session_id)?;
     let cancellation = TrajectoryCancellation::default();
+    resolve_agent_turn_location_cancellable(identity, roots, &cancellation)
+        .map(|location| location.repo_root)
+}
+
+/// Locates the canonical repository and provider transcript for an agent turn.
+///
+/// # Errors
+///
+/// Returns [`TrajectoryError`] when the identity or provider metadata is invalid,
+/// unavailable, or cancelled.
+pub fn resolve_agent_turn_location_cancellable(
+    identity: &AgentTurnIdentity,
+    roots: &TrajectoryRoots,
+    cancellation: &TrajectoryCancellation,
+) -> Result<AgentTurnLocation, TrajectoryError> {
+    cancellation.check()?;
+    validate_session_id(&identity.session_id)?;
     match identity.provider {
-        AgentProvider::Codex => codex_location(identity, roots).map(|(_, repo_root)| repo_root),
-        AgentProvider::Claude => {
-            claude_location(identity, roots, &cancellation).map(|(_, repo_root)| repo_root)
+        AgentProvider::Codex => {
+            codex_location(identity, roots).map(|(transcript, repo_root)| AgentTurnLocation {
+                repo_root,
+                transcript: Some(transcript),
+            })
         }
-        AgentProvider::OpenCode => opencode_repository(identity, roots),
+        AgentProvider::Claude => {
+            claude_location(identity, roots, cancellation).map(|(transcript, repo_root)| {
+                AgentTurnLocation {
+                    repo_root,
+                    transcript: Some(transcript),
+                }
+            })
+        }
+        AgentProvider::OpenCode => {
+            opencode_repository(identity, roots).map(|repo_root| AgentTurnLocation {
+                repo_root,
+                transcript: None,
+            })
+        }
     }
 }
 
@@ -245,16 +321,6 @@ fn validate_session_id(session_id: &str) -> Result<(), TrajectoryError> {
         return Err(TrajectoryError::Invalid);
     }
     Ok(())
-}
-
-fn resolve_codex(
-    identity: &AgentTurnIdentity,
-    roots: &TrajectoryRoots,
-    cancellation: &TrajectoryCancellation,
-) -> Result<ResolvedTurnPatch, TrajectoryError> {
-    let (transcript, repo_root) = codex_location(identity, roots)?;
-    let patch = codex_last_turn_patch(&transcript, &repo_root, cancellation)?;
-    finish(repo_root, patch)
 }
 
 fn codex_location(
@@ -287,16 +353,6 @@ fn codex_location(
     Ok((transcript, repo_root))
 }
 
-fn resolve_claude(
-    identity: &AgentTurnIdentity,
-    roots: &TrajectoryRoots,
-    cancellation: &TrajectoryCancellation,
-) -> Result<ResolvedTurnPatch, TrajectoryError> {
-    let (transcript, repo_root) = claude_location(identity, roots, cancellation)?;
-    let patch = claude_last_turn_patch(&transcript, &repo_root, cancellation)?;
-    finish(repo_root, patch)
-}
-
 fn claude_location(
     identity: &AgentTurnIdentity,
     roots: &TrajectoryRoots,
@@ -316,7 +372,7 @@ fn claude_location(
             expanded_path(record.cwd.as_deref().ok_or(TrajectoryError::Unavailable)?),
         )
     } else {
-        let transcript = find_claude_transcript(roots, &identity.session_id)
+        let transcript = find_claude_transcript(roots, &identity.session_id, cancellation)
             .ok_or(TrajectoryError::Unavailable)?;
         let repo_root =
             claude_transcript_cwd(&transcript, cancellation).ok_or(TrajectoryError::Unavailable)?;
@@ -424,15 +480,26 @@ fn read_hook_record(
     provider: AgentProvider,
     session_id: &str,
 ) -> Option<HookRecord> {
-    let bytes = std::fs::read(roots.hook_store(provider)).ok()?;
-    if bytes.len() > MAX_JSONL_LINE_BYTES {
-        return None;
-    }
+    let bytes = read_file_capped(&roots.hook_store(provider), MAX_HOOK_STORE_BYTES)?;
     serde_json::from_slice::<HookStore>(&bytes)
         .ok()?
         .sessions
         .get(session_id)
         .cloned()
+}
+
+fn read_file_capped(path: &Path, maximum_bytes: usize) -> Option<Vec<u8>> {
+    let file = File::open(path).ok()?;
+    let byte_length = file.metadata().ok()?.len();
+    if byte_length > u64::try_from(maximum_bytes).ok()? {
+        return None;
+    }
+    let capacity = usize::try_from(byte_length).ok()?;
+    let mut bytes = Vec::with_capacity(capacity);
+    file.take(u64::try_from(maximum_bytes).ok()?.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() <= maximum_bytes).then_some(bytes)
 }
 
 fn read_codex_database_record(
@@ -462,15 +529,39 @@ fn open_read_only_database(path: &Path) -> Result<Connection, TrajectoryError> {
     Ok(connection)
 }
 
-fn find_claude_transcript(roots: &TrajectoryRoots, session_id: &str) -> Option<PathBuf> {
+fn find_claude_transcript(
+    roots: &TrajectoryRoots,
+    session_id: &str,
+    cancellation: &TrajectoryCancellation,
+) -> Option<PathBuf> {
+    find_claude_transcript_with_limit(
+        &roots.claude_projects(),
+        session_id,
+        cancellation,
+        MAX_CLAUDE_PROJECT_DIRECTORIES,
+    )
+}
+
+fn find_claude_transcript_with_limit(
+    projects: &Path,
+    session_id: &str,
+    cancellation: &TrajectoryCancellation,
+    directory_limit: usize,
+) -> Option<PathBuf> {
     let filename = format!("{session_id}.jsonl");
-    for entry in std::fs::read_dir(roots.claude_projects()).ok()?.flatten() {
+    let mut found = None;
+    for (index, entry) in std::fs::read_dir(projects).ok()?.enumerate() {
+        cancellation.check().ok()?;
+        if index >= directory_limit {
+            return None;
+        }
+        let entry = entry.ok()?;
         let candidate = entry.path().join(&filename);
         if candidate.is_file() {
-            return Some(candidate);
+            found = Some(candidate);
         }
     }
-    None
+    found
 }
 
 fn claude_transcript_cwd(
@@ -1275,21 +1366,13 @@ mod environment_tests {
             .expect("write transcript");
         let cancellation = TrajectoryCancellation::default();
 
-        assert!(find_claude_transcript_with_limit(
-            &projects,
-            "session",
-            &cancellation,
-            2
-        )
-        .is_none());
+        assert!(
+            find_claude_transcript_with_limit(&projects, "session", &cancellation, 2).is_none()
+        );
         cancellation.cancel();
-        assert!(find_claude_transcript_with_limit(
-            &projects,
-            "session",
-            &cancellation,
-            8
-        )
-        .is_none());
+        assert!(
+            find_claude_transcript_with_limit(&projects, "session", &cancellation, 8).is_none()
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }
