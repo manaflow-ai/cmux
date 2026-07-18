@@ -12,6 +12,101 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func projectedRestoreAuthorityIgnoresStaleCompatibilityFieldInEitherDuplicateOrder() throws {
+        func readAuthorities(
+            recordRestoreAuthority: Bool,
+            rawRuns: [AgentSessionRunRecord],
+            suffix: String
+        ) throws -> (raw: Bool?, projected: Bool?) {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "cmux-canonical-child-observer-\(suffix)-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let sessionID = "canonical-child-observer"
+            let stateURL = root.appendingPathComponent("claude-hook-sessions.json")
+            let environment = [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": root
+                    .appendingPathComponent(CmuxAgentSessionRegistry.filename).path,
+            ]
+            var state = ClaudeHookSessionStoreFile()
+            state.sessions[sessionID] = ClaudeHookSessionRecord(
+                sessionId: sessionID,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                pid: nil,
+                runtimeStatus: .idle,
+                startedAt: 10,
+                updatedAt: 20,
+                foregroundState: .idle,
+                attentionState: AgentAttentionState.none,
+                sessionState: .active,
+                runs: rawRuns,
+                activeRunId: rawRuns[0].runId,
+                runId: rawRuns[0].runId,
+                restoreAuthority: recordRestoreAuthority
+            )
+            try JSONEncoder().encode(state).write(to: stateURL, options: .atomic)
+
+            let store = ClaudeHookSessionStore(processEnv: environment, agentName: "claude")
+            return (
+                try store.lookup(sessionId: sessionID)?.restoreAuthority,
+                try store.projectedRestoreAuthority(sessionId: sessionID)
+            )
+        }
+
+        let runID = "session:claude:canonical-child-observer"
+        let authoritative = AgentSessionRunRecord(
+            runId: runID,
+            pid: nil,
+            processStartedAt: nil,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true,
+            startedAt: 10,
+            updatedAt: 20,
+            endedAt: nil
+        )
+        var verifiedFork = authoritative
+        verifiedFork.relationship = .forked
+        verifiedFork.authorityEvidence = .verifiedForkRoot
+
+        for (index, rawRuns) in [
+            [authoritative, verifiedFork],
+            [verifiedFork, authoritative],
+        ].enumerated() {
+            let authority = try readAuthorities(
+                recordRestoreAuthority: false,
+                rawRuns: rawRuns,
+                suffix: "owner-\(index)"
+            )
+            #expect(authority.raw == false, Comment(rawValue: "owner order \(index)"))
+            #expect(authority.projected == true, Comment(rawValue: "owner order \(index)"))
+        }
+
+        var spawnedChild = authoritative
+        spawnedChild.relationship = .spawned
+        spawnedChild.restoreAuthority = false
+        spawnedChild.authorityEvidence = .managedChild
+        for (index, rawRuns) in [
+            [authoritative, spawnedChild],
+            [spawnedChild, authoritative],
+        ].enumerated() {
+            let authority = try readAuthorities(
+                recordRestoreAuthority: true,
+                rawRuns: rawRuns,
+                suffix: "child-\(index)"
+            )
+            #expect(authority.raw == true, Comment(rawValue: "child order \(index)"))
+            #expect(authority.projected == false, Comment(rawValue: "child order \(index)"))
+        }
+    }
+
     @Test func canonicalRunConflictsCannotAuthorizeResumeOrStopMutations() throws {
         let attemptID = UUID()
         let authoritative = AgentSessionRunRecord(
