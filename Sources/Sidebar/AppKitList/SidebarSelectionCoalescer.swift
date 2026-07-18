@@ -1,5 +1,4 @@
 import AppKit
-import QuartzCore
 
 /// Coalesces rapid plain-click workspace selections to the latest request.
 ///
@@ -10,36 +9,41 @@ import QuartzCore
 /// clicks landing inside the window replace the pending request and one
 /// trailing fire applies only the newest. The row's optimistic press
 /// highlight still tracks every click instantly.
+///
+/// Generic over Clock, and ALL timing derives from that clock, so tests
+/// drive the leading edge and the trailing fire deterministically.
+/// Production uses ContinuousClock via the convenience initializer.
 @MainActor
-final class SidebarSelectionCoalescer {
+final class SidebarSelectionCoalescer<C: Clock> where C.Duration == Duration {
     private var pendingApply: (() -> Void)?
     private var trailingTask: Task<Void, Never>?
-    private var lastApplied: CFTimeInterval = 0
-    private let window: TimeInterval
-    private let clock: any Clock<Duration>
+    private var lastApplied: C.Instant?
+    private let window: Duration
+    private let clock: C
 
-    init(window: TimeInterval = 0.1, clock: any Clock<Duration> = ContinuousClock()) {
+    init(window: Duration = .milliseconds(100), clock: C) {
         self.window = window
         self.clock = clock
     }
 
     func request(_ apply: @escaping @MainActor () -> Void) {
-        let now = CACurrentMediaTime()
-        if trailingTask == nil, now - lastApplied >= window {
+        let now = clock.now
+        let elapsed = lastApplied.map { $0.duration(to: now) } ?? window
+        if trailingTask == nil, elapsed >= window {
             lastApplied = now
             apply()
             return
         }
         pendingApply = apply
         guard trailingTask == nil else { return }
-        let delay = max(0, window - (now - lastApplied))
+        let delay = max(.zero, window - elapsed)
         // Injected-Clock sleep with cancellation wired to `cancel()`, per the
         // bounded-delay policy (no raw Task.sleep in production paths).
         trailingTask = Task { [weak self, clock] in
-            try? await clock.sleep(for: .seconds(delay))
+            try? await clock.sleep(for: delay)
             guard let self, !Task.isCancelled else { return }
             self.trailingTask = nil
-            self.lastApplied = CACurrentMediaTime()
+            self.lastApplied = clock.now
             let apply = self.pendingApply
             self.pendingApply = nil
             apply?()
@@ -52,5 +56,11 @@ final class SidebarSelectionCoalescer {
         trailingTask?.cancel()
         trailingTask = nil
         pendingApply = nil
+    }
+}
+
+extension SidebarSelectionCoalescer where C == ContinuousClock {
+    convenience init(window: Duration = .milliseconds(100)) {
+        self.init(window: window, clock: ContinuousClock())
     }
 }
