@@ -85,6 +85,20 @@ struct CmuxAgentSessionRegistryTests {
         #expect(snapshot.records.first?.updatedAt == 10)
     }
 
+    @Test("duplicate legacy source requests are idempotent")
+    func duplicateLegacySourcesAreIdempotent() throws {
+        let fixture = try Fixture()
+        let legacyURL = fixture.directory.appendingPathComponent("codex-hook-sessions.json")
+        try fixture.legacyStore(
+            sessions: ["one": fixture.object(sessionID: "one", updatedAt: 1)]
+        ).write(to: legacyURL, options: .atomic)
+        let source = CmuxAgentSessionRegistry.LegacySource(provider: "codex", url: legacyURL)
+
+        let snapshots = try fixture.registry.snapshotsImportingLegacy(sources: [source, source])
+
+        #expect(snapshots["codex"]?.records.map(\.sessionID) == ["one"])
+    }
+
     @Test("lifecycle patches preserve unknown future keys")
     func patchPreservesUnknownKeys() throws {
         let fixture = try Fixture()
