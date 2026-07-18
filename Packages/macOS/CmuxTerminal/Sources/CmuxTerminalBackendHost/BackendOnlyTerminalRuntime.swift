@@ -8,16 +8,58 @@ internal import Darwin
 public import Foundation
 
 final class BackendOnlyPresentedFrameState: @unchecked Sendable {
+    struct ScheduledDrain: Sendable {
+        let metadata: TerminalRenderFrameMetadata
+        let accessibilityDemanded: Bool
+    }
+
+    private struct SemanticFrameKey: Equatable {
+        let presentationID: UUID
+        let presentationGeneration: UInt64
+        let terminalSequence: UInt64
+    }
+
     private let lock = NSLock()
     private var metadata: TerminalRenderFrameMetadata?
+    private var semanticFrameKey: SemanticFrameKey?
+    private var drainScheduled = false
     private var accessibilityDemanded = false
 
     func record(_ value: TerminalRenderFrameMetadata) -> Bool {
         lock.lock()
         metadata = value
-        let demanded = accessibilityDemanded
+        let key = SemanticFrameKey(
+            presentationID: value.presentationID,
+            presentationGeneration: value.presentationGeneration,
+            terminalSequence: value.terminalSequence
+        )
+        guard semanticFrameKey != key else {
+            lock.unlock()
+            return false
+        }
+        semanticFrameKey = key
+        guard !drainScheduled else {
+            lock.unlock()
+            return false
+        }
+        drainScheduled = true
         lock.unlock()
-        return demanded
+        return true
+    }
+
+    func takeScheduledDrain() -> ScheduledDrain? {
+        lock.lock()
+        guard drainScheduled, let metadata else {
+            lock.unlock()
+            return nil
+        }
+        drainScheduled = false
+        let drain = ScheduledDrain(
+            metadata: metadata,
+            accessibilityDemanded: accessibilityDemanded
+        )
+        lock.unlock()
+        return drain
     }
 
     func latest() -> TerminalRenderFrameMetadata? {
@@ -26,15 +68,23 @@ final class BackendOnlyPresentedFrameState: @unchecked Sendable {
         return metadata
     }
 
-    func demandAccessibility() {
+    func demandAccessibility() -> TerminalRenderFrameMetadata? {
         lock.lock()
+        guard !accessibilityDemanded else {
+            lock.unlock()
+            return nil
+        }
         accessibilityDemanded = true
+        let latestWithoutScheduledDrain = drainScheduled ? nil : metadata
         lock.unlock()
+        return latestWithoutScheduledDrain
     }
 
     func reset() {
         lock.lock()
         metadata = nil
+        semanticFrameKey = nil
+        drainScheduled = false
         lock.unlock()
     }
 }
@@ -224,6 +274,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     /// all released.
     public func shutdown() async {
         guard !retired else { return }
+        presentationTask?.cancel()
         retired = true
         visible = false
         attachmentIDs.removeAll()
@@ -251,6 +302,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     public func setHostVisibility(_ value: Bool) {
         guard !retired else { return }
         if !value {
+            presentationTask?.cancel()
             visible = false
             pendingHostViewport = nil
             hostViewportTask?.cancel()
@@ -333,8 +385,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     }
 
     public func enableAccessibility() {
-        presentedFrameState.demandAccessibility()
-        guard let metadata = presentedFrameState.latest() else { return }
+        guard let metadata = presentedFrameState.demandAccessibility() else { return }
         requestAccessibility(metadata)
     }
 
@@ -589,6 +640,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private func detachPresentation(attachmentID: UUID) async {
         guard attachmentIDs.remove(attachmentID) != nil,
               attachmentIDs.isEmpty else { return }
+        presentationTask?.cancel()
         visible = false
         invalidateRendererOperations()
         await withRendererOperationIgnoringCancellation {
@@ -1006,11 +1058,12 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     }
                 },
                 framePresentedHandler: { metadata in
-                    let accessibilityDemanded = presentedFrameState.record(metadata)
+                    guard presentedFrameState.record(metadata) else { return }
                     Task { @MainActor [weak runtime] in
+                        guard let drain = presentedFrameState.takeScheduledDrain() else { return }
                         runtime?.didPresentFrame(
-                            metadata,
-                            accessibilityDemanded: accessibilityDemanded
+                            drain.metadata,
+                            accessibilityDemanded: drain.accessibilityDemanded
                         )
                     }
                 }

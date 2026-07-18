@@ -16,6 +16,10 @@ struct BackendOnlyPresentedFrameStateTests {
         #expect(!state.record(animation))
         #expect(!state.record(newest))
         #expect(state.latest() == newest)
+        let drain = try #require(state.takeScheduledDrain())
+        #expect(drain.metadata == newest)
+        #expect(drain.accessibilityDemanded)
+        #expect(state.record(try makeMetadata(terminalSequence: 12, frameSequence: 4)))
     }
 
     @Test("UX schedules before AX demand and late AX demand retains the latest frame")
@@ -24,7 +28,10 @@ struct BackendOnlyPresentedFrameStateTests {
         let frame = try makeMetadata(terminalSequence: 20, frameSequence: 1)
 
         #expect(state.record(frame))
-        state.demandAccessibility()
+        let drain = try #require(state.takeScheduledDrain())
+        #expect(drain.metadata == frame)
+        #expect(!drain.accessibilityDemanded)
+        #expect(state.demandAccessibility() == frame)
         #expect(state.latest() == frame)
     }
 
