@@ -38,6 +38,7 @@ cleanup() {
 trap cleanup EXIT
 
 bash -n \
+  "$ROOT/scripts/audit-cmux-backend-only-linkage.sh" \
   "$ROOT/scripts/audit-terminal-renderer-linkage.sh" \
   "$ROOT/scripts/build-terminal-backend.sh" \
   "$ROOT/scripts/build-terminal-renderer.sh" \
@@ -49,6 +50,7 @@ bash -n \
   "$ROOT/scripts/test-terminal-renderer-helper.sh" \
   "$ROOT/scripts/verify-terminal-backend-service-artifact.sh"
 
+"$ROOT/tests/test_cmux_backend_only_linkage_audit.sh"
 "$ROOT/tests/test_terminal_renderer_linkage_audit.sh"
 
 "$ROOT/scripts/terminal-backend-identity.py" --check-vectors
