@@ -173,13 +173,24 @@ import Testing
         let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
         harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
         #expect(harness.manager.tabs.map(\.id) == [mirrorWorkspace.id])
+        let owningWindow = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
+        var didCloseOwningWindow = false
+        let closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: owningWindow,
+            queue: nil
+        ) { _ in
+            didCloseOwningWindow = true
+        }
+        defer { NotificationCenter.default.removeObserver(closeObserver) }
 
         controller.detach(host: host, sessionName: "dev")
 
         _ = try await waitForSSHArgument("exit", at: logURL)
         #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
         #expect(connection.exited)
-        #expect(harness.appDelegate.mainWindow(for: harness.windowId) == nil)
+        #expect(didCloseOwningWindow)
+        #expect(!owningWindow.isVisible)
         #expect(!harness.appDelegate.listMainWindowSummaries().contains {
             $0.windowId == harness.windowId
         })
