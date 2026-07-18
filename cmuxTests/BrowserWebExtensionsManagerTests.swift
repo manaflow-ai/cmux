@@ -449,6 +449,60 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func installsSafariAppExtensionResourcesThroughSharedInstallPath() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let app = sourceRoot.appendingPathComponent("Password Manager.app", isDirectory: true)
+        let appex = app.appendingPathComponent(
+            "Contents/PlugIns/Password Manager Safari.appex",
+            isDirectory: true
+        )
+        let resources = appex.appendingPathComponent("Contents/Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        let info: [String: Any] = [
+            "CFBundleIdentifier": "com.example.password-manager.safari",
+            "CFBundleShortVersionString": "2.3.4",
+            "NSExtension": [
+                "NSExtensionPointIdentifier": "com.apple.Safari.web-extension",
+            ],
+        ]
+        try PropertyListSerialization.data(
+            fromPropertyList: info,
+            format: .xml,
+            options: 0
+        ).write(to: appex.appendingPathComponent("Contents/Info.plist"))
+        let manifest = Self.minimalManifest.merging(["name": "Safari container fixture"]) { _, new in new }
+        try JSONSerialization.data(withJSONObject: manifest)
+            .write(to: resources.appendingPathComponent("manifest.json"))
+        try "// no-op".write(
+            to: resources.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent()
+        )
+
+        let receipt = try await manager.installExtension(from: app)
+
+        #expect(receipt.name == "Safari container fixture")
+        let installed = managedRoot.appendingPathComponent(
+            "com.example.password-manager.safari-2.3.4",
+            isDirectory: true
+        )
+        #expect(FileManager.default.fileExists(
+            atPath: installed.appendingPathComponent("manifest.json").path
+        ))
+        #expect(manager.loadedContexts.first?.uniqueIdentifier
+            == "cmux-browser-extension-com.example.password-manager.safari-2.3.4")
+    }
+
+    @available(macOS 15.4, *)
     @Test func presentationSnapshotIncludesDeclaredExtensionIcon() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
