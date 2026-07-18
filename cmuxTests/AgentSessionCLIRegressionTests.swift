@@ -1714,6 +1714,47 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func streamedAgentListPayloadsReleaseEachEnrichmentBeforeTheNextRow() throws {
+        let lifetime = AgentListPayloadLifetimeCounter()
+        var entries = SessionListEntryAccumulator(limit: .max)
+        for index in 0..<1_000 {
+            entries.insert(
+                updatedAt: Double(index),
+                payload: ["session_id": "session-\(index)"],
+                enrichment: { payload in
+                    payload["lifetime_probe"] = AgentListPayloadLifetimeProbe(lifetime)
+                }
+            )
+        }
+
+        var visitedSessionIDs: [String] = []
+        try entries.forEachSortedPayload { payload in
+            #expect(lifetime.live == 1)
+            visitedSessionIDs.append(try #require(payload["session_id"] as? String))
+        }
+
+        #expect(lifetime.live == 0)
+        #expect(lifetime.peak == 1)
+        #expect(visitedSessionIDs.first == "session-999")
+        #expect(visitedSessionIDs.last == "session-0")
+    }
+
+    @Test func stagedAgentOutputPublishesNothingWhenDocumentConstructionFails() {
+        var published = Data()
+
+        #expect(throws: AgentStagedOutputProbeError.self) {
+            try AgentStagedOutput.publish(
+                build: { handle in
+                    try handle.write(contentsOf: Data("partial".utf8))
+                    throw AgentStagedOutputProbeError.expected
+                },
+                publishChunk: { published.append($0) }
+            )
+        }
+
+        #expect(published.isEmpty)
+    }
+
     @Test func limitedAgentListBoundsTenThousandSameProcessPayloadEnrichmentsToTopK() {
         var enrichmentCount = 0
         var entries = SessionListEntryAccumulator(limit: 100)
@@ -2968,4 +3009,27 @@ private func makeAgentSessionGraphTestNode(
         updatedAt: updatedAt,
         endedAt: nil
     )
+}
+
+private final class AgentListPayloadLifetimeCounter {
+    var live = 0
+    var peak = 0
+}
+
+private final class AgentListPayloadLifetimeProbe {
+    private let counter: AgentListPayloadLifetimeCounter
+
+    init(_ counter: AgentListPayloadLifetimeCounter) {
+        self.counter = counter
+        counter.live += 1
+        counter.peak = max(counter.peak, counter.live)
+    }
+
+    deinit {
+        counter.live -= 1
+    }
+}
+
+private enum AgentStagedOutputProbeError: Error {
+    case expected
 }
