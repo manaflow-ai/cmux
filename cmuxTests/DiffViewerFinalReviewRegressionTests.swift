@@ -8,6 +8,28 @@ import Testing
 #endif
 
 @Suite @MainActor struct DiffViewerFinalReviewRegressionTests {
+    @Test func diffViewerSnapshotDeadlineReturnsWithoutWaitingForStalledRefresh() async {
+        let stalled = Task<Int, Never> {
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {}
+            return 7
+        }
+        let clock = ContinuousClock()
+        let started = clock.now
+
+        let result = await AppDelegate.valueBeforeDiffViewerDeadline(
+            from: stalled,
+            timeout: .milliseconds(20)
+        )
+
+        if case .value = result {
+            Issue.record("stalled snapshot unexpectedly beat the deadline")
+        }
+        #expect(clock.now - started < .seconds(1))
+        #expect(stalled.isCancelled)
+    }
+
     @Test func sidecarReadinessTimeoutDoesNotWaitForOpenPipeWriter() async {
         let readiness = Pipe()
         let clock = ContinuousClock()

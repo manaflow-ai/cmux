@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { initializeWorkerRenderer } from "../src/worker-renderer-lifecycle";
+import {
+  initializeWorkerRenderer,
+  WorkerRendererInitializationTimeoutError,
+} from "../src/worker-renderer-lifecycle";
 
 test("the renderer stays pending until the worker pool initialization completes", async () => {
   let release: (() => void) | undefined;
@@ -34,4 +37,17 @@ test("a worker error selects fallback even when pool initialization never settle
     { initialize: () => new Promise<void>(() => {}) },
     Promise.resolve(error),
   )).toEqual({ phase: "failed", error });
+});
+
+test("a worker initialization deadline selects fallback when no lifecycle signal arrives", async () => {
+  const result = await initializeWorkerRenderer(
+    { initialize: () => new Promise<void>(() => {}) },
+    new Promise(() => {}),
+    0,
+  );
+
+  expect(result.phase).toBe("failed");
+  if (result.phase === "failed") {
+    expect(result.error).toBeInstanceOf(WorkerRendererInitializationTimeoutError);
+  }
 });

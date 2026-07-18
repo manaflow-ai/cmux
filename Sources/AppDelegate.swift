@@ -38,6 +38,11 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
+enum DiffViewerDeadlineResult<Value: Sendable>: Sendable {
+    case value(Value)
+    case timedOut
+}
+
 @MainActor
 private final class DiffViewerProcessStore {
     private var processes: [Int32: Process] = [:]
@@ -6088,6 +6093,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         let workspaceId = workspace.id
+        let cachedSnapshot = preferAgentContext
+            ? SharedLiveAgentIndex.shared.snapshot(workspaceId: workspaceId, panelId: sourceSurfaceId)
+            : nil
         let freshSnapshotTask: Task<SessionRestorableAgentSnapshot?, Never>? = preferAgentContext
             ? Task { @MainActor in
                 await SharedLiveAgentIndex.shared.freshSnapshot(
@@ -6139,7 +6147,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             immediateLoadingPresentation.close()
 
-            let freshSnapshot = await freshSnapshotTask?.value
+            let freshSnapshot: SessionRestorableAgentSnapshot?
+            if let freshSnapshotTask {
+                switch await Self.valueBeforeDiffViewerDeadline(
+                    from: freshSnapshotTask,
+                    timeout: .seconds(1)
+                ) {
+                case .value(let snapshot):
+                    freshSnapshot = snapshot
+                case .timedOut:
+                    freshSnapshot = cachedSnapshot
+#if DEBUG
+                    cmuxDebugLog("diffViewer.agentSnapshot.timedOut fallback=cached")
+#endif
+                }
+            } else {
+                freshSnapshot = nil
+            }
             let closeTargetIfStillOwnedByOperation = {
                 guard let targetPanel = workspace.panels[targetSurfaceId] as? BrowserPanel,
                       targetPanel.isShowingDiffViewerLoadingState(
@@ -6192,6 +6216,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return true
+    }
+
+    nonisolated static func valueBeforeDiffViewerDeadline<Value: Sendable>(
+        from task: Task<Value, Never>,
+        timeout: Duration
+    ) async -> DiffViewerDeadlineResult<Value> {
+        let stream = AsyncStream<DiffViewerDeadlineResult<Value>> { continuation in
+            let valueWaiter = Task {
+                continuation.yield(.value(await task.value))
+                continuation.finish()
+            }
+            let deadlineWaiter = Task {
+                do {
+                    try await Task.sleep(for: timeout)
+                } catch {
+                    return
+                }
+                continuation.yield(.timedOut)
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in
+                valueWaiter.cancel()
+                deadlineWaiter.cancel()
+            }
+        }
+        let result = await stream.first(where: { _ in true }) ?? .timedOut
+        if case .timedOut = result {
+            task.cancel()
+        }
+        return result
     }
 
     nonisolated static func openDiffViewerLaunchContext(
