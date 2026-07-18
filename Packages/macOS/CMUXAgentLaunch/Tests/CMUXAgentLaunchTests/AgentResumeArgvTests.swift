@@ -168,6 +168,53 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("OpenCode direct interactive run resumes in direct interactive mode")
+    func opencodeInteractiveRunResumesInInteractiveMode() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "opencode",
+                sessionId: "SID",
+                executablePath: "/opt/bin/opencode",
+                arguments: [
+                    "/opt/bin/opencode",
+                    "run",
+                    "--interactive",
+                    "--session", "OLD",
+                    "--model", "anthropic/claude-sonnet-4-6",
+                    "--auto",
+                    "do not replay this prompt",
+                ]
+            ) == [
+                "/opt/bin/opencode",
+                "run",
+                "--interactive",
+                "--session", "SID",
+                "--model", "anthropic/claude-sonnet-4-6",
+                "--auto",
+            ]
+        )
+    }
+
+    @Test("One-shot provider launches do not manufacture resume commands")
+    func oneShotProviderLaunchesDoNotResume() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "rovodev",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["acli", "rovodev", "run", "fix this"]
+            ) == nil
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "kimi",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["kimi", "--quiet", "fix this"]
+            ) == nil
+        )
+    }
+
     @Test("Captured executable path overrides the fallback executable")
     func executablePathOverridesFallback() {
         // Non-claude kinds replay the captured executable path verbatim.

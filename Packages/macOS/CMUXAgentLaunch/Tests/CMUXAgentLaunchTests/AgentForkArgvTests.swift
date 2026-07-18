@@ -239,4 +239,52 @@ struct AgentForkArgvTests {
             AgentForkArgv().builtInKind(kind: "cursor", sessionId: "SID", executablePath: nil, arguments: ["cursor-agent"]) == nil
         )
     }
+
+    @Test("OpenCode direct interactive run forks in direct interactive mode")
+    func opencodeInteractiveRunForksInInteractiveMode() {
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "opencode",
+                sessionId: "PARENT",
+                executablePath: "/opt/bin/opencode",
+                arguments: [
+                    "/opt/bin/opencode",
+                    "run",
+                    "-i",
+                    "--session", "OLD",
+                    "--model", "anthropic/claude-sonnet-4-6",
+                    "--auto",
+                    "do not replay this prompt",
+                ]
+            ) == [
+                "/opt/bin/opencode",
+                "run",
+                "--interactive",
+                "--session", "PARENT",
+                "--fork",
+                "--model", "anthropic/claude-sonnet-4-6",
+                "--auto",
+            ]
+        )
+    }
+
+    @Test("One-shot provider launches are not forkable")
+    func oneShotProviderLaunchesAreNotForkable() {
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "rovodev",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["acli", "rovodev", "run", "fix this"]
+            ) == nil
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "kimi",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["kimi", "--quiet", "fix this"]
+            ) == nil
+        )
+    }
 }
