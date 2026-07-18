@@ -1237,10 +1237,10 @@ extension CMUXCLIErrorOutputRegressionTests {
                 )
                 #expect(payload["schema_version"] as? Int == 2)
                 if command == "list" {
-                    #expect(payload["sessions"] as? [[String: Any]] == [])
+                    #expect((payload["sessions"] as? [[String: Any]])?.isEmpty == true)
                 } else {
-                    #expect(payload["nodes"] as? [[String: Any]] == [])
-                    #expect(payload["edges"] as? [[String: Any]] == [])
+                    #expect((payload["nodes"] as? [[String: Any]])?.isEmpty == true)
+                    #expect((payload["edges"] as? [[String: Any]])?.isEmpty == true)
                 }
             }
         }
