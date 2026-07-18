@@ -322,29 +322,41 @@ extension CMUXCLI {
         var lines: [String] = []
         var visited: Set<String> = []
 
+        struct RenderFrame {
+            var node: AgentSessionGraphNode
+            var prefix: String
+            var connector: String
+            var depth: Int
+        }
+
         func append(_ node: AgentSessionGraphNode, prefix: String, connector: String, depth: Int) {
-            guard depth <= maximumDepth, visited.insert(node.nodeId).inserted else { return }
-            let authority: String
-            if node.identitySource == "terminal_process" {
-                authority = " process"
-            } else {
-                authority = node.restoreAuthority ? " restore-owner" : " child"
-            }
-            let modes = node.activity.modes.map(\.rawValue).joined(separator: ",")
-            let activity = modes.isEmpty ? "" : " [\(modes)]"
-            let identity = node.sessionId ?? "pid \(node.pid.map(String.init) ?? "unknown")"
-            let location = "workspace:\(node.workspaceId) surface:\(node.surfaceId)"
-            let workingDirectory = node.cwd.map { " cwd:\($0)" } ?? ""
-            lines.append("\(prefix)\(connector)\(node.provider) \(identity) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(location)\(workingDirectory)")
-            let children = (childrenByRunId[node.nodeId] ?? []).compactMap { nodeById[$0.toNodeId] }
-            let childPrefix = prefix + (connector == "├── " ? "│   " : connector == "└── " ? "    " : "")
-            for (index, child) in children.enumerated() {
-                append(
-                    child,
-                    prefix: childPrefix,
-                    connector: index == children.count - 1 ? "└── " : "├── ",
-                    depth: depth + 1
-                )
+            var stack = [RenderFrame(node: node, prefix: prefix, connector: connector, depth: depth)]
+            while let frame = stack.popLast() {
+                let node = frame.node
+                guard frame.depth <= maximumDepth, visited.insert(node.nodeId).inserted else { continue }
+                let authority: String
+                if node.identitySource == "terminal_process" {
+                    authority = " process"
+                } else {
+                    authority = node.restoreAuthority ? " restore-owner" : " child"
+                }
+                let modes = node.activity.modes.map(\.rawValue).joined(separator: ",")
+                let activity = modes.isEmpty ? "" : " [\(modes)]"
+                let identity = node.sessionId ?? "pid \(node.pid.map(String.init) ?? "unknown")"
+                let location = "workspace:\(node.workspaceId) surface:\(node.surfaceId)"
+                let workingDirectory = node.cwd.map { " cwd:\($0)" } ?? ""
+                lines.append("\(frame.prefix)\(frame.connector)\(node.provider) \(identity) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(location)\(workingDirectory)")
+                let children = (childrenByRunId[node.nodeId] ?? []).compactMap { nodeById[$0.toNodeId] }
+                let childPrefix = frame.prefix
+                    + (frame.connector == "├── " ? "│   " : frame.connector == "└── " ? "    " : "")
+                for index in children.indices.reversed() {
+                    stack.append(RenderFrame(
+                        node: children[index],
+                        prefix: childPrefix,
+                        connector: index == children.count - 1 ? "└── " : "├── ",
+                        depth: frame.depth + 1
+                    ))
+                }
             }
         }
         for root in roots { append(root, prefix: "", connector: "", depth: 0) }
