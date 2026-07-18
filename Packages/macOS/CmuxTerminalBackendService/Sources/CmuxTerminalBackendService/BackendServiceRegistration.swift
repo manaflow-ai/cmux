@@ -9,7 +9,10 @@ public protocol BackendServiceRegistration: Sendable {
     /// Returns a freshly validated descriptor for the daemon path loaded by launchd.
     func activeInstalledPair() async throws -> BackendServiceInstalledPair?
 
-    /// Submits the bundled launch agent for registration.
+    /// Ensures that a validated immutable launch agent is registered.
+    ///
+    /// A concurrently registered valid pair wins. This operation never replaces
+    /// an already loaded descriptor merely to select the caller's staged pair.
     ///
     /// - Throws: The underlying service-management registration error.
     func register(_ pair: BackendServiceInstalledPair) async throws

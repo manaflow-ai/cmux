@@ -12,10 +12,6 @@ internal protocol BackendServiceCodeSignatureValidating: Sendable {
     func validateCodeSignature(at executableURL: URL, expectedIdentifier: String) throws
 }
 
-internal protocol BackendServiceLiveExecutableCensusing: Sendable {
-    func liveBackendExecutableURLs() throws -> [URL]
-}
-
 internal struct SystemBackendServiceBuildIDReader: BackendServiceBuildIDReading {
     func buildID(reportedBy executableURL: URL) throws -> String {
         let process = Process()
@@ -87,47 +83,6 @@ internal struct SystemBackendServiceCodeSignatureValidator: BackendServiceCodeSi
     }
 }
 
-internal struct SystemBackendServiceLiveExecutableCensus: BackendServiceLiveExecutableCensusing {
-    func liveBackendExecutableURLs() throws -> [URL] {
-        var result: [URL] = []
-        for processID in try allProcessIDs() where processID > 0 {
-            // PROC_PIDPATHINFO_MAXSIZE is a C expression macro and therefore
-            // is not imported into Swift. Keep the Darwin definition here.
-            var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-            let length = path.withUnsafeMutableBytes { bytes in
-                proc_pidpath(processID, bytes.baseAddress, UInt32(bytes.count))
-            }
-            guard length > 0 else { continue }
-            let value = String(
-                decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
-                as: UTF8.self
-            )
-            let url = URL(fileURLWithPath: value, isDirectory: false)
-            if url.lastPathComponent == "cmux-terminal-backend" {
-                result.append(url)
-            }
-        }
-        return result
-    }
-
-    private func allProcessIDs() throws -> [pid_t] {
-        var capacity = max(Int(proc_listallpids(nil, 0)) * 2, 256)
-        for _ in 0 ..< 4 {
-            var processIDs = [pid_t](repeating: 0, count: capacity)
-            let byteCount = processIDs.count * MemoryLayout<pid_t>.stride
-            let count = processIDs.withUnsafeMutableBytes { bytes in
-                proc_listallpids(bytes.baseAddress, Int32(byteCount))
-            }
-            guard count >= 0 else { throw CocoaError(.fileReadUnknown) }
-            if Int(count) < capacity {
-                return Array(processIDs.prefix(Int(count)))
-            }
-            capacity *= 2
-        }
-        throw CocoaError(.fileReadUnknown)
-    }
-}
-
 /// Installs and revalidates immutable, build-ID-matched daemon and renderer pairs.
 public struct BackendServicePairInstaller: Sendable {
     private static let backendName = "cmux-terminal-backend"
@@ -140,8 +95,6 @@ public struct BackendServicePairInstaller: Sendable {
 
     private let buildIDReader: any BackendServiceBuildIDReading
     private let codeSignatureValidator: any BackendServiceCodeSignatureValidating
-    private let liveExecutableCensus: any BackendServiceLiveExecutableCensusing
-
     /// Creates the production immutable-pair installer.
     public init(
         descriptor: BackendServiceDescriptor,
@@ -155,8 +108,7 @@ public struct BackendServicePairInstaller: Sendable {
             installationRootURL: installationRootURL,
             expectedUserID: expectedUserID,
             buildIDReader: SystemBackendServiceBuildIDReader(),
-            codeSignatureValidator: SystemBackendServiceCodeSignatureValidator(),
-            liveExecutableCensus: SystemBackendServiceLiveExecutableCensus()
+            codeSignatureValidator: SystemBackendServiceCodeSignatureValidator()
         )
     }
 
@@ -166,8 +118,7 @@ public struct BackendServicePairInstaller: Sendable {
         installationRootURL: URL,
         expectedUserID: UInt32,
         buildIDReader: any BackendServiceBuildIDReading,
-        codeSignatureValidator: any BackendServiceCodeSignatureValidating,
-        liveExecutableCensus: any BackendServiceLiveExecutableCensusing
+        codeSignatureValidator: any BackendServiceCodeSignatureValidating
     ) {
         self.descriptor = descriptor
         self.bundleInspection = bundleInspection
@@ -175,7 +126,6 @@ public struct BackendServicePairInstaller: Sendable {
         self.expectedUserID = expectedUserID
         self.buildIDReader = buildIDReader
         self.codeSignatureValidator = codeSignatureValidator
-        self.liveExecutableCensus = liveExecutableCensus
     }
 
     /// Validates the bundled pair and atomically stages its immutable version.
@@ -392,47 +342,6 @@ public struct BackendServicePairInstaller: Sendable {
         return pair
     }
 
-    /// Removes only versions that are not referenced by a live backend process.
-    @discardableResult
-    public func garbageCollect(
-        preserving explicitlyPreserved: Set<String> = []
-    ) throws -> [String] {
-        let liveExecutables = try liveExecutableCensus.liveBackendExecutableURLs()
-        var preserved = explicitlyPreserved
-        for executable in liveExecutables {
-            guard executable.lastPathComponent == Self.backendName else { continue }
-            let directory = executable.deletingLastPathComponent()
-            let versions = installationRootURL.appendingPathComponent("versions", isDirectory: true)
-            if directory.deletingLastPathComponent().standardizedFileURL == versions.standardizedFileURL,
-               isBuildID(directory.lastPathComponent)
-            {
-                preserved.insert(directory.lastPathComponent)
-            }
-        }
-
-        let versions = installationRootURL.appendingPathComponent("versions", isDirectory: true)
-        guard FileManager.default.fileExists(atPath: versions.path) else { return [] }
-        try validatePrivateDirectory(installationRootURL)
-        try validatePrivateDirectory(versions)
-        var removed: [String] = []
-        for child in try FileManager.default.contentsOfDirectory(
-            at: versions,
-            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-            options: []
-        ) {
-            let values = try child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-            let buildID = child.lastPathComponent
-            guard values.isDirectory == true,
-                  values.isSymbolicLink != true,
-                  isBuildID(buildID),
-                  !preserved.contains(buildID)
-            else { continue }
-            try FileManager.default.removeItem(at: child)
-            removed.append(buildID)
-        }
-        return removed.sorted()
-    }
-
     private func createPrivateDirectory(_ url: URL) throws {
         var existingStatus = stat()
         if lstat(url.path, &existingStatus) == 0 {
@@ -504,9 +413,11 @@ public struct BackendServicePairInstaller: Sendable {
             close(descriptor)
             throw BackendServicePairError.unsafePermissions(lockURL, mode: mode)
         }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-            close(descriptor)
-            throw BackendServicePairError.installLockBusy(lockURL)
+        while flock(descriptor, LOCK_EX) != 0 {
+            guard errno == EINTR else {
+                close(descriptor)
+                throw CocoaError(.fileWriteUnknown)
+            }
         }
         return descriptor
     }

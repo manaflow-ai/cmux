@@ -208,17 +208,20 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration {
             at: pair.installationDirectoryURL,
             expectedBuildID: pair.buildID
         )
-        if let active = try activeInstalledPair() {
-            guard active.buildID == validated.buildID else {
-                throw BackendServicePairError.liveServiceReplacementForbidden(
-                    active: active.backendExecutableURL,
-                    proposed: validated.backendExecutableURL
-                )
-            }
+        if try activeInstalledPair() != nil {
             return
         }
         try writeLaunchAgent(for: validated)
-        try launchController.bootstrap(propertyListURL: propertyListURL)
+        do {
+            try launchController.bootstrap(propertyListURL: propertyListURL)
+        } catch {
+            // Registration is serialized only within this actor. Another app
+            // process can win launchd's cross-process bootstrap race after our
+            // initial lookup. Trust that winner only after validating the exact
+            // loaded immutable pair; otherwise preserve the original failure.
+            if try activeInstalledPair() != nil { return }
+            throw error
+        }
     }
 
     public func activateIfServiceStopped(
@@ -233,7 +236,9 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration {
                 descriptor.serviceLabel
             )
         }
-        return .activated(active)
+        return active.buildID == pair.buildID
+            ? .activated(active)
+            : .deferred(active: active)
     }
 
     /// Explicit teardown is the only operation allowed to stop a loaded daemon.

@@ -86,28 +86,6 @@ struct BackendServicePairInstallerTests {
         }
     }
 
-    @Test("garbage collection retains every live daemon version")
-    func livePathGarbageCollection() throws {
-        let sharedRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-pair-gc-\(UUID())", isDirectory: true)
-        let census = MutableLiveExecutableCensus()
-        let v1 = try PairFixture(buildID: buildID("9"), installationRoot: sharedRoot, census: census)
-        let v2 = try PairFixture(buildID: buildID("a"), installationRoot: sharedRoot, census: census)
-        let v3 = try PairFixture(buildID: buildID("b"), installationRoot: sharedRoot, census: census)
-        let pair1 = try v1.installer.installBundledPair()
-        let pair2 = try v2.installer.installBundledPair()
-        let pair3 = try v3.installer.installBundledPair()
-        census.urls = [pair1.backendExecutableURL]
-
-        let removed = try v3.installer.garbageCollect(
-            preserving: Set([pair3.buildID])
-        )
-
-        #expect(removed == [pair2.buildID])
-        #expect(FileManager.default.fileExists(atPath: pair1.backendExecutableURL.path))
-        #expect(FileManager.default.fileExists(atPath: pair3.backendExecutableURL.path))
-    }
-
     @Test("interrupted private staging directories are reaped without touching versions")
     func reapsOnlyStaleInstallDirectories() throws {
         let installRoot = FileManager.default.temporaryDirectory
@@ -210,8 +188,7 @@ struct PairFixture {
         buildID: String,
         rendererContents: String = "renderer",
         installationRoot: URL? = nil,
-        expectedUserID: UInt32 = UInt32(geteuid()),
-        census: MutableLiveExecutableCensus = MutableLiveExecutableCensus()
+        expectedUserID: UInt32 = UInt32(geteuid())
     ) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pair-fixture-\(UUID())", isDirectory: true)
@@ -249,8 +226,7 @@ struct PairFixture {
             installationRootURL: installRoot,
             expectedUserID: expectedUserID,
             buildIDReader: SidecarBuildIDReader(),
-            codeSignatureValidator: AcceptingCodeSignatureValidator(),
-            liveExecutableCensus: census
+            codeSignatureValidator: AcceptingCodeSignatureValidator()
         )
     }
 }
@@ -264,12 +240,4 @@ struct SidecarBuildIDReader: BackendServiceBuildIDReading {
 
 struct AcceptingCodeSignatureValidator: BackendServiceCodeSignatureValidating {
     func validateCodeSignature(at _: URL, expectedIdentifier _: String) {}
-}
-
-final class MutableLiveExecutableCensus: BackendServiceLiveExecutableCensusing,
-    @unchecked Sendable
-{
-    var urls: [URL] = []
-
-    func liveBackendExecutableURLs() -> [URL] { urls }
 }

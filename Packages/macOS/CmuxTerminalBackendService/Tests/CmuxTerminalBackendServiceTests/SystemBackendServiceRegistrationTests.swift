@@ -175,6 +175,62 @@ struct SystemBackendServiceRegistrationTests {
         #expect(try String(contentsOf: pair2.rendererExecutableURL, encoding: .utf8) == "renderer-v2")
     }
 
+    @Test("a valid concurrently loaded version wins registration")
+    func concurrentLoadedVersionWinsRegistration() async throws {
+        let installRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-registration-winner-\(UUID())", isDirectory: true)
+        let launchAgent = installRoot.appendingPathComponent("service.plist")
+        let controller = FakeLaunchController()
+        let v1 = try PairFixture(buildID: buildID("6"), installationRoot: installRoot)
+        let v2 = try PairFixture(buildID: buildID("7"), installationRoot: installRoot)
+        let registration1 = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: v1.installer,
+            propertyListURL: launchAgent,
+            launchController: controller
+        )
+        let registration2 = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: v2.installer,
+            propertyListURL: launchAgent,
+            launchController: controller
+        )
+        let pair1 = try await registration1.prepareBundledPair()
+        let pair2 = try await registration2.prepareBundledPair()
+        try await registration1.register(pair1)
+
+        // A stale status lookup may still send another app instance through its
+        // registration path. The validated loaded v1 remains authoritative.
+        try await registration2.register(pair2)
+        #expect(controller.bootstrapCount == 1)
+        #expect(controller.loadedProgram == pair1.backendExecutableURL)
+    }
+
+    @Test("bootstrap race revalidates the pair loaded by the winning process")
+    func bootstrapRaceAcceptsValidatedWinner() async throws {
+        let installRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-bootstrap-race-\(UUID())", isDirectory: true)
+        let launchAgent = installRoot.appendingPathComponent("service.plist")
+        let controller = FakeLaunchController()
+        let winner = try PairFixture(buildID: buildID("8"), installationRoot: installRoot)
+        let contender = try PairFixture(buildID: buildID("9"), installationRoot: installRoot)
+        let winnerPair = try winner.installer.installBundledPair()
+        let contenderPair = try contender.installer.installBundledPair()
+        controller.competingProgramOnBootstrap = winnerPair.backendExecutableURL
+        let registration = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: contender.installer,
+            propertyListURL: launchAgent,
+            launchController: controller
+        )
+
+        let result = try await registration.activateIfServiceStopped(contenderPair)
+
+        #expect(result == .deferred(active: winnerPair))
+        #expect(controller.bootstrapCount == 1)
+        #expect(controller.loadedProgram == winnerPair.backendExecutableURL)
+    }
+
     @Test("safe stopped handoff loads vN+1 and subsequent restart remains pinned")
     func stoppedHandoffUsesNewVersion() async throws {
         let installRoot = FileManager.default.temporaryDirectory
@@ -253,6 +309,7 @@ private struct TimingOutCommandRunner: BackendServiceCommandRunning {
 
 private final class FakeLaunchController: BackendServiceLaunchControlling, @unchecked Sendable {
     var loadedProgram: URL?
+    var competingProgramOnBootstrap: URL?
     var lastBootstrappedPropertyList: URL?
     var bootstrapCount = 0
     var bootoutCount = 0
@@ -270,9 +327,18 @@ private final class FakeLaunchController: BackendServiceLaunchControlling, @unch
             format: nil
         ) as? [String: Any]
         let program = try #require(payload?["Program"] as? String)
-        loadedProgram = URL(fileURLWithPath: program)
         lastBootstrappedPropertyList = propertyListURL
         bootstrapCount += 1
+        if let competingProgramOnBootstrap {
+            loadedProgram = competingProgramOnBootstrap
+            self.competingProgramOnBootstrap = nil
+            throw BackendServicePairError.launchControlFailed(
+                arguments: ["/bin/launchctl", "bootstrap"],
+                status: 5,
+                message: "service already loaded by another process"
+            )
+        }
+        loadedProgram = URL(fileURLWithPath: program)
     }
 
     func bootout(label _: String) {

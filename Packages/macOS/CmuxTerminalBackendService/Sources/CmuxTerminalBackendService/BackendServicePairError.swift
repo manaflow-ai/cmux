@@ -19,8 +19,6 @@ public enum BackendServicePairError: Error, Equatable, Sendable {
     case manifestHashMismatch(URL, expected: String, actual: String)
     case manifestSizeMismatch(URL, expected: UInt64, actual: UInt64)
     case executableOutsideInstallation(URL)
-    case installLockBusy(URL)
-    case liveServiceReplacementForbidden(active: URL, proposed: URL)
     case loadedDescriptorMissingProgram(String)
     case launchControlFailed(arguments: [String], status: Int32, message: String)
     case launchControlTimedOut(arguments: [String])
