@@ -37,7 +37,7 @@ struct SimulatorToolsPanel: View {
                 SimulatorCameraTools(coordinator: coordinator)
                 SimulatorInspectionTools(coordinator: coordinator)
                 SimulatorWebInspectorTools(coordinator: coordinator)
-                SimulatorActivityTools(coordinator: coordinator)
+                SimulatorActivityTools(entries: coordinator.actionLog)
             }
             .padding(12)
         }

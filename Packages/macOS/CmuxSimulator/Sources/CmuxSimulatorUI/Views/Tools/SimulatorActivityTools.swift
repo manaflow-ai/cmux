@@ -2,7 +2,7 @@ import CmuxSimulator
 import SwiftUI
 
 struct SimulatorActivityTools: View {
-    let coordinator: SimulatorPaneCoordinator
+    let entries: [SimulatorActionLogEntry]
     @State private var isExpanded = false
 
     var body: some View {
@@ -10,11 +10,11 @@ struct SimulatorActivityTools: View {
             DisclosureGroup(isExpanded: $isExpanded) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        if coordinator.actionLog.isEmpty {
+                        if entries.isEmpty {
                             Text(simulatorStrings.noActivity)
                                 .foregroundStyle(.secondary)
                         } else {
-                            ForEach(coordinator.actionLog) { entry in
+                            ForEach(entries) { entry in
                                 SimulatorActivityEntryView(entry: entry)
                             }
                         }
