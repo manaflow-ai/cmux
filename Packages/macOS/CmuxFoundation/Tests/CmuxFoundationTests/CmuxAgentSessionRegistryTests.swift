@@ -201,6 +201,54 @@ struct CmuxAgentSessionRegistryTests {
         #expect(try fixture.registry.snapshot(provider: "claude").records.isEmpty)
     }
 
+    @Test("restore preflight retries one exact sidecar replacement")
+    func restorePreflightRetriesOneExactSidecarReplacement() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let legacyURL = fixture.directory.appendingPathComponent("codex-hook-sessions.json")
+        let source = CmuxAgentSessionRegistry.LegacySource(provider: "codex", url: legacyURL)
+        let original = try fixture.legacyStore(
+            sessions: ["before": fixture.object(sessionID: "before", updatedAt: 1)]
+        )
+        let replacement = try fixture.legacyStore(
+            sessions: ["latest": fixture.object(sessionID: "latest", updatedAt: 2)]
+        )
+        #expect(original.count == replacement.count)
+        try original.write(to: legacyURL, options: .atomic)
+        let originalStamp = try #require(
+            CmuxAgentSessionRegistry.LegacyStamp.read(path: legacyURL.path)
+        )
+        var admissionAttempts = 0
+
+        let result = try fixture.registry.refreshLegacySources(
+            [source],
+            preservingCanonicalRestoreOwners: [],
+            legacyAdmissionLoader: { requestedSource, expectedStamp in
+                admissionAttempts += 1
+                if admissionAttempts == 1 {
+                    try replacement.write(to: legacyURL, options: .atomic)
+                }
+                return try fixture.registry.hookLegacySourceAdmission(
+                    source: requestedSource,
+                    expectedStamp: expectedStamp
+                )
+            }
+        )
+
+        let replacementStamp = try #require(
+            CmuxAgentSessionRegistry.LegacyStamp.read(path: legacyURL.path)
+        )
+        #expect(admissionAttempts == 2)
+        #expect(result.refreshedProviders == ["codex"])
+        #expect(result.failedProviders.isEmpty)
+        #expect(try fixture.registry.snapshot(provider: "codex").records.map(\.sessionID) == ["latest"])
+        #expect(originalStamp != replacementStamp)
+        #expect(try fixture.registry.legacySourceIsCurrent(
+            provider: "codex",
+            stamp: replacementStamp
+        ))
+    }
+
     @Test("canonical rebind skips only the exact quarantined legacy revision")
     func canonicalRebindSkipsExactQuarantinedRevision() throws {
         let fixture = try Fixture()
