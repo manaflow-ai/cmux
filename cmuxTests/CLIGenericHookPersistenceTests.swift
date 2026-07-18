@@ -1342,6 +1342,56 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(events.compactMap { $0["_ppid"] as? Int }, [424242, 424242, 424242])
     }
 
+    func testOversizedHookInputsNoOpAcrossFeedAndLifecycleEntrypoints() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-input-bound-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": root.appendingPathComponent("absent.sock").path,
+            "CMUX_WORKSPACE_ID": "55555555-5555-5555-5555-555555555555",
+            "CMUX_SURFACE_ID": "66666666-6666-6666-6666-666666666666",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        let padding = String(repeating: "x", count: 1_048_576)
+        let cases: [(arguments: [String], input: String)] = [
+            (
+                ["hooks", "feed", "--source", "gemini", "--event", "PreToolUse"],
+                #"{"hook_event_name":"PreToolUse","tool_name":"write","padding":"\#(padding)"}"#
+            ),
+            (
+                ["hooks", "feed", "--source", "kimi", "--event", "postToolUse"],
+                #"{"hook_event_name":"postToolUse","tool_name":"shell","padding":"\#(padding)"}"#
+            ),
+            (
+                ["hooks", "claude", "session-start"],
+                #"{"hook_event_name":"SessionStart","session_id":"claude-session","padding":"\#(padding)"}"#
+            ),
+            (
+                ["hooks", "kimi", "session-start"],
+                #"{"hookEventName":"sessionStart","sessionId":"kimi-session","padding":"\#(padding)"}"#
+            ),
+        ]
+
+        for testCase in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: testCase.arguments,
+                environment: environment,
+                standardInput: testCase.input,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, "\(testCase.arguments): \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "\(testCase.arguments): \(result.stderr)")
+            XCTAssertEqual(result.stdout, "{}\n", "\(testCase.arguments)")
+        }
+    }
+
     func testGrokNotificationHookUsesPayloadMessageAndStopDoesNotSendGenericNotification() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-notification")
@@ -3674,5 +3724,109 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
             )
         }
+    }
+
+    func testCopilotHookInstallUsesHooksDirectoryNativeSchemaAndMigratesLegacyConfig() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-copilot-hook-install-\(UUID().uuidString)", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent("hooks", isDirectory: true)
+        let hooksURL = hooksDirectory.appendingPathComponent("cmux.json", isDirectory: false)
+        let legacyURL = root.appendingPathComponent("config.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: hooksDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Data(#"""
+        {
+          "version":1,
+          "hooks":{"sessionStart":[{"type":"command","command":"user-native-hook","timeoutSec":9}]}
+        }
+        """#.utf8).write(to: hooksURL, options: .atomic)
+        try Data(#"""
+        {
+          "theme":"dark",
+          "hooks":{
+            "SessionStart":[{"hooks":[
+              {"type":"command","command":"cmux hooks copilot session-start","timeout":5000},
+              {"type":"command","command":"user-legacy-hook"}
+            ]}],
+            "PreToolUse":[{"hooks":[
+              {"type":"command","command":"cmux hooks feed --source copilot --event PreToolUse"}
+            ]}]
+          }
+        }
+        """#.utf8).write(to: legacyURL, options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["COPILOT_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let install = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(install.timedOut, install.stderr)
+        XCTAssertEqual(install.status, 0, install.stderr)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: hooksURL.path))
+
+        let installedData = try Data(contentsOf: hooksURL)
+        let installed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: installedData) as? [String: Any]
+        )
+        XCTAssertEqual(installed["version"] as? Int, 1)
+        let hooks = try XCTUnwrap(installed["hooks"] as? [String: Any])
+        XCTAssertEqual(Set(hooks.keys), Set([
+            "sessionStart", "agentStop", "notification", "sessionEnd", "preToolUse",
+        ]))
+        let starts = try XCTUnwrap(hooks["sessionStart"] as? [[String: Any]])
+        XCTAssertEqual(starts.first?["command"] as? String, "user-native-hook")
+        XCTAssertEqual(starts.first?["timeoutSec"] as? Int, 9)
+        let installedStart = try XCTUnwrap(starts.last)
+        XCTAssertTrue((installedStart["command"] as? String)?.contains("hooks copilot session-start") == true)
+        XCTAssertEqual(installedStart["timeoutSec"] as? Int, 5)
+        XCTAssertNil(installedStart["hooks"])
+        let feed = try XCTUnwrap((hooks["preToolUse"] as? [[String: Any]])?.first)
+        XCTAssertTrue((feed["command"] as? String)?.contains("hooks feed --source copilot --event preToolUse") == true)
+        XCTAssertEqual(feed["timeoutSec"] as? Int, 120)
+
+        let migrated = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: legacyURL)) as? [String: Any]
+        )
+        XCTAssertEqual(migrated["theme"] as? String, "dark")
+        let legacyHooks = try XCTUnwrap(migrated["hooks"] as? [String: Any])
+        XCTAssertNil(legacyHooks["PreToolUse"])
+        let legacyGroups = try XCTUnwrap(legacyHooks["SessionStart"] as? [[String: Any]])
+        let legacyCommands = try XCTUnwrap(legacyGroups.first?["hooks"] as? [[String: Any]])
+        XCTAssertEqual(legacyCommands.count, 1)
+        XCTAssertEqual(legacyCommands.first?["command"] as? String, "user-legacy-hook")
+
+        let reinstall = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(reinstall.timedOut, reinstall.stderr)
+        XCTAssertEqual(reinstall.status, 0, reinstall.stderr)
+        XCTAssertEqual(try Data(contentsOf: hooksURL), installedData)
+
+        let uninstall = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "uninstall"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(uninstall.timedOut, uninstall.stderr)
+        XCTAssertEqual(uninstall.status, 0, uninstall.stderr)
+        let uninstalled = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hooksURL)) as? [String: Any]
+        )
+        let remainingHooks = try XCTUnwrap(uninstalled["hooks"] as? [String: Any])
+        let remainingStarts = try XCTUnwrap(remainingHooks["sessionStart"] as? [[String: Any]])
+        XCTAssertEqual(remainingStarts.count, 1)
+        XCTAssertEqual(remainingStarts.first?["command"] as? String, "user-native-hook")
     }
 }

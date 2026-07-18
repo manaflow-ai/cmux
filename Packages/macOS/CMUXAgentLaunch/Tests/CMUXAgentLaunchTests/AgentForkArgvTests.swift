@@ -59,7 +59,7 @@ struct AgentForkArgvTests {
                 sessionId: "SID",
                 executablePath: "/opt/bin/amp",
                 arguments: ["/opt/bin/amp", "threads", "continue", "OLD", "--mode", "smart"]
-            ) == ["/opt/bin/amp", "threads", "fork", "SID", "--mode", "smart"]
+            ) == nil
         )
         #expect(
             AgentForkArgv().builtInKind(
@@ -67,7 +67,7 @@ struct AgentForkArgvTests {
                 sessionId: "CHILD",
                 executablePath: "/opt/bin/amp",
                 arguments: ["/opt/bin/amp", "threads", "fork", "PARENT", "--mode", "smart"]
-            ) == ["/opt/bin/amp", "threads", "fork", "CHILD", "--mode", "smart"]
+            ) == nil
         )
         #expect(
             AgentForkArgv().builtInKind(

@@ -392,9 +392,13 @@ struct ProviderCurrentVersionContractTests {
             ("campfire", "campfire", "campfire", ["--help", "-h", "--version", "-v"]),
             ("opencode", "opencode", "opencode", ["--help", "-h", "--version", "-v"]),
             ("cursor-agent", "cursor", "cursor", ["--help", "-h", "--version", "-v"]),
-            ("kimi", "kimi", "kimi", ["--help", "-h", "--version"]),
+            ("amp", "amp", "amp", ["--help", "-h", "--version", "-V", "-v"]),
+            ("kimi", "kimi", "kimi", ["--help", "-h", "--version", "-V"]),
             ("hermes", "hermes-agent", "hermes-agent", ["--help", "-h", "--version", "-V"]),
-            ("gemini", "gemini", "gemini", ["--help", "-h", "--version"]),
+            ("gemini", "gemini", "gemini", ["--help", "-h", "--version", "-v"]),
+            ("kiro-cli", "kiro", "kiro", ["--help", "-h", "--version", "-V"]),
+            ("copilot", "copilot", "copilot", ["--help", "-h", "--version", "-v"]),
+            ("droid", "factory", "factory", ["--help", "-h", "--version", "-v"]),
         ]
 
         for provider in providers {
@@ -694,5 +698,209 @@ struct ProviderCurrentVersionContractTests {
                 "\(testCase.arguments)"
             )
         }
+    }
+
+    @Test("Claude 2.1.214 no-persistence is terminal only with print mode")
+    func claudeNoPersistenceLifetimeContract() {
+        let oneShot = ["claude", "-p", "fix this", "--no-session-persistence"]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "claude", arguments: oneShot, kind: "claude"
+            ) == .oneShot
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                oneShot, launcher: "claude", fallbackKind: "claude"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "claude",
+                arguments: ["claude", "--no-session-persistence"],
+                kind: "claude"
+            ) == .unknown
+        )
+    }
+
+    @Test("Amp 0.0.1784376855 command and runner lifetimes")
+    func ampCurrentContracts() {
+        for arguments in [
+            ["amp", "--no-tui", "--runner-id", "cmux-dogfood"],
+            ["amp", "-x", "first", "--stream-json", "--stream-json-input"],
+            ["amp", "last"],
+            ["amp", "l"],
+            ["amp", "threads", "continue", "T-123"],
+            ["amp", "t", "c", "T-123"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "amp", arguments: arguments, kind: "amp"
+                ) == .interactive,
+                "\(arguments)"
+            )
+        }
+        for arguments in [
+            ["amp", "threads", "new"],
+            ["amp", "threads", "list"],
+            ["amp", "config", "edit"],
+            ["amp", "orb", "service", "status"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "amp", arguments: arguments, kind: "amp"
+                ) == .nonSession,
+                "\(arguments)"
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "amp", fallbackKind: "amp"
+                ) == nil,
+                "\(arguments)"
+            )
+        }
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "amp",
+                arguments: ["amp", "--stream-json-input"],
+                kind: "amp"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "threads", "continue", "OLD", "--mode", "high"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--mode", "high"]
+        )
+    }
+
+    @Test("Pi 0.80.6 and OMP 16.2.11 utility modes exit")
+    func piAndOMPUtilityContracts() {
+        for arguments in [
+            ["pi", "--export", "/tmp/session.jsonl"],
+            ["pi", "--list-models"],
+            ["pi", "--list-models", "sonnet"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "pi", arguments: arguments, kind: "pi"
+                ) == .nonSession,
+                "\(arguments)"
+            )
+        }
+        for arguments in [
+            ["omp", "--alias", "omp-work"],
+            ["omp", "--export", "/tmp/session.jsonl"],
+            ["omp", "agents"],
+            ["omp", "bench"],
+            ["omp", "models"],
+            ["omp", "worktree"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "omp", arguments: arguments, kind: "omp"
+                ) == .nonSession,
+                "\(arguments)"
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "omp", fallbackKind: "omp"
+                ) == nil,
+                "\(arguments)"
+            )
+        }
+        for command in ["acp", "auth-gateway", "join", "shell"] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "omp", arguments: ["omp", command], kind: "omp"
+                ) == .interactive,
+                Comment(rawValue: command)
+            )
+        }
+    }
+
+    @Test("Cursor 2026.07.16 list-models exits")
+    func cursorListModelsContract() {
+        let arguments = ["cursor-agent", "--list-models"]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "cursor-agent", arguments: arguments, kind: "cursor"
+            ) == .nonSession
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments, launcher: "cursor", fallbackKind: "cursor"
+            ) == nil
+        )
+    }
+
+    @Test("Factory documented root and exec option widths")
+    func factoryDocumentedContracts() {
+        let interactive = [
+            "droid", "--model", "claude-sonnet-4-6", "--auto", "medium",
+            "--enabled-tools", "ApplyPatch,Bash", "--worktree", "feature-a",
+        ]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "droid", arguments: interactive, kind: "factory"
+            ) == .interactive
+        )
+        let oneShot = [
+            "droid", "exec", "--file", "mission.md", "--model", "claude-sonnet-4-6",
+            "--reasoning-effort=high", "--use-spec", "--spec-model", "claude-opus-4-7",
+            "--worker-model", "claude-sonnet-4-6", "--validator-model", "claude-opus-4-7",
+        ]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "droid", arguments: oneShot, kind: "factory"
+            ) == .oneShot
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "droid",
+                arguments: ["droid", "exec", "--list-tools"],
+                kind: "factory"
+            ) == .nonSession
+        )
+    }
+
+    @Test("Documented absent-provider contracts fail closed or preserve exact widths")
+    func documentedAbsentProviderContracts() {
+        let cases: [(process: String, kind: String, arguments: [String], mode: AgentProcessLaunchMode)] = [
+            ("kiro-cli", "kiro", ["kiro-cli", "chat", "--list-models"], .nonSession),
+            ("kiro-cli", "kiro", ["kiro-cli", "chat", "--no-interactive", "--effort", "high", "--trust-all-tools", "fix"], .oneShot),
+            ("agy", "antigravity", ["agy", "models"], .nonSession),
+            ("acli", "rovodev", ["acli", "rovodev", "serve", "8080"], .interactive),
+            ("acli", "rovodev", ["acli", "rovodev", "run", "--worktree", "--web", "--yolo"], .interactive),
+            ("codebuddy", "codebuddy", ["codebuddy", "--bg", "fix"], .nonSession),
+            ("codebuddy", "codebuddy", ["codebuddy", "--serve", "--port", "8080"], .interactive),
+            ("codebuddy", "codebuddy", ["codebuddy", "--prewarm", "--prewarm-id", "pool-1"], .interactive),
+            ("qodercli", "qoder", ["qodercli", "--remote", "fix this"], .oneShot),
+        ]
+        for testCase in cases {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: testCase.process,
+                    arguments: testCase.arguments,
+                    kind: testCase.kind
+                ) == testCase.mode,
+                "\(testCase.arguments)"
+            )
+        }
+
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["copilot", "--session-id", "OLD", "--attachment", "prompt.png", "-C", "/tmp/repo", "--model", "gpt-5.4"],
+                launcher: "copilot",
+                fallbackKind: "copilot"
+            ) == ["copilot", "-C", "/tmp/repo", "--model", "gpt-5.4"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["qodercli", "--worktree", "feature-a", "--max-turns", "10", "--yolo", "--model", "qoder"],
+                launcher: "qoder",
+                fallbackKind: "qoder"
+            ) == ["qodercli", "--max-turns", "10", "--yolo", "--model", "qoder"]
+        )
     }
 }
