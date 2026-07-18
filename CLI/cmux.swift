@@ -35405,6 +35405,9 @@ private enum CMUXCLIOutput {
 @main
 struct CMUXTermMain {
     static func main() {
+        if ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] == "1" {
+            _ = Darwin.setpgid(0, 0)
+        }
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()

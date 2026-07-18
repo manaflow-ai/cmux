@@ -42,6 +42,36 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     let socketPath: String
     let environment: [String: String]
 
+    /// Events for one terminal surface must retain lifecycle order. Independent
+    /// surfaces may drain concurrently without changing observable semantics.
+    var orderingKey: String {
+        Self.orderingKey(
+            deliveryID: deliveryID,
+            socketPath: socketPath,
+            environment: environment
+        )
+    }
+
+    static func orderingKey(
+        deliveryID: String,
+        socketPath: String,
+        environment: [String: String]
+    ) -> String {
+        let identity: [String]
+        if let surfaceID = environment["CMUX_SURFACE_ID"], !surfaceID.isEmpty {
+            identity = ["surface", socketPath, surfaceID]
+        } else if let processID = environment["CMUX_CODEX_PID"], !processID.isEmpty {
+            identity = ["process", socketPath, processID]
+        } else {
+            identity = ["delivery", deliveryID]
+        }
+        var hasher = SHA256()
+        for component in identity {
+            Self.hash(Data(component.utf8), into: &hasher)
+        }
+        return Data(hasher.finalize()).map { String(format: "%02x", $0) }.joined()
+    }
+
     /// A stable digest used to reject accidental reuse of one delivery ID for
     /// different contents while treating retry submissions as duplicates.
     var contentDigest: Data {

@@ -9,10 +9,35 @@ nonisolated private let agentHookDeliveryLogger = Logger(
 )
 
 /// Commits wrapper hooks to a local WAL before acknowledgement, then delivers
-/// them through one bounded child-process lane. The WAL survives app-process
+/// them through bounded per-surface lanes. The WAL survives app-process
 /// crashes; SQLite keeps it consistent across a machine crash.
 actor AgentHookDeliveryQueue {
     private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    private static let hardMaximumConcurrentDeliveries = 32
+
+    private struct PendingDelivery: Sendable {
+        let sequence: Int64
+        let deliveryID: String
+        let orderingKey: String
+        let agent: String
+        let subcommand: String
+        let payload: Data
+        let socketPath: String
+        let environment: [String: String]
+        let attempts: Int
+    }
+
+    private struct DeliveryCompletion: Sendable {
+        let delivery: PendingDelivery
+        let succeeded: Bool
+        let error: String?
+    }
+
+    private enum DeliveryProcessRace: Sendable {
+        case exited(Int32)
+        case deadline
+        case cancelled
+    }
 
     private let databaseURL: URL
     // SQLite serializes this FULLMUTEX connection. `enqueue` must remain
@@ -25,9 +50,11 @@ actor AgentHookDeliveryQueue {
     private let retryBaseDelay: TimeInterval
     private let retryMaximumDelay: TimeInterval
     private let deliveredReceiptRetention: TimeInterval
+    private let maximumConcurrentDeliveries: Int
 
     private var drainTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
+    private var drainRequested = false
     private var deliveredSinceReceiptCleanup = 0
 
     init(
@@ -39,7 +66,8 @@ actor AgentHookDeliveryQueue {
         terminationGrace: TimeInterval = 0.5,
         retryBaseDelay: TimeInterval = 0.25,
         retryMaximumDelay: TimeInterval = 300,
-        deliveredReceiptRetention: TimeInterval = 86_400
+        deliveredReceiptRetention: TimeInterval = 86_400,
+        maximumConcurrentDeliveries: Int = 32
     ) {
         let resolvedDatabaseURL = databaseURL ?? Self.defaultDatabaseURL()
         self.databaseURL = resolvedDatabaseURL
@@ -49,6 +77,10 @@ actor AgentHookDeliveryQueue {
         self.retryBaseDelay = max(0.01, retryBaseDelay)
         self.retryMaximumDelay = max(self.retryBaseDelay, retryMaximumDelay)
         self.deliveredReceiptRetention = max(60, deliveredReceiptRetention)
+        self.maximumConcurrentDeliveries = min(
+            Self.hardMaximumConcurrentDeliveries,
+            max(1, maximumConcurrentDeliveries)
+        )
 
         do {
             self.database = try Self.openDatabase(at: resolvedDatabaseURL)
@@ -90,9 +122,9 @@ actor AgentHookDeliveryQueue {
         let now = Date().timeIntervalSince1970
         let insertSQL = """
         INSERT OR IGNORE INTO agent_hook_deliveries (
-            delivery_id, content_digest, agent, subcommand, payload,
+            delivery_id, ordering_key, content_digest, agent, subcommand, payload,
             socket_path, environment_json, accepted_at, next_attempt_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
         var statement: OpaquePointer?
         var status = sqlite3_prepare_v2(database, insertSQL, -1, &statement, nil)
@@ -103,21 +135,23 @@ actor AgentHookDeliveryQueue {
 
         status = Self.bind(event.deliveryID, to: statement, at: 1)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind delivery ID") }
-        status = Self.bind(event.contentDigest, to: statement, at: 2)
+        status = Self.bind(event.orderingKey, to: statement, at: 2)
+        guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind ordering key") }
+        status = Self.bind(event.contentDigest, to: statement, at: 3)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind digest") }
-        status = Self.bind(event.agent, to: statement, at: 3)
+        status = Self.bind(event.agent, to: statement, at: 4)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind agent") }
-        status = Self.bind(event.subcommand, to: statement, at: 4)
+        status = Self.bind(event.subcommand, to: statement, at: 5)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind subcommand") }
-        status = Self.bind(event.payload, to: statement, at: 5)
+        status = Self.bind(event.payload, to: statement, at: 6)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind payload") }
-        status = Self.bind(event.socketPath, to: statement, at: 6)
+        status = Self.bind(event.socketPath, to: statement, at: 7)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind socket path") }
-        status = Self.bind(environmentData, to: statement, at: 7)
+        status = Self.bind(environmentData, to: statement, at: 8)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind environment") }
-        status = sqlite3_bind_double(statement, 8, now)
-        guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind acceptance time") }
         status = sqlite3_bind_double(statement, 9, now)
+        guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind acceptance time") }
+        status = sqlite3_bind_double(statement, 10, now)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind retry time") }
         status = sqlite3_step(statement)
         guard status == SQLITE_DONE else {
@@ -201,112 +235,214 @@ actor AgentHookDeliveryQueue {
     private func deliveryAvailable() {
         retryTask?.cancel()
         retryTask = nil
-        guard drainTask == nil, database != nil else { return }
+        guard database != nil else { return }
+        if drainTask != nil {
+            drainRequested = true
+            return
+        }
+        drainRequested = false
         drainTask = Task { [weak self] in
-            await self?.drainAvailableDeliveries()
+            let needsRecovery = await self?.drainAvailableDeliveries() ?? false
+            await self?.drainDidFinish(needsRecovery: needsRecovery)
         }
     }
 
-    private func drainAvailableDeliveries() async {
-        defer { drainTask = nil }
-        guard let database else { return }
+    private func drainDidFinish(needsRecovery: Bool) {
+        drainTask = nil
+        if drainRequested {
+            drainRequested = false
+            deliveryAvailable()
+        } else if needsRecovery {
+            scheduleQueueRecovery(after: retryBaseDelay)
+        }
+    }
 
-        while !Task.isCancelled {
-            do {
-                guard let delivery = try nextDueDelivery(database: database) else {
-                    try deleteExpiredReceipts(database: database)
-                    try scheduleNextRetry(database: database)
-                    return
-                }
-                try markAttemptStarted(sequence: delivery.sequence, database: database)
-                let result = await deliver(
-                    agent: delivery.agent,
-                    subcommand: delivery.subcommand,
-                    payload: delivery.payload,
-                    socketPath: delivery.socketPath,
-                    environment: delivery.environment,
-                    deliveryID: delivery.deliveryID
-                )
-                if result.succeeded {
-                    try markDelivered(sequence: delivery.sequence, database: database)
-                    deliveredSinceReceiptCleanup += 1
-                    if deliveredSinceReceiptCleanup >= 128 {
-                        try deleteExpiredReceipts(database: database)
-                        deliveredSinceReceiptCleanup = 0
+#if DEBUG
+    func cancelCurrentDrainForTesting() async {
+        guard let drainTask else { return }
+        drainTask.cancel()
+        await drainTask.value
+    }
+#endif
+
+    private func drainAvailableDeliveries() async -> Bool {
+        guard let database else { return false }
+
+        return await withTaskGroup(of: DeliveryCompletion.self) { group in
+            var activeSequences: Set<Int64> = []
+            var activeOrderingKeys: Set<String> = []
+
+            while !Task.isCancelled {
+                do {
+                    let capacity = maximumConcurrentDeliveries - activeSequences.count
+                    var launchedDelivery = false
+                    if capacity > 0 {
+                        let deliveries = try nextDueDeliveries(
+                            database: database,
+                            excludingSequences: activeSequences,
+                            limit: capacity
+                        )
+                        for delivery in deliveries {
+                            guard activeOrderingKeys.insert(delivery.orderingKey).inserted else {
+                                throw Self.failure(
+                                    "Delivery scheduler selected an ordering key twice.",
+                                    code: 9
+                                )
+                            }
+                            try markAttemptStarted(sequence: delivery.sequence, database: database)
+                            activeSequences.insert(delivery.sequence)
+                            launchedDelivery = true
+                            group.addTask { [self] in
+                                let result = await deliver(
+                                    agent: delivery.agent,
+                                    subcommand: delivery.subcommand,
+                                    payload: delivery.payload,
+                                    socketPath: delivery.socketPath,
+                                    environment: delivery.environment,
+                                    deliveryID: delivery.deliveryID
+                                )
+                                return DeliveryCompletion(
+                                    delivery: delivery,
+                                    succeeded: result.succeeded,
+                                    error: result.error
+                                )
+                            }
+                        }
                     }
-                    agentHookDeliveryLogger.debug("Delivered hook \(delivery.deliveryID, privacy: .public)")
-                } else {
-                    let attempt = delivery.attempts + 1
-                    let delay = min(
-                        retryMaximumDelay,
-                        retryBaseDelay * pow(4, Double(min(attempt - 1, 8)))
+
+                    if activeSequences.isEmpty {
+                        try deleteExpiredReceipts(database: database)
+                        try scheduleNextRetry(database: database)
+                        return false
+                    }
+                    if launchedDelivery, activeSequences.count < maximumConcurrentDeliveries {
+                        continue
+                    }
+
+                    guard let completion = await group.next() else { return false }
+                    activeSequences.remove(completion.delivery.sequence)
+                    activeOrderingKeys.remove(completion.delivery.orderingKey)
+                    try record(completion: completion, database: database)
+                } catch {
+                    group.cancelAll()
+                    agentHookDeliveryLogger.fault(
+                        "Delivery queue drain failed: \(error.localizedDescription, privacy: .private)"
                     )
-                    let detail = result.error ?? "Unknown delivery failure"
-                    try markFailed(
-                        sequence: delivery.sequence,
-                        nextAttemptAt: Date().timeIntervalSince1970 + delay,
-                        error: detail,
-                        database: database
-                    )
-                    agentHookDeliveryLogger.error(
-                        "Hook \(delivery.deliveryID, privacy: .public) failed; retrying in \(delay, privacy: .public)s: \(detail, privacy: .private)"
-                    )
+                    return true
                 }
-            } catch {
-                agentHookDeliveryLogger.fault("Delivery queue drain failed: \(error.localizedDescription, privacy: .private)")
-                scheduleQueueRecovery(after: retryBaseDelay)
-                return
             }
+            group.cancelAll()
+            return true
         }
     }
 
-    private func nextDueDelivery(database: OpaquePointer) throws -> (
-        sequence: Int64,
-        deliveryID: String,
-        agent: String,
-        subcommand: String,
-        payload: Data,
-        socketPath: String,
-        environment: [String: String],
-        attempts: Int
-    )? {
+    private func record(completion: DeliveryCompletion, database: OpaquePointer) throws {
+        let delivery = completion.delivery
+        if completion.succeeded {
+            try markDelivered(sequence: delivery.sequence, database: database)
+            deliveredSinceReceiptCleanup += 1
+            if deliveredSinceReceiptCleanup >= 128 {
+                try deleteExpiredReceipts(database: database)
+                deliveredSinceReceiptCleanup = 0
+            }
+            agentHookDeliveryLogger.debug("Delivered hook \(delivery.deliveryID, privacy: .public)")
+            return
+        }
+
+        let attempt = delivery.attempts + 1
+        let delay = min(
+            retryMaximumDelay,
+            retryBaseDelay * pow(4, Double(min(attempt - 1, 8)))
+        )
+        let detail = completion.error ?? "Unknown delivery failure"
+        try markFailed(
+            sequence: delivery.sequence,
+            nextAttemptAt: Date().timeIntervalSince1970 + delay,
+            error: detail,
+            database: database
+        )
+        agentHookDeliveryLogger.error(
+            "Hook \(delivery.deliveryID, privacy: .public) failed; retrying in \(delay, privacy: .public)s: \(detail, privacy: .private)"
+        )
+    }
+
+    private func nextDueDeliveries(
+        database: OpaquePointer,
+        excludingSequences: Set<Int64>,
+        limit: Int
+    ) throws -> [PendingDelivery] {
+        guard limit > 0 else { return [] }
+        let orderedExclusions = excludingSequences.sorted()
+        let exclusionSQL: String
+        if orderedExclusions.isEmpty {
+            exclusionSQL = ""
+        } else {
+            exclusionSQL = "AND d.sequence NOT IN (\(Array(repeating: "?", count: orderedExclusions.count).joined(separator: ", ")))"
+        }
         let sql = """
-        SELECT sequence, delivery_id, agent, subcommand, payload, socket_path,
-               environment_json, attempts
-        FROM agent_hook_deliveries
-        WHERE delivered_at IS NULL AND next_attempt_at <= ?
-        ORDER BY sequence ASC LIMIT 1;
+        SELECT d.sequence, d.delivery_id, d.ordering_key, d.agent, d.subcommand,
+               d.payload, d.socket_path, d.environment_json, d.attempts
+        FROM agent_hook_deliveries AS d
+        WHERE d.delivered_at IS NULL
+          AND d.next_attempt_at <= ?
+          \(exclusionSQL)
+          AND NOT EXISTS (
+              SELECT 1
+              FROM agent_hook_deliveries AS earlier
+              WHERE earlier.delivered_at IS NULL
+                AND (earlier.ordering_key = d.ordering_key OR earlier.ordering_key = '')
+                AND earlier.sequence < d.sequence
+          )
+        ORDER BY d.sequence ASC
+        LIMIT ?;
         """
         var statement: OpaquePointer?
         var status = sqlite3_prepare_v2(database, sql, -1, &statement, nil)
         guard status == SQLITE_OK else {
-            throw Self.sqliteFailure(status, operation: "prepare next delivery")
+            throw Self.sqliteFailure(status, operation: "prepare due deliveries")
         }
         defer { sqlite3_finalize(statement) }
         status = sqlite3_bind_double(statement, 1, Date().timeIntervalSince1970)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind delivery deadline") }
-        status = sqlite3_step(statement)
-        if status == SQLITE_DONE { return nil }
-        guard status == SQLITE_ROW,
-              let deliveryID = Self.columnText(statement, at: 1),
-              let agent = Self.columnText(statement, at: 2),
-              let subcommand = Self.columnText(statement, at: 3),
-              let payload = Self.columnData(statement, at: 4),
-              let socketPath = Self.columnText(statement, at: 5),
-              let environmentData = Self.columnData(statement, at: 6),
-              let environment = try JSONSerialization.jsonObject(with: environmentData) as? [String: String] else {
-            throw Self.failure("Stored delivery row is malformed.", code: 5)
+        var bindingIndex: Int32 = 2
+        for sequence in orderedExclusions {
+            status = sqlite3_bind_int64(statement, bindingIndex, sequence)
+            guard status == SQLITE_OK else {
+                throw Self.sqliteFailure(status, operation: "bind active delivery exclusion")
+            }
+            bindingIndex += 1
         }
-        return (
-            sequence: sqlite3_column_int64(statement, 0),
-            deliveryID: deliveryID,
-            agent: agent,
-            subcommand: subcommand,
-            payload: payload,
-            socketPath: socketPath,
-            environment: environment,
-            attempts: Int(sqlite3_column_int(statement, 7))
-        )
+        status = sqlite3_bind_int(statement, bindingIndex, Int32(limit))
+        guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind delivery limit") }
+
+        var deliveries: [PendingDelivery] = []
+        deliveries.reserveCapacity(limit)
+        while true {
+            status = sqlite3_step(statement)
+            if status == SQLITE_DONE { return deliveries }
+            guard status == SQLITE_ROW,
+                  let deliveryID = Self.columnText(statement, at: 1),
+                  let orderingKey = Self.columnText(statement, at: 2),
+                  let agent = Self.columnText(statement, at: 3),
+                  let subcommand = Self.columnText(statement, at: 4),
+                  let payload = Self.columnData(statement, at: 5),
+                  let socketPath = Self.columnText(statement, at: 6),
+                  let environmentData = Self.columnData(statement, at: 7),
+                  let environment = try JSONSerialization.jsonObject(with: environmentData) as? [String: String] else {
+                throw Self.failure("Stored delivery row is malformed.", code: 5)
+            }
+            deliveries.append(PendingDelivery(
+                sequence: sqlite3_column_int64(statement, 0),
+                deliveryID: deliveryID,
+                orderingKey: orderingKey,
+                agent: agent,
+                subcommand: subcommand,
+                payload: payload,
+                socketPath: socketPath,
+                environment: environment,
+                attempts: Int(sqlite3_column_int(statement, 8))
+            ))
+        }
     }
 
     private func markAttemptStarted(sequence: Int64, database: OpaquePointer) throws {
@@ -407,7 +543,18 @@ actor AgentHookDeliveryQueue {
         var statement: OpaquePointer?
         var status = sqlite3_prepare_v2(
             database,
-            "SELECT MIN(next_attempt_at) FROM agent_hook_deliveries WHERE delivered_at IS NULL;",
+            """
+            SELECT MIN(d.next_attempt_at)
+            FROM agent_hook_deliveries AS d
+            WHERE d.delivered_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM agent_hook_deliveries AS earlier
+                  WHERE earlier.delivered_at IS NULL
+                    AND (earlier.ordering_key = d.ordering_key OR earlier.ordering_key = '')
+                    AND earlier.sequence < d.sequence
+              );
+            """,
             -1,
             &statement,
             nil
@@ -482,6 +629,7 @@ actor AgentHookDeliveryQueue {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = executableURL.path
         environment["CMUX_AGENT_HOOK_DELIVERY_ID"] = deliveryID
+        environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] = "1"
         environment.removeValue(forKey: "CMUX_SOCKET")
         process.environment = environment
         process.standardInput = input
@@ -496,6 +644,10 @@ actor AgentHookDeliveryQueue {
         }
         do {
             try process.run()
+            // The bundled CLI also calls setpgid before dispatch. This parent-
+            // side attempt closes the spawn-to-main race when the kernel still
+            // permits the parent to establish the child's group.
+            _ = Darwin.setpgid(process.processIdentifier, process.processIdentifier)
         } catch {
             process.terminationHandler = nil
             return (false, "Could not launch bundled cmux CLI: \(error.localizedDescription)")
@@ -504,6 +656,9 @@ actor AgentHookDeliveryQueue {
         let outcome = await waitForExitOrTimeout(process: process, terminations: terminations)
         process.terminationHandler = nil
         let stderr = Self.readErrorOutput(errorOutput)
+        if outcome.cancelled {
+            return (false, "Bundled cmux CLI delivery was cancelled.\(stderr)")
+        }
         if outcome.timedOut {
             return (false, "Bundled cmux CLI exceeded \(processTimeout)s.\(stderr)")
         }
@@ -516,53 +671,98 @@ actor AgentHookDeliveryQueue {
     private func waitForExitOrTimeout(
         process: Process,
         terminations: AsyncStream<Int32>
-    ) async -> (status: Int32, timedOut: Bool) {
-        await withTaskGroup(of: Int32?.self) { group in
+    ) async -> (status: Int32, timedOut: Bool, cancelled: Bool) {
+        await withTaskGroup(of: DeliveryProcessRace.self) { group in
             group.addTask {
                 for await status in terminations {
-                    return status
+                    return .exited(status)
                 }
-                return -1
+                return Task.isCancelled ? .cancelled : .exited(-1)
             }
             let timeout = processTimeout
             group.addTask {
                 do {
                     // This is the child deadline itself, not a polling sleep.
                     try await ContinuousClock().sleep(for: .milliseconds(Int64(timeout * 1_000)))
-                    return nil
+                    return .deadline
                 } catch {
-                    return -1
+                    return .cancelled
                 }
             }
 
             guard let firstResult = await group.next() else {
-                return (-1, false)
+                return (-1, false, Task.isCancelled)
             }
-            if let status = firstResult {
+            if case .exited(let status) = firstResult {
                 group.cancelAll()
-                return (status, false)
+                return (status, false, false)
             }
 
-            if process.isRunning {
+            let wasCancelled: Bool
+            switch firstResult {
+            case .cancelled:
+                wasCancelled = true
+            case .deadline:
+                wasCancelled = false
+            case .exited:
+                wasCancelled = false
+            }
+            let processID = process.processIdentifier
+            let processGroupID = Self.ownedProcessGroupID(processID: processID)
+            if let processGroupID {
+                _ = Darwin.kill(-processGroupID, SIGTERM)
+            } else if process.isRunning {
                 process.terminate()
             }
-            do {
+            if !wasCancelled {
                 // A short grace period lets the child clean up before SIGKILL.
-                try await ContinuousClock().sleep(for: .milliseconds(Int64(terminationGrace * 1_000)))
-            } catch {}
-            if process.isRunning {
-                Darwin.kill(process.processIdentifier, SIGKILL)
+                try? await ContinuousClock().sleep(for: .milliseconds(Int64(terminationGrace * 1_000)))
             }
-
-            var exitStatus: Int32 = -1
-            while let result = await group.next() {
-                if let status = result {
-                    exitStatus = status
-                    break
+            if let processGroupID {
+                if Self.processGroupExists(processGroupID) {
+                    _ = Darwin.kill(-processGroupID, SIGKILL)
                 }
+            } else if process.isRunning {
+                _ = Darwin.kill(processID, SIGKILL)
             }
+            process.waitUntilExit()
             group.cancelAll()
-            return (exitStatus, true)
+            if let processGroupID {
+                let groupExitTimeout = max(0.01, terminationGrace)
+                await Task.detached {
+                    Self.waitForProcessGroupExit(
+                        processGroupID,
+                        timeout: groupExitTimeout
+                    )
+                }.value
+            }
+            return (process.terminationStatus, !wasCancelled, wasCancelled)
+        }
+    }
+
+    private nonisolated static func ownedProcessGroupID(processID: pid_t) -> pid_t? {
+        let processGroupID = Darwin.getpgid(processID)
+        return processGroupID == processID ? processGroupID : nil
+    }
+
+    private nonisolated static func processGroupExists(_ processGroupID: pid_t) -> Bool {
+        if Darwin.kill(-processGroupID, 0) == 0 {
+            return true
+        }
+        return errno == EPERM
+    }
+
+    private nonisolated static func waitForProcessGroupExit(
+        _ processGroupID: pid_t,
+        timeout: TimeInterval
+    ) {
+        let deadline = Date().timeIntervalSinceReferenceDate + timeout
+        while processGroupExists(processGroupID), Date().timeIntervalSinceReferenceDate < deadline {
+            var interval = timespec(tv_sec: 0, tv_nsec: 5 * 1_000 * 1_000)
+            var remaining = timespec()
+            while Darwin.nanosleep(&interval, &remaining) != 0, errno == EINTR {
+                interval = remaining
+            }
         }
     }
 
@@ -607,6 +807,7 @@ actor AgentHookDeliveryQueue {
             CREATE TABLE IF NOT EXISTS agent_hook_deliveries (
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                 delivery_id TEXT NOT NULL UNIQUE,
+                ordering_key TEXT NOT NULL,
                 content_digest BLOB NOT NULL,
                 agent TEXT NOT NULL,
                 subcommand TEXT NOT NULL,
@@ -621,10 +822,6 @@ actor AgentHookDeliveryQueue {
                 last_error TEXT
             );
             """,
-            """
-            CREATE INDEX IF NOT EXISTS agent_hook_deliveries_due
-            ON agent_hook_deliveries (delivered_at, next_attempt_at, sequence);
-            """,
         ]
         for sql in setupStatements {
             status = sqlite3_exec(database, sql, nil, nil, nil)
@@ -633,8 +830,156 @@ actor AgentHookDeliveryQueue {
                 throw sqliteFailure(status, operation: "initialize delivery database")
             }
         }
+        if try tableHasColumn("ordering_key", table: "agent_hook_deliveries", database: database) == false {
+            status = sqlite3_exec(
+                database,
+                "ALTER TABLE agent_hook_deliveries ADD COLUMN ordering_key TEXT NOT NULL DEFAULT '';",
+                nil,
+                nil,
+                nil
+            )
+            guard status == SQLITE_OK else {
+                sqlite3_close_v2(database)
+                throw sqliteFailure(status, operation: "add delivery ordering key")
+            }
+        }
+        do {
+            try backfillLegacyOrderingKeys(database: database)
+        } catch {
+            sqlite3_close_v2(database)
+            throw error
+        }
+        let indexStatements = [
+            """
+            CREATE INDEX IF NOT EXISTS agent_hook_deliveries_due
+            ON agent_hook_deliveries (delivered_at, next_attempt_at, sequence);
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS agent_hook_deliveries_ordering
+            ON agent_hook_deliveries (ordering_key, delivered_at, sequence);
+            """,
+        ]
+        for sql in indexStatements {
+            status = sqlite3_exec(database, sql, nil, nil, nil)
+            guard status == SQLITE_OK else {
+                sqlite3_close_v2(database)
+                throw sqliteFailure(status, operation: "initialize delivery indexes")
+            }
+        }
         Darwin.chmod(url.path, 0o600)
         return database
+    }
+
+    private nonisolated static func tableHasColumn(
+        _ column: String,
+        table: String,
+        database: OpaquePointer
+    ) throws -> Bool {
+        var statement: OpaquePointer?
+        let status = sqlite3_prepare_v2(database, "PRAGMA table_info(\(table));", -1, &statement, nil)
+        guard status == SQLITE_OK else {
+            throw sqliteFailure(status, operation: "inspect delivery schema")
+        }
+        defer { sqlite3_finalize(statement) }
+        var stepStatus = sqlite3_step(statement)
+        while stepStatus == SQLITE_ROW {
+            if columnText(statement, at: 1) == column {
+                return true
+            }
+            stepStatus = sqlite3_step(statement)
+        }
+        guard stepStatus == SQLITE_DONE else {
+            throw sqliteFailure(stepStatus, operation: "read delivery schema")
+        }
+        return false
+    }
+
+    private nonisolated static func backfillLegacyOrderingKeys(database: OpaquePointer) throws {
+        var status = sqlite3_exec(database, "BEGIN IMMEDIATE;", nil, nil, nil)
+        guard status == SQLITE_OK else {
+            throw sqliteFailure(status, operation: "begin delivery ordering backfill")
+        }
+        do {
+            var rows: [(sequence: Int64, orderingKey: String)] = []
+            do {
+                var statement: OpaquePointer?
+                status = sqlite3_prepare_v2(
+                    database,
+                    """
+                    SELECT sequence, delivery_id, socket_path, environment_json
+                    FROM agent_hook_deliveries
+                    WHERE delivered_at IS NULL AND ordering_key = ''
+                    ORDER BY sequence ASC;
+                    """,
+                    -1,
+                    &statement,
+                    nil
+                )
+                guard status == SQLITE_OK else {
+                    throw sqliteFailure(status, operation: "prepare delivery ordering backfill")
+                }
+                defer { sqlite3_finalize(statement) }
+                while true {
+                    status = sqlite3_step(statement)
+                    if status == SQLITE_DONE { break }
+                    guard status == SQLITE_ROW else {
+                        throw sqliteFailure(status, operation: "read delivery ordering backfill")
+                    }
+                    guard let deliveryID = columnText(statement, at: 1),
+                          let socketPath = columnText(statement, at: 2),
+                          let environmentData = columnData(statement, at: 3),
+                          let environment = (try? JSONSerialization.jsonObject(with: environmentData)) as? [String: String] else {
+                        // Keep malformed legacy rows on the empty-key global
+                        // barrier so they drain conservatively before new work.
+                        continue
+                    }
+                    rows.append((
+                        sequence: sqlite3_column_int64(statement, 0),
+                        orderingKey: AgentHookDeliveryEvent.orderingKey(
+                            deliveryID: deliveryID,
+                            socketPath: socketPath,
+                            environment: environment
+                        )
+                    ))
+                }
+            }
+
+            var update: OpaquePointer?
+            status = sqlite3_prepare_v2(
+                database,
+                "UPDATE agent_hook_deliveries SET ordering_key = ? WHERE sequence = ? AND ordering_key = '';",
+                -1,
+                &update,
+                nil
+            )
+            guard status == SQLITE_OK else {
+                throw sqliteFailure(status, operation: "prepare delivery ordering update")
+            }
+            defer { sqlite3_finalize(update) }
+            for row in rows {
+                sqlite3_reset(update)
+                sqlite3_clear_bindings(update)
+                status = bind(row.orderingKey, to: update, at: 1)
+                guard status == SQLITE_OK else {
+                    throw sqliteFailure(status, operation: "bind delivery ordering key")
+                }
+                status = sqlite3_bind_int64(update, 2, row.sequence)
+                guard status == SQLITE_OK else {
+                    throw sqliteFailure(status, operation: "bind delivery ordering sequence")
+                }
+                status = sqlite3_step(update)
+                guard status == SQLITE_DONE else {
+                    throw sqliteFailure(status, operation: "update delivery ordering key")
+                }
+            }
+            status = sqlite3_exec(database, "COMMIT;", nil, nil, nil)
+            guard status == SQLITE_OK else {
+                throw sqliteFailure(status, operation: "commit delivery ordering backfill")
+            }
+        } catch {
+            sqlite3_exec(database, "ROLLBACK;", nil, nil, nil)
+            throw error
+        }
     }
 
     private nonisolated static func storedDigest(

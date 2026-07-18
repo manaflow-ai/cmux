@@ -479,6 +479,10 @@ struct AgentHookDeliveryQueueTests {
 
         let rawPID = try String(contentsOf: leaderPIDFile, encoding: .utf8)
         let leaderPID = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
+        let leaderGone = await waitUntil(timeout: .seconds(1)) {
+            Darwin.kill(leaderPID, 0) == -1
+        }
+        #expect(leaderGone)
         errno = 0
         #expect(Darwin.kill(leaderPID, 0) == -1)
         #expect(errno == ESRCH)
