@@ -3,7 +3,7 @@ import SQLite3
 import Testing
 @testable import CmuxFoundation
 
-@Suite("Agent session registry")
+@Suite("Agent session registry", .serialized)
 struct CmuxAgentSessionRegistryTests {
     @Test("legacy rewrites cannot erase current session metadata")
     func legacyRewriteDoesNotEraseCurrentMetadata() throws {
@@ -97,6 +97,173 @@ struct CmuxAgentSessionRegistryTests {
         let snapshots = try fixture.registry.snapshotsImportingLegacy(sources: [source, source])
 
         #expect(snapshots["codex"]?.records.map(\.sessionID) == ["one"])
+    }
+
+    @Test("restore preflight isolates a malformed legacy provider")
+    func restorePreflightIsolatesMalformedProvider() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let codexURL = fixture.directory.appendingPathComponent("codex-hook-sessions.json")
+        let claudeURL = fixture.directory.appendingPathComponent("claude-hook-sessions.json")
+        try fixture.legacyStore(
+            sessions: ["codex-session": fixture.object(sessionID: "codex-session", updatedAt: 1)]
+        ).write(to: codexURL, options: .atomic)
+        try Data("{broken".utf8).write(to: claudeURL, options: .atomic)
+
+        let result = try fixture.registry.refreshLegacySources([
+            .init(provider: "claude", url: claudeURL),
+            .init(provider: "codex", url: codexURL),
+        ])
+
+        #expect(result.refreshedProviders == ["codex"])
+        #expect(result.failedProviders == ["claude"])
+        #expect(try fixture.registry.snapshot(provider: "codex").records.map(\.sessionID) == ["codex-session"])
+        #expect(try fixture.registry.snapshot(provider: "claude").records.isEmpty)
+    }
+
+    @Test("restore preflight imports ten thousand legacy rows within a bounded interval")
+    func restorePreflightPerformance() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let legacyURL = fixture.directory.appendingPathComponent("codex-hook-sessions.json")
+        let sessions = Dictionary(uniqueKeysWithValues: (0..<10_000).map { index in
+            let sessionID = "session-\(index)"
+            return (sessionID, fixture.object(sessionID: sessionID, updatedAt: Double(index)))
+        })
+        try fixture.legacyStore(sessions: sessions).write(to: legacyURL, options: .atomic)
+
+        let clock = ContinuousClock()
+        let elapsed = try clock.measure {
+            let result = try fixture.registry.refreshLegacySources([
+                .init(provider: "codex", url: legacyURL),
+            ])
+            #expect(result.refreshedProviders == ["codex"])
+            #expect(result.failedProviders.isEmpty)
+        }
+
+        print("restore preflight 10000-row elapsed: \(elapsed)")
+        #expect(elapsed < .seconds(5))
+        #expect(try fixture.registry.snapshot(provider: "codex").records.count == 10_000)
+
+        let unchangedElapsed = try clock.measure {
+            let result = try fixture.registry.refreshLegacySources([
+                .init(provider: "codex", url: legacyURL),
+            ])
+            #expect(result.refreshedProviders.isEmpty)
+            #expect(result.failedProviders.isEmpty)
+        }
+        print("restore preflight unchanged 10000-row elapsed: \(unchangedElapsed)")
+        #expect(unchangedElapsed < .seconds(1))
+    }
+
+    @Test("restore preflight spends one busy timeout waiting for a writer")
+    func restorePreflightContentionIsBounded() throws {
+        let fixture = try Fixture(busyTimeoutMilliseconds: 5)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        _ = try fixture.registry.snapshot(provider: "codex")
+        let legacyURL = fixture.directory.appendingPathComponent("codex-hook-sessions.json")
+        try fixture.legacyStore(
+            sessions: ["blocked": fixture.object(sessionID: "blocked", updatedAt: 1)]
+        ).write(to: legacyURL, options: .atomic)
+        var database: OpaquePointer?
+        #expect(sqlite3_open(fixture.registry.url.path, &database) == SQLITE_OK)
+        let writer = try #require(database)
+        defer { sqlite3_close(writer) }
+        #expect(sqlite3_exec(writer, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(writer, "ROLLBACK", nil, nil, nil) }
+
+        let clock = ContinuousClock()
+        let elapsed = clock.measure {
+            #expect(throws: (any Error).self) {
+                try fixture.registry.refreshLegacySources([
+                    .init(provider: "codex", url: legacyURL),
+                ])
+            }
+        }
+
+        #expect(elapsed < .seconds(1))
+    }
+
+    @Test("missing legacy sources fail restore preflight closed")
+    func restorePreflightRejectsMissingLegacySource() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let result = try fixture.registry.refreshLegacySources([
+            .init(
+                provider: "codex",
+                url: fixture.directory.appendingPathComponent("missing-codex-hook-sessions.json")
+            ),
+        ])
+
+        #expect(result.refreshedProviders.isEmpty)
+        #expect(result.failedProviders == ["codex"])
+    }
+
+    @Test("missing compatibility JSON does not discard a canonical registry row")
+    func canonicalRegistryRestoresWithoutLegacySource() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let missingURL = fixture.directory.appendingPathComponent("missing-codex-hook-sessions.json")
+        try fixture.registry.apply(provider: "codex", records: [
+            try fixture.record(
+                sessionID: "canonical",
+                updatedAt: 1,
+                generation: 1,
+                extra: ["sessionState": "hibernated"]
+            ),
+        ])
+
+        let preflight = try fixture.registry.refreshLegacySources([
+            .init(provider: "codex", url: missingURL),
+        ])
+        #expect(preflight.refreshedProviders.isEmpty)
+        #expect(preflight.failedProviders.isEmpty)
+        let result = try fixture.registry.withLegacySourceRebindBatch(
+            provider: "codex",
+            legacyURL: missingURL
+        ) { batch in
+            try batch.patchRecordRebindingActiveSlots(
+                provider: "codex",
+                sessionID: "canonical",
+                updatedAt: 2,
+                previousSlots: [],
+                activeSlots: [],
+                shouldMutate: { $0["sessionState"] as? String == "hibernated" }
+            ) { object in
+                object["workspaceId"] = "restored-workspace"
+                object["updatedAt"] = 2.0
+            }
+        }
+
+        #expect(result == .patched)
+        let record = try #require(fixture.registry.snapshot(provider: "codex").records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        #expect(object["workspaceId"] as? String == "restored-workspace")
+    }
+
+    @Test("missing compatibility lookup stays bounded with ten thousand canonical rows")
+    func missingLegacyCanonicalLookupPerformance() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let records = try (0..<10_000).map { index in
+            try fixture.record(
+                sessionID: "canonical-\(index)",
+                updatedAt: Double(index),
+                generation: 1
+            )
+        }
+        try fixture.registry.apply(provider: "codex", records: records)
+        let missingURL = fixture.directory.appendingPathComponent("missing-codex-hook-sessions.json")
+
+        let elapsed = try ContinuousClock().measure {
+            let result = try fixture.registry.refreshLegacySources([
+                .init(provider: "codex", url: missingURL),
+            ])
+            #expect(result.failedProviders.isEmpty)
+        }
+
+        #expect(elapsed < .seconds(1))
     }
 
     @Test("lifecycle patches preserve unknown future keys")
@@ -291,6 +458,128 @@ struct CmuxAgentSessionRegistryTests {
         #expect(!snapshot.activeSlots.contains(where: { $0.scopeID == newSurface }))
     }
 
+    @Test("invalid siblings do not roll back valid members of a restore batch")
+    func invalidRecordsAreIsolatedWithinRestoreBatch() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let legacyURL = fixture.directory.appendingPathComponent("codex-hook-sessions.json")
+        let sessions = Dictionary(uniqueKeysWithValues: ["corrupt", "collision", "valid"].map { sessionID in
+            (sessionID, fixture.object(sessionID: sessionID, updatedAt: 1).merging([
+                "sessionState": "hibernated",
+            ]) { _, new in new })
+        })
+        try fixture.legacyStore(sessions: sessions).write(to: legacyURL, options: .atomic)
+        _ = try fixture.registry.refreshLegacySources([
+            .init(provider: "codex", url: legacyURL),
+        ])
+        var database: OpaquePointer?
+        #expect(sqlite3_open(fixture.registry.url.path, &database) == SQLITE_OK)
+        let writer = try #require(database)
+        defer { sqlite3_close(writer) }
+        #expect(sqlite3_exec(
+            writer,
+            "UPDATE agent_sessions SET record_json = X'7B' WHERE provider = 'codex' AND session_id = 'corrupt'",
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK)
+        try fixture.registry.apply(
+            provider: "codex",
+            records: [],
+            activeSlots: [try fixture.slot(
+                provider: "codex",
+                scope: .workspace,
+                scopeID: "occupied-workspace",
+                sessionID: "occupant",
+                updatedAt: 2
+            )]
+        )
+
+        var results: [CmuxAgentSessionRegistry.RecordRebindResult] = []
+        try fixture.registry.withLegacySourceRebindBatch(
+            provider: "codex",
+            legacyURL: legacyURL
+        ) { batch in
+            for sessionID in ["corrupt", "missing", "collision", "valid"] {
+                results.append(try batch.patchRecordRebindingActiveSlots(
+                    provider: "codex",
+                    sessionID: sessionID,
+                    updatedAt: 2,
+                    previousSlots: [],
+                    activeSlots: sessionID == "collision"
+                        ? [.init(scope: .workspace, scopeID: "occupied-workspace")]
+                        : [],
+                    shouldMutate: { $0["sessionState"] as? String == "hibernated" }
+                ) { object in
+                    object["workspaceId"] = "restored-workspace"
+                    object["updatedAt"] = 2.0
+                })
+            }
+        }
+
+        #expect(results == [.rejected, .recordMissing, .rejected, .patched])
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        let valid = try #require(snapshot.records.first { $0.sessionID == "valid" })
+        let validObject = try #require(JSONSerialization.jsonObject(with: valid.json) as? [String: Any])
+        #expect(validObject["workspaceId"] as? String == "restored-workspace")
+    }
+
+    @Test("a failed provider transaction rolls back without affecting another provider")
+    func restoreBatchFailureIsProviderScoped() throws {
+        enum ExpectedFailure: Error { case rollback }
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let codexURL = fixture.directory.appendingPathComponent("codex-hook-sessions.json")
+        let claudeURL = fixture.directory.appendingPathComponent("claude-hook-sessions.json")
+        try fixture.legacyStore(sessions: [
+            "codex-session": fixture.object(sessionID: "codex-session", updatedAt: 1),
+        ]).write(to: codexURL, options: .atomic)
+        try fixture.legacyStore(sessions: [
+            "claude-session": fixture.object(sessionID: "claude-session", updatedAt: 1),
+        ]).write(to: claudeURL, options: .atomic)
+        _ = try fixture.registry.refreshLegacySources([
+            .init(provider: "codex", url: codexURL),
+            .init(provider: "claude", url: claudeURL),
+        ])
+
+        #expect(throws: ExpectedFailure.self) {
+            try fixture.registry.withLegacySourceRebindBatch(
+                provider: "codex",
+                legacyURL: codexURL
+            ) { batch -> Void in
+                let result = try batch.patchRecordRebindingActiveSlots(
+                    provider: "codex",
+                    sessionID: "codex-session",
+                    updatedAt: 2,
+                    previousSlots: [],
+                    activeSlots: []
+                ) { $0["workspaceId"] = "rolled-back-workspace" }
+                #expect(result == .patched)
+                throw ExpectedFailure.rollback
+            }
+        }
+        try fixture.registry.withLegacySourceRebindBatch(
+            provider: "claude",
+            legacyURL: claudeURL
+        ) { batch in
+            let result = try batch.patchRecordRebindingActiveSlots(
+                provider: "claude",
+                sessionID: "claude-session",
+                updatedAt: 2,
+                previousSlots: [],
+                activeSlots: []
+            ) { $0["workspaceId"] = "committed-workspace" }
+            #expect(result == .patched)
+        }
+
+        let codex = try #require(fixture.registry.snapshot(provider: "codex").records.first)
+        let codexObject = try #require(JSONSerialization.jsonObject(with: codex.json) as? [String: Any])
+        #expect(codexObject["workspaceId"] as? String == "11111111-1111-1111-1111-111111111111")
+        let claude = try #require(fixture.registry.snapshot(provider: "claude").records.first)
+        let claudeObject = try #require(JSONSerialization.jsonObject(with: claude.json) as? [String: Any])
+        #expect(claudeObject["workspaceId"] as? String == "committed-workspace")
+    }
+
     @Test("stale previous slots owned by another session survive rebind")
     func stalePreviousSlotOwnedByAnotherSessionSurvivesRebind() throws {
         let fixture = try Fixture()
@@ -444,6 +733,88 @@ struct CmuxAgentSessionRegistryTests {
             #expect(patched == .patched)
         }
         #expect(elapsed < .seconds(1))
+    }
+
+    @Test("one thousand pre-imported hibernated rows adopt sequentially within a bounded interval")
+    func restoredHibernationBatchAdoptionPerformance() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let legacyURL = fixture.directory.appendingPathComponent("codex-hook-sessions.json")
+        var sessions: [String: Any] = [:]
+        var workspaceSlots: [String: Any] = [:]
+        var surfaceSlots: [String: Any] = [:]
+        for index in 0..<1_000 {
+            let sessionID = "session-\(index)"
+            let oldWorkspace = "old-workspace-\(index)"
+            let oldSurface = "old-surface-\(index)"
+            sessions[sessionID] = [
+                "sessionId": sessionID,
+                "workspaceId": oldWorkspace,
+                "surfaceId": oldSurface,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 1.0,
+                "updatedAt": 2.0,
+            ]
+            let slot: [String: Any] = ["sessionId": sessionID, "updatedAt": 2.0]
+            workspaceSlots[oldWorkspace] = slot
+            surfaceSlots[oldSurface] = slot
+        }
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": sessions,
+            "activeSessionsByWorkspace": workspaceSlots,
+            "activeSessionsBySurface": surfaceSlots,
+        ], options: [.sortedKeys]).write(to: legacyURL, options: .atomic)
+        let preflight = try fixture.registry.refreshLegacySources([
+            .init(provider: "codex", url: legacyURL),
+        ])
+        #expect(preflight.refreshedProviders == ["codex"])
+
+        let elapsed = try ContinuousClock().measure {
+            try fixture.registry.withLegacySourceRebindBatch(
+                provider: "codex",
+                legacyURL: legacyURL
+            ) { batch in
+                for index in 0..<1_000 {
+                    let sessionID = "session-\(index)"
+                    let oldWorkspace = "old-workspace-\(index)"
+                    let oldSurface = "old-surface-\(index)"
+                    let newWorkspace = "new-workspace-\(index)"
+                    let newSurface = "new-surface-\(index)"
+                    let result = try batch.patchRecordRebindingActiveSlots(
+                        provider: "codex",
+                        sessionID: sessionID,
+                        updatedAt: 3.0,
+                        previousSlots: [
+                            .init(scope: .workspace, scopeID: oldWorkspace),
+                            .init(scope: .surface, scopeID: oldSurface),
+                        ],
+                        activeSlots: [
+                            .init(scope: .workspace, scopeID: newWorkspace),
+                            .init(scope: .surface, scopeID: newSurface),
+                        ],
+                        shouldMutate: {
+                            $0["sessionState"] as? String == "hibernated"
+                                && $0["workspaceId"] as? String == oldWorkspace
+                                && $0["surfaceId"] as? String == oldSurface
+                        }
+                    ) { object in
+                        object["workspaceId"] = newWorkspace
+                        object["surfaceId"] = newSurface
+                        object["updatedAt"] = 3.0
+                    }
+                    #expect(result == .patched)
+                }
+            }
+        }
+
+        print("restore sequential 1000-row adoption elapsed: \(elapsed)")
+        #expect(elapsed < .seconds(1))
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        #expect(snapshot.records.count == 1_000)
+        #expect(snapshot.activeSlots.count == 2_000)
+        #expect(snapshot.activeSlots.allSatisfy { $0.scopeID.hasPrefix("new-") })
     }
 
     @Test("targeted rebind spends only one busy timeout waiting for a writer")
