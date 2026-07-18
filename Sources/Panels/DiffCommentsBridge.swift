@@ -320,10 +320,10 @@ extension BrowserPanel {
         expectedURL: String? = nil,
         expectedOperationID: UUID? = nil
     ) -> Bool {
-        guard expectedOperationID.map({ diffViewerLoadingOperationID == $0 }) != false else {
-            return false
-        }
-        guard expectedURL.map(hasCurrentURL) != false else { return false }
+        guard canAcceptCLINavigation(
+            expectedURL: expectedURL,
+            expectedOperationID: expectedOperationID
+        ) else { return false }
         if let internalURL = URL(string: url),
            internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
             guard CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: internalURL) else { return false }
@@ -338,6 +338,13 @@ extension BrowserPanel {
             navigateSmart(url)
         }
         return true
+    }
+
+    func canAcceptCLINavigation(expectedURL: String?, expectedOperationID: UUID?) -> Bool {
+        guard expectedOperationID.map({ diffViewerLoadingOperationID == $0 }) != false else {
+            return false
+        }
+        return expectedURL.map(hasCurrentURL) != false
     }
 }
 

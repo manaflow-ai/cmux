@@ -309,13 +309,21 @@ async fn run_rpc_session(config: ServerConfig) -> Result<(), String> {
     let state = app_state(config, 0);
     let mut input = BufReader::new(tokio::io::stdin());
     let (response_sender, response_receiver) = mpsc::channel(MAX_CONCURRENT_CHILD_PROCESSES * 2);
-    let output_task = tokio::spawn(write_rpc_responses(response_receiver));
+    let mut output_task = tokio::spawn(write_rpc_responses(response_receiver));
     let mut requests = JoinSet::new();
     let mut abort_handles: HashMap<String, tokio::task::AbortHandle> = HashMap::new();
     let mut accepting_requests = true;
 
     while accepting_requests || !requests.is_empty() {
         tokio::select! {
+            writer_result = &mut output_task => {
+                requests.abort_all();
+                return match writer_result {
+                    Ok(Ok(())) => Err("RPC output closed".to_owned()),
+                    Ok(Err(error)) => Err(error),
+                    Err(error) => Err(error.to_string()),
+                };
+            }
             frame = read_rpc_frame(&mut input, RPC_STDIN_READ_TIMEOUT), if accepting_requests => {
                 match frame? {
                     RpcRequestRead::EndOfStream => accepting_requests = false,

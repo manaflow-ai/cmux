@@ -125,7 +125,10 @@ fn rpc_process_exits_when_its_response_pipe_closes() {
         let _ = child.kill();
         let _ = child.wait();
     }
-    assert!(status.is_some(), "closed response pipe must terminate the RPC process");
+    assert!(
+        status.is_some(),
+        "closed response pipe must terminate the RPC process"
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }
