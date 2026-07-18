@@ -14296,7 +14296,7 @@ private struct SidebarHelpMenuButton: View {
     private let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
     private let buttonSize: CGFloat = 22
-    private let iconSize: CGFloat = 11
+    private let iconSize: CGFloat = 16
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     let onSendFeedback: () -> Void
