@@ -299,9 +299,10 @@ extension RestorableAgentSessionIndex {
             let hibernatedAt = registryTimeInterval(
                 recordObject["cmuxHibernatedAt"]
             ) ?? record.updatedAt
+            let lastActivityAt = terminal?.hibernation?.lastActivityAt ?? hibernatedAt
             terminal?.hibernation = SessionAgentHibernationSnapshot(
                 hibernatedAt: hibernatedAt,
-                lastActivityAt: terminal?.hibernation?.lastActivityAt ?? hibernatedAt
+                lastActivityAt: lastActivityAt
             )
             terminal?.agent = candidate.agent
             terminal?.wasAgentRunning = false
