@@ -37,10 +37,14 @@ struct AgentHookDeliveryQueueTests {
         #expect(event.environment["OPENAI_API_KEY"] == "openai-test-key")
         #expect(event.environment["OPENCODE_CONFIG_DIR"] == "/tmp/opencode config")
         #expect(event.environment["PI_CONFIG_DIR"] == "/tmp/pi config")
+        #expect(event.durableEnvironment["OPENAI_API_KEY"] == nil)
+        #expect(event.ephemeralEnvironment["OPENAI_API_KEY"] == "openai-test-key")
 
         for subcommand in [
             "session-start", "prompt-submit", "stop",
             "pre-tool-use", "post-tool-use", "notification",
+            "feed:PreToolUse", "feed:PermissionRequest", "feed:PostToolUse",
+            "feed:PreCompact", "feed:PostCompact", "feed:SubagentStart", "feed:SubagentStop",
         ] {
             #expect(makeEvent(
                 deliveryID: "accepted:\(subcommand)",
@@ -75,6 +79,129 @@ struct AgentHookDeliveryQueueTests {
             payload: payload,
             environment: ["CMUX_TAG": "test-tag"]
         ) == nil)
+    }
+
+    @Test func deliveryIdentityIgnoresTransportOnlyDeliveryIDEnvironment() async throws {
+        let root = try temporaryDirectory(named: "delivery-id-parity")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let unavailableQueue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let native = try #require(makeEvent(
+            deliveryID: "native-fallback-parity",
+            payload: Data("same-payload".utf8),
+            environment: testEnvironment(root: root)
+        ))
+        var fallbackEnvironment = testEnvironment(root: root)
+        fallbackEnvironment["CMUX_AGENT_HOOK_DELIVERY_ID"] = "native-fallback-parity"
+        let fallback = try #require(makeEvent(
+            deliveryID: "native-fallback-parity",
+            payload: Data("same-payload".utf8),
+            environment: fallbackEnvironment
+        ))
+
+        #expect(native.contentDigest == fallback.contentDigest)
+        #expect(fallback.environment["CMUX_AGENT_HOOK_DELIVERY_ID"] == nil)
+        try unavailableQueue.enqueue(native)
+        try unavailableQueue.enqueue(fallback)
+        await unavailableQueue.waitUntilCurrentDrainFinishes()
+        #expect(try await unavailableQueue.diagnosticStatus(for: native.deliveryID)?["state"] == "pending")
+    }
+
+    @Test func secretsStayMemoryOnlyButReachLiveDelivery() async throws {
+        let root = try temporaryDirectory(named: "ephemeral-secrets")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            printf '%s\n' "$ANTHROPIC_API_KEY" "$AWS_SECRET_ACCESS_KEY" "$OPENAI_API_KEY" \
+              "$XAI_API_KEY" "$GEMINI_API_KEY" "$OPENROUTER_API_KEY" > "$TMPDIR/captured-secrets"
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        var environment = testEnvironment(root: root)
+        let secrets = [
+            "ANTHROPIC_API_KEY": "anthropic-memory-only",
+            "AWS_SECRET_ACCESS_KEY": "aws-memory-only",
+            "OPENAI_API_KEY": "openai-memory-only",
+            "XAI_API_KEY": "xai-memory-only",
+            "GEMINI_API_KEY": "gemini-memory-only",
+            "OPENROUTER_API_KEY": "openrouter-memory-only",
+        ]
+        environment.merge(secrets, uniquingKeysWith: { _, new in new })
+        let event = try #require(makeEvent(
+            deliveryID: "ephemeral-secrets",
+            payload: Data("payload".utf8),
+            environment: environment
+        ))
+
+        try queue.enqueue(event)
+        await queue.waitUntilCurrentDrainFinishes()
+        #expect(try lines(at: root.appendingPathComponent("captured-secrets")) == [
+            "anthropic-memory-only", "aws-memory-only", "openai-memory-only",
+            "xai-memory-only", "gemini-memory-only", "openrouter-memory-only",
+        ])
+        let storedEnvironment = try storedEnvironmentJSON(databaseURL: databaseURL, deliveryID: event.deliveryID)
+        for secret in secrets.values {
+            #expect(!storedEnvironment.contains(secret))
+            for file in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+                where file.lastPathComponent.hasPrefix("deliveries.sqlite3") {
+                let bytes = (try? Data(contentsOf: file)) ?? Data()
+                #expect(bytes.range(of: Data(secret.utf8)) == nil)
+            }
+        }
+    }
+
+    @Test func feedTelemetryTargetsUseTheBoundedDeliveryQueue() async throws {
+        let root = try temporaryDirectory(named: "feed-targets")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            printf '%s\n' "$*" >> "$TMPDIR/arguments"
+            /bin/cat >/dev/null
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let targets = [
+            "feed:PreToolUse", "feed:PermissionRequest", "feed:PostToolUse",
+            "feed:PreCompact", "feed:PostCompact", "feed:SubagentStart", "feed:SubagentStop",
+        ]
+        for (index, target) in targets.enumerated() {
+            let event = try #require(makeEvent(
+                deliveryID: "feed-target-\(index)",
+                payload: Data("payload-\(index)".utf8),
+                environment: testEnvironment(root: root),
+                subcommand: target
+            ))
+            try queue.enqueue(event)
+        }
+        await queue.waitUntilCurrentDrainFinishes()
+
+        #expect(try lines(at: root.appendingPathComponent("arguments")) == targets.map {
+            "--socket /tmp/cmux-agent-hook-delivery-test.sock hooks feed --source codex --event \($0.dropFirst("feed:".count))"
+        })
     }
 
     @Test func diskBacklogSurvivesQueueReplacementAndDeduplicatesBurst() async throws {
@@ -549,6 +676,34 @@ struct AgentHookDeliveryQueueTests {
     private func writeExecutable(at url: URL, contents: String) throws {
         try Data(contents.utf8).write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func storedEnvironmentJSON(databaseURL: URL, deliveryID: String) throws -> String {
+        var database: OpaquePointer?
+        let openStatus = sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil)
+        guard openStatus == SQLITE_OK, let database else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(openStatus))
+        }
+        defer { sqlite3_close(database) }
+        var statement: OpaquePointer?
+        let prepareStatus = sqlite3_prepare_v2(
+            database,
+            "SELECT environment_json FROM agent_hook_deliveries WHERE delivery_id = ? LIMIT 1;",
+            -1,
+            &statement,
+            nil
+        )
+        guard prepareStatus == SQLITE_OK, let statement else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(prepareStatus))
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, deliveryID, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              let bytes = sqlite3_column_blob(statement, 0) else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: 999)
+        }
+        let count = Int(sqlite3_column_bytes(statement, 0))
+        return String(decoding: Data(bytes: bytes, count: count), as: UTF8.self)
     }
 
     private func createLegacyDeliveryDatabase(

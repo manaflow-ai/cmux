@@ -73,17 +73,26 @@ struct AgentLaunchEnvironmentPolicyTests {
 
     @Test("Hook transport preserves routing and every auto-naming backend")
     func hookTransportPreservesAutoNamingInputsOnly() {
-        let selected = AgentHookTransportEnvironmentPolicy().selectedEnvironment(from: [
+        let partitioned = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: [
             "CMUX_SOCKET_PATH": "/tmp/cmux.sock",
             "CMUX_SURFACE_ID": "surface:1",
             "CMUX_CUSTOM_CLAUDE_PATH": "/tmp/Claude Code/bin/claude",
+            "CMUX_AGENT_HOOK_DELIVERY_ID": "transport-only-id",
             "CMUX_SOCKET_CAPABILITY": "must-not-persist",
             "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP": "1",
             "ANTHROPIC_API_KEY": "anthropic-secret",
             "CLAUDE_CODE_USE_VERTEX": "1",
             "AWS_PROFILE": "bedrock-profile",
+            "AWS_SECRET_ACCESS_KEY": "aws-secret",
             "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/gcp.json",
             "OPENAI_API_KEY": "openai-secret",
+            "XAI_API_KEY": "grok-secret",
+            "XAI_BASE_URL": "https://xai.example.test/v1",
+            "GEMINI_API_KEY": "gemini-secret",
+            "OPENROUTER_API_KEY": "openrouter-secret",
+            "CUSTOM_AUTH_TOKEN": "custom-auth-secret",
+            "CUSTOM_ACCESS_TOKEN": "custom-access-secret",
+            "CUSTOM_CLIENT_SECRET": "custom-client-secret",
             "HTTPS_PROXY": "http://127.0.0.1:8080",
             "GROK_HOME": "/tmp/grok",
             "OPENCODE_CONFIG_DIR": "/tmp/opencode",
@@ -91,18 +100,30 @@ struct AgentLaunchEnvironmentPolicyTests {
             "UNRELATED_SECRET": "must-not-persist",
         ])
 
-        #expect(selected["CMUX_SOCKET_PATH"] == "/tmp/cmux.sock")
-        #expect(selected["CMUX_SURFACE_ID"] == "surface:1")
-        #expect(selected["CMUX_CUSTOM_CLAUDE_PATH"] == "/tmp/Claude Code/bin/claude")
-        #expect(selected["ANTHROPIC_API_KEY"] == "anthropic-secret")
-        #expect(selected["CLAUDE_CODE_USE_VERTEX"] == "1")
-        #expect(selected["AWS_PROFILE"] == "bedrock-profile")
-        #expect(selected["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/gcp.json")
-        #expect(selected["OPENAI_API_KEY"] == "openai-secret")
-        #expect(selected["HTTPS_PROXY"] == "http://127.0.0.1:8080")
-        #expect(selected["GROK_HOME"] == "/tmp/grok")
-        #expect(selected["OPENCODE_CONFIG_DIR"] == "/tmp/opencode")
-        #expect(selected["PI_CONFIG_DIR"] == "/tmp/pi")
+        #expect(partitioned.durable["CMUX_SOCKET_PATH"] == "/tmp/cmux.sock")
+        #expect(partitioned.durable["CMUX_SURFACE_ID"] == "surface:1")
+        #expect(partitioned.durable["CMUX_CUSTOM_CLAUDE_PATH"] == "/tmp/Claude Code/bin/claude")
+        #expect(partitioned.durable["CLAUDE_CODE_USE_VERTEX"] == "1")
+        #expect(partitioned.durable["AWS_PROFILE"] == "bedrock-profile")
+        #expect(partitioned.durable["HTTPS_PROXY"] == "http://127.0.0.1:8080")
+        #expect(partitioned.durable["XAI_BASE_URL"] == "https://xai.example.test/v1")
+        #expect(partitioned.durable["GROK_HOME"] == "/tmp/grok")
+        #expect(partitioned.durable["OPENCODE_CONFIG_DIR"] == "/tmp/opencode")
+        #expect(partitioned.durable["PI_CONFIG_DIR"] == "/tmp/pi")
+
+        #expect(partitioned.ephemeral["ANTHROPIC_API_KEY"] == "anthropic-secret")
+        #expect(partitioned.ephemeral["AWS_SECRET_ACCESS_KEY"] == "aws-secret")
+        #expect(partitioned.durable["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/gcp.json")
+        #expect(partitioned.ephemeral["OPENAI_API_KEY"] == "openai-secret")
+        #expect(partitioned.ephemeral["XAI_API_KEY"] == "grok-secret")
+        #expect(partitioned.ephemeral["GEMINI_API_KEY"] == "gemini-secret")
+        #expect(partitioned.ephemeral["OPENROUTER_API_KEY"] == "openrouter-secret")
+        #expect(partitioned.ephemeral["CUSTOM_AUTH_TOKEN"] == "custom-auth-secret")
+        #expect(partitioned.ephemeral["CUSTOM_ACCESS_TOKEN"] == "custom-access-secret")
+        #expect(partitioned.ephemeral["CUSTOM_CLIENT_SECRET"] == "custom-client-secret")
+
+        let selected = partitioned.merged
+        #expect(selected["CMUX_AGENT_HOOK_DELIVERY_ID"] == nil)
         #expect(selected["CMUX_SOCKET_CAPABILITY"] == nil)
         #expect(selected["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] == nil)
         #expect(selected["UNRELATED_SECRET"] == nil)

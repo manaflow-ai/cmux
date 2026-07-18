@@ -43,8 +43,8 @@ struct CLICodexHookTimeoutRegressionTests {
             "session-start", "prompt-submit", "stop",
             "pre-tool-use", "post-tool-use", "notification",
         ]
-        let installedPaths = expectedEvents.map {
-            hooksDirectory.appendingPathComponent("cmux-codex-native-hook-\($0)", isDirectory: false).path
+        let installedPaths = try expectedEvents.map {
+            try generatedCodexHookPath(in: hooksDirectory, eventTag: $0, native: true)
         }
         let nativeClientPath = URL(fileURLWithPath: cliPath)
             .deletingLastPathComponent()
@@ -143,9 +143,11 @@ struct CLICodexHookTimeoutRegressionTests {
             timeout: 5
         )
         #expect(inject.status == 0, Comment(rawValue: inject.stderr))
-        let hookPath = hooksDirectory
-            .appendingPathComponent("cmux-codex-native-hook-prompt-submit", isDirectory: false)
-            .path
+        let hookPath = try generatedCodexHookPath(
+            in: hooksDirectory,
+            eventTag: "prompt-submit",
+            native: true
+        )
         #expect(codexHookExecutableIsMachO(hookPath))
 
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
@@ -204,6 +206,51 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(noCLIFallback.stdout == "{}\n")
     }
 
+    @Test func codexNativeClientRejectsUnexpectedPeerUID() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-peer-uid-\(UUID().uuidString)", isDirectory: true)
+        let harness = root.appendingPathComponent("peer-uid-harness.c", isDirectory: false)
+        let executable = root.appendingPathComponent("peer-uid-harness", isDirectory: false)
+        let clientSource = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("HookClient/CodexHookClient.c", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = """
+        #define main cmux_hook_client_main
+        #include "\(clientSource.path)"
+        #undef main
+
+        int main(void) {
+            int sockets[2] = {-1, -1};
+            if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) != 0) return 10;
+            const uid_t current = geteuid();
+            if (!cmux_socket_peer_matches_uid(sockets[0], current)) return 11;
+            if (cmux_socket_peer_matches_uid(sockets[0], current + 1)) return 12;
+            close(sockets[0]);
+            close(sockets[1]);
+            return 0;
+        }
+        """
+        try Data(source.utf8).write(to: harness, options: .atomic)
+
+        let compile = runCodexHookProcess(
+            executablePath: "/usr/bin/clang",
+            arguments: ["-std=c11", "-Wall", "-Wextra", "-Werror", harness.path, "-o", executable.path],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 10
+        )
+        #expect(compile.status == 0, Comment(rawValue: compile.stderr))
+        let run = runCodexHookProcess(
+            executablePath: executable.path,
+            arguments: [],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 2
+        )
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+    }
+
     @Test func codexNativeClientTerminatesHungFallbackWithinDeadline() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -233,9 +280,11 @@ struct CLICodexHookTimeoutRegressionTests {
             timeout: 5
         )
         #expect(inject.status == 0, Comment(rawValue: inject.stderr))
-        let hookPath = hooksDirectory
-            .appendingPathComponent("cmux-codex-native-hook-stop", isDirectory: false)
-            .path
+        let hookPath = try generatedCodexHookPath(
+            in: hooksDirectory,
+            eventTag: "stop",
+            native: true
+        )
         #expect(codexHookExecutableIsMachO(hookPath))
 
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
@@ -279,7 +328,7 @@ struct CLICodexHookTimeoutRegressionTests {
         }
     }
 
-    @Test func codexPersistentLifecycleHooksAreNativeButFeedHooksStayScripts() throws {
+    @Test func everyPersistentCodexHookUsesNativeDurableAdmission() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-native-persistent-\(UUID().uuidString)", isDirectory: true)
@@ -296,11 +345,84 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(install.status == 0, Comment(rawValue: install.stderr))
         let hooks = try codexHookEntries(in: codexHome)
         let lifecycle = hooks.filter { ["SessionStart", "UserPromptSubmit", "Stop"].contains($0.eventName) }
-        let feed = hooks.filter { $0.body.contains("hooks feed --source codex") }
+        let feedEvents = Set([
+            "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact",
+            "PostCompact", "SubagentStart", "SubagentStop",
+        ])
+        let feed = hooks.filter { feedEvents.contains($0.eventName) }
         #expect(lifecycle.count == 3)
         #expect(lifecycle.allSatisfy { codexHookExecutableIsMachO($0.command) })
         #expect(feed.count == 7)
-        #expect(feed.allSatisfy { $0.command.hasSuffix(".sh") && !codexHookExecutableIsMachO($0.command) })
+        #expect(feed.allSatisfy { codexHookExecutableIsMachO($0.command) })
+        #expect(hooks.allSatisfy { isContentAddressedCodexHookPath($0.command) })
+    }
+
+    @Test func everyCodexFeedHookPreservesPayloadThroughNativeAdmission() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-native-feed-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("native-feed")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let events = [
+            "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact",
+            "PostCompact", "SubagentStart", "SubagentStop",
+        ]
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: "surface-native-feed",
+            connectionLimit: events.count
+        )
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+        let hooks = try codexHookEntries(in: codexHome)
+
+        for (index, event) in events.enumerated() {
+            let command = try #require(hooks.first { $0.eventName == event }?.command)
+            let payload = Data([UInt8(index), 0x00, 0xFF, 0x0A])
+            let started = ContinuousClock.now
+            let result = runCodexHookProcess(
+                executablePath: command,
+                arguments: [],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "CMUX_SURFACE_ID": "surface-native-feed",
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_SOCKET_CAPABILITY": "test-capability",
+                    "CMUX_AGENT_HOOK_DELIVERY_ID": "native-feed-\(index)",
+                ],
+                standardInputData: payload,
+                timeout: 2
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            #expect(result.stdout == "{}\n")
+            #expect(started.duration(to: .now) < .seconds(1))
+        }
+
+        let parameters = try commands.snapshot().map { raw -> [String: Any] in
+            let request = try #require(codexHookJSONObject(raw))
+            return try #require(request["params"] as? [String: Any])
+        }
+        #expect(parameters.compactMap { $0["subcommand"] as? String } == events.map { "feed:\($0)" })
+        for (index, params) in parameters.enumerated() {
+            let encoded = try #require(params["payload_b64"] as? String)
+            #expect(Data(base64Encoded: encoded) == Data([UInt8(index), 0x00, 0xFF, 0x0A]))
+        }
     }
 
     @Test func codexHookUpgradeReplacesPersistentScriptsWithoutSharedPathCollisions() throws {
@@ -380,7 +502,7 @@ struct CLICodexHookTimeoutRegressionTests {
             #expect(nativeEntries.count == 1)
             let nativeEntry = try #require(nativeEntries.first)
             #expect(nativeEntry.command != historicalSharedPath.path)
-            #expect(nativeEntry.command.hasSuffix("cmux-codex-native-hook-\(event.subcommand)"))
+            #expect(nativeEntry.command.contains("cmux-codex-native-hook-\(event.subcommand)-"))
 
             // An older concurrently running cmux still rewrites this historical
             // wrapper path. That must not change the installed native helper.
@@ -390,12 +512,11 @@ struct CLICodexHookTimeoutRegressionTests {
             )
             #expect(codexHookExecutableIsMachO(nativeEntry.command))
         }
-        let feedHooks = hooks.filter { $0.body.contains("hooks feed --source codex") }
-        let installedFeedEvents = Set(feedHooks.compactMap { hook in
-            expectedFeedEvents.first { hook.body.contains("--event \($0)") }
-        })
+        let feedHooks = hooks.filter { expectedFeedEvents.contains($0.eventName) }
+        let installedFeedEvents = Set(feedHooks.map(\.eventName))
         #expect(feedHooks.count == expectedFeedEvents.count)
         #expect(installedFeedEvents == expectedFeedEvents)
+        #expect(feedHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
         for agentEvent in expectedFeedEvents {
             #expect(hooks.filter { $0.eventName == agentEvent }.count == 1)
         }
@@ -418,16 +539,68 @@ struct CLICodexHookTimeoutRegressionTests {
             timeout: 5
         )
         #expect(inject.status == 0, Comment(rawValue: inject.stderr))
-        let shellPath = root
-            .appendingPathComponent(".cmux/hooks/cmux-codex-portable-hook-session-start.sh", isDirectory: false)
-        #expect(!codexHookExecutableIsMachO(shellPath.path))
-        let shell = try String(contentsOf: shellPath, encoding: .utf8)
+        let shellPath = try generatedCodexHookPath(
+            in: root.appendingPathComponent(".cmux/hooks", isDirectory: true),
+            eventTag: "session-start",
+            native: false
+        )
+        #expect(!codexHookExecutableIsMachO(shellPath))
+        let shell = try String(contentsOfFile: shellPath, encoding: .utf8)
         #expect(shell.hasPrefix("#!/bin/sh\n"))
         #expect(!shell.contains("/usr/bin/base64"))
         #expect(!shell.contains("/usr/bin/nc"))
         #expect(shell.contains("CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=1"))
-        #expect(shell.contains("/bin/sleep 2"))
+        #expect(!shell.contains("watchdog="))
+        #expect(!shell.contains("( /bin/sleep 2;"))
         #expect(shell.contains("hooks codex enqueue session-start"))
+    }
+
+    @Test func generatedHookPathsAreImmutableAcrossMixedCmuxVersions() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-content-addressed-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        let clientA = root.appendingPathComponent("client-a", isDirectory: false)
+        let clientB = root.appendingPathComponent("client-b", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try makeCodexHookExecutableShellFile(at: clientA, lines: ["#!/bin/sh", "printf client-a"])
+        try makeCodexHookExecutableShellFile(at: clientB, lines: ["#!/bin/sh", "printf client-b"])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var environment = codexHookTestEnvironment(root: root, codexHome: codexHome)
+        environment["CMUX_CODEX_HOOK_CLIENT_PATH"] = clientA.path
+        let first = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(first.status == 0, Comment(rawValue: first.stderr))
+        let pathA = try generatedCodexHookPath(
+            in: hooksDirectory,
+            eventTag: "session-start",
+            native: true
+        )
+        let contentsA = try Data(contentsOf: URL(fileURLWithPath: pathA))
+
+        environment["CMUX_CODEX_HOOK_CLIENT_PATH"] = clientB.path
+        let second = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(second.status == 0, Comment(rawValue: second.stderr))
+        let allSessionStartPaths = try FileManager.default.contentsOfDirectory(
+            at: hooksDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
+        #expect(allSessionStartPaths.count == 2)
+        let pathB = try #require(allSessionStartPaths.map(\.path).first { $0 != pathA })
+        #expect(pathA != pathB)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: pathA)) == contentsA)
+        #expect(try String(contentsOfFile: pathB, encoding: .utf8).contains("client-b"))
     }
 
     @Test func codexPortableHookBoundsSlowCLIFallbackAndPreservesPayload() throws {
@@ -457,9 +630,11 @@ struct CLICodexHookTimeoutRegressionTests {
             timeout: 5
         )
         #expect(inject.status == 0, Comment(rawValue: inject.stderr))
-        let hookPath = hooksDirectory
-            .appendingPathComponent("cmux-codex-portable-hook-session-start.sh", isDirectory: false)
-            .path
+        let hookPath = try generatedCodexHookPath(
+            in: hooksDirectory,
+            eventTag: "session-start",
+            native: false
+        )
 
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
@@ -557,17 +732,6 @@ struct CLICodexHookTimeoutRegressionTests {
         let sessionStartHooks = hooks.filter { $0.eventName == "SessionStart" }
         let promptHooks = hooks.filter { $0.eventName == "UserPromptSubmit" }
         let stopHooks = hooks.filter { $0.eventName == "Stop" }
-        let feedHooks = hooks.filter { $0.body.contains("hooks feed --source codex") }
-        #expect(!hooks.map(\.body).contains(previousCommand), "Installer should remove stale synchronous hook")
-        #expect(sessionStartHooks.count == 1, "Installer should install one session-start hook")
-        #expect(sessionStartHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
-        #expect(sessionStartHooks.allSatisfy { $0.command.hasSuffix("cmux-codex-native-hook-session-start") })
-        #expect(promptHooks.count == 1, "Installer should collapse duplicate prompt hooks")
-        #expect(promptHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
-        #expect(promptHooks.allSatisfy { $0.command.hasSuffix("cmux-codex-native-hook-prompt-submit") })
-        #expect(stopHooks.count == 1, "Installer should install one stop hook")
-        #expect(stopHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
-        #expect(stopHooks.allSatisfy { $0.command.hasSuffix("cmux-codex-native-hook-stop") })
         let expectedFeedEvents: Set<String> = [
             "PreToolUse",
             "PermissionRequest",
@@ -577,12 +741,21 @@ struct CLICodexHookTimeoutRegressionTests {
             "SubagentStart",
             "SubagentStop",
         ]
-        let installedFeedEvents = Set(feedHooks.compactMap { hook in
-            expectedFeedEvents.first { hook.body.contains("--event \($0)") }
-        })
+        let feedHooks = hooks.filter { expectedFeedEvents.contains($0.eventName) }
+        #expect(!hooks.map(\.body).contains(previousCommand), "Installer should remove stale synchronous hook")
+        #expect(sessionStartHooks.count == 1, "Installer should install one session-start hook")
+        #expect(sessionStartHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
+        #expect(sessionStartHooks.allSatisfy { $0.command.contains("cmux-codex-native-hook-session-start-") })
+        #expect(promptHooks.count == 1, "Installer should collapse duplicate prompt hooks")
+        #expect(promptHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
+        #expect(promptHooks.allSatisfy { $0.command.contains("cmux-codex-native-hook-prompt-submit-") })
+        #expect(stopHooks.count == 1, "Installer should install one stop hook")
+        #expect(stopHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
+        #expect(stopHooks.allSatisfy { $0.command.contains("cmux-codex-native-hook-stop-") })
+        let installedFeedEvents = Set(feedHooks.map(\.eventName))
         #expect(feedHooks.count == expectedFeedEvents.count, "Installer should install every Codex feed hook")
         #expect(installedFeedEvents == expectedFeedEvents)
-        #expect(feedHooks.allSatisfy { !$0.body.contains("nohup sh -c") && !$0.body.contains(">/dev/null 2>&1 &") })
+        #expect(feedHooks.allSatisfy { codexHookExecutableIsMachO($0.command) })
     }
 
     @Test func codexInstalledHookHandsPayloadToInboxCommand() throws {
@@ -880,7 +1053,10 @@ struct CLICodexHookTimeoutRegressionTests {
             .appendingPathComponent("hooks", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
         let fakeCodex = root.appendingPathComponent("codex-real", isDirectory: false)
-        let resumeHook = hooksDirectory.appendingPathComponent("cmux-codex-native-hook-session-start", isDirectory: false)
+        let resumeHook = hooksDirectory.appendingPathComponent(
+            "cmux-codex-portable-hook-session-start-deadbeefcafebabe.sh",
+            isDirectory: false
+        )
         let capturedPayload = root.appendingPathComponent("resume-payload.json", isDirectory: false)
         let capturedDeliveryID = root.appendingPathComponent("resume-delivery-id.txt", isDirectory: false)
         let capturedCodexArgs = root.appendingPathComponent("codex-args.txt", isDirectory: false)
@@ -902,7 +1078,7 @@ struct CLICodexHookTimeoutRegressionTests {
             "#!/bin/sh",
             "case \"$*\" in",
             "  *ping*) exit 0 ;;",
-            "  *\"hooks codex inject-args\"*) printf '%s\\0' --enable hooks; exit 0 ;;",
+            "  *\"hooks codex inject-args\"*) printf '%s\\0' --enable hooks -c \"hooks.SessionStart=[{hooks=[{type=\\\"command\\\",command='''$CMUX_TEST_RESUME_HOOK''',timeout=10000}]}]\"; exit 0 ;;",
             "esac",
             "exit 1",
         ])
@@ -929,6 +1105,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_WORKSPACE_ID": "workspace-wrapper",
                 "CMUX_TEST_RESUME_PAYLOAD": capturedPayload.path,
                 "CMUX_TEST_RESUME_DELIVERY_ID": capturedDeliveryID.path,
+                "CMUX_TEST_RESUME_HOOK": resumeHook.path,
                 "CMUX_TEST_CODEX_ARGS": capturedCodexArgs.path,
             ],
             timeout: 5
@@ -941,7 +1118,80 @@ struct CLICodexHookTimeoutRegressionTests {
         let codexArgs = try String(contentsOf: capturedCodexArgs, encoding: .utf8)
             .split(separator: "\n")
             .map(String.init)
-        #expect(codexArgs == ["--enable", "hooks", "resume", sessionID])
+        #expect(codexArgs.prefix(2) == ["--enable", "hooks"])
+        #expect(codexArgs.suffix(2) == ["resume", sessionID])
+    }
+
+    @Test func codexResumeBoundsLegacyCLIFallbackProcessGroup() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-wrapper-legacy-resume-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let fakeCodex = root.appendingPathComponent("codex-real", isDirectory: false)
+        let leaderPIDFile = root.appendingPathComponent("legacy-leader.pid", isDirectory: false)
+        let descendantPIDFile = root.appendingPathComponent("legacy-descendant.pid", isDirectory: false)
+        let codexDone = root.appendingPathComponent("codex-done", isDirectory: false)
+        let wrapper = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/bin/cmux-codex-wrapper", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            for file in [leaderPIDFile, descendantPIDFile] {
+                if let raw = try? String(contentsOf: file, encoding: .utf8),
+                   let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    Darwin.kill(pid, SIGKILL)
+                }
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "case \"$*\" in",
+            "  *ping*) exit 0 ;;",
+            "  *\"hooks codex inject-args\"*) printf '%s\\0' --enable hooks; exit 0 ;;",
+            "  *\"hooks codex enqueue session-start\"*) exec /usr/bin/python3 -c 'import os, signal; os.setpgid(0, 0); open(os.environ[\"CMUX_TEST_LEGACY_LEADER\"], \"w\").write(str(os.getpid())); child=os.fork(); child == 0 and (signal.signal(signal.SIGTERM, signal.SIG_IGN), open(os.environ[\"CMUX_TEST_LEGACY_DESCENDANT\"], \"w\").write(str(os.getpid()))); signal.signal(signal.SIGTERM, signal.SIG_IGN); signal.pause()' ;;",
+            "esac",
+            "exit 1",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeCodex, lines: [
+            "#!/bin/sh",
+            "printf done > \"$CMUX_TEST_CODEX_DONE\"",
+        ])
+
+        let started = ContinuousClock.now
+        let result = runCodexHookProcess(
+            executablePath: wrapper.path,
+            arguments: ["resume", "legacy-session"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-wrapper-legacy-missing.sock",
+                "CMUX_SURFACE_ID": "surface-wrapper-legacy",
+                "CMUX_TEST_LEGACY_LEADER": leaderPIDFile.path,
+                "CMUX_TEST_LEGACY_DESCENDANT": descendantPIDFile.path,
+                "CMUX_TEST_CODEX_DONE": codexDone.path,
+            ],
+            timeout: 3
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(started.duration(to: .now) < .seconds(1))
+        #expect(waitForCondition(timeout: 1) {
+            FileManager.default.fileExists(atPath: leaderPIDFile.path)
+                && FileManager.default.fileExists(atPath: descendantPIDFile.path)
+                && FileManager.default.fileExists(atPath: codexDone.path)
+        })
+        for file in [leaderPIDFile, descendantPIDFile] {
+            let raw = try String(contentsOf: file, encoding: .utf8)
+            let pid = try #require(Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)))
+            #expect(waitForCondition(timeout: 3) { Darwin.kill(pid, 0) == -1 })
+            errno = 0
+            #expect(Darwin.kill(pid, 0) == -1)
+            #expect(errno == ESRCH)
+        }
     }
 
     @Test func codexInstalledStopHookHandsPayloadToInboxCommand() throws {
@@ -1331,6 +1581,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_WORKSPACE_ID": workspaceId,
                 "CMUX_SURFACE_ID": surfaceId,
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_AGENT_HOOK_DELIVERY_ID": "stable-feed-delivery-id",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
@@ -1343,6 +1594,12 @@ struct CLICodexHookTimeoutRegressionTests {
         let sentCommands = commands.snapshot()
         #expect(sentCommands.contains { $0.hasPrefix("set_agent_lifecycle codex unknown ") })
         #expect(sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "surface.resume.set" })
+        let feedPush = try #require(sentCommands.compactMap(codexHookJSONObject).first {
+            $0["method"] as? String == "feed.push"
+        })
+        let feedParams = try #require(feedPush["params"] as? [String: Any])
+        let feedEvent = try #require(feedParams["event"] as? [String: Any])
+        #expect(feedEvent["_opencode_request_id"] as? String == "stable-feed-delivery-id")
 
         let saved = try #require(
             JSONSerialization.jsonObject(
@@ -1465,6 +1722,40 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["agentLifecycle"] as? String == "idle")
         #expect(session["runtimeStatus"] as? String == "idle")
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
+    }
+
+    private func generatedCodexHookPath(
+        in directory: URL,
+        eventTag: String,
+        native: Bool
+    ) throws -> String {
+        let prefix = native
+            ? "cmux-codex-native-hook-\(eventTag)-"
+            : "cmux-codex-portable-hook-\(eventTag)-"
+        let candidates = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter { url in
+            let name = url.lastPathComponent
+            guard name.hasPrefix(prefix) else { return false }
+            let rawHash = name
+                .dropFirst(prefix.count)
+                .dropLast(native ? 0 : ".sh".count)
+            return (native || name.hasSuffix(".sh"))
+                && rawHash.count >= 8
+                && rawHash.allSatisfy(\.isHexDigit)
+        }
+        return try #require(candidates.count == 1 ? candidates.first?.path : nil)
+    }
+
+    private func isContentAddressedCodexHookPath(_ path: String) -> Bool {
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        let withoutExtension = name.hasSuffix(".sh") ? String(name.dropLast(3)) : name
+        guard let separator = withoutExtension.lastIndex(of: "-") else { return false }
+        let hash = withoutExtension[withoutExtension.index(after: separator)...]
+        return name.hasPrefix("cmux-codex-native-hook-")
+            && hash.count >= 8
+            && hash.allSatisfy(\.isHexDigit)
     }
 
     private func bundledCLIPath() throws -> String {

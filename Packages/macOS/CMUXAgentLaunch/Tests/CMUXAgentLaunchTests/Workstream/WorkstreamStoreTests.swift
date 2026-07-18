@@ -198,6 +198,40 @@ struct WorkstreamStoreTests {
         }
     }
 
+    @Test("Stable request IDs deduplicate crash-replayed Feed telemetry after restart")
+    func stableRequestIDDeduplicatesReplayAfterRestart() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-dedupe-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let requestID = "codex-delivery-stable-1"
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "codex-session-1",
+            source: .codex,
+            kind: .toolUse,
+            requestId: requestID,
+            payload: .toolUse(toolName: "Read", toolInputJSON: "{}")
+        ))
+
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await store.start()
+        let replay = WorkstreamEvent(
+            sessionId: "codex-session-1",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "Read",
+            toolInputJSON: "{}",
+            requestId: requestID
+        )
+        let originalID = try #require(store.items.first?.id)
+        let replayedID = store.ingest(replay)
+        #expect(replayedID == originalID)
+        #expect(store.items.count == 1)
+
+        _ = store.ingest(replay)
+        #expect(store.items.count == 1)
+    }
+
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
     func telemetryContent() {
         let store = WorkstreamStore(ringCapacity: 10)
