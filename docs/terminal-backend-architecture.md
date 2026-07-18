@@ -145,8 +145,9 @@ buffers are released. A new worker uses a new renderer epoch.
 
 Swift owns windows, native panel runtimes, AppKit input translation,
 accessibility projection, and composition. Its terminal model is a revisioned
-value projection backed by injected services. It contains no local Ghostty
-surface after migration.
+value projection backed by injected services. Persistent mode loads Ghostty
+configuration without constructing `ghostty_app_t`; the Swift process contains
+no Ghostty runtime app or local Ghostty surface.
 
 Accessibility is fenced to presentation, renderer epoch, presentation
 generation, and the exact terminal content sequence reported by the Metal
@@ -180,6 +181,39 @@ client consumes terminal presentation frames when the platform supports shared
 GPU buffers and canonical cell scenes otherwise. Neither client receives raw
 PTY output as the normal rendering contract.
 
+### Frontend-native browser panels
+
+Browser identity, presentation mode, and placement are canonical. A
+`frontend-native` browser keeps WebKit, profiles, requests, cookies, and page
+rendering in Swift. Its current source URL is connection-private in-memory
+daemon state because URLs may contain bearer credentials. The URL never enters
+topology snapshots, mutation journals, checkpoints, idempotency digests, Swift
+session snapshots, diagnostics, or logs.
+
+The exact frontend connection claims each native browser with an owner
+generation before projection. Navigation commits update that generation-fenced
+claim without changing topology revision. Disconnect revokes ownership while
+retaining the source for a later trusted frontend claim; panel close deletes the
+source. The registry has per-source and aggregate byte limits. A daemon restart
+loses this private source by design. A Swift hard kill can also lose the final
+navigation if it occurs before the source update reaches cmuxd.
+
+### Remote tmux and mobile compatibility
+
+A remote tmux surface is a canonical parser-only external terminal in cmuxd.
+Swift may own the SSH and tmux control transport, but it sends ordered remote
+output into that external surface and forwards daemon-produced egress back to
+the transport. Swift does not create a Ghostty parser, PTY, or terminal surface
+for the mirror. Reconnect starts a new external-output generation and reseeds a
+full remote snapshot before ordered deltas resume.
+
+Mobile clients should consume canonical scenes or renderer frames when their
+transport supports them. A byte-stream compatibility endpoint is explicitly
+noncanonical: every message carries a terminal epoch, generation, and sequence,
+and overflow or a sequence gap forces reopen plus full resnapshot. Compatibility
+bytes may feed a mobile presentation parser, but that client cannot claim
+canonical state parity and the desktop Swift process does not parse the stream.
+
 ## Authority model
 
 ### Durable identity
@@ -204,6 +238,24 @@ Required identities:
 
 A terminal identity is independent of workspace placement. Moving a terminal
 does not change its `terminal_id`, shell PID, PTY, or canonical state.
+
+### Durable acknowledgement boundary
+
+cmuxd sends a canonical mutation success response only after the complete
+snapshot, idempotency result, and topology revision have been appended and
+synced. An append or checkpoint failure is fail-stop: cmuxd aborts while the
+mutation lock is held, sends no response, and recovery exposes the last durable
+revision. It does not attempt an in-process rollback after a storage failure.
+Every topology-visible terminal launch first starts a same-PID internal helper
+inside the candidate PTY. The helper authenticates its private Unix socket,
+validates the requested executable, and waits without executing user code. An
+append failure closes the gate and terminates that exact helper PID before any
+success response. After the append is synced, cmuxd releases the helper into the
+requested executable and then writes the complete initial input while retaining
+exclusive input order. Release, exec, or input-delivery uncertainty after the
+commit is fail-stop because returning an error could invite an ambiguous retry.
+Recovery of a recipe committed by an earlier daemon is intentionally ungated;
+that recipe already crossed this durable boundary.
 
 ### Generations and revisions
 
@@ -234,6 +286,9 @@ Client-local state includes:
 - requested viewport and spectator pan position
 - presentation theme and scale
 - accessibility focus projection
+
+Frontend-native browser source URLs are private runtime lease state. They are
+neither canonical durable state nor ordinary client-local snapshot state.
 
 One socket client may represent several windows, so presentation state is keyed
 by `presentation_id`, not only `client_id`. Unread state is derived from
@@ -574,10 +629,14 @@ Normal Swift termination detaches its presentations. It does not close panels
 or terminals. Explicit Quit may offer a separate terminate-session action, but
 the default app lifecycle must preserve cmuxd.
 
-Updates use a protocol-compatible handoff. A new app may connect to an older
-daemon within the negotiated range. An incompatible daemon reports the range
-without mutating state. Upgrade and rollback behavior must be tested before the
-legacy frontend path is removed.
+Frontend updates rely on protocol compatibility, not daemon process handoff. A
+new app may connect to an already-running older daemon within the negotiated
+range. An incompatible daemon reports the range and admits the frontend as
+read-only without mutating state. Live daemon executable replacement and PTY
+ownership transfer are not implemented. Explicitly restarting an incompatible
+daemon terminates the shells it owns, so the experiment remains opt-in and the
+production gate stays disabled. Upgrade and rollback behavior must be tested
+before the legacy frontend path is removed.
 
 ## Failure behavior
 
@@ -624,6 +683,8 @@ Exit gate: ownership and failure invariants have test IDs and evidence paths.
 
 - Add stable IDs, daemon instance ID, topology revisions, snapshots, deltas,
   detach versus destroy, idempotency, tombstones, checkpoint, and journal.
+- Gate every new topology-visible PTY child before user exec, release it only
+  after the journal sync, and fail-stop on post-commit launch uncertainty.
 - Start cmuxd independently of Swift and reconnect after Swift termination.
 - Use the existing styled-cell view only as a temporary authority migration
   proof. It is not a renderer-performance milestone.
@@ -712,7 +773,7 @@ Exit gate: all P0 acceptance checks pass and no evidence predates the PR head.
 | MULTI-1 | P0 | Geometry arbitration | GUI and TUI attach at different sizes for 10 minutes; PTY dimensions follow only the lease holder and do not oscillate. | Lease event transcript and PTY size samples. |
 | MULTI-2 | P0 | Input ordering | Concurrent GUI, TUI, and delegated automation input for one canonical terminal shares one daemon-assigned order without split paste, lost release, blocked key rollover, or duplicate command. | Deterministic integration test. |
 | STATE-1 | P0 | Single topology authority | Every visible topology mutation corresponds to one daemon transaction and revision; client projections converge after reconnect and overflow. | Cross-client conformance trace. |
-| STATE-2 | P0 | No dual terminal authority | No raw PTY output is sent to Swift or browser rendering paths and no second parser consumes it. | Protocol capture and source/runtime linkage audit. |
+| STATE-2 | P0 | No dual terminal authority | Renderer workers alone consume semantic scenes and shape terminals. Swift consumes authenticated IOSurface frames, while cmux-browser consumes daemon-authored styled rows or a renderer-frame endpoint. Neither receives raw PTY output or instantiates a canonical parser; explicitly identified byte-stream compatibility clients cannot claim canonical parity. | Protocol capture and source/runtime linkage audit. |
 | FID-1 | P0 | Text parity | Existing and external scene renderers match for ASCII, ligatures, emoji, CJK, combining text, wide cells, styles, cursor, palette, and OSC colors. | Golden frame corpus with documented tolerance. |
 | FID-2 | P0 | Advanced parity | Links, selection, search, Kitty images, custom shaders, synchronized output, and IME behave equivalently. | Behavior tests, screenshots, and video. |
 | PERF-1 | P0 | Sidebar responsiveness | Sustained active and background output causes no visible sidebar hitch and does not regress measured interaction latency beyond the approved baseline budget. | Signposted interaction trace and video. |

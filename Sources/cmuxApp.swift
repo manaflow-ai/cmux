@@ -60,6 +60,9 @@ enum CmuxMain {
             runSidebarInterpreterWorker()
             exit(0)
         }
+        GhosttyApp.configureTerminalRuntimeOwnership(
+            persistentBackendEnabled: cmuxApp.terminalBackendActivationPolicy().isEnabled
+        )
         cmuxApp.main()
     }
 }
@@ -79,6 +82,24 @@ struct cmuxApp: App {
     ) -> BackendServiceDescriptor {
         bundleIdentifier.flatMap(BackendServiceDescriptor.init(bundleIdentifier:))
             ?? quarantinedTerminalBackendDescriptor
+    }
+
+    static func terminalBackendActivationPolicy(
+        bundle: Bundle = .main,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> BackendServiceActivationPolicy {
+        let developmentOverride: String?
+#if DEBUG
+        developmentOverride = environment["CMUX_TERMINAL_BACKEND_ENABLED"]
+#else
+        developmentOverride = nil
+#endif
+        return BackendServiceActivationPolicy(
+            buildSettingValue: bundle.object(
+                forInfoDictionaryKey: "CMUXTerminalBackendServiceEnabled"
+            ) as? String,
+            developmentOverrideValue: developmentOverride
+        )
     }
 
     /// Dependency container for the new settings packages. Constructed
@@ -244,20 +265,7 @@ struct cmuxApp: App {
             bundleURL: Bundle.main.bundleURL,
             descriptor: terminalBackendDescriptor
         )
-        let terminalBackendDevelopmentOverride: String?
-#if DEBUG
-        terminalBackendDevelopmentOverride = ProcessInfo.processInfo.environment[
-            "CMUX_TERMINAL_BACKEND_ENABLED"
-        ]
-#else
-        terminalBackendDevelopmentOverride = nil
-#endif
-        let terminalBackendActivationPolicy = BackendServiceActivationPolicy(
-            buildSettingValue: Bundle.main.object(
-                forInfoDictionaryKey: "CMUXTerminalBackendServiceEnabled"
-            ) as? String,
-            developmentOverrideValue: terminalBackendDevelopmentOverride
-        )
+        let terminalBackendActivationPolicy = Self.terminalBackendActivationPolicy()
         let terminalBackendServiceBootstrap = BackendServiceBootstrapCoordinator(
             activationPolicy: terminalBackendActivationPolicy,
             inspection: terminalBackendBundleInspection,

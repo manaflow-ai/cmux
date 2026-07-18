@@ -341,8 +341,25 @@ class GhosttyApp {
         case never
     }
 
+    private static var persistentBackendOwnsTerminals = false
+    private static var sharedDidInitialize = false
+
     static let shared = GhosttyApp()
     fileprivate let desktopNotificationIngress = GhosttyDesktopNotificationIngress()
+
+    /// Selects config-only hosting before terminal dependencies materialize.
+    ///
+    /// Persistent ownership must be selected before the singleton is touched.
+    /// Constructing and then freeing a runtime app would violate the process
+    /// isolation contract even when no native surface escaped.
+    static func configureTerminalRuntimeOwnership(persistentBackendEnabled: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        precondition(
+            !persistentBackendEnabled || !sharedDidInitialize,
+            "persistent backend ownership must be configured before GhosttyApp initializes"
+        )
+        persistentBackendOwnsTerminals = persistentBackendEnabled
+    }
 
     // MARK: Transitional terminal engine/services composition
     //
@@ -739,7 +756,8 @@ class GhosttyApp {
     }
 
     private init() {
-        initializeGhostty()
+        Self.sharedDidInitialize = true
+        initializeGhostty(createRuntimeApp: !Self.persistentBackendOwnsTerminals)
     }
 
     #if DEBUG
@@ -789,7 +807,7 @@ class GhosttyApp {
         )
     }
 
-    private func initializeGhostty() {
+    private func initializeGhostty(createRuntimeApp: Bool) {
         // Ensure TUI apps can use colors even if NO_COLOR is set in the launcher env.
         if getenv("NO_COLOR") != nil {
             unsetenv("NO_COLOR")
@@ -836,6 +854,12 @@ class GhosttyApp {
             baselineConfig: primaryConfig,
             forceNotify: primaryRenderingModeChanged
         )
+
+        if !createRuntimeApp {
+            config = primaryConfig
+            finishGhosttyInitialization(initialColorScheme: initialColorScheme)
+            return
+        }
 
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
@@ -1034,6 +1058,12 @@ class GhosttyApp {
             Self.registerRuntimeApp(self, for: created)
         }
 
+        finishGhosttyInitialization(initialColorScheme: initialColorScheme)
+    }
+
+    private func finishGhosttyInitialization(
+        initialColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
         // Notify observers that a usable config is available (initial load).
         synchronizeGhosttyRuntimeColorScheme(effectiveTerminalColorSchemePreference, source: "initialize")
         lastAppearanceColorScheme = initialColorScheme
@@ -1719,6 +1749,7 @@ class GhosttyApp {
 
     /// Schedule a single tick on the main queue, coalescing multiple wakeups.
     func scheduleTick() {
+        guard app != nil else { return }
         _tickLock.lock()
         defer { _tickLock.unlock() }
         guard !_tickScheduled else { return }
@@ -1775,10 +1806,7 @@ class GhosttyApp {
             }
         }
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
-        guard let app else {
-            logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
-            return
-        }
+        let runtimeApp = app
         // Use the appearance preference while loading conditional theme pairs. For cmux
         // single-theme reloads, keep the resolved terminal scheme stable until the new
         // background is known so same-scheme theme changes do not flash through app mode.
@@ -1794,7 +1822,9 @@ class GhosttyApp {
         if soft, let config {
             let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
-            ghostty_app_update_config(app, config)
+            if let runtimeApp {
+                ghostty_app_update_config(runtimeApp, config)
+            }
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
@@ -1830,7 +1860,9 @@ class GhosttyApp {
         )
         let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
-        ghostty_app_update_config(app, newConfig)
+        if let runtimeApp {
+            ghostty_app_update_config(runtimeApp, newConfig)
+        }
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
         }
