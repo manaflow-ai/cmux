@@ -1,0 +1,7 @@
+{
+  "source": "https://github.com/manaflow-ai/ghostty",
+  "commit": "9e8d5e268291c0d76111b6aeaf19c70f1609d926",
+  "license": "MIT",
+  "build": "zig build -Demit-lib-vt -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall",
+  "sha256": "8d56baad2c353299d1ec1dec38b69bc3915c7fe816f58b2b5365bbb6dbb3cdab"
+}
