@@ -422,7 +422,7 @@ impl CmuxClient {
         cols: Option<u16>,
         rows: Option<u16>,
     ) -> Result<SurfaceResult> {
-        self.require_protocol(8, "new-pane")?;
+        self.require_protocol(9, "new-pane")?;
         let mut params = Map::new();
         params.insert("pane".to_string(), Value::from(pane));
         insert_opt(&mut params, "cols", cols);
@@ -454,7 +454,7 @@ impl CmuxClient {
     }
 
     pub fn set_split_ratio(&mut self, split: u64, ratio: f32) -> Result<()> {
-        self.require_protocol(7, "set-split-ratio")?;
+        self.require_protocol(8, "set-split-ratio")?;
         let mut params = Map::new();
         params.insert("split".to_string(), Value::from(split));
         params.insert("ratio".to_string(), Value::from(ratio));
@@ -595,7 +595,7 @@ impl CmuxClient {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 8 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
+        if protocol > 9 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));
@@ -608,9 +608,9 @@ impl CmuxClient {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 8 {
+        if protocol > 9 {
             return Err(CmuxError::ProtocolVersion(format!(
-                "unsupported protocol {protocol}; maximum supported is 8"
+                "unsupported protocol {protocol}; maximum supported is 9"
             )));
         }
         if protocol < minimum {
@@ -923,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn stack_layout_decodes_protocol_v8_shape() {
+    fn stack_layout_decodes_protocol_v9_shape() {
         let layout: Layout = serde_json::from_value(serde_json::json!({
             "type": "stack",
             "panes": [1, 2, 3],

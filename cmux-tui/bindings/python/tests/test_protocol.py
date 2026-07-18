@@ -16,26 +16,26 @@ class ProtocolTests(unittest.TestCase):
 
         self.assertEqual(client.resize_surface(7, 80, 24).reservation_id, 41)
 
-    def test_attach_rejects_protocols_newer_than_eight_even_with_opt_in(self) -> None:
+    def test_attach_rejects_protocols_newer_than_nine_even_with_opt_in(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
-        client._protocol = 9
+        client._protocol = 10
         client.allow_protocol_v6_attach = True
 
-        with self.assertRaisesRegex(ProtocolError, "maximum supported is 8"):
+        with self.assertRaisesRegex(ProtocolError, "maximum supported is 9"):
             client.attach_surface(1)
 
-    def test_new_pane_rejects_servers_older_than_protocol_eight(self) -> None:
+    def test_new_pane_rejects_servers_older_than_protocol_nine(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 8
+
+        with self.assertRaisesRegex(ProtocolError, "new-pane requires protocol 9"):
+            client.new_pane(1)
+
+    def test_set_split_ratio_rejects_servers_older_than_protocol_eight(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 7
 
-        with self.assertRaisesRegex(ProtocolError, "new-pane requires protocol 8"):
-            client.new_pane(1)
-
-    def test_set_split_ratio_rejects_servers_older_than_protocol_seven(self) -> None:
-        client = CmuxClient.__new__(CmuxClient)
-        client._protocol = 6
-
-        with self.assertRaisesRegex(ProtocolError, "set-split-ratio requires protocol 7"):
+        with self.assertRaisesRegex(ProtocolError, "set-split-ratio requires protocol 8"):
             client.set_split_ratio(1, 0.5)
 
 

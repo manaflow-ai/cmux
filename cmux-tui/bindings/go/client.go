@@ -211,9 +211,9 @@ func (c *Client) requireProtocol(ctx context.Context, minimum uint32, feature st
 		}
 		protocol = &info.Protocol
 	}
-	if *protocol > 8 {
+	if *protocol > 9 {
 		return &protocolError{msg: fmt.Sprintf(
-			"unsupported protocol %d; maximum supported is 8", *protocol,
+			"unsupported protocol %d; maximum supported is 9", *protocol,
 		)}
 	}
 	if *protocol < minimum {
@@ -277,7 +277,7 @@ func (c *Client) NewScreen(ctx context.Context, opts NewScreenOptions) (SurfaceR
 }
 
 func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) (SurfaceResult, error) {
-	if err := c.requireProtocol(ctx, 8, "new-pane"); err != nil {
+	if err := c.requireProtocol(ctx, 9, "new-pane"); err != nil {
 		return SurfaceResult{}, err
 	}
 	params := commandMap(opts)
@@ -299,7 +299,7 @@ func (c *Client) SetRatio(ctx context.Context, pane uint64, dir string, ratio fl
 }
 
 func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32) error {
-	if err := c.requireProtocol(ctx, 7, "set-split-ratio"); err != nil {
+	if err := c.requireProtocol(ctx, 8, "set-split-ratio"); err != nil {
 		return err
 	}
 	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
@@ -395,7 +395,7 @@ func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, er
 		}
 		protocol = &info.Protocol
 	}
-	if *protocol > 8 || (*protocol > 5 && !c.allowProtocolV6Attach) {
+	if *protocol > 9 || (*protocol > 5 && !c.allowProtocolV6Attach) {
 		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", *protocol)}
 	}
 	return c.openStream(ctx, map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface})

@@ -51,7 +51,9 @@ use crate::{
     ZoomMode, assign_short_ids,
 };
 
-pub const PROTOCOL_VERSION: u32 = 8;
+pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
+pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = STACK_LAYOUT_PROTOCOL_VERSION;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -3619,7 +3621,9 @@ mod tests {
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
-        assert_eq!(PROTOCOL_VERSION, 8);
+        assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
+        assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
+        assert_eq!(PROTOCOL_VERSION, 9);
     }
 
     #[test]

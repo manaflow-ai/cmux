@@ -157,7 +157,22 @@ test("resize response preserves reservation identity", async () => {
   await client.close();
 });
 
-test("newPane rejects servers older than protocol 8", async () => {
+test("newPane rejects servers older than protocol 9", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.equal(request.cmd, "identify");
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 8, session: "main", pid: 1 },
+    });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(client.newPane(1), /new-pane requires protocol 9/);
+  await client.close();
+});
+
+test("setSplitRatio rejects servers older than protocol 8", async () => {
   const transport = new ScriptedTransport((request, connection) => {
     assert.equal(request.cmd, "identify");
     connection.emit({
@@ -168,22 +183,7 @@ test("newPane rejects servers older than protocol 8", async () => {
   });
   const client = new CmuxClient({ transport, timeoutMs: 100 });
 
-  await assert.rejects(client.newPane(1), /new-pane requires protocol 8/);
-  await client.close();
-});
-
-test("setSplitRatio rejects servers older than protocol 7", async () => {
-  const transport = new ScriptedTransport((request, connection) => {
-    assert.equal(request.cmd, "identify");
-    connection.emit({
-      id: request.id,
-      ok: true,
-      data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
-    });
-  });
-  const client = new CmuxClient({ transport, timeoutMs: 100 });
-
-  await assert.rejects(client.setSplitRatio(1, 0.5), /set-split-ratio requires protocol 7/);
+  await assert.rejects(client.setSplitRatio(1, 0.5), /set-split-ratio requires protocol 8/);
   await client.close();
 });
 
@@ -248,12 +248,12 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
   await client.close();
 });
 
-test("attachSurface accepts protocol 8", async () => {
+test("attachSurface accepts protocol 9", async () => {
   const main = new ScriptedTransport((request, transport) => {
     transport.emit({
       id: request.id,
       ok: true,
-      data: { app: "cmux-tui", version: "0.1.2", protocol: 8, session: "main", pid: 1 },
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 9, session: "main", pid: 1 },
     });
   });
   const attach = new ScriptedTransport((request, transport) => {

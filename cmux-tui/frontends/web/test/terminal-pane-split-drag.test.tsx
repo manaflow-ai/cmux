@@ -190,7 +190,7 @@ describe("TerminalPane split dividers", () => {
 describe("TerminalPane stacks", () => {
   it("renders collapsed title rows around the expanded pane", () => {
     const props = terminalPaneProps(vi.fn(async () => true));
-    props.client = { protocol: 8 } as CmuxClient;
+    props.client = { protocol: 9 } as CmuxClient;
     const screen: ScreenView = {
       ...screenView(0.5),
       layout: { type: "stack", panes: [1, 2, 3], expanded: 2 },

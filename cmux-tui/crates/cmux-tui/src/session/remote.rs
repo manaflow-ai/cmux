@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 use super::tree::{TreeView, parse_tree};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 8;
+const SUPPORTED_PROTOCOL_VERSION: u64 = 9;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -1254,23 +1254,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stable_split_ids_require_protocol_8() {
-        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 8);
+    fn stack_layouts_require_protocol_9() {
+        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 9);
     }
 
     #[test]
-    fn protocol_7_identity_is_rejected_before_workspace_loading() {
+    fn protocol_8_identity_is_rejected_before_workspace_loading() {
         let error =
-            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 7})).unwrap_err();
+            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 8})).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "unsupported cmux-tui protocol 7; this client requires protocol 8; restart the cmux-tui server"
+            "unsupported cmux-tui protocol 8; this client requires protocol 9; restart the cmux-tui server"
         );
     }
 
     #[test]
-    fn protocol_8_identity_is_accepted() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 8})).unwrap();
+    fn protocol_9_identity_is_accepted() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap();
     }
 
     #[cfg(unix)]
