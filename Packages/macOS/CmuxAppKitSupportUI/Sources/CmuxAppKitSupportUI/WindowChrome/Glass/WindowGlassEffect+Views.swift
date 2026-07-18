@@ -37,7 +37,12 @@ extension WindowGlassEffect {
             isKeyWindow: Bool,
             adjustsTintForInactiveWindow: Bool
         ) {
-            if let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
+            // NSGlassEffectView adapts its material to key-window state and
+            // has no public API for forcing an active state. Use the same
+            // always-active blur as older macOS when visual stability is the
+            // requested contract.
+            if adjustsTintForInactiveWindow,
+               let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
                 effectView = glassClass.init(frame: .zero)
                 usesNativeGlass = true
             } else {

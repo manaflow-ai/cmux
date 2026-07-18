@@ -14,14 +14,18 @@ public final class WindowGlassEffect: WindowGlassEffectManaging {
     private static var originalContentViewKey: UInt8 = 0
     private static var originalContentLayoutStateKey: UInt8 = 0
 
-    /// Whether the tint overlay darkens when its window is not key.
+    /// Whether the backdrop adapts and its tint overlay darkens when its
+    /// window is not key.
     ///
-    /// Disable this for auxiliary windows whose glass should remain visually
-    /// stable while focus moves between them and their parent window.
-    public var adjustsTintForInactiveWindow = true
+    /// Disable this for auxiliary windows that require a focus-stable glass
+    /// appearance. Focus-stable backdrops use an always-active visual effect
+    /// because native glass changes its material with window key state.
+    public let adjustsTintForInactiveWindow: Bool
 
     /// Creates a window glass effect service.
-    public init() {}
+    public init(adjustsTintForInactiveWindow: Bool = true) {
+        self.adjustsTintForInactiveWindow = adjustsTintForInactiveWindow
+    }
 
     /// Identifier assigned to the native or fallback glass background view.
     public var backgroundViewIdentifier: NSUserInterfaceItemIdentifier {
