@@ -344,12 +344,25 @@ def called_local_functions(body, local_names):
     )
     for match in parenthesized_pattern.finditer(body):
         name = match.group(1)
-        labels = call_external_labels(body, match.end() - 1)
+        call_opening = match.end() - 1
+        labels = call_external_labels(body, call_opening)
+        call_end = closing_parenthesis_offset(body, call_opening)
+        has_trailing_closure = bool(
+            call_end is not None and re.match(r"\s*\{", body[call_end:])
+        )
         prefix = body[max(0, match.start() - 12):match.start()]
         if re.search(r"\bfunc\s*$", prefix):
             continue
         for key in local_names:
-            if key[0] == name and call_matches_declaration(labels, key[1], key[2], key[3]):
+            matches_parenthesized_arguments = not has_trailing_closure and call_matches_declaration(
+                labels, key[1], key[2], key[3]
+            )
+            matches_trailing_closure = has_trailing_closure and call_with_trailing_closure_matches_declaration(
+                labels, key[1], key[2], key[3], key[4]
+            )
+            if key[0] == name and (
+                matches_parenthesized_arguments or matches_trailing_closure
+            ):
                 result.add(key)
 
     # Swift permits a single closure argument without parentheses (`refresh
@@ -383,6 +396,24 @@ def trailing_closure_matches_declaration(
     return all(
         defaults[index] or variadic_index == index
         for index in range(len(declaration_labels) - 1)
+    )
+
+
+def call_with_trailing_closure_matches_declaration(
+    call_labels,
+    declaration_labels,
+    defaults,
+    variadic_index,
+    final_parameter_is_closure,
+):
+    """Match `helper(arguments) {}` with an omitted final closure label."""
+    if not final_parameter_is_closure or not declaration_labels:
+        return False
+    return call_matches_declaration(
+        call_labels,
+        declaration_labels[:-1],
+        defaults[:-1],
+        variadic_index,
     )
 
 
@@ -435,6 +466,29 @@ def extract_type_body(source, name):
     )
 
 
+def extract_rollout_branch_bodies(source):
+    """Return the explicit enabled/disabled sidebar rollout branch bodies."""
+    condition = "CmuxFeatureFlags.shared.isAppKitSidebarListEnabled"
+    match = re.search(r"\bif\s+" + re.escape(condition) + r"\s*\{", source)
+    if match is None:
+        return None
+    enabled_opening = source.find("{", match.start())
+    enabled_end = closing_brace_offset(source, enabled_opening)
+    if enabled_end is None:
+        return None
+    else_match = re.match(r"\s*else\s*\{", source[enabled_end:])
+    if else_match is None:
+        return None
+    disabled_opening = enabled_end + else_match.end() - 1
+    disabled_end = closing_brace_offset(source, disabled_opening)
+    if disabled_end is None:
+        return None
+    return (
+        source[enabled_opening:enabled_end],
+        source[disabled_opening:disabled_end],
+    )
+
+
 def discovered_representables(swift_sources):
     names = set()
     # Multiline declarations and `extension Foo: NSViewRepresentable` both
@@ -469,6 +523,21 @@ def check_content_view(source):
         return ["could not locate func workspaceScrollArea(...); update this guard for the renamed boundary"]
     if "CmuxFeatureFlags.shared.isAppKitSidebarListEnabled" not in body:
         violations.append("workspaceScrollArea does not preserve the AppKit-sidebar rollout flag")
+    rollout_branches = extract_rollout_branch_bodies(body)
+    if rollout_branches is None:
+        violations.append("workspaceScrollArea does not preserve explicit AppKit-sidebar rollout branches")
+    else:
+        enabled_body, disabled_body = rollout_branches
+        if (
+            not re.search(r"\bappKitWorkspaceScrollArea\s*\(", enabled_body)
+            or re.search(r"\blegacyWorkspaceScrollArea\s*\(", enabled_body)
+        ):
+            violations.append("workspaceScrollArea reverses the enabled AppKit-sidebar rollout branch")
+        if (
+            not re.search(r"\blegacyWorkspaceScrollArea\s*\(", disabled_body)
+            or re.search(r"\bappKitWorkspaceScrollArea\s*\(", disabled_body)
+        ):
+            violations.append("workspaceScrollArea reverses the disabled legacy-sidebar rollout branch")
     for helper in ("appKitWorkspaceScrollArea", "legacyWorkspaceScrollArea"):
         if not re.search(r"\b" + helper + r"\s*\(", body):
             violations.append(f"workspaceScrollArea does not route through {helper}")

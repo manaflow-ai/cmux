@@ -18,6 +18,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
     private var rowIndexById: [SidebarWorkspaceRenderItemID: Int] = [:]
+    private var rowIndexByWorkspaceId: [UUID: Int] = [:]
     private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) },
         viewportChangeFlush: { [weak self] in self?.flushViewportChange() }
@@ -159,6 +160,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             nextRows.enumerated().lazy.map { ($1.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        rowIndexByWorkspaceId.removeAll(keepingCapacity: true)
+        for (index, row) in nextRows.enumerated() {
+            if let existingIndex = rowIndexByWorkspaceId[row.workspaceId] {
+                guard nextRows[existingIndex].isGroupHeader && !row.isGroupHeader else {
+                    continue
+                }
+            }
+            rowIndexByWorkspaceId[row.workspaceId] = index
+        }
 
         if hasStructuralChanges {
             containerView.tableView.reloadData()
@@ -706,11 +716,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// when it is visible, falling back to the group's anchor-backed header
     /// when the workspace row is collapsed or otherwise absent.
     func rowIndex(forWorkspaceId workspaceId: UUID) -> Int? {
-        if let workspaceRow = rowIndexById[.workspace(workspaceId)] {
-            return workspaceRow
-        }
-        return rows.firstIndex {
-            $0.isGroupHeader && $0.workspaceId == workspaceId
-        }
+        rowIndexByWorkspaceId[workspaceId]
     }
 }

@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWorkspaces
-import OSLog
 import SwiftUI
 import Testing
 
@@ -38,7 +37,7 @@ extension SidebarLazyLayoutScaleTests {
             rootView: Color.clear.sidebarWorkspaceObservations(
                 ids: [workspace.id],
                 workspaces: [workspace],
-                debouncedInterval: .milliseconds(40)
+                debouncedInterval: .zero
             ) { [observationLifetime] workspaceId in
                 _ = observationLifetime
                 if workspaceId == workspace.id {
@@ -146,8 +145,10 @@ extension SidebarLazyLayoutScaleTests {
         await Self.drainMainRunLoop(for: harness.window)
         let rootView = try #require(harness.window.contentView)
         let table = try #require(Self.tableView(in: rootView))
-        let logStore = try OSLogStore(scope: .currentProcessIdentifier)
-        let start = logStore.position(timeIntervalSinceEnd: 0)
+        // Unified-log positions are coarse and ingestion can lag. Timestamp
+        // the workload after mount settles, then recheck each entry date so
+        // app-host startup warnings cannot be attributed to this churn phase.
+        let logStart = Date()
 
         for index in 0..<40 {
             let workspace = harness.tabManager.tabs[index % 8]
@@ -177,14 +178,7 @@ extension SidebarLazyLayoutScaleTests {
         table.setPointerWindowLocation(nil)
         await Self.drainMainRunLoop(for: harness.window, iterations: 30)
 
-        let faultNeedles = ["Modifying state during view update",
-                            "Publishing changes from within view updates",
-                            "laid out reentrantly"]
-        let faults = try logStore.getEntries(at: start).compactMap { entry -> String? in
-            guard let log = entry as? OSLogEntryLog else { return nil }
-            return faultNeedles.contains { log.composedMessage.localizedCaseInsensitiveContains($0) }
-                ? log.composedMessage : nil
-        }
+        let faults = try Self.viewUpdateFaultMessages(since: logStart)
         #expect(faults.isEmpty, "Sidebar churn emitted runtime faults: \(faults)")
     }
 

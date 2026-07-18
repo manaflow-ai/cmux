@@ -111,6 +111,23 @@ def main():
         "rollout router bypassing the legacy branch fails",
     )
 
+    reversed_rollout = clean.replace(
+        """if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
+                appKitWorkspaceScrollArea(renderContext: renderContext)
+            } else {
+                legacyWorkspaceScrollArea(renderContext: renderContext)
+            }""",
+        """if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
+                legacyWorkspaceScrollArea(renderContext: renderContext)
+            } else {
+                appKitWorkspaceScrollArea(renderContext: renderContext)
+            }""",
+    )
+    failures += expect(
+        any("reverses" in item for item in guard.check_content_view(reversed_rollout)),
+        "rollout router rejects reversed branches even when both helpers remain",
+    )
+
     representables = {"BadRowPortal", "SidebarInlineRenameField", "GPUSpinner"}
     bad_row = """
 struct TabItemView: View {
@@ -386,6 +403,54 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     failures += expect(
         any("layout callback via refresh" in item for item in self_trailing_closure_violations),
         "a self-qualified trailing-closure helper call still fails",
+    )
+
+    argumented_trailing_closure_lifecycle = """
+final class SidebarWorkspaceTableViewImpl: NSTableView {
+    override func layout() {
+        super.layout()
+        refresh(mode: .visible) {
+            finishRefresh()
+        }
+    }
+    private func refresh(mode: RefreshMode, completion: () -> Void) {
+        reloadData()
+        completion()
+    }
+    private func finishRefresh() {}
+}
+"""
+    argumented_trailing_closure_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableViewImpl.swift": argumented_trailing_closure_lifecycle,
+    }, require_all_files=False)
+    failures += expect(
+        any("layout callback via refresh" in item for item in argumented_trailing_closure_violations),
+        "an argumented trailing-closure helper call still fails",
+    )
+
+    argumented_trailing_closure_overload = """
+final class SidebarWorkspaceTableViewImpl: NSTableView {
+    override func layout() {
+        super.layout()
+        refresh(mode: .visible) {
+            finishRefresh()
+        }
+    }
+    private func refresh(mode: RefreshMode) {
+        reloadData()
+    }
+    private func refresh(mode: RefreshMode, completion: () -> Void) {
+        completion()
+    }
+    private func finishRefresh() {}
+}
+"""
+    argumented_trailing_closure_overload_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableViewImpl.swift": argumented_trailing_closure_overload,
+    }, require_all_files=False)
+    failures += expect(
+        not any("layout callback via refresh" in item for item in argumented_trailing_closure_overload_violations),
+        "an argumented trailing closure does not match a non-closure overload",
     )
 
     variadic_helper_lifecycle = """

@@ -353,9 +353,10 @@ struct SidebarWorkspaceTableTests {
             colorScheme: colorScheme,
             globalFontMagnificationPercent: fontMagnificationPercent
         )
-        let settings = SidebarTabItemSettingsSnapshot(
-            defaults: UserDefaults(suiteName: "SidebarWorkspaceTableTests")!
-        )
+        let defaultsSuiteName = "SidebarWorkspaceTableTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsSuiteName)!
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
         let model = SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,

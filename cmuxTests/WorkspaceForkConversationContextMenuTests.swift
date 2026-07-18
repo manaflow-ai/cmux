@@ -4283,6 +4283,8 @@ struct WorkspaceForkConversationContextMenuTests {
         let executable = root.appendingPathComponent("pi", isDirectory: false)
         let leakedChildMarker = root.appendingPathComponent("leaked-child", isDirectory: false)
         let leakedChildPIDFile = root.appendingPathComponent("leaked-child-pid", isDirectory: false)
+        var leakedChildPIDForCleanup: pid_t?
+        var childExitConfirmed = false
         let childReadyFIFO = root.appendingPathComponent("leaked-child-ready", isDirectory: false)
         let wrapperObservedReady = root.appendingPathComponent("leaked-child-ready-observed", isDirectory: false)
         let fifoCreationResult = childReadyFIFO.path.withCString { path in
@@ -4298,7 +4300,9 @@ struct WorkspaceForkConversationContextMenuTests {
         let escapedWrapperObservedReady = wrapperObservedReady.path
             .replacingOccurrences(of: "'", with: "'\\''")
         defer {
-            if let processIdentifier = recordedProcessIdentifier(at: leakedChildPIDFile) {
+            if !childExitConfirmed,
+               let processIdentifier = leakedChildPIDForCleanup
+                ?? recordedProcessIdentifier(at: leakedChildPIDFile) {
                 _ = Darwin.kill(processIdentifier, SIGKILL)
             }
         }
@@ -4307,7 +4311,7 @@ struct WorkspaceForkConversationContextMenuTests {
         (
             test -p '\(escapedChildReadyFIFO)' || exit 1
             printf '%s\\n' ready > '\(escapedChildReadyFIFO)'
-            /bin/sleep 4
+            IFS= read -r _ < '\(escapedChildReadyFIFO)'
             : > '\(escapedLeakedChildMarker)'
         ) &
         printf '%s\\n' "$!" > '\(escapedLeakedChildPIDFile)'
@@ -4336,7 +4340,13 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(await AgentForkSupport.supportsFork(snapshot: snapshot))
         #expect(fileManager.fileExists(atPath: wrapperObservedReady.path))
         let leakedChildPID = try #require(recordedProcessIdentifier(at: leakedChildPIDFile))
-        #expect(await waitForForkProbeProcessExit(leakedChildPID))
+        leakedChildPIDForCleanup = leakedChildPID
+        let leakedChildExited = await waitForForkProbeProcessExit(leakedChildPID)
+        #expect(leakedChildExited)
+        if leakedChildExited {
+            childExitConfirmed = true
+            leakedChildPIDForCleanup = nil
+        }
         #expect(!fileManager.fileExists(atPath: leakedChildMarker.path))
     }
 
@@ -4351,6 +4361,8 @@ struct WorkspaceForkConversationContextMenuTests {
         let executable = root.appendingPathComponent("pi", isDirectory: false)
         let leakedChildMarker = root.appendingPathComponent("setsid-child", isDirectory: false)
         let leakedChildPIDFile = root.appendingPathComponent("setsid-child-pid", isDirectory: false)
+        var leakedChildPIDForCleanup: pid_t?
+        var childExitConfirmed = false
         let childReadyFIFO = root.appendingPathComponent("setsid-child-ready", isDirectory: false)
         let wrapperObservedReady = root.appendingPathComponent("setsid-child-ready-observed", isDirectory: false)
         let fifoCreationResult = childReadyFIFO.path.withCString { path in
@@ -4366,13 +4378,15 @@ struct WorkspaceForkConversationContextMenuTests {
         let escapedWrapperObservedReady = wrapperObservedReady.path
             .replacingOccurrences(of: "'", with: "'\\''")
         defer {
-            if let processIdentifier = recordedProcessIdentifier(at: leakedChildPIDFile) {
+            if !childExitConfirmed,
+               let processIdentifier = leakedChildPIDForCleanup
+                ?? recordedProcessIdentifier(at: leakedChildPIDFile) {
                 _ = Darwin.kill(processIdentifier, SIGKILL)
             }
         }
         try """
         #!/bin/sh
-        /usr/bin/perl -MPOSIX -e 'POSIX::setsid() == $$ or die "setsid"; -p $ARGV[0] or die "fifo"; open my $ready, ">", $ARGV[0] or die "ready"; print {$ready} "ready\\n"; close $ready; sleep 4; open my $marker, ">", $ARGV[1] or die "marker"; close $marker' '\(escapedChildReadyFIFO)' '\(escapedLeakedChildMarker)' &
+        /usr/bin/perl -MPOSIX -e 'POSIX::setsid() == $$ or die "setsid"; -p $ARGV[0] or die "fifo"; open my $ready, ">", $ARGV[0] or die "ready"; print {$ready} "ready\\n"; close $ready; POSIX::pause(); open my $marker, ">", $ARGV[1] or die "marker"; close $marker' '\(escapedChildReadyFIFO)' '\(escapedLeakedChildMarker)' &
         printf '%s\\n' "$!" > '\(escapedLeakedChildPIDFile)'
         IFS= read -r _ < '\(escapedChildReadyFIFO)'
         : > '\(escapedWrapperObservedReady)'
@@ -4399,7 +4413,13 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
         #expect(fileManager.fileExists(atPath: wrapperObservedReady.path))
         let leakedChildPID = try #require(recordedProcessIdentifier(at: leakedChildPIDFile))
-        #expect(await waitForForkProbeProcessExit(leakedChildPID))
+        leakedChildPIDForCleanup = leakedChildPID
+        let leakedChildExited = await waitForForkProbeProcessExit(leakedChildPID)
+        #expect(leakedChildExited)
+        if leakedChildExited {
+            childExitConfirmed = true
+            leakedChildPIDForCleanup = nil
+        }
         #expect(!fileManager.fileExists(atPath: leakedChildMarker.path))
     }
 
@@ -4414,21 +4434,25 @@ struct WorkspaceForkConversationContextMenuTests {
         let executable = root.appendingPathComponent("pi", isDirectory: false)
         let leakedChildMarker = root.appendingPathComponent("setsid-sigterm-ignored-child", isDirectory: false)
         let leakedChildPIDFile = root.appendingPathComponent("setsid-sigterm-ignored-child-pid", isDirectory: false)
+        var leakedChildPIDForCleanup: pid_t?
+        var childExitConfirmed = false
         let escapedLeakedChildMarker = leakedChildMarker.path
             .replacingOccurrences(of: "'", with: "'\\''")
         let escapedLeakedChildPIDFile = leakedChildPIDFile.path
             .replacingOccurrences(of: "'", with: "'\\''")
         defer {
-            if let processIdentifier = recordedProcessIdentifier(at: leakedChildPIDFile) {
+            if !childExitConfirmed,
+               let processIdentifier = leakedChildPIDForCleanup
+                ?? recordedProcessIdentifier(at: leakedChildPIDFile) {
                 _ = Darwin.kill(processIdentifier, SIGKILL)
             }
         }
         try """
         #!/bin/sh
-        /usr/bin/python3 -c 'import os, pathlib, signal, time; os.setsid(); signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(4); pathlib.Path('\''\(escapedLeakedChildMarker)'\'').touch()' &
+        /usr/bin/python3 -c 'import os, pathlib, signal; os.setsid(); signal.signal(signal.SIGTERM, signal.SIG_IGN); signal.pause(); pathlib.Path('\''\(escapedLeakedChildMarker)'\'').touch()' &
         printf '%s\\n' "$!" > '\(escapedLeakedChildPIDFile)'
         trap 'exit 0' TERM
-        sleep 10
+        wait
         """
             .write(to: executable, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
@@ -4449,7 +4473,13 @@ struct WorkspaceForkConversationContextMenuTests {
 
         #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
         let leakedChildPID = try #require(recordedProcessIdentifier(at: leakedChildPIDFile))
-        #expect(await waitForForkProbeProcessExit(leakedChildPID))
+        leakedChildPIDForCleanup = leakedChildPID
+        let leakedChildExited = await waitForForkProbeProcessExit(leakedChildPID)
+        #expect(leakedChildExited)
+        if leakedChildExited {
+            childExitConfirmed = true
+            leakedChildPIDForCleanup = nil
+        }
         #expect(
             !fileManager.fileExists(atPath: leakedChildMarker.path),
             "A timed-out probe must retain pipe-holder ownership long enough to hard-kill a daemonized child that ignored SIGTERM."

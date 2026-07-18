@@ -1102,10 +1102,8 @@ final class SharedLiveAgentIndex {
     ) async -> [UUID: Set<UUID>] {
         var processedPanelIdsByWorkspaceId: [UUID: Set<UUID>] = [:]
         let pendingRequestsByProbeKey = pendingForkValidationRequests
-        let pendingRequestBatches = Self.forkValidationRequestBatches(from: pendingRequestsByProbeKey)
-        var unprocessedRequestSlicesByProbeKey = Self.forkValidationRequestDictionary(
-            from: pendingRequestBatches[...]
-        ).mapValues { $0[...] }
+        var pendingRequestBatches = Self.forkValidationRequestBatches(from: pendingRequestsByProbeKey)
+        var batchIndex = 0
         markProcessingForkValidationRequests(pendingRequestsByProbeKey)
         clearPendingForkValidations()
         guard !Task.isCancelled else {
@@ -1116,23 +1114,19 @@ final class SharedLiveAgentIndex {
             )
             return processedPanelIdsByWorkspaceId
         }
-        for batchIndex in pendingRequestBatches.indices {
-            let probeKey = pendingRequestBatches[batchIndex].probeKey
-            let pendingRequests = pendingRequestBatches[batchIndex].requests
+        while batchIndex < pendingRequestBatches.count {
+            let pendingBatch = pendingRequestBatches[batchIndex]
+            batchIndex += 1
+            let probeKey = pendingBatch.probeKey
+            let pendingRequests = pendingBatch.requests
             let pendingRequestIDsForProbe = Set(pendingRequests.map { $0.id })
             let unprocessedRequestsByProbeKey: () -> ForkValidationRequestsByProbeKey = {
-                unprocessedRequestSlicesByProbeKey.mapValues(Array.init)
+                Self.forkValidationRequestDictionary(
+                    from: pendingRequestBatches[(batchIndex - 1)...]
+                )
             }
             var requeuedPendingRequests = false
             defer {
-                if let remainingRequests = unprocessedRequestSlicesByProbeKey[probeKey] {
-                    let laterRequests = remainingRequests.dropFirst(pendingRequests.count)
-                    if laterRequests.isEmpty {
-                        unprocessedRequestSlicesByProbeKey.removeValue(forKey: probeKey)
-                    } else {
-                        unprocessedRequestSlicesByProbeKey[probeKey] = laterRequests
-                    }
-                }
                 if !requeuedPendingRequests {
                     retireProcessingForkValidationRequests(
                         probeKey: probeKey,
@@ -1155,9 +1149,8 @@ final class SharedLiveAgentIndex {
                 return processedPanelIdsByWorkspaceId
             }
             let cancelledRequestIDsForProbe = cancelledForkValidationRequestIDs[probeKey] ?? []
-            pruneCancelledForkValidationRequestIDs(
-                probeKey: probeKey,
-                retiredRequestIDs: Set(pendingRequests.map { $0.id }).intersection(cancelledRequestIDsForProbe)
+            let cancelledPendingRequestIDs = pendingRequestIDsForProbe.intersection(
+                cancelledRequestIDsForProbe
             )
             let activeRequests = pendingRequests.filter { !cancelledRequestIDsForProbe.contains($0.id) }
             guard !activeRequests.isEmpty else {
@@ -1171,8 +1164,13 @@ final class SharedLiveAgentIndex {
                 pendingForkValidationRequests[probeKey, default: []].append(contentsOf: activeRequests)
                 retireProcessingForkValidationRequests(
                     probeKey: probeKey,
-                    requestIDs: Set(activeRequests.map(\.id))
+                    requestIDs: pendingRequestIDsForProbe
                 )
+                pruneCancelledForkValidationRequestIDs(
+                    probeKey: probeKey,
+                    retiredRequestIDs: cancelledPendingRequestIDs
+                )
+                _ = resumeForkValidationRequestCompletionWaiters(for: cancelledPendingRequestIDs)
                 requeuedPendingRequests = true
                 continue
             }
@@ -1195,29 +1193,31 @@ final class SharedLiveAgentIndex {
                     isRemoteContext: probeKey.isRemoteContext
                 )
                 guard !activeForkSupportValidationKeys.contains(resolvedProbeKey) else {
-                    restorePendingForkValidationsAfterCancellation(
-                        unprocessedRequestsByProbeKey(),
-                        dropping: [probeKey: cancelledRequestIDsForProbe],
-                        restartIfPending: false
-                    )
-                    requeuedPendingRequests = true
                     deferredForkAvailabilityRefreshWaiterCount += 1
                     await waitForActiveForkSupportValidation(resolvedProbeKey)
                     precondition(deferredForkAvailabilityRefreshWaiterCount > 0)
                     deferredForkAvailabilityRefreshWaiterCount -= 1
                     guard !Task.isCancelled else {
                         removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
+                        restorePendingForkValidationsAfterCancellation(
+                            unprocessedRequestsByProbeKey(),
+                            dropping: pendingRequestIDsToRemoveOnCancellation
+                        )
                         restartForkAvailabilityRefreshIfPending()
                         return processedPanelIdsByWorkspaceId
                     }
-                    let recursivelyProcessedPanelIdsByWorkspaceId = await applyPendingForkValidations(
-                        pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
+                    retireProcessingForkValidationRequests(
+                        probeKey: probeKey,
+                        requestIDs: cancelledPendingRequestIDs
                     )
-                    Self.mergePanelIdsByWorkspaceId(
-                        recursivelyProcessedPanelIdsByWorkspaceId,
-                        into: &processedPanelIdsByWorkspaceId
+                    pruneCancelledForkValidationRequestIDs(
+                        probeKey: probeKey,
+                        retiredRequestIDs: cancelledPendingRequestIDs
                     )
-                    return processedPanelIdsByWorkspaceId
+                    _ = resumeForkValidationRequestCompletionWaiters(for: cancelledPendingRequestIDs)
+                    pendingRequestBatches.append((probeKey: probeKey, requests: activeRequests))
+                    requeuedPendingRequests = true
+                    continue
                 }
                 activeForkSupportValidationKeys.insert(resolvedProbeKey)
                 let activeRequestIdentities: Set<String> = [activeRequestIdentity]
