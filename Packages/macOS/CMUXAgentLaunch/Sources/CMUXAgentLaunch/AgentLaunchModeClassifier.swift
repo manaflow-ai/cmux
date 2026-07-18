@@ -38,6 +38,12 @@ public struct AgentLaunchModeClassifier: Sendable {
         if kind == "amp", let ampMode = ampMode(arguments: arguments, policy: policy) {
             return ampMode
         }
+        if kind == "claude",
+           containsOption(["--forward-subagent-text"], in: arguments, policy: policy),
+           (!containsOption(["--print", "-p"], in: arguments, policy: policy)
+               || optionValue("--output-format", in: arguments, policy: policy) != "stream-json") {
+            return .unknown
+        }
         if let protocolMode = longLivedProtocolMode(kind: kind, arguments: arguments, policy: policy) {
             return protocolMode
         }
@@ -80,9 +86,10 @@ public struct AgentLaunchModeClassifier: Sendable {
             policy.valueOptions.formUnion([
                 "--dir", "--password", "-p", "--username", "-u",
             ])
-        } else if kind == "codex", let baseCommand, ["resume", "fork"].contains(baseCommand) {
+        } else if kind == "codex", baseCommand == "resume" {
             // Picker-only selector introduced by Codex 0.144.3. It must be known
-            // for lifetime classification but is never meaningful on replay.
+            // for resume lifetime classification but is invalid on `fork` and
+            // never meaningful on replay.
             policy.booleanOptions.insert("--include-non-interactive")
             policy.droppedOptions.insert("--include-non-interactive")
         }
@@ -90,8 +97,15 @@ public struct AgentLaunchModeClassifier: Sendable {
         let hasInteractiveOption = containsOption(interactiveOptions(for: kind), in: arguments, policy: policy)
         let hasExplicitUnknownOption = containsOption(unknownOptions(for: kind), in: arguments, policy: policy)
         let hasUnknownOption = containsUnknownOption(in: arguments, policy: policy)
-        if hasOneShotOption && (hasInteractiveOption || hasExplicitUnknownOption) {
+        if hasOneShotOption && hasExplicitUnknownOption {
             return .unknown
+        }
+        if hasOneShotOption && hasInteractiveOption {
+            guard oneShotOptionOverridesInteractiveModifier(kind: kind),
+                  !hasUnknownOption else {
+                return .unknown
+            }
+            return .oneShot
         }
         if hasInteractiveOption {
             return hasUnknownOption ? .unknown : .interactive
@@ -147,43 +161,48 @@ public struct AgentLaunchModeClassifier: Sendable {
         let command = commandLocation?.value
         switch kind {
         case "amp":
-            if containsRawOption(["--no-tui"], in: arguments) {
+            if containsOption(["--no-tui"], in: arguments, policy: policy) {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "claude":
-            if optionValue("--input-format", in: arguments) == "stream-json" {
+            if optionValue("--input-format", in: arguments, policy: policy) == "stream-json" {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "pi":
-            if optionValue("--mode", in: arguments) == "rpc" {
+            if optionValue("--mode", in: arguments, policy: policy) == "rpc" {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "omp":
-            if ["rpc", "rpc-ui"].contains(optionValue("--mode", in: arguments))
+            if ["rpc", "rpc-ui"].contains(optionValue("--mode", in: arguments, policy: policy))
                 || ["acp", "auth-gateway", "join", "shell"].contains(command) {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "campfire":
-            if optionValue("--mode", in: arguments) == "rpc" {
+            if optionValue("--mode", in: arguments, policy: policy) == "rpc" {
+                return requestsHelp ? .nonSession : .interactive
+            }
+        case "gemini":
+            if containsOption(["--acp", "--experimental-acp"], in: arguments, policy: policy) {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "factory":
             if command == "exec",
-               optionValue("--input-format", in: arguments) == "stream-jsonrpc",
-               optionValue("--output-format", in: arguments) == "stream-jsonrpc" {
+               optionValue("--input-format", in: arguments, policy: policy) == "stream-jsonrpc",
+               optionValue("--output-format", in: arguments, policy: policy) == "stream-jsonrpc" {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "kimi":
-            if containsRawOption(["--acp", "--wire"], in: arguments)
+            if containsOption(["--acp", "--wire"], in: arguments, policy: policy)
                 || ["acp", "term", "web"].contains(command)
-                || optionValue("--input-format", in: arguments) == "stream-json" {
+                || optionValue("--input-format", in: arguments, policy: policy) == "stream-json" {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "hermes-agent":
             if command == "acp" {
-                if containsRawOption(
+                if containsOption(
                     ["--check", "--help", "-h", "--setup", "--setup-browser", "--version"],
-                    in: arguments
+                    in: arguments,
+                    policy: policy
                 ) {
                     return .nonSession
                 }
@@ -213,8 +232,28 @@ public struct AgentLaunchModeClassifier: Sendable {
             if ["acp", "serve", "web"].contains(command) {
                 return requestsHelp ? .nonSession : .interactive
             }
+        case "cursor":
+            if command == "worker", let commandIndex = commandLocation?.index {
+                let workerCommand = nestedSubcommand(
+                    in: arguments,
+                    after: commandIndex,
+                    valueOptions: [
+                        "--auth-token-file", "--data-dir", "--idle-release-timeout",
+                        "--label", "--labels-file", "--management-addr", "--name",
+                        "--pool-name", "--worker-dir",
+                    ]
+                )
+                switch workerCommand {
+                case "start":
+                    return requestsHelp ? .nonSession : .interactive
+                case nil, "debug", "help":
+                    return .nonSession
+                default:
+                    return .unknown
+                }
+            }
         case "codebuddy":
-            if containsRawOption(["--acp", "--prewarm", "--serve"], in: arguments) {
+            if containsOption(["--acp", "--prewarm", "--serve"], in: arguments, policy: policy) {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "rovodev":
@@ -222,8 +261,8 @@ public struct AgentLaunchModeClassifier: Sendable {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "qoder":
-            if containsRawOption(["--acp"], in: arguments)
-                || optionValue("--input-format", in: arguments) == "stream-json" {
+            if containsOption(["--acp"], in: arguments, policy: policy)
+                || optionValue("--input-format", in: arguments, policy: policy) == "stream-json" {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "codex":
@@ -342,13 +381,13 @@ public struct AgentLaunchModeClassifier: Sendable {
         arguments: [String],
         policy: AgentLaunchSanitizer.Policy
     ) -> AgentProcessLaunchMode? {
-        let hasStreamInput = containsRawOption(["--stream-json-input"], in: arguments)
+        let hasStreamInput = containsOption(["--stream-json-input"], in: arguments, policy: policy)
         if hasStreamInput {
-            let hasExecute = containsRawOption(["--execute", "-x"], in: arguments)
-            let hasStreamOutput = containsRawOption(["--stream-json"], in: arguments)
+            let hasExecute = containsOption(["--execute", "-x"], in: arguments, policy: policy)
+            let hasStreamOutput = containsOption(["--stream-json"], in: arguments, policy: policy)
             return hasExecute && hasStreamOutput ? .interactive : .unknown
         }
-        if containsRawOption(["--execute", "-x"], in: arguments) {
+        if containsOption(["--execute", "-x"], in: arguments, policy: policy) {
             return nil
         }
 
@@ -473,6 +512,12 @@ public struct AgentLaunchModeClassifier: Sendable {
         kind == "codex" && ["exec", "e", "review"].contains(command)
     }
 
+    /// These options change persistence or provide the initial prompt; they do
+    /// not force a TUI when the provider's explicit print flag is also present.
+    private func oneShotOptionOverridesInteractiveModifier(kind: String) -> Bool {
+        ["pi", "omp", "campfire", "kimi"].contains(kind)
+    }
+
     private func interactiveCommands(for kind: String) -> Set<String> {
         switch kind {
         case "codex": ["resume", "fork"]
@@ -589,20 +634,38 @@ public struct AgentLaunchModeClassifier: Sendable {
         return values
     }
 
-    private func optionValue(_ option: String, in arguments: [String]) -> String? {
-        for (index, argument) in arguments.enumerated() {
-            if argument == option, index + 1 < arguments.count {
+    private func optionValue(
+        _ option: String,
+        in arguments: [String],
+        policy: AgentLaunchSanitizer.Policy
+    ) -> String? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" { return nil }
+            guard argument.hasPrefix("-"), argument != "-" else {
+                index += 1
+                continue
+            }
+            let name = optionName(argument)
+            if name == option {
+                if argument.hasPrefix("\(option)=") {
+                    return String(argument.dropFirst(option.count + 1)).lowercased()
+                }
+                let width = AgentLaunchSanitizer.optionWidth(
+                    arguments,
+                    index: index,
+                    policy: policy
+                )
+                guard width > 1, index + 1 < arguments.count else { return nil }
                 return arguments[index + 1].lowercased()
             }
-            if argument.hasPrefix("\(option)=") {
-                return String(argument.dropFirst(option.count + 1)).lowercased()
-            }
+            index += max(
+                1,
+                AgentLaunchSanitizer.optionWidth(arguments, index: index, policy: policy)
+            )
         }
         return nil
-    }
-
-    private func containsRawOption(_ options: Set<String>, in arguments: [String]) -> Bool {
-        arguments.contains { options.contains(optionName($0)) }
     }
 
     private func optionName(_ argument: String) -> String {

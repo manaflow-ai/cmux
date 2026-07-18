@@ -69,6 +69,7 @@ extension AgentLaunchSanitizer {
             "--dangerously-skip-permissions",
             "--disable-slash-commands",
             "--exclude-dynamic-system-prompt-sections",
+            "--forward-subagent-text",
             "--fork-session",
             "--ide",
             "--include-hook-events",
@@ -141,6 +142,7 @@ extension AgentLaunchSanitizer {
         rejectOptions: [
             "--print",
             "-p",
+            "--forward-subagent-text",
             "--no-session-persistence"
         ],
         scansOptionsPastPositionals: true,
@@ -233,6 +235,7 @@ extension AgentLaunchSanitizer {
             "--fork",
             "--model",
             "--models",
+            "--mode",
             "--prompt-template",
             "--provider",
             "--resume",
@@ -522,8 +525,11 @@ extension AgentLaunchSanitizer {
         nonRestorableCommands: [
             "mcp",
             "extensions",
+            "extension",
             "skills",
+            "skill",
             "hooks",
+            "hook",
             "gemma",
             "help"
         ],
@@ -636,6 +642,7 @@ extension AgentLaunchSanitizer {
             "--auto-review",
             "--force",
             "-f",
+            "--plan",
             "--skip-worktree-setup",
             "--trust",
             "--yolo",
@@ -654,6 +661,7 @@ extension AgentLaunchSanitizer {
             "status",
             "uninstall-shell-integration",
             "update",
+            "worker",
             "whoami"
         ],
         droppedOptions: [
