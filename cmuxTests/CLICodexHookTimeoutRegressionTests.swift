@@ -4,6 +4,96 @@ import Testing
 
 @Suite(.serialized)
 struct CLICodexHookTimeoutRegressionTests {
+    @Test func codexStopEnqueuesAnExactFilteredAutoNameRequest() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-auto-name-enqueue-\(UUID().uuidString)", isDirectory: true)
+        let transcript = root.appendingPathComponent("transcript.jsonl", isDirectory: false)
+        let stateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("autoname")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let sessionID = "codex-auto-name-session"
+        let payload = """
+
+          {"session_id":"\(sessionID)","turn_id":"turn-1","cwd":"\(root.path)","transcript_path":"\(transcript.path)","hook_event_name":"Stop","last_assistant_message":"done 日本語"}
+
+        """
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        try #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"turn-1","last_agent_message":"done"}}"#
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceID,
+            connectionLimit: 32,
+            workspaceAutoTitleResult: [
+                "enabled": true,
+                "workspace_user_owned": false,
+            ]
+        )
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "stop"],
+            environment: [
+                "HOME": root.path,
+                "CODEX_HOME": root.appendingPathComponent("codex-home", isDirectory: true).path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "TMPDIR": root.path,
+                "OPENAI_API_KEY": "memory-only-provider-key",
+                "HTTPS_PROXY": "https://proxy.example.test:8443",
+                "UNRELATED_SECRET": "must-not-cross-auto-name-boundary",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_SOCKET_CAPABILITY": "ingress-capability-must-be-replaced",
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+                "CMUX_AGENT_HOOK_STATE_DIR": stateDirectory.path,
+                "CMUX_AGENT_HOOK_DELIVERY_ID": "delivery-must-not-cross-auto-name-boundary",
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: payload,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(waitForCondition(timeout: 1) {
+            commands.snapshot().compactMap(codexHookJSONObject).contains {
+                $0["method"] as? String == "agent.auto_name.enqueue"
+            }
+        })
+        let request = try #require(commands.snapshot().compactMap(codexHookJSONObject).first {
+            $0["method"] as? String == "agent.auto_name.enqueue"
+        })
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["agent"] as? String == "codex")
+        #expect(params["session_id"] as? String == sessionID)
+        #expect(params["workspace_id"] as? String == workspaceID)
+        #expect(params["surface_id"] as? String == surfaceID)
+        #expect(params["transcript_path"] as? String == transcript.path)
+        #expect(params["cwd"] as? String == root.path)
+        let payloadBase64 = try #require(params["payload_b64"] as? String)
+        #expect(Data(base64Encoded: payloadBase64) == Data(payload.utf8))
+        let environment = try #require(params["environment"] as? [String: Any])
+        #expect(environment["OPENAI_API_KEY"] as? String == "memory-only-provider-key")
+        #expect(environment["HTTPS_PROXY"] as? String == "https://proxy.example.test:8443")
+        #expect(environment["CMUX_AGENT_HOOK_STATE_DIR"] as? String == stateDirectory.path)
+        #expect(environment["CMUX_SOCKET_CAPABILITY"] == nil)
+        #expect(environment["CMUX_AGENT_HOOK_DELIVERY_ID"] == nil)
+        #expect(environment["UNRELATED_SECRET"] == nil)
+    }
+
     @Test func codexPromptSubmitDelegatesTranscriptMonitoringToTheApp() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

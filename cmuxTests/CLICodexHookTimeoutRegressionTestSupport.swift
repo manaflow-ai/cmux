@@ -120,7 +120,8 @@ func startCodexHookMockSocketServerAccepting(
     surfaceId: String,
     connectionLimit: Int,
     droppedResponseCount: Int = 0,
-    methodErrorCodes: [String: String] = [:]
+    methodErrorCodes: [String: String] = [:],
+    workspaceAutoTitleResult: [String: Bool] = [:]
 ) {
     DispatchQueue.global(qos: .userInitiated).async {
         var accepted = 0
@@ -143,7 +144,8 @@ func startCodexHookMockSocketServerAccepting(
                     commands: commands,
                     surfaceId: surfaceId,
                     droppedResponseCount: droppedResponseCount,
-                    methodErrorCodes: methodErrorCodes
+                    methodErrorCodes: methodErrorCodes,
+                    workspaceAutoTitleResult: workspaceAutoTitleResult
                 )
             }
         }
@@ -155,7 +157,8 @@ func handleCodexHookMockSocketClient(
     commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
     droppedResponseCount: Int = 0,
-    methodErrorCodes: [String: String] = [:]
+    methodErrorCodes: [String: String] = [:],
+    workspaceAutoTitleResult: [String: Bool] = [:]
 ) {
     defer { Darwin.close(clientFD) }
     var pending = Data()
@@ -179,7 +182,8 @@ func handleCodexHookMockSocketClient(
             let response = codexHookMockSocketResponse(
                 for: line,
                 surfaceId: surfaceId,
-                methodErrorCodes: methodErrorCodes
+                methodErrorCodes: methodErrorCodes,
+                workspaceAutoTitleResult: workspaceAutoTitleResult
             ) + "\n"
             _ = response.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
@@ -191,7 +195,8 @@ func handleCodexHookMockSocketClient(
 func codexHookMockSocketResponse(
     for line: String,
     surfaceId: String,
-    methodErrorCodes: [String: String] = [:]
+    methodErrorCodes: [String: String] = [:],
+    workspaceAutoTitleResult: [String: Bool] = [:]
 ) -> String {
     guard let payload = codexHookJSONObject(line),
           let id = payload["id"] as? String else {
@@ -200,6 +205,9 @@ func codexHookMockSocketResponse(
     let method = payload["method"] as? String
     if let method, let errorCode = methodErrorCodes[method] {
         return codexHookV2ErrorResponse(id: id, code: errorCode)
+    }
+    if method == "workspace.set_auto_title", !workspaceAutoTitleResult.isEmpty {
+        return codexHookV2Response(id: id, ok: true, result: workspaceAutoTitleResult)
     }
     if method == "surface.list" {
         return codexHookV2Response(
