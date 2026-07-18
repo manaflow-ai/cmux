@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxSettings
 import Darwin
 import Foundation
 
