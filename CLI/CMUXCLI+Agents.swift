@@ -1,5 +1,217 @@
 import CmuxFoundation
+import Darwin
 import Foundation
+
+struct AgentStagedOutput {
+    private static let readChunkBytes = 64 * 1_024
+
+    static func publish(
+        build: (FileHandle) throws -> Void,
+        publishChunk: (Data) -> Void = cliWriteStdout
+    ) throws {
+        let templatePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-output.XXXXXX", isDirectory: false)
+            .path
+        var template = templatePath.utf8CString
+        let descriptor = template.withUnsafeMutableBufferPointer { buffer in
+            mkstemp(buffer.baseAddress)
+        }
+        guard descriptor >= 0 else { throw posixError() }
+        let path = String(
+            decoding: template.dropLast().map { UInt8(bitPattern: $0) },
+            as: UTF8.self
+        )
+        guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
+            let error = posixError()
+            Darwin.close(descriptor)
+            path.withCString { _ = Darwin.unlink($0) }
+            throw error
+        }
+        guard path.withCString({ Darwin.unlink($0) }) == 0 else {
+            let error = posixError()
+            Darwin.close(descriptor)
+            throw error
+        }
+
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer {
+            try? handle.close()
+        }
+
+        // Build the complete document before publishing its first byte. Store
+        // validation or row-encoding failures therefore cannot leave a partial
+        // JSON object on stdout.
+        try build(handle)
+        try handle.seek(toOffset: 0)
+        while let chunk = try handle.read(upToCount: readChunkBytes), !chunk.isEmpty {
+            publishChunk(chunk)
+        }
+    }
+
+    private static func posixError() -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+}
+
+struct AgentPrettyJSONStreamWriter {
+    private static let flushThresholdBytes = 64 * 1_024
+
+    private let handle: FileHandle
+    private var buffer: Data
+    private var fieldCount = 0
+    private var arrayElementCount: Int?
+
+    init(handle: FileHandle) throws {
+        self.handle = handle
+        self.buffer = Data()
+        buffer.reserveCapacity(Self.flushThresholdBytes)
+        buffer.append(contentsOf: "{".utf8)
+    }
+
+    mutating func writeValueField(name: String, value: Any) throws {
+        try writeValueField(name: name, encodedValue: Self.encodeJSONObject(value))
+    }
+
+    mutating func writeValueField<T: Encodable>(
+        name: String,
+        value: T,
+        encoder: JSONEncoder
+    ) throws {
+        try writeValueField(name: name, encodedValue: encoder.encode(value))
+    }
+
+    mutating func beginArrayField(name: String) throws {
+        precondition(arrayElementCount == nil)
+        try beginField(name: name)
+        try write(Data("[".utf8))
+        arrayElementCount = 0
+    }
+
+    mutating func writeArrayElement(_ value: Any) throws {
+        let encodedValue = try autoreleasepool {
+            try Self.encodeJSONObject(value)
+        }
+        try writeArrayElement(encodedValue: encodedValue)
+    }
+
+    mutating func writeArrayElement<T: Encodable>(
+        _ value: T,
+        encoder: JSONEncoder
+    ) throws {
+        let encodedValue = try autoreleasepool {
+            try encoder.encode(value)
+        }
+        try writeArrayElement(encodedValue: encodedValue)
+    }
+
+    mutating func writeArrayElements(_ values: [[String: Any]]) throws {
+        guard !values.isEmpty else { return }
+        let encodedValues = try autoreleasepool {
+            try JSONSerialization.data(
+                withJSONObject: values,
+                options: [.sortedKeys, .withoutEscapingSlashes]
+            )
+        }
+        try writeEncodedArrayElements(encodedValues, count: values.count)
+    }
+
+    mutating func writeArrayElements<T: Encodable>(
+        _ values: [T],
+        encoder: JSONEncoder
+    ) throws {
+        guard !values.isEmpty else { return }
+        let encodedValues = try autoreleasepool {
+            try encoder.encode(values)
+        }
+        try writeEncodedArrayElements(encodedValues, count: values.count)
+    }
+
+    mutating func endArray() throws {
+        guard let arrayElementCount else { preconditionFailure("No JSON array is open") }
+        if arrayElementCount == 0 {
+            try write(Data("\n\n  ]".utf8))
+        } else {
+            try write(Data("\n  ]".utf8))
+        }
+        self.arrayElementCount = nil
+    }
+
+    mutating func finish() throws {
+        precondition(arrayElementCount == nil)
+        try write(Data("\n}\n".utf8))
+        try flush()
+    }
+
+    private mutating func writeValueField(name: String, encodedValue: Data) throws {
+        precondition(arrayElementCount == nil)
+        try beginField(name: name)
+        try writeIndented(encodedValue, continuationIndent: "  ")
+    }
+
+    private mutating func writeArrayElement(encodedValue: Data) throws {
+        guard let count = arrayElementCount else { preconditionFailure("No JSON array is open") }
+        try write(Data((count == 0 ? "\n    " : ",\n    ").utf8))
+        try writeIndented(encodedValue, continuationIndent: "    ")
+        arrayElementCount = count + 1
+    }
+
+    private mutating func writeEncodedArrayElements(_ encodedValues: Data, count: Int) throws {
+        guard let currentCount = arrayElementCount else {
+            preconditionFailure("No JSON array is open")
+        }
+        guard encodedValues.first == 91, encodedValues.last == 93 else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let elements = encodedValues.dropFirst().dropLast()
+        guard !elements.isEmpty else { return }
+        try write(Data((currentCount == 0 ? "\n    " : ",\n    ").utf8))
+        try write(Data(elements))
+        arrayElementCount = currentCount + count
+    }
+
+    private mutating func beginField(name: String) throws {
+        try write(Data((fieldCount == 0 ? "\n  " : ",\n  ").utf8))
+        try write(Self.encodeJSONString(name))
+        try write(Data(" : ".utf8))
+        fieldCount += 1
+    }
+
+    private mutating func writeIndented(_ data: Data, continuationIndent: String) throws {
+        let lines = data.split(separator: 10, omittingEmptySubsequences: false)
+        for (index, line) in lines.enumerated() {
+            if index > 0 { try write(Data(("\n" + continuationIndent).utf8)) }
+            if !line.isEmpty { try write(Data(line)) }
+        }
+    }
+
+    private mutating func write(_ data: Data) throws {
+        buffer.append(data)
+        if buffer.count >= Self.flushThresholdBytes {
+            try flush()
+        }
+    }
+
+    private mutating func flush() throws {
+        guard !buffer.isEmpty else { return }
+        try handle.write(contentsOf: buffer)
+        buffer.removeAll(keepingCapacity: true)
+    }
+
+    private static func encodeJSONObject(_ value: Any) throws -> Data {
+        guard JSONSerialization.isValidJSONObject(value) || value is NSNull
+                || value is String || value is NSNumber else {
+            throw CocoaError(.propertyListWriteInvalid)
+        }
+        return try JSONSerialization.data(
+            withJSONObject: value,
+            options: [.fragmentsAllowed, .prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        )
+    }
+
+    private static func encodeJSONString(_ value: String) throws -> Data {
+        try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
+    }
+}
 
 extension CMUXCLI {
     enum AgentsValueOptionContext {

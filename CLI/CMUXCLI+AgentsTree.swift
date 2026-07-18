@@ -536,9 +536,37 @@ extension CMUXCLI {
         )
         if localJSONOutput {
             let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            cliWriteStdout(try encoder.encode(snapshot))
-            cliWriteStdout("\n")
+            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+            try AgentStagedOutput.publish { handle in
+                var writer = try AgentPrettyJSONStreamWriter(handle: handle)
+                try writer.beginArrayField(name: "edges")
+                for start in stride(from: 0, to: snapshot.edges.count, by: 512) {
+                    let end = min(start + 512, snapshot.edges.count)
+                    try writer.writeArrayElements(
+                        Array(snapshot.edges[start..<end]),
+                        encoder: encoder
+                    )
+                }
+                try writer.endArray()
+                try writer.beginArrayField(name: "nodes")
+                for start in stride(from: 0, to: snapshot.nodes.count, by: 512) {
+                    let end = min(start + 512, snapshot.nodes.count)
+                    try writer.writeArrayElements(
+                        Array(snapshot.nodes[start..<end]),
+                        encoder: encoder
+                    )
+                }
+                try writer.endArray()
+                try writer.writeValueField(name: "schema_version", value: snapshot.schemaVersion)
+                if let storeWarnings = snapshot.storeWarnings {
+                    try writer.writeValueField(
+                        name: "store_warnings",
+                        value: storeWarnings,
+                        encoder: encoder
+                    )
+                }
+                try writer.finish()
+            }
         } else {
             agentsWriteStoreWarnings(storeWarnings)
             if snapshot.nodes.isEmpty {

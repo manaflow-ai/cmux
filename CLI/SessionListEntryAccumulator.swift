@@ -4,15 +4,73 @@ import Foundation
 /// keeping every matching session payload in memory.
 struct SessionListEntryAccumulator {
     typealias Enrichment = (inout [String: Any]) -> Void
+    typealias PayloadFactory = () -> [String: Any]
 
-    private static let deterministicStringKeys = [
-        "session_id", "agent", "run_id", "workspace_id", "surface_id", "identity_source",
-    ]
+    struct SortValues {
+        var sessionID: String?
+        var agent: String?
+        var runID: String?
+        var workspaceID: String?
+        var surfaceID: String?
+        var identitySource: String?
+        var pid: Int?
+        var processStartedAt: TimeInterval?
+
+        init(
+            sessionID: String?,
+            agent: String?,
+            runID: String?,
+            workspaceID: String?,
+            surfaceID: String?,
+            identitySource: String?,
+            pid: Int?,
+            processStartedAt: TimeInterval?
+        ) {
+            self.sessionID = sessionID
+            self.agent = agent
+            self.runID = runID
+            self.workspaceID = workspaceID
+            self.surfaceID = surfaceID
+            self.identitySource = identitySource
+            self.pid = pid
+            self.processStartedAt = processStartedAt
+        }
+
+        init(payload: [String: Any]) {
+            sessionID = payload["session_id"] as? String
+            agent = payload["agent"] as? String
+            runID = payload["run_id"] as? String
+            workspaceID = payload["workspace_id"] as? String
+            surfaceID = payload["surface_id"] as? String
+            identitySource = payload["identity_source"] as? String
+            pid = payload["pid"] as? Int
+            processStartedAt = payload["process_started_at"] as? TimeInterval
+        }
+
+        static func isOrderedBefore(_ lhs: Self, _ rhs: Self) -> Bool {
+            if let result = stringPrecedes(lhs.sessionID, rhs.sessionID) { return result }
+            if let result = stringPrecedes(lhs.agent, rhs.agent) { return result }
+            if let result = stringPrecedes(lhs.runID, rhs.runID) { return result }
+            if let result = stringPrecedes(lhs.workspaceID, rhs.workspaceID) { return result }
+            if let result = stringPrecedes(lhs.surfaceID, rhs.surfaceID) { return result }
+            if let result = stringPrecedes(lhs.identitySource, rhs.identitySource) { return result }
+            let lhsPID = lhs.pid ?? Int.min
+            let rhsPID = rhs.pid ?? Int.min
+            if lhsPID != rhsPID { return lhsPID < rhsPID }
+            return (lhs.processStartedAt ?? -.infinity) < (rhs.processStartedAt ?? -.infinity)
+        }
+
+        private static func stringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
+            let lhs = lhs ?? ""
+            let rhs = rhs ?? ""
+            return lhs == rhs ? nil : lhs < rhs
+        }
+    }
 
     private struct Entry {
         var updatedAt: TimeInterval
-        var payload: [String: Any]
-        var enrichment: Enrichment?
+        var sortValues: SortValues
+        var payloadFactory: PayloadFactory
     }
 
     private let limit: Int
@@ -28,10 +86,25 @@ struct SessionListEntryAccumulator {
     var retainedCount: Int { retained.count }
 
     var sortedPayloads: [[String: Any]] {
-        retained.sorted(by: Self.isOrderedBefore).map { entry in
-            var payload = entry.payload
-            entry.enrichment?(&payload)
-            return payload
+        var payloads: [[String: Any]] = []
+        payloads.reserveCapacity(retained.count)
+        forEachSortedPayload { payloads.append($0) }
+        return payloads
+    }
+
+    func forEachSortedPayload(
+        _ visit: ([String: Any]) throws -> Void
+    ) rethrows {
+        for entry in retained.sorted(by: Self.isOrderedBefore) {
+            try autoreleasepool {
+                var payload: [String: Any]? = entry.payloadFactory()
+                try visit(payload ?? [:])
+                // Release Swift and Foundation enrichment objects before
+                // constructing the next row. Unbounded `--all` output must
+                // retain compact sources, not materialized dictionaries or
+                // autoreleased JSON bridges from every prior row.
+                payload = nil
+            }
         }
     }
 
@@ -40,8 +113,28 @@ struct SessionListEntryAccumulator {
         payload: [String: Any],
         enrichment: Enrichment? = nil
     ) {
+        insert(
+            updatedAt: updatedAt,
+            sortValues: SortValues(payload: payload),
+            payloadFactory: {
+                var result = payload
+                enrichment?(&result)
+                return result
+            }
+        )
+    }
+
+    mutating func insert(
+        updatedAt: TimeInterval,
+        sortValues: SortValues,
+        payloadFactory: @escaping PayloadFactory
+    ) {
         totalCount += 1
-        let entry = Entry(updatedAt: updatedAt, payload: payload, enrichment: enrichment)
+        let entry = Entry(
+            updatedAt: updatedAt,
+            sortValues: sortValues,
+            payloadFactory: payloadFactory
+        )
         guard limit != Int.max else {
             retained.append(entry)
             return
@@ -83,24 +176,10 @@ struct SessionListEntryAccumulator {
 
     private static func isOrderedBefore(_ lhs: Entry, _ rhs: Entry) -> Bool {
         if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
-        for key in deterministicStringKeys {
-            let lhsValue = stringValue(lhs.payload, key: key)
-            let rhsValue = stringValue(rhs.payload, key: key)
-            if lhsValue != rhsValue { return lhsValue < rhsValue }
-        }
-        let lhsPID = lhs.payload["pid"] as? Int ?? Int.min
-        let rhsPID = rhs.payload["pid"] as? Int ?? Int.min
-        if lhsPID != rhsPID { return lhsPID < rhsPID }
-        let lhsStartedAt = lhs.payload["process_started_at"] as? TimeInterval ?? -TimeInterval.infinity
-        let rhsStartedAt = rhs.payload["process_started_at"] as? TimeInterval ?? -TimeInterval.infinity
-        return lhsStartedAt < rhsStartedAt
+        return SortValues.isOrderedBefore(lhs.sortValues, rhs.sortValues)
     }
 
     private static func isWorse(_ lhs: Entry, than rhs: Entry) -> Bool {
         isOrderedBefore(rhs, lhs)
-    }
-
-    private static func stringValue(_ payload: [String: Any], key: String) -> String {
-        (payload[key] as? String) ?? ""
     }
 }

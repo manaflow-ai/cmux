@@ -473,22 +473,6 @@ extension CMUXCLI {
                     }
                 }
                 guard surfaceFilter == nil || record.surfaceId.lowercased() == surfaceFilter else { continue }
-                var payload: [String: Any] = [
-                    "agent": spec.name,
-                    "agent_display_name": spec.displayName,
-                    "session_id": record.sessionId,
-                    "workspace_id": record.workspaceId,
-                    "surface_id": record.surfaceId,
-                    "store_path": storePath,
-                    "started_at": sessionsListTimestamp(record.startedAt, formatter: timestampFormatter),
-                    "updated_at": sessionsListTimestamp(record.updatedAt, formatter: timestampFormatter),
-                    "updated_at_unix": record.updatedAt
-                ]
-                payload["cwd"] = record.cwd ?? NSNull()
-                payload["transcript_path"] = record.transcriptPath ?? NSNull()
-                payload["pid"] = record.pid ?? NSNull()
-                payload["runtime_status"] = record.runtimeStatus?.rawValue ?? NSNull()
-                payload["agent_lifecycle"] = record.agentLifecycle?.rawValue ?? NSNull()
                 let probedProcessState: AgentProcessState?
                 if projectedRun.identityConflict == true || defersProcessStateProbe {
                     // Supplying `.unknown` prevents the projection from probing
@@ -508,33 +492,12 @@ extension CMUXCLI {
                     probedProcessState: probedProcessState
                 )
                 guard includesEndedRecords || queryScope.includes(projection: projection) else { continue }
-                payload["process_state"] = projection.process.rawValue
-                payload["session_state"] = projection.session.rawValue
-                payload["foreground_state"] = projection.foreground.rawValue
-                payload["attention_state"] = projection.attention.rawValue
-                payload["effective_state"] = projection.effective.rawValue
-                payload["activity"] = sessionsListEncodableJSONObject(projection.activity)
-                payload["workloads"] = sessionsListEncodableJSONObject(
-                    projection.workloads.map(AgentWorkloadSnapshot.init)
-                )
-                payload["restore_authority"] = projectedRun.restoreAuthority
-                payload["cmux_runtime"] = projectedRun.cmuxRuntime(fallingBackTo: record.cmuxRuntime)
-                    .map { sessionsListEncodableJSONObject($0) } ?? NSNull()
-                payload["last_prompt_turn_id"] = record.lastPromptTurnId ?? NSNull()
-                payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
-                payload["launch_working_directory"] = record.launchCommand?.workingDirectory ?? NSNull()
-                payload["launch_arguments"] = record.launchCommand?.arguments ?? []
                 let workspaceActive = store.activeSessionsByWorkspace[record.workspaceId]
                 let surfaceActive = store.activeSessionsBySurface[record.surfaceId]
                 let activeForWorkspace = workspaceActive?.sessionId == record.sessionId
                     || workspaceActive?.sessionId == rawRecord.sessionId
                 let activeForSurface = surfaceActive?.sessionId == record.sessionId
                     || surfaceActive?.sessionId == rawRecord.sessionId
-                payload["active_for_workspace"] = activeForWorkspace
-                payload["active_for_surface"] = activeForSurface
-                payload["active_workspace_session_id"] = workspaceActive?.sessionId ?? NSNull()
-                payload["active_surface_session_id"] = surfaceActive?.sessionId ?? NSNull()
-                payload["is_restorable"] = record.isRestorable ?? NSNull()
 
                 let runtime = projectedRun.cmuxRuntime(fallingBackTo: record.cmuxRuntime)
                 if activeForSurface, let runtimeID = runtime?.id {
@@ -566,7 +529,6 @@ extension CMUXCLI {
                     runRuntime: projectedRun.cmuxRuntime,
                     legacyVisible: projectedRun.identityConflict != true && legacyDefaultVisible
                 )
-                payload["default_visible"] = defaultVisible
                 guard includeAll || hasIdentityFilter
                         || stateFilter == AgentEffectiveState.ended.rawValue
                         || defaultVisible else {
@@ -696,41 +658,106 @@ extension CMUXCLI {
                     endedAt: projectedRun.endedAt
                 )
                 let projectedNode = observationProjection.nodesByID[node.nodeId] ?? node
-                if let payload = sessionsListFilteredPayload(
+                guard sessionsListNodeMatchesFilters(
                     node: projectedNode,
-                    payload: payload,
+                    launchWorkingDirectory: record.launchCommand?.workingDirectory,
                     sessionFilter: sessionFilter,
                     workspaceFilter: workspaceFilter,
                     cwdFilter: cwdFilter,
                     stateFilter: stateFilter,
                     activityFilter: activityFilter,
                     workKindFilter: workKindFilter
-                ) {
-                    entries.insert(
-                        updatedAt: node.updatedAt,
-                        payload: payload,
-                        enrichment: enrichment
-                    )
-                }
+                ) else { continue }
+                let activeWorkspaceSessionID = workspaceActive?.sessionId
+                let activeSurfaceSessionID = surfaceActive?.sessionId
+                entries.insert(
+                    updatedAt: node.updatedAt,
+                    sortValues: sessionsListSortValues(
+                        node: projectedNode,
+                        sessionID: record.sessionId,
+                        agent: spec.name,
+                        surfaceID: record.surfaceId
+                    ),
+                    payloadFactory: { [self] in
+                        var payload: [String: Any] = [
+                            "agent": spec.name,
+                            "agent_display_name": spec.displayName,
+                            "session_id": record.sessionId,
+                            "workspace_id": record.workspaceId,
+                            "surface_id": record.surfaceId,
+                            "store_path": storePath,
+                            "started_at": sessionsListTimestamp(
+                                record.startedAt,
+                                formatter: timestampFormatter
+                            ),
+                            "updated_at": sessionsListTimestamp(
+                                record.updatedAt,
+                                formatter: timestampFormatter
+                            ),
+                            "updated_at_unix": record.updatedAt,
+                        ]
+                        payload["cwd"] = record.cwd ?? NSNull()
+                        payload["transcript_path"] = record.transcriptPath ?? NSNull()
+                        payload["pid"] = record.pid ?? NSNull()
+                        payload["runtime_status"] = record.runtimeStatus?.rawValue ?? NSNull()
+                        payload["agent_lifecycle"] = record.agentLifecycle?.rawValue ?? NSNull()
+                        payload["process_state"] = projection.process.rawValue
+                        payload["session_state"] = projection.session.rawValue
+                        payload["foreground_state"] = projection.foreground.rawValue
+                        payload["attention_state"] = projection.attention.rawValue
+                        payload["effective_state"] = projection.effective.rawValue
+                        payload["activity"] = sessionsListEncodableJSONObject(projection.activity)
+                        payload["workloads"] = sessionsListEncodableJSONObject(
+                            projection.workloads.map(AgentWorkloadSnapshot.init)
+                        )
+                        payload["restore_authority"] = projectedRun.restoreAuthority
+                        payload["cmux_runtime"] = runtime.map {
+                            sessionsListEncodableJSONObject($0)
+                        } ?? NSNull()
+                        payload["last_prompt_turn_id"] = record.lastPromptTurnId ?? NSNull()
+                        payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
+                        payload["launch_working_directory"] = record.launchCommand?.workingDirectory
+                            ?? NSNull()
+                        payload["launch_arguments"] = record.launchCommand?.arguments ?? []
+                        payload["active_for_workspace"] = activeForWorkspace
+                        payload["active_for_surface"] = activeForSurface
+                        payload["active_workspace_session_id"] = activeWorkspaceSessionID ?? NSNull()
+                        payload["active_surface_session_id"] = activeSurfaceSessionID ?? NSNull()
+                        payload["is_restorable"] = record.isRestorable ?? NSNull()
+                        payload["default_visible"] = defaultVisible
+                        sessionsListApply(node: projectedNode, to: &payload)
+                        enrichment(&payload)
+                        return payload
+                    }
+                )
             }
             for node in observationProjection.processNodes {
-                let payload = sessionsListProcessPayload(
+                guard sessionsListNodeMatchesFilters(
                     node: node,
-                    displayName: spec.displayName,
-                    timestampFormatter: timestampFormatter
-                )
-                if let payload = sessionsListFilteredPayload(
-                    node: node,
-                    payload: payload,
+                    launchWorkingDirectory: nil,
                     sessionFilter: sessionFilter,
                     workspaceFilter: workspaceFilter,
                     cwdFilter: cwdFilter,
                     stateFilter: stateFilter,
                     activityFilter: activityFilter,
                     workKindFilter: workKindFilter
-                ) {
-                    entries.insert(updatedAt: node.updatedAt, payload: payload)
-                }
+                ) else { continue }
+                entries.insert(
+                    updatedAt: node.updatedAt,
+                    sortValues: sessionsListSortValues(
+                        node: node,
+                        sessionID: nil,
+                        agent: node.provider,
+                        surfaceID: node.surfaceId
+                    ),
+                    payloadFactory: { [self] in
+                        sessionsListProcessPayload(
+                            node: node,
+                            displayName: spec.displayName,
+                            timestampFormatter: timestampFormatter
+                        )
+                    }
+                )
             }
         }
         let displayNameByProvider = Dictionary(
@@ -746,56 +773,82 @@ extension CMUXCLI {
             activeSessionBySurface: activeSessionBySurface
         )
         for node in unhandledObservationNodes {
-            let payload = sessionsListProcessPayload(
+            guard sessionsListNodeMatchesFilters(
                 node: node,
-                displayName: displayNameByProvider[node.provider] ?? node.provider,
-                timestampFormatter: timestampFormatter
-            )
-            if let payload = sessionsListFilteredPayload(
-                node: node,
-                payload: payload,
+                launchWorkingDirectory: nil,
                 sessionFilter: sessionFilter,
                 workspaceFilter: workspaceFilter,
                 cwdFilter: cwdFilter,
                 stateFilter: stateFilter,
                 activityFilter: activityFilter,
                 workKindFilter: workKindFilter
-            ) {
-                entries.insert(
-                    updatedAt: node.updatedAt,
-                    payload: payload
-                )
-            }
+            ) else { continue }
+            let displayName = displayNameByProvider[node.provider] ?? node.provider
+            entries.insert(
+                updatedAt: node.updatedAt,
+                sortValues: sessionsListSortValues(
+                    node: node,
+                    sessionID: nil,
+                    agent: node.provider,
+                    surfaceID: node.surfaceId
+                ),
+                payloadFactory: { [self] in
+                    sessionsListProcessPayload(
+                        node: node,
+                        displayName: displayName,
+                        timestampFormatter: timestampFormatter
+                    )
+                }
+            )
         }
-        let limitedPayloads = entries.sortedPayloads
 
         if localJSONOutput {
-            var output: [String: Any] = [
-                "state_dir": stateDir,
-                "default_codex_home": defaultCodexHome,
-                "total_matches": entries.totalCount,
-                "limit": limit == Int.max ? NSNull() : limit,
-                "stores": stores,
-                "sessions": limitedPayloads
-            ]
-            if !storeWarnings.isEmpty {
-                output["store_warnings"] = storeWarnings.map(sessionsListEncodableJSONObject)
+            try AgentStagedOutput.publish { handle in
+                var writer = try AgentPrettyJSONStreamWriter(handle: handle)
+                try writer.writeValueField(name: "default_codex_home", value: defaultCodexHome)
+                try writer.writeValueField(
+                    name: "limit",
+                    value: limit == Int.max ? NSNull() : NSNumber(value: limit)
+                )
+                try writer.beginArrayField(name: "sessions")
+                var payloadBatch: [[String: Any]] = []
+                payloadBatch.reserveCapacity(512)
+                try entries.forEachSortedPayload { payload in
+                    payloadBatch.append(payload)
+                    if payloadBatch.count == 512 {
+                        try writer.writeArrayElements(payloadBatch)
+                        payloadBatch.removeAll(keepingCapacity: true)
+                    }
+                }
+                if !payloadBatch.isEmpty {
+                    try writer.writeArrayElements(payloadBatch)
+                }
+                try writer.endArray()
+                try writer.writeValueField(name: "state_dir", value: stateDir)
+                if !storeWarnings.isEmpty {
+                    try writer.writeValueField(
+                        name: "store_warnings",
+                        value: storeWarnings.map(sessionsListEncodableJSONObject)
+                    )
+                }
+                try writer.writeValueField(name: "stores", value: stores)
+                try writer.writeValueField(name: "total_matches", value: entries.totalCount)
+                try writer.finish()
             }
-            print(jsonString(output))
             return
         }
 
         agentsWriteStoreWarnings(storeWarnings)
-        if limitedPayloads.isEmpty {
+        if entries.retainedCount == 0 {
             print(String(localized: "cli.sessions.output.noMatches", defaultValue: "No saved agent sessions matched."))
             print("state_dir=\(stateDir)")
             return
         }
 
-        for payload in limitedPayloads {
+        entries.forEachSortedPayload { payload in
             print(renderSessionListLine(payload))
         }
-        if entries.totalCount > limitedPayloads.count {
+        if entries.totalCount > entries.retainedCount {
             let moreFormat = if includeAll {
                 String(
                     localized: "cli.sessions.output.moreLimitedAll",
@@ -809,7 +862,7 @@ extension CMUXCLI {
             }
             print(String(
                 format: moreFormat,
-                entries.totalCount - limitedPayloads.count
+                entries.totalCount - entries.retainedCount
             ))
         }
     }
@@ -821,34 +874,50 @@ extension CMUXCLI {
         AgentSessionRunCanonicalizer.projectedRun(record: record, provider: provider)
     }
 
-    private func sessionsListFilteredPayload(
+    private func sessionsListNodeMatchesFilters(
         node: AgentSessionGraphNode,
-        payload: [String: Any],
+        launchWorkingDirectory: String?,
         sessionFilter: String?,
         workspaceFilter: String?,
         cwdFilter: String?,
         stateFilter: String?,
         activityFilter: String?,
         workKindFilter: String?
-    ) -> [String: Any]? {
-        if let sessionFilter, node.sessionId?.lowercased() != sessionFilter { return nil }
-        if let workspaceFilter, node.workspaceId.lowercased() != workspaceFilter { return nil }
+    ) -> Bool {
+        if let sessionFilter, node.sessionId?.lowercased() != sessionFilter { return false }
+        if let workspaceFilter, node.workspaceId.lowercased() != workspaceFilter { return false }
         if let cwdFilter {
             let cwd = (node.cwd ?? "").lowercased()
-            let launchCWD = (payload["launch_working_directory"] as? String ?? "").lowercased()
-            if !cwd.contains(cwdFilter) && !launchCWD.contains(cwdFilter) { return nil }
+            let launchCWD = (launchWorkingDirectory ?? "").lowercased()
+            if !cwd.contains(cwdFilter) && !launchCWD.contains(cwdFilter) { return false }
         }
-        if let stateFilter, node.effectiveState.rawValue != stateFilter { return nil }
-        if let activityFilter, node.activity.state.rawValue != activityFilter { return nil }
+        if let stateFilter, node.effectiveState.rawValue != stateFilter { return false }
+        if let activityFilter, node.activity.state.rawValue != activityFilter { return false }
         if let workKindFilter,
            !node.workloads.contains(where: {
                $0.kind.rawValue == workKindFilter && $0.phase.isActive
            }) {
-            return nil
+            return false
         }
-        var payload = payload
-        sessionsListApply(node: node, to: &payload)
-        return payload
+        return true
+    }
+
+    private func sessionsListSortValues(
+        node: AgentSessionGraphNode,
+        sessionID: String?,
+        agent: String,
+        surfaceID: String
+    ) -> SessionListEntryAccumulator.SortValues {
+        SessionListEntryAccumulator.SortValues(
+            sessionID: sessionID,
+            agent: agent,
+            runID: node.runId,
+            workspaceID: node.workspaceId,
+            surfaceID: surfaceID,
+            identitySource: node.identitySource,
+            pid: node.pid,
+            processStartedAt: node.processStartedAt
+        )
     }
 
     private func sessionsListApply(
