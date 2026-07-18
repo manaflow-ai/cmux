@@ -1442,7 +1442,10 @@ struct BrowserWebExtensionsManagerTests {
             actionSelector
         ))
         let originalActionImplementation = method_getImplementation(actionMethod)
-        let actionReplacement: @convention(block) (WKWebExtensionContext, AnyObject?) -> Void = { _, _ in }
+        let performCount = OSAllocatedUnfairLock(initialState: 0)
+        let actionReplacement: @convention(block) (WKWebExtensionContext, AnyObject?) -> Void = { _, _ in
+            performCount.withLock { $0 += 1 }
+        }
         let actionReplacementImplementation = imp_implementationWithBlock(actionReplacement)
         method_setImplementation(actionMethod, actionReplacementImplementation)
         defer {
@@ -1464,6 +1467,7 @@ struct BrowserWebExtensionsManagerTests {
             in: panel,
             anchorView: anchor
         ))
+        #expect(performCount.withLock { $0 } == 1)
         #expect(popover.isShown)
     }
 
