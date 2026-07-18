@@ -63,6 +63,7 @@ final class AgentHibernationController {
     private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var hibernationIndexLoadInFlight = false
+    private var didScheduleTranscriptRecovery = false
     private var settingsObserver: NSObjectProtocol?
     var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
@@ -93,6 +94,15 @@ final class AgentHibernationController {
     }
 
     func start() {
+        if !didScheduleTranscriptRecovery {
+            didScheduleTranscriptRecovery = true
+            Task.detached(priority: .utility) {
+                let restored = AgentHibernationTranscriptGuard.recoverPendingSnapshots()
+                if restored > 0 {
+                    NSLog("[AgentHibernation] recovered %d protected transcript snapshot(s)", restored)
+                }
+            }
+        }
         guard settingsObserver == nil else {
             updateTimerForCurrentSettings()
             return

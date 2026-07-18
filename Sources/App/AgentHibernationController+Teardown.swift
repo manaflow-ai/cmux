@@ -205,7 +205,7 @@ extension AgentHibernationController {
     private static func snapshotOutcomes(
         for requests: [ConfirmedTeardownRequest]
     ) async -> [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome] {
-        let agents = requests.map { ($0.record.key, $0.record.agent) }
+        let agents = requests.map { ($0.record.key, $0.record.agent, $0.record.processIDs) }
         return await withTaskGroup(
             of: (AgentHibernationPanelKey, AgentHibernationTranscriptGuard.TeardownSnapshotOutcome).self,
             returning: [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome].self
@@ -213,20 +213,34 @@ extension AgentHibernationController {
             var nextAgentIndex = 0
             let initialTaskCount = min(Self.maxConcurrentTeardownSnapshotTasks, agents.count)
             for _ in 0..<initialTaskCount {
-                let (key, agent) = agents[nextAgentIndex]
+                let (key, agent, processIDs) = agents[nextAgentIndex]
                 nextAgentIndex += 1
                 group.addTask(priority: .utility) {
-                    (key, AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent, panelKey: key))
+                    (
+                        key,
+                        AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                            agent: agent,
+                            panelKey: key,
+                            guardedProcessIDs: processIDs
+                        )
+                    )
                 }
             }
             var outcomes: [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome] = [:]
             while let (key, outcome) = await group.next() {
                 outcomes[key] = outcome
                 guard nextAgentIndex < agents.count else { continue }
-                let (nextKey, nextAgent) = agents[nextAgentIndex]
+                let (nextKey, nextAgent, nextProcessIDs) = agents[nextAgentIndex]
                 nextAgentIndex += 1
                 group.addTask(priority: .utility) {
-                    (nextKey, AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: nextAgent, panelKey: nextKey))
+                    (
+                        nextKey,
+                        AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                            agent: nextAgent,
+                            panelKey: nextKey,
+                            guardedProcessIDs: nextProcessIDs
+                        )
+                    )
                 }
             }
             return outcomes
