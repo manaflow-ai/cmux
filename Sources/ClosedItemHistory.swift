@@ -126,11 +126,6 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
-    typealias PermanentRemovalHandler = (
-        _ removedRecords: [ClosedItemHistoryRecord],
-        _ retainedRecords: [ClosedItemHistoryRecord]
-    ) -> Void
-
     static let shared = ClosedItemHistoryStore(
         capacity: nil,
         fileURL: defaultHistoryFileURL()
@@ -141,7 +136,6 @@ final class ClosedItemHistoryStore: ObservableObject {
     private let capacity: Int?
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
-    private let permanentRemovalHandler: PermanentRemovalHandler
     private var didFinishPersistedRecordsLoad: Bool
     private var needsPersistenceAfterPersistedRecordsLoad = false
     private var shouldDiscardPersistedRecordsOnLoad = false
@@ -163,23 +157,16 @@ final class ClosedItemHistoryStore: ObservableObject {
         fileURL: URL? = nil,
         loadPersisted: Bool = true,
         loadsPersistedRecordsSynchronously: Bool = false,
-        persistsRecordsSynchronously: Bool = false,
-        permanentRemovalHandler: @escaping PermanentRemovalHandler = { removed, retained in
-            AgentHookSessionStateWriter.releasePermanentlyRemovedClosedHistoryHibernations(
-                removedRecords: removed,
-                retainedRecords: retained
-            )
-        }
+        persistsRecordsSynchronously: Bool = false
     ) {
         self.capacity = capacity.map { max(1, $0) }
         self.fileURL = fileURL
         self.persistsRecordsSynchronously = persistsRecordsSynchronously
-        self.permanentRemovalHandler = permanentRemovalHandler
         self.didFinishPersistedRecordsLoad = !loadPersisted || fileURL == nil
         if loadPersisted, let fileURL {
             if loadsPersistedRecordsSynchronously {
                 records = Self.loadRecords(fileURL: fileURL)
-                permanentlyRemove(trimToCapacityIfNeeded())
+                trimToCapacityIfNeeded()
                 didFinishPersistedRecordsLoad = true
             } else {
                 loadPersistedRecordsAsync(from: fileURL)
@@ -196,7 +183,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
     @discardableResult func push(_ record: ClosedItemHistoryRecord) -> UUID {
         records.append(record)
-        permanentlyRemove(trimToCapacityIfNeeded())
+        trimToCapacityIfNeeded()
         revision &+= 1
         persistRecords()
         return record.id
@@ -254,19 +241,17 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
         records.insert(record, at: min(max(0, index), records.count))
-        var removedRecords: [ClosedItemHistoryRecord] = []
         if let capacity, records.count > capacity {
             let protectedRecordId = record.id
             let overflow = records.count - capacity
             for _ in 0..<overflow {
                 guard let removalIndex = records.firstIndex(where: { $0.id != protectedRecordId }) else {
-                    removedRecords.append(records.removeFirst())
+                    records.removeFirst()
                     continue
                 }
-                removedRecords.append(records.remove(at: removalIndex))
+                records.remove(at: removalIndex)
             }
         }
-        permanentlyRemove(removedRecords)
         revision &+= 1
         persistRecords()
     }
@@ -358,24 +343,14 @@ final class ClosedItemHistoryStore: ObservableObject {
         if !didFinishPersistedRecordsLoad {
             shouldDiscardPersistedRecordsOnLoad = true
         }
-        let removedRecords = records
         records.removeAll(keepingCapacity: false)
-        permanentlyRemove(removedRecords)
         revision &+= 1
         persistRecords()
     }
 
-    private func trimToCapacityIfNeeded() -> [ClosedItemHistoryRecord] {
-        guard let capacity, records.count > capacity else { return [] }
-        let overflow = records.count - capacity
-        let removedRecords = Array(records.prefix(overflow))
-        records.removeFirst(overflow)
-        return removedRecords
-    }
-
-    private func permanentlyRemove(_ removedRecords: [ClosedItemHistoryRecord]) {
-        guard !removedRecords.isEmpty else { return }
-        permanentRemovalHandler(removedRecords, records)
+    private func trimToCapacityIfNeeded() {
+        guard let capacity, records.count > capacity else { return }
+        records.removeFirst(records.count - capacity)
     }
 
     private func persistRecords() {
@@ -446,7 +421,6 @@ final class ClosedItemHistoryStore: ObservableObject {
             }
         } else {
             pendingPersistedRecordMutations.removeAll(keepingCapacity: false)
-            permanentRemovalHandler(loadedRecords, records)
         }
         didFinishPersistedRecordsLoad = true
         shouldDiscardPersistedRecordsOnLoad = false
@@ -609,7 +583,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             guard !missingLoadedRecords.isEmpty else { return }
             records = missingLoadedRecords + records
         }
-        permanentlyRemove(trimToCapacityIfNeeded())
+        trimToCapacityIfNeeded()
         revision &+= 1
     }
 
