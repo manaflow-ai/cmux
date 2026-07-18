@@ -25,12 +25,14 @@ extension BrowserPanel {
 
     func makeReplacementWebView(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        baseConfiguration: WKWebViewConfiguration? = nil
     ) -> CmuxWebView {
         let replacement = Self.makeWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore,
-            browserServices: browserServices
+            browserServices: browserServices,
+            baseConfiguration: baseConfiguration
         )
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)

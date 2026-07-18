@@ -2745,6 +2745,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserViewportHostRestorationPending = false
     var websiteDataStore: WKWebsiteDataStore
     let browserServices: BrowserServices?
+    private var webExtensionPageBaseURL: URL?
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
@@ -3351,6 +3352,9 @@ final class BrowserPanel: Panel, ObservableObject {
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar() ?? restoreURL?.absoluteString
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
+        let extensionPageConfiguration = restoreURL.flatMap {
+            webExtensionPageConfiguration(for: $0)
+        }
 
         clearBrowserFocusMode(reason: "webViewDiscard")
         invalidateSearchFocusRequests(reason: "webViewDiscard")
@@ -3374,8 +3378,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = makeReplacementWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            baseConfiguration: extensionPageConfiguration?.configuration
         )
+        webExtensionPageBaseURL = extensionPageConfiguration?.baseURL
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
@@ -3595,9 +3601,10 @@ final class BrowserPanel: Panel, ObservableObject {
     static func makeWebView(
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore? = nil,
-        browserServices: BrowserServices? = nil
+        browserServices: BrowserServices? = nil,
+        baseConfiguration: WKWebViewConfiguration? = nil
     ) -> CmuxWebView {
-        let config = WKWebViewConfiguration()
+        let config = baseConfiguration ?? WKWebViewConfiguration()
         configureWebViewConfiguration(
             config,
             profileID: profileID,
@@ -5127,7 +5134,10 @@ final class BrowserPanel: Panel, ObservableObject {
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,
         reason: String,
-        waitForManualRecovery: Bool = false
+        waitForManualRecovery: Bool = false,
+        baseConfiguration: WKWebViewConfiguration? = nil,
+        navigationOverride: URL? = nil,
+        preserveNavigationHistory: Bool = true
     ) {
         guard oldWebView === webView else { return }
 
@@ -5135,11 +5145,18 @@ final class BrowserPanel: Panel, ObservableObject {
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
             ?? navigationDelegate?.lastAttemptedURL
         let liveURL = restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
-        let restoreURL = (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
+        let restoreURL = navigationOverride
+            ?? (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
             ?? liveURL
             ?? attemptedURL
             ?? resolvedCurrentSessionHistoryURL()
         let restoreURLString = restoreURL?.absoluteString
+        let extensionPageConfiguration = restoreURL.flatMap {
+            webExtensionPageConfiguration(for: $0)
+        }
+        let effectiveBaseConfiguration = baseConfiguration
+            ?? extensionPageConfiguration?.configuration
+        webExtensionPageBaseURL = extensionPageConfiguration?.baseURL
         let hasRecoveryTarget = restoreURLString != nil && restoreURLString != blankURLString
         let shouldRestoreURL = wasRenderable && hasRecoveryTarget
         let shouldShowManualRecovery = waitForManualRecovery && wasRenderable && hasRecoveryTarget
@@ -5183,7 +5200,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = makeReplacementWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            baseConfiguration: effectiveBaseConfiguration
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -5196,7 +5214,8 @@ final class BrowserPanel: Panel, ObservableObject {
         bindWebView(replacement)
         applyBrowserThemeModeIfNeeded()
 
-        if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {
+        if preserveNavigationHistory
+            && (!history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty) {
             restoreSessionNavigationHistory(
                 backHistoryURLStrings: history.backHistoryURLStrings,
                 forwardHistoryURLStrings: history.forwardHistoryURLStrings,
@@ -5737,8 +5756,51 @@ final class BrowserPanel: Panel, ObservableObject {
 
     // MARK: - Navigation
 
+    private func webExtensionPageConfiguration(
+        for url: URL
+    ) -> (baseURL: URL, configuration: WKWebViewConfiguration)? {
+        guard #available(macOS 15.4, *) else { return nil }
+        return browserServices?.webExtensionPageConfiguration(
+            for: url,
+            profileID: profileID
+        )
+    }
+
+    private func replaceWebViewConfigurationIfNeeded(
+        for url: URL,
+        recordTypedNavigation: Bool
+    ) -> Bool {
+        let extensionPageConfiguration = webExtensionPageConfiguration(for: url)
+        let targetBaseURL = extensionPageConfiguration?.baseURL
+        guard targetBaseURL != webExtensionPageBaseURL else { return false }
+
+        // A WebExtension page must use its context-owned configuration. A tab
+        // leaving an extension origin must return to the normal profile
+        // configuration. WebKit rejects either URL in the other configuration.
+        shouldRenderWebView = true
+        currentURL = url
+        if recordTypedNavigation {
+            historyStore.recordTypedNavigation(url: url)
+        }
+        replaceWebViewPreservingState(
+            from: webView,
+            websiteDataStore: websiteDataStore,
+            reason: "web_extension_origin_change",
+            baseConfiguration: extensionPageConfiguration?.configuration,
+            navigationOverride: url,
+            preserveNavigationHistory: false
+        )
+        return true
+    }
+
     /// Navigate to a URL
     func navigate(to url: URL, recordTypedNavigation: Bool = false) {
+        if replaceWebViewConfigurationIfNeeded(
+            for: url,
+            recordTypedNavigation: recordTypedNavigation
+        ) {
+            return
+        }
         let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
             presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)

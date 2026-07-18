@@ -812,6 +812,23 @@ final class BrowserWebExtensionsManager: NSObject {
         }
     }
 
+    func pageConfiguration(
+        for url: URL
+    ) -> (baseURL: URL, configuration: WKWebViewConfiguration)? {
+        guard let context = loadedContexts.first(where: {
+            Self.sameOrigin(url, $0.baseURL)
+        }), let configuration = context.webViewConfiguration else {
+            return nil
+        }
+        return (context.baseURL, configuration)
+    }
+
+    private static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.scheme?.caseInsensitiveCompare(rhs.scheme ?? "") == .orderedSame
+            && lhs.host?.caseInsensitiveCompare(rhs.host ?? "") == .orderedSame
+            && lhs.port == rhs.port
+    }
+
     private func popupWebViewIdentifier(for context: WKWebExtensionContext) -> String {
         "popup:\(context.uniqueIdentifier)"
     }

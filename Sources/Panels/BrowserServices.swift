@@ -181,6 +181,14 @@ final class BrowserServices {
         return payload
     }
 
+    @available(macOS 15.4, *)
+    func webExtensionPageConfiguration(
+        for url: URL,
+        profileID: UUID
+    ) -> (baseURL: URL, configuration: WKWebViewConfiguration)? {
+        webExtensionsManager(for: profileID).pageConfiguration(for: url)
+    }
+
     func performWebExtensionAction(
         matching identifier: String,
         panelID: UUID,
