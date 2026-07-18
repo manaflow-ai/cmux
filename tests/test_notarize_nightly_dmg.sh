@@ -53,11 +53,12 @@ case "${1:-}" in
     cp -R "$CMUX_TEST_SOURCE_APP" "$mount_dir/cmux NIGHTLY.app"
     ;;
   detach)
-    if [ ! -f "$CMUX_TEST_DETACH_STATE" ]; then
+    if [ "${2:-}" != "-force" ] && [ ! -f "$CMUX_TEST_DETACH_STATE" ]; then
       : > "$CMUX_TEST_DETACH_STATE"
       exit 16
     fi
-    find "${2:?mount path required}" -mindepth 1 -delete
+    mount_dir="${@: -1}"
+    find "$mount_dir" -mindepth 1 -delete
     ;;
 esac
 EOF
@@ -132,8 +133,9 @@ for expected in \
     exit 1
   fi
 done
-if [ "$(grep -c '^hdiutil detach ' "$LOG")" -ne 2 ]; then
-  echo "FAIL: transient busy DMG detach must be retried" >&2
+if [ "$(grep -c '^hdiutil detach ' "$LOG")" -ne 2 ] \
+  || ! grep -Fq "hdiutil detach -force $TMP_DIR/cmux-nightly-mount" "$LOG"; then
+  echo "FAIL: busy DMG detach must fall back to forced cleanup" >&2
   exit 1
 fi
 if [ ! -f "$IMMUTABLE" ] || ! cmp -s "$DMG" "$IMMUTABLE"; then

@@ -699,7 +699,7 @@ check_dmg_signing_uses_build_keychain() {
     fi
   done
 
-  if grep -Fq -- '--identity="$APPLE_SIGNING_IDENTITY"' "$release_workflow"; then
+  if grep -Eq -- '--identity([=[:space:]]|$)' "$release_workflow"; then
     echo "FAIL: release.yml must not let create-dmg codesign outside build.keychain"
     exit 1
   fi
