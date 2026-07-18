@@ -8,7 +8,7 @@ The bundled production binary has no default Cargo features. It includes only `r
 
 The stdio transport accepts one request of at most 1 MiB and requires EOF within 10 seconds. Timeout, oversized, and malformed envelopes return a typed failure with ID `__cmux_untrusted_request__`, because no caller-supplied request ID is trusted until the complete envelope parses.
 
-Rust is a required macOS build dependency. `rust-toolchain.toml` pins Rust 1.88.0, including both Apple targets. Every setup, CI, generation, benchmark, and Xcode command runs Cargo through that exact rustup toolchain with `--locked`. Release builds use size optimization, fat LTO, one codegen unit, symbol stripping, isolated per-architecture target directories, and `MACOSX_DEPLOYMENT_TARGET=14.0`.
+Rust is a required macOS build dependency. `rust-toolchain.toml` pins Rust 1.97.1, including both Apple targets. Every setup, CI, generation, benchmark, and Xcode command runs Cargo through that exact rustup toolchain with `--locked`. Release builds use size optimization, fat LTO, one codegen unit, symbol stripping, isolated per-architecture target directories, and `MACOSX_DEPLOYMENT_TARGET=14.0`.
 
 `scripts/build-diff-sidecar.sh` creates the requested slices and combines them with `lipo`. `scripts/verify-diff-sidecar-artifact.sh` executes the handshake and rejects missing slices, non-system dynamic dependencies, a deployment target other than macOS 14.0, linkable symbols, invalid executable permissions, or a binary larger than 5 MiB. Release signing runs the same check again and requires a valid code signature.
 

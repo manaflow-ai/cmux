@@ -556,6 +556,14 @@ fn append_added_file(
     let line_count = content.lines().count();
     let old_a = git_prefixed_path("a/", path);
     let new_b = git_prefixed_path("b/", path);
+    if content.is_empty() {
+        write!(
+            output,
+            "diff --git {old_a} {new_b}\nnew file mode 100644\nindex 0000000..e69de29\n"
+        )
+        .map_err(|_| TrajectoryError::Invalid)?;
+        return ensure_patch_limit(output);
+    }
     write!(
         output,
         "diff --git {old_a} {new_b}\nnew file mode 100644\n--- /dev/null\n+++ {new_b}\n@@ -0,0 +1,{line_count} @@\n"

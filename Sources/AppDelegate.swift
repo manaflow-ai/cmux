@@ -6195,7 +6195,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 agentProvider
             )
         }
-        return (fallbackCwd, false, nil, nil)
+        let cwd = preferAgentContext
+            ? normalizedOpenDiffViewerPath(agentWorkingDirectory) ?? fallbackCwd
+            : fallbackCwd
+        return (cwd, false, nil, nil)
     }
 
     nonisolated static func normalizedOpenDiffViewerSessionId(_ value: String?) -> String? {
