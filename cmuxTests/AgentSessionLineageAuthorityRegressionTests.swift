@@ -71,4 +71,18 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(authority.restoreAuthority)
         #expect(authority.evidence == .verifiedForkRoot)
     }
+
+    @Test func inheritedForkMetadataCannotOverrideAmbiguousAncestry() {
+        let authority = AgentHookSessionAuthorityPolicy().classify(
+            managedChild: false,
+            explicitRelationship: .forked,
+            processIdentityAvailable: true,
+            hasAgentAncestor: false,
+            ancestryProvenAbsent: false
+        )
+
+        #expect(authority.relationship == .spawned)
+        #expect(authority.restoreAuthority == false)
+        #expect(authority.evidence == .provisionalAmbiguousChild)
+    }
 }

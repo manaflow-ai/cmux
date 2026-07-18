@@ -4,6 +4,19 @@ import Testing
 
 @Suite(.serialized)
 struct AgentNotificationOwnershipRegressionTests {
+    @Test func debugEnvironmentCannotPromoteAManagedChild() {
+        let cli = CMUXCLI(args: [])
+
+        #expect(cli.shouldSuppressNestedAgentVisibleMutations(
+            currentAgentPID: nil,
+            agentName: "codex",
+            env: [
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_TEST_AGENT_ROOT_VISIBLE_MUTATIONS": "1",
+            ]
+        ))
+    }
+
     @Test func managedCodexStopCanNotifyWithoutTakingVisibleOwnership() throws {
         let result = try runManagedCodexHook(
             name: "codex-child-stop-opt-in",
