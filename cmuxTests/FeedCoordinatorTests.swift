@@ -10,6 +10,41 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test func feedJumpResolverKeepsHyphenatedProviderIdentity() {
+        #expect(
+            FeedJumpResolver.parse(
+                "hermes-agent-session-123",
+                source: "hermes-agent"
+            )?.agent == "hermes-agent"
+        )
+        #expect(
+            FeedJumpResolver.parse(
+                "hermes-agent-session-123",
+                source: "hermes-agent"
+            )?.sessionId == "session-123"
+        )
+
+        // Socket callers carry only the composite workstream id. They must
+        // still prefer the longest registered provider prefix rather than
+        // splitting `hermes-agent` at its first dash.
+        #expect(
+            FeedJumpResolver.parse("hermes-agent-session-123")?.agent == "hermes-agent"
+        )
+        #expect(
+            FeedJumpResolver.parse("hermes-agent-session-123")?.sessionId == "session-123"
+        )
+    }
+
+    @Test func feedJumpResolverRejectsMismatchedExplicitProvider() {
+        #expect(
+            FeedJumpResolver.parse(
+                "codex-session-123",
+                source: "hermes-agent"
+            )?.agent == nil
+        )
+        #expect(FeedJumpResolver.parse("hermes-agent-")?.agent == nil)
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 
