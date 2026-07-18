@@ -51,6 +51,62 @@ extension CMUXCLIErrorOutputRegressionTests {
         )?.sessions[sessionID] != nil)
     }
 
+    @Test func restoreLoaderRejectsPartiallyDecodableRegistrySnapshot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-restore-partial-registry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacyURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let legacySessionID = "legacy-complete"
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [legacySessionID: [
+                "sessionId": legacySessionID,
+                "workspaceId": "11111111-1111-1111-1111-111111111111",
+                "surfaceId": "22222222-2222-2222-2222-222222222222",
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+        ]).write(to: legacyURL, options: .atomic)
+        let environment = ["CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path]
+        let decoder = JSONDecoder()
+        #expect(RestorableAgentHookSessionStoreFile.load(
+            provider: "codex", legacyURL: legacyURL, environment: environment,
+            fileManager: .default, decoder: decoder
+        )?.sessions[legacySessionID] != nil)
+
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let registryOnlySessionID = "registry-only"
+        let registryOnlyRecord = try JSONSerialization.data(withJSONObject: [
+            "sessionId": registryOnlySessionID,
+            "workspaceId": "33333333-3333-3333-3333-333333333333",
+            "surfaceId": "44444444-4444-4444-4444-444444444444",
+            "startedAt": 300.0,
+            "updatedAt": 400.0,
+        ])
+        try registry.apply(provider: "codex", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex", sessionID: registryOnlySessionID,
+                updatedAt: 400, json: registryOnlyRecord
+            ),
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex", sessionID: "malformed",
+                updatedAt: 500, json: Data("{}".utf8)
+            ),
+        ])
+
+        let loaded = RestorableAgentHookSessionStoreFile.load(
+            provider: "codex", legacyURL: legacyURL, environment: environment,
+            fileManager: .default, decoder: decoder
+        )
+        #expect(loaded?.sessions[legacySessionID] != nil)
+        #expect(
+            loaded?.sessions[registryOnlySessionID] == nil,
+            "One malformed registry record must reject the entire projection instead of returning partial state."
+        )
+    }
+
     @Test func appRestoreLoaderHonorsExplicitAgentRegistryPath() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-explicit-registry-\(UUID().uuidString)", isDirectory: true)
