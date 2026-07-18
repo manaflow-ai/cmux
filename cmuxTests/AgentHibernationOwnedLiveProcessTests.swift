@@ -266,8 +266,41 @@ struct AgentHibernationOwnedLiveProcessTests {
     func loaderMarksOnlyScopedLiveHookPIDAsAuthoritative() throws {
         let fixture = try hookFixture(sessionId: "pure-hook", pid: pid)
         defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let childPID = pid + 1
         let identity = processIdentity(startSeconds: 100)
+        let childIdentity = processIdentity(pid: childPID, startSeconds: 100)
 
+        let index = loadIndex(
+            fixture: fixture,
+            scopedProcessIDsByPanel: [fixture.key: [pid, childPID]],
+            processArgumentsProvider: { requestedPID in
+                requestedPID == self.pid ? self.scopedOpenCodeProcess(fixture: fixture) : nil
+            },
+            processIdentityProvider: { requestedPID in
+                requestedPID == self.pid ? identity : (requestedPID == childPID ? childIdentity : nil)
+            }
+        )
+        let entry = try #require(index.entry(
+            workspaceId: fixture.key.workspaceId,
+            panelId: fixture.key.panelId
+        ))
+
+        #expect(entry.hasHookRestoreAuthority)
+        #expect(entry.processIDs == [pid, childPID])
+        #expect(entry.processIdentities == [pid: identity, childPID: childIdentity])
+        #expect(
+            AgentHibernationLiveProcessEvidence.resolve(
+                observation: entry,
+                agent: entry.snapshot
+            ).ownership == .ownedIdleRestorableSession
+        )
+    }
+
+    @Test
+    func liveHookWithoutFullScopedTreeCorroborationFailsClosed() throws {
+        let fixture = try hookFixture(sessionId: "hook-without-tree", pid: pid)
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let identity = processIdentity(startSeconds: 100)
         let index = loadIndex(
             fixture: fixture,
             processArgumentsProvider: { requestedPID in
@@ -281,16 +314,14 @@ struct AgentHibernationOwnedLiveProcessTests {
             workspaceId: fixture.key.workspaceId,
             panelId: fixture.key.panelId
         ))
-
-        #expect(entry.hasHookRestoreAuthority)
-        #expect(entry.processIDs == [pid])
-        #expect(entry.processIdentities == [pid: identity])
-        #expect(
-            AgentHibernationLiveProcessEvidence.resolve(
-                observation: entry,
-                agent: entry.snapshot
-            ).ownership == .ownedIdleRestorableSession
+        let evidence = AgentHibernationLiveProcessEvidence.resolve(
+            observation: entry,
+            agent: entry.snapshot
         )
+
+        #expect(!entry.hasHookRestoreAuthority)
+        #expect(evidence.ownership == .unverified)
+        #expect(!evidence.allowsHibernation)
     }
 
     @Test
@@ -425,16 +456,49 @@ struct AgentHibernationOwnedLiveProcessTests {
         let childPID = pid_t(pid + 1)
         var signaled: [(pid_t, Int32)] = []
 
-        AgentHibernationController.signalValidatedProcessIDsForHibernation(
+        let succeeded = AgentHibernationController.signalValidatedProcessIDsForHibernation(
             [pid_t(pid), childPID],
             signal: { target, signal in
                 signaled.append((target, signal))
                 return 0
-            }
+            },
+            errorCode: { 0 }
         )
 
+        #expect(succeeded)
         #expect(signaled.map(\.0) == [pid_t(pid), childPID])
         #expect(signaled.allSatisfy { $0.0 > 0 && $0.1 == SIGTERM })
+    }
+
+    @Test
+    func terminationRejectsSignalFailuresButAcceptsExitedIdentityRace() {
+        for failure in [EPERM, EINVAL] {
+            var signaled: [pid_t] = []
+            let succeeded = AgentHibernationController.signalValidatedProcessIDsForHibernation(
+                [pid_t(pid), pid_t(pid + 1)],
+                signal: { target, _ in
+                    signaled.append(target)
+                    return -1
+                },
+                errorCode: { failure }
+            )
+
+            #expect(!succeeded)
+            #expect(signaled == [pid_t(pid)])
+        }
+
+        var signaledAfterExit: [pid_t] = []
+        let exitedRaceSucceeded = AgentHibernationController.signalValidatedProcessIDsForHibernation(
+            [pid_t(pid), pid_t(pid + 1)],
+            signal: { target, _ in
+                signaledAfterExit.append(target)
+                return target == pid_t(self.pid) ? -1 : 0
+            },
+            errorCode: { ESRCH }
+        )
+
+        #expect(exitedRaceSucceeded)
+        #expect(signaledAfterExit == [pid_t(pid), pid_t(pid + 1)])
     }
 
     private func snapshot(sessionId: String) -> SessionRestorableAgentSnapshot {
@@ -529,6 +593,7 @@ struct AgentHibernationOwnedLiveProcessTests {
     private func loadIndex(
         fixture: HookFixture,
         detected: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] = [:],
+        scopedProcessIDsByPanel: [RestorableAgentSessionIndex.PanelKey: Set<Int>] = [:],
         processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = { _ in nil },
         processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity?
     ) -> RestorableAgentSessionIndex {
@@ -537,6 +602,7 @@ struct AgentHibernationOwnedLiveProcessTests {
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: detected,
+            scopedProcessIDsByPanel: scopedProcessIDsByPanel,
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )
