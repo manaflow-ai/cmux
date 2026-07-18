@@ -89,12 +89,12 @@ impl TrajectoryRoots {
         hook_state_dir: Option<&str>,
         claude_hook_state_path: Option<&str>,
     ) -> Self {
-        self.hook_state_dir = hook_state_dir
-            .filter(|value| !value.is_empty())
-            .map(|path| expand_home(Path::new(path), &self.home));
-        self.claude_hook_state_path = claude_hook_state_path
-            .filter(|value| !value.is_empty())
-            .map(|path| expand_home(Path::new(path), &self.home));
+        if let Some(path) = hook_state_dir.filter(|value| !value.is_empty()) {
+            self.hook_state_dir = Some(expand_home(Path::new(path), &self.home));
+        }
+        if let Some(path) = claude_hook_state_path.filter(|value| !value.is_empty()) {
+            self.claude_hook_state_path = Some(expand_home(Path::new(path), &self.home));
+        }
         self
     }
 
@@ -2008,6 +2008,33 @@ mod environment_tests {
         assert_eq!(
             roots.hook_store(AgentProvider::Codex),
             PathBuf::from("/tmp/cmux-home/generic-hook-state/codex-hook-sessions.json")
+        );
+    }
+
+    #[test]
+    fn token_hook_overrides_replace_only_values_the_token_authorizes() {
+        let values = HashMap::from([
+            ("HOME", OsString::from("/tmp/cmux-home")),
+            (
+                "CMUX_AGENT_HOOK_STATE_DIR",
+                OsString::from("~/process-hook-state"),
+            ),
+            (
+                "CMUX_CLAUDE_HOOK_STATE_PATH",
+                OsString::from("~/claude/process.json"),
+            ),
+        ]);
+        let roots = TrajectoryRoots::from_environment_values(|key| values.get(key).cloned())
+            .expect("resolve fixture environment")
+            .with_hook_state_overrides(Some("~/token-hook-state"), None);
+
+        assert_eq!(
+            roots.hook_store(AgentProvider::Codex),
+            PathBuf::from("/tmp/cmux-home/token-hook-state/codex-hook-sessions.json")
+        );
+        assert_eq!(
+            roots.hook_store(AgentProvider::Claude),
+            PathBuf::from("/tmp/cmux-home/claude/process.json")
         );
     }
 
