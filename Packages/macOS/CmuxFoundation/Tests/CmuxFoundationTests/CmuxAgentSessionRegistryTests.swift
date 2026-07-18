@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import CmuxFoundation
 
@@ -119,16 +120,35 @@ struct CmuxAgentSessionRegistryTests {
         #expect(elapsed < .seconds(1))
     }
 
+    @Test("WAL snapshots stay readable while another connection owns the writer lock")
+    func snapshotDoesNotJoinWriterContention() throws {
+        let fixture = try Fixture(busyTimeoutMilliseconds: 10)
+        try fixture.registry.apply(provider: "codex", records: [
+            try fixture.record(sessionID: "committed", updatedAt: 1, generation: 1),
+        ])
+
+        var database: OpaquePointer?
+        #expect(sqlite3_open(fixture.registry.url.path, &database) == SQLITE_OK)
+        let writer = try #require(database)
+        defer { sqlite3_close(writer) }
+        #expect(sqlite3_exec(writer, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(writer, "ROLLBACK", nil, nil, nil) }
+
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        #expect(snapshot.records.map(\.sessionID) == ["committed"])
+    }
+
     private struct Fixture {
         let directory: URL
         let registry: CmuxAgentSessionRegistry
 
-        init() throws {
+        init(busyTimeoutMilliseconds: Int32 = 100) throws {
             directory = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-agent-registry-tests-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             registry = CmuxAgentSessionRegistry(
-                url: directory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+                url: directory.appendingPathComponent(CmuxAgentSessionRegistry.filename),
+                busyTimeoutMilliseconds: busyTimeoutMilliseconds
             )
         }
 
