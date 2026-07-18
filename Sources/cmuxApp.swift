@@ -54,6 +54,9 @@ struct cmuxApp: App {
     /// through it via the `@LiveSetting` property wrapper.
     private let settingsRuntime: SettingsRuntime
 
+    /// Single owner of the independently launched Computer Use helper daemon.
+    private let computerUseRuntimeService: ComputerUseRuntimeService
+
     /// The de-singletonized auth graph (shared AuthCoordinator + the macOS
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
@@ -160,6 +163,19 @@ struct cmuxApp: App {
 
         Self.configureGhosttyEnvironment()
         StartupBreadcrumbLog.append("app.init.ghosttyEnvironment.configured")
+        let computerUsePaths = ComputerUseRuntimePaths()
+        setenv(
+            ComputerUseRuntimePaths.daemonSocketEnvironmentKey,
+            computerUsePaths.daemonSocketURL.path,
+            1
+        )
+        setenv(
+            ComputerUseRuntimePaths.stateDirectoryEnvironmentKey,
+            computerUsePaths.stateDirectoryURL.path,
+            1
+        )
+        let computerUseRuntimeService = ComputerUseRuntimeService(paths: computerUsePaths)
+        self.computerUseRuntimeService = computerUseRuntimeService
         _ = KeyboardShortcutSettings.settingsFileStore
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.loaded")
 
@@ -179,7 +195,10 @@ struct cmuxApp: App {
                 coordinator: authComposition.coordinator,
                 browserSignIn: authComposition.browserSignIn
             ),
-            hostActions: HostSettingsActions(configFileURL: configFileURL)
+            hostActions: HostSettingsActions(
+                configFileURL: configFileURL,
+                computerUseRuntimeService: computerUseRuntimeService
+            )
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
 
@@ -228,7 +247,8 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
-            auth: authComposition
+            auth: authComposition,
+            computerUseRuntimeService: computerUseRuntimeService
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }

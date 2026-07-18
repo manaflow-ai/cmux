@@ -5,11 +5,10 @@ public struct ComputerUseCatalogSection: SettingCatalogSection {
     /// Whether newly spawned terminals allow the agent wrappers to attach the local computer-use MCP server.
     ///
     /// On by default so an agent already has the computer-use tools the moment a
-    /// user asks it to drive the machine. This does not prompt for anything at
-    /// launch: the tools stay dormant until actually invoked, and the first
-    /// tool call presents cmux's onboarding if a required permission is missing.
-    /// The bundled driver stays in cmux's responsibility chain, so macOS grants
-    /// Accessibility and Screen Recording to cmux rather than a helper identity.
+    /// user asks it to drive the machine. cmux eagerly starts the standalone
+    /// helper without prompting; the first tool call presents onboarding when a
+    /// required permission is missing. Accessibility and Screen Recording belong
+    /// only to that helper identity, never to the main cmux process.
     public let enabled = JSONKey<Bool>(
         id: "computerUse.enabled",
         defaultValue: true

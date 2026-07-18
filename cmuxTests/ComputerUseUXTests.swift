@@ -191,7 +191,7 @@ struct ComputerUseUXTests {
 
     @Test @MainActor func onboardingCreatesFreshWindowAndRootForEveryRun() {
         let controller = ComputerUseOnboardingWindowController(
-            permissionService: ComputerUsePermissionService()
+            runtimeService: ComputerUseRuntimeService()
         )
         let first = controller.makeWindow()
         let second = controller.makeWindow()
@@ -210,7 +210,7 @@ struct ComputerUseUXTests {
 
     @Test @MainActor func onboardingWindowUsesOnlyExplicitHeaderDragRegion() {
         let controller = ComputerUseOnboardingWindowController(
-            permissionService: ComputerUsePermissionService()
+            runtimeService: ComputerUseRuntimeService()
         )
         let window = controller.makeWindow()
         defer { window.close() }

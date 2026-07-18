@@ -18,7 +18,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
-    private let computerUsePermissionService = ComputerUsePermissionService()
+    private let computerUseRuntimeService: ComputerUseRuntimeService
     private var runComputerUseOnboardingAction: @MainActor () -> Void = {}
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
@@ -46,8 +46,12 @@ final class HostSettingsActions: SettingsHostActions {
     private var configWindow: NSWindow?
     private var configWindowCloseObserver: WindowCloseObserver?
 
-    init(configFileURL: URL) {
+    init(
+        configFileURL: URL,
+        computerUseRuntimeService: ComputerUseRuntimeService
+    ) {
         self.configFileURL = configFileURL
+        self.computerUseRuntimeService = computerUseRuntimeService
         startObservingAppIconMode()
     }
 
@@ -108,30 +112,32 @@ final class HostSettingsActions: SettingsHostActions {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
     }
 
-    func refreshComputerUsePermissions() async {}
+    func refreshComputerUsePermissions() async {
+        _ = await computerUseRuntimeService.refreshHelperStatus()
+    }
 
     func computerUseAccessibilityGranted() -> Bool {
-        computerUsePermissionService.accessibilityGranted()
+        computerUseRuntimeService.status().accessibility
     }
 
     func computerUseScreenRecordingGranted() -> Bool {
-        computerUsePermissionService.screenRecordingGranted()
+        computerUseRuntimeService.status().screenRecording
     }
 
     func requestComputerUseAccessibility() {
-        computerUsePermissionService.requestAccessibility()
+        computerUseRuntimeService.requestAccessibility()
     }
 
     func requestComputerUseScreenRecording() {
-        computerUsePermissionService.requestScreenRecording()
+        computerUseRuntimeService.requestScreenRecording()
     }
 
     func openComputerUseAccessibilitySettings() {
-        computerUsePermissionService.openAccessibilitySettings()
+        computerUseRuntimeService.openAccessibilitySettings()
     }
 
     func openComputerUseScreenRecordingSettings() {
-        computerUsePermissionService.openScreenRecordingSettings()
+        computerUseRuntimeService.openScreenRecordingSettings()
     }
 
     func runComputerUseOnboarding() {

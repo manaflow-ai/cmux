@@ -836,16 +836,6 @@ cmux_computer_use_resolve_driver() {
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     bundled_driver="$self_dir/cmux-cua-driver"
     if [[ -x "$bundled_driver" ]]; then
-        # No wrapper-side signature/ownership gate on the bundled path, on
-        # purpose: the wrapper only emits CONFIG here — the MCP client execs
-        # the driver later, so any check-now-exec-later validation is
-        # inherently TOCTOU; a same-UID attacker able to swap the driver can
-        # equally swap this wrapper or the app bundle itself (dev builds are
-        # ad-hoc signed, so a team-identity requirement would also break every
-        # Debug build). Exec-time integrity belongs to OS-level signing/launch
-        # constraints on the app bundle, not shell checks. The trust checks
-        # below exist for the OVERRIDE path because it takes attacker-visible
-        # env input.
         printf '%s' "$bundled_driver"
         return 0
     fi
@@ -936,18 +926,17 @@ cmux_computer_use_config() {
                 ;;
         esac
     done
-    local driver state_dir default_session
+    local driver state_dir default_session cua_socket runtime_scope
     driver="$(cmux_computer_use_resolve_driver)" || return 1
-    state_dir="${HOME}/Library/Application Support/cmux/computer-use/state"
-    # Stable per-terminal session id so the branded agent cursor is auto-active
-    # (embedded anonymous calls resolve to it) and survives driver restarts in
-    # the same surface. Falls back to the caller pid when no surface id is set;
-    # the driver itself further falls back to embedded-<pid> if this is empty.
+    runtime_scope="${CMUX_TAG:-default}"
+    state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state}"
+    cua_socket="${CMUX_CUA_SOCKET_PATH:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/cua-daemon.sock}"
+    # Stable per-terminal session id so the branded agent cursor survives helper
+    # restarts in the same surface.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
-    # Embedded mode keeps the driver in cmux's TCC responsibility chain, so
-    # Accessibility and Screen Recording are granted to cmux itself.
-    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["--embedded"],"env":{"CUA_DRIVER_EMBEDDED":"1","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CUA_DRIVER_RS_MCP_FORCE_PROXY":"1","CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"1","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
         "$(cmux_computer_use_json_escape "$driver")" \
+        "$(cmux_computer_use_json_escape "$cua_socket")" \
         "$(cmux_computer_use_json_escape "$default_session")" \
         "$(cmux_computer_use_json_escape "$state_dir")"
 }

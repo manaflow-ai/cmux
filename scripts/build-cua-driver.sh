@@ -2,7 +2,8 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="4a31b7f8c1db7e53acb698a9d787b2ab9269e5f8"
+CMUX_CUA_PINNED_SHA="c5563085eaf4fad9ddd343db34bf0e969dd1b3b6"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 OUTPUT=""
 ARCHS_RAW=""
@@ -268,12 +269,100 @@ chmod 0755 "$OUTPUT"
 /usr/bin/codesign --force --sign - --timestamp=none "$OUTPUT"
 /usr/bin/codesign --verify --strict "$OUTPUT"
 
-# The driver used to be copied into a separate nested app. Remove that legacy
-# bundle from incremental products so only the embedded cmux-owned binary ships.
+# Package the driver into a branded helper with its own bundle identifier and
+# TCC identity. The helper is copied out of the host bundle before launch; that
+# top-level copy is what macOS shows in Accessibility and Screen Recording.
 _cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd)"
 _cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd || true)"
 if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
-  rm -rf "$_cua_contents/Library/cmux Computer Use.app"
+  HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
+  rm -rf "$HELPER_APP"
+  mkdir -p \
+    "$HELPER_APP/Contents/MacOS" \
+    "$HELPER_APP/Contents/Resources/en.lproj" \
+    "$HELPER_APP/Contents/Resources/ja.lproj"
+  cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/cmux-cua-driver"
+  chmod 0755 "$HELPER_APP/Contents/MacOS/cmux-cua-driver"
+
+  _helper_icon="$REPO_ROOT/Resources/ComputerUseHelperIcon.icns"
+  if [ -f "$_helper_icon" ]; then
+    cp "$_helper_icon" "$HELPER_APP/Contents/Resources/AppIcon.icns"
+  elif [ -f "$_cua_contents/Resources/AppIcon.icns" ]; then
+    cp "$_cua_contents/Resources/AppIcon.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
+  elif [ -f "$_cua_contents/Resources/AppIcon-Debug.icns" ]; then
+    cp "$_cua_contents/Resources/AppIcon-Debug.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
+  fi
+
+  # This build phase runs before Xcode writes the processed host Info.plist.
+  # Prefer exported build settings; reading a missing plist makes PlistBuddy
+  # print "File Doesn't Exist, Will Create" on stdout and corrupts the helper
+  # identity with that message.
+  _host_id="${PRODUCT_BUNDLE_IDENTIFIER:-}"
+  if [ -z "$_host_id" ] && [ -f "$_cua_contents/Info.plist" ]; then
+    _host_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$_cua_contents/Info.plist" 2>/dev/null || true)"
+  fi
+  _host_name="${PRODUCT_NAME:-}"
+  if [ -z "$_host_name" ] && [ -f "$_cua_contents/Info.plist" ]; then
+    _host_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$_cua_contents/Info.plist" 2>/dev/null || true)"
+  fi
+  [ -n "$_host_id" ] || _host_id="com.cmuxterm.app"
+  [ -n "$_host_name" ] || _host_name="cmux"
+  HELPER_ID="${_host_id}.computer-use"
+  HELPER_DISPLAY="${CMUX_CUA_HELPER_DISPLAY_NAME:-${_host_name} Computer Use}"
+  cat > "$HELPER_APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>${HELPER_DISPLAY}</string>
+  <key>CFBundleDisplayName</key><string>${HELPER_DISPLAY}</string>
+  <key>CFBundleIdentifier</key><string>${HELPER_ID}</string>
+  <key>CFBundleExecutable</key><string>cmux-cua-driver</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSUIElement</key><true/>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSEnvironment</key>
+  <dict>
+    <key>CUA_DRIVER_RS_PERMISSIONS_GATE</key><string>0</string>
+    <key>CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW</key><string>1</string>
+    <key>CUA_DRIVER_RS_TELEMETRY_ENABLED</key><string>false</string>
+    <key>CUA_DRIVER_RS_UPDATE_CHECK</key><string>false</string>
+  </dict>
+  <key>NSAccessibilityUsageDescription</key><string>${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>${HELPER_DISPLAY} sees app windows only when you ask an agent to use Computer Use.</string>
+</dict>
+</plist>
+PLIST
+  cat > "$HELPER_APP/Contents/Resources/en.lproj/InfoPlist.strings" <<STRINGS
+"CFBundleDisplayName" = "${HELPER_DISPLAY}";
+"NSAccessibilityUsageDescription" = "${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use.";
+"NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY} sees app windows only when you ask an agent to use Computer Use.";
+STRINGS
+  cat > "$HELPER_APP/Contents/Resources/ja.lproj/InfoPlist.strings" <<STRINGS
+"CFBundleDisplayName" = "${HELPER_DISPLAY}";
+"NSAccessibilityUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合にのみアプリを操作します。";
+"NSScreenCaptureUsageDescription" = "${HELPER_DISPLAY}は、エージェントにComputer Useの使用を依頼した場合にのみアプリのウインドウを表示します。";
+STRINGS
+  /usr/bin/plutil -lint "$HELPER_APP/Contents/Info.plist" >/dev/null
+  # An ad-hoc signature without an explicit designated requirement collapses
+  # to a CDHash-only identity. Privacy & Security records that entry but cannot
+  # resolve it back to the dragged app after the helper is copied, so the row
+  # stays invisible. Give tagged dev helpers a stable bundle-id requirement;
+  # release signing replaces this with its stronger Developer ID requirement.
+  _helper_requirement="=designated => identifier \"${HELPER_ID}\""
+  /usr/bin/codesign \
+    --force \
+    --sign - \
+    --timestamp=none \
+    --identifier "$HELPER_ID" \
+    --requirements "$_helper_requirement" \
+    "$HELPER_APP"
+  /usr/bin/codesign --verify --deep --strict "$HELPER_APP"
+  echo "$HELPER_DISPLAY.app assembled at: $HELPER_APP (id $HELPER_ID)"
 fi
 
 # Launchability probe. Deliberately NOT `doctor --json`: doctor's macOS

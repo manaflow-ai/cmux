@@ -214,16 +214,6 @@ cmux_computer_use_resolve_driver() {
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     bundled_driver="$self_dir/cmux-cua-driver"
     if [[ -x "$bundled_driver" ]]; then
-        # No wrapper-side signature/ownership gate on the bundled path, on
-        # purpose: the wrapper only emits CONFIG here — the MCP client execs
-        # the driver later, so any check-now-exec-later validation is
-        # inherently TOCTOU; a same-UID attacker able to swap the driver can
-        # equally swap this wrapper or the app bundle itself (dev builds are
-        # ad-hoc signed, so a team-identity requirement would also break every
-        # Debug build). Exec-time integrity belongs to OS-level signing/launch
-        # constraints on the app bundle, not shell checks. The trust checks
-        # below exist for the OVERRIDE path because it takes attacker-visible
-        # env input.
         printf '%s' "$bundled_driver"
         return 0
     fi
@@ -246,18 +236,22 @@ cmux_codex_emit_computer_use_args() {
                 ;;
         esac
     done
-    local driver default_session
+    local driver default_session runtime_scope cua_socket state_dir
     driver="$(cmux_computer_use_resolve_driver)" || return 1
-    # Stable per-terminal session id so the branded agent cursor is auto-active
-    # for anonymous embedded calls; driver falls back to embedded-<pid> if empty.
+    # Stable per-terminal session id so the branded cursor survives helper restarts.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
+    runtime_scope="${CMUX_TAG:-default}"
+    cua_socket="${CMUX_CUA_SOCKET_PATH:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/cua-daemon.sock}"
+    state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state}"
     printf '%s\0' \
         "-c" \
         "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$driver")\"" \
         "-c" \
-        'mcp_servers.cmux-computer-use.args=["--embedded"]' \
+        "mcp_servers.cmux-computer-use.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\"]" \
         "-c" \
-        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED="1"' \
+        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_FORCE_PROXY="1"' \
+        "-c" \
+        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1"' \
         "-c" \
         "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
         "-c" \
@@ -271,7 +265,7 @@ cmux_codex_emit_computer_use_args() {
         "-c" \
         "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_LABEL=\"cmux\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_DIR=\"$(cmux_computer_use_json_escape "${HOME}/Library/Application Support/cmux/computer-use/state")\"" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_DIR=\"$(cmux_computer_use_json_escape "$state_dir")\"" \
         "-c" \
         "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=\"\"" \
         "-c" \

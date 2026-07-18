@@ -62,7 +62,10 @@ struct HostSettingsShortcutNotificationTests {
         defer { NotificationCenter.default.removeObserver(observer) }
 
         try updatedContents.write(to: settingsFileURL, atomically: true, encoding: .utf8)
-        HostSettingsActions(configFileURL: settingsFileURL).notifyShortcutSettingsDidChange()
+        HostSettingsActions(
+            configFileURL: settingsFileURL,
+            computerUseRuntimeService: ComputerUseRuntimeService()
+        ).notifyShortcutSettingsDidChange()
 
         #expect(counter.value == expectedNotificationCount)
     }

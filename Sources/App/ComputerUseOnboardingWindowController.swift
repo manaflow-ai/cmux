@@ -7,14 +7,10 @@ final class ComputerUseOnboardingWindowController {
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
 
     private var window: NSWindow?
-    private let permissionService: ComputerUsePermissionService
+    private let runtimeService: ComputerUseRuntimeService
 
-    init() {
-        self.permissionService = ComputerUsePermissionService()
-    }
-
-    init(permissionService: ComputerUsePermissionService) {
-        self.permissionService = permissionService
+    init(runtimeService: ComputerUseRuntimeService) {
+        self.runtimeService = runtimeService
     }
 
     static func shouldPresentAutomatically(
@@ -30,9 +26,9 @@ final class ComputerUseOnboardingWindowController {
 
     var isVisible: Bool { window?.isVisible ?? false }
 
-    func present(startsAtPermissionStep: Bool = false) {
+    func present() {
         window?.close()
-        let window = makeWindow(startsAtPermissionStep: startsAtPermissionStep)
+        let window = makeWindow()
         self.window = window
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces]
@@ -42,10 +38,9 @@ final class ComputerUseOnboardingWindowController {
         window.orderFrontRegardless()
     }
 
-    func makeWindow(startsAtPermissionStep: Bool = false) -> NSWindow {
+    func makeWindow() -> NSWindow {
         let rootView = ComputerUseOnboardingView(
-            permissionService: permissionService,
-            startsAtPermissionStep: startsAtPermissionStep,
+            runtimeService: runtimeService,
             onSystemSettingsOpened: { [weak self] in
                 self?.positionForPermissionSetup()
             },
@@ -57,10 +52,10 @@ final class ComputerUseOnboardingWindowController {
         window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.contentMinSize = NSSize(width: 720, height: 500)
-        window.contentMaxSize = NSSize(width: 720, height: 500)
+        window.contentMinSize = NSSize(width: 760, height: 520)
+        window.contentMaxSize = NSSize(width: 760, height: 520)
         window.isReleasedWhenClosed = false
-        window.isMovableByWindowBackground = true
+        window.isMovableByWindowBackground = false
         window.center()
         return window
     }

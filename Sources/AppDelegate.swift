@@ -784,6 +784,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    private var computerUseRuntimeService: ComputerUseRuntimeService?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -869,13 +870,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastMenuBarExtraShouldInstall: Bool?
     /// App-owned computer-use graph; all runtime dependencies are injected here.
     private lazy var computerUseUXCoordinator: ComputerUseUXCoordinator = {
+        guard let computerUseRuntimeService else {
+            preconditionFailure("ComputerUseRuntimeService must be injected before coordinator use")
+        }
         let catalog = settingsRuntime?.catalog ?? SettingCatalog()
         let configStore = settingsRuntime?.jsonStore
             ?? JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
         return ComputerUseUXCoordinator(
             liveAgentIndex: SharedLiveAgentIndex.shared,
             stateRepository: ComputerUseStateRepository(),
-            stateDirectoryURL: ComputerUseStateRepository.defaultStateDirectory(),
+            stateDirectoryURL: computerUseRuntimeService.stateDirectoryURL,
             configStore: configStore,
             enabledKey: catalog.computerUse.enabled,
             showInMenuBarKey: catalog.computerUse.showInMenuBar,
@@ -884,7 +888,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     homeDirectory: FileManager.default.homeDirectoryForCurrentUser
                 )
             ),
-            permissionService: ComputerUsePermissionService(),
+            runtimeService: computerUseRuntimeService,
             userDefaults: .standard,
             workspaceTitle: { [weak self] workspaceID in
                 self?.tabTitle(for: workspaceID)
@@ -2056,13 +2060,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
-        auth: MacAuthComposition
+        auth: MacAuthComposition,
+        computerUseRuntimeService: ComputerUseRuntimeService
     ) {
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        self.computerUseRuntimeService = computerUseRuntimeService
         (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] in
             self?.computerUseUXCoordinator.presentOnboarding()
         }

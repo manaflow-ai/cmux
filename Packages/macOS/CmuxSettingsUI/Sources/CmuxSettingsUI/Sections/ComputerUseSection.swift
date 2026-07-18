@@ -9,6 +9,7 @@ public struct ComputerUseSection: View {
     @State private var showInMenuBar: JSONValueModel<Bool>
     @State private var accessibilityGranted: Bool
     @State private var screenRecordingGranted: Bool
+    @State private var permissionCheckArmed = false
 
     private let hostActions: SettingsHostActions
 
@@ -62,7 +63,7 @@ public struct ComputerUseSection: View {
                 }
                 SettingsCardDivider()
                 SettingsCardNote(
-                    String(localized: "settings.computerUse.enabled.note", defaultValue: "Computer use runs locally under cmux's macOS permissions. Driver telemetry and update checks are disabled.")
+                    String(localized: "settings.computerUse.enabled.note", defaultValue: "Computer use runs locally in a separate cmux Computer Use helper. Its permissions and restart lifecycle are independent from cmux. Driver telemetry and update checks are disabled.")
                 )
             }
 
@@ -100,12 +101,10 @@ public struct ComputerUseSection: View {
         .task {
             enabled.startObserving()
             showInMenuBar.startObserving()
-            refreshPermissions()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshPermissions()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            guard permissionCheckArmed else { return }
+            permissionCheckArmed = false
             refreshPermissions()
         }
     }
@@ -121,10 +120,8 @@ public struct ComputerUseSection: View {
             permissionControls(
                 granted: accessibilityGranted,
                 request: {
-                    hostActions.requestComputerUseAccessibility()
-                    refreshPermissions()
-                },
-                openSettings: hostActions.openComputerUseAccessibilitySettings
+                    beginPermissionFlow(hostActions.requestComputerUseAccessibility)
+                }
             )
         }
     }
@@ -142,18 +139,15 @@ public struct ComputerUseSection: View {
             permissionControls(
                 granted: screenRecordingGranted,
                 request: {
-                    hostActions.requestComputerUseScreenRecording()
-                    refreshPermissions()
-                },
-                openSettings: hostActions.openComputerUseScreenRecordingSettings
+                    beginPermissionFlow(hostActions.requestComputerUseScreenRecording)
+                }
             )
         }
     }
 
     private func permissionControls(
         granted: Bool,
-        request: @escaping () -> Void,
-        openSettings: @escaping () -> Void
+        request: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 8) {
             Circle()
@@ -168,7 +162,7 @@ public struct ComputerUseSection: View {
             .foregroundStyle(.secondary)
             Button(String(localized: "settings.computerUse.permission.grant", defaultValue: "Grant…"), action: request)
                 .disabled(granted)
-            Button(String(localized: "settings.computerUse.permission.openSystemSettings", defaultValue: "Open System Settings"), action: openSettings)
+            Button(String(localized: "settings.computerUse.permission.openSystemSettings", defaultValue: "Open System Settings"), action: request)
         }
         .controlSize(.small)
     }
@@ -179,5 +173,10 @@ public struct ComputerUseSection: View {
             accessibilityGranted = hostActions.computerUseAccessibilityGranted()
             screenRecordingGranted = hostActions.computerUseScreenRecordingGranted()
         }
+    }
+
+    private func beginPermissionFlow(_ action: () -> Void) {
+        permissionCheckArmed = true
+        action()
     }
 }

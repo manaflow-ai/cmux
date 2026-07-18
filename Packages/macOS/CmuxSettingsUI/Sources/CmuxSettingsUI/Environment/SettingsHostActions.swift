@@ -186,16 +186,16 @@ public protocol SettingsHostActions: AnyObject {
     /// Gives the host a chance to refresh computer-use permission state.
     func refreshComputerUsePermissions() async
 
-    /// Whether cmux currently has Accessibility permission.
+    /// Whether the Computer Use helper currently has Accessibility permission.
     func computerUseAccessibilityGranted() -> Bool
 
-    /// Whether cmux currently has Screen Recording permission.
+    /// Whether the Computer Use helper currently has Screen Recording permission.
     func computerUseScreenRecordingGranted() -> Bool
 
-    /// Requests Accessibility permission through the system trust prompt.
+    /// Starts the helper-owned Accessibility permission flow.
     func requestComputerUseAccessibility()
 
-    /// Requests Screen Recording permission through the system capture prompt.
+    /// Starts the helper-owned Screen Recording permission flow.
     func requestComputerUseScreenRecording()
 
     /// Opens the Accessibility pane in System Settings.

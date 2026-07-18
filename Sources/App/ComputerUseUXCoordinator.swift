@@ -12,19 +12,17 @@ final class ComputerUseUXCoordinator {
     private let enabledKey: JSONKey<Bool>
     private let showInMenuBarKey: JSONKey<Bool>
     private let liveSettingRepository: ComputerUseLiveSettingRepository
-    private let permissionService: ComputerUsePermissionService
-    private let legacyHelperCleanupService: ComputerUseLegacyHelperCleanupService
+    private let runtimeService: ComputerUseRuntimeService
     private let userDefaults: UserDefaults
     private let workspaceTitle: @MainActor (UUID) -> String?
     private let featureEnabled: @MainActor () -> Bool
 
     private var menuBarController: ComputerUseMenuBarController?
-    private var cursorOverlayController: ComputerUseCursorOverlayController?
     private var watchTargetController: ComputerUseWatchTargetController?
     private var onboardingWindowController: ComputerUseOnboardingWindowController?
     private var enabledSettingTask: Task<Void, Never>?
     private var toolInvocationTask: Task<Void, Never>?
-    private var legacyHelperCleanupTask: Task<Void, Never>?
+    private var onboardingGateTask: Task<Void, Never>?
 
     init(
         liveAgentIndex: SharedLiveAgentIndex,
@@ -34,8 +32,7 @@ final class ComputerUseUXCoordinator {
         enabledKey: JSONKey<Bool>,
         showInMenuBarKey: JSONKey<Bool>,
         liveSettingRepository: ComputerUseLiveSettingRepository,
-        permissionService: ComputerUsePermissionService,
-        legacyHelperCleanupService: ComputerUseLegacyHelperCleanupService = ComputerUseLegacyHelperCleanupService(),
+        runtimeService: ComputerUseRuntimeService,
         userDefaults: UserDefaults,
         workspaceTitle: @escaping @MainActor (UUID) -> String?,
         featureEnabled: @escaping @MainActor () -> Bool
@@ -47,8 +44,7 @@ final class ComputerUseUXCoordinator {
         self.enabledKey = enabledKey
         self.showInMenuBarKey = showInMenuBarKey
         self.liveSettingRepository = liveSettingRepository
-        self.permissionService = permissionService
-        self.legacyHelperCleanupService = legacyHelperCleanupService
+        self.runtimeService = runtimeService
         self.userDefaults = userDefaults
         self.workspaceTitle = workspaceTitle
         self.featureEnabled = featureEnabled
@@ -57,7 +53,7 @@ final class ComputerUseUXCoordinator {
     deinit {
         enabledSettingTask?.cancel()
         toolInvocationTask?.cancel()
-        legacyHelperCleanupTask?.cancel()
+        onboardingGateTask?.cancel()
     }
 
     static func isComputerUseToolInvocation(_ event: WorkstreamEvent) -> Bool {
@@ -75,16 +71,14 @@ final class ComputerUseUXCoordinator {
     func install(onFocusTerminal: @escaping @MainActor (UUID, UUID) -> Void) {
         guard menuBarController == nil else { return }
 
-        legacyHelperCleanupTask = Task { [legacyHelperCleanupService] in
-            await legacyHelperCleanupService.cleanup()
-        }
-
         let initialComputerUseEnabled = configStore.snapshotValue(for: enabledKey)
-        enabledSettingTask = Task { [configStore, enabledKey, liveSettingRepository] in
+        enabledSettingTask = Task { [configStore, enabledKey, liveSettingRepository, runtimeService] in
             await liveSettingRepository.setEnabled(initialComputerUseEnabled)
+            await runtimeService.setEnabled(initialComputerUseEnabled)
             for await enabled in configStore.values(for: enabledKey) {
                 guard !Task.isCancelled else { return }
                 await liveSettingRepository.setEnabled(enabled)
+                await runtimeService.setEnabled(enabled)
             }
         }
 
@@ -135,15 +129,9 @@ final class ComputerUseUXCoordinator {
             }
         )
 
-        // Render the branded, click-through cursor overlay whenever the local
-        // driver is steering the pointer. Gated the same way as the menu bar via
-        // `featureEnabled`; the controller hides itself when the feature is off.
-        let cursorOverlay = ComputerUseCursorOverlayController(
-            stateDirectoryURL: stateDirectoryURL,
-            featureEnabled: featureEnabled
-        )
-        cursorOverlay.start()
-        cursorOverlayController = cursorOverlay
+        // The standalone helper owns the native branded cursor. Starting the
+        // host-side feed renderer here would draw a second cursor at the same
+        // time and can leave the previous target visible during the next glide.
 
         // Bring the app the local driver is steering to the front (once per target)
         // so the user watches the automation instead of the cmux-hosted cursor
@@ -163,31 +151,37 @@ final class ComputerUseUXCoordinator {
     func teardown() {
         toolInvocationTask?.cancel()
         toolInvocationTask = nil
-        cursorOverlayController?.stop()
-        cursorOverlayController = nil
         watchTargetController?.stop()
         watchTargetController = nil
     }
 
-    func presentOnboarding(startsAtPermissionStep: Bool = false) {
+    func presentOnboarding() {
         userDefaults.set(true, forKey: ComputerUseOnboardingWindowController.seenDefaultsKey)
         let controller = onboardingWindowController ?? ComputerUseOnboardingWindowController(
-            permissionService: permissionService
+            runtimeService: runtimeService
         )
         onboardingWindowController = controller
-        controller.present(startsAtPermissionStep: startsAtPermissionStep)
+        controller.present()
     }
 
     private func recordToolInvocation(_ event: WorkstreamEvent) {
         guard Self.isComputerUseToolInvocation(event) else { return }
-        let status = permissionService.status()
-        let shouldPresent = ComputerUseOnboardingWindowController.shouldPresentAutomatically(
-            seen: userDefaults.bool(forKey: ComputerUseOnboardingWindowController.seenDefaultsKey),
-            featureEnabled: featureEnabled(),
-            accessibilityGranted: status.accessibility,
-            screenRecordingGranted: status.screenRecording
-        )
-        guard shouldPresent else { return }
-        presentOnboarding(startsAtPermissionStep: true)
+        guard onboardingGateTask == nil else { return }
+        onboardingGateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { onboardingGateTask = nil }
+            // Do not launch a helper status probe before onboarding. On an
+            // ungranted Accessibility identity, even AXIsProcessTrusted() can
+            // create a system warning and race the drag-to-grant flow.
+            let status = runtimeService.status()
+            let shouldPresent = ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+                seen: userDefaults.bool(forKey: ComputerUseOnboardingWindowController.seenDefaultsKey),
+                featureEnabled: featureEnabled(),
+                accessibilityGranted: status.accessibility,
+                screenRecordingGranted: status.screenRecording
+            )
+            guard shouldPresent else { return }
+            presentOnboarding()
+        }
     }
 }

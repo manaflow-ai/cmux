@@ -1068,6 +1068,8 @@ def expect_computer_use_env_scrubbed(
         return
     expected_common = {
         "CUA_DRIVER_DEFAULT_SESSION": "cmux-surface:test",
+        "CUA_DRIVER_RS_MCP_FORCE_PROXY": "1",
+        "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "1",
         "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
         "CUA_DRIVER_RS_UPDATE_CHECK": "false",
         "CUA_DRIVER_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
@@ -1080,28 +1082,13 @@ def expect_computer_use_env_scrubbed(
         expect(env.get(key) == value, f"{context}: expected {key}={value!r}, got {env}", failures)
     state_dir = env.get("CUA_DRIVER_STATE_DIR", "")
     expect(
-        state_dir.endswith("/Library/Application Support/cmux/computer-use/state"),
+        state_dir.endswith("/Library/Application Support/cmux/computer-use/runtime/default/state"),
         f"{context}: unexpected state directory {state_dir!r}",
         failures,
     )
-    if helper_owned:
-        expect("CUA_DRIVER_EMBEDDED" not in env, f"{context}: helper path must not be embedded: {env}", failures)
-        expect(
-            env.get("CUA_DRIVER_RS_PERMISSIONS_GATE") == "0",
-            f"{context}: helper path must disable the independent permission gate: {env}",
-            failures,
-        )
-        helper_app = Path(env.get("CUA_DRIVER_DAEMON_APP", ""))
-        expect(helper_app.name == "cmux Computer Use.app", f"{context}: unexpected helper {helper_app}", failures)
-        expect("CuaDriver" not in str(helper_app), f"{context}: must not expose CuaDriver: {helper_app}", failures)
-    else:
-        expect(env.get("CUA_DRIVER_EMBEDDED") == "1", f"{context}: expected embedded bare override: {env}", failures)
-        expect(
-            "CUA_DRIVER_RS_PERMISSIONS_GATE" not in env,
-            f"{context}: bare override must retain its own permission policy: {env}",
-            failures,
-        )
-        expect("CUA_DRIVER_DAEMON_APP" not in env, f"{context}: bare override must not name a helper: {env}", failures)
+    expect("CUA_DRIVER_EMBEDDED" not in env, f"{context}: computer use must never be embedded: {env}", failures)
+    expect("CUA_DRIVER_RS_PERMISSIONS_GATE" not in env, f"{context}: proxy must not own the daemon gate: {env}", failures)
+    expect("CUA_DRIVER_DAEMON_APP" not in env, f"{context}: proxy must not launch the helper: {env}", failures)
 
 
 def expect_cua_driver_config(
@@ -1123,19 +1110,16 @@ def expect_cua_driver_config(
         failures,
     )
     args = server.get("args", [])
-    if helper_owned:
-        expect(
-            len(args) == 3 and args[:2] == ["mcp", "--socket"],
-            f"{context}: expected helper daemon proxy args, got {config}",
-            failures,
-        )
-        expect(
-            isinstance(command, str) and "cmux Computer Use.app" in Path(command).parts,
-            f"{context}: expected command from branded helper bundle, got {command}",
-            failures,
-        )
-    else:
-        expect(args == ["--embedded"], f"{context}: expected embedded bare override args, got {config}", failures)
+    expect(
+        len(args) == 3 and args[:2] == ["mcp", "--socket"],
+        f"{context}: expected shared daemon proxy args, got {config}",
+        failures,
+    )
+    expect(
+        not isinstance(command, str) or "cmux Computer Use.app" not in Path(command).parts,
+        f"{context}: proxy command must not execute from the helper app, got {command}",
+        failures,
+    )
     expect_computer_use_env_scrubbed(server, failures, context, helper_owned=helper_owned)
 
 
@@ -2417,7 +2401,6 @@ def main() -> int:
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cua_driver_when_available(failures)
     test_computer_use_wrapper_is_a_pure_proxy(failures)
-    test_stale_standalone_helper_identity_is_replaced(failures)
     test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_driver_does_not_require_external_runtime_auth(failures)
     test_computer_use_uses_trusted_cua_driver_override(failures)

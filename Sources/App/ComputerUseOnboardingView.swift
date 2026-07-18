@@ -3,125 +3,170 @@ import SwiftUI
 
 /// Non-blocking, one-permission-at-a-time onboarding for local computer use.
 ///
-/// The bundled driver runs in embedded mode, so both permissions belong to cmux.
-/// Each permission step opens the matching System Settings pane, refreshes when
-/// the user returns, and provides an explicit fallback status check.
+/// Permissions belong to the standalone `cmux Computer Use` helper. Each step
+/// opens the matching System Settings pane, offers the helper as a real file-URL
+/// drag source, and refreshes status from the helper's own TCC identity.
 @MainActor
 struct ComputerUseOnboardingView: View {
-    let permissionService: ComputerUsePermissionService
+    static let initialStep = 0
+
+    let runtimeService: ComputerUseRuntimeService
     let onSystemSettingsOpened: @MainActor () -> Void
     let onClose: () -> Void
 
-    @State private var step = 0
+    @State private var step = Self.initialStep
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var refreshInFlight = false
+    @State private var permissionCheckArmed = false
+    @State private var helperAppURL: URL?
+    @State private var helperIcon: NSImage?
 
     init(
-        permissionService: ComputerUsePermissionService,
-        startsAtPermissionStep: Bool = false,
+        runtimeService: ComputerUseRuntimeService,
         onSystemSettingsOpened: @escaping @MainActor () -> Void = {},
         onClose: @escaping () -> Void
     ) {
-        self.permissionService = permissionService
+        self.runtimeService = runtimeService
         self.onSystemSettingsOpened = onSystemSettingsOpened
         self.onClose = onClose
-        _step = State(initialValue: startsAtPermissionStep ? 1 : 0)
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            mediaPanel
+            progressPanel
             Divider()
             VStack(spacing: 0) {
                 topBar
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 26)
+                    .padding(.horizontal, 36)
+                    .padding(.vertical, 30)
                 Divider()
                 footer
             }
         }
-        .frame(width: 720, height: 500)
-        .onAppear(perform: refreshPermissions)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshPermissions()
+        .frame(width: 760, height: 520)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            prepareHelperForOnboarding()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard permissionCheckArmed else { return }
+            permissionCheckArmed = false
             refreshPermissions()
         }
     }
 
-    private var mediaPanel: some View {
-        ZStack {
+    private var progressPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 13)
+                    .fill(Color.accentColor.gradient)
+                    .frame(width: 48, height: 48)
+                Image(systemName: "cursorarrow.motionlines")
+                    .font(.system(size: 23, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .accessibilityHidden(true)
+            }
+
+            Text(String(
+                localized: "computerUse.onboarding.media.title",
+                defaultValue: "Computer use"
+            ))
+            .font(.title3.weight(.semibold))
+            .padding(.top, 16)
+
+            Text(String(
+                localized: "computerUse.onboarding.media.detail",
+                defaultValue: "Let agents work across apps you choose"
+            ))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 5)
+
+            VStack(spacing: 8) {
+                progressRow(
+                    index: 0,
+                    symbolName: "sparkles",
+                    title: String(
+                        localized: "computerUse.onboarding.overview.short",
+                        defaultValue: "How it works"
+                    )
+                )
+                progressRow(
+                    index: 1,
+                    symbolName: "accessibility",
+                    title: String(
+                        localized: "computerUse.onboarding.accessibility.short",
+                        defaultValue: "Accessibility"
+                    )
+                )
+                progressRow(
+                    index: 2,
+                    symbolName: "rectangle.inset.filled.and.person.filled",
+                    title: String(
+                        localized: "computerUse.onboarding.screenRecording.short",
+                        defaultValue: "Screen Recording"
+                    )
+                )
+            }
+            .padding(.top, 28)
+
+            Spacer()
+
+            Label(
+                String(
+                    localized: "computerUse.onboarding.overview.local",
+                    defaultValue: "Runs locally with separate cmux Computer Use permissions"
+                ),
+                systemImage: "hand.raised.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(26)
+        .frame(width: 220)
+        .background(
             LinearGradient(
                 colors: [
-                    Color.accentColor.opacity(0.18),
-                    Color(nsColor: .controlBackgroundColor),
+                    Color.accentColor.opacity(0.14),
+                    Color(nsColor: .controlBackgroundColor).opacity(0.88),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            VStack(spacing: 0) {
-                Spacer(minLength: 58)
-                ZStack {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.14))
-                        .frame(width: 112, height: 112)
-                    Circle()
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.92))
-                        .frame(width: 84, height: 84)
-                        .shadow(color: Color.black.opacity(0.12), radius: 18, y: 8)
-                    Image(systemName: mediaSymbolName)
-                        .font(.system(size: 38, weight: .medium))
-                        .foregroundStyle(.tint)
-                        .contentTransition(.symbolEffect(.replace))
-                        .accessibilityHidden(true)
-                }
-                .padding(.bottom, 22)
-
-                Text(String(
-                    localized: "computerUse.onboarding.media.title",
-                    defaultValue: "Computer use"
-                ))
-                .font(.title3.weight(.semibold))
-
-                Text(String(
-                    localized: "computerUse.onboarding.media.detail",
-                    defaultValue: "Let agents work across apps you choose"
-                ))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 24)
-                .padding(.top, 7)
-
-                Spacer()
-
-                HStack(spacing: 7) {
-                    ForEach(0..<3, id: \.self) { index in
-                        Capsule()
-                            .fill(index <= min(step, 2) ? Color.accentColor : Color.secondary.opacity(0.22))
-                            .frame(width: index == min(step, 2) ? 24 : 8, height: 7)
-                            .animation(.easeInOut(duration: 0.2), value: step)
-                    }
-                }
-                .accessibilityHidden(true)
-                .padding(.bottom, 26)
-            }
-        }
-        .frame(width: 220)
+        )
     }
 
-    private var mediaSymbolName: String {
-        switch step {
-        case 1: "accessibility"
-        case 2: "rectangle.inset.filled.and.person.filled"
-        case 3: "checkmark"
-        default: "cursorarrow.rays"
+    private func progressRow(index: Int, symbolName: String, title: String) -> some View {
+        let isCurrent = min(step, 2) == index
+        let isComplete = step > index
+        return HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(isCurrent ? Color.accentColor : Color.secondary.opacity(0.12))
+                    .frame(width: 30, height: 30)
+                Image(systemName: isComplete ? "checkmark" : symbolName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(isCurrent ? Color.white : Color.secondary)
+                    .contentTransition(.symbolEffect(.replace))
+                    .accessibilityHidden(true)
+            }
+            Text(title)
+                .font(.callout.weight(isCurrent ? .semibold : .regular))
+                .foregroundStyle(isCurrent ? .primary : .secondary)
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            isCurrent ? Color(nsColor: .windowBackgroundColor).opacity(0.74) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .animation(.easeInOut(duration: 0.18), value: step)
     }
 
     private var topBar: some View {
@@ -133,9 +178,13 @@ struct ComputerUseOnboardingView: View {
                 ))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.secondary.opacity(0.1), in: Capsule())
             }
 
             ComputerUseWindowDragRegion()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityHidden(true)
 
             if step < 3 {
@@ -145,10 +194,11 @@ struct ComputerUseOnboardingView: View {
                 )
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .fontWeight(.medium)
             }
         }
-        .frame(height: 48)
-        .padding(.horizontal, 24)
+        .frame(height: 56)
+        .padding(.horizontal, 26)
     }
 
     @ViewBuilder
@@ -164,13 +214,13 @@ struct ComputerUseOnboardingView: View {
                 ),
                 detail: String(
                     localized: "computerUse.onboarding.accessibility.detail",
-                    defaultValue: "Accessibility lets cmux inspect controls, click buttons, and type in apps you ask an agent to use."
+                    defaultValue: "Accessibility lets the Computer Use helper inspect controls, click buttons, and type in apps you ask an agent to use."
                 ),
                 granted: accessibilityGranted,
                 openSettings: {
-                    permissionService.requestAccessibility()
+                    permissionCheckArmed = true
+                    runtimeService.requestAccessibility()
                     onSystemSettingsOpened()
-                    refreshPermissions()
                 }
             )
         case 2:
@@ -181,13 +231,13 @@ struct ComputerUseOnboardingView: View {
                 ),
                 detail: String(
                     localized: "computerUse.onboarding.screenRecording.detail",
-                    defaultValue: "Screen Recording lets cmux see app windows and screen content so it can act on what is visible."
+                    defaultValue: "Screen Recording lets the Computer Use helper see app windows and screen content so it can act on what is visible."
                 ),
                 granted: screenRecordingGranted,
                 openSettings: {
-                    permissionService.requestScreenRecording()
+                    permissionCheckArmed = true
+                    runtimeService.requestScreenRecording()
                     onSystemSettingsOpened()
-                    refreshPermissions()
                 }
             )
         default:
@@ -196,21 +246,21 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var overview: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
             Text(String(
                 localized: "computerUse.onboarding.overview.title",
                 defaultValue: "Agents can work across apps on this Mac"
             ))
-            .font(.title2.weight(.semibold))
+            .font(.system(size: 26, weight: .semibold))
 
             Text(String(
                 localized: "computerUse.onboarding.overview.detail",
-                defaultValue: "When a task needs more than the terminal, supported agents can see and drive local apps. You choose when Computer Use runs, and its permissions belong only to cmux."
+                defaultValue: "When a task needs more than the terminal, supported agents can see and drive local apps. Permissions belong to a separate helper, so granting them never requires restarting cmux."
             ))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
-            VStack(spacing: 10) {
+            VStack(spacing: 11) {
                 overviewRow(
                     symbolName: "accessibility",
                     title: String(
@@ -236,15 +286,21 @@ struct ComputerUseOnboardingView: View {
             }
             .padding(.top, 2)
 
-            Label(
-                String(
-                    localized: "computerUse.onboarding.overview.local",
-                    defaultValue: "Runs locally under cmux's macOS permissions"
-                ),
-                systemImage: "hand.raised"
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "arrow.triangle.branch")
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+                Text(String(
+                    localized: "computerUse.onboarding.overview.restartHelper",
+                    defaultValue: "Only the Computer Use helper needs to restart after permission changes. cmux stays open."
+                ))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(13)
+            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Color.accentColor.opacity(0.18)))
         }
     }
 
@@ -276,9 +332,9 @@ struct ComputerUseOnboardingView: View {
         granted: Bool,
         openSettings: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
             Text(title)
-                .font(.title2.weight(.semibold))
+                .font(.system(size: 26, weight: .semibold))
             Text(detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -287,35 +343,32 @@ struct ComputerUseOnboardingView: View {
                 permissionReady
                     .padding(.top, 8)
             } else {
-                Button(
-                    String(
-                        localized: "computerUse.onboarding.openSystemSettings",
-                        defaultValue: "Open System Settings"
-                    ),
-                    action: openSettings
-                )
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "arrow.turn.down.right")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.tint)
-                        .frame(width: 24)
-                        .accessibilityHidden(true)
-                    Text(String(
-                        localized: "computerUse.onboarding.permission.instructions",
-                        defaultValue: "In System Settings, turn on \(permissionService.applicationName), then return here."
-                    ))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
+                    Button(
+                        String(
+                            localized: "computerUse.onboarding.openSystemSettings",
+                            defaultValue: "Open System Settings"
+                        ),
+                        action: openSettings
+                    )
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    Spacer()
+                    permissionStatus(granted: false)
                 }
-                .padding(14)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.14)))
+
+                helperDragTile
 
                 HStack(spacing: 10) {
-                    permissionStatus(granted: false)
+                    Label(
+                        String(
+                            localized: "computerUse.onboarding.dragTip",
+                            defaultValue: "Drag the app card—not this window—into the permission list."
+                        ),
+                        systemImage: "hand.draw"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     Spacer()
                     Button(
                         refreshInFlight
@@ -327,6 +380,65 @@ struct ComputerUseOnboardingView: View {
                 }
             }
         }
+    }
+
+    /// A file-URL drag source accepted by the macOS permission lists.
+    private var helperDragTile: some View {
+        HStack(spacing: 14) {
+            Group {
+                if let helperIcon {
+                    Image(nsImage: helperIcon)
+                        .resizable()
+                        .frame(width: 48, height: 48)
+                } else {
+                    Image(systemName: "app.dashed")
+                        .font(.system(size: 32))
+                        .frame(width: 48, height: 48)
+                }
+            }
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(runtimeService.applicationName)
+                    .font(.body.weight(.medium))
+                Text(String(
+                    localized: "computerUse.onboarding.dragHint",
+                    defaultValue: "Drag this app into the list in System Settings, turn it on, then come back here."
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Label(
+                String(localized: "computerUse.onboarding.dragAction", defaultValue: "Drag"),
+                systemImage: "hand.draw.fill"
+            )
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.accentColor.opacity(0.1), in: Capsule())
+        }
+        .padding(15)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.84), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor.opacity(0.3)))
+        .shadow(color: Color.black.opacity(0.08), radius: 12, y: 5)
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            ComputerUseAppDragSource(
+                helperAppURL: helperAppURL,
+                helperIcon: helperIcon,
+                onDragEnded: handleHelperDragEnded
+            )
+            .accessibilityHidden(true)
+            .allowsHitTesting(helperAppURL != nil)
+        }
+        .help(String(
+            localized: "computerUse.onboarding.dragTooltip",
+            defaultValue: "Drag \(runtimeService.applicationName) into the permission list"
+        ))
+        .opacity(helperAppURL == nil ? 0.55 : 1)
     }
 
     private var permissionReady: some View {
@@ -368,7 +480,7 @@ struct ComputerUseOnboardingView: View {
             .font(.title2.weight(.semibold))
             Text(String(
                 localized: "computerUse.onboarding.done.detailReady",
-                defaultValue: "Both permissions are granted. Supported agent sessions can now use local computer-use tools."
+                defaultValue: "Both permissions belong to cmux Computer Use. cmux stays open while the helper refreshes. Return to your agent and retry the tool call."
             ))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -416,8 +528,8 @@ struct ComputerUseOnboardingView: View {
                 .buttonStyle(.borderedProminent)
             }
         }
-        .frame(height: 58)
-        .padding(.horizontal, 24)
+        .frame(height: 64)
+        .padding(.horizontal, 26)
     }
 
     private func permissionStatus(granted: Bool, label: String? = nil) -> some View {
@@ -447,13 +559,36 @@ struct ComputerUseOnboardingView: View {
         refreshInFlight = true
         Task { @MainActor in
             defer { refreshInFlight = false }
-            await Task.yield()
-            let status = permissionService.status()
+            let status = await runtimeService.refreshHelperStatus()
+            refreshHelperPresentation()
             applyPermissions(
                 accessibilityGranted: status.accessibility,
                 screenRecordingGranted: status.screenRecording
             )
         }
+    }
+
+    private func handleHelperDragEnded(operation: NSDragOperation) {
+        guard operation != [] else { return }
+        // A successful external drop is an explicit permission-setup action.
+        // Refresh immediately so a drop into an already-open System Settings
+        // pane cannot look like it failed, and keep the return-time refresh
+        // armed in case the user still needs to turn the new row on.
+        permissionCheckArmed = true
+        refreshPermissions()
+    }
+
+    private func prepareHelperForOnboarding() {
+        Task { @MainActor in
+            _ = await runtimeService.ensureStandaloneHelperInstalled()
+            refreshHelperPresentation()
+        }
+    }
+
+    private func refreshHelperPresentation() {
+        let url = runtimeService.helperAppURL
+        helperAppURL = url
+        helperIcon = url.map { NSWorkspace.shared.icon(forFile: $0.path) }
     }
 
     private func applyPermissions(
