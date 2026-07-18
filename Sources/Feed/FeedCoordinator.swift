@@ -471,7 +471,10 @@ extension FeedCoordinator {
         event: WorkstreamEvent
     ) -> (workspaceId: UUID, surfaceId: UUID?)? {
         let sessionMatch: (workspaceId: UUID, surfaceId: UUID?)? = {
-            guard let parsed = FeedJumpResolver.parse(event.sessionId),
+            guard let parsed = FeedJumpResolver.parse(
+                event.sessionId,
+                source: event.source
+            ),
                   let resolved = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
                   let workspaceId = UUID(uuidString: resolved.workspaceId)
             else { return nil }
@@ -632,12 +635,43 @@ enum FeedJumpResolver {
         let surfaceId: String
     }
 
-    static func parse(_ workstreamId: String) -> (agent: String, sessionId: String)? {
+    static func parse(
+        _ workstreamId: String,
+        source explicitSource: String? = nil
+    ) -> (agent: String, sessionId: String)? {
+        if let explicitSource {
+            let source = explicitSource.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !source.isEmpty else { return nil }
+            return parse(workstreamId, provider: source)
+        }
+
+        // Wire ids are `<provider>-<session>`, but provider ids may themselves
+        // contain dashes (`hermes-agent`). Prefer the longest registered prefix
+        // before retaining the legacy first-dash fallback for custom sources.
+        for source in WorkstreamSource.allCases
+            .map(\.rawValue)
+            .sorted(by: { $0.count > $1.count }) {
+            if let parsed = parse(workstreamId, provider: source) {
+                return parsed
+            }
+        }
+
         guard let dash = workstreamId.firstIndex(of: "-") else { return nil }
         let agent = String(workstreamId[..<dash])
         let sessionId = String(workstreamId[workstreamId.index(after: dash)...])
         guard !agent.isEmpty, !sessionId.isEmpty else { return nil }
         return (agent, sessionId)
+    }
+
+    private static func parse(
+        _ workstreamId: String,
+        provider: String
+    ) -> (agent: String, sessionId: String)? {
+        let prefix = provider + "-"
+        guard workstreamId.hasPrefix(prefix) else { return nil }
+        let sessionId = String(workstreamId.dropFirst(prefix.count))
+        guard !sessionId.isEmpty else { return nil }
+        return (provider, sessionId)
     }
 
     static func lookup(agent: String, sessionId: String) -> Target? {
