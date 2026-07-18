@@ -199,6 +199,36 @@ extension TerminalSurface {
         coalescePixelOnlyResize: Bool = false,
         suppressAssignedGridPin: Bool = false
     ) -> Bool {
+        if let externalRuntime {
+            _ = layerScale
+            _ = coalescePixelOnlyResize
+            _ = suppressAssignedGridPin
+            let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
+            let resolvedBackingHeight = backingSize?.height ?? (height * yScale)
+            guard let viewport = externalViewport(
+                width: width,
+                height: height,
+                xScale: xScale,
+                yScale: yScale,
+                backingWidth: resolvedBackingWidth,
+                backingHeight: resolvedBackingHeight
+            ) else { return false }
+
+            let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale)
+                || !scaleApproximatelyEqual(yScale, lastYScale)
+            let sizeChanged = UInt32(viewport.widthPixels) != lastPixelWidth
+                || UInt32(viewport.heightPixels) != lastPixelHeight
+            guard scaleChanged || sizeChanged else { return false }
+            let result = externalRuntime.enqueue(.resize(viewport))
+            guard result.accepted else { return false }
+            lastPixelWidth = UInt32(viewport.widthPixels)
+            lastPixelHeight = UInt32(viewport.heightPixels)
+            lastUncappedPixelWidth = lastPixelWidth
+            lastUncappedPixelHeight = lastPixelHeight
+            lastXScale = xScale
+            lastYScale = yScale
+            return true
+        }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
 
@@ -420,6 +450,14 @@ extension TerminalSurface {
     /// surface is not ready. Used by remote tmux mirror sizing.
     @MainActor
     public func cellSizePoints() -> CGSize? {
+        if let metrics = externalRuntime?.snapshot.cellMetrics {
+            guard metrics.cellWidthPixels > 0, metrics.cellHeightPixels > 0 else { return nil }
+            let scale = max(metrics.backingScale, 1)
+            return CGSize(
+                width: Double(metrics.cellWidthPixels) / scale,
+                height: Double(metrics.cellHeightPixels) / scale
+            )
+        }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "cellSize") else { return nil }
         let size = ghostty_surface_size(surface)
         guard size.cell_width_px > 0, size.cell_height_px > 0 else { return nil }
@@ -438,6 +476,18 @@ extension TerminalSurface {
     /// as points in one place and as pixels in another).
     @MainActor
     public func rawSizingSample() -> TerminalSurfaceRawSizingSample? {
+        if let metrics = externalRuntime?.snapshot.cellMetrics {
+            return TerminalSurfaceRawSizingSample(
+                columns: metrics.columns,
+                rows: metrics.rows,
+                cellWidthPx: metrics.cellWidthPixels,
+                cellHeightPx: metrics.cellHeightPixels,
+                surfaceWidthPx: metrics.surfaceWidthPixels,
+                surfaceHeightPx: metrics.surfaceHeightPixels,
+                viewBoundsPt: attachedView?.bounds.size,
+                backingScale: metrics.backingScale
+            )
+        }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "rawSizingSample") else { return nil }
         let size = ghostty_surface_size(surface)
         return TerminalSurfaceRawSizingSample(
@@ -475,7 +525,9 @@ extension TerminalSurface {
     public func renderedGridDiagnostics() -> (viewInWindow: Bool, surfaceLive: Bool) {
         (
             viewInWindow: attachedView?.window != nil,
-            surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
+            surfaceLive: externalRuntime != nil
+                ? hasLiveSurface
+                : liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
         )
     }
 
@@ -483,6 +535,14 @@ extension TerminalSurface {
     /// live, is not in a window, or has no real grid yet.
     @MainActor
     public func renderedGridCells() -> (columns: Int, rows: Int)? {
+        if let externalRuntime {
+            guard attachedView?.window != nil,
+                  externalRuntime.snapshot.lifecycle == .live,
+                  let metrics = externalRuntime.snapshot.cellMetrics,
+                  metrics.columns > 1,
+                  metrics.rows > 1 else { return nil }
+            return (metrics.columns, metrics.rows)
+        }
         guard attachedView?.window != nil,
               let surface = liveSurfaceForGhosttyAccess(reason: "renderedGridCells") else { return nil }
         let size = ghostty_surface_size(surface)

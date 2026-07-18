@@ -9,6 +9,9 @@ extension TerminalSurface {
     /// runaway-memory guardrail to name the foreground command in its warning.
     @MainActor
     public func foregroundProcessID() -> Int? {
+        if let externalRuntime {
+            return externalRuntime.snapshot.processMetadata?.foregroundProcessID
+        }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "memGuard.foregroundPID") else {
             return nil
         }
@@ -23,6 +26,9 @@ extension TerminalSurface {
     /// sums process-tree memory by.
     @MainActor
     public func controllingTTYName() -> String? {
+        if let externalRuntime {
+            return externalRuntime.snapshot.processMetadata?.controllingTTYName
+        }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "memGuard.ttyName") else {
             return nil
         }

@@ -224,7 +224,8 @@ final class TerminalPanel: Panel, ObservableObject {
 
     convenience init(
         request: TerminalPanelCreationRequest,
-        dependencies: TerminalSurfaceRuntimeDependencies
+        dependencies: TerminalSurfaceRuntimeDependencies,
+        externalRuntime: (any TerminalExternalRuntime)? = nil
     ) {
         let preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void
         if request.manualIO {
@@ -254,6 +255,7 @@ final class TerminalPanel: Panel, ObservableObject {
             focusPlacement: request.focusPlacement,
             manualIO: request.manualIO,
             manualInputHandler: request.manualInputHandler,
+            externalRuntime: externalRuntime,
             runtimeSpawnPolicy: request.runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,
             dependencies: dependencies

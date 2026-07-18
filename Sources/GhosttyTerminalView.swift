@@ -4240,6 +4240,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     private func ensureSurfaceReadyForInput(reassertInputFocus: Bool = true) -> ghostty_surface_t? {
+        guard terminalSurface?.isExternallyManaged != true else {
+            assertionFailure("External terminals must never realize an in-process Ghostty surface")
+            return nil
+        }
         if let surface = surface {
             if reassertInputFocus { _ = reassertTerminalFocusForInputIfFirstResponder() }
             return surface
@@ -4270,6 +4274,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     func prepareSurfaceForPaste(reason: String) -> Bool {
         terminalSurface?.didReceiveExplicitInput()
+        if terminalSurface?.isExternallyManaged == true {
+            return true
+        }
         guard ensureSurfaceReadyForInput() != nil else {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
@@ -4277,6 +4284,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
     func performBindingAction(_ action: String) -> Bool {
+        if terminalSurface?.isExternallyManaged == true {
+            return terminalSurface?.performInternalBindingAction(action) ?? false
+        }
         guard let surface = surface else { return false }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
@@ -4285,6 +4295,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     func toggleKeyboardCopyMode() -> Bool {
+        if terminalSurface?.isExternallyManaged == true {
+            let handled = terminalSurface?.toggleKeyboardCopyMode() ?? false
+            if handled {
+                setKeyboardCopyModeActive(!keyboardCopyModeActive)
+            }
+            return handled
+        }
         guard surface != nil else { return false }
         setKeyboardCopyModeActive(!keyboardCopyModeActive)
         if !keyboardCopyModeActive, let surface {
@@ -5121,9 +5138,134 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    /// Resolves the same AppKit copy-mode grammar as embedded Ghostty while leaving cursor,
+    /// selection, search, viewport, and clipboard response state in the daemon.
+    private func handleExternalKeyboardCopyModeIfNeeded(_ event: NSEvent) -> Bool {
+        guard keyboardCopyModeActive, let terminalSurface else { return false }
+
+        if terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: event.modifierFlags) {
+            keyboardCopyModeInputState.reset()
+            return false
+        }
+
+        let hasSelection = keyboardCopyModeVisualActive
+            || terminalSurface.externalRuntimeSnapshot?.selection != nil
+        let resolution = terminalKeyboardCopyModeResolve(
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            modifierFlags: event.modifierFlags,
+            hasSelection: hasSelection,
+            state: &keyboardCopyModeInputState
+        )
+        guard case let .perform(action, rawCount) = resolution else { return true }
+
+        let count = terminalKeyboardCopyModeClampCount(rawCount)
+        let backendCount = UInt32(clamping: count)
+        switch action {
+        case .exit:
+            if terminalSurface.mutateExternalCopyMode(operation: .exit).accepted {
+                setKeyboardCopyModeActive(false)
+            }
+        case .startSelection:
+            if terminalSurface.mutateExternalCopyMode(operation: .startSelection).accepted {
+                keyboardCopyModeVisualActive = true
+                keyboardCopyModeVisualLineSelection = nil
+            }
+        case .startLineSelection:
+            if terminalSurface.mutateExternalCopyMode(
+                operation: .startLineSelection,
+                count: backendCount
+            ).accepted {
+                keyboardCopyModeVisualActive = true
+            }
+        case .clearSelection:
+            if terminalSurface.mutateExternalCopyMode(operation: .clearSelection).accepted {
+                keyboardCopyModeVisualActive = false
+                keyboardCopyModeVisualLineSelection = nil
+            }
+        case .copyAndExit:
+            if terminalSurface.mutateExternalCopyMode(operation: .copyAndExit).accepted {
+                setKeyboardCopyModeActive(false)
+            }
+        case .copyLineAndExit:
+            let selected = terminalSurface.mutateExternalCopyMode(
+                operation: .startLineSelection,
+                count: backendCount
+            ).accepted
+            let copied = selected
+                && terminalSurface.mutateExternalCopyMode(operation: .copyAndExit).accepted
+            if copied { setKeyboardCopyModeActive(false) }
+        case let .scrollLines(delta):
+            _ = terminalSurface.scrollExternalTerminal(
+                operation: .lines,
+                amount: Int64(delta) * Int64(count)
+            )
+        case let .scrollPage(delta):
+            _ = terminalSurface.scrollExternalTerminal(
+                operation: .pages,
+                amount: Int64(delta) * Int64(count)
+            )
+        case let .scrollHalfPage(delta):
+            let visibleRows = terminalSurface.externalRuntimeSnapshot?.viewportState?.visibleRows
+                ?? UInt64(terminalSurface.externalRuntimeSnapshot?.cellMetrics?.rows ?? 1)
+            let halfPage = max(Int64(visibleRows / 2), 1)
+            _ = terminalSurface.scrollExternalTerminal(
+                operation: .lines,
+                amount: Int64(delta) * halfPage * Int64(count)
+            )
+        case .scrollToTop:
+            _ = terminalSurface.scrollExternalTerminal(operation: .top)
+        case .scrollToBottom:
+            _ = terminalSurface.scrollExternalTerminal(operation: .bottom)
+        case let .jumpToPrompt(delta):
+            _ = terminalSurface.performInternalBindingAction(
+                "jump_to_prompt:\(delta * count)"
+            )
+        case .startSearch:
+            _ = terminalSurface.performInternalBindingAction("start_search")
+        case .searchNext:
+            _ = terminalSurface.performInternalBindingAction("navigate_search:next")
+        case .searchPrevious:
+            _ = terminalSurface.performInternalBindingAction("navigate_search:previous")
+        case let .adjustSelection(direction):
+            let adjustment: TerminalExternalCopyModeAdjustment = switch direction {
+            case .left: .left
+            case .right: .right
+            case .up: .up
+            case .down: .down
+            case .home: .home
+            case .end: .end
+            case .pageUp: .pageUp
+            case .pageDown: .pageDown
+            case .beginningOfLine: .beginningOfLine
+            case .endOfLine: .endOfLine
+            }
+            _ = terminalSurface.mutateExternalCopyMode(
+                operation: .adjust,
+                adjustment: adjustment,
+                count: backendCount
+            )
+        }
+        return true
+    }
+
     // MARK: - Input Handling
 
     @IBAction func copy(_ sender: Any?) {
+        if let terminalSurface, terminalSurface.isExternallyManaged {
+            Task { @MainActor [weak self, weak terminalSurface] in
+                guard let self, let terminalSurface,
+                      let selection = await terminalSurface.readExternalSelection(),
+                      !selection.text.isEmpty else { return }
+                GhosttyApp.terminalPasteboard.writeString(
+                    selection.text,
+                    to: GHOSTTY_CLIPBOARD_STANDARD
+                )
+                terminalSurface.noteClipboardReadCompleted()
+                self.selectionAccessibilitySignal.request()
+            }
+            return
+        }
         guard let surface else {
             _ = performBindingAction("copy_to_clipboard")
             return
@@ -5157,6 +5299,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @IBAction func paste(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
+        if let terminalSurface, terminalSurface.isExternallyManaged {
+            guard let pasteboard = GhosttyApp.terminalPasteboard.pasteboard(
+                for: GHOSTTY_CLIPBOARD_STANDARD
+            ), let text = GhosttyApp.terminalPasteboard.stringContents(from: pasteboard) else {
+                return
+            }
+            _ = terminalSurface.sendText(text)
+            terminalSurface.noteClipboardReadCompleted()
+            return
+        }
         _ = performBindingAction("paste_from_clipboard")
     }
 
@@ -5164,6 +5316,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
+        if let terminalSurface, terminalSurface.isExternallyManaged {
+            guard let text = NSPasteboard.general.string(forType: .string) else { return }
+            _ = terminalSurface.sendText(text)
+            terminalSurface.noteClipboardReadCompleted()
+            return
+        }
         _ = performBindingAction("paste_from_clipboard")
     }
 
@@ -5182,6 +5340,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
+            if let terminalSurface, terminalSurface.isExternallyManaged {
+                return terminalSurface.hasSelection()
+            }
             guard let surface = surface else { return false }
             return hasCopyableTerminalSelection(surface: surface)
         case #selector(paste(_:)):
@@ -5264,7 +5425,46 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return snapshot.string.isEmpty ? nil : snapshot.string
     }
 
+    private func externalTerminalTopOriginCellRect(
+        _ point: TerminalExternalCellPoint
+    ) -> CGRect? {
+        guard let snapshot = terminalSurface?.externalRuntimeSnapshot,
+              let metrics = snapshot.cellMetrics,
+              metrics.columns > 0,
+              metrics.rows > 0,
+              metrics.cellWidthPixels > 0,
+              metrics.cellHeightPixels > 0 else { return nil }
+
+        let scale = max(metrics.backingScale, 1)
+        let cellWidth = Double(metrics.cellWidthPixels) / scale
+        let cellHeight = Double(metrics.cellHeightPixels) / scale
+        let terminalWidth = Double(metrics.columns) * cellWidth
+        let terminalHeight = Double(metrics.rows) * cellHeight
+        let xInset = max((Double(bounds.width) - terminalWidth) / 2, 0)
+        let yInset = max((Double(bounds.height) - terminalHeight) / 2, 0)
+        let viewportOffset = snapshot.viewportState?.offset ?? 0
+        let viewportRow = point.row >= viewportOffset ? point.row - viewportOffset : 0
+        let row = min(Int(clamping: viewportRow), metrics.rows - 1)
+        let column = min(Int(point.column), metrics.columns - 1)
+        return CGRect(
+            x: xInset + Double(column) * cellWidth,
+            y: yInset + Double(row) * cellHeight,
+            width: cellWidth,
+            height: cellHeight
+        )
+    }
+
     func readSelectionSnapshot(surface explicitSurface: ghostty_surface_t? = nil) -> SelectionSnapshot? {
+        if let terminalSurface,
+           terminalSurface.isExternallyManaged,
+           let selection = terminalSurface.externalRuntimeSnapshot?.selection {
+            let topLeft = externalTerminalTopOriginCellRect(selection.topLeft)?.origin ?? .zero
+            return SelectionSnapshot(
+                range: NSRange(location: 0, length: (selection.text as NSString).length),
+                string: selection.text,
+                topLeft: topLeft
+            )
+        }
         guard let surface = explicitSurface ?? self.surface else { return nil }
 
         var text = ghostty_text_s()
@@ -5370,7 +5570,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
         }
-        if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput(reassertInputFocus: false) {
+        if result,
+           shouldApplySurfaceFocus,
+           let terminalSurface,
+           terminalSurface.isExternallyManaged {
+            terminalSurface.setFocus(true, force: true)
+            NotificationCenter.default.post(
+                name: .ghosttyDidBecomeFirstResponderSurface,
+                object: nil,
+                userInfo: [
+                    GhosttyNotificationKey.tabId: terminalSurface.tabId,
+                    GhosttyNotificationKey.surfaceId: terminalSurface.id,
+                ]
+            )
+            terminalSurface.hostedView.cancelSuppressedFirstResponderFocusReapply()
+            terminalSurface.forceRefresh(reason: "focus.firstResponder.external")
+        } else if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput(reassertInputFocus: false) {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
@@ -5416,9 +5631,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             desiredFocus = false
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
-            terminalSurface?.recordExternalFocusState(false)
+            if terminalSurface?.isExternallyManaged == true {
+                terminalSurface?.setFocus(false, force: true)
+            } else {
+                terminalSurface?.recordExternalFocusState(false)
+            }
         }
-        if result, let surface = surface {
+        if result,
+           terminalSurface?.isExternallyManaged != true,
+           let surface = surface {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("resignFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
@@ -5499,6 +5720,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard event.type == .keyDown else { return false }
         guard let fr = window?.firstResponder as? NSView,
               fr === self || fr.isDescendant(of: self) else { return false }
+        if terminalSurface?.isExternallyManaged == true {
+            return performExternalKeyEquivalent(
+                with: event,
+                shouldRetryMainMenu: shouldRetryMainMenu
+            )
+        }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
         // Let non-Cmd keys flow to keyDown while IME is composing; Cmd shortcuts still work.
@@ -5635,8 +5862,78 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return false
     }
 
+    /// External terminals cannot synchronously ask the daemon whether a key is a configured
+    /// binding. AppKit owns menu dispatch first; a menu miss is then sent to the daemon's
+    /// canonical Ghostty key encoder. Printable and control-only input continues through
+    /// `keyDown`, exactly like the embedded path.
+    private func performExternalKeyEquivalent(
+        with event: NSEvent,
+        shouldRetryMainMenu: Bool
+    ) -> Bool {
+        if hasMarkedText(),
+           !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            return false
+        }
+
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        if !flags.contains(.command),
+           !flags.contains(.control),
+           let text = textForKeyEvent(event),
+           shouldSendText(text) {
+            lastPerformKeyEvent = nil
+            return false
+        }
+
+        let equivalent: String
+        switch event.charactersIgnoringModifiers {
+        case "\r":
+            guard event.modifierFlags.contains(.control) else { return false }
+            equivalent = "\r"
+        case "/":
+            guard event.modifierFlags.contains(.control),
+                  event.modifierFlags.isDisjoint(with: [.shift, .command, .option]) else {
+                return false
+            }
+            equivalent = "_"
+        default:
+            guard event.timestamp != 0 else { return false }
+            guard event.modifierFlags.contains(.command) else {
+                lastPerformKeyEvent = nil
+                return false
+            }
+            if !shouldRetryMainMenu {
+                lastPerformKeyEvent = nil
+                keyDown(with: event)
+                return true
+            }
+            lastPerformKeyEvent = event.timestamp
+            return false
+        }
+
+        guard let finalEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: event.locationInWindow,
+            modifierFlags: event.modifierFlags,
+            timestamp: event.timestamp,
+            windowNumber: event.windowNumber,
+            context: nil,
+            characters: equivalent,
+            charactersIgnoringModifiers: equivalent,
+            isARepeat: event.isARepeat,
+            keyCode: event.keyCode
+        ) else { return false }
+        keyDown(with: finalEvent)
+        return true
+    }
+
     override func keyDown(with event: NSEvent) {
         terminalSurface?.didReceiveExplicitInput()
+        if terminalSurface?.isExternallyManaged == true {
+            handleExternalKeyDown(event)
+            return
+        }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -6075,6 +6372,184 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Rendering is driven by Ghostty's wakeups/renderer.
     }
 
+    /// NSTextInputClient remains in the Swift process, while the physical key is encoded
+    /// against daemon-owned terminal modes. This path never realizes an embedded C surface.
+    private func handleExternalKeyDown(_ event: NSEvent) {
+        recordDirectAgentHibernationTerminalInput()
+
+        let appDelegate = AppDelegate.shared
+        if let appDelegate,
+           let mode = appDelegate.rightSidebarModeShortcut(for: event),
+           let window,
+           appDelegate.shouldRouteRightSidebarModeShortcut(in: window) {
+            _ = appDelegate.focusRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: true,
+                preferredWindow: window
+            )
+            return
+        }
+        if let terminalSurface {
+            appDelegate?.tabManager?.dismissNotificationOnTerminalInteraction(
+                tabId: terminalSurface.tabId,
+                surfaceId: terminalSurface.id
+            )
+        }
+
+        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        if !cmuxFindEventIsPlainEscape(event) { endFindEscapeSuppression() }
+        if shouldConsumeSuppressedFindEscape(event) { return }
+        if cmuxFindEventIsPlainEscape(event),
+           !hasMarkedText(),
+           let terminalSurface,
+           terminalSurface.searchState != nil {
+            terminalSurface.closeSearchFromExplicitInput()
+            beginFindEscapeSuppression()
+            return
+        }
+        if handleExternalKeyboardCopyModeIfNeeded(event) {
+            keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
+            return
+        }
+
+        // Control-only keys bypass text interpretation. The daemon applies terminal modes
+        // and user bindings through its canonical Ghostty key encoder.
+        if flags.contains(.control),
+           !flags.contains(.command),
+           !flags.contains(.option),
+           !hasMarkedText() {
+            let controlText = event.charactersIgnoringModifiers ?? event.characters
+            if sendExternalTerminalKey(
+                event,
+                action: event.isARepeat ? .repeat : .press,
+                text: controlText?.isEmpty == false ? controlText : nil,
+                consumedModifierFlags: []
+            ) {
+                return
+            }
+        }
+
+        let textInputEvent = textInputInterpretationEvent(original: event, translated: event)
+        keyTextAccumulator = []
+        defer { keyTextAccumulator = nil }
+
+        let markedTextBefore = markedText.length > 0
+        let markedStateBefore = (markedText.string, markedSelectedRange)
+        let keyboardIDBefore = KeyboardLayout.id
+#if DEBUG
+        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
+            if !debugTextInputEventHandler(self, textInputEvent) {
+                interpretKeyEvents([textInputEvent])
+            }
+        } else {
+            interpretKeyEvents([textInputEvent])
+        }
+#else
+        interpretKeyEvents([textInputEvent])
+#endif
+
+        if !markedTextBefore,
+           let keyboardIDBefore,
+           keyboardIDBefore != KeyboardLayout.id {
+            imeConsumedKeyUps.insert(event.keyCode)
+            syncPreedit(clearIfNeeded: markedTextBefore)
+            return
+        }
+
+        syncPreedit(clearIfNeeded: markedTextBefore)
+        let accumulatedText = keyTextAccumulator ?? []
+        if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
+            before: markedStateBefore,
+            after: (markedText.string, markedSelectedRange),
+            accumulatedText: accumulatedText,
+            event: textInputEvent,
+            inputSourceId: keyboardIDBefore
+        ) {
+            imeConsumedKeyUps.insert(event.keyCode)
+            return
+        }
+        imeConsumedKeyUps.remove(event.keyCode)
+
+        let action: TerminalExternalKeyAction = event.isARepeat ? .repeat : .press
+        if !accumulatedText.isEmpty {
+            for text in accumulatedText {
+                let sendableText = shouldSendText(text) ? text : nil
+                _ = sendExternalTerminalKey(
+                    event,
+                    action: action,
+                    text: sendableText,
+                    consumedModifierFlags: event.modifierFlags
+                )
+                if let sendableText {
+                    notePotentialDeferredNumpadIMECommit(text: sendableText, event: event)
+                }
+            }
+            if shouldSendCommittedIMEConfirmKey(
+                event: textInputEvent,
+                markedTextBefore: markedTextBefore
+            ) {
+                _ = sendExternalTerminalKey(
+                    event,
+                    action: action,
+                    text: nil,
+                    consumedModifierFlags: []
+                )
+            }
+            return
+        }
+
+        // A live marked-text session is represented by `terminal-preedit`; forwarding the
+        // physical composing key would also mutate the PTY and duplicate the IME action.
+        if markedText.length > 0 || markedTextBefore {
+            imeConsumedKeyUps.insert(event.keyCode)
+            return
+        }
+
+        let suppressShiftSpaceFallback = shouldSuppressShiftSpaceFallbackText(
+            event: event,
+            markedTextBefore: markedTextBefore
+        )
+        let resolvedText = textForKeyEvent(event).flatMap { text in
+            shouldSendText(text) && !suppressShiftSpaceFallback ? text : nil
+        }
+        let handled = sendExternalTerminalKey(
+            event,
+            action: action,
+            text: resolvedText,
+            consumedModifierFlags: resolvedText == nil ? [] : event.modifierFlags
+        )
+        if handled, let resolvedText {
+            notePotentialDeferredNumpadIMECommit(text: resolvedText, event: event)
+        }
+    }
+
+    @discardableResult
+    private func sendExternalTerminalKey(
+        _ event: NSEvent,
+        action: TerminalExternalKeyAction,
+        text: String?,
+        consumedModifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard let terminalSurface else { return false }
+        let key = ghostty_input_key_from_macos_keycode(UInt32(event.keyCode))
+        let modifiers = TerminalExternalKeyModifiers(
+            rawValue: UInt16(truncatingIfNeeded: modsFromEvent(event).rawValue)
+        )
+        let consumed = TerminalExternalKeyModifiers(
+            rawValue: UInt16(truncatingIfNeeded: consumedModsFromFlags(consumedModifierFlags).rawValue)
+        )
+        return terminalSurface.sendExternalKeyEvent(
+            TerminalExternalKeyEvent(
+                key: UInt32(truncatingIfNeeded: key.rawValue),
+                modifiers: modifiers,
+                consumedModifiers: consumed.intersection(modifiers),
+                text: text,
+                unshiftedCodepoint: unshiftedCodepointFromEvent(event),
+                action: action
+            )
+        ).accepted
+    }
+
     @discardableResult
     private func sendGhosttyKey(_ surface: ghostty_surface_t, _ keyEvent: ghostty_input_key_s) -> Bool {
 #if DEBUG
@@ -6107,6 +6582,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
+        if terminalSurface?.isExternallyManaged == true {
+            if event.keyCode != 53 { endFindEscapeSuppression() }
+            if shouldConsumeSuppressedFindEscape(event) {
+                endFindEscapeSuppression()
+                return
+            }
+            if event.keyCode == 53 { endFindEscapeSuppression() }
+            if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil { return }
+            if imeConsumedKeyUps.remove(event.keyCode) != nil { return }
+            _ = sendExternalTerminalKey(
+                event,
+                action: .release,
+                text: nil,
+                consumedModifierFlags: []
+            )
+            return
+        }
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
@@ -6140,6 +6632,41 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
+        if terminalSurface?.isExternallyManaged == true {
+            if !hasMarkedText(),
+               let action = ghostty_input_action_e.modifierActionForFlagsChanged(
+                keyCode: event.keyCode,
+                modifierFlagsRawValue: event.modifierFlags.rawValue
+               ) {
+                let externalAction: TerminalExternalKeyAction
+                switch action {
+                case GHOSTTY_ACTION_RELEASE:
+                    externalAction = .release
+                case GHOSTTY_ACTION_REPEAT:
+                    externalAction = .repeat
+                default:
+                    externalAction = .press
+                }
+                _ = sendExternalTerminalKey(
+                    event,
+                    action: externalAction,
+                    text: nil,
+                    consumedModifierFlags: []
+                )
+            }
+            let eventPoint = convert(event.locationInWindow, from: nil)
+            trackMousePointIfUsable(eventPoint)
+            if terminalSurface?.externalRuntimeSnapshot?.mouseTracking == true
+                || hasPendingLeftMouseRelease {
+                _ = sendExternalMouseEvent(
+                    event,
+                    action: .motion,
+                    button: nil,
+                    point: preferredPointerPoint(from: eventPoint) ?? eventPoint
+                )
+            }
+            return
+        }
         guard let surface = ensureSurfaceReadyForInput() else {
             super.flagsChanged(with: event)
             return
@@ -6445,6 +6972,101 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         onFocus?()
     }
 
+    @discardableResult
+    private func sendExternalMouseEvent(
+        _ event: NSEvent,
+        action: TerminalExternalMouseAction,
+        button: TerminalExternalMouseButton?,
+        point: NSPoint
+    ) -> Bool {
+        guard let terminalSurface else { return false }
+        let scale = max(
+            terminalSurface.externalRuntimeSnapshot?.cellMetrics?.backingScale
+                ?? window?.backingScaleFactor
+                ?? layer?.contentsScale
+                ?? 1,
+            1
+        )
+        let anyButtonPressed = action == .press
+            || (action == .motion && NSEvent.pressedMouseButtons != 0)
+        return terminalSurface.sendExternalMouseEvent(
+            TerminalExternalMouseEvent(
+                action: action,
+                button: button,
+                modifiers: TerminalExternalKeyModifiers(
+                    rawValue: UInt16(truncatingIfNeeded: mouseModsFromEvent(event).rawValue)
+                ),
+                xPixels: Double(point.x) * scale,
+                yPixels: Double(bounds.height - point.y) * scale,
+                anyButtonPressed: anyButtonPressed,
+                clickCount: UInt32(clamping: max(event.clickCount, 1))
+            )
+        ).accepted
+    }
+
+    private func forwardExternalScrollWheel(
+        _ event: NSEvent,
+        to terminalSurface: TerminalSurface
+    ) {
+        lastScrollEventTime = CACurrentMediaTime()
+        var x = event.scrollingDeltaX
+        var y = event.scrollingDeltaY
+        let precision = event.hasPreciseScrollingDeltas
+        if Self.shouldDoublePreciseScrollDelta(for: event) {
+            x *= 2
+            y *= 2
+        }
+        scrollSpeedAccumulator.apply(x: &x, y: &y, precision: precision)
+
+        let hasMomentum = event.momentumPhase != [] && event.momentumPhase != .mayBegin
+        let momentumEnded = event.momentumPhase == .ended || event.momentumPhase == .cancelled
+        GhosttyApp.shared.markScrollActivity(
+            hasMomentum: hasMomentum,
+            momentumEnded: momentumEnded
+        )
+
+        if terminalSurface.externalRuntimeSnapshot?.mouseTracking == true {
+            let vertical = abs(y) >= abs(x)
+            let rawDelta = vertical ? y : x
+            guard rawDelta != 0 else { return }
+            let button: TerminalExternalMouseButton
+            if vertical {
+                button = rawDelta > 0 ? .wheelUp : .wheelDown
+            } else {
+                button = rawDelta > 0 ? .wheelLeft : .wheelRight
+            }
+            let point = lastKnownMousePointInView
+                ?? convert(event.locationInWindow, from: nil)
+            let eventCount = min(32, max(1, Int(abs(rawDelta).rounded(.up))))
+            for _ in 0 ..< eventCount {
+                guard sendExternalMouseEvent(
+                    event,
+                    action: .press,
+                    button: button,
+                    point: point
+                ) else { return }
+            }
+            return
+        }
+
+        guard y != 0 else { return }
+        let scale = max(
+            terminalSurface.externalRuntimeSnapshot?.cellMetrics?.backingScale ?? 1,
+            1
+        )
+        let cellHeightPoints = max(
+            Double(terminalSurface.externalRuntimeSnapshot?.cellMetrics?.cellHeightPixels ?? 0)
+                / scale,
+            1
+        )
+        let rawRows = Double(y) / cellHeightPoints
+        let magnitude = max(1, Int64(abs(rawRows).rounded(.awayFromZero)))
+        // Ghostty's viewport delta is negative toward older history; AppKit's positive
+        // wheel delta means the user is scrolling upward.
+        let rowDelta = y > 0 ? -magnitude : magnitude
+        _ = terminalSurface.scrollExternalTerminal(operation: .lines, amount: rowDelta)
+    }
+
     /// Applies terminal focus intent for pointer-downs that land outside the
     /// capped terminal content but remain inside its pane.
     func focusFromPointerDown() {
@@ -6480,6 +7102,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
         focusFromPointerDown()
         guard shouldForwardTerminalActivation else { return }
+        if terminalSurface?.isExternallyManaged == true {
+            let point = convert(event.locationInWindow, from: nil)
+            trackMousePointIfUsable(point)
+            hasPendingLeftMouseRelease = sendExternalMouseEvent(
+                event,
+                action: .press,
+                button: .left,
+                point: point
+            )
+            return
+        }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
@@ -6501,6 +7134,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     func forwardPendingLeftMouseDrag(with event: NSEvent) -> Bool {
+        if terminalSurface?.isExternallyManaged == true {
+            guard hasPendingLeftMouseRelease else { return false }
+            let point = convert(event.locationInWindow, from: nil)
+            trackMousePointIfUsable(point)
+            return sendExternalMouseEvent(
+                event,
+                action: .motion,
+                button: .left,
+                point: point
+            )
+        }
         guard hasPendingLeftMouseRelease, let surface else { return false }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
@@ -6512,6 +7156,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
         guard hasPendingLeftMouseRelease else { return false }
         hasPendingLeftMouseRelease = false
+        if terminalSurface?.isExternallyManaged == true {
+            return sendExternalMouseEvent(
+                event,
+                action: .release,
+                button: .left,
+                point: convert(event.locationInWindow, from: nil)
+            )
+        }
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
@@ -7152,6 +7804,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func rightMouseDown(with event: NSEvent) {
         terminalSurface?.didReceiveExplicitInput()
+        if let terminalSurface, terminalSurface.isExternallyManaged {
+            if terminalSurface.externalRuntimeSnapshot?.mouseTracking != true {
+                requestPointerFocusRecovery()
+                super.rightMouseDown(with: event)
+                return
+            }
+            requestPointerFocusRecovery()
+            window?.makeFirstResponder(self)
+            _ = sendExternalMouseEvent(
+                event,
+                action: .press,
+                button: .right,
+                point: convert(event.locationInWindow, from: nil)
+            )
+            return
+        }
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             requestPointerFocusRecovery()
@@ -7167,6 +7835,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func rightMouseUp(with event: NSEvent) {
+        if let terminalSurface, terminalSurface.isExternallyManaged {
+            guard terminalSurface.externalRuntimeSnapshot?.mouseTracking == true else {
+                super.rightMouseUp(with: event)
+                return
+            }
+            _ = sendExternalMouseEvent(
+                event,
+                action: .release,
+                button: .right,
+                point: convert(event.locationInWindow, from: nil)
+            )
+            return
+        }
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             super.rightMouseUp(with: event)
@@ -7184,6 +7865,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.didReceiveExplicitInput()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
+        if terminalSurface?.isExternallyManaged == true {
+            _ = sendExternalMouseEvent(
+                event,
+                action: .press,
+                button: .middle,
+                point: convert(event.locationInWindow, from: nil)
+            )
+            return
+        }
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
@@ -7193,6 +7883,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func otherMouseUp(with event: NSEvent) {
         guard event.buttonNumber == 2 else {
             super.otherMouseUp(with: event)
+            return
+        }
+        if terminalSurface?.isExternallyManaged == true {
+            _ = sendExternalMouseEvent(
+                event,
+                action: .release,
+                button: .middle,
+                point: convert(event.locationInWindow, from: nil)
+            )
             return
         }
         guard let surface = surface else { return }
@@ -7213,17 +7912,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         for event: NSEvent,
         sendsTerminalPointerEvent: Bool
     ) -> NSMenu? {
-        guard let surface = surface else { return nil }
-        if sendsTerminalPointerEvent, ghostty_surface_mouse_captured(surface) {
+        let external = terminalSurface?.isExternallyManaged == true
+        let localSurface = surface
+        guard external || localSurface != nil else { return nil }
+        if sendsTerminalPointerEvent,
+           (external
+                ? terminalSurface?.externalRuntimeSnapshot?.mouseTracking == true
+                : localSurface.map { ghostty_surface_mouse_captured($0) } == true) {
             return nil
         }
 
         window?.makeFirstResponder(self)
-        if sendsTerminalPointerEvent {
+        if sendsTerminalPointerEvent, let localSurface {
             let point = convert(event.locationInWindow, from: nil)
-            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
+            ghostty_surface_mouse_pos(localSurface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
             _ = ghostty_surface_mouse_button(
-                surface,
+                localSurface,
                 GHOSTTY_MOUSE_PRESS,
                 GHOSTTY_MOUSE_RIGHT,
                 mouseModsFromEvent(event)
@@ -7240,14 +7944,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             flashItem.target = self
             menu.addItem(.separator())
         }
-        if hasCopyableTerminalSelection(surface: surface) {
+        let hasCopyableSelection = external
+            ? terminalSurface?.hasSelection() == true
+            : localSurface.map { hasCopyableTerminalSelection(surface: $0) } == true
+        if hasCopyableSelection {
             let item = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.copy", defaultValue: "Copy"),
                 action: #selector(copy(_:)),
                 keyEquivalent: ""
             )
             item.target = self
-            addTranslateSelectionMenuItem(to: menu, surface: surface)
+            if let localSurface {
+                addTranslateSelectionMenuItem(to: menu, surface: localSurface)
+            }
         }
         let pasteItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),
@@ -7359,6 +8068,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
+        if terminalSurface?.isExternallyManaged == true {
+            let point = convert(event.locationInWindow, from: nil)
+            trackMousePointIfUsable(point)
+            if terminalSurface?.externalRuntimeSnapshot?.mouseTracking == true
+                || hasPendingLeftMouseRelease {
+                _ = sendExternalMouseEvent(event, action: .motion, button: nil, point: point)
+            }
+            return
+        }
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
@@ -7382,6 +8100,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
         maybeRequestFirstResponderForMouseFocus()
+        if terminalSurface?.isExternallyManaged == true {
+            let point = convert(event.locationInWindow, from: nil)
+            trackMousePointIfUsable(point)
+            if terminalSurface?.externalRuntimeSnapshot?.mouseTracking == true
+                || hasPendingLeftMouseRelease {
+                _ = sendExternalMouseEvent(event, action: .motion, button: nil, point: point)
+            }
+            return
+        }
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
@@ -7424,6 +8151,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             wordPathHoverActive = false
             NSCursor.pop()
         }
+        if terminalSurface?.isExternallyManaged == true {
+            if NSEvent.pressedMouseButtons == 0,
+               terminalSurface?.externalRuntimeSnapshot?.mouseTracking == true {
+                _ = sendExternalMouseEvent(
+                    event,
+                    action: .motion,
+                    button: nil,
+                    point: NSPoint(x: -1, y: bounds.height + 1)
+                )
+            }
+            return
+        }
         guard let surface = surface else { return }
         if NSEvent.pressedMouseButtons != 0 {
             return
@@ -7432,6 +8171,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if terminalSurface?.isExternallyManaged == true {
+            _ = forwardPendingLeftMouseDrag(with: event)
+            return
+        }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
@@ -7469,6 +8212,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
+        if let terminalSurface, terminalSurface.isExternallyManaged {
+            forwardExternalScrollWheel(event, to: terminalSurface)
+            return
+        }
         guard let surface = surface else { return }
         lastScrollEventTime = CACurrentMediaTime()
         Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")
@@ -11566,6 +12313,10 @@ extension GhosttyNSView: NSTextInputClient {
     /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
+        if terminalSurface?.isExternallyManaged == true {
+            sendExternalCommittedText(chars, preserveLiteralEscape: preserveLiteralEscape)
+            return
+        }
         guard let surface = ensureSurfaceReadyForInput() else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -11648,6 +12399,51 @@ extension GhosttyNSView: NSTextInputClient {
             extra: "textBytes=\(chars.utf8.count)"
         )
 #endif
+    }
+
+    /// Preserves the embedded path's control-key semantics while keeping every byte on the
+    /// external runtime FIFO. Newline, Tab, and non-literal Escape are physical keys; ordinary
+    /// committed text remains one UTF-8 operation.
+    private func sendExternalCommittedText(_ chars: String, preserveLiteralEscape: Bool) {
+        guard let terminalSurface else { return }
+        var bufferedText = ""
+        var previousWasCR = false
+
+        func flushBufferedText() {
+            guard !bufferedText.isEmpty else { return }
+            _ = terminalSurface.sendKeyText(bufferedText)
+            bufferedText.removeAll(keepingCapacity: true)
+        }
+
+        func sendNamedKey(_ name: String) {
+            flushBufferedText()
+            _ = terminalSurface.sendNamedKey(name)
+        }
+
+        for scalar in chars.unicodeScalars {
+            switch scalar.value {
+            case 0x0A:
+                if !previousWasCR { sendNamedKey("enter") }
+                previousWasCR = false
+            case 0x0D:
+                sendNamedKey("enter")
+                previousWasCR = true
+            case 0x09:
+                sendNamedKey("tab")
+                previousWasCR = false
+            case 0x1B:
+                if preserveLiteralEscape {
+                    bufferedText.unicodeScalars.append(scalar)
+                } else {
+                    sendNamedKey("escape")
+                }
+                previousWasCR = false
+            default:
+                bufferedText.unicodeScalars.append(scalar)
+                previousWasCR = false
+            }
+        }
+        flushBufferedText()
     }
 
     /// External accessibility/dictation tools should commit plain text, but
@@ -11842,6 +12638,14 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
+        if terminalSurface?.isExternallyManaged == true {
+            if markedText.length > 0 {
+                _ = terminalSurface?.setExternalPreedit(markedText.string)
+            } else if clearIfNeeded {
+                _ = terminalSurface?.setExternalPreedit(nil)
+            }
+            return
+        }
         guard let surface = surface else { return }
 
         if markedText.length > 0 {
@@ -11902,7 +12706,16 @@ extension GhosttyNSView: NSTextInputClient {
             y = override.y
             w = override.width
             h = override.height
-        } else if let surface = surface {
+        } else if terminalSurface?.isExternallyManaged == true,
+                  let cursor = terminalSurface?.externalRuntimeSnapshot?.cursor,
+                  let rect = externalTerminalTopOriginCellRect(
+                    TerminalExternalCellPoint(column: cursor.column, row: cursor.row)
+                  ) {
+            x = rect.minX
+            y = rect.minY
+            w = rect.width
+            h = rect.height
+        } else if terminalSurface?.isExternallyManaged != true, let surface = surface {
             ghostty_surface_ime_point(surface, &x, &y, &w, &h)
         }
 #else
@@ -11911,7 +12724,16 @@ extension GhosttyNSView: NSTextInputClient {
            let snapshot = readSelectionSnapshot() {
             x = snapshot.topLeft.x - 2
             y = snapshot.topLeft.y + 2
-        } else if let surface = surface {
+        } else if terminalSurface?.isExternallyManaged == true,
+                  let cursor = terminalSurface?.externalRuntimeSnapshot?.cursor,
+                  let rect = externalTerminalTopOriginCellRect(
+                    TerminalExternalCellPoint(column: cursor.column, row: cursor.row)
+                  ) {
+            x = rect.minX
+            y = rect.minY
+            w = rect.width
+            h = rect.height
+        } else if terminalSurface?.isExternallyManaged != true, let surface = surface {
             ghostty_surface_ime_point(surface, &x, &y, &w, &h)
         }
 #endif

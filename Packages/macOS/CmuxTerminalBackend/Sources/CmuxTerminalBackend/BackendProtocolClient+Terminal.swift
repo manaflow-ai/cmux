@@ -1,0 +1,399 @@
+public extension BackendProtocolClient {
+    /// Idempotently creates or reattaches one caller-identified canonical terminal.
+    ///
+    /// Repeating the same workspace and surface UUIDs returns the original PTY.
+    /// Creation-only fields, including `initialInput`, are ignored on reattach.
+    func ensureTerminal(
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        workingDirectory: String? = nil,
+        command: String? = nil,
+        arguments: [String]? = nil,
+        environment: [String: String] = [:],
+        initialInput: String? = nil,
+        waitAfterCommand: Bool = false,
+        columns: UInt16,
+        rows: UInt16
+    ) async throws -> BackendEnsuredTerminalPlacement {
+        var parameters: [String: BackendJSONValue] = [
+            "workspace_uuid": .string(workspaceID.description),
+            "surface_uuid": .string(surfaceID.description),
+            "cols": .unsignedInteger(UInt64(columns)),
+            "rows": .unsignedInteger(UInt64(rows)),
+        ]
+        if let workingDirectory { parameters["cwd"] = .string(workingDirectory) }
+        if let command { parameters["command"] = .string(command) }
+        if let arguments {
+            parameters["argv"] = .array(arguments.map(BackendJSONValue.string))
+        }
+        if !environment.isEmpty {
+            parameters["env"] = .array(
+                environment.keys.sorted().map { name in
+                    .object([
+                        "name": .string(name),
+                        "value": .string(environment[name] ?? ""),
+                    ])
+                }
+            )
+        }
+        if let initialInput { parameters["initial_input"] = .string(initialInput) }
+        if waitAfterCommand { parameters["wait_after_command"] = .bool(true) }
+        return try await call(
+            command: "ensure-terminal",
+            parameters: parameters,
+            as: BackendEnsuredTerminalPlacement.self
+        )
+    }
+
+    /// Moves one canonical terminal into a workspace without replacing its PTY.
+    ///
+    /// Repeating a successful move is idempotent and returns `moved == false`.
+    func reparentTerminal(
+        surfaceID: SurfaceID,
+        workspaceID: WorkspaceID
+    ) async throws -> BackendReparentedTerminalPlacement {
+        try await call(
+            command: "reparent-terminal",
+            parameters: [
+                "surface_uuid": .string(surfaceID.description),
+                "workspace_uuid": .string(workspaceID.description),
+            ],
+            as: BackendReparentedTerminalPlacement.self
+        )
+    }
+
+    /// Configures one visible presentation and returns its exact renderer fences.
+    func configureRendererPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64,
+        configuration: BackendRendererPresentationConfiguration
+    ) async throws -> BackendRendererPresentationReceipt {
+        var parameters = configuration.jsonParameters
+        parameters["presentation_id"] = .string(id.description)
+        parameters["expected_generation"] = .unsignedInteger(expectedGeneration)
+        return try await call(
+            command: "configure-renderer-presentation",
+            parameters: parameters,
+            as: BackendRendererPresentationReceipt.self
+        )
+    }
+
+    /// Detaches renderer state without closing the presentation or canonical PTY.
+    func detachRendererPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64
+    ) async throws {
+        let _: BackendEmptyResponse = try await call(
+            command: "detach-renderer-presentation",
+            parameters: [
+                "presentation_id": .string(id.description),
+                "expected_generation": .unsignedInteger(expectedGeneration),
+            ],
+            as: BackendEmptyResponse.self
+        )
+    }
+
+    /// Updates presentation-local IME text without writing it to the PTY.
+    func setTerminalPreedit(
+        presentationID: PresentationID,
+        rendererGeneration: UInt64,
+        text: String?
+    ) async throws {
+        let _: BackendEmptyResponse = try await call(
+            command: "terminal-preedit",
+            parameters: [
+                "presentation_id": .string(presentationID.description),
+                "renderer_generation": .unsignedInteger(rendererGeneration),
+                "text": text.map(BackendJSONValue.string) ?? .null,
+            ],
+            as: BackendEmptyResponse.self
+        )
+    }
+
+    /// Releases one exact IOSurface pool slot after host GPU consumption.
+    func releaseRendererFrame(
+        _ release: BackendRendererFrameRelease
+    ) async throws -> BackendRendererFrameReleaseResponse {
+        try await call(
+            command: "release-renderer-frame",
+            parameters: release.jsonParameters,
+            as: BackendRendererFrameReleaseResponse.self
+        )
+    }
+
+    /// Returns the worker process census used for diagnostics and restart recovery.
+    func rendererWorkers() async throws -> BackendRendererWorkersResponse {
+        try await call(command: "renderer-workers", as: BackendRendererWorkersResponse.self)
+    }
+
+    /// Creates the first terminal in a new canonical workspace.
+    func newWorkspace(
+        name: String? = nil,
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        var parameters: [String: BackendJSONValue] = [:]
+        if let name { parameters["name"] = .string(name) }
+        if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
+        if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
+        return try await call(
+            command: "new-workspace",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Creates another terminal tab in an existing canonical pane.
+    func newTerminalTab(
+        pane: UInt64? = nil,
+        workingDirectory: String? = nil,
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        var parameters: [String: BackendJSONValue] = [:]
+        if let pane { parameters["pane"] = .unsignedInteger(pane) }
+        if let workingDirectory { parameters["cwd"] = .string(workingDirectory) }
+        if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
+        if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
+        return try await call(
+            command: "new-tab",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Encodes a physical key against canonical terminal modes and writes it to the PTY.
+    func sendTerminalKey(
+        surface: UInt64,
+        event: BackendTerminalKeyEvent
+    ) async throws -> BackendTerminalKeyResponse {
+        try await call(
+            command: "terminal-key",
+            parameters: [
+                "surface": .unsignedInteger(surface),
+                "key": .unsignedInteger(UInt64(event.key)),
+                "modifiers": .unsignedInteger(UInt64(event.modifiers)),
+                "consumed_modifiers": .unsignedInteger(UInt64(event.consumedModifiers)),
+                "text": .string(event.text),
+                "unshifted_codepoint": .unsignedInteger(UInt64(event.unshiftedCodepoint)),
+                "action": .string(event.action.rawValue),
+            ],
+            as: BackendTerminalKeyResponse.self
+        )
+    }
+
+    /// Encodes one Ghostty key-chord name against canonical terminal modes.
+    func sendTerminalNamedKey(surface: UInt64, key: String) async throws {
+        let _: BackendEmptyResponse = try await call(
+            command: "send-key",
+            parameters: [
+                "surface": .unsignedInteger(surface),
+                "keys": .array([.string(key)]),
+            ],
+            as: BackendEmptyResponse.self
+        )
+    }
+
+    /// Encodes terminal mouse input against the backend's canonical modes and geometry.
+    func sendTerminalMouse(
+        surface: UInt64,
+        event: BackendTerminalMouseEvent
+    ) async throws -> BackendTerminalMouseResponse {
+        var parameters: [String: BackendJSONValue] = [
+            "surface": .unsignedInteger(surface),
+            "action": .string(event.action.rawValue),
+            "modifiers": .unsignedInteger(UInt64(event.modifiers)),
+            "x": .number(event.x),
+            "y": .number(event.y),
+            "viewport_width": .unsignedInteger(UInt64(event.viewportWidth)),
+            "viewport_height": .unsignedInteger(UInt64(event.viewportHeight)),
+            "cell_width": .unsignedInteger(UInt64(event.cellWidth)),
+            "cell_height": .unsignedInteger(UInt64(event.cellHeight)),
+            "padding_left": .unsignedInteger(UInt64(event.padding.left)),
+            "padding_top": .unsignedInteger(UInt64(event.padding.top)),
+            "padding_right": .unsignedInteger(UInt64(event.padding.right)),
+            "padding_bottom": .unsignedInteger(UInt64(event.padding.bottom)),
+            "any_button_pressed": .bool(event.anyButtonPressed),
+            "click_count": .unsignedInteger(UInt64(event.clickCount)),
+        ]
+        if let button = event.button { parameters["button"] = .string(button.rawValue) }
+        return try await call(
+            command: "terminal-mouse",
+            parameters: parameters,
+            as: BackendTerminalMouseResponse.self
+        )
+    }
+
+    /// Writes committed UTF-8 text, optionally using bracketed-paste semantics.
+    func sendTerminalText(
+        surface: UInt64,
+        text: String,
+        paste: Bool = false
+    ) async throws {
+        let _: BackendEmptyResponse = try await call(
+            command: "send",
+            parameters: [
+                "surface": .unsignedInteger(surface),
+                "text": .string(text),
+                "paste": .bool(paste),
+            ],
+            as: BackendEmptyResponse.self
+        )
+    }
+
+    /// Applies canonical terminal cell geometry.
+    func resizeTerminal(
+        surface: UInt64,
+        columns: UInt16,
+        rows: UInt16
+    ) async throws -> BackendSurfaceResizeResponse {
+        try await call(
+            command: "resize-surface",
+            parameters: [
+                "surface": .unsignedInteger(surface),
+                "cols": .unsignedInteger(UInt64(columns)),
+                "rows": .unsignedInteger(UInt64(rows)),
+            ],
+            as: BackendSurfaceResizeResponse.self
+        )
+    }
+
+    /// Scrolls presentation state without moving terminal ownership into Swift.
+    func scrollTerminal(surface: UInt64, rowDelta: Int64) async throws {
+        let _: BackendEmptyResponse = try await call(
+            command: "scroll-surface",
+            parameters: [
+                "surface": .unsignedInteger(surface),
+                "delta": .integer(rowDelta),
+            ],
+            as: BackendEmptyResponse.self
+        )
+    }
+
+    /// Reads the coherent daemon-owned selection, search, copy-mode, and viewport state.
+    func terminalState(surfaceID: SurfaceID) async throws -> BackendTerminalStateResponse {
+        try await call(
+            command: "terminal-state",
+            parameters: ["surface_uuid": .string(surfaceID.description)],
+            as: BackendTerminalStateResponse.self
+        )
+    }
+
+    /// Applies one Ghostty binding-action string to canonical backend state.
+    func performTerminalBindingAction(
+        surfaceID: SurfaceID,
+        action: String,
+        repeatCount: UInt32? = nil
+    ) async throws -> BackendTerminalActionResponse {
+        var parameters: [String: BackendJSONValue] = [
+            "surface_uuid": .string(surfaceID.description),
+            "action": .string(action),
+        ]
+        if let repeatCount {
+            parameters["repeat_count"] = .unsignedInteger(UInt64(repeatCount))
+        }
+        return try await call(
+            command: "terminal-binding-action",
+            parameters: parameters,
+            as: BackendTerminalActionResponse.self
+        )
+    }
+
+    /// Reads or mutates the canonical terminal selection.
+    func terminalSelection(
+        surfaceID: SurfaceID,
+        operation: BackendTerminalSelectionOperation
+    ) async throws -> BackendTerminalSelectionResponse {
+        try await call(
+            command: "terminal-selection",
+            parameters: [
+                "surface_uuid": .string(surfaceID.description),
+                "operation": .string(operation.rawValue),
+            ],
+            as: BackendTerminalSelectionResponse.self
+        )
+    }
+
+    /// Enters, exits, or adjusts backend-owned keyboard copy mode.
+    func terminalCopyMode(
+        surfaceID: SurfaceID,
+        operation: BackendTerminalCopyModeOperation,
+        adjustment: BackendTerminalCopyModeAdjustment? = nil,
+        count: UInt32? = nil
+    ) async throws -> BackendTerminalActionResponse {
+        var parameters: [String: BackendJSONValue] = [
+            "surface_uuid": .string(surfaceID.description),
+            "operation": .string(operation.rawValue),
+        ]
+        if let adjustment { parameters["adjustment"] = .string(adjustment.rawValue) }
+        if let count { parameters["count"] = .unsignedInteger(UInt64(count)) }
+        return try await call(
+            command: "terminal-copy-mode",
+            parameters: parameters,
+            as: BackendTerminalActionResponse.self
+        )
+    }
+
+    /// Updates canonical terminal search state.
+    func terminalSearch(
+        surfaceID: SurfaceID,
+        operation: BackendTerminalSearchOperation,
+        query: String? = nil
+    ) async throws -> BackendTerminalActionResponse {
+        var parameters: [String: BackendJSONValue] = [
+            "surface_uuid": .string(surfaceID.description),
+            "operation": .string(operation.rawValue),
+        ]
+        if let query { parameters["query"] = .string(query) }
+        return try await call(
+            command: "terminal-search",
+            parameters: parameters,
+            as: BackendTerminalActionResponse.self
+        )
+    }
+
+    /// Scrolls the backend-owned terminal viewport.
+    func terminalScroll(
+        surfaceID: SurfaceID,
+        operation: BackendTerminalScrollOperation,
+        amount: Int64? = nil
+    ) async throws -> BackendTerminalActionResponse {
+        var parameters: [String: BackendJSONValue] = [
+            "surface_uuid": .string(surfaceID.description),
+            "operation": .string(operation.rawValue),
+        ]
+        if let amount { parameters["amount"] = .integer(amount) }
+        return try await call(
+            command: "terminal-scroll",
+            parameters: parameters,
+            as: BackendTerminalActionResponse.self
+        )
+    }
+
+    /// Reads the backend's canonical viewport text for accessibility and automation.
+    func readTerminalScreen(surface: UInt64) async throws -> BackendScreenText {
+        try await call(
+            command: "read-screen",
+            parameters: ["surface": .unsignedInteger(surface)],
+            as: BackendScreenText.self
+        )
+    }
+
+    /// Reads PTY process metadata from the backend owner.
+    func terminalProcessInfo(surface: UInt64) async throws -> BackendProcessInfo {
+        try await call(
+            command: "process-info",
+            parameters: ["surface": .unsignedInteger(surface)],
+            as: BackendProcessInfo.self
+        )
+    }
+
+    /// Closes the canonical PTY surface explicitly.
+    func closeTerminal(surface: UInt64) async throws {
+        let _: BackendEmptyResponse = try await call(
+            command: "close-surface",
+            parameters: ["surface": .unsignedInteger(surface)],
+            as: BackendEmptyResponse.self
+        )
+    }
+}

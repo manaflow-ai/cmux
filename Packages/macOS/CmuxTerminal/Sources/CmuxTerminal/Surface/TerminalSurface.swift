@@ -78,6 +78,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
     let registry: any TerminalSurfaceRegistering
     let engine: any TerminalEngineHosting
+    /// The persistent owner of this terminal, or nil for embedded Ghostty.
+    let externalRuntime: (any TerminalExternalRuntime)?
+    /// Detaches this Swift presentation without closing the backend-owned PTY.
+    var externalPresentationLease: (any TerminalExternalPresentationLease)? = nil
+    /// Guards the explicit close path independently from presentation teardown.
+    var externalCanonicalCloseRequested = false
+    /// App Quit preserves daemon-owned PTYs even if AppKit subsequently closes panels.
+    var externalCanonicalCloseSuppressedForAppTermination = false
     let spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding
     let byteTee: any TerminalByteTeeBinding
     let rendererRealization: any TerminalRendererRealizationScheduling
@@ -118,7 +126,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// `ghostty_surface_inherited_config`, `ghostty_surface_quicklook_font`),
     /// call `liveSurfaceForGhosttyAccess(reason:)` so stale freed pointers are
     /// rejected and quarantined.
-    public var hasLiveSurface: Bool { surface != nil && portalLifecycleState == .live }
+    @MainActor
+    public var hasLiveSurface: Bool {
+        if let externalRuntime {
+            return externalRuntime.snapshot.lifecycle == .live && portalLifecycleState == .live
+        }
+        return surface != nil && portalLifecycleState == .live
+    }
+
+    /// Whether the PTY, terminal state, and renderer are owned outside this process.
+    public var isExternallyManaged: Bool { externalRuntime != nil }
 
     /// Whether the terminal surface view is currently attached to a window.
     ///
@@ -471,10 +488,19 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         manualIO: Bool = false,
         manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        externalRuntime: (any TerminalExternalRuntime)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
+        precondition(
+            externalRuntime == nil || !manualIO,
+            "External terminal runtimes cannot use the embedded MANUAL-I/O path"
+        )
+        precondition(
+            externalRuntime == nil || tmuxStartCommand == nil,
+            "External terminal runtimes cannot use the embedded remote-tmux bootstrap path"
+        )
         self.id = id
         self.tabId = tabId
         self.surfaceContext = context
@@ -494,6 +520,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.manualInputHandler = manualInputHandler
         self.registry = dependencies.registry
         self.engine = dependencies.engine
+        self.externalRuntime = externalRuntime
         self.spawnPolicyProvider = dependencies.spawnPolicy
         self.byteTee = dependencies.byteTee
         self.rendererRealization = dependencies.rendererRealization
@@ -516,6 +543,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.paneHost = views.paneHost
         preparePaneHost(self.paneHost)
         registry.register(self)
+        self.externalPresentationLease = externalRuntime?.attachPresentation(
+            TerminalExternalPresentation(surfaceID: id, workspaceID: tabId)
+        )
         self.paneHost.attachSurface(self)
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -533,7 +563,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // Surfaces with startup work must spawn before the user focuses their workspace.
         // Ghostty's embedded surface creation still expects a view with a window, so use
         // a hidden bootstrap window until the real portal host is ready.
-        if hasStartupWork {
+        if hasStartupWork, externalRuntime == nil {
             scheduleHeadlessRuntimeStartIfNeeded(reason: "startup")
         }
     }
@@ -557,6 +587,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
+        if externalRuntime != nil {
+            _ = externalRuntime?.enqueue(.reparent(workspaceID: newTabId))
+        }
     }
 
     /// Moves this surface between focus-routing placements (workspace ↔
@@ -573,6 +606,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     deinit {
         claudeCommandShimInstallTask?.cancel()
         claudeCommandShimCompletionTask?.cancel()
+        // Deallocation only removes this app presentation. The persistent
+        // runtime keeps the PTY alive across app termination and restart.
+        externalPresentationLease?.detach()
+        externalPresentationLease = nil
         registry.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so

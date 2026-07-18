@@ -12,11 +12,13 @@ extension TerminalSurface {
     /// - Returns: A complete UTF-8 VT reconstruction, or `nil` when no bounded snapshot is available.
     @MainActor
     public func boundedScreenTailVT(maxRows: Int, maxBytes: Int) async -> String? {
-        guard maxRows > 0,
-              maxBytes > 0,
-              let surface = liveSurfaceForGhosttyAccess(reason: "boundedScreenTailVT") else {
+        guard maxRows > 0, maxBytes > 0 else {
             return nil
         }
+        if let externalRuntime {
+            return await externalRuntime.readScreenText(.vtTail(maxRows: maxRows, maxBytes: maxBytes))
+        }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "boundedScreenTailVT") else { return nil }
         return await runtimeTeardown.readScreenTailVT(
             TerminalSurfaceRuntimeScreenTailRequest(
                 surface: surface,

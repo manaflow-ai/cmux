@@ -9,6 +9,7 @@ import CmuxWindowing
 import CmuxNotifications
 import CmuxTerminalCore
 import CmuxTerminal
+import CmuxTerminalBackendService
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxUpdater
@@ -665,6 +666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
     private(set) var terminalClientComposition: TerminalClientComposition?
+    private var terminalBackendServiceModel: TerminalBackendServiceModel?
 
     /// Notification jump/open navigation, extracted into `CmuxNotifications`. `AppDelegate` is the
     /// composition root: it conforms to every seam (see `AppDelegate+NotificationNavSeams.swift`)
@@ -1256,6 +1258,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    private func bootstrapPersistentTerminalBackendService() {
+        guard let terminalBackendServiceModel else {
+            StartupBreadcrumbLog.append(
+                "appDelegate.terminalBackend.bootstrap",
+                fields: ["status": "notConfigured"]
+            )
+            return
+        }
+
+        terminalBackendServiceModel.start()
+        StartupBreadcrumbLog.append(
+            "appDelegate.terminalBackend.bootstrap",
+            fields: ["status": "scheduled"]
+        )
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
@@ -1278,6 +1296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
+        bootstrapPersistentTerminalBackendService()
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
         // synchronous RestorableAgentSessionIndex.load() on the main thread. See
@@ -1787,6 +1806,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidBecomeActive(_ notification: Notification) {
         PortScanner.shared.setTrackedAgentScanningPaused(false)
+        terminalBackendServiceModel?.refresh()
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -1975,6 +1995,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
     }
 
+    /// Synchronously severs every Swift presentation before AppKit starts closing panels.
+    /// The daemon remains the canonical PTY owner across a normal app Quit.
+    @discardableResult
+    static func detachPersistentTerminalPresentationsForAppTermination(
+        _ surfaces: [TerminalSurface]
+    ) -> Int {
+        var detached = 0
+        for surface in surfaces where surface.isExternallyManaged {
+            surface.detachExternalPresentationPreservingCanonicalTerminal()
+            detached += 1
+        }
+        return detached
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         // Backstop for any terminate path that did not route through
@@ -1983,6 +2017,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
         isTerminatingApp = true
+        let detachedPersistentTerminalCount = Self
+            .detachPersistentTerminalPresentationsForAppTermination(
+                GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
+            )
+        StartupBreadcrumbLog.append(
+            "appDelegate.willTerminate.terminalsDetached",
+            fields: ["count": String(detachedPersistentTerminalCount)]
+        )
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         terminationWatchdog.arm()
@@ -2031,10 +2073,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition,
-        terminalClientComposition: TerminalClientComposition? = nil
+        terminalClientComposition: TerminalClientComposition? = nil,
+        terminalBackendServiceModel: TerminalBackendServiceModel? = nil
     ) {
         self.tabManager = tabManager
         self.terminalClientComposition = terminalClientComposition ?? tabManager.terminalClientComposition
+        self.terminalBackendServiceModel = terminalBackendServiceModel
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
