@@ -8,12 +8,11 @@ import Testing
 #endif
 
 @Suite @MainActor struct DiffViewerFinalReviewRegressionTests {
-    @Test func agentSnapshotDeadlineReturnsCachedFallbackWhenRefreshStalls() async {
+    @Test func agentSnapshotDeadlineFailsClosedWhenRefreshStalls() async {
         let stalledRefresh = AsyncStream<String>.makeStream()
         let race = DiffViewerAgentSnapshotDeadline<String>()
 
         let value = await race.value(
-            fallback: "cached",
             operation: {
                 for await value in stalledRefresh.stream {
                     return value
@@ -23,7 +22,7 @@ import Testing
             waitForDeadline: {}
         )
 
-        #expect(value == "cached")
+        #expect(value == nil)
         stalledRefresh.continuation.finish()
     }
 
@@ -32,7 +31,6 @@ import Testing
         let race = DiffViewerAgentSnapshotDeadline<String>()
 
         let value = await race.value(
-            fallback: "cached",
             operation: { "fresh" },
             waitForDeadline: {
                 for await _ in stalledDeadline.stream {}

@@ -509,6 +509,49 @@ fn rpc_rejects_agent_turn_when_repo_scope_lacks_exact_agent_identity() {
 }
 
 #[test]
+fn rpc_rejects_unauthorized_unknown_agent_without_resolving_it() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-agent-unknown-auth-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = prepare_agent_rpc_fixture(&root);
+    let token = "0123456789abcdef";
+    std::fs::write(
+        root.join(".branch-session-agent-test.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "groupID": "agent-test",
+            "allowedRepoRoots": [root.join("repo")]
+        }))
+        .expect("encode repo-only authorization"),
+    )
+    .expect("write repo-only authorization");
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "unauthorized-unknown-agent",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {
+            "source": {
+                "kind": "agentTurn",
+                "provider": "claude",
+                "sessionId": "does-not-exist"
+            },
+            "capabilityToken": token
+        }
+    }))
+    .expect("encode request");
+
+    let output = run_stdio_rpc_in_root_with_home(&request, &root, Some(&home));
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["error"]["code"], "notAllowed", "{response}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn rpc_authorizes_agent_repository_before_parsing_its_transcript() {
     let root = std::env::temp_dir().join(format!(
         "cmux-diff-sidecar-agent-preauthorization-test-{}-{}",

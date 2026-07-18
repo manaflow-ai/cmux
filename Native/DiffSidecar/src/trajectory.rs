@@ -1775,6 +1775,23 @@ mod environment_tests {
     use std::io::Write as _;
 
     #[test]
+    fn codex_apply_patch_output_parses_structured_and_exact_legacy_results() {
+        let structured_failure = serde_json::json!({
+            "type":"custom_tool_call_output",
+            "call_id":"patch",
+            "output":"{\"success\":false}"
+        });
+        let legacy_success = serde_json::json!({
+            "type":"custom_tool_call_output",
+            "call_id":"patch",
+            "output":"Done!"
+        });
+
+        assert!(!codex_apply_patch_output_succeeded(&structured_failure));
+        assert!(codex_apply_patch_output_succeeded(&legacy_success));
+    }
+
+    #[test]
     fn transcript_generation_changes_when_the_trajectory_grows() {
         let path = std::env::temp_dir().join(format!(
             "cmux-transcript-generation-test-{}-{}",
