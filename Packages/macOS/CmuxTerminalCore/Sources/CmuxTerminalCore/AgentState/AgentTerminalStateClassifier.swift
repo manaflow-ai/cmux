@@ -2,12 +2,6 @@ import Foundation
 
 /// Pure recognition and live-bottom classification using a prevalidated catalog.
 public struct AgentTerminalStateClassifier: Sendable {
-    private enum WrappedExecutableIdentity {
-        case none
-        case profile(AgentTerminalFamilyProfile)
-        case conflicting
-    }
-
     private let catalog: AgentTerminalProfileCatalog
     private static let argumentWrapperBasenames: Set<String> = [
         "bun", "deno", "node", "npm", "npx", "pnpm", "python", "python3",
@@ -36,13 +30,8 @@ public struct AgentTerminalStateClassifier: Sendable {
             return pathMatch
         }
         guard let executable, Self.isArgumentWrapperBasename(executable) else { return nil }
-        switch wrappedExecutableIdentity(arguments: process.arguments) {
-        case .profile(let profile):
+        if let profile = wrappedExecutableProfile(arguments: process.arguments) {
             return profile
-        case .conflicting:
-            return nil
-        case .none:
-            break
         }
         for key in ["CMUX_AGENT", "CMUX_AGENT_LAUNCH_KIND"] {
             if let hint = process.environment[key], let profile = catalog.profile(hint: hint) {
@@ -55,30 +44,27 @@ public struct AgentTerminalStateClassifier: Sendable {
         }
     }
 
-    /// Generic runtimes often remain the foreground process while their first
-    /// positional path names the real agent executable. Only inspect the
-    /// bounded launcher prefix, before command options or prompt arguments.
-    /// Ambiguous exact identities fail closed instead of trusting inherited
-    /// cmux hints from a parent agent.
-    private func wrappedExecutableIdentity(arguments: [String]) -> WrappedExecutableIdentity {
-        var matched: AgentTerminalFamilyProfile?
-        var sawPositional = false
-        for rawToken in arguments.dropFirst().prefix(8) {
-            let token = rawToken.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !token.isEmpty else { continue }
-            if token == "--" || (sawPositional && token.hasPrefix("-")) { break }
-            if token.hasPrefix("-") { continue }
-
-            let isPathToken = token.contains("/")
-            if sawPositional && !isPathToken { break }
-            sawPositional = true
-
-            let basename = URL(fileURLWithPath: token).lastPathComponent.lowercased()
-            guard let profile = catalog.profile(executableBasename: basename) else { continue }
-            if let matched, matched.id != profile.id { return .conflicting }
-            matched = profile
+    /// Generic runtimes often remain the foreground process while their launch
+    /// target names the real agent executable. Inspect that one path only.
+    /// Later arguments may be subcommands, file paths, or user prompt text.
+    private func wrappedExecutableProfile(arguments: [String]) -> AgentTerminalFamilyProfile? {
+        let launcherArguments = arguments.dropFirst()
+        guard let first = launcherArguments.first else { return nil }
+        let rawTarget: String
+        if first == "--" {
+            guard launcherArguments.count > 1 else { return nil }
+            rawTarget = launcherArguments[launcherArguments.index(after: launcherArguments.startIndex)]
+        } else {
+            guard !first.hasPrefix("-") else { return nil }
+            rawTarget = first
         }
-        return matched.map(WrappedExecutableIdentity.profile) ?? .none
+        let target = rawTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard target.hasPrefix("/") || target.hasPrefix("./") || target.hasPrefix("../") else {
+            return nil
+        }
+        return catalog.profile(
+            executableBasename: URL(fileURLWithPath: target).lastPathComponent.lowercased()
+        )
     }
 
     private static func isArgumentWrapperBasename(_ executable: String) -> Bool {
