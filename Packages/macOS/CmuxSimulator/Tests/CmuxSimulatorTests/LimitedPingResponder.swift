@@ -7,6 +7,7 @@ final class LimitedPingResponder: @unchecked Sendable {
     private let lock = NSLock()
     private let maximumAcknowledgements: Int
     private var acknowledgementCount = 0
+    private var acknowledgementsEnabled = true
 
     init(maximumAcknowledgements: Int) {
         self.maximumAcknowledgements = maximumAcknowledgements
@@ -15,9 +16,14 @@ final class LimitedPingResponder: @unchecked Sendable {
     func response(to message: SimulatorWorkerInbound) -> SimulatorWorkerOutbound? {
         guard case let .ping(sequence) = message else { return nil }
         return lock.withLock {
-            guard acknowledgementCount < maximumAcknowledgements else { return nil }
+            guard acknowledgementsEnabled,
+                  acknowledgementCount < maximumAcknowledgements else { return nil }
             acknowledgementCount += 1
             return .ack(sequence)
         }
+    }
+
+    func stopAcknowledging() {
+        lock.withLock { acknowledgementsEnabled = false }
     }
 }

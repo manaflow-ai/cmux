@@ -265,7 +265,7 @@ extension SimulatorWorkerClientTests {
     @Test("Queued raw input releases remain conservative until a ping proves them")
     func rawReleaseCrashRecovery() async throws {
         let launcher = TestWorkerLauncher()
-        let pingResponder = LimitedPingResponder(maximumAcknowledgements: 4)
+        let pingResponder = LimitedPingResponder(maximumAcknowledgements: .max)
         launcher.setResponder { message in
             switch message {
             case .attach: .status(.streaming)
@@ -283,6 +283,7 @@ extension SimulatorWorkerClientTests {
         await waitForAcknowledgedPing(client)
         await client.send(.hidButton(.init(button: button, phase: .down)))
         await waitForAcknowledgedPing(client)
+        pingResponder.stopAcknowledging()
         await client.send(.pointer(.init(phase: .ended, primary: point)))
         await client.send(.key(.init(usage: 4, phase: .up)))
         await client.send(.hidButton(.init(button: button, phase: .up)))
@@ -309,7 +310,8 @@ extension SimulatorWorkerClientTests {
             if expected.allSatisfy(messages.contains) { break }
             try await clock.sleep(for: .milliseconds(1))
         }
-        #expect(expected.allSatisfy(messages.contains))
+        let missingMessages = expected.filter { !messages.contains($0) }
+        #expect(missingMessages.isEmpty)
         await client.stop()
     }
 
