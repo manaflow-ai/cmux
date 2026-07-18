@@ -260,6 +260,62 @@ struct AgentHibernationOwnedLiveProcessTests {
         #expect(state.signals == [SIGSTOP, SIGCONT])
     }
 
+    @Test
+    func frozenLeaseRetriesTransientIdentityAndSignalFailuresBeforeRetiring() throws {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let lease = try #require(topologyIndex(
+            key: key,
+            identity: identity,
+            ttyEnumeration: .complete([shellPID]),
+            childEnumeration: .complete([])
+        ).evidence(for: key).lease)
+        let state = AgentHibernationFrozenShellTestState(identity: identity, status: UInt32(SRUN))
+        let frozen = try #require(lease.freezeForFinalTeardown(
+            processIdentity: { _ in state.readIdentity() },
+            processStatus: { _ in state.status },
+            sendSignal: { _, signal in state.send(signal) },
+            processExists: { _ in true },
+            yieldThread: {},
+            maximumResumeAttempts: 4,
+            finalProcessFreeValidation: { true }
+        ))
+        state.failNextIdentityReads(1)
+        state.failNextResumeSignals(1)
+
+        frozen.resume()
+        #expect(state.status == UInt32(SRUN))
+        #expect(state.signals == [SIGSTOP, SIGCONT, SIGCONT])
+
+        frozen.resume()
+        #expect(state.signals == [SIGSTOP, SIGCONT, SIGCONT])
+    }
+
+    @Test
+    func frozenLeaseNeverSignalsAReplacementPIDGeneration() throws {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let lease = try #require(topologyIndex(
+            key: key,
+            identity: identity,
+            ttyEnumeration: .complete([shellPID]),
+            childEnumeration: .complete([])
+        ).evidence(for: key).lease)
+        let state = AgentHibernationFrozenShellTestState(identity: identity, status: UInt32(SRUN))
+        let frozen = try #require(lease.freezeForFinalTeardown(
+            processIdentity: { _ in state.identity },
+            processStatus: { _ in state.status },
+            sendSignal: { _, signal in state.send(signal) },
+            yieldThread: {},
+            finalProcessFreeValidation: { true }
+        ))
+        state.replaceIdentity(processIdentity(pid: shellPID, seconds: 101))
+
+        frozen.resume()
+        frozen.resume()
+        #expect(state.signals == [SIGSTOP])
+    }
+
     @MainActor
     @Test
     func frozenShellSpansFinalProcessProofDurableCommitAndNativeFree() async throws {
@@ -711,6 +767,8 @@ private final class AgentHibernationFrozenShellTestState: @unchecked Sendable {
         var hasChild = false
         var finalValidationObservedStop = false
         var events: [String] = []
+        var identityReadFailuresRemaining = 0
+        var resumeSignalFailuresRemaining = 0
     }
 
     private let storage: OSAllocatedUnfairLock<Storage>
@@ -728,18 +786,44 @@ private final class AgentHibernationFrozenShellTestState: @unchecked Sendable {
         storage.withLock { $0.finalValidationObservedStop }
     }
 
-    func send(_ signal: Int32) -> Int32 {
+    func readIdentity() -> AgentPIDProcessIdentity? {
         storage.withLock { state in
+            if state.identityReadFailuresRemaining > 0 {
+                state.identityReadFailuresRemaining -= 1
+                return nil
+            }
+            return state.identity
+        }
+    }
+
+    func failNextIdentityReads(_ count: Int) {
+        storage.withLock { $0.identityReadFailuresRemaining = max(0, count) }
+    }
+
+    func failNextResumeSignals(_ count: Int) {
+        storage.withLock { $0.resumeSignalFailuresRemaining = max(0, count) }
+    }
+
+    func replaceIdentity(_ identity: AgentPIDProcessIdentity?) {
+        storage.withLock { $0.identity = identity }
+    }
+
+    func send(_ signal: Int32) -> Int32 {
+        storage.withLock { state -> Int32 in
             state.signals.append(signal)
             if signal == SIGSTOP {
                 state.status = UInt32(SSTOP)
                 state.events.append("SIGSTOP")
             } else if signal == SIGCONT {
+                if state.resumeSignalFailuresRemaining > 0 {
+                    state.resumeSignalFailuresRemaining -= 1
+                    return -1
+                }
                 state.status = UInt32(SRUN)
                 state.events.append("SIGCONT")
             }
+            return 0
         }
-        return 0
     }
 
     func attemptFork() {

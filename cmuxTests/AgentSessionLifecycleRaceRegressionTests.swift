@@ -613,32 +613,47 @@ extension CMUXCLIErrorOutputRegressionTests {
         defer { kill(pid_t(resumedPID), SIGTERM) }
 
         let sessionID = "custom-resumed-session"
+        let mismatchedSessionID = "custom-mismatched-session"
         let resumeAttemptID = UUID()
+        let mismatchedAttemptID = UUID()
         let stateURL = root.appendingPathComponent("local-agent-hook-sessions.json")
         try JSONSerialization.data(withJSONObject: [
             "version": 2,
-            "sessions": [sessionID: [
-                "sessionId": sessionID,
-                "workspaceId": "workspace-before",
-                "surfaceId": "surface-before",
-                "pid": 123,
-                "runId": "saved-run",
-                "activeRunId": "saved-run",
-                "sessionState": "restoring",
-                "restoreAuthority": true,
-                "cmuxHibernationResumeAttemptId": resumeAttemptID.uuidString,
-                "cmuxHibernationResumeStartedAt": 20.0,
-                "startedAt": 10.0,
-                "updatedAt": 20.0,
-                "runs": [[
-                    "runId": "saved-run",
+            "sessions": [
+                sessionID: [
+                    "sessionId": sessionID,
+                    "workspaceId": "workspace-before",
+                    "surfaceId": "surface-before",
                     "pid": 123,
-                    "processStartedAt": 10.0,
+                    "runId": "saved-run",
+                    "activeRunId": "saved-run",
+                    "sessionState": "restoring",
                     "restoreAuthority": true,
+                    "cmuxHibernationResumeAttemptId": resumeAttemptID.uuidString,
+                    "cmuxHibernationResumeStartedAt": 20.0,
                     "startedAt": 10.0,
                     "updatedAt": 20.0,
-                ]],
-            ]],
+                    "runs": [[
+                        "runId": "saved-run",
+                        "pid": 123,
+                        "processStartedAt": 10.0,
+                        "restoreAuthority": true,
+                        "startedAt": 10.0,
+                        "updatedAt": 20.0,
+                    ]],
+                ],
+                mismatchedSessionID: [
+                    "sessionId": mismatchedSessionID,
+                    "workspaceId": "mismatch-workspace-before",
+                    "surfaceId": "mismatch-surface-before",
+                    "sessionState": "restoring",
+                    "restoreAuthority": true,
+                    "cmuxHibernationResumeAttemptId": mismatchedAttemptID.uuidString,
+                    "cmuxHibernationResumeStartedAt": 20.0,
+                    "startedAt": 10.0,
+                    "updatedAt": 20.0,
+                ],
+            ],
         ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
         let store = ClaudeHookSessionStore(processEnv: [
             "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
@@ -675,6 +690,23 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(afterDuplicateHook.activeRunId == activeRunID)
         #expect(afterDuplicateHook.restoreAuthority)
         #expect(afterDuplicateHook.runs?.first { $0.runId == activeRunID }?.restoreAuthority == true)
+
+        #expect(!(try store.upsert(
+            sessionId: mismatchedSessionID,
+            workspaceId: "mismatch-workspace-after",
+            surfaceId: "mismatch-surface-after",
+            cwd: root.path,
+            pid: resumedPID,
+            markActive: true
+        )))
+        let rejected = try #require(try store.lookup(sessionId: mismatchedSessionID))
+        #expect(rejected.sessionState == .restoring)
+        #expect(rejected.cmuxHibernationResumeAttemptId == mismatchedAttemptID.uuidString)
+        #expect(rejected.restoreAuthority)
+        #expect(rejected.activeRunId == nil)
+        #expect((rejected.runs ?? []).isEmpty)
+        #expect(store.snapshot().activeSessionsByWorkspace["mismatch-workspace-after"] == nil)
+        #expect(store.snapshot().activeSessionsBySurface["mismatch-surface-after"] == nil)
     }
 
     @Test func lineageResolverReadsValidatedHibernationResumeAttemptEvidence() {
