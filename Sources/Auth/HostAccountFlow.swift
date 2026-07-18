@@ -16,7 +16,7 @@ import Observation
 /// change after Settings is already open.
 @MainActor
 @Observable
-final class HostAccountFlow: AccountFlow {
+final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
     private let featureFlags = CmuxFeatureFlags.shared
@@ -65,21 +65,97 @@ final class HostAccountFlow: AccountFlow {
         coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
     }
 
+    var isAuthenticated: Bool {
+        coordinator.isAuthenticated
+    }
+
+    var isPresentingSignIn: Bool {
+        browserSignIn.isPresentingSignIn
+    }
+
     var signInIsSlow: Bool {
         browserSignIn.signInIsSlow
+    }
+
+    var isCompletingSignIn: Bool {
+        coordinator.isLoading || coordinator.isRestoringSession
+    }
+
+    var lastSignInFailure: AccountSignInModel.Failure? {
+        guard let failure = browserSignIn.lastFailure else { return nil }
+        switch failure {
+        case .offline:
+            return .offline
+        case .networkError:
+            return .network
+        case .timedOut:
+            return .timedOut
+        case .serverError:
+            return .server
+        case .invalidCode, .invalidCallback:
+            return .invalidLink
+        case .browserSignInFailed:
+            return .browserUnavailable
+        case .unauthorized:
+            return .unauthorized
+        case .authFailure:
+            return .rejected
+        case .cancelled:
+            return .cancelled
+        }
     }
 
     func startSignIn() {
         browserSignIn.beginSignIn()
     }
 
+    func startSignInForPane() -> URL? {
+        browserSignIn.beginSignIn()
+        return browserSignIn.activeAttemptSignInURL
+    }
+
+    /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
+    /// allowing socket callers to await a bounded result.
+    func signIn(timeout: TimeInterval) async -> Bool {
+        await browserSignIn.signIn(timeout: timeout)
+    }
+
+    /// Issues the manual hosted Stack sign-in URL through the same callback
+    /// state owner as interactive sign-in.
+    var manualSignInURL: URL {
+        browserSignIn.manualSignInURL
+    }
+
+    /// Completes an external hosted Stack callback through the shared attempt.
+    func handleCallbackURL(_ url: URL) async -> Bool {
+        await browserSignIn.handleCallbackURL(url)
+    }
+
     func openSignInInDefaultBrowser() {
         guard let url = browserSignIn.activeAttemptSignInURL else { return }
+        _ = openSignInURLInDefaultBrowser(url)
+    }
+
+    func openSignInURLInDefaultBrowser(_ url: URL) -> Bool {
         NSWorkspace.shared.open(url)
+    }
+
+    func copySignInURL(_ url: URL) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(url.absoluteString, forType: .string)
     }
 
     func signOut() async {
         await browserSignIn.signOut()
+        isProActive = false
+        canManageBilling = false
+    }
+
+    /// Socket variant of sign-out. The underlying sign-out continues if the
+    /// caller's deadline expires, matching the browser flow contract.
+    func signOut(timeout: TimeInterval) async {
+        await browserSignIn.signOut(timeout: timeout)
         isProActive = false
         canManageBilling = false
     }
@@ -140,7 +216,7 @@ final class HostAccountFlow: AccountFlow {
             id: user.id,
             displayName: user.displayName ?? "",
             email: user.primaryEmail ?? "",
-            avatarURL: nil
+            avatarURL: user.profileImageURL.flatMap(URL.init(string:))
         )
     }
 }

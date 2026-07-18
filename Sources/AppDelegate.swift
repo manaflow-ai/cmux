@@ -1197,10 +1197,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #if DEBUG
         AuthDebugLog().log("auth.openURLs.authCallbacks count=\(authCallbacks.count)")
         #endif
-        if let browserSignIn = auth?.browserSignIn {
+        if let accountFlow = auth?.accountFlow {
             for url in authCallbacks {
                 Task { @MainActor in
-                    let signedIn = await browserSignIn.handleCallbackURL(url)
+                    let signedIn = await accountFlow.handleCallbackURL(url)
                     if signedIn { await NativePricingPlanRefresh.refreshForProWelcomeChecklist() } else {
                         AuthDebugLog().log("auth.callback did not complete sign-in")
                     }
@@ -2047,7 +2047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
-        TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
+        TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
@@ -7221,6 +7221,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard didCreate, let createdWorkspace else { return nil }
         focusInitialBrowserWebView(in: createdWorkspace)
         return createdWorkspace
+    }
+
+    /// Opens the iPhone pairing flow as a dedicated workspace, reusing the
+    /// existing pairing workspace in the target window when one is open.
+    @discardableResult
+    func performMobileConnectWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "mobileConnect"
+    ) -> Bool {
+        guard CmuxFeatureFlags.shared.isMobileConnectButtonEnabled else {
+#if DEBUG
+            cmuxDebugLog("mobileConnect.blocked_flag source=\(debugSource)")
+#endif
+            return false
+        }
+        guard let manager = preferredTabManager
+            ?? synchronizeActiveMainWindowContext(preferredWindow: preferredWindow) else {
+            return false
+        }
+
+        if let workspace = manager.tabs.first(where: { workspace in
+            workspace.panels.values.contains { $0 is MobilePairingPanel }
+        }), let panel = workspace.panels.values.first(where: { $0 is MobilePairingPanel }) {
+            manager.selectedTabId = workspace.id
+            workspace.focusPanel(panel.id)
+            return true
+        }
+
+        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
+        let workspace = manager.addWorkspace(
+            title: title,
+            select: true,
+            eagerLoadTerminal: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false,
+            allowTextBoxFocusDefault: false
+        )
+        guard let initialPanelID = workspace.focusedPanelId,
+              let paneID = workspace.paneId(forPanelId: initialPanelID),
+              workspace.newMobilePairingSurface(inPane: paneID, focus: true) != nil else {
+            manager.closeWorkspace(workspace, recordHistory: false)
+            return false
+        }
+        _ = workspace.closePanel(initialPanelID, force: true)
+        return true
     }
 
     func proUpgradeWorkspaceExists(workspaceId: UUID) -> Bool {
@@ -15380,9 +15426,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didStart { onExecuted?() }
                 return didStart
             case .mobileConnect:
-                MobilePairingWindowController.shared.show()
-                onExecuted?()
-                return true
+                let didOpen = performMobileConnectWorkspaceAction(
+                    tabManager: context.tabManager,
+                    preferredWindow: resolvedWindow(for: context),
+                    debugSource: "configured.cmux.mobileConnect"
+                )
+                if didOpen { onExecuted?() }
+                return didOpen
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()

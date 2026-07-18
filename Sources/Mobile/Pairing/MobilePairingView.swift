@@ -11,6 +11,9 @@ import SwiftUI
 /// path for released iOS clients and private-only networks.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
+    @State private var signInModel = AccountSignInModel(
+        flow: AppDelegate.shared?.auth?.accountFlow
+    )
     /// The manual-entry value that was just copied (the host or the port
     /// string), so only the matching button shows the brief "Copied" flash.
     /// The two values can never collide: one is a host, the other a port.
@@ -24,7 +27,7 @@ struct MobilePairingView: View {
     /// The shared auth coordinator, observed so the view re-runs `refresh()`
     /// when sign-in completes or settles. Captured once; stable post-startup.
     private let coordinator: AuthCoordinator? = AppDelegate.shared?.auth?.coordinator
-    private let browserSignIn: HostBrowserSignInFlow? = AppDelegate.shared?.auth?.browserSignIn
+    private let accountFlow: HostAccountFlow? = AppDelegate.shared?.auth?.accountFlow
 
     private static let tailscaleDownloadURL = URL(string: "https://tailscale.com/download")!
     /// Where a Mac user goes to get cmux for iPhone while the beta is invite-only.
@@ -46,7 +49,7 @@ struct MobilePairingView: View {
         .onChange(of: coordinator?.isAuthenticated ?? false) { _, _ in
             Task { await model.refresh() }
         }
-        .onChange(of: browserSignIn?.isPresentingSignIn ?? false) { _, signingIn in
+        .onChange(of: accountFlow?.isPresentingSignIn ?? false) { _, signingIn in
             // When the browser flow settles (success or cancel), re-evaluate so a
             // cancelled sign-in returns to the signed-out state instead of spinning.
             if !signingIn { Task { await model.refresh() } }
@@ -205,7 +208,7 @@ struct MobilePairingView: View {
         case .loading:
             loadingContent
         case .signedOut:
-            signedOut
+            AccountSignInView(model: signInModel, automaticallyStartsSignIn: false)
         case .preparing:
             centered {
                 ProgressView().controlSize(.small)
@@ -249,44 +252,10 @@ struct MobilePairingView: View {
         .frame(maxWidth: .infinity, minHeight: 200)
     }
 
-    private var signedOut: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "person.crop.circle.badge.plus")
-                .cmuxFont(size: 28)
-                .foregroundStyle(.tint)
-            Text(String(localized: "mobile.pairing.signIn.prompt", defaultValue: "Sign in with your cmux account to pair your iPhone."))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let lastFailure = browserSignIn?.lastFailure?.errorDescription, !lastFailure.isEmpty {
-                Text(lastFailure)
-                    .font(.caption)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Button(String(localized: "mobile.pairing.signIn.button", defaultValue: "Sign In")) {
-                model.signIn()
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .frame(maxWidth: .infinity, minHeight: 200)
-    }
-
     @ViewBuilder
     private var loadingContent: some View {
-        if browserSignIn?.isPresentingSignIn == true {
-            VStack(spacing: 12) {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text(String(localized: "mobile.pairing.signIn.connecting", defaultValue: "Connecting…"))
-                        .foregroundStyle(.secondary)
-                }
-                if browserSignIn?.signInIsSlow == true {
-                    slowSignInFallback
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 200)
+        if accountFlow?.isPresentingSignIn == true {
+            AccountSignInView(model: signInModel, automaticallyStartsSignIn: false)
         } else {
             centered {
                 ProgressView().controlSize(.small)
@@ -294,31 +263,6 @@ struct MobilePairingView: View {
                     .foregroundStyle(.secondary)
             }
         }
-    }
-
-    private var slowSignInFallback: some View {
-        VStack(spacing: 8) {
-            Text(String(
-                localized: "mobile.pairing.signIn.slowHint",
-                defaultValue: "The system sign-in window may stop responding. If nothing happens, open sign-in in your default browser instead."
-            ))
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-
-            Button {
-                guard let url = browserSignIn?.activeAttemptSignInURL else { return }
-                NSWorkspace.shared.open(url)
-            } label: {
-                Text(String(
-                    localized: "mobile.pairing.signIn.openInBrowser",
-                    defaultValue: "Open in Browser"
-                ))
-            }
-            .controlSize(.small)
-        }
-        .frame(maxWidth: 360)
     }
 
     private func failure(message: String) -> some View {

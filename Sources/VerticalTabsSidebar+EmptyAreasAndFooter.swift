@@ -14,16 +14,320 @@ struct SidebarFooterIconButtonStyle: ButtonStyle {
     }
 }
 
+#if DEBUG
+enum SidebarFooterIconButtonDebugSettings {
+    static let hoverOpacityKey = "debug.sidebarFooterIconButton.hoverOpacity"
+    static let defaultHoverOpacity = 0.08
+}
+
+enum SidebarFooterProfileIconDebugChoice: String, CaseIterable, Identifiable {
+    case outline = "person"
+    case filled = "person.fill"
+    case cropCircle = "person.crop.circle"
+    case filledCropCircle = "person.crop.circle.fill"
+
+    var id: String { rawValue }
+}
+
+enum SidebarFooterProfileIconDebugSettings {
+    static let iconKey = "debug.sidebarFooterProfileIcon.symbol"
+    static let sizeKey = "debug.sidebarFooterProfileIcon.size"
+    static let defaultIcon = SidebarFooterProfileIconDebugChoice.outline
+    static let defaultSize = 15.0
+}
+
+enum SidebarFooterMobileIconDebugSettings {
+    static let sizeKey = "debug.sidebarFooterMobileIcon.size"
+    static let defaultSize = 12.0
+}
+
+enum SidebarFooterHelpIconDebugWeight: String, CaseIterable, Identifiable {
+    case regular
+    case medium
+    case semibold
+
+    var id: String { rawValue }
+
+    var fontWeight: Font.Weight {
+        switch self {
+        case .regular: .regular
+        case .medium: .medium
+        case .semibold: .semibold
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .regular: "Regular"
+        case .medium: "Medium"
+        case .semibold: "Semibold"
+        }
+    }
+}
+
+enum SidebarFooterHelpIconDebugChoice: String, CaseIterable, Identifiable {
+    case bare = "questionmark"
+    case circle = "questionmark.circle"
+    case filledCircle = "questionmark.circle.fill"
+
+    var id: String { rawValue }
+}
+
+enum SidebarFooterHelpIconDebugSettings {
+    static let sizeKey = "debug.sidebarFooterHelpIcon.size"
+    static let weightKey = "debug.sidebarFooterHelpIcon.weight"
+    static let iconKey = "debug.sidebarFooterHelpIcon.symbol"
+    static let defaultSize = 13.5
+    static let defaultWeight = SidebarFooterHelpIconDebugWeight.regular
+    static let defaultIcon = SidebarFooterHelpIconDebugChoice.circle
+}
+#endif
+
+struct SidebarFooterHelpIcon: View {
+    let pointSize: CGFloat
+    let weight: Font.Weight
+#if DEBUG
+    @AppStorage(SidebarFooterHelpIconDebugSettings.iconKey)
+    private var debugIcon = SidebarFooterHelpIconDebugSettings.defaultIcon.rawValue
+#endif
+
+    private var systemName: String {
+#if DEBUG
+        SidebarFooterHelpIconDebugChoice(rawValue: debugIcon)?.rawValue
+            ?? SidebarFooterHelpIconDebugSettings.defaultIcon.rawValue
+#else
+        "questionmark.circle"
+#endif
+    }
+
+    var body: some View {
+        CmuxSystemSymbolImage(systemName: systemName, pointSize: pointSize, weight: weight)
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+    }
+}
+
+struct SidebarAccountMenuButton: View {
+    @EnvironmentObject private var tabManager: TabManager
+    private let accountFlow: HostAccountFlow? = AppDelegate.shared?.auth?.accountFlow
+    private let title = String(localized: "settings.section.account", defaultValue: "Account")
+    private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
+    private let buttonSize: CGFloat = 22
+    @State private var isPopoverPresented = false
+#if DEBUG
+    @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
+    private var debugIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
+#endif
+
+    private var iconSize: CGFloat {
+#if DEBUG
+        CGFloat(debugIconSize)
+#else
+        15
+#endif
+    }
+
+    var body: some View {
+        let identity = accountFlow?.currentIdentity
+        let isSignedIn = identity != nil
+        let buttonTitle = isSignedIn ? title : signInTitle
+        Button {
+            if isSignedIn {
+                isPopoverPresented.toggle()
+            } else {
+                _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "sidebar.account"
+                )
+            }
+        } label: {
+            SidebarAccountAvatar(
+                avatarURL: identity?.avatarURL,
+                displayName: identity?.displayName ?? "",
+                email: identity?.email ?? "",
+                isSignedIn: isSignedIn,
+                size: iconSize
+            )
+            .frame(width: buttonSize, height: buttonSize)
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .disabled(accountFlow?.isWorkingOnAuth == true)
+        .frame(width: buttonSize, height: buttonSize)
+        .background(ArrowlessPopoverAnchor(
+            isPresented: $isPopoverPresented,
+            preferredEdge: .maxY,
+            detachedGap: 4
+        ) {
+            SidebarAccountPopover(
+                accountFlow: accountFlow,
+                dismiss: { isPopoverPresented = false }
+            )
+        })
+        .safeHelp(buttonTitle)
+        .accessibilityLabel(buttonTitle)
+        .accessibilityIdentifier("SidebarAccountMenuButton")
+    }
+}
+
+private struct SidebarAccountPopover: View {
+    let accountFlow: HostAccountFlow?
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let identity = accountFlow?.currentIdentity {
+                HStack(spacing: 10) {
+                    SidebarAccountAvatar(
+                        avatarURL: identity.avatarURL,
+                        displayName: identity.displayName,
+                        email: identity.email,
+                        isSignedIn: true,
+                        size: 34
+                    )
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(identity.displayName.isEmpty ? identity.email : identity.displayName)
+                            .cmuxFont(size: 13, weight: .semibold)
+                            .lineLimit(1)
+                        if !identity.email.isEmpty && identity.email != identity.displayName {
+                            Text(identity.email)
+                                .cmuxFont(size: 11)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                Divider()
+                Button {
+                    dismiss()
+                    Task { await accountFlow?.signOut() }
+                } label: {
+                    Label(
+                        String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
+                        systemImage: "rectangle.portrait.and.arrow.right"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("SidebarAccountSignOutButton")
+            } else {
+                Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
+                    .cmuxFont(size: 13, weight: .semibold)
+                Button {
+                    dismiss()
+                    accountFlow?.startSignIn()
+                } label: {
+                    Label(
+                        String(localized: "settings.account.signIn", defaultValue: "Sign In…"),
+                        systemImage: "person.crop.circle.badge.plus"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("SidebarAccountSignInButton")
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(accountFlow?.isWorkingOnAuth == true)
+        .padding(12)
+        .frame(width: 220, alignment: .leading)
+    }
+}
+
+struct SidebarAccountAvatar: View {
+    let avatarURL: URL?
+    let displayName: String
+    let email: String
+    let isSignedIn: Bool
+    let size: CGFloat
+#if DEBUG
+    @AppStorage(SidebarFooterProfileIconDebugSettings.iconKey)
+    private var debugIcon = SidebarFooterProfileIconDebugSettings.defaultIcon.rawValue
+#endif
+
+    private var signedOutSystemName: String {
+#if DEBUG
+        SidebarFooterProfileIconDebugChoice(rawValue: debugIcon)?.rawValue
+            ?? SidebarFooterProfileIconDebugSettings.defaultIcon.rawValue
+#else
+        "person"
+#endif
+    }
+
+    var body: some View {
+        if isSignedIn {
+            StackAccountAvatarView(
+                avatarURL: avatarURL,
+                displayName: displayName,
+                email: email,
+                size: size
+            )
+        } else {
+            CmuxSystemSymbolImage(
+                systemName: signedOutSystemName,
+                pointSize: max(11, size - 2),
+                weight: .medium
+            )
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+            .frame(width: size, height: size, alignment: .center)
+        }
+    }
+
+}
+
+struct SidebarMobileConnectButton: View {
+    @EnvironmentObject private var tabManager: TabManager
+    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
+#if DEBUG
+    @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
+    private var debugIconSize = SidebarFooterMobileIconDebugSettings.defaultSize
+#endif
+
+    private var iconSize: CGFloat {
+#if DEBUG
+        CGFloat(debugIconSize)
+#else
+        12
+#endif
+    }
+
+    var body: some View {
+        Button {
+            _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                tabManager: tabManager,
+                debugSource: "sidebar.mobileConnect"
+            )
+        } label: {
+            CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .frame(width: 22, height: 22)
+        .safeHelp(title)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("SidebarMobileConnectButton")
+    }
+}
+
 private struct SidebarFooterIconButtonStyleBody: View {
     let configuration: SidebarFooterIconButtonStyle.Configuration
 
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
+#if DEBUG
+    @AppStorage(SidebarFooterIconButtonDebugSettings.hoverOpacityKey)
+    private var debugHoverOpacity = SidebarFooterIconButtonDebugSettings.defaultHoverOpacity
+#endif
+
+    private var hoverOpacity: Double {
+#if DEBUG
+        debugHoverOpacity
+#else
+        0.08
+#endif
+    }
 
     private var backgroundOpacity: Double {
         guard isEnabled else { return 0.0 }
         if configuration.isPressed { return 0.16 }
-        if isHovered { return 0.08 }
+        if isHovered { return hoverOpacity }
         return 0.0
     }
 

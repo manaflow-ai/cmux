@@ -407,6 +407,10 @@ final class PaneDropTargetView: NSView {
             return nil
         case .cloudVMLoading:
             return nil
+        case .mobilePairing:
+            return nil
+        case .accountSignIn:
+            return nil
         }
     }
 

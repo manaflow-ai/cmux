@@ -678,6 +678,10 @@ extension Workspace {
             return nil
         case .cloudVMLoading:
             return nil
+        case .mobilePairing:
+            return nil
+        case .accountSignIn:
+            return nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -1671,6 +1675,10 @@ extension Workspace {
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
+            return nil
+        case .mobilePairing:
+            return nil
+        case .accountSignIn:
             return nil
         }
     }
@@ -12473,7 +12481,11 @@ extension Workspace: BonsplitDelegate {
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:
-                MobilePairingWindowController.shared.show()
+                _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                    tabManager: owningTabManager,
+                    preferredWindow: presentingWindow,
+                    debugSource: "surfaceTabBar.mobileConnect"
+                )
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

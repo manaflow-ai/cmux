@@ -5609,6 +5609,10 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
         case .cloudVMLoading:
             return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
+        case .mobilePairing:
+            return String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")
+        case .accountSignIn:
+            return String(localized: "settings.section.account", defaultValue: "Account")
         }
     }
     private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -5635,6 +5639,10 @@ struct ContentView: View {
             return ["todo", "todos", "checklist", "task", "status"]
         case .cloudVMLoading:
             return ["cloud", "vm", "loading"]
+        case .mobilePairing:
+            return Self.commandPaletteMobileConnectKeywords
+        case .accountSignIn:
+            return ["account", "auth", "profile", "sign in"]
         }
     }
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
@@ -6692,12 +6700,9 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
         if let auth = AppDelegate.shared?.auth {
-            snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.coordinator.isAuthenticated)
+            snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.accountFlow.isAuthenticated)
             snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
-            snapshot.setBool(
-                CommandPaletteContextKeys.authWorking,
-                auth.coordinator.isLoading || auth.coordinator.isRestoringSession || auth.browserSignIn.isSigningIn
-            )
+            snapshot.setBool(CommandPaletteContextKeys.authWorking, auth.accountFlow.isWorkingOnAuth)
         }
 
         if let workspace = tabManager.selectedWorkspace {
@@ -7154,14 +7159,16 @@ struct ContentView: View {
                 keywords: ["open", "ghostty", "settings", "config", "configuration", "file", "textedit", "terminal"]
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.mobileConnect",
-                title: constant(String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")),
-                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
-                keywords: Self.commandPaletteMobileConnectKeywords
+        if CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: "palette.mobileConnect",
+                    title: constant(String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")),
+                    subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
+                    keywords: Self.commandPaletteMobileConnectKeywords
+                )
             )
-        )
+        }
         contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions() + Self.commandPaletteProCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8300,7 +8307,11 @@ struct ContentView: View {
 #if DEBUG
             cmuxDebugLog("palette.mobileConnect.invoke")
 #endif
-            MobilePairingWindowController.shared.show()
+            _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                tabManager: tabManager,
+                preferredWindow: observedWindow,
+                debugSource: "palette.mobileConnect"
+            )
         }
         registerAuthCommandHandlers(&registry)
         registerProCommandHandlers(&registry)
@@ -12162,7 +12173,7 @@ struct VerticalTabsSidebar: View, Equatable {
             return .project
         case .extensionBrowser:
             return .unknown
-        case .workspaceTodo, .cloudVMLoading:
+        case .workspaceTodo, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return .unknown
         }
     }
@@ -14344,7 +14355,18 @@ struct SidebarFooterButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            if CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
+                SidebarAccountMenuButton()
+            }
+            if CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
+                SidebarMobileConnectButton()
+            }
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+            // Command-hold reveal: appears immediately before Upgrade. It stays
+            // mounted while its popover is open so releasing ⌘ does not dismiss it.
+            if (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
+                ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
+            }
             SidebarProBadge()
             // The puzzle button opens the extensions browser; it only shows
             // while the experimental Extensions feature is enabled.
@@ -14368,14 +14390,6 @@ struct SidebarFooterButtons: View {
             }
             if let updateActionsHost = AppDelegate.shared {
                 UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
-            }
-            // Command-hold reveal: sits at the trailing end of the footer, so it
-            // appears next to the update pill when one is showing, otherwise next
-            // to the help button. Hidden unless ⌘ is held (the shortcut-hint
-            // signal), matching the sidebar's modifier-hold badges. Stays mounted
-            // while its popover is open so releasing ⌘ does not dismiss it.
-            if (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
-                ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -14403,12 +14417,33 @@ private struct SidebarHelpMenuButton: View {
     private let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
     private let buttonSize: CGFloat = 22
-    private let iconSize: CGFloat = 11
+#if DEBUG
+    @AppStorage(SidebarFooterHelpIconDebugSettings.sizeKey)
+    private var debugIconSize = SidebarFooterHelpIconDebugSettings.defaultSize
+    @AppStorage(SidebarFooterHelpIconDebugSettings.weightKey)
+    private var debugIconWeight = SidebarFooterHelpIconDebugSettings.defaultWeight.rawValue
+#endif
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     let onSendFeedback: () -> Void
 
     @State private var isPopoverPresented = false
+
+    private var iconSize: CGFloat {
+#if DEBUG
+        CGFloat(debugIconSize)
+#else
+        13.5
+#endif
+    }
+
+    private var iconWeight: Font.Weight {
+#if DEBUG
+        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight ?? .regular
+#else
+        .regular
+#endif
+    }
 
     private var sendFeedbackShortcutHint: String {
         let _ = keyboardShortcutSettingsObserver.revision
@@ -14419,8 +14454,7 @@ private struct SidebarHelpMenuButton: View {
         Button {
             isPopoverPresented.toggle()
         } label: {
-            CmuxSystemSymbolImage(systemName: "questionmark.circle", pointSize: iconSize, weight: .medium)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+            SidebarFooterHelpIcon(pointSize: iconSize, weight: iconWeight)
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
         }
         .buttonStyle(SidebarFooterIconButtonStyle())

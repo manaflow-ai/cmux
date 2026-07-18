@@ -33,6 +33,10 @@ extension Workspace {
             return SurfaceKind.todo.rawValue
         case .cloudVMLoading:
             return SurfaceKind.cloudVMLoading.rawValue
+        case .mobilePairing:
+            return SurfaceKind.mobilePairing.rawValue
+        case .accountSignIn:
+            return SurfaceKind.accountSignIn.rawValue
         }
     }
 
