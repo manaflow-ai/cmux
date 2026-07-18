@@ -31,13 +31,24 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
     /// A process generation can host more than one logical session and some
     /// providers emit hooks from the same launcher process. Graph identity must
     /// therefore include provider and session instead of treating `runId` as a
-    /// globally unique node key.
+    /// globally unique node key. Each untrusted component is byte-length
+    /// prefixed so embedded separators cannot alias another node.
     var nodeId: String {
         if let sessionId {
-            return "\(provider)\u{1F}\(sessionId)\u{1F}\(runId)"
+            return "session:"
+                + Self.nodeIDComponent(provider)
+                + Self.nodeIDComponent(sessionId)
+                + Self.nodeIDComponent(runId)
         }
         let runtime = cmuxRuntime?.id ?? terminalObservation?.runtimeID ?? "unknown"
-        return "terminal\u{1F}\(runtime)\u{1F}\(surfaceId)\u{1F}\(runId)"
+        return "terminal:"
+            + Self.nodeIDComponent(runtime)
+            + Self.nodeIDComponent(surfaceId)
+            + Self.nodeIDComponent(runId)
+    }
+
+    private static func nodeIDComponent(_ value: String) -> String {
+        "\(value.utf8.count):\(value)"
     }
 
     init(

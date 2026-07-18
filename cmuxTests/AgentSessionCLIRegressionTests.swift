@@ -1034,7 +1034,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let edges = try #require(output["edges"] as? [[String: Any]])
         #expect(nodes.count == 4)
         let rootNode = try #require(nodes.first { $0["run_id"] as? String == "root-run" })
-        #expect(rootNode["node_id"] as? String == "codex\u{1F}root-session\u{1F}root-run")
+        #expect(rootNode["node_id"] as? String == "session:5:codex12:root-session8:root-run")
         #expect(rootNode["restore_authority"] as? Bool == true)
         #expect(rootNode["effective_state"] as? String == "monitoring")
         let activity = try #require(rootNode["activity"] as? [String: Any])
