@@ -9,6 +9,7 @@ struct WorkspaceShareCursorGeometryTests {
         #expect(WorkspaceShareCursorGeometry.viewHeight == 30)
         #expect(WorkspaceShareCursorGeometry.scale == 1.5)
         #expect(WorkspaceShareCursorGeometry.strokeWidth == 1.7)
+        #expect(WorkspaceShareCursorGeometry.hotspotInset == 0.5)
         #expect(WorkspaceShareCursorGeometry.elements == [
             .move(x: 0.68, y: 1.83),
             .line(x: 3.63, y: 9.78),
