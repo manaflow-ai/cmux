@@ -245,19 +245,25 @@ struct BackendProtocolClientTests {
         await client.close()
     }
 
-    @Test("cancelling a request closes the ambiguous connection")
-    func cancellationClosesConnection() async throws {
+    @Test("a cancelled dispatched request consumes its late response without closing")
+    func cancelledRequestConsumesLateResponse() async throws {
         let transport = ScriptedBackendTransport()
         let client = BackendProtocolClient(transport: transport)
         try await client.connect()
         let task = Task { try await client.identify() }
-        _ = await transport.nextSent()
+        let request = await transport.nextSent()
 
         task.cancel()
-        await transport.waitUntilClosed()
         await #expect(throws: CancellationError.self) {
             try await task.value
         }
+
+        await transport.enqueue(try identifyResponse(id: requestID(in: request)))
+        let next = Task { try await client.identify() }
+        let nextRequest = await transport.nextSent()
+        await transport.enqueue(try identifyResponse(id: requestID(in: nextRequest)))
+        #expect(try await next.value.app == "cmux-tui")
+        await client.close()
     }
 
     @Test("cancellation wins when a response reaches the transport concurrently")
@@ -273,9 +279,35 @@ struct BackendProtocolClientTests {
         }
 
         await transport.enqueue(response)
-        await transport.waitUntilClosed()
         await #expect(throws: CancellationError.self) {
             try await task.value
+        }
+
+        let next = Task { try await client.identify() }
+        let nextRequest = await transport.nextSent()
+        await transport.enqueue(try identifyResponse(id: requestID(in: nextRequest)))
+        #expect(try await next.value.app == "cmux-tui")
+        await client.close()
+    }
+
+    @Test("too many unresolved cancelled responses fail the connection closed")
+    func cancelledResponseTombstonesAreBounded() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+
+        for _ in 0 ..< 257 {
+            let task = Task { try await client.identify() }
+            _ = await transport.nextSent()
+            task.cancel()
+            await #expect(throws: CancellationError.self) {
+                try await task.value
+            }
+        }
+
+        await transport.waitUntilClosed()
+        await #expect(throws: BackendProtocolError.notConnected) {
+            try await client.identify()
         }
     }
 
