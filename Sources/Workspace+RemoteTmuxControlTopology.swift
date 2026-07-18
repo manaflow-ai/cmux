@@ -109,6 +109,20 @@ extension Workspace {
         return .unresolvedMirror
     }
 
+    /// Maps a control-plane surface identity to the workspace-owned tab that
+    /// participates in reorder. Projected tmux pane surfaces reorder their
+    /// window container; hidden mirror wrappers remain unresolved.
+    func controlReorderContainerPanelID(for surfaceID: UUID) -> UUID? {
+        switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+        case .pane(let location):
+            return location.containerPanelID
+        case .unresolvedMirror:
+            return nil
+        case .notRemote:
+            return panels[surfaceID] == nil ? nil : surfaceID
+        }
+    }
+
     /// Intercepts focus requests the remote tmux layer owns. Focus activation
     /// is dropped while mirror mutations suppress it, and a mirror-projected
     /// pane surface — which is not a Bonsplit tab, so the ordinary focus path
