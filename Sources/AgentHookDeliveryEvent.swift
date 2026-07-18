@@ -105,7 +105,10 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
               Self.supportedSubcommands.contains(subcommand),
               let payload = Self.decodePayload(params),
               payload.count <= Self.maximumPayloadBytes,
-              let partitionedEnvironment = Self.decodeEnvironment(params),
+              let partitionedEnvironment = Self.decodeEnvironment(
+                  params,
+                  hookAgentKind: agent
+              ),
               let socketPath = partitionedEnvironment.durable["CMUX_SOCKET_PATH"],
               !socketPath.isEmpty,
               socketPath.utf8.count <= 4_096 else {
@@ -142,7 +145,8 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     }
 
     private static func decodeEnvironment(
-        _ params: [String: Any]
+        _ params: [String: Any],
+        hookAgentKind: String
     ) -> AgentHookTransportEnvironment? {
         let environment: [String: String]
         if let encoded = params["environment_b64"] as? String {
@@ -171,7 +175,10 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         // Unknown variables are ignored rather than rejecting the whole hook:
         // the native sender deliberately forwards its ambient environment so
         // this shared policy remains the sole admission source of truth.
-        return AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: environment)
+        return AgentHookTransportEnvironmentPolicy().partitionedEnvironment(
+            from: environment,
+            hookAgentKind: hookAgentKind
+        )
     }
 
     private static func decodeNULTuples(_ data: Data) -> [String: String]? {

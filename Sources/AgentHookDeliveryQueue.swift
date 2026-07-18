@@ -2983,7 +2983,10 @@ actor AgentHookDeliveryQueue {
             scrubbedRows.reserveCapacity(rows.count)
             for row in rows {
                 let decoded = (try? JSONSerialization.jsonObject(with: row.environment)) as? [String: String]
-                let scrubbed = policy.durableEnvironmentForPersistence(from: decoded ?? [:])
+                let scrubbed = policy.durableEnvironmentForPersistence(
+                    from: decoded ?? [:],
+                    hookAgentKind: row.agent
+                )
                 let scrubbedData = try JSONSerialization.data(withJSONObject: scrubbed, options: [.sortedKeys])
                 let scrubbedDigest = row.isPending
                     ? AgentHookDeliveryEvent.contentDigest(

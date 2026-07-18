@@ -6,7 +6,7 @@ import Testing
 struct AgentHookTransportEnvironmentPolicyTests {
     @Test("Preserves routing and every auto-naming backend")
     func preservesAutoNamingInputsOnly() {
-        let partitioned = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: [
+        let partitioned = partition([
             "CMUX_SOCKET_PATH": "/tmp/cmux.sock",
             "CMUX_SURFACE_ID": "surface:1",
             "CMUX_CUSTOM_CLAUDE_PATH": "/tmp/Claude Code/bin/claude",
@@ -64,7 +64,7 @@ struct AgentHookTransportEnvironmentPolicyTests {
 
     @Test("Keeps credential values out of durable storage")
     func keepsCredentialValuesEphemeral() {
-        let partitioned = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: [
+        let partitioned = partition([
             "AWS_CONTAINER_AUTHORIZATION_TOKEN": "ecs-authorization-secret",
             "AWS_SECURITY_TOKEN": "aws-security-secret",
             "AWS_BEARER_TOKEN_BEDROCK": "bedrock-bearer-secret",
@@ -113,7 +113,7 @@ struct AgentHookTransportEnvironmentPolicyTests {
             "initial prompt secret",
         ]
         let raw = encodeArguments(rawArguments)
-        let partitioned = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: [
+        let partitioned = partition([
             "CMUX_AGENT_LAUNCH_ARGV_B64": raw,
             "CMUX_AGENT_LAUNCH_KIND": "codex",
         ])
@@ -132,7 +132,7 @@ struct AgentHookTransportEnvironmentPolicyTests {
         let nativeRaw = encodeArguments([
             "/opt/cmux/bin/codex", "--model", "gpt-5.4", "private prompt",
         ])
-        let native = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: [
+        let native = partition([
             "CMUX_AGENT_LAUNCH_ARGV_B64": nativeRaw,
         ])
         #expect(native.ephemeral["CMUX_AGENT_LAUNCH_ARGV_B64"] == nativeRaw)
@@ -150,13 +150,13 @@ struct AgentHookTransportEnvironmentPolicyTests {
                 "CMUX_AGENT_LAUNCH_KIND": "claude",
             ],
         ] {
-            let inherited = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: environment)
+            let inherited = partition(environment)
             #expect(inherited.ephemeral["CMUX_AGENT_LAUNCH_ARGV_B64"] == inheritedRaw)
             #expect(inherited.durable["CMUX_AGENT_LAUNCH_ARGV_B64"] == nil)
         }
 
         let malformed = "not-base64-or-safe-to-persist"
-        let malformedCapture = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: [
+        let malformedCapture = partition([
             "CMUX_AGENT_LAUNCH_ARGV_B64": malformed,
             "CMUX_AGENT_LAUNCH_KIND": "codex",
         ])
@@ -172,7 +172,7 @@ struct AgentHookTransportEnvironmentPolicyTests {
             "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI":
                 "/v2/credentials/plain-path-capability",
         ]
-        let partitioned = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: values)
+        let partitioned = partition(values)
 
         for (key, value) in values {
             #expect(partitioned.ephemeral[key] == value)
@@ -194,7 +194,7 @@ struct AgentHookTransportEnvironmentPolicyTests {
             "OPENAI_EXPERIMENTAL_PROVIDER_STATE":
                 "unknown-provider-value",
         ]
-        let partitioned = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: values)
+        let partitioned = partition(values)
 
         for (key, value) in values {
             #expect(partitioned.ephemeral[key] == value)
@@ -214,7 +214,7 @@ struct AgentHookTransportEnvironmentPolicyTests {
             "XAI_BASE_URL": "https://api.x.ai/v1",
             "HTTPS_PROXY": "socks5h://127.0.0.1:1080",
         ]
-        let partitioned = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: values)
+        let partitioned = partition(values)
 
         for (key, value) in values {
             #expect(partitioned.durable[key] == value)
@@ -234,5 +234,12 @@ struct AgentHookTransportEnvironmentPolicyTests {
     private func decodeArguments(_ encoded: String) -> [String]? {
         guard let data = Data(base64Encoded: encoded) else { return nil }
         return data.split(separator: 0).compactMap { String(data: $0, encoding: .utf8) }
+    }
+
+    private func partition(_ environment: [String: String]) -> AgentHookTransportEnvironment {
+        AgentHookTransportEnvironmentPolicy().partitionedEnvironment(
+            from: environment,
+            hookAgentKind: "codex"
+        )
     }
 }
