@@ -65,6 +65,10 @@ extension BrowserDesignModeController {
     func captureStableSelection(
         in webView: WKWebView
     ) async throws -> (snapshot: BrowserDesignModeSnapshot, image: NSImage, viewBounds: NSRect) {
+        let visibleImage = try await screenshotEvaluator.captureVisibleViewport(from: webView)
+        let captureShield = BrowserDesignModeCaptureShield.install(image: visibleImage, over: webView)
+        defer { captureShield?.remove() }
+
         for _ in 0..<2 {
             let candidate = try await captureSelectionCandidate(in: webView)
             if BrowserDesignModeSupport.captureMatches(
@@ -215,7 +219,7 @@ extension BrowserDesignModeController {
                 try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView)
             )
             let afterViewBounds = webView.bounds
-            _ = try await evaluate("return globalThis.__cmuxDesignMode?.finishCapture();", in: webView)
+            try await restoreCapturePresentation(in: webView)
             return (before, after, image, beforeViewBounds, afterViewBounds)
         } catch {
             // Run cleanup in a fresh task so cancellation of the capture task
@@ -226,10 +230,21 @@ extension BrowserDesignModeController {
                     "return globalThis.__cmuxDesignMode?.finishCapture();",
                     in: webView
                 )
+                _ = try? await self.screenshotEvaluator.captureVisibleViewport(from: webView)
             }
             await cleanup.value
             throw error
         }
+    }
+
+    private func restoreCapturePresentation(in webView: WKWebView) async throws {
+        _ = try await evaluate(
+            "return globalThis.__cmuxDesignMode?.finishCapture();",
+            in: webView
+        )
+        // `afterScreenUpdates` makes this callback the paint-completion signal;
+        // the image is intentionally discarded while the native shield remains visible.
+        _ = try await screenshotEvaluator.captureVisibleViewport(from: webView)
     }
 
     private func cancelAnnotationCapture(

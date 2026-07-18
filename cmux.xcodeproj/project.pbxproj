@@ -221,6 +221,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */; };
 		D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */; };
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
+		D35A0000000000000000001E /* BrowserDesignModeCaptureShield.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001E /* BrowserDesignModeCaptureShield.swift */; };
 		D35C00000000000000000002 /* BrowserDesignModeComposerHostingViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35D00000000000000000002 /* BrowserDesignModeComposerHostingViewTests.swift */; };
 		D35A0000000000000000001C /* BrowserDesignModeController+Capture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001C /* BrowserDesignModeController+Capture.swift */; };
 		D35A00000000000000000003 /* BrowserDesignModeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000003 /* BrowserDesignModeController.swift */; };
@@ -2326,6 +2327,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateCredentialPicker.swift; sourceTree = "<group>"; };
 		D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserClientCertificateCredentialPickerTests.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
+		D35B0000000000000000001E /* BrowserDesignModeCaptureShield.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeCaptureShield.swift; sourceTree = "<group>"; };
 		D35D00000000000000000002 /* BrowserDesignModeComposerHostingViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDesignModeComposerHostingViewTests.swift; sourceTree = "<group>"; };
 		D35B0000000000000000001C /* BrowserDesignModeController+Capture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserDesignModeController+Capture.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000003 /* BrowserDesignModeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeController.swift; sourceTree = "<group>"; };
@@ -5027,6 +5029,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */,
 				D35B00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift */,
 				D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */,
+				D35B0000000000000000001E /* BrowserDesignModeCaptureShield.swift */,
 				D35B0000000000000000001C /* BrowserDesignModeController+Capture.swift */,
 				D35B00000000000000000003 /* BrowserDesignModeController.swift */,
 				D35B00000000000000000017 /* BrowserDesignModePopover.swift */,
@@ -6849,6 +6852,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
 				D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */,
 				D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */,
+				D35A0000000000000000001E /* BrowserDesignModeCaptureShield.swift in Sources */,
 				D35A0000000000000000001C /* BrowserDesignModeController+Capture.swift in Sources */,
 				D35A00000000000000000003 /* BrowserDesignModeController.swift in Sources */,
 				D35A0000000000000000000A /* BrowserDesignModeError.swift in Sources */,

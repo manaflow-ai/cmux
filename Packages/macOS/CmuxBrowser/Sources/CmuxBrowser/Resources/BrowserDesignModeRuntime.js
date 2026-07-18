@@ -2119,7 +2119,10 @@
     finishCapture() {
       captureHidden = false;
       captureSelectionValid = true;
-      scheduleOverlayRefresh();
+      // Restore synchronously. Native keeps a visual shield above the webview
+      // until an after-screen-updates snapshot confirms this state has painted.
+      refreshOverlay();
+      document.documentElement.getBoundingClientRect();
       return snapshot();
     },
   };
