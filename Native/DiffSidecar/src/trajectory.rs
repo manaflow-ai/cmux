@@ -18,6 +18,7 @@ const MAX_SESSION_ID_BYTES: usize = 512;
 const MAX_JSONL_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TRANSCRIPT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_PATCH_BYTES: usize = 64 * 1024 * 1024;
+const MAX_CLAUDE_SUBAGENT_TRANSCRIPTS: usize = 128;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AgentTurnIdentity {
@@ -609,7 +610,69 @@ fn claude_last_turn_patch(
         }
         Ok(false)
     })?;
+    if let Some(prompt_id) = current_prompt {
+        append_claude_subagent_patches(
+            &mut patch,
+            transcript,
+            repo_root,
+            &prompt_id,
+            cancellation,
+        )?;
+    }
     Ok(patch)
+}
+
+fn append_claude_subagent_patches(
+    output: &mut String,
+    parent_transcript: &Path,
+    repo_root: &Path,
+    prompt_id: &str,
+    cancellation: &TrajectoryCancellation,
+) -> Result<(), TrajectoryError> {
+    let subagent_directory = parent_transcript.with_extension("").join("subagents");
+    let entries = match std::fs::read_dir(subagent_directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(TrajectoryError::Unavailable),
+    };
+    let mut transcripts = Vec::new();
+    for entry in entries {
+        cancellation.check()?;
+        let entry = entry.map_err(|_| TrajectoryError::Invalid)?;
+        let path = entry.path();
+        let is_subagent_transcript = path.extension().and_then(|value| value.to_str())
+            == Some("jsonl")
+            && path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .is_some_and(|name| name.starts_with("agent-") && name.len() > "agent-".len());
+        if is_subagent_transcript {
+            transcripts.push(path);
+            if transcripts.len() > MAX_CLAUDE_SUBAGENT_TRANSCRIPTS {
+                return Err(TrajectoryError::Invalid);
+            }
+        }
+    }
+    transcripts.sort_unstable();
+    for transcript in transcripts {
+        for_json_lines(&transcript, cancellation, |object| {
+            if object.get("type").and_then(Value::as_str) != Some("user")
+                || object.get("promptId").and_then(Value::as_str) != Some(prompt_id)
+            {
+                return Ok(false);
+            }
+            if let Some(result) = object.get("toolUseResult")
+                && result
+                    .get("structuredPatch")
+                    .and_then(Value::as_array)
+                    .is_some()
+            {
+                append_claude_result(output, repo_root, result)?;
+            }
+            Ok(false)
+        })?;
+    }
+    Ok(())
 }
 
 fn claude_is_prompt_boundary(object: &Value) -> bool {
@@ -738,13 +801,16 @@ fn for_json_lines(
     }
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
-    while read_capped_json_line(&mut reader, &mut line, cancellation)? {
+    while let Some(terminated) = read_capped_json_line(&mut reader, &mut line, cancellation)? {
         cancellation.check()?;
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
-        let object =
-            serde_json::from_slice::<Value>(&line).map_err(|_| TrajectoryError::Invalid)?;
+        let object = match serde_json::from_slice::<Value>(&line) {
+            Ok(object) => object,
+            Err(_) if !terminated => break,
+            Err(_) => return Err(TrajectoryError::Invalid),
+        };
         if consume(&object)? {
             break;
         }
@@ -756,14 +822,14 @@ fn read_capped_json_line(
     reader: &mut impl BufRead,
     line: &mut Vec<u8>,
     cancellation: &TrajectoryCancellation,
-) -> Result<bool, TrajectoryError> {
+) -> Result<Option<bool>, TrajectoryError> {
     line.clear();
     loop {
         cancellation.check()?;
         let (consumed, terminated) = {
             let available = reader.fill_buf().map_err(|_| TrajectoryError::Invalid)?;
             if available.is_empty() {
-                return Ok(!line.is_empty());
+                return Ok((!line.is_empty()).then_some(false));
             }
             let consumed = available
                 .iter()
@@ -777,7 +843,7 @@ fn read_capped_json_line(
         };
         reader.consume(consumed);
         if terminated {
-            return Ok(true);
+            return Ok(Some(true));
         }
     }
 }

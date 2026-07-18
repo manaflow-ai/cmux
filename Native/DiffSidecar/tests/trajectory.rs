@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use cmux_diff_sidecar::protocol::{AgentProvider, DiffSource};
@@ -554,7 +555,6 @@ fn claude_resolver_ignores_an_unterminated_trailing_record() {
             ),
         ],
     );
-    use std::io::Write as _;
     let mut active_transcript = fs::OpenOptions::new()
         .append(true)
         .open(&transcript)

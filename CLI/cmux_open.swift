@@ -6786,7 +6786,12 @@ extension CMUXCLI {
         if let manifest {
             let markerURL = targetDirectory.appendingPathComponent(".cmux-assets.complete", isDirectory: false)
             if let cachedKey = try? String(contentsOf: markerURL, encoding: .utf8),
-               cachedKey == manifest.contentKey {
+               cachedKey == manifest.contentKey,
+               diffViewerAssetCacheIsCurrent(
+                   relativePaths: relativePaths,
+                   targetURLs: targetURLs,
+                   sourceDirectory: sourceDirectory
+               ) {
                 return targetURLs
             }
 
@@ -6800,6 +6805,26 @@ extension CMUXCLI {
 
         return try relativePaths.map {
             try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
+        }
+    }
+
+    private func diffViewerAssetCacheIsCurrent(
+        relativePaths: [String],
+        targetURLs: [URL],
+        sourceDirectory: URL
+    ) -> Bool {
+        guard relativePaths.count == targetURLs.count else { return false }
+        return zip(relativePaths, targetURLs).allSatisfy { relativePath, targetURL in
+            guard let sourceURL = try? diffViewerBundledAssetFileURL(
+                relativePath: relativePath,
+                in: sourceDirectory
+            ),
+            let sourceValues = try? sourceURL.resourceValues(
+                forKeys: [.fileSizeKey, .contentModificationDateKey]
+            ) else {
+                return false
+            }
+            return isCurrentDiffViewerAsset(targetURL: targetURL, sourceValues: sourceValues)
         }
     }
 
