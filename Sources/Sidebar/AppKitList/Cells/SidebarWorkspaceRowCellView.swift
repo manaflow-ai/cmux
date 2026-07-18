@@ -124,6 +124,27 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         needsLayout = true
     }
 
+    /// Modifier-click preview: a cmd/shift press JOINS the multi-selection,
+    /// so it paints the dim multi-select tint — painting the full active
+    /// treatment made every cmd-click flash bright blue and then settle
+    /// dim once the authoritative state landed.
+    func showOptimisticMultiSelection() {
+        guard let model, !model.isActive, !model.isMultiSelected else { return }
+        var optimistic = model
+        optimistic.isMultiSelected = true
+        applyModel(optimistic)
+        needsLayout = true
+    }
+
+    /// Restores the stored (authoritative) model's paint, undoing any
+    /// optimistic treatment. Used by the preview bailout when no
+    /// authoritative apply arrives to reconcile.
+    func restoreStoredModelPaint() {
+        guard let model else { return }
+        applyModel(model)
+        needsLayout = true
+    }
+
     /// True when a press at this view should not repaint selection (the
     /// close button closes without selecting).
     func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
@@ -540,10 +561,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let visible = model.isMetadataExpanded ? allEntries : Array(allEntries.prefix(3))
         Self.pool(&metadataRows, count: visible.count, parent: self) { SidebarRowIconTextLine() }
         for (index, entry) in visible.enumerated() {
-            metadataRows[index].configureMetadataEntry(
-                entry, model: model,
-                color: entry.color.flatMap { NSColor(hex: $0) } ?? (model.isActive ? palette.secondary(0.95).withAlphaComponent(0.84) : .secondaryLabelColor)
-            )
+            // Legacy parity: on the selected row an explicit entry color
+            // yields to the selected foreground — otherwise agent-status
+            // tints (blue "Running") vanish into the blue selection
+            // highlight. Explicit colors only apply on unselected rows.
+            let explicitColor = entry.color.flatMap { NSColor(hex: $0) }
+            let entryColor: NSColor
+            if model.isActive {
+                entryColor = explicitColor != nil
+                    ? palette.selectedForeground(1.0)
+                    : palette.secondary(0.95).withAlphaComponent(0.84)
+            } else {
+                entryColor = explicitColor ?? .secondaryLabelColor
+            }
+            metadataRows[index].configureMetadataEntry(entry, model: model, color: entryColor)
         }
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         let toggleColor = model.isActive
@@ -873,11 +904,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         if !remoteTargetView.isHidden {
             y += model.latestNotificationText == nil ? 1 : 2
             y += spacing
-            let statusSize = remoteStatusView.isHidden ? .zero : remoteStatusView.intrinsicContentSize
+            let statusSize = remoteStatusView.isHidden ? .zero : remoteStatusView.sidebarNaturalCellSize
             let reconnectSize = remoteReconnectButton.isHidden ? .zero : remoteReconnectButton.intrinsicContentSize
             let rightWidth = statusSize.width + (reconnectSize.width > 0 ? reconnectSize.width + 6 : 0)
             let targetWidth = max(10, contentWidth - rightWidth - 6)
-            let lineHeight = max(remoteTargetView.intrinsicContentSize.height, statusSize.height, reconnectSize.height)
+            let lineHeight = max(remoteTargetView.sidebarNaturalCellSize.height, statusSize.height, reconnectSize.height)
             if apply {
                 remoteTargetView.frame = NSRect(x: leading, y: y, width: targetWidth, height: lineHeight)
                 var rightX = trailing - statusSize.width
@@ -1002,8 +1033,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         y += 8
 
         if apply {
-            let bgX = outerPad
-            backgroundView.frame = NSRect(x: bgX, y: 0, width: width - outerPad * 2, height: y)
+            // Legacy parity: the SwiftUI row applies the group-member indent
+            // OUTSIDE the row (padding before TabItemView), so the selection
+            // and hover background shift right with the content. Indenting
+            // only the content left the full-width highlight hiding the
+            // nesting ("can't tell when a workspace is in a group").
+            let bgX = outerPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
             railView.layer?.cornerRadius = 1.5
             let indicatorLeading: CGFloat = 8 + (model.isGrouped ? 0 : 0)
