@@ -300,36 +300,48 @@ public struct CmuxAgentSessionRegistry: Sendable {
     }
 
     private func legacyPayload(provider: String, json: Data) throws -> LegacyPayload {
-        guard let root = try JSONSerialization.jsonObject(with: json) as? [String: Any] else {
-            return LegacyPayload(records: [], activeSlots: [])
+        guard let root = try JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let sessions = root["sessions"] as? [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile)
         }
-        let records = (root["sessions"] as? [String: Any] ?? [:]).compactMap { sessionID, value -> Record? in
+        var records: [Record] = []
+        records.reserveCapacity(sessions.count)
+        for (sessionID, value) in sessions {
             guard let object = value as? [String: Any],
                   JSONSerialization.isValidJSONObject(object),
                   let updatedAt = object["updatedAt"] as? TimeInterval,
                   let recordJSON = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
-                return nil
+                throw CocoaError(.fileReadCorruptFile)
             }
-            return Record(
+            records.append(Record(
                 provider: provider,
                 sessionID: sessionID,
                 updatedAt: updatedAt,
                 writerGeneration: 0,
                 json: recordJSON
-            )
+            ))
         }
         var activeSlots: [ActiveSlot] = []
         for (key, scope) in [
             ("activeSessionsByWorkspace", Scope.workspace),
             ("activeSessionsBySurface", Scope.surface),
         ] {
-            for (scopeID, value) in root[key] as? [String: Any] ?? [:] {
+            let slots: [String: Any]
+            if let value = root[key] {
+                guard let decoded = value as? [String: Any] else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                slots = decoded
+            } else {
+                slots = [:]
+            }
+            for (scopeID, value) in slots {
                 guard let object = value as? [String: Any],
                       let sessionID = object["sessionId"] as? String,
                       let updatedAt = object["updatedAt"] as? TimeInterval,
                       JSONSerialization.isValidJSONObject(object),
                       let recordJSON = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
-                    continue
+                    throw CocoaError(.fileReadCorruptFile)
                 }
                 activeSlots.append(ActiveSlot(
                     provider: provider,
