@@ -4,6 +4,85 @@ import Foundation
 import Testing
 
 @Suite struct ClaudeWrapperResumeEnvironmentTests {
+    @Test func bundledCLIEmitsCompleteNativeClaudeHookMatrix() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-hook-matrix-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "inject-settings"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+
+        let data = try #require(result.stdout.data(using: .utf8))
+        let settings = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        #expect(settings["preferredNotifChannel"] as? String == "notifications_disabled")
+        let hooks = try #require(settings["hooks"] as? [String: Any])
+        #expect(Set(hooks.keys) == [
+            "SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "Notification",
+            "PreToolUse", "PostToolUse", "SubagentStop", "PermissionRequest",
+        ])
+
+        let queued: [(event: String, matcher: String, tag: String)] = [
+            ("SessionStart", "", "session-start"),
+            ("UserPromptSubmit", "", "prompt-submit"),
+            ("Stop", "", "stop"),
+            ("SessionEnd", "", "session-end"),
+            ("Notification", "", "notification"),
+            ("PostToolUse", "PushNotification", "push-notification"),
+            ("SubagentStop", "", "feed-SubagentStop"),
+        ]
+        for expected in queued {
+            let groups = try #require(hooks[expected.event] as? [[String: Any]])
+            #expect(groups.count == 1)
+            try expectNativeClaudeHook(
+                try #require(groups.first),
+                matcher: expected.matcher,
+                filenameTag: expected.tag
+            )
+        }
+
+        let preToolGroups = try #require(hooks["PreToolUse"] as? [[String: Any]])
+        #expect(preToolGroups.count == 2)
+        let cronGroup = try #require(preToolGroups.first)
+        #expect(cronGroup["matcher"] as? String == "CronCreate")
+        let cronHooks = try #require(cronGroup["hooks"] as? [[String: Any]])
+        let cronHook = try #require(cronHooks.first)
+        #expect(
+            cronHook["command"] as? String
+                == #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude cron-create-guard"#
+        )
+        #expect(cronHook["timeout"] as? Int == 5)
+        try expectNativeClaudeHook(
+            preToolGroups[1],
+            matcher: "",
+            filenameTag: "pre-tool-use"
+        )
+
+        let permissionGroups = try #require(hooks["PermissionRequest"] as? [[String: Any]])
+        #expect(permissionGroups.count == 1)
+        let permissionHooks = try #require(permissionGroups[0]["hooks"] as? [[String: Any]])
+        let permissionHook = try #require(permissionHooks.first)
+        #expect(
+            permissionHook["command"] as? String
+                == #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude"#
+        )
+        #expect(permissionHook["timeout"] as? Int == 125)
+        #expect(!result.stdout.contains("auto-name"))
+    }
+
     @Test func bundledClaudeWrapperScrubsSessionIdentityAndPreservesTrustBypassOnResume() throws {
         let fileManager = FileManager.default
         let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -136,6 +215,10 @@ import Testing
               exit 0
             fi
             if [[ "$*" == "hooks claude inject-settings" ]]; then
+              if [[ "${CMUX_TEST_INVALID_CLAUDE_SETTINGS:-}" == "1" ]]; then
+                printf '%s' '[]'
+                exit 0
+              fi
               printf '%s' '{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"/tmp/cmux-native-sentinel","timeout":1}]}]}}'
               exit 0
             fi
@@ -168,6 +251,26 @@ import Testing
             claudeArguments.contains("/tmp/cmux-native-sentinel"),
             "The wrapper must pass the generated settings to Claude: \(claudeArguments)"
         )
+
+        let fallbackProcess = Process()
+        fallbackProcess.executableURL = wrapperURL
+        var fallbackEnvironment = process.environment ?? [:]
+        fallbackEnvironment["CMUX_TEST_INVALID_CLAUDE_SETTINGS"] = "1"
+        fallbackProcess.environment = fallbackEnvironment
+        fallbackProcess.standardInput = FileHandle.nullDevice
+        fallbackProcess.standardOutput = FileHandle.nullDevice
+        fallbackProcess.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(
+            fallbackProcess,
+            shellDescription: "cmux-claude-wrapper invalid generated hook settings"
+        )
+
+        let fallbackArguments = try String(contentsOf: claudeRecordURL, encoding: .utf8)
+        #expect(!fallbackArguments.contains("/tmp/cmux-native-sentinel"))
+        #expect(fallbackArguments.contains("hooks claude session-start"))
+        #expect(fallbackArguments.contains("hooks claude cron-create-guard"))
+        #expect(fallbackArguments.contains("hooks feed --source claude"))
+        #expect(fallbackArguments.contains("hooks claude auto-name"))
     }
 
     private func runWithBoundedWait(
@@ -231,6 +334,28 @@ import Testing
 
     private func shellQuotedForTest(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private func expectNativeClaudeHook(
+        _ group: [String: Any],
+        matcher: String,
+        filenameTag: String
+    ) throws {
+        #expect(group["matcher"] as? String == matcher)
+        let hooks = try #require(group["hooks"] as? [[String: Any]])
+        #expect(hooks.count == 1)
+        let hook = try #require(hooks.first)
+        #expect(hook["type"] as? String == "command")
+        #expect(hook["timeout"] as? Int == 1)
+        #expect(hook["async"] == nil)
+        let command = try #require(hook["command"] as? String)
+        #expect(FileManager.default.isExecutableFile(atPath: command))
+        let name = URL(fileURLWithPath: command).lastPathComponent
+        let prefix = "cmux-claude-native-hook-\(filenameTag)-"
+        #expect(name.hasPrefix(prefix))
+        let digest = name.dropFirst(prefix.count)
+        #expect(digest.count == 64)
+        #expect(digest.allSatisfy(\.isHexDigit))
     }
 }
 

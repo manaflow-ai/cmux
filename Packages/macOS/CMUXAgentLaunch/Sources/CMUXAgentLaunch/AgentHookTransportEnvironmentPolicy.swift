@@ -31,6 +31,7 @@ public struct AgentHookTransportEnvironmentPolicy: Sendable {
         "CMUX_AGENT_LAUNCH_KIND",
         "CMUX_AGENT_MANAGED_SUBAGENT",
         "CMUX_BUNDLE_ID",
+        "CMUX_CLAUDE_PID",
         "CMUX_CODEX_PID",
         "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_SOCKET_PATH",

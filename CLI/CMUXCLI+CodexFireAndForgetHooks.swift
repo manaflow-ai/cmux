@@ -24,6 +24,27 @@ extension CMUXCLI {
         "PostCompact", "SubagentStart", "SubagentStop",
     ]
 
+    struct ClaudeQueuedHookDefinition {
+        let agentEvent: String
+        let matcher: String
+        let subcommand: String
+    }
+
+    /// Claude hooks whose effects do not contribute a synchronous decision.
+    /// Each is admitted by the native helper and later delivered by the app's
+    /// bounded queue. PermissionRequest and CronCreate deliberately stay out of
+    /// this list because their stdout is part of Claude's decision protocol.
+    static let claudeQueuedHookDefinitions: [ClaudeQueuedHookDefinition] = [
+        .init(agentEvent: "SessionStart", matcher: "", subcommand: "session-start"),
+        .init(agentEvent: "UserPromptSubmit", matcher: "", subcommand: "prompt-submit"),
+        .init(agentEvent: "Stop", matcher: "", subcommand: "stop"),
+        .init(agentEvent: "SessionEnd", matcher: "", subcommand: "session-end"),
+        .init(agentEvent: "Notification", matcher: "", subcommand: "notification"),
+        .init(agentEvent: "PreToolUse", matcher: "", subcommand: "pre-tool-use"),
+        .init(agentEvent: "PostToolUse", matcher: "PushNotification", subcommand: "push-notification"),
+        .init(agentEvent: "SubagentStop", matcher: "", subcommand: "feed:SubagentStop"),
+    ]
+
     static func codexFeedDeliverySubcommand(agentEvent: String) -> String {
         "feed:\(agentEvent)"
     }
@@ -33,6 +54,10 @@ extension CMUXCLI {
             || codexFeedTelemetryEvents.contains(where: {
                 codexFeedDeliverySubcommand(agentEvent: $0) == subcommand
             })
+    }
+
+    static func claudeHookCanUseQueuedAdmission(_ subcommand: String) -> Bool {
+        claudeQueuedHookDefinitions.contains(where: { $0.subcommand == subcommand })
     }
 
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
@@ -94,6 +119,94 @@ extension CMUXCLI {
             out.append(0)
         }
         FileHandle.standardOutput.write(out)
+    }
+
+    /// Emits the complete cmux-owned Claude settings object. This method has no
+    /// socket dependency, so the wrapper can generate settings before Claude
+    /// starts while the app is busy with any number of other hook deliveries.
+    ///
+    /// Non-decision hooks use immutable content-addressed native senders.
+    /// PermissionRequest and CronCreate remain direct because Claude consumes
+    /// their stdout synchronously. If a sender cannot be installed, throwing
+    /// makes the wrapper use its exact legacy settings object instead of mixing
+    /// native and legacy behavior in one invocation.
+    func emitClaudeWrapperInjectSettings() throws {
+        guard let hooksDirectory = Self.codexHookScriptsDirectory() else {
+            throw CLIError(message: String(
+                localized: "cli.hooks.claude.injectSettings.error.directoryUnavailable",
+                defaultValue: "Claude native hook directory is unavailable."
+            ))
+        }
+
+        var commandsBySubcommand: [String: String] = [:]
+        commandsBySubcommand.reserveCapacity(Self.claudeQueuedHookDefinitions.count)
+        for definition in Self.claudeQueuedHookDefinitions {
+            guard let command = Self.writeAgentHookClient(
+                agent: "claude",
+                subcommand: definition.subcommand,
+                in: hooksDirectory
+            ) else {
+                throw CLIError(message: String(
+                    localized: "cli.hooks.claude.injectSettings.error.clientUnavailable",
+                    defaultValue: "Claude native hook client is unavailable."
+                ))
+            }
+            commandsBySubcommand[definition.subcommand] = command
+        }
+
+        func commandHook(_ command: String, timeout: Int) -> [String: Any] {
+            ["type": "command", "command": command, "timeout": timeout]
+        }
+        func group(matcher: String, hook: [String: Any]) -> [String: Any] {
+            ["matcher": matcher, "hooks": [hook]]
+        }
+        func nativeGroup(_ definition: ClaudeQueuedHookDefinition) throws -> [String: Any] {
+            guard let command = commandsBySubcommand[definition.subcommand] else {
+                throw CLIError(message: String(
+                    localized: "cli.hooks.claude.injectSettings.error.commandUnavailable",
+                    defaultValue: "Claude native hook command is unavailable."
+                ))
+            }
+            return group(matcher: definition.matcher, hook: commandHook(command, timeout: 1))
+        }
+
+        var hooks: [String: [[String: Any]]] = [:]
+        for definition in Self.claudeQueuedHookDefinitions {
+            hooks[definition.agentEvent, default: []].append(try nativeGroup(definition))
+        }
+
+        let hookCLI = #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}""#
+        let cronCreate = commandHook(
+            "\(hookCLI) hooks claude cron-create-guard",
+            timeout: 5
+        )
+        hooks["PreToolUse", default: []].insert(
+            group(matcher: "CronCreate", hook: cronCreate),
+            at: 0
+        )
+        let permissionRequest = commandHook(
+            "\(hookCLI) hooks feed --source claude",
+            timeout: 125
+        )
+        hooks["PermissionRequest"] = [
+            group(matcher: "", hook: permissionRequest),
+        ]
+
+        let settings: [String: Any] = [
+            "preferredNotifChannel": "notifications_disabled",
+            "hooks": hooks,
+        ]
+        guard JSONSerialization.isValidJSONObject(settings) else {
+            throw CLIError(message: String(
+                localized: "cli.hooks.claude.injectSettings.error.invalid",
+                defaultValue: "Claude native hook settings are invalid."
+            ))
+        }
+        let data = try JSONSerialization.data(
+            withJSONObject: settings,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        )
+        FileHandle.standardOutput.write(data)
     }
 
     /// The cmux-owned directory holding generated Codex hook executables.
@@ -176,8 +289,28 @@ extension CMUXCLI {
     /// runtimes that exec the configured command path directly. Returning nil
     /// preserves the portable shell implementation as the compatibility path.
     static func writeCodexHookClient(subcommand: String, in dir: URL) -> String? {
-        guard codexHookCanUseQueuedAdmission(subcommand),
-              let source = codexHookClientSourceURL() else {
+        writeAgentHookClient(agent: "codex", subcommand: subcommand, in: dir)
+    }
+
+    /// Installs the shared native sender under an agent-specific immutable path.
+    /// The executable basename is the sender's capability: the C client accepts
+    /// only the exact agent/subcommand combinations generated here.
+    static func writeAgentHookClient(
+        agent: String,
+        subcommand: String,
+        in dir: URL
+    ) -> String? {
+        let supportsSubcommand: Bool
+        switch agent {
+        case "codex":
+            supportsSubcommand = codexHookCanUseQueuedAdmission(subcommand)
+        case "claude":
+            supportsSubcommand = claudeHookCanUseQueuedAdmission(subcommand)
+        default:
+            supportsSubcommand = false
+        }
+        guard supportsSubcommand,
+              let source = agentHookClientSourceURL(agent: agent) else {
             return nil
         }
         let safeName = subcommand.replacingOccurrences(
@@ -190,9 +323,9 @@ extension CMUXCLI {
         let digest = codexHookContentDigest(executable)
         // Immutable, content-addressed paths let tagged, nightly, and stable
         // builds coexist without changing a helper already referenced by a
-        // running Codex process.
+        // running agent process.
         let target = dir.appendingPathComponent(
-            "cmux-codex-native-hook-\(safeName)-\(digest)",
+            "cmux-\(agent)-native-hook-\(safeName)-\(digest)",
             isDirectory: false
         )
         if fileManager.contentsEqual(atPath: source.path, andPath: target.path) {
@@ -208,14 +341,21 @@ extension CMUXCLI {
         }
     }
 
-    private static func codexHookClientSourceURL() -> URL? {
+    private static func agentHookClientSourceURL(agent: String) -> URL? {
         let environment = ProcessInfo.processInfo.environment
         let fileManager = FileManager.default
-        if let override = environment["CMUX_CODEX_HOOK_CLIENT_PATH"] {
+        let overrideKeys = [
+            "CMUX_AGENT_HOOK_CLIENT_PATH",
+            agent == "claude" ? "CMUX_CLAUDE_HOOK_CLIENT_PATH" : "CMUX_CODEX_HOOK_CLIENT_PATH",
+        ]
+        for overrideKey in overrideKeys {
+            guard let override = environment[overrideKey] else { continue }
             let path = override.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !path.isEmpty else { return nil }
+            guard !path.isEmpty else { continue }
             let url = URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL
-            return fileManager.isExecutableFile(atPath: url.path) ? url : nil
+            if fileManager.isExecutableFile(atPath: url.path) {
+                return url
+            }
         }
 
         var candidates: [URL] = []
@@ -297,32 +437,58 @@ extension CMUXCLI {
     }
 
     func enqueueCodexWrapperHook(commandArgs: [String], client: SocketClient) throws {
-        guard let requestedSubcommand = commandArgs.first else {
-            throw CLIError(message: String(
+        try enqueueWrapperHook(
+            agent: "codex",
+            commandArgs: commandArgs,
+            client: client,
+            supportsSubcommand: Self.codexHookCanUseQueuedAdmission,
+            usage: String(
                 localized: "cli.hooks.codex.enqueue.usage",
                 defaultValue: "Usage: cmux hooks codex enqueue <session-start|prompt-submit|stop|pre-tool-use|post-tool-use|notification>"
-            ))
+            )
+        )
+    }
+
+    func enqueueClaudeWrapperHook(commandArgs: [String], client: SocketClient) throws {
+        try enqueueWrapperHook(
+            agent: "claude",
+            commandArgs: commandArgs,
+            client: client,
+            supportsSubcommand: Self.claudeHookCanUseQueuedAdmission,
+            usage: String(
+                localized: "cli.hooks.claude.enqueue.usage",
+                defaultValue: "Usage: cmux hooks claude enqueue <session-start|prompt-submit|stop|session-end|notification|pre-tool-use|push-notification|feed:SubagentStop>"
+            )
+        )
+    }
+
+    private func enqueueWrapperHook(
+        agent: String,
+        commandArgs: [String],
+        client: SocketClient,
+        supportsSubcommand: (String) -> Bool,
+        usage: String
+    ) throws {
+        guard let requestedSubcommand = commandArgs.first else {
+            throw CLIError(message: usage)
         }
         let subcommand = requestedSubcommand.hasPrefix("feed:")
             ? requestedSubcommand
             : requestedSubcommand.lowercased()
-        guard Self.codexHookCanUseQueuedAdmission(subcommand) else {
-            throw CLIError(message: String(
-                localized: "cli.hooks.codex.enqueue.usage",
-                defaultValue: "Usage: cmux hooks codex enqueue <session-start|prompt-submit|stop|pre-tool-use|post-tool-use|notification>"
-            ))
+        guard supportsSubcommand(subcommand) else {
+            throw CLIError(message: usage)
         }
         let processEnvironment = ProcessInfo.processInfo.environment
         var environment = AgentHookTransportEnvironmentPolicy()
-            .selectedEnvironment(from: processEnvironment, hookAgentKind: "codex")
+            .selectedEnvironment(from: processEnvironment, hookAgentKind: agent)
         environment["CMUX_SOCKET_PATH"] = client.socketPath
         let payload = FileHandle.standardInput.readDataToEndOfFile()
         _ = try client.sendV2(
             method: "agent.hook.enqueue",
             params: [
                 "delivery_id": processEnvironment["CMUX_AGENT_HOOK_DELIVERY_ID"]
-                    ?? "codex-cli-\(getpid())-\(UUID().uuidString.lowercased())",
-                "agent": "codex",
+                    ?? "\(agent)-cli-\(getpid())-\(UUID().uuidString.lowercased())",
+                "agent": agent,
                 "subcommand": subcommand,
                 "payload_b64": payload.base64EncodedString(),
                 "socket_path": client.socketPath,

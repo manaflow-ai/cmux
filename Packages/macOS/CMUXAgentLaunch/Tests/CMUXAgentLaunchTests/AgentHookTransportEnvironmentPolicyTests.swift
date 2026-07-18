@@ -4,6 +4,23 @@ import Testing
 
 @Suite("Agent hook transport environment policy")
 struct AgentHookTransportEnvironmentPolicyTests {
+    @Test("Preserves native agent process identities")
+    func preservesNativeAgentProcessIdentities() {
+        let environment = [
+            "CMUX_CLAUDE_PID": "4101",
+            "CMUX_CODEX_PID": "4102",
+        ]
+
+        for kind in ["claude", "codex"] {
+            let partitioned = partition(environment, hookAgentKind: kind)
+            #expect(partitioned.durable["CMUX_CLAUDE_PID"] == "4101")
+            #expect(partitioned.durable["CMUX_CODEX_PID"] == "4102")
+            #expect(partitioned.ephemeral["CMUX_CLAUDE_PID"] == nil)
+            #expect(partitioned.ephemeral["CMUX_CODEX_PID"] == nil)
+            #expect(partitioned.merged == environment)
+        }
+    }
+
     @Test("Preserves routing and every auto-naming backend")
     func preservesAutoNamingInputsOnly() {
         let partitioned = partition([
@@ -259,10 +276,13 @@ struct AgentHookTransportEnvironmentPolicyTests {
         return data.split(separator: 0).compactMap { String(data: $0, encoding: .utf8) }
     }
 
-    private func partition(_ environment: [String: String]) -> AgentHookTransportEnvironment {
+    private func partition(
+        _ environment: [String: String],
+        hookAgentKind: String = "codex"
+    ) -> AgentHookTransportEnvironment {
         AgentHookTransportEnvironmentPolicy().partitionedEnvironment(
             from: environment,
-            hookAgentKind: "codex"
+            hookAgentKind: hookAgentKind
         )
     }
 }

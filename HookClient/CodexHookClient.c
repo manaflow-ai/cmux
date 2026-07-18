@@ -99,6 +99,34 @@ typedef struct {
     size_t capacity;
 } CMUXBuffer;
 
+typedef struct {
+    const char *name;
+    const char *pid_environment_key;
+    const char *disable_environment_key;
+    const char *delivery_id_prefix;
+    const char *native_filename_prefix;
+    const char *legacy_filename_prefix;
+} CMUXHookAgent;
+
+static const CMUXHookAgent cmux_hook_agents[] = {
+    {
+        .name = "codex",
+        .pid_environment_key = "CMUX_CODEX_PID",
+        .disable_environment_key = "CMUX_CODEX_HOOKS_DISABLED",
+        .delivery_id_prefix = "codex",
+        .native_filename_prefix = "cmux-codex-native-hook-",
+        .legacy_filename_prefix = "cmux-codex-hook-",
+    },
+    {
+        .name = "claude",
+        .pid_environment_key = "CMUX_CLAUDE_PID",
+        .disable_environment_key = "CMUX_CLAUDE_HOOKS_DISABLED",
+        .delivery_id_prefix = "claude",
+        .native_filename_prefix = "cmux-claude-native-hook-",
+        .legacy_filename_prefix = "cmux-claude-hook-",
+    },
+};
+
 static void cmux_secure_zero(void *bytes, size_t count) {
     volatile unsigned char *cursor = bytes;
     while (count > 0) {
@@ -133,6 +161,7 @@ static const char *const cmux_hook_environment_exact_keys[] = {
     "CMUX_AGENT_LAUNCH_KIND",
     "CMUX_AGENT_MANAGED_SUBAGENT",
     "CMUX_BUNDLE_ID",
+    "CMUX_CLAUDE_PID",
     "CMUX_CODEX_PID",
     "CMUX_CUSTOM_CLAUDE_PATH",
     "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
@@ -395,23 +424,38 @@ static bool cmux_hook_filename_suffix_is_valid(const char *suffix) {
     return suffix[hash_count] == '\0' || strcmp(suffix + hash_count, ".sh") == 0;
 }
 
-static const char *cmux_hook_subcommand(const char *executable_path) {
+static const CMUXHookAgent *cmux_hook_agent(
+    const char *executable_path,
+    const char **subcommand
+) {
     const char *name = strrchr(executable_path, '/');
     name = name == NULL ? executable_path : name + 1;
-    static const char native_prefix[] = "cmux-codex-native-hook-";
-    static const char legacy_prefix[] = "cmux-codex-hook-";
-    if (strncmp(name, native_prefix, sizeof(native_prefix) - 1) == 0) {
-        name += sizeof(native_prefix) - 1;
-    } else if (strncmp(name, legacy_prefix, sizeof(legacy_prefix) - 1) == 0) {
-        name += sizeof(legacy_prefix) - 1;
-    } else {
+    const CMUXHookAgent *agent = NULL;
+    for (size_t index = 0;
+         index < sizeof(cmux_hook_agents) / sizeof(cmux_hook_agents[0]);
+         index += 1) {
+        const CMUXHookAgent *candidate = &cmux_hook_agents[index];
+        const size_t native_prefix_count = strlen(candidate->native_filename_prefix);
+        const size_t legacy_prefix_count = strlen(candidate->legacy_filename_prefix);
+        if (strncmp(name, candidate->native_filename_prefix, native_prefix_count) == 0) {
+            name += native_prefix_count;
+            agent = candidate;
+            break;
+        }
+        if (strncmp(name, candidate->legacy_filename_prefix, legacy_prefix_count) == 0) {
+            name += legacy_prefix_count;
+            agent = candidate;
+            break;
+        }
+    }
+    if (agent == NULL) {
         return NULL;
     }
 
-    static const struct {
+    static const struct CMUXHookDefinition {
         const char *filename_tag;
         const char *subcommand;
-    } hooks[] = {
+    } codex_hooks[] = {
         {"session-start", "session-start"},
         {"prompt-submit", "prompt-submit"},
         {"stop", "stop"},
@@ -427,11 +471,26 @@ static const char *cmux_hook_subcommand(const char *executable_path) {
         {"feed-SubagentStop", "feed:SubagentStop"},
         {NULL, NULL},
     };
+    static const struct CMUXHookDefinition claude_hooks[] = {
+        {"session-start", "session-start"},
+        {"prompt-submit", "prompt-submit"},
+        {"stop", "stop"},
+        {"session-end", "session-end"},
+        {"notification", "notification"},
+        {"pre-tool-use", "pre-tool-use"},
+        {"push-notification", "push-notification"},
+        {"feed-SubagentStop", "feed:SubagentStop"},
+        {NULL, NULL},
+    };
+    const struct CMUXHookDefinition *hooks = strcmp(agent->name, "claude") == 0
+        ? claude_hooks
+        : codex_hooks;
     for (size_t index = 0; hooks[index].filename_tag != NULL; index += 1) {
         const size_t length = strlen(hooks[index].filename_tag);
         if (strncmp(name, hooks[index].filename_tag, length) == 0
             && cmux_hook_filename_suffix_is_valid(name + length)) {
-            return hooks[index].subcommand;
+            *subcommand = hooks[index].subcommand;
+            return agent;
         }
     }
     return NULL;
@@ -463,17 +522,21 @@ static bool cmux_pid_string_is_valid(const char *pid) {
     return true;
 }
 
-static const char *cmux_resolve_agent_pid(char storage[32]) {
-    const char *pid = getenv("CMUX_CODEX_PID");
+static const char *cmux_resolve_agent_pid(
+    const CMUXHookAgent *agent,
+    char storage[32]
+) {
+    const char *pid = getenv(agent->pid_environment_key);
     if (cmux_pid_string_is_valid(pid)) {
         return pid;
     }
     snprintf(storage, 32, "%d", getppid());
-    setenv("CMUX_CODEX_PID", storage, 1);
+    setenv(agent->pid_environment_key, storage, 1);
     return storage;
 }
 
 static const char *cmux_resolve_delivery_id(
+    const CMUXHookAgent *agent,
     const char *subcommand,
     const char *agent_pid,
     char storage[320]
@@ -487,7 +550,8 @@ static const char *cmux_resolve_delivery_id(
     snprintf(
         storage,
         320,
-        "codex-%s-%s-%d-%016llx",
+        "%s-%s-%s-%d-%016llx",
+        agent->delivery_id_prefix,
         agent_pid,
         subcommand,
         getpid(),
@@ -599,6 +663,7 @@ static bool cmux_decode_outbox_generation(
 
 static bool cmux_build_command(
     CMUXBuffer *command,
+    const CMUXHookAgent *agent,
     const char *delivery_id,
     const char *subcommand,
     const char *payload_base64,
@@ -611,7 +676,9 @@ static bool cmux_build_command(
             "\",\"method\":\"agent.hook.enqueue\",\"params\":{\"delivery_id\":\""
         )
         && cmux_buffer_append_string(command, delivery_id)
-        && cmux_buffer_append_string(command, "\",\"agent\":\"codex\",\"subcommand\":\"")
+        && cmux_buffer_append_string(command, "\",\"agent\":\"")
+        && cmux_buffer_append_string(command, agent->name)
+        && cmux_buffer_append_string(command, "\",\"subcommand\":\"")
         && cmux_buffer_append_string(command, subcommand)
         && cmux_buffer_append_string(command, "\",\"payload_b64\":\"")
         && cmux_buffer_append_string(command, payload_base64)
@@ -1939,6 +2006,7 @@ static void cmux_cleanup_fallback_process_group(pid_t child) {
 }
 
 static void cmux_run_cli_fallback(
+    const CMUXHookAgent *agent,
     const char *subcommand,
     const char *socket_path,
     const CMUXBuffer *payload,
@@ -2008,7 +2076,7 @@ static void cmux_run_cli_fallback(
         "--socket",
         (char *)socket_path,
         "hooks",
-        "codex",
+        (char *)agent->name,
         "enqueue",
         (char *)subcommand,
         NULL,
@@ -2016,7 +2084,7 @@ static void cmux_run_cli_fallback(
     char *arguments_without_socket[] = {
         (char *)cli,
         "hooks",
-        "codex",
+        (char *)agent->name,
         "enqueue",
         (char *)subcommand,
         NULL,
@@ -2026,14 +2094,14 @@ static void cmux_run_cli_fallback(
         "--socket",
         (char *)socket_path,
         "hooks",
-        "codex",
+        (char *)agent->name,
         (char *)subcommand,
         NULL,
     };
     char *legacy_arguments_without_socket[] = {
         (char *)cli,
         "hooks",
-        "codex",
+        (char *)agent->name,
         (char *)subcommand,
         NULL,
     };
@@ -2045,7 +2113,7 @@ static void cmux_run_cli_fallback(
         "hooks",
         "feed",
         "--source",
-        "codex",
+        (char *)agent->name,
         "--event",
         (char *)(subcommand + 5),
         NULL,
@@ -2055,7 +2123,7 @@ static void cmux_run_cli_fallback(
         "hooks",
         "feed",
         "--source",
-        "codex",
+        (char *)agent->name,
         "--event",
         (char *)(subcommand + 5),
         NULL,
@@ -2241,6 +2309,7 @@ static void cmux_redirect_standard_descriptors_to_null(void) {
 
 static void cmux_run_fallback_worker(
     CMUXSubmissionResult initial_result,
+    const CMUXHookAgent *agent,
     const char *subcommand,
     const char *socket_path,
     const CMUXBuffer *request,
@@ -2261,6 +2330,7 @@ static void cmux_run_fallback_worker(
         }
     }
     cmux_run_cli_fallback(
+        agent,
         subcommand,
         socket_path,
         payload,
@@ -2271,6 +2341,7 @@ static void cmux_run_fallback_worker(
 
 static bool cmux_start_fallback_worker(
     CMUXSubmissionResult initial_result,
+    const CMUXHookAgent *agent,
     const char *subcommand,
     const char *socket_path,
     const CMUXBuffer *request,
@@ -2298,7 +2369,14 @@ static bool cmux_start_fallback_worker(
         (void)setsid();
         const int permit = *permit_descriptor;
         cmux_close_inherited_worker_descriptors(permit);
-        cmux_run_fallback_worker(initial_result, subcommand, socket_path, request, payload);
+        cmux_run_fallback_worker(
+            initial_result,
+            agent,
+            subcommand,
+            socket_path,
+            request,
+            payload
+        );
         close(permit);
         _exit(0);
     }
@@ -2318,8 +2396,9 @@ int main(int argument_count, char **arguments) {
     (void)argument_count;
     signal(SIGPIPE, SIG_IGN);
 
-    const char *subcommand = cmux_hook_subcommand(arguments[0]);
-    if (subcommand == NULL) {
+    const char *subcommand = NULL;
+    const CMUXHookAgent *agent = cmux_hook_agent(arguments[0], &subcommand);
+    if (agent == NULL || subcommand == NULL) {
         cmux_drain_stdin();
         cmux_print_noop();
         return 0;
@@ -2333,7 +2412,7 @@ int main(int argument_count, char **arguments) {
     }
 
     const char *surface_id = getenv("CMUX_SURFACE_ID");
-    const char *disabled = getenv("CMUX_CODEX_HOOKS_DISABLED");
+    const char *disabled = getenv(agent->disable_environment_key);
     if (surface_id == NULL || surface_id[0] == '\0' || (disabled != NULL && strcmp(disabled, "1") == 0)) {
         cmux_buffer_destroy(&payload);
         cmux_print_noop();
@@ -2341,9 +2420,10 @@ int main(int argument_count, char **arguments) {
     }
 
     char agent_pid_storage[32] = {0};
-    const char *agent_pid = cmux_resolve_agent_pid(agent_pid_storage);
+    const char *agent_pid = cmux_resolve_agent_pid(agent, agent_pid_storage);
     char delivery_id_storage[320] = {0};
     const char *delivery_id = cmux_resolve_delivery_id(
+        agent,
         subcommand,
         agent_pid,
         delivery_id_storage
@@ -2375,6 +2455,7 @@ int main(int argument_count, char **arguments) {
         && environment_base64 != NULL
         && cmux_build_command(
             &command,
+            agent,
             delivery_id,
             subcommand,
             payload_base64,
@@ -2416,6 +2497,7 @@ int main(int argument_count, char **arguments) {
         const bool started = fallback_permit >= 0
             && cmux_start_fallback_worker(
                 submission,
+                agent,
                 subcommand,
                 socket_path,
                 &request,
@@ -2427,6 +2509,7 @@ int main(int argument_count, char **arguments) {
             // delivery attempt under its own short deadline rather than
             // silently dropping the event or violating the hook budget.
             cmux_run_cli_fallback(
+                agent,
                 subcommand,
                 socket_path,
                 &payload,
