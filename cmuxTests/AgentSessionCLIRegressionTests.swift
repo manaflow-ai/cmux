@@ -1609,6 +1609,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     @Test func agentsListAndTreeCanonicalizeDuplicateRunsBeforeProjection() throws {
         let cliPath = try bundledCLIPath()
+        let resumeProof = UUID().uuidString
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agents-duplicate-run-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -1672,6 +1673,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                             "parentSessionId": "winning-parent",
                             "relationship": "forked",
                             "restoreAuthority": true,
+                            "cmuxHibernationResumeAttemptId": resumeProof,
                             "startedAt": 100.0,
                             "updatedAt": 120.0,
                         ],
@@ -1693,6 +1695,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         #expect(!jsonResult.timedOut)
         #expect(jsonResult.status == 0, Comment(rawValue: jsonResult.stdout))
+        #expect(!jsonResult.stdout.contains(resumeProof))
         let payload = try #require(
             JSONSerialization.jsonObject(with: Data(jsonResult.stdout.utf8)) as? [String: Any]
         )
@@ -1713,6 +1716,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         #expect(!listResult.timedOut)
         #expect(listResult.status == 0, Comment(rawValue: listResult.stdout))
+        #expect(!listResult.stdout.contains(resumeProof))
         let listPayload = try #require(
             JSONSerialization.jsonObject(with: Data(listResult.stdout.utf8)) as? [String: Any]
         )
@@ -1730,6 +1734,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         #expect(!textResult.timedOut)
         #expect(textResult.status == 0, Comment(rawValue: textResult.stdout))
+        #expect(!textResult.stdout.contains(resumeProof))
         let lines = textResult.stdout.split(separator: "\n").map(String.init)
         let winningParentIndex = try #require(lines.firstIndex { $0.contains("codex winning-parent ") })
         let childIndex = try #require(lines.firstIndex { $0.contains("codex duplicate-session ") })
@@ -1786,15 +1791,18 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @Test func equalTimeEndedDuplicateCannotBeRevivedByLiveDuplicate() throws {
+        let resumeProof = UUID().uuidString
         let live = AgentSessionRunRecord(
             runId: "shared-run", pid: 42, processStartedAt: 100,
             parentRunId: nil, parentSessionId: nil, relationship: nil,
-            restoreAuthority: true, startedAt: 100, updatedAt: 200, endedAt: nil
+            restoreAuthority: true, cmuxHibernationResumeAttemptId: resumeProof,
+            startedAt: 100, updatedAt: 200, endedAt: nil
         )
         let ended = AgentSessionRunRecord(
             runId: "shared-run", pid: 42, processStartedAt: 100,
             parentRunId: nil, parentSessionId: nil, relationship: nil,
-            restoreAuthority: false, startedAt: 100, updatedAt: 200, endedAt: 250
+            restoreAuthority: false, cmuxHibernationResumeAttemptId: resumeProof,
+            startedAt: 100, updatedAt: 200, endedAt: 250
         )
 
         for runs in [[live, ended], [ended, live]] {
@@ -1806,6 +1814,32 @@ extension CMUXCLIErrorOutputRegressionTests {
                 provider: "codex"
             ).first)
             #expect(canonical.endedAt == 250)
+            #expect(canonical.restoreAuthority == false)
+            #expect(canonical.cmuxHibernationResumeAttemptId == resumeProof)
+        }
+    }
+
+    @Test func equalTimeConflictingResumeProofsDemoteAuthorityInEitherOrder() throws {
+        let firstProof = UUID().uuidString
+        let secondProof = UUID().uuidString
+        let first = AgentSessionRunRecord(
+            runId: "shared-run", pid: 42, processStartedAt: 100,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true, cmuxHibernationResumeAttemptId: firstProof,
+            startedAt: 100, updatedAt: 200, endedAt: nil
+        )
+        var second = first
+        second.cmuxHibernationResumeAttemptId = secondProof
+
+        for runs in [[first, second], [second, first]] {
+            let canonical = try #require(AgentSessionRunCanonicalizer().runs(
+                record: ClaudeHookSessionRecord(
+                    sessionId: "session", workspaceId: "workspace", surfaceId: "surface",
+                    startedAt: 100, updatedAt: 200, runs: runs
+                ),
+                provider: "local-agent"
+            ).first)
+            #expect(canonical.cmuxHibernationResumeAttemptId == nil)
             #expect(canonical.restoreAuthority == false)
         }
     }
@@ -2356,6 +2390,149 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(limitError["scope"] as? String == "registry_graph_nodes")
         #expect(limitError["observed_count"] as? Int64 == 20_001)
         #expect(limitError["maximum_count"] as? Int64 == 20_000)
+    }
+
+    @Test func changedLegacyProjectionCountsOnlyNewCanonicalGraphIdentities() throws {
+        var roots: [URL] = []
+        defer {
+            for root in roots { try? FileManager.default.removeItem(at: root) }
+        }
+
+        func sessionObject(
+            sessionID: String,
+            runIDs: [String]
+        ) -> [String: Any] {
+            let primaryRunID = runIDs.first ?? "fallback-\(sessionID)"
+            return [
+                "sessionId": sessionID,
+                "workspaceId": "workspace-\(sessionID)",
+                "surfaceId": "surface-\(sessionID)",
+                "runId": primaryRunID,
+                "activeRunId": primaryRunID,
+                "restoreAuthority": false,
+                "sessionState": "ended",
+                "foregroundState": "completed",
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+                "completedAt": 200.0,
+                "runs": runIDs.map { runID in
+                    [
+                        "runId": runID,
+                        "restoreAuthority": false,
+                        "startedAt": 100.0,
+                        "updatedAt": 200.0,
+                        "endedAt": 200.0,
+                    ] as [String: Any]
+                },
+            ]
+        }
+
+        func fixture(
+            legacySessions: [String: [String: Any]]
+        ) throws -> URL {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "cmux-agents-legacy-overlap-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            roots.append(root)
+            let registry = CmuxAgentSessionRegistry(
+                url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+            )
+            try registry.apply(provider: "codex", records: [
+                CmuxAgentSessionRegistry.Record(
+                    provider: "codex",
+                    sessionID: "session-a",
+                    updatedAt: 200,
+                    json: try JSONSerialization.data(
+                        withJSONObject: sessionObject(sessionID: "session-a", runIDs: ["run-a"]),
+                        options: [.sortedKeys]
+                    )
+                ),
+                CmuxAgentSessionRegistry.Record(
+                    provider: "codex",
+                    sessionID: "session-b",
+                    updatedAt: 200,
+                    json: try JSONSerialization.data(
+                        withJSONObject: sessionObject(sessionID: "session-b", runIDs: ["run-b"]),
+                        options: [.sortedKeys]
+                    )
+                ),
+            ])
+            try JSONSerialization.data(
+                withJSONObject: ["version": 2, "sessions": legacySessions],
+                options: [.sortedKeys]
+            ).write(
+                to: root.appendingPathComponent("codex-hook-sessions.json"),
+                options: .atomic
+            )
+            return root
+        }
+
+        let exactSessions = [
+            "session-a": sessionObject(sessionID: "session-a", runIDs: ["run-a"]),
+            "session-b": sessionObject(sessionID: "session-b", runIDs: ["run-b"]),
+        ]
+        let treeRoot = try fixture(legacySessions: exactSessions)
+        let tree = try AgentHookSessionRegistryBridge.snapshots(
+            specifications: [(provider: "codex", suffix: "codex")],
+            stateDirectory: treeRoot.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": treeRoot.path],
+            fileManager: .default,
+            maximumLegacyGraphNodes: 2
+        )
+        #expect(tree.snapshots["codex"]?.records.count == 2)
+
+        let listRoot = try fixture(legacySessions: exactSessions)
+        let list = try AgentHookSessionRegistryBridge.boundedRecentSnapshotsForList(
+            specifications: [(provider: "codex", suffix: "codex")],
+            stateDirectory: listRoot.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": listRoot.path],
+            fileManager: .default,
+            maximumRecordsPerProvider: 1,
+            maximumLegacyGraphNodes: 2
+        )
+        #expect(list.totalRecordCounts["codex"] == 2)
+        #expect(list.snapshots["codex"]?.records.count == 1)
+
+        let extraRunRoot = try fixture(legacySessions: [
+            "session-a": sessionObject(
+                sessionID: "session-a",
+                runIDs: ["run-a", "run-added-by-legacy"]
+            ),
+            "session-b": sessionObject(sessionID: "session-b", runIDs: ["run-b"]),
+        ])
+        var extraRunFailure: AgentHookSessionStoreLoadFailure?
+        do {
+            _ = try AgentHookSessionRegistryBridge.snapshots(
+                specifications: [(provider: "codex", suffix: "codex")],
+                stateDirectory: extraRunRoot.path,
+                environment: ["CMUX_AGENT_HOOK_STATE_DIR": extraRunRoot.path],
+                fileManager: .default,
+                maximumLegacyGraphNodes: 2
+            )
+        } catch let failure as AgentHookSessionStoreLoadFailure {
+            extraRunFailure = failure
+        }
+        #expect(try #require(extraRunFailure).scope == .legacyGraphNodes)
+
+        let disjointRoot = try fixture(legacySessions: [
+            "legacy-only": sessionObject(sessionID: "legacy-only", runIDs: ["legacy-run"]),
+        ])
+        var disjointFailure: AgentHookSessionStoreLoadFailure?
+        do {
+            _ = try AgentHookSessionRegistryBridge.snapshots(
+                specifications: [(provider: "codex", suffix: "codex")],
+                stateDirectory: disjointRoot.path,
+                environment: ["CMUX_AGENT_HOOK_STATE_DIR": disjointRoot.path],
+                fileManager: .default,
+                maximumLegacyGraphNodes: 2
+            )
+        } catch let failure as AgentHookSessionStoreLoadFailure {
+            disjointFailure = failure
+        }
+        #expect(try #require(disjointFailure).scope == .legacyGraphNodes)
     }
 
     @Test func agentsTreeTextDoesNotOverflowTheStackBeyondTwoThousandFiveHundredLevels() throws {
