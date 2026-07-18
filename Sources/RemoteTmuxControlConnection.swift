@@ -100,6 +100,18 @@ final class RemoteTmuxControlConnection {
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
+    /// In-flight raw-line queries (see ``queryWithTimeout(_:timeout:reconnectOnTimeout:)``),
+    /// keyed by the token carried on their `.rawQuery` command. Flushed with nil on any
+    /// stream reset so an awaiting coordinator never hangs.
+    var rawQueryCompletions: [UUID: ([String]?) -> Void] = [:]
+    var rawQueryTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    /// `true` when this connection is the multiplexer's shared per-host view stream
+    /// (a hidden `cmux-view-*` session with other sessions' windows linked in), rather
+    /// than a dedicated per-session connection. Enables the host-wide session-digest
+    /// subscription and the extra topology notifications a shared stream needs.
+    var isSharedViewStream = false
+    /// Whether the ``sessionDigestSubscriptionName`` `refresh-client -B` is active.
+    var sessionDigestSubscribed = false
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
     /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,

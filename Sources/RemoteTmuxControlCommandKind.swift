@@ -32,5 +32,10 @@ enum RemoteTmuxControlCommandKind: Equatable {
     /// keys a completion that fires `true` on `%end`, `false` on `%error` or
     /// when the stream resets before the block arrives.
     case tracked(UUID)
+    /// A command whose raw reply lines the sender awaits (see
+    /// ``RemoteTmuxControlConnection/queryWithTimeout(_:timeout:reconnectOnTimeout:)``):
+    /// the token keys a completion fired with the `%end` reply lines, or `nil` on
+    /// `%error`, timeout, or a stream reset before the block arrives.
+    case rawQuery(UUID)
     case other
 }

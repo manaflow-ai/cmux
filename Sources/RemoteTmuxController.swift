@@ -30,6 +30,11 @@ final class RemoteTmuxController {
     /// the same endpoint+session reuse the existing connection.
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
+    /// Per-session channels scoping a shared multiplexed view connection down to a
+    /// single tmux session, keyed like ``connectionsByHostSession``. Non-private so
+    /// the ``RemoteTmuxController+Multiplexer`` extension (a separate file) can wire
+    /// and tear them down.
+    var channelsByHostSession: [String: RemoteTmuxSessionChannel] = [:]
 
     init() {}
 
@@ -259,6 +264,28 @@ final class RemoteTmuxController {
     /// (see ``connectionKey(host:sessionName:)``).
     var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:]
 
+    /// Multiplexer mode: one shared `tmux -CC` view connection per host (keyed by
+    /// ``RemoteTmuxHost/connectionHash``); the per-session channels scoping it live in
+    /// ``channelsByHostSession``.
+    var multiplexedViewsByHost: [String: RemoteTmuxViewConnection] = [:]
+    /// Multiplexer user intents by host: pending kills, deliberate local detaches,
+    /// and the one new session that should be selected when it surfaces. The pure
+    /// reconciler follows/prunes these by stable session id so name reuse stays safe.
+    var multiplexIntentsByHost: [String: RemoteTmuxMultiplexReconciler.Intents] = [:]
+    /// The hidden view connection's own `$id` per host. A changed id means the tmux
+    /// server restarted and may have reused `$N`s, so all id-scoped intents are stale.
+    var viewEpochSessionIdByHost: [String: Int] = [:]
+
+    /// One caller awaiting a specific mirror to surface after it created that
+    /// session (the CLI `new-remote-workspace` path).
+    struct NewWorkspaceWaiter { let token: UUID; let resume: (UUID?) -> Void }
+    /// Waiters keyed by ``connectionKey(host:sessionName:)``. Resolved with the new
+    /// workspace id when ``createMirrorWorkspace`` registers that key's mirror, or
+    /// nil when the host tears down or the wait deadline elapses.
+    var newWorkspaceWaiters: [String: [NewWorkspaceWaiter]] = [:]
+    /// Per-waiter deadline tasks, owned here so resolution cancels them exactly once.
+    var newWorkspaceTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+
     /// In-flight attach guards and kill-on-close markers for remote tmux mirrors.
     let windowRegistry = RemoteTmuxWindowRegistry()
 
@@ -300,9 +327,33 @@ final class RemoteTmuxController {
         // failed connection doesn't leave an orphaned empty mirror workspace in
         // the sidebar.
         let connection = try attach(host: host, sessionName: sessionName)
+        _ = createMirrorWorkspace(
+            host: host,
+            sessionName: sessionName,
+            sessionId: sessionId,
+            connection: connection,
+            into: tabManager,
+            select: false
+        )
+        return true
+    }
+
+    /// Builds a mirror workspace for one session and registers it. Shared by the GA
+    /// dedicated-connection path (``mirrorSession``) and the multiplexer, which passes
+    /// a per-session channel as the source instead of a dedicated connection.
+    @discardableResult
+    func createMirrorWorkspace(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        sessionId: Int?,
+        connection: any RemoteTmuxSessionSource,
+        into tabManager: TabManager,
+        select: Bool
+    ) -> RemoteTmuxSessionMirror {
+        let key = Self.connectionKey(host: host, sessionName: sessionName)
         let workspace = tabManager.addWorkspace(
             title: sessionName,
-            select: false,
+            select: select,
             autoWelcomeIfNeeded: false
         )
         workspace.isRemoteTmuxMirror = true
@@ -314,7 +365,7 @@ final class RemoteTmuxController {
                 verification: verification
             )
         }
-        sessionMirrors[key] = RemoteTmuxSessionMirror(
+        let mirror = RemoteTmuxSessionMirror(
             host: host,
             sessionName: sessionName,
             seededSessionId: sessionId,
@@ -324,7 +375,25 @@ final class RemoteTmuxController {
             onControlPaneRemoved: TerminalController.remoteTmuxControlPaneRemovalHandler(),
             onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler()
         )
-        return true
+        sessionMirrors[key] = mirror
+        resolveNewWorkspaceWaiters(key: key, workspaceId: workspace.id)
+        return mirror
+    }
+
+    /// Resolves every `new-remote-workspace` caller awaiting the mirror for `key`
+    /// with the workspace id it just surfaced (or nil on teardown), once each,
+    /// cancelling their deadline tasks.
+    func resolveNewWorkspaceWaiters(key: String, workspaceId: UUID?) {
+        guard let waiters = newWorkspaceWaiters.removeValue(forKey: key) else { return }
+        for waiter in waiters {
+            newWorkspaceTimeoutTasks.removeValue(forKey: waiter.token)?.cancel()
+            waiter.resume(workspaceId)
+        }
+    }
+
+    /// Whether any dedicated control connection is attached to the given host.
+    func hasCachedConnection(hostHash: String) -> Bool {
+        connectionsByHostSession.values.contains { $0.host.connectionHash == hostHash }
     }
 
     // MARK: - Create / destroy propagation (P5)
