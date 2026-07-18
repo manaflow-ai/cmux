@@ -1258,6 +1258,7 @@ extension Workspace {
             inPane: pane,
             snapshotWorkspaceId: entry.workspaceId,
             shouldRestoreSingleDefaultCloudTerminal: false,
+            recordsStartupBreadcrumb: false,
             pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
         ) else { return nil }
         finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
@@ -1302,6 +1303,7 @@ extension Workspace {
             inPane: pane,
             snapshotWorkspaceId: entry.workspaceId,
             shouldRestoreSingleDefaultCloudTerminal: false,
+            recordsStartupBreadcrumb: false,
             pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
         ) else {
             _ = closePanel(placeholderPanel.id, force: true)
@@ -1606,13 +1608,21 @@ extension Workspace {
         var createdPanelIds: [UUID] = []
         for oldPanelId in desiredOldPanelIds {
             guard let panelSnapshot = panelSnapshotsById[oldPanelId] else { continue }
-            guard let createdPanelId = createPanel(
+            let createdPanelId = createPanel(
                 from: panelSnapshot,
                 inPane: paneId,
                 snapshotWorkspaceId: snapshotWorkspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
+                recordsStartupBreadcrumb: true,
                 pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
-            ) else { continue }
+            )
+            if panelSnapshot.type != .terminal {
+                recordSessionRestorePanelBreadcrumb(
+                    snapshot: panelSnapshot,
+                    outcome: createdPanelId == nil ? "failed" : "created"
+                )
+            }
+            guard let createdPanelId else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
         }
@@ -1692,6 +1702,7 @@ extension Workspace {
         inPane paneId: PaneID,
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
+        recordsStartupBreadcrumb: Bool,
         pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption]
     ) -> UUID? {
         let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
@@ -1868,6 +1879,75 @@ extension Workspace {
             let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
+            let bindingStatus: String
+            let bindingReason: String
+            if snapshot.terminal?.resumeBinding == nil {
+                bindingStatus = "missing"
+                bindingReason = "absent"
+            } else if restoredHibernation != nil {
+                bindingStatus = "found"
+                bindingReason = "hibernated"
+            } else if resumeBinding?.isProcessDetected == true, resumeBinding?.autoResume != true {
+                bindingStatus = "found"
+                bindingReason = "process_detected_manual"
+            } else if effectiveResumeBindingForStartup == nil {
+                bindingStatus = "rejected"
+                if !autoResumeAgentSessions {
+                    bindingReason = "auto_resume_disabled"
+                } else if !agentWasRunningAtQuit {
+                    bindingReason = "agent_not_running"
+                } else {
+                    bindingReason = "policy_denied"
+                }
+            } else {
+                bindingStatus = "found"
+                bindingReason = "approved"
+            }
+            let resumeAction = restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
+                ? "issued"
+                : "suppressed"
+            let resumeMode: String = {
+                if restoredBindingLaunch?.initialCommand != nil || restoredAgentResumeLaunch?.initialCommand != nil {
+                    return "command"
+                }
+                if restoredBindingLaunch?.initialInput != nil || restoredAgentResumeLaunch?.initialInput != nil {
+                    return "input"
+                }
+                return "none"
+            }()
+            let resumeReason: String = {
+                if restoredBindingLaunch != nil { return "binding" }
+                if restoredAgentResumeLaunch != nil { return "agent" }
+                if restoredHibernation != nil { return "hibernated" }
+                if snapshot.terminal?.resumeBinding != nil {
+                    switch bindingReason {
+                    case "auto_resume_disabled": return "auto_resume_disabled"
+                    case "agent_not_running": return "agent_not_running"
+                    case "process_detected_manual": return "process_detected"
+                    case "policy_denied": return "binding_rejected"
+                    default: return "binding_unlaunchable"
+                    }
+                }
+                if restorableAgent != nil {
+                    if !autoResumeAgentSessions { return "auto_resume_disabled" }
+                    if !agentWasRunningAtQuit { return "agent_not_running" }
+                    return "resume_unavailable"
+                }
+                return "no_candidate"
+            }()
+            let provider: String = {
+                let kind = restorableAgent?.kind ?? resumeBinding?.kind.flatMap(RestorableAgentKind.init(rawValue:))
+                guard let kind else { return "unknown" }
+                return kind.customAgentID == nil ? kind.rawValue : "custom"
+            }()
+            let terminalBreadcrumbFields = [
+                "binding": bindingStatus,
+                "bindingReason": bindingReason,
+                "resume": resumeAction,
+                "resumeReason": resumeReason,
+                "resumeMode": resumeMode,
+                "provider": provider,
+            ]
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1917,7 +1997,21 @@ extension Workspace {
                 restoredSurfaceId: reusableSurfaceId
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
+                if recordsStartupBreadcrumb {
+                    recordSessionRestorePanelBreadcrumb(
+                        snapshot: snapshot,
+                        outcome: "failed",
+                        terminalFields: terminalBreadcrumbFields
+                    )
+                }
                 return nil
+            }
+            if recordsStartupBreadcrumb {
+                recordSessionRestorePanelBreadcrumb(
+                    snapshot: snapshot,
+                    outcome: "created",
+                    terminalFields: terminalBreadcrumbFields
+                )
             }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
@@ -2124,6 +2218,21 @@ extension Workspace {
         case .cloudVMLoading:
             return nil
         }
+    }
+
+    private func recordSessionRestorePanelBreadcrumb(
+        snapshot: SessionPanelSnapshot,
+        outcome: String,
+        terminalFields: [String: String] = [:]
+    ) {
+        var fields = terminalFields
+        fields["panel"] = String(snapshot.id.uuidString.lowercased().prefix(8))
+        fields["type"] = snapshot.type.rawValue
+        fields["outcome"] = outcome
+        if outcome == "failed" {
+            fields["failureReason"] = "panel_creation_failed"
+        }
+        StartupBreadcrumbLog.append("session.restore.panel", fields: fields)
     }
 
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
