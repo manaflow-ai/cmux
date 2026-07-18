@@ -246,4 +246,64 @@ struct ProviderCurrentVersionContractTests {
             )
         }
     }
+
+    @Test("Long-lived protocol entrypoints distinguish commands that exit")
+    func longLivedProtocolEntrypointsDistinguishCommandsThatExit() {
+        for arguments in [
+            ["codex", "app-server"],
+            ["codex", "app-server", "proxy"],
+            ["codex", "mcp-server"],
+            ["codex", "exec-server"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "codex", arguments: arguments, kind: "codex"
+                ) == .interactive,
+                "\(arguments)"
+            )
+        }
+        for arguments in [
+            ["codex", "app-server", "daemon", "start"],
+            ["codex", "app-server", "generate-ts"],
+            ["codex", "app-server", "generate-json-schema"],
+            ["codex", "mcp-server", "--help"],
+            ["codex", "exec-server", "--help"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "codex", arguments: arguments, kind: "codex"
+                ) == .nonSession,
+                "\(arguments)"
+            )
+        }
+
+        for arguments in [
+            ["hermes", "acp"],
+            ["hermes", "acp", "--accept-hooks"],
+            ["hermes", "gateway", "run"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "hermes", arguments: arguments, kind: "hermes-agent"
+                ) == .interactive,
+                "\(arguments)"
+            )
+        }
+        for arguments in [
+            ["hermes", "acp", "--check"],
+            ["hermes", "acp", "--setup"],
+            ["hermes", "acp", "--setup-browser"],
+            ["hermes", "acp", "--version"],
+            ["hermes", "gateway"],
+            ["hermes", "gateway", "status"],
+            ["hermes", "gateway", "start"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "hermes", arguments: arguments, kind: "hermes-agent"
+                ) == .nonSession,
+                "\(arguments)"
+            )
+        }
+    }
 }
