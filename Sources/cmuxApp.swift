@@ -270,12 +270,14 @@ struct cmuxApp: App {
             activationPolicy: terminalBackendActivationPolicy,
             inspection: terminalBackendBundleInspection,
             registration: SystemBackendServiceRegistration(
-                propertyListName: terminalBackendDescriptor.propertyListName
+                descriptor: terminalBackendDescriptor,
+                bundleInspection: terminalBackendBundleInspection,
+                runtimePaths: terminalBackendRuntimePaths,
+                userID: UInt32(Darwin.getuid())
             ),
             readinessChecker: BackendServiceReadinessProbe(
                 descriptor: terminalBackendDescriptor,
-                runtimePaths: terminalBackendRuntimePaths,
-                trustedExecutableURL: terminalBackendBundleInspection.executableURL
+                runtimePaths: terminalBackendRuntimePaths
             )
         )
         let terminalBackendServiceModel = TerminalBackendServiceModel(
@@ -305,7 +307,8 @@ struct cmuxApp: App {
                     try await terminalBackendServiceBootstrap.ensureRegistered()
                 },
                 socketPath: terminalBackendRuntimePaths.socketURL.path,
-                processInstanceUUID: Self.terminalBackendProcessInstanceUUID
+                processInstanceUUID: Self.terminalBackendProcessInstanceUUID,
+                inputAuthority: backendClient
             )
             terminalClientComposition = .persistent(
                 backendClient: backendClient,
