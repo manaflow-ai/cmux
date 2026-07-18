@@ -296,9 +296,9 @@ struct AgentHibernationRestoreMonitorTests {
         let snapshot = directory.appendingPathComponent("snapshot.jsonl")
         let earlierTurn = #"{"type":"user","message":{"content":"kept"}}"# + "\n"
         let snapshotContent = earlierTurn + #"{"type":"assistant","message":{"content":"dropped tail"}}"# + "\n"
-        // A partial rewrite kept an earlier turn but dropped the tail: the live
-        // file is populated, so no restore fires, yet it does not contain the
-        // snapshot. The forfeit disposal must retain the copy, never delete it.
+        // A partial rewrite kept an earlier turn but dropped the tail. The
+        // protected snapshot is an append-only superset, so restore the missing
+        // tail while retaining the displaced inode as recovery authority.
         try earlierTurn.write(to: live, atomically: true, encoding: .utf8)
         try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
 
@@ -310,10 +310,26 @@ struct AgentHibernationRestoreMonitorTests {
             snapshotDisposal: .retainForRecovery(sessionId: "forfeit-retain")
         )
 
-        #expect(try String(contentsOf: live, encoding: .utf8) == earlierTurn)
+        #expect(try String(contentsOf: live, encoding: .utf8) == snapshotContent)
         #expect(FileManager.default.fileExists(atPath: snapshot.path) == false)
-        let retained = directory.appendingPathComponent("forfeit-retain-retained.jsonl")
-        #expect(try String(contentsOf: retained, encoding: .utf8) == snapshotContent)
+        let recoveryEntries = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )
+        let pointers = recoveryEntries.filter {
+            $0.lastPathComponent.contains("-pointer-")
+        }
+        let displaced = recoveryEntries.filter {
+            $0.lastPathComponent.hasPrefix(".live.jsonl.cmux-recovery-")
+        }
+        #expect(pointers.count == 1)
+        #expect(displaced.count == 1)
+        #expect(
+            try String(
+                contentsOf: #require(displaced.first),
+                encoding: .utf8
+            ) == earlierTurn
+        )
     }
 
     @Test
@@ -752,11 +768,11 @@ struct AgentHibernationRestoreMonitorTests {
         #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(
             snapshotDirectory: snapshots
         ) == 1)
+        let protectedTranscript =
+            #"{"type":"user","message":{"content":"protected"}}"# + "\n"
         #expect(
             try String(contentsOf: transcript, encoding: .utf8)
-                .hasPrefix(
-                    #"{"type":"summary","summary":"Session"}"#
-                )
+                == protectedTranscript + metadataStub
         )
     }
 
@@ -1092,12 +1108,17 @@ struct AgentHibernationRestoreMonitorTests {
         }
         let restoredContent = try String(contentsOf: live, encoding: .utf8)
         #expect(restoredContent.hasPrefix(protected))
-        let displacedCandidates = try FileManager.default.contentsOfDirectory(
+        let recoveryEntries = try FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil
-        ).filter {
-            $0.lastPathComponent.contains("-displaced-") && $0.pathExtension == "jsonl"
+        )
+        let pointers = recoveryEntries.filter {
+            $0.lastPathComponent.contains("-pointer-")
         }
+        let displacedCandidates = recoveryEntries.filter {
+            $0.lastPathComponent.hasPrefix(".live.jsonl.cmux-recovery-")
+        }
+        #expect(pointers.count == 1)
         #expect(displacedCandidates.count == 1)
         let displacedContent = try String(
             contentsOf: #require(displacedCandidates.first),
@@ -1162,6 +1183,7 @@ struct AgentHibernationRestoreMonitorTests {
                 ),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots,
+                maximumRecoveryStorageFileCount: 20_000,
                 recoveryMetadataOwnerProcessIdentity: nil
             )
         ))
@@ -1201,6 +1223,7 @@ struct AgentHibernationRestoreMonitorTests {
                 ),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots,
+                maximumRecoveryStorageFileCount: 20_000,
                 recoveryMetadataOwnerProcessIdentity: nil
             )
         ))
@@ -1220,6 +1243,7 @@ struct AgentHibernationRestoreMonitorTests {
                 ),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots,
+                maximumRecoveryStorageFileCount: 20_000,
                 recoveryMetadataOwnerProcessIdentity: nil
             )
         ))
@@ -1261,6 +1285,7 @@ struct AgentHibernationRestoreMonitorTests {
                 ),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots,
+                maximumRecoveryStorageFileCount: 20_000,
                 recoveryMetadataOwnerProcessIdentity: nil
             )
         ))

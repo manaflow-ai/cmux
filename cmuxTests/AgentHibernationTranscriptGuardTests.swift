@@ -629,12 +629,20 @@ struct AgentHibernationTranscriptGuardTests {
     func versionOneRecoveryMetadataCannotAuthorizeAPathAfterRename() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let recoveryDirectory = directory.appendingPathComponent(
+            "recovery",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: recoveryDirectory,
+            withIntermediateDirectories: true
+        )
         let sessionId = "v1-path-bound"
         let live = directory.appendingPathComponent("live.jsonl")
-        let candidate = directory.appendingPathComponent(
+        let candidate = recoveryDirectory.appendingPathComponent(
             "\(sessionId)-candidate.jsonl"
         )
-        let authorizedPath = directory.appendingPathComponent(
+        let authorizedPath = recoveryDirectory.appendingPathComponent(
             "\(sessionId)-authorized.jsonl"
         )
         try metadataStub.write(to: live, atomically: true, encoding: .utf8)
@@ -650,11 +658,11 @@ struct AgentHibernationTranscriptGuardTests {
         )
 
         #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(
-            snapshotDirectory: directory
+            snapshotDirectory: recoveryDirectory
         ) == 0)
         #expect(try String(contentsOf: live, encoding: .utf8) == metadataStub)
         #expect(FileManager.default.fileExists(atPath: candidate.path) == false)
-        let quarantine = directory.appendingPathComponent(
+        let quarantine = recoveryDirectory.appendingPathComponent(
             ".recovery-quarantine",
             isDirectory: true
         )
@@ -684,7 +692,7 @@ struct AgentHibernationTranscriptGuardTests {
             withIntermediateDirectories: true
         )
         let live = directory.appendingPathComponent("live.jsonl")
-        let protected = recoveryDirectory.appendingPathComponent("protected.jsonl")
+        let protected = directory.appendingPathComponent("protected.jsonl")
         try metadataStub.write(to: live, atomically: true, encoding: .utf8)
         try populatedTranscript.write(to: protected, atomically: true, encoding: .utf8)
         let descriptor = open(
@@ -760,6 +768,8 @@ struct AgentHibernationTranscriptGuardTests {
         ownerlessMetadata.removeValue(forKey: "ownerProcessId")
         ownerlessMetadata.removeValue(forKey: "ownerProcessStartSeconds")
         ownerlessMetadata.removeValue(forKey: "ownerProcessStartMicroseconds")
+        ownerlessMetadata.removeValue(forKey: "ownerRuntimeId")
+        ownerlessMetadata.removeValue(forKey: "ownerBundleIdentifier")
         ownerlessMetadata["guardedProcesses"] = []
         let ownerlessData = try JSONSerialization.data(
             withJSONObject: ownerlessMetadata
@@ -802,7 +812,7 @@ struct AgentHibernationTranscriptGuardTests {
             withIntermediateDirectories: true
         )
         let live = directory.appendingPathComponent("live.jsonl")
-        let protected = recoveryDirectory.appendingPathComponent("protected.jsonl")
+        let protected = directory.appendingPathComponent("protected.jsonl")
         try metadataStub.write(to: live, atomically: true, encoding: .utf8)
         try populatedTranscript.write(to: protected, atomically: true, encoding: .utf8)
         var liveStatus = stat()
@@ -977,6 +987,14 @@ struct AgentHibernationTranscriptGuardTests {
     func restartRecoveryRotatesFairlyPastDivergentTranscriptGroups() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let recoveryDirectory = directory.appendingPathComponent(
+            "recovery",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: recoveryDirectory,
+            withIntermediateDirectories: true
+        )
 
         let divergentLive = [
             #"{"type":"user","message":{"role":"user","content":"live branch"}}"#,
@@ -985,7 +1003,9 @@ struct AgentHibernationTranscriptGuardTests {
         for index in 0..<260 {
             let sessionId = String(format: "fair-%03d", index)
             let live = directory.appendingPathComponent("live-\(sessionId).jsonl")
-            let snapshot = directory.appendingPathComponent("\(sessionId)-snapshot.jsonl")
+            let snapshot = recoveryDirectory.appendingPathComponent(
+                "\(sessionId)-snapshot.jsonl"
+            )
             try divergentLive.write(to: live, atomically: true, encoding: .utf8)
             try populatedTranscript.write(to: snapshot, atomically: true, encoding: .utf8)
             try setRecoveryMetadata(
@@ -1001,7 +1021,9 @@ struct AgentHibernationTranscriptGuardTests {
 
         let targetSessionId = "fair-zzz"
         let targetLive = directory.appendingPathComponent("live-\(targetSessionId).jsonl")
-        let targetSnapshot = directory.appendingPathComponent("\(targetSessionId)-snapshot.jsonl")
+        let targetSnapshot = recoveryDirectory.appendingPathComponent(
+            "\(targetSessionId)-snapshot.jsonl"
+        )
         try metadataStub.write(to: targetLive, atomically: true, encoding: .utf8)
         try populatedTranscript.write(to: targetSnapshot, atomically: true, encoding: .utf8)
         try setRecoveryMetadata(
@@ -1018,8 +1040,12 @@ struct AgentHibernationTranscriptGuardTests {
             ofItemAtPath: targetSnapshot.path
         )
 
-        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: directory) == 0)
-        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: directory) == 1)
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(
+            snapshotDirectory: recoveryDirectory
+        ) == 0)
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(
+            snapshotDirectory: recoveryDirectory
+        ) == 1)
         #expect(
             try String(contentsOf: targetLive, encoding: .utf8) ==
                 expectedRestoredTranscript(snapshotContent: populatedTranscript)
@@ -1272,6 +1298,8 @@ struct AgentHibernationTranscriptGuardTests {
         }
         let ownerIdentity = try #require(AgentPIDProcessIdentity(pid: owner.processIdentifier))
         var metadata = try recoveryMetadataJSON(atPath: snapshot.snapshotPath)
+        metadata.removeValue(forKey: "ownerRuntimeId")
+        metadata.removeValue(forKey: "ownerBundleIdentifier")
         metadata["ownerProcessId"] = Int(ownerIdentity.pid)
         metadata["ownerProcessStartSeconds"] = ownerIdentity.startSeconds
         metadata["ownerProcessStartMicroseconds"] = ownerIdentity.startMicroseconds
@@ -1415,14 +1443,22 @@ struct AgentHibernationTranscriptGuardTests {
     }
 
     @Test
-    func restartRecoveryPreservesOlderDivergentSnapshotAfterRestoringNewest() throws {
+    func restartRecoveryDefersAmbiguousDivergentSnapshotGenerations() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let recoveryDirectory = directory.appendingPathComponent(
+            "recovery",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: recoveryDirectory,
+            withIntermediateDirectories: true
+        )
 
         let sessionId = "restart-divergent-older"
         let live = directory.appendingPathComponent("live.jsonl")
-        let older = directory.appendingPathComponent("\(sessionId)-older.jsonl")
-        let newest = directory.appendingPathComponent("\(sessionId)-newest.jsonl")
+        let older = recoveryDirectory.appendingPathComponent("\(sessionId)-older.jsonl")
+        let newest = recoveryDirectory.appendingPathComponent("\(sessionId)-newest.jsonl")
         let olderBranch = [
             #"{"type":"user","message":{"role":"user","content":"older branch"}}"#,
             #"{"type":"assistant","message":{"role":"assistant","content":"older answer"}}"#,
@@ -1449,12 +1485,11 @@ struct AgentHibernationTranscriptGuardTests {
             atPath: newest.path
         )
 
-        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: directory) == 1)
-        #expect(
-            try String(contentsOf: live, encoding: .utf8) ==
-                expectedRestoredTranscript(snapshotContent: populatedTranscript)
-        )
-        #expect(FileManager.default.fileExists(atPath: newest.path) == false)
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(
+            snapshotDirectory: recoveryDirectory
+        ) == 0)
+        #expect(try String(contentsOf: live, encoding: .utf8) == metadataStub)
+        #expect(try String(contentsOf: newest, encoding: .utf8) == populatedTranscript)
         #expect(try String(contentsOf: older, encoding: .utf8) == olderBranch)
     }
 
@@ -1462,11 +1497,21 @@ struct AgentHibernationTranscriptGuardTests {
     func restartRecoveryUsesAppendAncestryAcrossClockRollback() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let recoveryDirectory = directory.appendingPathComponent(
+            "recovery",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: recoveryDirectory,
+            withIntermediateDirectories: true
+        )
 
         let sessionId = "restart-clock-rollback"
         let live = directory.appendingPathComponent("live.jsonl")
-        let prefix = directory.appendingPathComponent("\(sessionId)-prefix.jsonl")
-        let appendSuperset = directory.appendingPathComponent("\(sessionId)-superset.jsonl")
+        let prefix = recoveryDirectory.appendingPathComponent("\(sessionId)-prefix.jsonl")
+        let appendSuperset = recoveryDirectory.appendingPathComponent(
+            "\(sessionId)-superset.jsonl"
+        )
         let laterTurn = #"{"type":"assistant","message":{"role":"assistant","content":"after rollback"}}"# + "\n"
         let supersetContent = populatedTranscript + laterTurn
         try metadataStub.write(to: live, atomically: true, encoding: .utf8)
@@ -1499,7 +1544,7 @@ struct AgentHibernationTranscriptGuardTests {
         )
 
         #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(
-            snapshotDirectory: directory
+            snapshotDirectory: recoveryDirectory
         ) == 1)
         #expect(
             try String(contentsOf: live, encoding: .utf8)
