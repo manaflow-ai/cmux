@@ -241,13 +241,13 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func defaultSettingsResolveTheSameVerticalBranchLayoutForBothRows() {
+    func defaultSettingsResolveTheSameStackedVerticalBranchLayoutForBothRows() {
         let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
         let swiftUIRow = Self.makeSwiftUIRow(settings: settings)
         let appKitRow = Self.makeModel(settings: settings)
 
         #expect(settings.branchDirectory.branchLayout == .vertical)
-        #expect(settings.branchDirectory.branchDirectoryPlacement == .inline)
+        #expect(settings.branchDirectory.branchDirectoryPlacement == .stacked)
         #expect(!settings.branchDirectory.usesLastSegmentPath)
         #expect(!settings.wrapsWorkspaceTitles)
         #expect(swiftUIRow.settings.branchDirectory == settings.branchDirectory)
@@ -258,26 +258,32 @@ struct SidebarAppKitRowCellTests {
     func storedLegacyBranchLayoutControlsBothRows(_ usesVerticalLayout: Bool) {
         let defaults = Self.makeDefaults()
         defaults.set(usesVerticalLayout, forKey: "sidebarBranchVerticalLayout")
+        defaults.set(false, forKey: "sidebarBranchDirectoryStacked")
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
-        let expected: SidebarWorkspaceBranchDirectorySettings.BranchLayout = usesVerticalLayout
+        let expectedLayout: SidebarWorkspaceBranchDirectorySettings.BranchLayout = usesVerticalLayout
             ? .vertical
             : .inline
+        let expectedPlacement: SidebarWorkspaceBranchDirectorySettings.BranchDirectoryPlacement = usesVerticalLayout
+            ? .stacked
+            : .inline
 
-        #expect(settings.branchDirectory.branchLayout == expected)
-        #expect(Self.makeSwiftUIRow(settings: settings).settings.branchDirectory.branchLayout == expected)
-        #expect(Self.makeModel(settings: settings).settings.branchDirectory.branchLayout == expected)
+        #expect(settings.branchDirectory.branchLayout == expectedLayout)
+        #expect(settings.branchDirectory.branchDirectoryPlacement == expectedPlacement)
+        #expect(Self.makeSwiftUIRow(settings: settings).settings.branchDirectory == settings.branchDirectory)
+        #expect(Self.makeModel(settings: settings).settings.branchDirectory == settings.branchDirectory)
     }
 
     @Test(arguments: [false, true])
     func storedBranchDirectoryPlacementRemainsAnIndependentSetting(_ stacks: Bool) {
         let defaults = Self.makeDefaults()
+        defaults.set(false, forKey: "sidebarBranchVerticalLayout")
         defaults.set(stacks, forKey: "sidebarBranchDirectoryStacked")
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
         let expected: SidebarWorkspaceBranchDirectorySettings.BranchDirectoryPlacement = stacks
             ? .stacked
             : .inline
 
-        #expect(settings.branchDirectory.branchLayout == .vertical)
+        #expect(settings.branchDirectory.branchLayout == .inline)
         #expect(settings.branchDirectory.branchDirectoryPlacement == expected)
         #expect(Self.makeSwiftUIRow(settings: settings).settings.branchDirectory == settings.branchDirectory)
         #expect(Self.makeModel(settings: settings).settings.branchDirectory == settings.branchDirectory)
