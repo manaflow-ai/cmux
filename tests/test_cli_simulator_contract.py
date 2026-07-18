@@ -92,7 +92,10 @@ def run_cli(
     arguments: list[str],
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
+    for key in [
+        "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID",
+        "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PASSWORD",
+    ]:
         env.pop(key, None)
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     env["CMUX_SOCKET"] = str(socket_path)
@@ -116,7 +119,10 @@ def run_ios_cli(
     arguments: list[str],
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
+    for key in [
+        "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID",
+        "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PASSWORD",
+    ]:
         env.pop(key, None)
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     env["CMUX_SOCKET"] = str(socket_path)
@@ -360,7 +366,7 @@ def check_ios_error_identity(
     start = state.count()
     proc = run_ios_cli(
         cli_path, socket_path, fake_home,
-        ["screenshot", "--surface", "surface:missing-ref"],
+        ["screenshot", "--surface", "surface:1"],
     )
     if proc.returncode == 0:
         raise AssertionError("iOS screenshot without a surface reference unexpectedly succeeded")
