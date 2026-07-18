@@ -792,6 +792,17 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
               receipt.height == height else {
             throw BackendOnlyHostConnectionError.backendUnavailable
         }
+        if BackendOnlyRendererWorkerTransition.requiresReceiverRotation(
+            currentWorker: workerIdentity,
+            daemonInstanceID: receipt.daemonInstanceID.rawValue,
+            rendererEpoch: receipt.rendererEpoch,
+            state: receipt.workerState,
+            processID: receipt.workerProcessID,
+            effectiveUserID: receipt.workerEffectiveUserID,
+            processInstanceToken: receipt.workerProcessInstanceToken
+        ) {
+            throw BackendOnlyHostConnectionError.backendUnavailable
+        }
         configuredPixelSize = (width, height)
         configuredViewport = viewport
         configuredFocus = focused
@@ -1165,8 +1176,13 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     try await self.installReadyEvent(ready)
                 case .rendererWorkerChanged(let changed):
                     guard changed.workspaceID == self.selection.workspaceID,
-                          self.rendererEpoch == changed.priorRendererEpoch,
-                          !self.rendererRestarting else { return }
+                          !self.rendererRestarting,
+                          BackendOnlyRendererWorkerTransition.action(
+                            currentRendererEpoch: self.rendererEpoch,
+                            priorRendererEpoch: changed.priorRendererEpoch,
+                            rendererEpoch: changed.rendererEpoch,
+                            state: changed.state
+                          ) == .restart else { return }
                     self.snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .unavailable)
                     self.rendererRestarting = true
                     self.invalidateRendererOperations()
