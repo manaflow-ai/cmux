@@ -35,6 +35,9 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// The requested/focused pane did not resolve (legacy `not_found` / "Pane not
     /// found").
     case paneNotFound
+    /// A projected remote tmux pane resolved, but its owner cannot host this
+    /// surface type. Carries the wire type and app-bundle-localized explanation.
+    case mirrorPaneTargetUnsupportedType(typeRawValue: String, message: String)
     /// The surface creation failed (legacy `internal_error` / "Failed to create
     /// surface").
     case createFailed
