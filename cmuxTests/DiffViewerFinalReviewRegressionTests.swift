@@ -80,6 +80,26 @@ import Testing
         ))
     }
 
+    @Test func browserNavigationOwnershipAcceptsOwnedOpeningURLBeforeWebKitObservesIt() throws {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: DiffViewerLoadingPage.url,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+        let operationID = panel.beginDiffViewerLoadingOperation()
+        let openingURL = try #require(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: UUID().uuidString.lowercased(),
+            requestPath: "/diff-fast-opening.html"
+        ))
+        panel.diffViewerLoadingOwnedOpeningURL = openingURL.absoluteString
+
+        #expect(panel.canAcceptCLINavigation(
+            expectedURL: openingURL.absoluteString,
+            expectedOperationID: operationID
+        ))
+    }
+
     @Test func commandPaletteFingerprintChangesWithKeyboardShortcutRevision() {
         let first = ContentView.commandPaletteCommandsFingerprint(
             snapshotFingerprint: 11,
