@@ -623,6 +623,32 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect((output["nodes"] as? [Any])?.isEmpty == true)
     }
 
+    @Test func agentsTreeRejectsUnknownAgentLikeAgentsList() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-unknown-provider-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "tree", "--agent", "definitely-not-an-agent",
+                "--state-dir", root.path, "--json",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status != 0)
+        #expect((result.stdout + result.stderr).contains("unknown agent 'definitely-not-an-agent'"))
+    }
+
 }
 
 private func makeTerminalObservation(
