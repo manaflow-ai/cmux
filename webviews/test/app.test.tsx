@@ -10,7 +10,7 @@ type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 let root: Root | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, any>();
-for (const key of ["window", "document", "navigator", "Element", "Node", "ShadowRoot", "HTMLElement", "HTMLButtonElement", "HTMLDivElement", "HTMLPreElement", "HTMLStyleElement", "HTMLTemplateElement", "SVGElement", "ResizeObserver", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame"]) {
+for (const key of ["window", "document", "navigator", "Element", "Node", "ShadowRoot", "HTMLElement", "HTMLButtonElement", "HTMLDivElement", "HTMLPreElement", "HTMLStyleElement", "HTMLTemplateElement", "SVGElement", "ResizeObserver", "Worker", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame"]) {
   originalGlobals.set(key, (globalThis as any)[key]);
 }
 
@@ -764,10 +764,48 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
     unobserve() {}
     disconnect() {}
   };
+  (globalThis as any).Worker = TestFailingWorker;
+  (nextDom.window as any).Worker = TestFailingWorker;
   (globalThis as any).customElements = nextDom.window.customElements;
   (globalThis as any).fetch = fetchImpl;
   (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0);
   (globalThis as any).cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+}
+
+class TestFailingWorker {
+  onerror: ((event: ErrorEvent) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onmessageerror: ((event: MessageEvent) => void) | null = null;
+  private errorScheduled = false;
+  private readonly listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    const listeners = this.listeners.get(type) ?? new Set<EventListenerOrEventListenerObject>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+    if (type === "error" && !this.errorScheduled) {
+      this.errorScheduled = true;
+      queueMicrotask(() => {
+        const event = {
+          error: new Error("test worker unavailable"),
+          message: "test worker unavailable",
+          type: "error",
+        } as ErrorEvent;
+        this.onerror?.(event);
+        for (const candidate of this.listeners.get("error") ?? []) {
+          if (typeof candidate === "function") candidate(event);
+          else candidate.handleEvent(event);
+        }
+      });
+    }
+  }
+
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  postMessage(): void {}
+  terminate(): void {}
 }
 
 function renderApp(element: React.ReactNode): void {
