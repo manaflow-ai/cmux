@@ -9,6 +9,7 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     private let revokeError: (any Error)?
     private let registrationHook: (@Sendable (_ count: Int) async -> Void)?
     private var registrationError: (any Error)?
+    private var registrationErrorsByCount: [Int: any Error] = [:]
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var revokedBindingIDs: [String] = []
     private var relayIssueCount = 0
@@ -49,6 +50,9 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
             registrationCountWaiters.removeValue(forKey: id)?.continuation.resume()
         }
         await registrationHook?(count)
+        if let registrationError = registrationErrorsByCount[count] {
+            throw registrationError
+        }
         if let registrationError { throw registrationError }
         return registration
     }
@@ -91,6 +95,10 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
 
     func setRegistrationError(_ error: (any Error)?) {
         registrationError = error
+    }
+
+    func setRegistrationError(_ error: any Error, forRegistrationCount count: Int) {
+        registrationErrorsByCount[count] = error
     }
 
     func waitForRegistrationCount(_ minimum: Int) async {

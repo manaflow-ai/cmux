@@ -189,6 +189,16 @@ public actor CmxIrohClientSession {
         await connection.waitUntilClosed()
     }
 
+    /// Returns whether the admitted QUIC connection already closed.
+    ///
+    /// This closes the scheduler gap between Iroh publishing its close reason
+    /// and the pool's independent closure watcher evicting this session.
+    func isClosed() async -> Bool {
+        if closed { return true }
+        guard let connection else { return false }
+        return await connection.isClosed()
+    }
+
     /// Reads package-private path evidence from the exact admitted connection.
     func observedSelectedPath() async -> CmxIrohObservedConnectionPath {
         guard let connection = connection as? any CmxIrohConnectionPathInspecting else {
@@ -229,17 +239,23 @@ public actor CmxIrohClientSession {
     }
 
     private func establishConnection() async throws -> CmxIrohConnectedControl {
-        let establishedConnection: any CmxIrohConnection
-        do {
-            establishedConnection = try await endpoint.connect(
-                to: CmxIrohEndpointAddress(
-                    identity: targetIdentity,
-                    pathHints: dialPlan.publicPaths
-                ),
-                alpn: protocolConfiguration.alpn
-            )
-        } catch {
-            try Task.checkCancellation()
+        var establishedConnection: (any CmxIrohConnection)?
+        var publicConnectionError: (any Error)?
+        if !dialPlan.publicPaths.isEmpty {
+            do {
+                establishedConnection = try await endpoint.connect(
+                    to: CmxIrohEndpointAddress(
+                        identity: targetIdentity,
+                        pathHints: dialPlan.publicPaths
+                    ),
+                    alpn: protocolConfiguration.alpn
+                )
+            } catch {
+                try Task.checkCancellation()
+                publicConnectionError = error
+            }
+        }
+        if establishedConnection == nil {
             let fallbackContext: CmxIrohClientContext
             if let privateFallbackContextProvider {
                 fallbackContext = try await privateFallbackContextProvider()
@@ -255,7 +271,10 @@ public actor CmxIrohClientSession {
                 )
             }
             let fallbackPaths = fallbackContext.dialPlan.privateFallbackPaths
-            guard !fallbackPaths.isEmpty else { throw error }
+            guard !fallbackPaths.isEmpty else {
+                if let publicConnectionError { throw publicConnectionError }
+                throw CmxIrohRegistryContextError.dialPlanUnavailable
+            }
             guard let privateFallbackValidator else {
                 throw CmxIrohPrivateFallbackValidationError.unavailable
             }
@@ -274,6 +293,9 @@ public actor CmxIrohClientSession {
                 ),
                 alpn: protocolConfiguration.alpn
             )
+        }
+        guard let establishedConnection else {
+            throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
 
         do {

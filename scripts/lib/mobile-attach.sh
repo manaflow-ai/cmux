@@ -194,7 +194,7 @@ cmux_attach_ensure_mac() {
 # Tailscale TCP cannot carry the phone's Stack credential, so fail closed here
 # instead of launching an app that must reject the ticket as untrusted.
 cmux_attach_mint_url() {
-  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}" sock slug payload url node_status _i
+  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}" sock slug payload url node_status saw_no_iroh=0 _i
   case "$target" in
     simulator_injection|physical_device) ;;
     *) echo "error: invalid attach target '$target'" >&2; return 1 ;;
@@ -227,21 +227,23 @@ if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_
 NODE
       )" || node_status=$?
       if [[ "$node_status" -eq 2 ]]; then
-        # The Mac returned a structurally valid target-specific ticket, so a
-        # missing Iroh route is a permanent compatibility result for this
-        # launch. Retrying cannot change an already-published route set and
-        # only delays the actionable error.
-        return 2
+        # The legacy listener can publish Tailscale before asynchronous Iroh
+        # broker registration finishes. Remember that the Mac is reachable,
+        # but keep polling for the encrypted route until the readiness window
+        # closes.
+        saw_no_iroh=1
       fi
       if [[ -n "$url" ]]; then
         printf '%s' "$url"
         return 0
       fi
     fi
-    # Empty output, an RPC failure, or malformed output is transient. Keep
-    # polling for the bounded readiness window, while a valid no-Iroh ticket
-    # above returns immediately as a typed compatibility result.
+    # Empty output, malformed output, and a valid ticket that has not gained an
+    # Iroh route yet are all transient during startup. Poll to the deadline.
     sleep 0.5
   done
+  if [[ "$saw_no_iroh" -eq 1 ]]; then
+    return 2
+  fi
   return 1
 }
