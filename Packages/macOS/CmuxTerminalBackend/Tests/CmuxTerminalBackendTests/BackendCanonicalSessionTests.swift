@@ -974,6 +974,11 @@ struct BackendCanonicalSessionTests {
             return
         }
         #expect(published == initial)
+        guard case .terminalActivitySnapshot(let activity)? = await iterator.next() else {
+            Issue.record("expected initial terminal activity snapshot")
+            return
+        }
+        #expect(activity.latestSequence == 0)
 
         let workspaceID = WorkspaceID(rawValue: UUID())
         await transport.enqueue(try encodedJSON([
@@ -1113,9 +1118,14 @@ struct BackendCanonicalSessionTests {
             Issue.record("expected initial snapshot")
             return
         }
+        guard case .terminalActivitySnapshot(let activity)? = await iterator.next() else {
+            Issue.record("expected initial terminal activity snapshot")
+            return
+        }
+        #expect(activity.latestSequence == 0)
 
         await transport.enqueue(try encodedJSON([
-            "event": "overflow",
+            "event": "renderer-lifecycle-overflow",
             "error": "subscriber fell behind; resubscribe to continue receiving events",
         ]))
 
