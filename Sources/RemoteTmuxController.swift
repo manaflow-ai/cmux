@@ -851,6 +851,27 @@ final class RemoteTmuxController {
         for windowId in windowRegistry.windowsMarkedForKillOnClose() {
             guard windowRegistry.consumeKillSessionsOnClose(windowId: windowId) else { continue }
             let closingWorkspaceIds = Set(AppDelegate.shared?.tabManagerFor(windowId: windowId)?.tabs.map(\.id) ?? [])
+            // Multiplexer: kill every home session over the shared stream (a one-shot
+            // ssh would be refused on a single-connection host), await the command
+            // barrier so the kills land before quit continues, then stop the view.
+            let multiplexedHosts = sessionMirrors.values
+                .filter { isMultiplexed($0) && $0.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true }
+                .map(\.host)
+            var killedHosts = Set<String>()
+            for host in multiplexedHosts where killedHosts.insert(host.connectionHash).inserted {
+                // Kill ONLY the sessions whose mirrors are in the closing window — a
+                // detached-kept-open or dragged-out session is work the user kept.
+                let mirrors = sessionMirrors.filter { _, mirror in
+                    isMultiplexed(mirror) && mirror.host.connectionHash == host.connectionHash
+                        && mirror.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true
+                }
+                for (_, mirror) in mirrors { mirror.connection.endSession(kill: true) }
+                if let view = multiplexedViewsByHost[host.connectionHash] {
+                    await view.awaitCommandBarrier(timeout: 3)
+                }
+                for (key, _) in mirrors { teardownMultiplexedMirror(key: key) }
+                if !hostHasLiveMirror(host) { stopMultiplexedHost(host: host) }
+            }
             let mirrorsInWindow = sessionMirrors.filter { _, mirror in
                 mirror.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true
             }
