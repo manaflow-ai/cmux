@@ -331,6 +331,26 @@ private final class HibernationSurfaceRegistry: TerminalSurfaceRegistering, @unc
         #expect(recorder.events == [.finalValidation, .nativeFree])
     }
 
+    @Test func explicitInputAfterSuspendReturnsQueuesBeforeOwnerCommit() async {
+        let recorder = TeardownOrderRecorder()
+        let surface = makeSurface()
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        #expect(await surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.hibernate.inputBeforeOwnerCommit",
+            finalValidation: { true }
+        ))
+
+        #expect(surface.sendInputResult("echo handoff-preserved\r") == .queued)
+        #expect(surface.hasPendingInputForAgentHibernationResume)
+        #expect(surface.debugPendingSocketInputForTesting().items > 0)
+        #expect(recorder.events == [.nativeFree])
+    }
+
     @Test func resumeCannotReopenRuntimeUntilHibernationFreeCompletes() async {
         let recorder = TeardownOrderRecorder()
         let validationGate = HibernationValidationGate()
