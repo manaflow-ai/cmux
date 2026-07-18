@@ -31,6 +31,32 @@ func TestResizeResponsePreservesReservationIdentity(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRegistryTypesDecode(t *testing.T) {
+	var tree Tree
+	if err := json.Unmarshal([]byte(`{"workspace_revision":4,"workspaces":[{"id":1,"key":"stable","name":"one","active":true,"screens":[]}]}`), &tree); err != nil {
+		t.Fatal(err)
+	}
+	if tree.WorkspaceRevision != 4 || tree.Workspaces[0].Key != "stable" {
+		t.Fatalf("tree = %#v", tree)
+	}
+
+	var placement WorkspacePlacement
+	if err := json.Unmarshal([]byte(`{"workspace":1,"key":"stable","index":0,"workspace_revision":5}`), &placement); err != nil {
+		t.Fatal(err)
+	}
+	if placement.WorkspaceRevision != 5 {
+		t.Fatalf("placement = %#v", placement)
+	}
+
+	var mutation WorkspaceMutation
+	if err := json.Unmarshal([]byte(`{"workspace":1,"key":"stable","workspace_revision":6}`), &mutation); err != nil {
+		t.Fatal(err)
+	}
+	if mutation.WorkspaceRevision != 6 {
+		t.Fatalf("mutation = %#v", mutation)
+	}
+}
+
 func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()

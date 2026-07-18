@@ -427,6 +427,37 @@ test("generic request preserves exact wire command and typed result", async () =
   await client.close();
 });
 
+test("workspace registry methods preserve keys and revisions", async () => {
+  const expected = [
+    { id: 1, cmd: "create-workspace", name: "gui", key: "stable", expected_revision: 4 },
+    { id: 2, cmd: "create-terminal", key: "stable", command: "echo ready" },
+    { id: 3, cmd: "rename-workspace", key: "stable", name: "renamed", expected_revision: 5 },
+    { id: 4, cmd: "move-workspace", key: "stable", index: 0, expected_revision: 6 },
+    { id: 5, cmd: "close-workspace", key: "stable", expected_revision: 7 },
+  ];
+  const responses = [
+    { workspace: 1, key: "stable", index: 0, workspace_revision: 5 },
+    { surface: 4, pane: 3, screen: 2, workspace: 1, key: "stable" },
+    { workspace: 1, key: "stable", workspace_revision: 6 },
+    { workspace: 1, key: "stable", workspace_revision: 7 },
+    { workspace: 1, key: "stable", workspace_revision: 8 },
+  ];
+  let index = 0;
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, expected[index]);
+    connection.emit({ id: request.id, ok: true, data: responses[index] });
+    index += 1;
+  });
+  const client = new CmuxClient({ transport });
+
+  assert.equal((await client.createWorkspace({ name: "gui", key: "stable", expected_revision: 4 })).workspace_revision, 5);
+  assert.equal((await client.createTerminal({ key: "stable", command: "echo ready" })).surface, 4);
+  assert.equal((await client.renameWorkspaceRegistry({ key: "stable", name: "renamed", expected_revision: 5 })).workspace_revision, 6);
+  assert.equal((await client.moveWorkspaceRegistry({ key: "stable", index: 0, expected_revision: 6 })).workspace_revision, 7);
+  assert.equal((await client.closeWorkspaceRegistry({ key: "stable", expected_revision: 7 })).workspace_revision, 8);
+  await client.close();
+});
+
 test("listClients returns the exact client presence response shape", async () => {
   const response = [{
     client: 7,
@@ -595,7 +626,7 @@ test("subscribe deltas mode yields all protocol v7 tree lifecycle events", async
     layout: { type: "leaf" as const, pane: 3 },
     panes: [pane],
   };
-  const workspace = { id: 1, name: "sdk", active: true, screens: [screen] };
+  const workspace = { id: 1, key: "stable", name: "sdk", active: true, screens: [screen] };
   const deltas: TreeDeltaEvent[] = [
     { event: "workspace-added", workspace: 1, index: 0, entity: workspace },
     { event: "workspace-closed", workspace: 1, index: 0, entity: workspace },

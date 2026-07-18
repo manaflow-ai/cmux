@@ -72,6 +72,30 @@ class SurfaceResult:
 
 
 @dataclass(frozen=True)
+class WorkspacePlacement:
+    workspace: int
+    key: str
+    index: int
+    workspace_revision: int
+
+
+@dataclass(frozen=True)
+class TerminalPlacement:
+    surface: int
+    pane: int
+    screen: int
+    workspace: int
+    key: str
+
+
+@dataclass(frozen=True)
+class WorkspaceMutation:
+    workspace: int
+    key: str
+    workspace_revision: int
+
+
+@dataclass(frozen=True)
 class ReadScreenResult:
     text: str
 
@@ -139,11 +163,13 @@ class Workspace:
     name: str
     active: bool
     screens: List[Screen]
+    key: str = ""
 
 
 @dataclass(frozen=True)
 class Tree:
     workspaces: List[Workspace]
+    workspace_revision: int = 0
 
 
 @dataclass(frozen=True)
@@ -408,6 +434,55 @@ class CmuxClient:
     ) -> SurfaceResult:
         return SurfaceResult(int(self._request("new-workspace", name=name, cols=cols, rows=rows)["surface"]))
 
+    def create_workspace(
+        self,
+        name: Optional[str] = None,
+        key: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> WorkspacePlacement:
+        data = self._request(
+            "create-workspace",
+            name=name,
+            key=key,
+            expected_revision=expected_revision,
+        )
+        return WorkspacePlacement(
+            workspace=int(data["workspace"]),
+            key=str(data["key"]),
+            index=int(data["index"]),
+            workspace_revision=int(data["workspace_revision"]),
+        )
+
+    def create_terminal(
+        self,
+        workspace: Optional[int] = None,
+        key: Optional[str] = None,
+        argv: Optional[List[str]] = None,
+        command: Optional[str] = None,
+        cwd: Optional[str] = None,
+        name: Optional[str] = None,
+        cols: Optional[int] = None,
+        rows: Optional[int] = None,
+    ) -> TerminalPlacement:
+        data = self._request(
+            "create-terminal",
+            workspace=workspace,
+            key=key,
+            argv=argv,
+            command=command,
+            cwd=cwd,
+            name=name,
+            cols=cols,
+            rows=rows,
+        )
+        return TerminalPlacement(
+            surface=int(data["surface"]),
+            pane=int(data["pane"]),
+            screen=int(data["screen"]),
+            workspace=int(data["workspace"]),
+            key=str(data["key"]),
+        )
+
     def new_screen(
         self,
         workspace: Optional[int] = None,
@@ -478,6 +553,20 @@ class CmuxClient:
         self._request("close-workspace", workspace=workspace)
         return EmptyResult()
 
+    def close_workspace_registry(
+        self,
+        workspace: Optional[int] = None,
+        key: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> WorkspaceMutation:
+        data = self._request(
+            "close-workspace",
+            workspace=workspace,
+            key=key,
+            expected_revision=expected_revision,
+        )
+        return _parse_workspace_mutation(data)
+
     def rename_pane(self, pane: int, name: str) -> EmptyResult:
         self._request("rename-pane", pane=pane, name=name)
         return EmptyResult()
@@ -493,6 +582,22 @@ class CmuxClient:
     def rename_workspace(self, workspace: int, name: str) -> EmptyResult:
         self._request("rename-workspace", workspace=workspace, name=name)
         return EmptyResult()
+
+    def rename_workspace_registry(
+        self,
+        name: str,
+        workspace: Optional[int] = None,
+        key: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> WorkspaceMutation:
+        data = self._request(
+            "rename-workspace",
+            workspace=workspace,
+            key=key,
+            name=name,
+            expected_revision=expected_revision,
+        )
+        return _parse_workspace_mutation(data)
 
     def resize_surface(self, surface: int, cols: int, rows: int) -> ResizeSurfaceResult:
         data = self._request("resize-surface", surface=surface, cols=cols, rows=rows)
@@ -530,6 +635,22 @@ class CmuxClient:
         self._request("move-workspace", workspace=workspace, index=index)
         return EmptyResult()
 
+    def move_workspace_registry(
+        self,
+        index: int,
+        workspace: Optional[int] = None,
+        key: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> WorkspaceMutation:
+        data = self._request(
+            "move-workspace",
+            workspace=workspace,
+            key=key,
+            index=index,
+            expected_revision=expected_revision,
+        )
+        return _parse_workspace_mutation(data)
+
     def scroll_surface(self, surface: int, delta: int) -> EmptyResult:
         self._request("scroll-surface", surface=surface, delta=delta)
         return EmptyResult()
@@ -559,7 +680,18 @@ def env_socket_path() -> Optional[str]:
 
 
 def _parse_tree(data: Dict[str, Any]) -> Tree:
-    return Tree(workspaces=[_parse_workspace(item) for item in data.get("workspaces", [])])
+    return Tree(
+        workspaces=[_parse_workspace(item) for item in data.get("workspaces", [])],
+        workspace_revision=int(data.get("workspace_revision", 0)),
+    )
+
+
+def _parse_workspace_mutation(data: Dict[str, Any]) -> WorkspaceMutation:
+    return WorkspaceMutation(
+        workspace=int(data["workspace"]),
+        key=str(data["key"]),
+        workspace_revision=int(data["workspace_revision"]),
+    )
 
 
 def _parse_workspace(value: Dict[str, Any]) -> Workspace:
@@ -568,6 +700,7 @@ def _parse_workspace(value: Dict[str, Any]) -> Workspace:
         name=str(value.get("name", "")),
         active=bool(value.get("active", False)),
         screens=[_parse_screen(item) for item in value.get("screens", [])],
+        key=str(value.get("key", "")),
     )
 
 

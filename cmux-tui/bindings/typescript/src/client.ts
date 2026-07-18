@@ -47,7 +47,10 @@ import type {
   SplitDirection,
   SubscribeEvent,
   SurfaceResult,
+  TerminalPlacement,
   Tree,
+  WorkspacePlacement,
+  WorkspaceMutation,
   UnknownEvent,
   VtStateResult,
   WaitForResult,
@@ -77,6 +80,11 @@ export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
 export type NewTabOptions = CmuxRequestParams<"new-tab">;
 export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
 export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
+export type CreateWorkspaceOptions = CmuxRequestParams<"create-workspace">;
+export type CreateTerminalOptions = CmuxRequestParams<"create-terminal">;
+export type CloseWorkspaceOptions = CmuxRequestParams<"close-workspace">;
+export type RenameWorkspaceOptions = CmuxRequestParams<"rename-workspace">;
+export type MoveWorkspaceOptions = CmuxRequestParams<"move-workspace">;
 export type NewScreenOptions = CmuxRequestParams<"new-screen">;
 export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
 export type SelectOptions = CmuxRequestParams<"select-screen">;
@@ -442,6 +450,12 @@ export class CmuxClient {
     return this.request("new-browser-tab", { url, ...options });
   }
   newWorkspace(options: NewWorkspaceOptions = {}): Promise<SurfaceResult> { return this.request("new-workspace", options); }
+  createWorkspace(options: CreateWorkspaceOptions = {}): Promise<WorkspacePlacement> {
+    return this.request("create-workspace", options);
+  }
+  createTerminal(options: CreateTerminalOptions): Promise<TerminalPlacement> {
+    return this.request("create-terminal", options);
+  }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
   split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
     return this.request("split", { pane, dir, ...options });
@@ -464,11 +478,23 @@ export class CmuxClient {
   closeSurface(surface: Id): Promise<EmptyResult> { return this.request("close-surface", { surface }); }
   closePane(pane: Id): Promise<EmptyResult> { return this.request("close-pane", { pane }); }
   closeScreen(screen: Id): Promise<EmptyResult> { return this.request("close-screen", { screen }); }
-  closeWorkspace(workspace: Id): Promise<EmptyResult> { return this.request("close-workspace", { workspace }); }
+  async closeWorkspace(workspace: Id): Promise<EmptyResult> {
+    await this.request("close-workspace", { workspace });
+    return {};
+  }
+  closeWorkspaceRegistry(options: CloseWorkspaceOptions): Promise<WorkspaceMutation> {
+    return this.request("close-workspace", options);
+  }
   renamePane(pane: Id, name: string): Promise<EmptyResult> { return this.request("rename-pane", { pane, name }); }
   renameSurface(surface: Id, name: string): Promise<EmptyResult> { return this.request("rename-surface", { surface, name }); }
   renameScreen(screen: Id, name: string): Promise<EmptyResult> { return this.request("rename-screen", { screen, name }); }
-  renameWorkspace(workspace: Id, name: string): Promise<EmptyResult> { return this.request("rename-workspace", { workspace, name }); }
+  async renameWorkspace(workspace: Id, name: string): Promise<EmptyResult> {
+    await this.request("rename-workspace", { workspace, name });
+    return {};
+  }
+  renameWorkspaceRegistry(options: RenameWorkspaceOptions): Promise<WorkspaceMutation> {
+    return this.request("rename-workspace", options);
+  }
   async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
     const result = await this.request("resize-surface", { surface, cols, rows });
     return { ...result, accepted: result.accepted ?? true };
@@ -481,7 +507,13 @@ export class CmuxClient {
   selectScreen(options: SelectOptions = {}): Promise<EmptyResult> { return this.request("select-screen", options); }
   selectWorkspace(options: SelectOptions = {}): Promise<EmptyResult> { return this.request("select-workspace", options); }
   moveTab(surface: Id, pane: Id, index: number): Promise<EmptyResult> { return this.request("move-tab", { surface, pane, index }); }
-  moveWorkspace(workspace: Id, index: number): Promise<EmptyResult> { return this.request("move-workspace", { workspace, index }); }
+  async moveWorkspace(workspace: Id, index: number): Promise<EmptyResult> {
+    await this.request("move-workspace", { workspace, index });
+    return {};
+  }
+  moveWorkspaceRegistry(options: MoveWorkspaceOptions): Promise<WorkspaceMutation> {
+    return this.request("move-workspace", options);
+  }
   scrollSurface(surface: Id, delta: number): Promise<EmptyResult> { return this.request("scroll-surface", { surface, delta }); }
 
   async subscribe(options: SubscribeOptions = {}): Promise<CmuxStream<SubscribeEvent>> {

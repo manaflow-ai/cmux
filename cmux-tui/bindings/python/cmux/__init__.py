@@ -15,11 +15,14 @@ from .client import (
     Screen,
     Size,
     SurfaceResult,
+    TerminalPlacement,
     Tab,
     TimeoutError,
     Tree,
     VtStateResult,
     Workspace,
+    WorkspacePlacement,
+    WorkspaceMutation,
 )
 
 __all__ = [
@@ -39,9 +42,12 @@ __all__ = [
     "Screen",
     "Size",
     "SurfaceResult",
+    "TerminalPlacement",
     "Tab",
     "TimeoutError",
     "Tree",
     "VtStateResult",
     "Workspace",
+    "WorkspacePlacement",
+    "WorkspaceMutation",
 ]

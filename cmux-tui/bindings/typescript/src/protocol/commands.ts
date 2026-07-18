@@ -143,6 +143,40 @@ export interface NewWorkspaceRequest extends CmuxRequestBase {
   rows?: number | null;
 }
 
+export interface CreateWorkspaceRequest extends CmuxRequestBase {
+  cmd: "create-workspace";
+  name?: string | null;
+  key?: string | null;
+  expected_revision?: number | null;
+}
+
+export interface WorkspacePlacement {
+  workspace: Id;
+  key: string;
+  index: number;
+  workspace_revision: number;
+}
+
+export interface CreateTerminalRequest extends CmuxRequestBase {
+  cmd: "create-terminal";
+  workspace?: Id | null;
+  key?: string | null;
+  argv?: string[] | null;
+  command?: string | null;
+  cwd?: string | null;
+  name?: string | null;
+  cols?: number | null;
+  rows?: number | null;
+}
+
+export interface TerminalPlacement {
+  surface: Id;
+  pane: Id;
+  screen: Id;
+  workspace: Id;
+  key: string;
+}
+
 export interface NewScreenRequest extends CmuxRequestBase {
   cmd: "new-screen";
   workspace?: Id | null;
@@ -202,12 +236,28 @@ export interface SetDefaultColorsRequest extends CmuxRequestBase {
 export interface CloseSurfaceRequest extends CmuxRequestBase { cmd: "close-surface"; surface: Id }
 export interface ClosePaneRequest extends CmuxRequestBase { cmd: "close-pane"; pane: Id }
 export interface CloseScreenRequest extends CmuxRequestBase { cmd: "close-screen"; screen: Id }
-export interface CloseWorkspaceRequest extends CmuxRequestBase { cmd: "close-workspace"; workspace: Id }
+export interface WorkspaceMutation {
+  workspace: Id;
+  key: string;
+  workspace_revision: number;
+}
+export interface CloseWorkspaceRequest extends CmuxRequestBase {
+  cmd: "close-workspace";
+  workspace?: Id | null;
+  key?: string | null;
+  expected_revision?: number | null;
+}
 
 export interface RenamePaneRequest extends CmuxRequestBase { cmd: "rename-pane"; pane: Id; name: string }
 export interface RenameSurfaceRequest extends CmuxRequestBase { cmd: "rename-surface"; surface: Id; name: string }
 export interface RenameScreenRequest extends CmuxRequestBase { cmd: "rename-screen"; screen: Id; name: string }
-export interface RenameWorkspaceRequest extends CmuxRequestBase { cmd: "rename-workspace"; workspace: Id; name: string }
+export interface RenameWorkspaceRequest extends CmuxRequestBase {
+  cmd: "rename-workspace";
+  workspace?: Id | null;
+  key?: string | null;
+  name: string;
+  expected_revision?: number | null;
+}
 
 export interface ResizeSurfaceRequest extends CmuxRequestBase {
   cmd: "resize-surface";
@@ -246,7 +296,13 @@ export interface SelectWorkspaceRequest extends CmuxRequestBase {
 }
 
 export interface MoveTabRequest extends CmuxRequestBase { cmd: "move-tab"; surface: Id; pane: Id; index: number }
-export interface MoveWorkspaceRequest extends CmuxRequestBase { cmd: "move-workspace"; workspace: Id; index: number }
+export interface MoveWorkspaceRequest extends CmuxRequestBase {
+  cmd: "move-workspace";
+  workspace?: Id | null;
+  key?: string | null;
+  index: number;
+  expected_revision?: number | null;
+}
 export interface ScrollSurfaceRequest extends CmuxRequestBase { cmd: "scroll-surface"; surface: Id; delta: number }
 
 export interface SubscribeRequest extends CmuxRequestBase {
@@ -347,6 +403,8 @@ export type CmuxRequest =
   | NewTabRequest
   | NewBrowserTabRequest
   | NewWorkspaceRequest
+  | CreateWorkspaceRequest
+  | CreateTerminalRequest
   | NewScreenRequest
   | SplitRequest
   | SetRatioRequest
@@ -406,6 +464,8 @@ export interface CmuxResponseDataMap {
   "new-tab": SurfaceResult;
   "new-browser-tab": SurfaceResult;
   "new-workspace": SurfaceResult;
+  "create-workspace": WorkspacePlacement;
+  "create-terminal": TerminalPlacement;
   "new-screen": SurfaceResult;
   split: SurfaceResult;
   "set-ratio": EmptyResult;
@@ -418,11 +478,11 @@ export interface CmuxResponseDataMap {
   "close-surface": EmptyResult;
   "close-pane": EmptyResult;
   "close-screen": EmptyResult;
-  "close-workspace": EmptyResult;
+  "close-workspace": WorkspaceMutation;
   "rename-pane": EmptyResult;
   "rename-surface": EmptyResult;
   "rename-screen": EmptyResult;
-  "rename-workspace": EmptyResult;
+  "rename-workspace": WorkspaceMutation;
   "resize-surface": ResizeSurfaceResult;
   "release-surface-size": EmptyResult;
   "focus-pane": EmptyResult;
@@ -430,7 +490,7 @@ export interface CmuxResponseDataMap {
   "select-screen": EmptyResult;
   "select-workspace": EmptyResult;
   "move-tab": EmptyResult;
-  "move-workspace": EmptyResult;
+  "move-workspace": WorkspaceMutation;
   "scroll-surface": EmptyResult;
   subscribe: EmptyResult;
   "attach-surface": EmptyResult;

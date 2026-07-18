@@ -145,6 +145,27 @@ public final class CmuxClient implements AutoCloseable {
         return new SurfaceResult(asLong(request("new-workspace", request.toMap()).get("surface")));
     }
 
+    public WorkspacePlacement createWorkspace(CreateWorkspaceRequest createRequest) throws CmuxException {
+        Map<String, Object> data = request("create-workspace", createRequest.toMap());
+        return new WorkspacePlacement(
+            asLong(data.get("workspace")),
+            asString(data.get("key")),
+            (int) asLong(data.get("index")),
+            asLong(data.get("workspace_revision"))
+        );
+    }
+
+    public TerminalPlacement createTerminal(CreateTerminalRequest createRequest) throws CmuxException {
+        Map<String, Object> data = request("create-terminal", createRequest.toMap());
+        return new TerminalPlacement(
+            asLong(data.get("surface")),
+            asLong(data.get("pane")),
+            asLong(data.get("screen")),
+            asLong(data.get("workspace")),
+            asString(data.get("key"))
+        );
+    }
+
     public SurfaceResult newScreen(Long workspace, Integer cols, Integer rows) throws CmuxException {
         Map<String, Object> params = new LinkedHashMap<>();
         putIfNotNull(params, "workspace", workspace);
@@ -220,6 +241,12 @@ public final class CmuxClient implements AutoCloseable {
         request("rename-workspace", params);
     }
 
+    public WorkspaceMutation renameWorkspaceRegistry(WorkspaceSelectorRequest selector, String name) throws CmuxException {
+        Map<String, Object> params = selector.toMap();
+        params.put("name", name);
+        return workspaceMutation(request("rename-workspace", params));
+    }
+
     public ResizeSurfaceResult resizeSurface(long surface, int cols, int rows) throws CmuxException {
         Map<String, Object> params = surfaceParams(surface);
         params.put("cols", cols);
@@ -231,6 +258,10 @@ public final class CmuxClient implements AutoCloseable {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("workspace", workspace);
         request("close-workspace", params);
+    }
+
+    public WorkspaceMutation closeWorkspaceRegistry(WorkspaceSelectorRequest selector) throws CmuxException {
+        return workspaceMutation(request("close-workspace", selector.toMap()));
     }
 
     public void focusPane(long pane) throws CmuxException {
@@ -273,6 +304,20 @@ public final class CmuxClient implements AutoCloseable {
         params.put("workspace", workspace);
         params.put("index", index);
         request("move-workspace", params);
+    }
+
+    public WorkspaceMutation moveWorkspaceRegistry(WorkspaceSelectorRequest selector, int index) throws CmuxException {
+        Map<String, Object> params = selector.toMap();
+        params.put("index", index);
+        return workspaceMutation(request("move-workspace", params));
+    }
+
+    private static WorkspaceMutation workspaceMutation(Map<String, Object> data) {
+        return new WorkspaceMutation(
+            asLong(data.get("workspace")),
+            asString(data.get("key")),
+            asLong(data.get("workspace_revision"))
+        );
     }
 
     public void scrollSurface(long surface, int delta) throws CmuxException {

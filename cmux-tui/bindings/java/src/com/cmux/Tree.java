@@ -4,7 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public record Tree(List<Workspace> workspaces) {
+public record Tree(long workspaceRevision, List<Workspace> workspaces) {
+    public Tree(List<Workspace> workspaces) {
+        this(0, workspaces);
+    }
+
     @SuppressWarnings("unchecked")
     static Tree from(Map<String, Object> data) {
         List<Workspace> workspaces = new ArrayList<>();
@@ -14,6 +18,6 @@ public record Tree(List<Workspace> workspaces) {
                 workspaces.add(Workspace.from((Map<String, Object>) item));
             }
         }
-        return new Tree(workspaces);
+        return new Tree(CmuxClient.asLong(data.get("workspace_revision")), workspaces);
     }
 }

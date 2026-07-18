@@ -248,6 +248,16 @@ func (c *Client) NewWorkspace(ctx context.Context, opts NewWorkspaceOptions) (Su
 	return result, c.request(ctx, "new-workspace", commandMap(opts), &result)
 }
 
+func (c *Client) CreateWorkspace(ctx context.Context, opts CreateWorkspaceOptions) (WorkspacePlacement, error) {
+	var result WorkspacePlacement
+	return result, c.request(ctx, "create-workspace", commandMap(opts), &result)
+}
+
+func (c *Client) CreateTerminal(ctx context.Context, opts CreateTerminalOptions) (TerminalPlacement, error) {
+	var result TerminalPlacement
+	return result, c.request(ctx, "create-terminal", commandMap(opts), &result)
+}
+
 func (c *Client) NewScreen(ctx context.Context, opts NewScreenOptions) (SurfaceResult, error) {
 	var result SurfaceResult
 	return result, c.request(ctx, "new-screen", commandMap(opts), &result)
@@ -336,6 +346,25 @@ func (c *Client) MoveTab(ctx context.Context, surface, pane uint64, index uint) 
 
 func (c *Client) MoveWorkspace(ctx context.Context, workspace uint64, index uint) error {
 	return c.request(ctx, "move-workspace", map[string]any{"workspace": workspace, "index": index}, nil)
+}
+
+func (c *Client) MoveWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions, index uint) (WorkspaceMutation, error) {
+	params := commandMap(opts)
+	params["index"] = index
+	var result WorkspaceMutation
+	return result, c.request(ctx, "move-workspace", params, &result)
+}
+
+func (c *Client) RenameWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions, name string) (WorkspaceMutation, error) {
+	params := commandMap(opts)
+	params["name"] = name
+	var result WorkspaceMutation
+	return result, c.request(ctx, "rename-workspace", params, &result)
+}
+
+func (c *Client) CloseWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions) (WorkspaceMutation, error) {
+	var result WorkspaceMutation
+	return result, c.request(ctx, "close-workspace", commandMap(opts), &result)
 }
 
 func (c *Client) ScrollSurface(ctx context.Context, surface uint64, delta int) error {

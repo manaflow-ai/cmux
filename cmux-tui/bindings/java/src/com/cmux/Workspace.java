@@ -4,7 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public record Workspace(long id, String name, boolean active, List<Screen> screens) {
+public record Workspace(long id, String key, String name, boolean active, List<Screen> screens) {
+    public Workspace(long id, String name, boolean active, List<Screen> screens) {
+        this(id, "", name, active, screens);
+    }
+
     @SuppressWarnings("unchecked")
     static Workspace from(Map<String, Object> data) {
         List<Screen> screens = new ArrayList<>();
@@ -16,6 +20,7 @@ public record Workspace(long id, String name, boolean active, List<Screen> scree
         }
         return new Workspace(
             CmuxClient.asLong(data.get("id")),
+            CmuxClient.asString(data.get("key")),
             CmuxClient.asString(data.get("name")),
             Boolean.TRUE.equals(data.get("active")),
             screens

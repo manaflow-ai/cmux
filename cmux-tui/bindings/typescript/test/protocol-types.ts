@@ -23,6 +23,8 @@ const requests = [
   { cmd: "set-window-title", title: "cmux" },
   { cmd: "clear-window-title" },
   { cmd: "list-workspaces" },
+  { cmd: "create-workspace", name: "gui", key: "stable", expected_revision: 4 },
+  { cmd: "create-terminal", key: "stable", command: "echo ready", cols: 80, rows: 24 },
   { cmd: "export-layout", screen: 1 },
   { cmd: "apply-layout", layout: { type: "leaf" } },
   { cmd: "send", surface: 1, text: "ls\r" },

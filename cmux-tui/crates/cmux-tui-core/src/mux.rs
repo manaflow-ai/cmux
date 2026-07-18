@@ -517,8 +517,11 @@ impl Mux {
 
     fn new_workspace_key() -> anyhow::Result<String> {
         let mut bytes = [0u8; 16];
-        getrandom::fill(&mut bytes)
-            .map_err(|_| anyhow::anyhow!("operating system randomness unavailable"))?;
+        getrandom::fill(&mut bytes).map_err(|_| {
+            anyhow::anyhow!(
+                "could not create workspace identity; retry, then restart cmux if the problem continues"
+            )
+        })?;
         // RFC 9562 UUIDv4 version and variant bits. Keeping the formatter
         // local avoids making stable workspace identity depend on a UUID
         // library at the protocol boundary.
@@ -1734,6 +1737,15 @@ impl Mux {
         workspace: Option<WorkspaceId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_screen_with_cwd(workspace, None, size)
+    }
+
+    fn new_screen_with_cwd(
+        self: &Arc<Self>,
+        workspace: Option<WorkspaceId>,
+        cwd: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         // Validate the target before spawning a child.
         {
             let state = self.state.lock().unwrap();
@@ -1748,7 +1760,7 @@ impl Mux {
                 _ => {}
             }
         }
-        let surface = self.spawn_surface(None, size)?;
+        let surface = self.spawn_surface(cwd, size)?;
         let (pane_id, pane) = self.make_pane(surface.id);
         let screen_id = self.next_id();
         let notifications = self.surface_notifications();
@@ -1836,7 +1848,7 @@ impl Mux {
         };
         let Some(target) = target else {
             if let Some(workspace) = empty_workspace {
-                return self.new_screen(Some(workspace), size);
+                return self.new_screen_with_cwd(Some(workspace), cwd, size);
             }
             return self.new_workspace(None, size);
         };
@@ -2825,7 +2837,6 @@ impl Mux {
         layout: &LayoutSpec,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<AppliedLayout> {
-        let new_workspace_key = Self::new_workspace_key()?;
         {
             let state = self.state.lock().unwrap();
             if let Some(id) = workspace
@@ -2870,6 +2881,7 @@ impl Mux {
                     id
                 }
                 None if state.workspaces.is_empty() => {
+                    let new_workspace_key = Self::new_workspace_key()?;
                     let ws_id = self.next_id();
                     state.workspaces.push(Workspace {
                         id: ws_id,
@@ -4671,7 +4683,8 @@ mod tests {
     fn new_tab_materializes_selected_empty_workspace() {
         let mux = test_mux();
         let placement = mux.create_empty_workspace(Some("gui".into()), None, None).unwrap();
-        let surface = mux.new_tab(None, None, Some((80, 24))).unwrap();
+        let surface = mux.new_tab(None, Some("/tmp".into()), Some((80, 24))).unwrap();
+        assert_eq!(surface.spawn_cwd().as_deref(), Some("/tmp"));
         mux.with_state(|state| {
             assert_eq!(state.workspaces.len(), 1);
             assert_eq!(state.workspaces[0].id, placement.workspace);

@@ -97,6 +97,56 @@ pub struct SurfaceResult {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct WorkspacePlacement {
+    pub workspace: u64,
+    pub key: String,
+    pub index: usize,
+    pub workspace_revision: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TerminalPlacement {
+    pub surface: u64,
+    pub pane: u64,
+    pub screen: u64,
+    pub workspace: u64,
+    pub key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceMutation {
+    pub workspace: u64,
+    pub key: String,
+    pub workspace_revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CreateWorkspaceOptions<'a> {
+    pub name: Option<&'a str>,
+    pub key: Option<&'a str>,
+    pub expected_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CreateTerminalOptions<'a> {
+    pub workspace: Option<u64>,
+    pub key: Option<&'a str>,
+    pub argv: Option<&'a [String]>,
+    pub command: Option<&'a str>,
+    pub cwd: Option<&'a str>,
+    pub name: Option<&'a str>,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WorkspaceSelectorOptions<'a> {
+    pub workspace: Option<u64>,
+    pub key: Option<&'a str>,
+    pub expected_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct ReadScreenResult {
     pub text: String,
 }
@@ -397,6 +447,33 @@ impl CmuxClient {
         self.request("new-workspace", params)
     }
 
+    pub fn create_workspace(
+        &mut self,
+        options: CreateWorkspaceOptions<'_>,
+    ) -> Result<WorkspacePlacement> {
+        let mut params = Map::new();
+        insert_opt(&mut params, "name", options.name);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        self.request("create-workspace", params)
+    }
+
+    pub fn create_terminal(
+        &mut self,
+        options: CreateTerminalOptions<'_>,
+    ) -> Result<TerminalPlacement> {
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "argv", options.argv);
+        insert_opt(&mut params, "command", options.command);
+        insert_opt(&mut params, "cwd", options.cwd);
+        insert_opt(&mut params, "name", options.name);
+        insert_opt(&mut params, "cols", options.cols);
+        insert_opt(&mut params, "rows", options.rows);
+        self.request("create-terminal", params)
+    }
+
     pub fn new_screen(
         &mut self,
         workspace: Option<u64>,
@@ -462,6 +539,17 @@ impl CmuxClient {
         self.request::<Empty>("close-workspace", params).map(|_| ())
     }
 
+    pub fn close_workspace_registry(
+        &mut self,
+        options: WorkspaceSelectorOptions<'_>,
+    ) -> Result<WorkspaceMutation> {
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        self.request("close-workspace", params)
+    }
+
     pub fn rename_pane(&mut self, pane: u64, name: &str) -> Result<()> {
         let mut params = Map::new();
         params.insert("pane".to_string(), Value::from(pane));
@@ -487,6 +575,19 @@ impl CmuxClient {
         params.insert("workspace".to_string(), Value::from(workspace));
         params.insert("name".to_string(), Value::from(name));
         self.request::<Empty>("rename-workspace", params).map(|_| ())
+    }
+
+    pub fn rename_workspace_registry(
+        &mut self,
+        options: WorkspaceSelectorOptions<'_>,
+        name: &str,
+    ) -> Result<WorkspaceMutation> {
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        params.insert("name".to_string(), Value::from(name));
+        self.request("rename-workspace", params)
     }
 
     pub fn resize_surface(
@@ -550,6 +651,19 @@ impl CmuxClient {
         params.insert("workspace".to_string(), Value::from(workspace));
         params.insert("index".to_string(), Value::from(index));
         self.request::<Empty>("move-workspace", params).map(|_| ())
+    }
+
+    pub fn move_workspace_registry(
+        &mut self,
+        options: WorkspaceSelectorOptions<'_>,
+        index: usize,
+    ) -> Result<WorkspaceMutation> {
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        params.insert("index".to_string(), Value::from(index));
+        self.request("move-workspace", params)
     }
 
     pub fn scroll_surface(&mut self, surface: u64, delta: isize) -> Result<()> {
@@ -890,6 +1004,36 @@ mod tests {
 
         assert_eq!(tree.workspace_revision, 0);
         assert_eq!(tree.workspaces[0].key, "");
+    }
+
+    #[test]
+    fn workspace_registry_placements_decode() {
+        let workspace: WorkspacePlacement = serde_json::from_value(serde_json::json!({
+            "workspace": 1,
+            "key": "stable-key",
+            "index": 0,
+            "workspace_revision": 4,
+        }))
+        .unwrap();
+        assert_eq!(workspace.workspace_revision, 4);
+
+        let terminal: TerminalPlacement = serde_json::from_value(serde_json::json!({
+            "surface": 5,
+            "pane": 4,
+            "screen": 3,
+            "workspace": 1,
+            "key": "stable-key",
+        }))
+        .unwrap();
+        assert_eq!(terminal.key, "stable-key");
+
+        let mutation: WorkspaceMutation = serde_json::from_value(serde_json::json!({
+            "workspace": 1,
+            "key": "stable-key",
+            "workspace_revision": 5,
+        }))
+        .unwrap();
+        assert_eq!(mutation.workspace_revision, 5);
     }
 
     #[test]

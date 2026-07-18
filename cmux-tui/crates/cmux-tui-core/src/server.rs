@@ -39,7 +39,7 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 
-use crate::model::{Screen, State};
+use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
 use crate::surface::AttachLifecycle;
@@ -1800,6 +1800,16 @@ fn workspaces_json(
     state: &State,
     notifications: &HashMap<SurfaceId, SurfaceNotification>,
 ) -> Value {
+    let short_ids = tree_short_ids(state);
+    json!({
+        "workspace_revision": state.workspace_revision,
+        "workspaces": state.workspaces.iter().enumerate().map(|(index, workspace)| {
+            workspace_json(state, workspace, index, &short_ids, notifications)
+        }).collect::<Vec<_>>(),
+    })
+}
+
+fn tree_short_ids(state: &State) -> HashMap<u64, String> {
     let ids = state
         .workspaces
         .iter()
@@ -1812,20 +1822,30 @@ fn workspaces_json(
             ids
         })
         .chain(state.surfaces.keys().copied());
-    let short_ids = assign_short_ids(ids);
+    assign_short_ids(ids)
+}
+
+fn workspace_json(
+    state: &State,
+    workspace: &Workspace,
+    index: usize,
+    short_ids: &HashMap<u64, String>,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+) -> Value {
     json!({
-        "workspace_revision": state.workspace_revision,
-        "workspaces": state.workspaces.iter().enumerate().map(|(i, ws)| {
-            json!({
-                "id": ws.id,
-                "key": ws.key,
-                "short_id": short_ids.get(&ws.id).cloned().unwrap_or_default(),
-                "name": ws.name,
-                "active": i == state.active_workspace,
-                "screens": ws.screens.iter().enumerate().map(|(s, screen)| {
-                    screen_json(state, screen, s == ws.active_screen, &short_ids, notifications)
-                }).collect::<Vec<_>>(),
-            })
+        "id": workspace.id,
+        "key": workspace.key,
+        "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
+        "name": workspace.name,
+        "active": index == state.active_workspace,
+        "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
+            screen_json(
+                state,
+                screen,
+                screen_index == workspace.active_screen,
+                short_ids,
+                notifications,
+            )
         }).collect::<Vec<_>>(),
     })
 }
@@ -1836,16 +1856,25 @@ pub(crate) fn tree_entity_json(
     kind: TreeDeltaKind,
     id: u64,
 ) -> Option<Value> {
+    if matches!(
+        kind,
+        TreeDeltaKind::WorkspaceAdded
+            | TreeDeltaKind::WorkspaceClosed
+            | TreeDeltaKind::WorkspaceRenamed
+            | TreeDeltaKind::WorkspaceMoved
+    ) {
+        let short_ids = tree_short_ids(state);
+        let (index, workspace) =
+            state.workspaces.iter().enumerate().find(|(_, workspace)| workspace.id == id)?;
+        return Some(workspace_json(state, workspace, index, &short_ids, notifications));
+    }
     let tree = workspaces_json(state, notifications);
     let workspaces = tree.get("workspaces")?.as_array()?;
     match kind {
         TreeDeltaKind::WorkspaceAdded
         | TreeDeltaKind::WorkspaceClosed
         | TreeDeltaKind::WorkspaceRenamed
-        | TreeDeltaKind::WorkspaceMoved => workspaces
-            .iter()
-            .find(|workspace| workspace.get("id").and_then(Value::as_u64) == Some(id))
-            .cloned(),
+        | TreeDeltaKind::WorkspaceMoved => unreachable!("workspace deltas returned above"),
         TreeDeltaKind::ScreenAdded | TreeDeltaKind::ScreenClosed | TreeDeltaKind::ScreenRenamed => {
             workspaces
                 .iter()
@@ -3127,10 +3156,17 @@ fn handle_command(
                     unmark_client_attached(mux, client, surface_id, &outbound_stream);
                     return Err(error.into());
                 }
-                let writer = writer.clone();
-                let mux = mux.clone();
-                std::thread::Builder::new().name("mux-render-attach-out".into()).spawn(
-                    move || {
+                let worker_writer = writer.clone();
+                let worker_mux = mux.clone();
+                let worker_lifecycle = lifecycle.clone();
+                let worker_stream = outbound_stream.clone();
+                let spawned = std::thread::Builder::new()
+                    .name("mux-render-attach-out".into())
+                    .spawn(move || {
+                        let writer = worker_writer;
+                        let mux = worker_mux;
+                        let lifecycle = worker_lifecycle;
+                        let outbound_stream = worker_stream;
                         let mut state = RenderClientState::new(&attach.initial);
                         while writer.is_open()
                             && outbound_stream.is_open()
@@ -3170,8 +3206,12 @@ fn handle_command(
                         ) {
                             mux.remove_surface_size_client(surface_id, client);
                         }
-                    },
-                )?;
+                    });
+                if let Err(error) = spawned {
+                    lifecycle.cancel();
+                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                    return Err(error.into());
+                }
                 return Ok(json!({}));
             }
             if surface.kind() == SurfaceKind::Browser {
@@ -3197,60 +3237,82 @@ fn handle_command(
                     unmark_client_attached(mux, client, surface_id, &outbound_stream);
                     return Err(error.into());
                 }
-                spawn_attach_notification_stream(
+                if let Err(error) = spawn_attach_notification_stream(
                     mux.clone(),
                     surface_id,
                     writer.clone(),
                     lifecycle.clone(),
                     outbound_stream.clone(),
-                )?;
-                let writer = writer.clone();
-                let mux = mux.clone();
-                std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                    while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled()
-                    {
-                        match frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
-                            Ok(()) => {}
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                lifecycle.cancel();
-                                if writer.is_open() {
-                                    let _ = writer.send_stream(
-                                        &json!({"event": "detached", "surface": surface_id}),
-                                        &outbound_stream,
-                                    );
+                ) {
+                    lifecycle.cancel();
+                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                    return Err(error.into());
+                }
+                let worker_writer = writer.clone();
+                let worker_mux = mux.clone();
+                let worker_lifecycle = lifecycle.clone();
+                let worker_stream = outbound_stream.clone();
+                let spawned =
+                    std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
+                        let writer = worker_writer;
+                        let mux = worker_mux;
+                        let lifecycle = worker_lifecycle;
+                        let outbound_stream = worker_stream;
+                        while writer.is_open()
+                            && outbound_stream.is_open()
+                            && !lifecycle.is_canceled()
+                        {
+                            match frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
+                                Ok(()) => {}
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                    lifecycle.cancel();
+                                    if writer.is_open() {
+                                        let _ = writer.send_stream(
+                                            &json!({"event": "detached", "surface": surface_id}),
+                                            &outbound_stream,
+                                        );
+                                    }
+                                    break;
                                 }
-                                break;
+                            }
+                            let update = std::mem::take(&mut *frames.slot.lock().unwrap());
+                            if let Some(state) = update.state {
+                                let value = browser_state_json(surface_id, &state, false);
+                                if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                                    handle_attach_send_error(&lifecycle, &error);
+                                    break;
+                                }
+                            }
+                            if let Some(frame) = update.frame {
+                                let value = json!({
+                                    "event": "frame",
+                                    "surface": surface_id,
+                                    "seq": frame.seq,
+                                    "width": frame.css_width,
+                                    "height": frame.css_height,
+                                    "data": frame.data_b64,
+                                });
+                                if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                                    handle_attach_send_error(&lifecycle, &error);
+                                    break;
+                                }
                             }
                         }
-                        let update = std::mem::take(&mut *frames.slot.lock().unwrap());
-                        if let Some(state) = update.state {
-                            let value = browser_state_json(surface_id, &state, false);
-                            if let Err(error) = writer.send_stream(&value, &outbound_stream) {
-                                handle_attach_send_error(&lifecycle, &error);
-                                break;
-                            }
+                        report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
+                        if mux.control_clients.detach_surface(
+                            client,
+                            surface_id,
+                            outbound_stream.id,
+                        ) {
+                            mux.remove_surface_size_client(surface_id, client);
                         }
-                        if let Some(frame) = update.frame {
-                            let value = json!({
-                                "event": "frame",
-                                "surface": surface_id,
-                                "seq": frame.seq,
-                                "width": frame.css_width,
-                                "height": frame.css_height,
-                                "data": frame.data_b64,
-                            });
-                            if let Err(error) = writer.send_stream(&value, &outbound_stream) {
-                                handle_attach_send_error(&lifecycle, &error);
-                                break;
-                            }
-                        }
-                    }
-                    report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-                    if mux.control_clients.detach_surface(client, surface_id, outbound_stream.id) {
-                        mux.remove_surface_size_client(surface_id, client);
-                    }
-                })?;
+                    });
+                if let Err(error) = spawned {
+                    lifecycle.cancel();
+                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                    return Err(error.into());
+                }
                 return Ok(json!({}));
             }
             mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
@@ -3277,64 +3339,83 @@ fn handle_command(
                 unmark_client_attached(mux, client, surface_id, &outbound_stream);
                 return Err(error.into());
             }
-            spawn_attach_notification_stream(
+            if let Err(error) = spawn_attach_notification_stream(
                 mux.clone(),
                 surface_id,
                 writer.clone(),
-                lifecycle,
+                lifecycle.clone(),
                 outbound_stream.clone(),
-            )?;
-            let writer = writer.clone();
-            let mux = mux.clone();
-            std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                while writer.is_open()
-                    && outbound_stream.is_open()
-                    && !attach.lifecycle.is_canceled()
-                {
-                    let frame = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
-                        Ok(frame) => frame,
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                            attach.lifecycle.cancel();
-                            if writer.is_open() {
-                                let _ = writer.send_stream(
-                                    &json!({"event": "detached", "surface": surface_id}),
-                                    &outbound_stream,
-                                );
+            ) {
+                lifecycle.cancel();
+                unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                return Err(error.into());
+            }
+            let worker_writer = writer.clone();
+            let worker_mux = mux.clone();
+            let worker_stream = outbound_stream.clone();
+            let spawned =
+                std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
+                    let writer = worker_writer;
+                    let mux = worker_mux;
+                    let outbound_stream = worker_stream;
+                    while writer.is_open()
+                        && outbound_stream.is_open()
+                        && !attach.lifecycle.is_canceled()
+                    {
+                        let frame = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                            Ok(frame) => frame,
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                attach.lifecycle.cancel();
+                                if writer.is_open() {
+                                    let _ = writer.send_stream(
+                                        &json!({"event": "detached", "surface": surface_id}),
+                                        &outbound_stream,
+                                    );
+                                }
+                                break;
                             }
+                        };
+                        let value = match frame {
+                            AttachFrame::Output(chunk) => json!({
+                                "event": "output",
+                                "surface": surface_id,
+                                "data": base64::engine::general_purpose::STANDARD.encode(chunk),
+                            }),
+                            AttachFrame::Resized { cols, rows, replay } => json!({
+                                "event": "resized",
+                                "surface": surface_id,
+                                "cols": cols,
+                                "rows": rows,
+                                "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+                            }),
+                            AttachFrame::ColorsChanged(colors) => {
+                                let mut value = terminal_colors_json(colors);
+                                value["event"] = json!("colors-changed");
+                                value["surface"] = json!(surface_id);
+                                value
+                            }
+                        };
+                        if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                            handle_attach_send_error(&attach.lifecycle, &error);
                             break;
                         }
-                    };
-                    let value = match frame {
-                        AttachFrame::Output(chunk) => json!({
-                            "event": "output",
-                            "surface": surface_id,
-                            "data": base64::engine::general_purpose::STANDARD.encode(chunk),
-                        }),
-                        AttachFrame::Resized { cols, rows, replay } => json!({
-                            "event": "resized",
-                            "surface": surface_id,
-                            "cols": cols,
-                            "rows": rows,
-                            "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                        }),
-                        AttachFrame::ColorsChanged(colors) => {
-                            let mut value = terminal_colors_json(colors);
-                            value["event"] = json!("colors-changed");
-                            value["surface"] = json!(surface_id);
-                            value
-                        }
-                    };
-                    if let Err(error) = writer.send_stream(&value, &outbound_stream) {
-                        handle_attach_send_error(&attach.lifecycle, &error);
-                        break;
                     }
-                }
-                report_attach_overflow(&writer, surface_id, &attach.lifecycle, &outbound_stream);
-                if mux.control_clients.detach_surface(client, surface_id, outbound_stream.id) {
-                    mux.remove_surface_size_client(surface_id, client);
-                }
-            })?;
+                    report_attach_overflow(
+                        &writer,
+                        surface_id,
+                        &attach.lifecycle,
+                        &outbound_stream,
+                    );
+                    if mux.control_clients.detach_surface(client, surface_id, outbound_stream.id) {
+                        mux.remove_surface_size_client(surface_id, client);
+                    }
+                });
+            if let Err(error) = spawned {
+                lifecycle.cancel();
+                unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                return Err(error.into());
+            }
             Ok(json!({}))
         }
     }
