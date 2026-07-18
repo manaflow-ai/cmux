@@ -214,6 +214,37 @@ def create_process_census_receipt(
 
 
 class AcceptanceToolTests(unittest.TestCase):
+    def create_linkage_audit_repository(self, root: pathlib.Path) -> str:
+        sources = {
+            "Sources/Safe.swift": "func projectCanonicalFrame() {}\n",
+            "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Safe.swift": (
+                "func hostExternalCompositor() {}\n"
+            ),
+            "Packages/macOS/CmuxTerminalRenderer/Package.swift": (
+                "// swift-tools-version: 6.0\nimport PackageDescription\n"
+            ),
+            "Packages/macOS/CmuxTerminalRenderer/Sources/"
+            "CmuxTerminalRendererWorker/Safe.swift": (
+                "func renderSemanticScene() {}\n"
+            ),
+            "Packages/macOS/CmuxBrowser/Package.swift": (
+                "// swift-tools-version: 6.0\nimport PackageDescription\n"
+            ),
+            "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Safe.swift": (
+                "func renderCanonicalRows() {}\n"
+            ),
+        }
+        for relative, contents in sources.items():
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(contents, encoding="utf-8")
+        acceptance.run(["git", "init", "--quiet"], cwd=root)
+        acceptance.run(["git", "config", "user.email", "acceptance@example.com"], cwd=root)
+        acceptance.run(["git", "config", "user.name", "Acceptance Fixture"], cwd=root)
+        acceptance.run(["git", "add", "."], cwd=root)
+        acceptance.run(["git", "commit", "--quiet", "-m", "safe linkage fixture"], cwd=root)
+        return acceptance.run(["git", "rev-parse", "HEAD"], cwd=root)
+
     def test_acceptance_spec_still_contains_all_nineteen_criteria(self) -> None:
         criteria = acceptance.load_spec()["criteria"]
         self.assertEqual(len(criteria), 19)
@@ -429,6 +460,129 @@ class AcceptanceToolTests(unittest.TestCase):
                 acceptance.derive_payload_metrics(
                     "STATE-2", "runtime-assertion", path, "runtime assertion"
                 )
+
+    def test_linkage_audit_derives_nonempty_scan_records_from_manifest_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            commit = self.create_linkage_audit_repository(root)
+            payload = acceptance.build_linkage_audit_artifact(root, commit)
+            self.assertEqual(payload["artifact_kind"], "linkage-audit")
+            self.assertEqual(payload["context"]["source_commit"], commit)
+            self.assertEqual(
+                {record["category"] for record in payload["records"]},
+                set(acceptance.LINKAGE_AUDIT_METRIC_BY_CATEGORY),
+            )
+            self.assertTrue(payload["records"])
+
+            raw = root / "linkage.json"
+            raw.write_text(json.dumps(payload), encoding="utf-8")
+            metrics = acceptance.derive_payload_metrics(
+                "STATE-2",
+                "linkage-audit",
+                raw,
+                "safe linkage fixture",
+                source_commit=commit,
+                repo_root=root,
+            )
+            self.assertEqual(
+                metrics,
+                {
+                    metric: 0
+                    for metric in acceptance.LINKAGE_AUDIT_METRIC_BY_CATEGORY.values()
+                },
+            )
+
+    def test_linkage_audit_rejects_empty_and_hand_authored_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            commit = self.create_linkage_audit_repository(root)
+            canonical = acceptance.build_linkage_audit_artifact(root, commit)
+            raw = root / "linkage.json"
+
+            empty = json.loads(json.dumps(canonical))
+            empty["records"] = []
+            raw.write_text(json.dumps(empty), encoding="utf-8")
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError,
+                "deterministic commit scan",
+            ):
+                acceptance.derive_payload_metrics(
+                    "CLEAN-1",
+                    "linkage-audit",
+                    raw,
+                    "empty linkage fixture",
+                    source_commit=commit,
+                    repo_root=root,
+                )
+
+            hand_authored = json.loads(json.dumps(canonical))
+            hand_authored["records"][0]["scanned_file_count"] = 0
+            raw.write_text(json.dumps(hand_authored), encoding="utf-8")
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError,
+                "deterministic commit scan",
+            ):
+                acceptance.derive_payload_metrics(
+                    "CLEAN-1",
+                    "linkage-audit",
+                    raw,
+                    "hand-authored linkage fixture",
+                    source_commit=commit,
+                    repo_root=root,
+                )
+
+    def test_linkage_audit_scans_commit_and_detects_every_forbidden_category(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            safe_commit = self.create_linkage_audit_repository(root)
+            forbidden_sources = {
+                "Sources/ForbiddenOwnership.swift": """
+func constructLocalFallback() {
+    _ = EmbeddedTerminalPanelFactory(dependencies: dependencies)
+    _ = ghostty_app_new(&runtimeConfig, config)
+    _ = ghostty_surface_new(app, &surfaceConfig)
+    _ = openpty(&master, &slave, nil, nil, nil)
+}
+""",
+                "Packages/macOS/CmuxTerminalRenderer/Sources/"
+                "CmuxTerminalRendererWorker/Forbidden.swift": """
+func consumeRendererPTY() {
+    _ = ghostty_surface_new(app, &surfaceConfig)
+    parser.vt_write(bytes)
+}
+""",
+                "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Forbidden.swift": """
+func consumeBrowserPTY() {
+    parser.vt_write(bytes)
+    _ = VTParser()
+}
+""",
+            }
+            for relative, contents in forbidden_sources.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(contents, encoding="utf-8")
+
+            safe_payload = acceptance.build_linkage_audit_artifact(root, safe_commit)
+            self.assertTrue(
+                all(not record["findings"] for record in safe_payload["records"]),
+                "uncommitted forbidden source must not contaminate the manifest-bound scan",
+            )
+
+            acceptance.run(["git", "add", "."], cwd=root)
+            acceptance.run(
+                ["git", "commit", "--quiet", "-m", "forbidden linkage fixture"],
+                cwd=root,
+            )
+            forbidden_commit = acceptance.run(["git", "rev-parse", "HEAD"], cwd=root)
+            payload = acceptance.build_linkage_audit_artifact(root, forbidden_commit)
+            findings_by_category = {
+                record["category"]: record["findings"] for record in payload["records"]
+            }
+            self.assertTrue(
+                all(findings_by_category[category] for category in findings_by_category),
+                findings_by_category,
+            )
 
     def test_complete_png_is_decoded_and_header_only_png_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
