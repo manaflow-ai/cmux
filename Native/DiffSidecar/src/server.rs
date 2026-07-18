@@ -848,6 +848,9 @@ async fn open_session(
             .await
             .ok_or(SessionOpenError::Unauthorized)?;
         let identity = AgentTurnIdentity::new(*provider, session_id.clone());
+        if !authorizations_allow_agent_turn(&authorizations, &identity) {
+            return Err(SessionOpenError::Unauthorized);
+        }
         let worker_identity = identity.clone();
         let cancellation = TrajectoryCancellation::default();
         let worker_cancellation = cancellation.clone();
@@ -866,9 +869,6 @@ async fn open_session(
         .map_err(|_| SessionOpenError::Failed)?
         .map_err(|_| SessionOpenError::Failed)?;
         drop(cancellation_guard);
-        if !authorizations_allow_agent_turn(&authorizations, &identity) {
-            return Err(SessionOpenError::Unauthorized);
-        }
         Some((identity, location))
     } else {
         None

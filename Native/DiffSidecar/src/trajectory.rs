@@ -21,6 +21,7 @@ const MAX_TRANSCRIPT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_PATCH_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CLAUDE_SUBAGENT_TRANSCRIPTS: usize = 128;
 const MAX_CLAUDE_PROJECT_DIRECTORIES: usize = 4096;
+const MAX_CLAUDE_AGGREGATE_TRANSCRIPT_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AgentTurnIdentity {
@@ -899,16 +900,61 @@ fn codex_apply_patch_output_succeeded(payload: &Value) -> bool {
     ) {
         return false;
     }
-    let output = payload.get("output").map_or_else(String::new, |value| {
-        value
-            .as_str()
-            .map_or_else(|| value.to_string(), str::to_owned)
-    });
-    let output = output.to_ascii_lowercase();
-    output.contains("success")
-        && !output.contains("error")
-        && !output.contains("failed")
-        && !output.contains("exit code: 1")
+    payload
+        .get("success")
+        .and_then(Value::as_bool)
+        .or_else(|| {
+            payload
+                .get("output")
+                .and_then(codex_apply_patch_result_succeeded)
+        })
+        .unwrap_or(false)
+}
+
+fn codex_apply_patch_result_succeeded(result: &Value) -> Option<bool> {
+    match result {
+        Value::Object(object) => {
+            if let Some(success) = object.get("success").and_then(Value::as_bool) {
+                return Some(success);
+            }
+            if let Some(status) = object.get("status").and_then(Value::as_str) {
+                return Some(matches!(status, "completed" | "succeeded" | "success"));
+            }
+            let exit_code = object
+                .get("metadata")
+                .and_then(|metadata| metadata.get("exit_code"))
+                .and_then(Value::as_i64);
+            let nested = object.get("output").and_then(Value::as_str);
+            Some(exit_code == Some(0) && nested.is_some_and(codex_legacy_patch_success))
+        }
+        Value::String(output) => {
+            if let Ok(structured) = serde_json::from_str::<Value>(output)
+                && !structured.is_string()
+            {
+                return codex_apply_patch_result_succeeded(&structured);
+            }
+            Some(codex_legacy_patch_success(output))
+        }
+        _ => Some(false),
+    }
+}
+
+fn codex_legacy_patch_success(output: &str) -> bool {
+    let mut lines = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
+    let Some(first) = lines.next() else {
+        return false;
+    };
+    let remaining = lines.collect::<Vec<_>>();
+    if remaining.is_empty() {
+        return matches!(first, "Success" | "Success." | "Done" | "Done!");
+    }
+    first == "Exit code: 0"
+        && remaining
+            .last()
+            .is_some_and(|last| matches!(*last, "Success" | "Success." | "Done" | "Done!"))
 }
 
 fn codex_change_has_patch_data(change: &Value) -> bool {
@@ -1258,6 +1304,10 @@ fn append_claude_subagent_patches(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(_) => return Err(TrajectoryError::Unavailable),
     };
+    let parent_length = std::fs::metadata(parent_transcript)
+        .map_err(|_| TrajectoryError::Unavailable)?
+        .len();
+    let mut aggregate_length = checked_claude_aggregate_length(0, parent_length)?;
     let mut transcripts = Vec::new();
     for entry in entries {
         cancellation.check()?;
@@ -1270,15 +1320,20 @@ fn append_claude_subagent_patches(
                 .and_then(|value| value.to_str())
                 .is_some_and(|name| name.starts_with("agent-") && name.len() > "agent-".len());
         if is_subagent_transcript {
-            transcripts.push(path);
+            let length = entry
+                .metadata()
+                .map_err(|_| TrajectoryError::Invalid)?
+                .len();
+            aggregate_length = checked_claude_aggregate_length(aggregate_length, length)?;
+            transcripts.push((path, length));
             if transcripts.len() > MAX_CLAUDE_SUBAGENT_TRANSCRIPTS {
                 return Err(TrajectoryError::Invalid);
             }
         }
     }
     transcripts.sort_unstable();
-    for transcript in transcripts {
-        for_json_lines(&transcript, cancellation, |object| {
+    for (transcript, expected_length) in transcripts {
+        for_json_lines_with_limit(&transcript, cancellation, expected_length, |object| {
             if object.get("type").and_then(Value::as_str) != Some("user")
                 || object.get("promptId").and_then(Value::as_str) != Some(prompt_id)
             {
@@ -1296,6 +1351,16 @@ fn append_claude_subagent_patches(
         })?;
     }
     Ok(())
+}
+
+fn checked_claude_aggregate_length(
+    aggregate: u64,
+    additional: u64,
+) -> Result<u64, TrajectoryError> {
+    aggregate
+        .checked_add(additional)
+        .filter(|total| *total <= MAX_CLAUDE_AGGREGATE_TRANSCRIPT_BYTES)
+        .ok_or(TrajectoryError::Invalid)
 }
 
 fn claude_is_prompt_boundary(object: &Value) -> bool {
@@ -1433,6 +1498,15 @@ fn append_claude_result(
 fn for_json_lines(
     path: &Path,
     cancellation: &TrajectoryCancellation,
+    consume: impl FnMut(&Value) -> Result<bool, TrajectoryError>,
+) -> Result<(), TrajectoryError> {
+    for_json_lines_with_limit(path, cancellation, MAX_TRANSCRIPT_BYTES, consume)
+}
+
+fn for_json_lines_with_limit(
+    path: &Path,
+    cancellation: &TrajectoryCancellation,
+    maximum_bytes: u64,
     mut consume: impl FnMut(&Value) -> Result<bool, TrajectoryError>,
 ) -> Result<(), TrajectoryError> {
     let file = File::open(path).map_err(|_| TrajectoryError::Unavailable)?;
@@ -1440,7 +1514,7 @@ fn for_json_lines(
         .metadata()
         .map_err(|_| TrajectoryError::Unavailable)?
         .len();
-    if transcript_len > MAX_TRANSCRIPT_BYTES {
+    if transcript_len > maximum_bytes || transcript_len > MAX_TRANSCRIPT_BYTES {
         return Err(TrajectoryError::Invalid);
     }
     let mut reader = BufReader::new(file.take(transcript_len));
@@ -1789,6 +1863,17 @@ mod environment_tests {
 
         assert!(!codex_apply_patch_output_succeeded(&structured_failure));
         assert!(codex_apply_patch_output_succeeded(&legacy_success));
+    }
+
+    #[test]
+    fn claude_aggregate_transcript_budget_rejects_excess_and_overflow() {
+        assert_eq!(
+            checked_claude_aggregate_length(MAX_CLAUDE_AGGREGATE_TRANSCRIPT_BYTES - 1, 1)
+                .expect("accept exact aggregate limit"),
+            MAX_CLAUDE_AGGREGATE_TRANSCRIPT_BYTES
+        );
+        assert!(checked_claude_aggregate_length(MAX_CLAUDE_AGGREGATE_TRANSCRIPT_BYTES, 1).is_err());
+        assert!(checked_claude_aggregate_length(u64::MAX, 1).is_err());
     }
 
     #[test]
