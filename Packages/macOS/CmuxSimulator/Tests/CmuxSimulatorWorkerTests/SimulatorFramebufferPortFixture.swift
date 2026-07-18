@@ -15,7 +15,8 @@ final class SimulatorFramebufferPortFixture {
             (0, 0, 8, 12)
         ],
         propertiesAvailableAfterRegistration: Bool = false,
-        usesDefaultScreenFlag: Bool = false
+        usesDefaultScreenFlag: Bool = false,
+        usesForwardingScreenProperties: Bool = false
     ) {
         let descriptors = displays.map {
             SimulatorFramebufferPortFixtureDescriptor(
@@ -24,7 +25,8 @@ final class SimulatorFramebufferPortFixture {
                 width: $0.width,
                 height: $0.height,
                 propertiesAvailableAfterRegistration: propertiesAvailableAfterRegistration,
-                usesDefaultScreenFlag: usesDefaultScreenFlag
+                usesDefaultScreenFlag: usesDefaultScreenFlag,
+                usesForwardingScreenProperties: usesForwardingScreenProperties
             )
         }
         self.descriptors = descriptors

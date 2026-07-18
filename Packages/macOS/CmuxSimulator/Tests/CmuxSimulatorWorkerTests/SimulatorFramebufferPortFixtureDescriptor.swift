@@ -16,10 +16,11 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
         width: Int = 8,
         height: Int = 12,
         propertiesAvailableAfterRegistration: Bool = false,
-        usesDefaultScreenFlag: Bool = false
+        usesDefaultScreenFlag: Bool = false,
+        usesForwardingScreenProperties: Bool = false
     ) {
         surface = makeSimulatorFramebufferPortFixtureSurface(width: width, height: height)
-        properties = if usesDefaultScreenFlag {
+        let concreteProperties: NSObject & SimulatorFramebufferPortFixtureProperties = if usesDefaultScreenFlag {
             SimulatorFramebufferPortFixtureDefaultScreenProperties(
                 screenID: screenID,
                 isDefault: screenType == 0
@@ -30,6 +31,9 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
                 screenType: screenType
             )
         }
+        properties = usesForwardingScreenProperties
+            ? SimulatorFramebufferPortFixtureForwardingProperties(target: concreteProperties)
+            : concreteProperties
         self.propertiesAvailableAfterRegistration = propertiesAvailableAfterRegistration
         super.init()
     }
