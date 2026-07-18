@@ -1226,6 +1226,54 @@ struct RestorableAgentSessionIndexTests {
         )
     }
 
+    @Test
+    func testClaudeSessionRejectsTranscriptPathForAnotherSession() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-mismatched-transcript-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let hookSessionId = "eeeeeeee-5555-5555-5555-eeeeeeeeeeee"
+        let transcriptSessionId = "ffffffff-6666-6666-6666-ffffffffffff"
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(expectedClaudeProjectDirName(cwd.path), isDirectory: true)
+            .appendingPathComponent("\(transcriptSessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(
+            sessionId: transcriptSessionId,
+            transcriptURL: transcriptURL,
+            cwd: cwd
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                hookSessionId: hookRecord(
+                    sessionId: hookSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: transcriptURL.path,
+                    isRestorable: true,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        #expect(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId) == nil,
+            "A transcript path for another session must not authorize restore"
+        )
+    }
+
     private func makeClaudeTranscriptCacheFixture(
         prefix: String,
         sessionId: String,
