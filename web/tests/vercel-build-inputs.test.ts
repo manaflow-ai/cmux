@@ -4,6 +4,7 @@ import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import packageJSON from "../package.json";
+import nextConfig from "../next.config";
 
 test("keeps relay catalog validation inside the Vercel project", () => {
   const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -16,4 +17,10 @@ test("keeps relay catalog validation inside the Vercel project", () => {
   const resolvedScript = resolve(webRoot, scriptPath!);
   expect(resolvedScript.startsWith(`${webRoot}${sep}`)).toBe(true);
   expect(existsSync(resolvedScript)).toBe(true);
+});
+
+test("includes bundled Open Graph fonts in traced route output", () => {
+  expect(nextConfig.outputFileTracingIncludes?.["**/opengraph-image"]).toEqual([
+    "./app/lib/open-graph-fonts/**/*",
+  ]);
 });

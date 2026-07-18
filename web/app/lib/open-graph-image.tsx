@@ -4,8 +4,7 @@ import { join } from "path";
 import { openGraphImageTagline } from "@/i18n/seo";
 import { routing, type Locale } from "@/i18n/routing";
 
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+const size = { width: 1200, height: 630 };
 
 const S = 2; // render at 2x for sharper images on social platforms
 const SCREENSHOT_INSET = 40;
@@ -74,7 +73,7 @@ async function readBundledFont(filename: string): Promise<ArrayBuffer> {
   ) as ArrayBuffer;
 }
 
-export async function renderOpenGraphImage(locale: string) {
+async function renderOpenGraphImage(locale: string) {
   const tagline = openGraphImageTagline(locale);
   const localeFont = localeFonts[locale as Locale];
   const [logoData, screenshotData, geistRegular, geistSemiBold, localeFontData] =

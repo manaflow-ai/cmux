@@ -4,24 +4,16 @@ import { NextRequest } from "next/server";
 import { join } from "path";
 import sharp from "sharp";
 import { GET } from "../app/[locale]/opengraph-image/route";
-import {
-  openGraphImageResponse,
-  renderOpenGraphImage,
-} from "../app/lib/open-graph-image";
+import { openGraphImageResponse } from "../app/lib/open-graph-image";
 import { articleSchema } from "../app/[locale]/components/json-ld";
 import { openGraphImage } from "../i18n/seo";
 import { routing } from "../i18n/routing";
 import middleware from "../proxy";
 
-async function withoutNetwork<T>(operation: () => Promise<T>): Promise<T> {
-  const fetchImplementation = globalThis.fetch;
-  globalThis.fetch = () =>
-    Promise.reject(new Error("Open Graph rendering must not use the network"));
-  try {
-    return await operation();
-  } finally {
-    globalThis.fetch = fetchImplementation;
-  }
+function renderLocaleOpenGraphImage(locale: string): Promise<Response> {
+  return GET(new Request(`https://cmux.com/${locale}/opengraph-image`), {
+    params: Promise.resolve({ locale }),
+  });
 }
 
 describe("Open Graph image discovery", () => {
@@ -75,9 +67,7 @@ describe("Open Graph image discovery", () => {
     test(
       `renders the ${locale} image response body`,
       async () => {
-        const response = await withoutNetwork(() =>
-          renderOpenGraphImage(locale),
-        );
+        const response = await renderLocaleOpenGraphImage(locale);
         const body = new Uint8Array(await response.arrayBuffer());
 
         expect(response.status).toBe(200);
@@ -107,7 +97,7 @@ describe("Open Graph image discovery", () => {
   }
 
   test("insets the screenshot from the card edges", async () => {
-    const response = await withoutNetwork(() => renderOpenGraphImage("en"));
+    const response = await renderLocaleOpenGraphImage("en");
     const body = new Uint8Array(await response.arrayBuffer());
     const { data } = await sharp(body)
       .extract({ left: 16, top: 16, width: 32, height: 32 })

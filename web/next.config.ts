@@ -142,6 +142,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: webRoot,
   },
+  outputFileTracingIncludes: {
+    "**/opengraph-image": ["./app/lib/open-graph-fonts/**/*"],
+  },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +
     // transparent rounded window corners) it rings far less than WebP at the
