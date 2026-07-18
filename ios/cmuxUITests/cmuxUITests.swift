@@ -324,6 +324,148 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalEndpointRapidSwipesStayPinnedAndReverseCleanly() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_BOTTOM_SCROLL_STRESS": "1",
+        ])
+        defer { app.terminate() }
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        func scrollbar(_ dock: [String: String]) -> (total: Int, offset: Int, len: Int)? {
+            guard let total = dock["scrollTotal"].flatMap(Int.init),
+                  let offset = dock["scrollOffset"].flatMap(Int.init),
+                  let len = dock["scrollLen"].flatMap(Int.init) else {
+                return nil
+            }
+            return (total, offset, len)
+        }
+
+        func maximumOffset(_ snapshot: (total: Int, offset: Int, len: Int)) -> Int {
+            max(0, snapshot.total - snapshot.len)
+        }
+
+        let initialDock = waitForDock(in: app, timeout: 8, describe: "endpoint stress fixture at bottom") {
+            guard $0["bottomStressPhase"] == "done", let snapshot = scrollbar($0) else { return false }
+            return $0["scrollAtBottom"] == "1"
+                && snapshot.total > snapshot.len
+                && snapshot.offset >= maximumOffset(snapshot) - 1
+        }
+        guard let initial = scrollbar(initialDock) else {
+            XCTFail("Endpoint stress fixture did not expose Ghostty scrollbar state. dock=\(initialDock)")
+            return
+        }
+
+        guard let renderMinY = initialDock["renderMinY"].flatMap(Double.init),
+              let renderMaxY = initialDock["renderMaxY"].flatMap(Double.init) else {
+            XCTFail("Endpoint stress fixture did not expose its render bounds. dock=\(initialDock)")
+            return
+        }
+        let surfaceFrame = surface.frame
+        let renderHeight = CGFloat(renderMaxY - renderMinY)
+        let topGestureInset = min(72, max(12, renderHeight / 3))
+        let upperY = surfaceFrame.minY + CGFloat(renderMinY) + topGestureInset
+        let lowerY = surfaceFrame.minY + CGFloat(renderMaxY) - 12
+        guard lowerY - upperY >= 40 else {
+            XCTFail("Terminal render region is too short for endpoint gestures. surface=\(surfaceFrame) dock=\(initialDock)")
+            return
+        }
+        let screenOrigin = app.coordinate(withNormalizedOffset: .zero)
+        let upperRenderCoordinate = screenOrigin.withOffset(CGVector(dx: surfaceFrame.midX, dy: upperY))
+        let lowerRenderCoordinate = screenOrigin.withOffset(CGVector(dx: surfaceFrame.midX, dy: lowerY))
+
+        func swipeUpInsideRenderRegion() {
+            lowerRenderCoordinate.press(
+                forDuration: 0.01,
+                thenDragTo: upperRenderCoordinate,
+                withVelocity: .fast,
+                thenHoldForDuration: 0
+            )
+        }
+
+        func swipeDownInsideRenderRegion() {
+            upperRenderCoordinate.press(
+                forDuration: 0.01,
+                thenDragTo: lowerRenderCoordinate,
+                withVelocity: .fast,
+                thenHoldForDuration: 0
+            )
+        }
+
+        for _ in 0..<5 {
+            swipeUpInsideRenderRegion()
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        let afterOutwardSwipes = waitForDock(in: app, describe: "rapid outward swipes remain at bottom") {
+            guard let snapshot = scrollbar($0) else { return false }
+            return $0["scrollAtBottom"] == "1"
+                && snapshot.offset >= maximumOffset(snapshot) - 1
+        }
+        guard let outward = scrollbar(afterOutwardSwipes) else {
+            XCTFail("Scrollbar state disappeared after rapid outward swipes. dock=\(afterOutwardSwipes)")
+            return
+        }
+        XCTAssertLessThanOrEqual(
+            abs(outward.offset - initial.offset),
+            1,
+            "Rapid outward swipes at the loaded bottom must not move or rebound the terminal viewport. before=\(initial) after=\(outward)"
+        )
+
+        swipeDownInsideRenderRegion()
+        let olderDock = waitForDock(in: app, describe: "reversal reaches older terminal rows") {
+            guard let snapshot = scrollbar($0) else { return false }
+            return $0["scrollAtBottom"] == "0"
+                && snapshot.offset <= maximumOffset(snapshot) - 2
+        }
+        guard let older = scrollbar(olderDock) else {
+            XCTFail("Scrollbar state disappeared after reversing toward older rows. dock=\(olderDock)")
+            return
+        }
+        XCTAssertLessThan(
+            older.offset,
+            maximumOffset(older),
+            "Reversing from the bottom must move into older terminal rows. snapshot=\(older)"
+        )
+
+        for _ in 0..<16 {
+            swipeUpInsideRenderRegion()
+            if surfaceDock(in: app)["scrollAtBottom"] == "1" {
+                break
+            }
+        }
+        let restoredDock = waitForDock(in: app, describe: "reversal returns to bottom without snap-back") {
+            guard let snapshot = scrollbar($0) else { return false }
+            return $0["scrollAtBottom"] == "1"
+                && snapshot.offset >= maximumOffset(snapshot) - 1
+        }
+        guard let restored = scrollbar(restoredDock) else {
+            XCTFail("Scrollbar state disappeared after returning to bottom. dock=\(restoredDock)")
+            return
+        }
+        XCTAssertEqual(restoredDock["scrollAtBottom"], "1", "Ghostty must confirm the restored bottom. dock=\(restoredDock)")
+
+        for _ in 0..<3 {
+            swipeUpInsideRenderRegion()
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        let finalDock = waitForDock(in: app, describe: "second outward burst remains pinned") {
+            guard let snapshot = scrollbar($0) else { return false }
+            return $0["scrollAtBottom"] == "1"
+                && snapshot.offset >= maximumOffset(snapshot) - 1
+        }
+        guard let final = scrollbar(finalDock) else {
+            XCTFail("Scrollbar state disappeared after the second outward burst. dock=\(finalDock)")
+            return
+        }
+        XCTAssertLessThanOrEqual(
+            abs(final.offset - restored.offset),
+            1,
+            "A second outward burst after reversal must remain pinned at the loaded bottom. before=\(restored) after=\(final)"
+        )
+        XCTAssertEqual(finalDock["staleViewportObserved"], "0", "Endpoint gestures must not expose a stale viewport. dock=\(finalDock)")
+    }
+
+    @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
         let server = try MobileSyncMockHostServer(createdWorkspaceTerminalDelay: 1.5)
         let port = try await server.start()
