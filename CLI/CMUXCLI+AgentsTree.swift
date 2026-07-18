@@ -231,7 +231,12 @@ extension CMUXCLI {
                 fileManager: fileManager
             )
         } catch let failure as AgentHookSessionStoreLoadFailure {
-            throw agentsStoreLoadCLIError(failure, context: .tree, jsonOutput: localJSONOutput)
+            throw agentsStoreLoadCLIError(failure, context: .tree)
+        } catch {
+            throw agentsStateUnavailableCLIError(
+                stateDirectory: stateDirectory,
+                context: .tree
+            )
         }
         // Finish the cheap, record-at-a-time pass across every selected
         // provider before allowing any provider-wide compatibility decode.
@@ -256,16 +261,14 @@ extension CMUXCLI {
                     },
                     claudeTranscriptLookup: claudeTranscriptLookup,
                     processStateLookup: processStateLookup,
-                    maximumNodes: remainingPreflightNodes,
-                    jsonOutput: localJSONOutput
+                    maximumNodes: remainingPreflightNodes
                   ) else {
                 continue
             }
             guard visibleCount <= remainingPreflightNodes else {
                 throw agentsTreeNodeBudgetExceededError(
                     maximumNodes: maximumNodes,
-                    observedAtLeast: maximumNodes + 1,
-                    jsonOutput: localJSONOutput
+                    observedAtLeast: maximumNodes + 1
                 )
             }
             remainingPreflightNodes -= visibleCount
@@ -300,7 +303,12 @@ extension CMUXCLI {
                 do {
                     load = try bridge.loadForInspection(snapshot: snapshot)
                 } catch let failure as AgentHookSessionStoreLoadFailure {
-                    throw agentsStoreLoadCLIError(failure, context: .tree, jsonOutput: localJSONOutput)
+                    throw agentsStoreLoadCLIError(failure, context: .tree)
+                } catch {
+                    throw agentsStateUnavailableCLIError(
+                        stateDirectory: stateDirectory,
+                        context: .tree
+                    )
                 }
                 store = load.store
                 if let warning = load.warning { storeWarnings.append(warning) }
@@ -432,8 +440,7 @@ extension CMUXCLI {
                         nodeID: node.nodeId,
                         visibleNodeIDs: &definitelyVisibleNodeIDs,
                         maximumNodes: maximumNodes,
-                        provisionalMaximumNodes: provisionalNodeLimit,
-                        jsonOutput: localJSONOutput
+                        provisionalMaximumNodes: provisionalNodeLimit
                     ) else {
                         continue
                     }
@@ -466,8 +473,7 @@ extension CMUXCLI {
                           nodeID: node.nodeId,
                           visibleNodeIDs: &definitelyVisibleNodeIDs,
                           maximumNodes: maximumNodes,
-                          provisionalMaximumNodes: provisionalNodeLimit,
-                          jsonOutput: localJSONOutput
+                          provisionalMaximumNodes: provisionalNodeLimit
                       ) else {
                     continue
                 }
@@ -497,8 +503,7 @@ extension CMUXCLI {
                 nodeID: node.nodeId,
                 visibleNodeIDs: &definitelyVisibleNodeIDs,
                 maximumNodes: maximumNodes,
-                provisionalMaximumNodes: provisionalNodeLimit,
-                jsonOutput: localJSONOutput
+                provisionalMaximumNodes: provisionalNodeLimit
             ) else { continue }
             nodes.append(node)
         }
@@ -515,8 +520,7 @@ extension CMUXCLI {
         if nodes.count > maximumNodes {
             throw agentsTreeNodeBudgetExceededError(
                 maximumNodes: maximumNodes,
-                observedAtLeast: maximumNodes + 1,
-                jsonOutput: localJSONOutput
+                observedAtLeast: maximumNodes + 1
             )
         }
 
@@ -606,8 +610,7 @@ extension CMUXCLI {
         terminalObservations: [CmuxAgentTerminalObservation],
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache,
         processStateLookup: (Int?, TimeInterval?) -> AgentProcessState,
-        maximumNodes: Int,
-        jsonOutput: Bool
+        maximumNodes: Int
     ) throws -> Int? {
         let decoder = JSONDecoder()
         var activeSessionIDs: Set<String> = []
@@ -651,8 +654,7 @@ extension CMUXCLI {
             try agentsTreeSnapshotProcessCohort(
                 snapshot,
                 provider: provider,
-                normalizedSession: normalizedSession,
-                jsonOutput: jsonOutput
+                normalizedSession: normalizedSession
             )
         } else {
             nil
@@ -662,8 +664,7 @@ extension CMUXCLI {
                 throw agentsTreeRecordSizeExceededError(
                     provider: provider,
                     sessionID: stored.sessionID,
-                    observedBytes: stored.json.count,
-                    jsonOutput: jsonOutput
+                    observedBytes: stored.json.count
                 )
             }
             guard let record = try? decoder.decode(ClaudeHookSessionRecord.self, from: stored.json),
@@ -777,8 +778,7 @@ extension CMUXCLI {
     private func agentsTreeSnapshotProcessCohort(
         _ snapshot: CmuxAgentSessionRegistry.Snapshot,
         provider: String,
-        normalizedSession: String,
-        jsonOutput: Bool
+        normalizedSession: String
     ) throws -> AgentSessionProcessCohortMatcher? {
         let decoder = JSONDecoder()
         var matcher = AgentSessionProcessCohortMatcher()
@@ -787,8 +787,7 @@ extension CMUXCLI {
                 throw agentsTreeRecordSizeExceededError(
                     provider: provider,
                     sessionID: stored.sessionID,
-                    observedBytes: stored.json.count,
-                    jsonOutput: jsonOutput
+                    observedBytes: stored.json.count
                 )
             }
             guard let record = try? decoder.decode(ClaudeHookSessionRecord.self, from: stored.json),
@@ -845,15 +844,13 @@ extension CMUXCLI {
         nodeID: String,
         visibleNodeIDs: inout Set<String>,
         maximumNodes: Int,
-        provisionalMaximumNodes: Int,
-        jsonOutput: Bool
+        provisionalMaximumNodes: Int
     ) throws -> Bool {
         guard !visibleNodeIDs.contains(nodeID) else { return false }
         guard visibleNodeIDs.count < provisionalMaximumNodes else {
             throw agentsTreeNodeBudgetExceededError(
                 maximumNodes: maximumNodes,
-                observedAtLeast: maximumNodes + 1,
-                jsonOutput: jsonOutput
+                observedAtLeast: maximumNodes + 1
             )
         }
         visibleNodeIDs.insert(nodeID)
@@ -862,8 +859,7 @@ extension CMUXCLI {
 
     private func agentsTreeNodeBudgetExceededError(
         maximumNodes: Int,
-        observedAtLeast: Int,
-        jsonOutput: Bool
+        observedAtLeast: Int
     ) -> CLIError {
         let message = String(
             format: String(
@@ -875,28 +871,20 @@ extension CMUXCLI {
             observedAtLeast,
             Self.agentsTreeHardMaximumNodes
         )
-        if jsonOutput {
-            let payload: [String: Any] = [
-                "schema_version": 2,
-                "error": [
-                    "code": Self.agentsTreeNodeBudgetErrorCode,
-                    "limit": maximumNodes,
-                    "observed_at_least": observedAtLeast,
-                    "message": message,
-                ],
-                "nodes": [],
-                "edges": [],
-            ]
-            cliWriteStdout(jsonString(payload) + "\n")
-        }
-        return CLIError(message: message)
+        return CLIError(
+            message: message,
+            v2Code: Self.agentsTreeNodeBudgetErrorCode,
+            structuredFields: CLIErrorStructuredFields(
+                limit: maximumNodes,
+                observedAtLeast: observedAtLeast
+            )
+        )
     }
 
     private func agentsTreeRecordSizeExceededError(
         provider: String,
         sessionID: String,
-        observedBytes: Int,
-        jsonOutput: Bool
+        observedBytes: Int
     ) -> CLIError {
         let message = String(
             format: String(
@@ -909,23 +897,16 @@ extension CMUXCLI {
             observedBytes,
             Self.agentsTreeHardMaximumRecordBytes
         )
-        if jsonOutput {
-            let payload: [String: Any] = [
-                "schema_version": 2,
-                "error": [
-                    "code": Self.agentsTreeRecordSizeErrorCode,
-                    "provider": provider,
-                    "session_id": sessionID,
-                    "observed_bytes": observedBytes,
-                    "maximum_record_bytes": Self.agentsTreeHardMaximumRecordBytes,
-                    "message": message,
-                ],
-                "nodes": [],
-                "edges": [],
-            ]
-            cliWriteStdout(jsonString(payload) + "\n")
-        }
-        return CLIError(message: message)
+        return CLIError(
+            message: message,
+            v2Code: Self.agentsTreeRecordSizeErrorCode,
+            structuredFields: CLIErrorStructuredFields(
+                provider: provider,
+                sessionID: sessionID,
+                observedBytes: Int64(observedBytes),
+                maximumRecordBytes: Self.agentsTreeHardMaximumRecordBytes
+            )
+        )
     }
 
     private func agentsTreeExpandedPath(_ value: String) -> String {

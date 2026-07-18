@@ -275,7 +275,12 @@ extension CMUXCLI {
                 )
             }
         } catch let failure as AgentHookSessionStoreLoadFailure {
-            throw agentsStoreLoadCLIError(failure, context: listContext, jsonOutput: localJSONOutput)
+            throw agentsStoreLoadCLIError(failure, context: listContext)
+        } catch {
+            throw agentsStateUnavailableCLIError(
+                stateDirectory: stateDir,
+                context: listContext
+            )
         }
         storeWarnings.append(contentsOf: snapshotLoad.warnings)
         for spec in selectedSpecs {
@@ -306,7 +311,12 @@ extension CMUXCLI {
                         load = try bridge.loadForInspection(snapshot: snapshot)
                     }
                 } catch let failure as AgentHookSessionStoreLoadFailure {
-                    throw agentsStoreLoadCLIError(failure, context: listContext, jsonOutput: localJSONOutput)
+                    throw agentsStoreLoadCLIError(failure, context: listContext)
+                } catch {
+                    throw agentsStateUnavailableCLIError(
+                        stateDirectory: stateDir,
+                        context: listContext
+                    )
                 }
                 store = load.store
                 boundedLoadUsedLegacyFallback = usesBoundedHistoryFastPath

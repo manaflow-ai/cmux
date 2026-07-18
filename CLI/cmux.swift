@@ -1666,6 +1666,7 @@ struct CMUXCLI {
         if command == "agents" || command == "sessions" || command == "session-debug" {
             var queryEnvironment = processEnv
             var terminalObservations: [CmuxAgentTerminalObservation] = []
+            var runtimeInspectionError: Error?
             let ambientSocketPath = (processEnv["CMUX_SOCKET_PATH"] ?? processEnv["CMUX_SOCKET"])?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if let querySocketPath = explicitSocketPath
@@ -1697,7 +1698,7 @@ struct CMUXCLI {
                         )
                     }
                 } catch {
-                    if explicitSocketPath != nil { throw error }
+                    if explicitSocketPath != nil { runtimeInspectionError = error }
                 }
             }
             try runAgentsCommand(
@@ -1705,7 +1706,9 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 processEnv: queryEnvironment,
                 terminalObservations: terminalObservations,
-                invocation: command == "agents" ? .agents : .sessions
+                invocation: command == "agents" ? .agents : .sessions,
+                runtimeInspectionError: runtimeInspectionError,
+                runtimeSocketPath: explicitSocketPath
             )
             return
         }

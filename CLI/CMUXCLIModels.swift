@@ -29,14 +29,58 @@ struct CLIError: Error, CustomStringConvertible {
     let exitCode: Int32
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
+    /// Optional fields merged into a command-owned structured error envelope.
+    let structuredFields: CLIErrorStructuredFields?
 
-    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
+    init(
+        message: String,
+        exitCode: Int32 = 1,
+        v2Code: String? = nil,
+        structuredFields: CLIErrorStructuredFields? = nil
+    ) {
         self.message = message
         self.exitCode = exitCode
         self.v2Code = v2Code
+        self.structuredFields = structuredFields
     }
 
     var description: String { message }
+}
+
+struct CLIErrorStructuredFields: Sendable {
+    var provider: String? = nil
+    var path: String? = nil
+    var scope: String? = nil
+    var sessionID: String? = nil
+    var observedBytes: Int64? = nil
+    var maximumBytes: Int64? = nil
+    var observedCount: Int64? = nil
+    var maximumCount: Int64? = nil
+    var guidance: String? = nil
+    var recoveryAction: String? = nil
+    var canonicalPath: String? = nil
+    var limit: Int? = nil
+    var observedAtLeast: Int? = nil
+    var maximumRecordBytes: Int? = nil
+
+    var jsonObject: [String: Any] {
+        var object: [String: Any] = [:]
+        object["provider"] = (provider as Any?) ?? NSNull()
+        object["path"] = (path as Any?) ?? NSNull()
+        object["scope"] = (scope as Any?) ?? NSNull()
+        object["session_id"] = (sessionID as Any?) ?? NSNull()
+        object["observed_bytes"] = (observedBytes as Any?) ?? NSNull()
+        object["maximum_bytes"] = (maximumBytes as Any?) ?? NSNull()
+        object["observed_count"] = (observedCount as Any?) ?? NSNull()
+        object["maximum_count"] = (maximumCount as Any?) ?? NSNull()
+        if let guidance { object["guidance"] = guidance }
+        if let recoveryAction { object["recovery_action"] = recoveryAction }
+        if let canonicalPath { object["canonical_path"] = canonicalPath }
+        if let limit { object["limit"] = limit }
+        if let observedAtLeast { object["observed_at_least"] = observedAtLeast }
+        if let maximumRecordBytes { object["maximum_record_bytes"] = maximumRecordBytes }
+        return object
+    }
 }
 
 struct WindowInfo {

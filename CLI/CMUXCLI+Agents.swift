@@ -230,33 +230,128 @@ extension CMUXCLI {
         case sessions
     }
 
+    private enum AgentsCommandOutputShape: String {
+        case list
+        case tree
+    }
+
     func runAgentsCommand(
         commandArgs: [String],
         jsonOutput: Bool,
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
         terminalObservations: [CmuxAgentTerminalObservation] = [],
-        invocation: AgentsCommandInvocation = .agents
+        invocation: AgentsCommandInvocation = .agents,
+        runtimeInspectionError: Error? = nil,
+        runtimeSocketPath: String? = nil
     ) throws {
         let subcommand = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if subcommand == "tree" {
-            try runAgentsTreeCommand(
-                commandArgs: Array(commandArgs.dropFirst()),
+        let outputShape: AgentsCommandOutputShape = subcommand == "tree" ? .tree : .list
+        let structuredOutputRequested = jsonOutput || commandArgs.contains("--json")
+        do {
+            if let runtimeInspectionError {
+                throw agentsRuntimeUnavailableCLIError(
+                    runtimeInspectionError,
+                    socketPath: runtimeSocketPath
+                )
+            }
+            if outputShape == .tree {
+                try runAgentsTreeCommand(
+                    commandArgs: Array(commandArgs.dropFirst()),
+                    jsonOutput: jsonOutput,
+                    processEnv: processEnv,
+                    fileManager: fileManager,
+                    terminalObservations: terminalObservations
+                )
+                return
+            }
+            try runSessionsCommand(
+                commandArgs: commandArgs,
                 jsonOutput: jsonOutput,
                 processEnv: processEnv,
                 fileManager: fileManager,
-                terminalObservations: terminalObservations
+                terminalObservations: terminalObservations,
+                invocation: invocation
             )
-            return
+        } catch {
+            let commandError = agentsCommandError(
+                error,
+                invocation: invocation,
+                outputShape: outputShape
+            )
+            if structuredOutputRequested {
+                agentsWriteStructuredError(commandError, outputShape: outputShape)
+            }
+            throw commandError
         }
-        try runSessionsCommand(
-            commandArgs: commandArgs,
-            jsonOutput: jsonOutput,
-            processEnv: processEnv,
-            fileManager: fileManager,
-            terminalObservations: terminalObservations,
-            invocation: invocation
+    }
+
+    private func agentsRuntimeUnavailableCLIError(
+        _ error: Error,
+        socketPath: String?
+    ) -> CLIError {
+        let source = error as? CLIError ?? CLIError(message: String(describing: error))
+        return CLIError(
+            message: source.message,
+            exitCode: source.exitCode,
+            v2Code: "agent_runtime_unavailable",
+            structuredFields: CLIErrorStructuredFields(path: socketPath)
         )
+    }
+
+    private func agentsCommandError(
+        _ error: Error,
+        invocation: AgentsCommandInvocation,
+        outputShape: AgentsCommandOutputShape
+    ) -> CLIError {
+        let source = error as? CLIError ?? CLIError(
+            message: String(describing: error),
+            v2Code: "internal_error"
+        )
+        let targetPrefix = "\(invocation.rawValue) \(outputShape.rawValue):"
+        let knownPrefixes = [
+            "agents list:",
+            "sessions list:",
+            "agents tree:",
+            "sessions tree:",
+            "agents:",
+            "sessions:",
+        ]
+        let message: String
+        if let prefix = knownPrefixes.first(where: { source.message.hasPrefix($0) }) {
+            message = targetPrefix + String(source.message.dropFirst(prefix.count))
+        } else if source.message.hasPrefix(targetPrefix) {
+            message = source.message
+        } else {
+            message = "\(targetPrefix) \(source.message)"
+        }
+        return CLIError(
+            message: message,
+            exitCode: source.exitCode,
+            v2Code: source.v2Code,
+            structuredFields: source.structuredFields
+        )
+    }
+
+    private func agentsWriteStructuredError(
+        _ error: CLIError,
+        outputShape: AgentsCommandOutputShape
+    ) {
+        var structuredError = error.structuredFields?.jsonObject ?? [:]
+        structuredError["code"] = error.v2Code ?? "invalid_arguments"
+        structuredError["message"] = error.message
+        var payload: [String: Any] = [
+            "schema_version": 2,
+            "error": structuredError,
+        ]
+        switch outputShape {
+        case .list:
+            payload["sessions"] = []
+        case .tree:
+            payload["nodes"] = []
+            payload["edges"] = []
+        }
+        cliWriteStdout(jsonString(payload) + "\n")
     }
 
     func agentsUsage() -> String {
@@ -334,8 +429,7 @@ extension CMUXCLI {
 
     func agentsStoreLoadCLIError(
         _ failure: AgentHookSessionStoreLoadFailure,
-        context: AgentsValueOptionContext,
-        jsonOutput: Bool
+        context: AgentsValueOptionContext
     ) -> CLIError {
         let isTreeContext = switch context {
         case .tree: true
@@ -480,48 +574,60 @@ extension CMUXCLI {
             )
         }
 
-        if jsonOutput {
-            var error: [String: Any] = [
-                "code": externalCode,
-                "provider": failure.provider,
-                "path": failure.path,
-                "scope": failure.scope?.rawValue ?? NSNull(),
-                "session_id": failure.sessionID ?? NSNull(),
-                "observed_bytes": failure.observedBytes ?? NSNull(),
-                "maximum_bytes": failure.maximumBytes ?? NSNull(),
-                "observed_count": failure.observedCount ?? NSNull(),
-                "maximum_count": failure.maximumCount ?? NSNull(),
-                "message": message,
-            ]
-            if let storageGuidance {
-                error["guidance"] = storageGuidance
-                error["recovery_action"] = if isGraphBudget {
-                    "narrow_graph_selection"
-                } else if isLegacyStorageLimit {
-                    "move_legacy_file_aside"
-                } else {
-                    "narrow_agent_selection"
-                }
-            }
-            if let canonicalPath { error["canonical_path"] = canonicalPath }
+        let recoveryAction: String? = if storageGuidance != nil {
             if isGraphBudget {
-                error["limit"] = failure.maximumCount ?? NSNull()
-                error["observed_at_least"] = failure.observedCount ?? NSNull()
+                "narrow_graph_selection"
+            } else if isLegacyStorageLimit {
+                "move_legacy_file_aside"
+            } else {
+                "narrow_agent_selection"
             }
-            var payload: [String: Any] = [
-                "schema_version": 2,
-                "error": error,
-            ]
-            switch context {
-            case .agentsList, .sessionsList:
-                payload["sessions"] = []
-            case .tree:
-                payload["nodes"] = []
-                payload["edges"] = []
-            }
-            cliWriteStdout(jsonString(payload) + "\n")
+        } else {
+            nil
         }
-        return CLIError(message: message, v2Code: externalCode)
+        return CLIError(
+            message: message,
+            v2Code: externalCode,
+            structuredFields: CLIErrorStructuredFields(
+                provider: failure.provider,
+                path: failure.path,
+                scope: failure.scope?.rawValue,
+                sessionID: failure.sessionID,
+                observedBytes: failure.observedBytes,
+                maximumBytes: failure.maximumBytes,
+                observedCount: failure.observedCount,
+                maximumCount: failure.maximumCount,
+                guidance: storageGuidance,
+                recoveryAction: recoveryAction,
+                canonicalPath: canonicalPath,
+                limit: isGraphBudget ? failure.maximumCount.flatMap(Int.init(exactly:)) : nil,
+                observedAtLeast: isGraphBudget ? failure.observedCount.flatMap(Int.init(exactly:)) : nil
+            )
+        )
+    }
+
+    func agentsStateUnavailableCLIError(
+        stateDirectory: String,
+        context: AgentsValueOptionContext
+    ) -> CLIError {
+        let commandName = switch context {
+        case .agentsList: "agents list"
+        case .sessionsList: "sessions list"
+        case .tree: "agents tree"
+        }
+        let message = String(
+            format: String(
+                localized: "cli.agents.error.stateUnavailable",
+                defaultValue: "%@: saved agent state at %@ is unavailable"
+            ),
+            commandName,
+            stateDirectory
+        )
+        return CLIError(
+            message: message,
+            v2Code: "agent_state_unavailable",
+            structuredFields: CLIErrorStructuredFields(path: stateDirectory)
+        )
     }
 
     func sessionsListEncodableJSONObject<T: Encodable>(_ value: T) -> Any {
