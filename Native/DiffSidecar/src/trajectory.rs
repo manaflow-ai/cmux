@@ -1245,6 +1245,56 @@ mod environment_tests {
     }
 
     #[test]
+    fn bounded_file_reader_rejects_growth_before_allocating_the_tail() {
+        let path = std::env::temp_dir().join(format!(
+            "cmux-hook-store-limit-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let file = File::create(&path).expect("create sparse hook store");
+        file.set_len(1_025).expect("grow sparse hook store");
+
+        assert!(read_file_capped(&path, 1_024).is_none());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn claude_fallback_scan_is_cancellable_and_fails_closed_past_its_cap() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-claude-scan-limit-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let projects = root.join("projects");
+        for index in 0..3 {
+            std::fs::create_dir_all(projects.join(format!("project-{index}")))
+                .expect("create project directory");
+        }
+        std::fs::write(projects.join("project-2/session.jsonl"), b"{}\n")
+            .expect("write transcript");
+        let cancellation = TrajectoryCancellation::default();
+
+        assert!(find_claude_transcript_with_limit(
+            &projects,
+            "session",
+            &cancellation,
+            2
+        )
+        .is_none());
+        cancellation.cancel();
+        assert!(find_claude_transcript_with_limit(
+            &projects,
+            "session",
+            &cancellation,
+            8
+        )
+        .is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn claude_specific_hook_path_wins_and_expands_home() {
         let values = HashMap::from([
             ("HOME", OsString::from("/tmp/cmux-home")),

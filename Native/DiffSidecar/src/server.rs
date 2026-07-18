@@ -2446,6 +2446,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[tokio::test]
+    async fn periodic_sweeper_prunes_orphans_without_restarting_rpc() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-periodic-orphan-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+        let orphan = root.join(format!("diff-session-{}.patch", uuid::Uuid::new_v4()));
+        std::fs::write(&orphan, b"abandoned diff").expect("write orphan");
+        register_session_temp(&root, &orphan).expect("register orphan");
+
+        let sweeper = tokio::spawn(sweep_orphaned_sessions_periodically(
+            root.clone(),
+            Duration::from_millis(5),
+            Duration::ZERO,
+            Duration::ZERO,
+            16,
+        ));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while orphan.exists() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("periodic sweep removes orphan");
+        sweeper.abort();
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn session_lease_lock_errors_preserve_session_files() {
         assert!(session_lease_lock_is_active(&Err(
