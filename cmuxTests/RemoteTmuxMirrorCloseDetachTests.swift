@@ -91,6 +91,24 @@ import Testing
         controller.cacheConnection(connection)
         #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
         let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        let keepWorkspaceOpenKey = "closeWorkspaceOnLastSurfaceShortcut"
+        let previousKeepWorkspaceOpen = UserDefaults.standard.object(forKey: keepWorkspaceOpenKey)
+        UserDefaults.standard.set(false, forKey: keepWorkspaceOpenKey)
+        defer {
+            if let previousKeepWorkspaceOpen {
+                UserDefaults.standard.set(previousKeepWorkspaceOpen, forKey: keepWorkspaceOpenKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: keepWorkspaceOpenKey)
+            }
+        }
+        let mirrorPanelID = try #require(mirrorWorkspace.focusedPanelId)
+        let mirrorSurfaceID = try #require(mirrorWorkspace.surfaceIdFromPanelId(mirrorPanelID))
+        mirrorWorkspace.markTabCloseButtonClose(surfaceId: mirrorSurfaceID)
+        #expect(!mirrorWorkspace.markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(
+            surfaceId: mirrorSurfaceID,
+            tabStripClose: true,
+            tabCloseButton: true
+        ))
         harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
         #expect(harness.manager.tabs.map(\.id) == [mirrorWorkspace.id])
         #expect(!connection.exited)
