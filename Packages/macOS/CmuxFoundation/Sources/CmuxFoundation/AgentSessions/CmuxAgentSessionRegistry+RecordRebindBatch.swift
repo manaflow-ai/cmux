@@ -16,6 +16,24 @@ extension CmuxAgentSessionRegistry {
             database = nil
         }
 
+        /// Returns one canonical record from the batch transaction.
+        ///
+        /// Callers that perform an external preflight can compare this row with
+        /// their exact generation token before applying a related rebind. The
+        /// lookup and any subsequent mutation then share the same SQLite
+        /// transaction, closing the preflight-to-commit race.
+        public func record(
+            provider: String,
+            sessionID: String
+        ) throws -> Record? {
+            guard let database else { throw CocoaError(.fileReadUnknown) }
+            return try registry.readRecord(
+                database: database,
+                provider: provider,
+                sessionID: sessionID
+            )
+        }
+
         /// Returns the session that owns an active slot inside this batch's transaction.
         ///
         /// - Parameters:

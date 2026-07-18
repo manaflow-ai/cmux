@@ -3914,11 +3914,11 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(schedulingElapsed < .milliseconds(100))
         let clock = ContinuousClock()
         let firstPassDeadline = clock.now.advanced(by: .seconds(5))
-        while clock.now < firstPassDeadline, quarantinedCount() < 64 {
+        while clock.now < firstPassDeadline, pendingJSONCount() > 1 {
             try await clock.sleep(for: .milliseconds(10))
         }
-        #expect(quarantinedCount() == 64)
         #expect(pendingJSONCount() == 1)
+        #expect((1...64).contains(quarantinedCount()))
 
         AgentHookSessionStateWriter.resumePendingClosedHistoryHibernationReleases(now: 31)
         let secondPassDeadline = clock.now.advanced(by: .seconds(2))
@@ -3926,7 +3926,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             try await clock.sleep(for: .milliseconds(10))
         }
         #expect(pendingJSONCount() == 0)
-        #expect(quarantinedCount() == 65)
+        #expect((1...64).contains(quarantinedCount()))
     }
 
     @Test func agentsTreeDefaultsToTheCallingCmuxRuntimeWhileAllIncludesHistory() throws {

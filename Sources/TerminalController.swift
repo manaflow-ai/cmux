@@ -384,6 +384,7 @@ class TerminalController {
         )
         self.socketServer = socketServer
         AgentHookRuntimeSocketState.install(socketServer: socketServer)
+        AgentHookSessionStateWriter.resumePendingClosedHistoryHibernationReleases()
         // Single consumer of the accepted-connection stream, detached so
         // accepts never funnel through the main actor. Each connection still
         // gets a dedicated thread: command bodies block (main-thread sync

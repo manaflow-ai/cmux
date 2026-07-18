@@ -5137,16 +5137,23 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let workspaceId = id
         let requiresDurableAuthority = agentHookBinding != nil
+        let hibernatedAtTimestamp = max(
+            Date().timeIntervalSince1970,
+            agentHookBinding?.updatedAt ?? -.infinity
+        )
+        let hibernatedAt = Date(timeIntervalSince1970: hibernatedAtTimestamp)
         guard await terminalPanel.enterAgentHibernation(
             agent: agent,
             lastActivityAt: lastActivityAt,
+            hibernatedAt: hibernatedAt,
             finalValidation: finalValidation,
             finalCommit: {
                 guard requiresDurableAuthority else { return true }
                 return AgentHookSessionStateWriter.establishHibernatedAuthority(
                     agent: agent,
                     workspaceId: workspaceId,
-                    surfaceId: panelId
+                    surfaceId: panelId,
+                    now: hibernatedAtTimestamp
                 ) == .acquired
             }
         ) else {
