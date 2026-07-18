@@ -489,6 +489,151 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func alreadyEndedPromptStopIsRejectedWithoutClearingAReplacement() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-ended-stop-replacement-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        let pid = Int(process.processIdentifier)
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("hook-sessions.json").path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+        ], agentName: "codex")
+        #expect(try store.upsert(
+            sessionId: "ended-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            markActive: true
+        ))
+        _ = try #require(try store.consume(
+            sessionId: "ended-session",
+            workspaceId: nil,
+            surfaceId: nil
+        ))
+        #expect(try store.upsert(
+            sessionId: "replacement-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            markActive: true
+        ))
+
+        let staleStop = try store.upsertPromptStop(
+            sessionId: "ended-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid
+        )
+
+        #expect(!staleStop.accepted)
+        #expect(!staleStop.completedGeneration)
+        #expect(staleStop.completionReason == nil)
+        #expect(!staleStop.clearedActiveBoundary)
+        #expect(store.snapshot().activeSessionsByWorkspace["workspace-a"]?.sessionId == "replacement-session")
+        #expect(store.snapshot().activeSessionsBySurface["surface-a"]?.sessionId == "replacement-session")
+        let replacement = try #require(try store.lookup(sessionId: "replacement-session"))
+        #expect(replacement.completedAt == nil)
+        #expect(replacement.restoreAuthority == true)
+    }
+
+    @Test func reusedPIDStopCompletesOldRecordWithoutClearingTheLiveReplacement() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-reused-stop-replacement-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        let pid = Int(process.processIdentifier)
+        let liveStartedAt = try #require(AgentHookSessionLineageResolver().resolve(
+            agentName: "codex",
+            sessionId: "replacement-session",
+            pid: pid,
+            environment: [:]
+        ).processStartedAt)
+        let recordedStartedAt = liveStartedAt - 10
+        let stateURL = root.appendingPathComponent("hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": ["old-session": [
+                "sessionId": "old-session",
+                "workspaceId": "workspace-a",
+                "surfaceId": "surface-a",
+                "pid": pid,
+                "activeRunId": "old-generation",
+                "runId": "old-generation",
+                "restoreAuthority": true,
+                "sessionState": "active",
+                "startedAt": recordedStartedAt,
+                "updatedAt": recordedStartedAt,
+                "runs": [[
+                    "runId": "old-generation",
+                    "pid": pid,
+                    "processStartedAt": recordedStartedAt,
+                    "restoreAuthority": true,
+                    "startedAt": recordedStartedAt,
+                    "updatedAt": recordedStartedAt,
+                ]],
+            ]],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+        ], agentName: "codex")
+        #expect(try store.upsert(
+            sessionId: "replacement-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            markActive: true
+        ))
+
+        let staleStop = try store.upsertPromptStop(
+            sessionId: "old-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid
+        )
+
+        #expect(!staleStop.accepted)
+        #expect(staleStop.completedGeneration)
+        #expect(staleStop.completionReason == .processIdentityChanged)
+        #expect(!staleStop.clearedActiveBoundary)
+        #expect(store.snapshot().activeSessionsByWorkspace["workspace-a"]?.sessionId == "replacement-session")
+        #expect(store.snapshot().activeSessionsBySurface["surface-a"]?.sessionId == "replacement-session")
+        let replacement = try #require(try store.lookup(sessionId: "replacement-session"))
+        #expect(replacement.completedAt == nil)
+        #expect(replacement.restoreAuthority == true)
+        let old = try #require(try store.lookup(sessionId: "old-session"))
+        #expect(old.completedAt != nil)
+        #expect(old.restoreAuthority == false)
+    }
+
     @Test func rejectedLaunchSourceIsNonRestorableAcrossListTreeAndForkDiagnostics() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
