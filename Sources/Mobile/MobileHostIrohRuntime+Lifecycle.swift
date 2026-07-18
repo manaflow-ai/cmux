@@ -278,6 +278,7 @@ extension MobileHostIrohRuntime {
                 "Iroh binding quarantine persistence failed; account state retained"
             )
         }
+        await diagnosticLog.clear()
     }
 
     func prepareWithoutRuntime() async -> CmxIrohHostSignOutPreparation {
