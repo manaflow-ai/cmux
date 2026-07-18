@@ -87,6 +87,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `rename-screen` | implemented | `--screen <id> --name <name>` | none | none |
 | `rename-workspace` | implemented | `--workspace <id> --name <name>` | none | none |
 | `resize-surface` | implemented | `--surface <id> --cols <n> --rows <n>` | none | none |
+| `release-surface-size` | implemented | `--surface <id>` | none | none |
 | `focus-pane` | implemented | `--pane <id>` | none | none |
 | `select-tab` | implemented | one of `--index`, `--delta` | `--pane <id>` | none |
 | `select-screen` | implemented | one of `--index`, `--delta` | none | none |

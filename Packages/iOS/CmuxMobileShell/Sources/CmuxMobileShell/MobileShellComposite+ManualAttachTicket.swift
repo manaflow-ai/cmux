@@ -111,7 +111,8 @@ extension MobileShellComposite {
             allowsStackAuthFallback: true,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
-            stackTokenForceRefreshGate: stackTokenForceRefreshGate
+            stackTokenForceRefreshGate: stackTokenForceRefreshGate,
+            transportConnectObserver: transportConnectDiagnosticObserver
         )
         let timeoutNanoseconds: UInt64
         if let attemptStartedAt {

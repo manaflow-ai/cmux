@@ -200,6 +200,9 @@ extension TerminalSurface {
         guard portalLifecycleState != .closing else { return }
         recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
+        // Parked wake-ups are for re-anchoring live content; a closing surface
+        // has none, and the park guard refuses new entries from here on.
+        clearPortalHostVacancyRetries()
         portalLifecycleGeneration &+= 1
 #if DEBUG
         logDebugEvent(
@@ -214,6 +217,7 @@ extension TerminalSurface {
         guard portalLifecycleState != .closed else { return }
         portalLifecycleState = .closed
         portalLifecycleGeneration &+= 1
+        clearPortalHostVacancyRetries()
 #if DEBUG
         logDebugEvent(
             "surface.lifecycle.close.sealed surface=\(id.uuidString.prefix(5)) " +
@@ -338,6 +342,12 @@ extension TerminalSurface {
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         let transferredSurface = transferRuntimeSurfaceForAgentHibernation()
         precondition(transferredSurface == surfaceToFree)
+        // A queued vacancy retry may otherwise re-bind this model while its
+        // native pointer is provisionally owned by the teardown lane. Advancing
+        // the portal generation makes every pre-hibernation retry stale before
+        // final validation can suspend.
+        clearPortalHostVacancyRetries()
+        portalLifecycleGeneration &+= 1
 
 #if DEBUG
         logDebugEvent(

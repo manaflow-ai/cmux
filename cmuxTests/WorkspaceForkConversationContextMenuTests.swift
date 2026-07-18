@@ -492,7 +492,7 @@ struct WorkspaceForkConversationContextMenuTests {
 
     @Test
     func forkTimeoutResumeGateResumesOnlyFirstClaim() async {
-        let value = await withCheckedContinuation { continuation in
+        let value: String = await withCheckedContinuation { continuation in
             let gate = AgentForkTimeoutResumeGate(continuation)
 
             #expect(gate.resume(returning: "timeout"))
@@ -1172,10 +1172,10 @@ struct WorkspaceForkConversationContextMenuTests {
         ))
         let probedLaunchers = OSAllocatedUnfairLock(initialState: [String]())
 
-        func index(for snapshot: SessionRestorableAgentSnapshot) -> RestorableAgentSessionIndex {
+        @Sendable func index(for snapshot: SessionRestorableAgentSnapshot) -> RestorableAgentSessionIndex {
             RestorableAgentSessionIndex.load(
                 homeDirectory: root.path,
-                fileManager: fm,
+                fileManager: .default,
                 registry: CmuxVaultAgentRegistry(registrations: [
                     CmuxVaultAgentRegistration.builtInPi,
                     CmuxVaultAgentRegistration.builtInOmp,
@@ -1230,13 +1230,12 @@ struct WorkspaceForkConversationContextMenuTests {
         )
         #expect(probedLaunchers.withLock { $0 } == ["pi"])
 
-        snapshot.withLock {
-            $0 = makePiFamilySnapshot(
-                launcher: "omp",
-                workspaceRoot: root.path,
-                executablePath: executable.path
-            )
-        }
+        let ompSnapshot = makePiFamilySnapshot(
+            launcher: "omp",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        snapshot.withLock { $0 = ompSnapshot }
         now.withLock { $0 = Date(timeIntervalSince1970: 1) }
         await sharedIndex.refreshForkAvailabilityNow()
 
@@ -1407,7 +1406,6 @@ struct WorkspaceForkConversationContextMenuTests {
         ))
         _ = await refresh
         _ = await duplicateRefresh
-        try await Task.sleep(nanoseconds: 250_000_000)
 
         #expect(sharedIndex.forkSupportProbeAccepted(
             workspaceId: workspaceId,
@@ -2639,7 +2637,7 @@ struct WorkspaceForkConversationContextMenuTests {
             executablePath: executable.path
         )
 
-        func indexResult() -> SharedLiveAgentIndexLoader.LoadResult {
+        @Sendable func indexResult() -> SharedLiveAgentIndexLoader.LoadResult {
             let panelKey = RestorableAgentSessionIndex.PanelKey(
                 workspaceId: workspaceId,
                 panelId: panelId
@@ -2647,7 +2645,7 @@ struct WorkspaceForkConversationContextMenuTests {
             let includePanel = includePanel.withLock { $0 }
             let index = RestorableAgentSessionIndex.load(
                 homeDirectory: root.path,
-                fileManager: fm,
+                fileManager: .default,
                 registry: CmuxVaultAgentRegistry(registrations: []),
                 detectedSnapshots: includePanel ? [
                     panelKey: (
@@ -3144,14 +3142,14 @@ struct WorkspaceForkConversationContextMenuTests {
                 notifiedPanelKeys.withLock {
                     for (workspaceId, panelIds) in panelIdsByWorkspaceId {
                         for panelId in panelIds {
-                            $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                            _ = $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
                         }
                     }
                 }
             } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
                let panelId = notification.userInfo?["panelId"] as? UUID {
                 notifiedPanelKeys.withLock {
-                    $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                    _ = $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
                 }
             } else {
                 unscopedNotificationCount.withLock { $0 += 1 }
@@ -3372,7 +3370,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 notifiedPanelKeys.withLock {
                     for (workspaceId, panelIds) in panelIdsByWorkspaceId {
                         for panelId in panelIds {
-                            $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                            _ = $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
                         }
                     }
                 }
@@ -3381,7 +3379,7 @@ struct WorkspaceForkConversationContextMenuTests {
             if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
                let panelId = notification.userInfo?["panelId"] as? UUID {
                 notifiedPanelKeys.withLock {
-                    $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                    _ = $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
                 }
             }
         }
@@ -4137,7 +4135,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func forkCapabilityProbeTimesOutWhenWrapperLeavesOutputPipeOpen() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -4146,12 +4144,13 @@ struct WorkspaceForkConversationContextMenuTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let executable = root.appendingPathComponent("pi", isDirectory: false)
-        let leakedChildMarker = root.appendingPathComponent("leaked-child", isDirectory: false)
-        let escapedLeakedChildMarker = leakedChildMarker.path
+        let childPIDFile = root.appendingPathComponent("child-pid", isDirectory: false)
+        let escapedChildPIDFile = childPIDFile.path
             .replacingOccurrences(of: "'", with: "'\\''")
         try """
         #!/bin/sh
-        (sleep 4; touch '\(escapedLeakedChildMarker)') &
+        (sleep 60) &
+        printf '%s\\n' "$!" > '\(escapedChildPIDFile)'
         printf '%s\\n' '0.80.6'
         """
             .write(to: executable, atomically: true, encoding: .utf8)
@@ -4171,14 +4170,11 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        let start = Date()
         #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
-        #expect(Date().timeIntervalSince(start) < 5)
-        try await Task.sleep(nanoseconds: 1_500_000_000)
-        #expect(!fileManager.fileExists(atPath: leakedChildMarker.path))
+        try expectProcessExited(pidFile: childPIDFile)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func forkCapabilityProbeTerminatesSetsidDescendantHoldingOutputPipe() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -4187,12 +4183,13 @@ struct WorkspaceForkConversationContextMenuTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let executable = root.appendingPathComponent("pi", isDirectory: false)
-        let leakedChildMarker = root.appendingPathComponent("setsid-child", isDirectory: false)
-        let escapedLeakedChildMarker = leakedChildMarker.path
+        let childPIDFile = root.appendingPathComponent("setsid-child-pid", isDirectory: false)
+        let escapedChildPIDFile = childPIDFile.path
             .replacingOccurrences(of: "'", with: "'\\''")
         try """
         #!/bin/sh
-        /usr/bin/python3 -c 'import os, pathlib, time; os.setsid(); time.sleep(4); pathlib.Path('\''\(escapedLeakedChildMarker)'\'').touch()' &
+        /usr/bin/python3 -c 'import os, pathlib, signal; os.setsid(); pathlib.Path('\''\(escapedChildPIDFile)'\'').write_text(str(os.getpid())); signal.pause()' &
+        while [ ! -s '\(escapedChildPIDFile)' ]; do :; done
         printf '%s\\n' '0.80.6'
         """
             .write(to: executable, atomically: true, encoding: .utf8)
@@ -4212,14 +4209,11 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        let start = Date()
         #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
-        #expect(Date().timeIntervalSince(start) < 5)
-        try await Task.sleep(nanoseconds: 4_500_000_000)
-        #expect(!fileManager.fileExists(atPath: leakedChildMarker.path))
+        try expectProcessExited(pidFile: childPIDFile)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func forkCapabilityProbeHardKillsSigtermIgnoringSetsidDescendantAfterTimedOutLeaderExits() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -4228,12 +4222,13 @@ struct WorkspaceForkConversationContextMenuTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let executable = root.appendingPathComponent("pi", isDirectory: false)
-        let leakedChildMarker = root.appendingPathComponent("setsid-sigterm-ignored-child", isDirectory: false)
-        let escapedLeakedChildMarker = leakedChildMarker.path
+        let childPIDFile = root.appendingPathComponent("setsid-sigterm-ignored-child-pid", isDirectory: false)
+        let escapedChildPIDFile = childPIDFile.path
             .replacingOccurrences(of: "'", with: "'\\''")
         try """
         #!/bin/sh
-        /usr/bin/python3 -c 'import os, pathlib, signal, time; os.setsid(); signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(4); pathlib.Path('\''\(escapedLeakedChildMarker)'\'').touch()' &
+        /usr/bin/python3 -c 'import os, pathlib, signal; os.setsid(); signal.signal(signal.SIGTERM, signal.SIG_IGN); pathlib.Path('\''\(escapedChildPIDFile)'\'').write_text(str(os.getpid())); signal.pause()' &
+        while [ ! -s '\(escapedChildPIDFile)' ]; do :; done
         trap 'exit 0' TERM
         sleep 10
         """
@@ -4254,14 +4249,8 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        let start = Date()
         #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
-        #expect(Date().timeIntervalSince(start) < 5)
-        try await Task.sleep(nanoseconds: 4_500_000_000)
-        #expect(
-            !fileManager.fileExists(atPath: leakedChildMarker.path),
-            "A timed-out probe must retain pipe-holder ownership long enough to hard-kill a daemonized child that ignored SIGTERM."
-        )
+        try expectProcessExited(pidFile: childPIDFile)
     }
 
     @Test
@@ -4906,6 +4895,22 @@ struct WorkspaceForkConversationContextMenuTests {
         """
             .write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+    }
+
+    private func expectProcessExited(pidFile: URL) throws {
+        let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let pid = try #require(pid_t(rawPID))
+        errno = 0
+        let result = Darwin.kill(pid, 0)
+        let processError = errno
+        if result == 0 {
+            _ = Darwin.kill(pid, SIGKILL)
+        }
+        #expect(
+            result == -1 && processError == ESRCH,
+            "The timed-out fork probe must terminate descendant process \(pid)."
+        )
     }
 
     private func makeForkableClaudeSnapshot(

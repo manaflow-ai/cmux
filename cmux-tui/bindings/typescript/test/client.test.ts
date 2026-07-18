@@ -437,6 +437,7 @@ test("listClients returns the exact client presence response shape", async () =>
     attached: [31],
     sizes: [{ surface: 31, cols: 126, rows: 38 }],
     self: true,
+    size_participating: true,
   }];
   const transport = new ScriptedTransport((request, connection) => {
     assert.deepEqual(request, { id: 1, cmd: "list-clients" });
@@ -445,6 +446,39 @@ test("listClients returns the exact client presence response shape", async () =>
   const client = new CmuxClient({ transport });
 
   assert.deepEqual(await client.listClients(), response);
+  await client.close();
+});
+
+test("setClientSizing serializes client participation", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, {
+      id: 1,
+      cmd: "set-client-sizing",
+      client: 7,
+      enabled: false,
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.setClientSizing(7, false);
+  await client.close();
+});
+
+test("client sizing modes serialize as one atomic command", async () => {
+  const expected = [
+    { id: 1, cmd: "set-client-sizing", client: 7, enabled: true, exclusive: true },
+    { id: 2, cmd: "set-client-sizing", enabled: true },
+  ];
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, expected.shift());
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.useOnlyClientSizing(7);
+  await client.useAllClientSizing();
+  assert.equal(expected.length, 0);
   await client.close();
 });
 

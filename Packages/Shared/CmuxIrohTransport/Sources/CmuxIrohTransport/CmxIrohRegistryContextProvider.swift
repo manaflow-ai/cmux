@@ -11,15 +11,16 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
 
     let supervisor: CmxIrohEndpointSupervisor
     let broker: any CmxIrohRegistryServing
-    let localBindingExpectation: CmxIrohLocalBindingExpectation
-    let managedRelayURLs: Set<String>
-    let allowedRouteRelayURLs: Set<String>
+    var localBindingExpectation: CmxIrohLocalBindingExpectation
+    var managedRelayURLs: Set<String>
+    var allowedRouteRelayURLs: Set<String>
     let networkPathSnapshot: (@Sendable () async throws -> CmxIrohNetworkPathSnapshot)?
-    let offlinePolicy: CmxIrohClientOfflinePolicyContext?
+    var offlinePolicy: CmxIrohClientOfflinePolicyContext?
     let lanFallback: LANFallbackProvider?
     let verifier: CmxIrohGrantVerifier
     let now: @Sendable () -> Date
     var grantCache: [CmxIrohPeerIdentity: CmxIrohRegistryGrantCache] = [:]
+    var pairGrantRetryDeadline: (code: String?, date: Date)?
     var lanAuthorities: [CmxIrohPeerIdentity: CmxIrohRegistryLANAuthority] = [:]
 
     /// Creates a public-route provider from the generation-less seam.
@@ -183,6 +184,26 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             pairGrantToken: pairGrant.grant,
             at: clock
         )
+    }
+
+    /// Replaces broker-verified route policy without replacing this provider's
+    /// grant cache or server retry deadline. Runtime registration refreshes are
+    /// frequent, while pair grants remain valid for days and broker rate limits
+    /// apply across those refresh generations.
+    func updatePolicy(
+        localBindingExpectation: CmxIrohLocalBindingExpectation,
+        managedRelayURLs: Set<String>,
+        allowedRouteRelayURLs: Set<String>,
+        offlinePolicy: CmxIrohClientOfflinePolicyContext?
+    ) {
+        if self.localBindingExpectation != localBindingExpectation {
+            grantCache.removeAll(keepingCapacity: false)
+            lanAuthorities.removeAll(keepingCapacity: false)
+        }
+        self.localBindingExpectation = localBindingExpectation
+        self.managedRelayURLs = managedRelayURLs
+        self.allowedRouteRelayURLs = allowedRouteRelayURLs
+        self.offlinePolicy = offlinePolicy
     }
 
     private func context(
@@ -436,10 +457,32 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 grantCache.removeValue(forKey: targetIdentity)
             }
         }
-        let response = try await broker.issuePairGrant(
-            initiatorBindingID: initiator.bindingID,
-            acceptorBindingID: acceptor.bindingID
-        )
+        if let deadline = pairGrantRetryDeadline {
+            let remaining = Int(ceil(deadline.date.timeIntervalSince(now)))
+            if remaining > 0 {
+                throw CmxIrohTrustBrokerClientError.rateLimited(
+                    code: deadline.code,
+                    retryAfterSeconds: remaining
+                )
+            }
+            pairGrantRetryDeadline = nil
+        }
+        let response: CmxIrohPairGrantResponse
+        do {
+            response = try await broker.issuePairGrant(
+                initiatorBindingID: initiator.bindingID,
+                acceptorBindingID: acceptor.bindingID
+            )
+            pairGrantRetryDeadline = nil
+        } catch let error as CmxIrohTrustBrokerClientError {
+            if case let .rateLimited(code, retryAfterSeconds) = error {
+                pairGrantRetryDeadline = (
+                    code: code,
+                    date: now.addingTimeInterval(TimeInterval(max(1, retryAfterSeconds)))
+                )
+            }
+            throw error
+        }
         let claims = try verifier.verifyPairGrant(
             response.grant,
             keys: keys,
