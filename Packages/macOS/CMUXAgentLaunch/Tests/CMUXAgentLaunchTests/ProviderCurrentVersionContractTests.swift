@@ -328,6 +328,189 @@ struct ProviderCurrentVersionContractTests {
         )
     }
 
+    @Test("Current provider root metadata flags always exit")
+    func currentProviderRootMetadataFlagsAlwaysExit() {
+        let providers: [(executable: String, launcher: String, kind: String, options: [String])] = [
+            ("claude", "claude", "claude", ["--help", "-h", "--version", "-v"]),
+            ("codex", "codex", "codex", ["--help", "-h", "--version", "-V"]),
+            ("grok", "grok", "grok", ["--help", "-h", "--version", "-v"]),
+            ("pi", "pi", "pi", ["--help", "-h", "--version", "-v"]),
+            ("omp", "omp", "omp", ["--help", "-h", "--version", "-v"]),
+            ("campfire", "campfire", "campfire", ["--help", "-h", "--version", "-v"]),
+            ("opencode", "opencode", "opencode", ["--help", "-h", "--version", "-v"]),
+            ("cursor-agent", "cursor", "cursor", ["--help", "-h", "--version", "-v"]),
+            ("kimi", "kimi", "kimi", ["--help", "-h", "--version"]),
+            ("hermes", "hermes-agent", "hermes-agent", ["--help", "-h", "--version", "-V"]),
+            ("gemini", "gemini", "gemini", ["--help", "-h", "--version"]),
+        ]
+
+        for provider in providers {
+            for option in provider.options {
+                let arguments = [provider.executable, option]
+                #expect(
+                    AgentLaunchModeClassifier.processMode(
+                        processName: provider.executable,
+                        arguments: arguments,
+                        kind: provider.kind
+                    ) == .nonSession,
+                    "\(provider.kind) \(option)"
+                )
+                #expect(
+                    AgentLaunchSanitizer.sanitizedLaunchArguments(
+                        arguments,
+                        launcher: provider.launcher,
+                        fallbackKind: provider.kind
+                    ) == nil,
+                    "\(provider.kind) \(option)"
+                )
+            }
+        }
+
+        for arguments in [
+            ["codex", "initial prompt", "--help"],
+            ["codex", "-i", "/tmp/a.png", "/tmp/b.png", "--help"],
+            ["codex", "resume", "019dad34-d218-7943-b81a-eddac5c87951", "--version"],
+            ["claude", "initial prompt", "--version"],
+        ] {
+            let kind = arguments[0]
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: kind,
+                    arguments: arguments,
+                    kind: kind
+                ) == .nonSession,
+                "late metadata \(arguments)"
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments,
+                    launcher: kind,
+                    fallbackKind: kind
+                ) == nil,
+                "late metadata \(arguments)"
+            )
+        }
+    }
+
+    @Test("Codex 0.144.3 interactive booleans preserve adjacent options")
+    func codexCurrentInteractiveBooleans() {
+        for option in [
+            "--strict-config",
+            "--oss",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--dangerously-bypass-hook-trust",
+            "--search",
+            "--no-alt-screen",
+        ] {
+            let arguments = ["codex", option, "--model", "gpt-5.4"]
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "codex", fallbackKind: "codex"
+                ) == arguments,
+                Comment(rawValue: option)
+            )
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "codex", arguments: arguments, kind: "codex"
+                ) == .interactive,
+                Comment(rawValue: option)
+            )
+        }
+    }
+
+    @Test("Pi 0.80.6 interactive booleans preserve adjacent options")
+    func piCurrentInteractiveBooleans() {
+        for option in [
+            "--no-tools", "-nt",
+            "--no-builtin-tools", "-nbt",
+            "--no-extensions", "-ne",
+            "--no-skills", "-ns",
+            "--no-prompt-templates", "-np",
+            "--no-themes",
+            "--no-context-files", "-nc",
+            "--approve", "-a",
+            "--no-approve", "-na",
+            "--offline",
+        ] {
+            let arguments = ["pi", option, "--model", "anthropic/claude-sonnet"]
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "pi", fallbackKind: "pi"
+                ) == arguments,
+                Comment(rawValue: option)
+            )
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "pi", arguments: arguments, kind: "pi"
+                ) == .interactive,
+                Comment(rawValue: option)
+            )
+        }
+    }
+
+    @Test("Grok 0.2.103 interactive booleans preserve adjacent options")
+    func grokCurrentInteractiveBooleans() {
+        for option in [
+            "--always-approve",
+            "--debug",
+            "--disable-web-search",
+            "--experimental-memory",
+            "--fullscreen",
+            "--minimal",
+            "--no-alt-screen",
+            "--no-memory",
+            "--no-plan",
+            "--no-subagents",
+            "--oauth",
+            "--verbatim",
+        ] {
+            let arguments = ["grok", option, "--model", "grok-code-fast-1"]
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "grok", fallbackKind: "grok"
+                ) == arguments,
+                Comment(rawValue: option)
+            )
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "grok", arguments: arguments, kind: "grok"
+                ) == .interactive,
+                Comment(rawValue: option)
+            )
+        }
+    }
+
+    @Test("OpenCode 1.18.3 root options preserve exact widths")
+    func openCodeCurrentRootOptions() {
+        for option in ["--print-logs", "--pure", "--mdns", "--auto", "--mini", "--no-replay"] {
+            let arguments = ["opencode", option, "--model", "openai/gpt-5.4"]
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "opencode", fallbackKind: "opencode"
+                ) == arguments,
+                Comment(rawValue: option)
+            )
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "opencode", arguments: arguments, kind: "opencode"
+                ) == .interactive,
+                Comment(rawValue: option)
+            )
+        }
+
+        let replayLimit = ["opencode", "--replay-limit", "40", "--model", "openai/gpt-5.4"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                replayLimit, launcher: "opencode", fallbackKind: "opencode"
+            ) == replayLimit
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "opencode", arguments: replayLimit, kind: "opencode"
+            ) == .interactive
+        )
+    }
+
     @Test("Long-lived protocol entrypoints distinguish commands that exit")
     func longLivedProtocolEntrypointsDistinguishCommandsThatExit() {
         for arguments in [

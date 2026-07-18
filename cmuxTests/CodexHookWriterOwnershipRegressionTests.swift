@@ -35,6 +35,9 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             ["--remote-auth-token-env", "CODEX_TOKEN", "plugin", "list"],
             ["--local-provider", "ollama", "plugin", "list"],
             ["--add-dir", "/tmp/source tree", "plugin", "list"],
+            ["initial prompt", "--help"],
+            ["-i", "/tmp/a.png", "/tmp/b.png", "--help"],
+            ["resume", "019dad34-d218-7943-b81a-eddac5c87951", "--version"],
         ]
         let sessionOrRootCases = [
             ["--add-dir", "/tmp/source tree", "fork", "019dad34-d218-7943-b81a-eddac5c87951"],
