@@ -844,6 +844,51 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return result
     }
 
+    func testQueuedCodexPromptReplayWithoutTurnIDKeepsSingleActiveDepth() throws {
+        let context = try makeClaudeHookContext(name: "codex-delivery-replay")
+        defer { context.cleanup() }
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [context.surfaceId],
+            connectionLimit: 32
+        )
+
+        let sessionID = "codex-delivery-replay-session"
+        let payload = """
+        {"session_id":"\(sessionID)","cwd":"\(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}
+        """
+        let replayEnvironment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
+            "CMUX_AGENT_HOOK_DELIVERY_ID": "codex-delivery-replay-without-turn",
+            "CMUX_AGENT_HOOK_SUPPRESS_INTERNAL_FEED": "1",
+            "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS": "1",
+            "CMUX_CODEX_PID": "424242",
+        ]
+
+        for _ in 0..<2 {
+            let result = runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "codex", "prompt-submit"],
+                standardInput: payload,
+                extraEnvironment: replayEnvironment
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(root["sessions"] as? [String: Any])
+        let session = try XCTUnwrap(sessions[sessionID] as? [String: Any])
+        XCTAssertEqual(
+            session["activePromptDepth"] as? Int,
+            1,
+            "Replaying one accepted delivery must not turn a top-level prompt into a nested prompt"
+        )
+    }
+
     func testClaudeForkSessionStartKeepsParentSessionBoundToOriginalSurface() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-session-start")
         defer { context.cleanup() }
