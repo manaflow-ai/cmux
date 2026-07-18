@@ -1961,6 +1961,94 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func boundedAgentListReadsOnlyRecentCandidatesAtTheInspectionCeiling() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-list-bounded-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try seedAuthoritativeAgentSessions(
+            count: 20_000,
+            provider: "codex",
+            registry: registry
+        )
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        let bounded = try AgentHookSessionRegistryBridge.boundedRecentSnapshotsForList(
+            specifications: [(provider: "codex", suffix: "codex")],
+            stateDirectory: root.path,
+            environment: environment,
+            fileManager: .default,
+            maximumRecordsPerProvider: 100
+        )
+        let snapshot = try #require(bounded.snapshots["codex"])
+        #expect(bounded.totalRecordCounts["codex"] == 20_000)
+        #expect(snapshot.records.count == 100)
+        #expect(snapshot.records.map(\.sessionID) == (19_900..<20_000).reversed().map {
+            String(format: "session-%05d", $0)
+        })
+
+        let metricsURL = root.appendingPathComponent("time-metrics.txt")
+        let result = runProcess(
+            executablePath: "/usr/bin/time",
+            arguments: [
+                "-l", "-o", metricsURL.path,
+                cliPath, "agents", "list", "--agent", "codex", "--all",
+                "--limit", "100", "--json", "--state-dir", root.path,
+            ],
+            environment: environment,
+            timeout: 30
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try #require(payload["sessions"] as? [[String: Any]])
+        #expect(payload["total_matches"] as? Int == 20_000)
+        #expect(sessions.count == 100)
+        #expect(sessions.compactMap { $0["session_id"] as? String } ==
+            (19_900..<20_000).reversed().map { String(format: "session-%05d", $0) })
+        let metrics = try String(contentsOf: metricsURL, encoding: .utf8)
+        let maximumResidentBytes = metrics.split(separator: "\n").compactMap { line -> Int64? in
+            guard line.contains("maximum resident set size") else { return nil }
+            return line.split(whereSeparator: \.isWhitespace).first.flatMap { Int64($0) }
+        }.first
+        #expect(try #require(maximumResidentBytes) < 192 * 1_024 * 1_024)
+
+        try seedAuthoritativeAgentSessions(
+            range: 20_000..<20_001,
+            provider: "codex",
+            registry: registry
+        )
+        let limitStderrURL = root.appendingPathComponent("limit-stderr.txt")
+        let command = [
+            cliPath, "agents", "list", "--agent", "codex", "--all",
+            "--limit", "100", "--json", "--state-dir", root.path,
+        ].map(shellQuoteAgentTreeArgument).joined(separator: " ")
+        let overLimit = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "\(command) 2>\(shellQuoteAgentTreeArgument(limitStderrURL.path))"],
+            environment: environment,
+            timeout: 10
+        )
+        #expect(!overLimit.timedOut, Comment(rawValue: overLimit.stdout))
+        #expect(overLimit.status != 0)
+        let limitPayload = try #require(
+            JSONSerialization.jsonObject(with: Data(overLimit.stdout.utf8)) as? [String: Any]
+        )
+        #expect((limitPayload["sessions"] as? [Any])?.isEmpty == true)
+        let limitError = try #require(limitPayload["error"] as? [String: Any])
+        #expect(limitError["code"] as? String == "storage_limit_exceeded")
+        #expect(limitError["scope"] as? String == "registry_graph_nodes")
+        #expect(limitError["observed_count"] as? Int64 == 20_001)
+        #expect(limitError["maximum_count"] as? Int64 == 20_000)
+    }
+
     @Test func agentsTreeTextDoesNotOverflowTheStackBeyondTwoThousandFiveHundredLevels() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -3191,6 +3279,34 @@ private func isolatedAgentTreeEnvironment(home: URL) -> [String: String] {
     environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
     environment["HOME"] = home.path
     return environment
+}
+
+private func seedAuthoritativeAgentSessions(
+    count: Int,
+    provider: String,
+    registry: CmuxAgentSessionRegistry
+) throws {
+    try seedAuthoritativeAgentSessions(range: 0..<count, provider: provider, registry: registry)
+}
+
+private func seedAuthoritativeAgentSessions(
+    range: Range<Int>,
+    provider: String,
+    registry: CmuxAgentSessionRegistry
+) throws {
+    let records = range.map { index in
+        let sessionID = String(format: "session-%05d", index)
+        let json = Data("""
+        {"sessionId":"\(sessionID)","workspaceId":"workspace-\(index % 100)","surfaceId":"surface-\(index)","runId":"run-\(index)","restoreAuthority":false,"sessionState":"ended","foregroundState":"idle","startedAt":\(index),"updatedAt":\(index),"completedAt":\(index)}
+        """.utf8)
+        return CmuxAgentSessionRegistry.Record(
+            provider: provider,
+            sessionID: sessionID,
+            updatedAt: TimeInterval(index),
+            json: json
+        )
+    }
+    try registry.apply(provider: provider, records: records)
 }
 
 private func shellQuoteAgentTreeArgument(_ value: String) -> String {
