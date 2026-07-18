@@ -386,25 +386,26 @@ final class SimulatorFramebuffer {
     ) -> Bool? {
         let selector = NSSelectorFromString(selectorName)
         guard target.responds(to: selector),
-            let method = class_getInstanceMethod(type(of: target), selector)
-        else {
-            return nil
-        }
-        let returnType = method_copyReturnType(method)
-        defer { free(returnType) }
-        switch String(cString: returnType) {
+              let messageSend = simulatorObjectiveCMessageSend()
+        else { return nil }
+        switch simulatorScalarReturnEncoding(target, selector: selector) {
         case "B":
             typealias Function = @convention(c) (AnyObject, Selector) -> Bool
-            return unsafeBitCast(method_getImplementation(method), to: Function.self)(
+            return unsafeBitCast(messageSend, to: Function.self)(
                 target,
                 selector
             )
         case "c":
             typealias Function = @convention(c) (AnyObject, Selector) -> CChar
-            return unsafeBitCast(method_getImplementation(method), to: Function.self)(
+            return unsafeBitCast(messageSend, to: Function.self)(
                 target,
                 selector
             ) != 0
+        case nil:
+            // Fast-forwarding proxies can advertise a selector without publishing
+            // its method signature. The selector contract still defines BOOL.
+            typealias Function = @convention(c) (AnyObject, Selector) -> Bool
+            return unsafeBitCast(messageSend, to: Function.self)(target, selector)
         default:
             return nil
         }
@@ -418,15 +419,11 @@ private func simulatorUnsignedLongLongProperty(
 ) -> UInt64? {
     let selector = NSSelectorFromString(selectorName)
     guard target.responds(to: selector),
-        let method = class_getInstanceMethod(type(of: target), selector)
-    else {
-        return nil
-    }
-    let returnType = method_copyReturnType(method)
-    defer { free(returnType) }
-    guard String(cString: returnType) == "Q" else { return nil }
+          let messageSend = simulatorObjectiveCMessageSend(),
+          ["Q", nil].contains(simulatorScalarReturnEncoding(target, selector: selector))
+    else { return nil }
     typealias Function = @convention(c) (AnyObject, Selector) -> UInt64
-    return unsafeBitCast(method_getImplementation(method), to: Function.self)(
+    return unsafeBitCast(messageSend, to: Function.self)(
         target,
         selector
     )
@@ -449,18 +446,46 @@ private func simulatorUnsignedIntegerProperty(
 ) -> UInt32? {
     let selector = NSSelectorFromString(selectorName)
     guard target.responds(to: selector),
-        let method = class_getInstanceMethod(type(of: target), selector)
-    else {
-        return nil
-    }
-    let returnType = method_copyReturnType(method)
-    defer { free(returnType) }
-    guard String(cString: returnType) == "I" else { return nil }
+          let messageSend = simulatorObjectiveCMessageSend(),
+          ["I", nil].contains(simulatorScalarReturnEncoding(target, selector: selector))
+    else { return nil }
     typealias Function = @convention(c) (AnyObject, Selector) -> UInt32
-    return unsafeBitCast(method_getImplementation(method), to: Function.self)(
+    return unsafeBitCast(messageSend, to: Function.self)(
         target,
         selector
     )
+}
+
+private func simulatorScalarReturnEncoding(
+    _ target: NSObject,
+    selector: Selector
+) -> String? {
+    if let method = class_getInstanceMethod(type(of: target), selector) {
+        let returnType = method_copyReturnType(method)
+        defer { free(returnType) }
+        return String(cString: returnType)
+    }
+    guard let messageSend = simulatorObjectiveCMessageSend() else { return nil }
+    let signatureSelector = NSSelectorFromString("methodSignatureForSelector:")
+    typealias SignatureFunction =
+        @convention(c) (AnyObject, Selector, Selector) -> AnyObject?
+    guard let signature = unsafeBitCast(messageSend, to: SignatureFunction.self)(
+        target,
+        signatureSelector,
+        selector
+    ) as? NSObject else { return nil }
+    let returnTypeSelector = NSSelectorFromString("methodReturnType")
+    typealias ReturnTypeFunction =
+        @convention(c) (AnyObject, Selector) -> UnsafePointer<CChar>?
+    guard let returnType = unsafeBitCast(messageSend, to: ReturnTypeFunction.self)(
+        signature,
+        returnTypeSelector
+    ) else { return nil }
+    return String(cString: returnType)
+}
+
+private func simulatorObjectiveCMessageSend() -> UnsafeMutableRawPointer? {
+    dlsym(UnsafeMutableRawPointer(bitPattern: -2), "objc_msgSend")
 }
 
 @discardableResult
