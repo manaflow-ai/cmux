@@ -170,7 +170,10 @@ private struct BrowserExtensionToolbarActionButton: View {
                 BrowserExtensionIcon(
                     data: item.iconData,
                     fallbackSystemName: "puzzlepiece.extension",
-                    fallbackColor: .secondary
+                    fallbackColor: .secondary,
+                    size: BrowserExtensionIconMetrics.toolbarContentSize(
+                        iconPointSize: iconPointSize
+                    )
                 )
                 .frame(width: iconPointSize + 3, height: iconPointSize + 3)
 
@@ -922,10 +925,17 @@ private struct BrowserExtensionToolbarPinButton: View {
     }
 }
 
+enum BrowserExtensionIconMetrics {
+    static func toolbarContentSize(iconPointSize: CGFloat) -> CGFloat {
+        max(1, iconPointSize + 2)
+    }
+}
+
 private struct BrowserExtensionIcon: View {
     let data: Data?
     let fallbackSystemName: String
     let fallbackColor: Color
+    var size: CGFloat = 20
 
     var body: some View {
         Group {
@@ -937,10 +947,12 @@ private struct BrowserExtensionIcon: View {
                     .aspectRatio(contentMode: .fit)
             } else {
                 Image(systemName: fallbackSystemName)
+                    .font(.system(size: size, weight: .medium))
                     .foregroundStyle(fallbackColor)
             }
         }
-        .frame(width: 20, height: 20)
+        .frame(width: size, height: size)
+        .clipped()
         .accessibilityHidden(true)
     }
 }
