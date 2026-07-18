@@ -9,24 +9,48 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
-    @Test func agentsListTextRendersLifecycleAndIdentityState() {
-        let line = CMUXCLI(args: []).renderSessionListLine([
-            "agent": "codex",
-            "session_id": "session-a",
-            "workspace_id": "workspace-a",
-            "surface_id": "surface-a",
-            "effective_state": "working",
-            "activity": ["state": "busy"],
-            "identity_source": "hook_session",
-            "state_source": "terminal",
-            "restore_authority": true,
-        ])
+    @Test func agentsListTextRendersLifecycleAndIdentityState() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-list-text-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": ["session-a": [
+                "sessionId": "session-a",
+                "workspaceId": "workspace-a",
+                "surfaceId": "surface-a",
+                "runId": "run-a",
+                "activeRunId": "run-a",
+                "sessionState": "active",
+                "foregroundState": "working",
+                "attentionState": "none",
+                "restoreAuthority": true,
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("opencode-hook-sessions.json"),
+            options: .atomic
+        )
 
-        #expect(line.contains("state=working"))
-        #expect(line.contains("activity=busy"))
-        #expect(line.contains("identity=hook_session"))
-        #expect(line.contains("state_source=terminal"))
-        #expect(line.contains("restore_owner=yes"))
+        let result = runProcess(
+            executablePath: try bundledCLIPath(),
+            arguments: [
+                "agents", "list", "--agent", "opencode", "--all", "--state-dir", root.path,
+            ],
+            environment: isolatedAgentTreeEnvironment(home: root),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("opencode session-a"))
+        #expect(result.stdout.contains("state=working"))
+        #expect(result.stdout.contains("activity=busy"))
+        #expect(result.stdout.contains("identity=hook_session"))
+        #expect(result.stdout.contains("state_source=lifecycle"))
+        #expect(result.stdout.contains("restore_owner=yes"))
     }
 
     @Test func terminalObservationJoinsExactProcessGenerationAndUpdatesState() throws {
