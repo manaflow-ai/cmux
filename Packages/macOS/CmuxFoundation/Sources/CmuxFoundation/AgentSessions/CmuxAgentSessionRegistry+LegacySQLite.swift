@@ -29,7 +29,9 @@ extension CmuxAgentSessionRegistry {
         defer { sqlite3_finalize(statement) }
         try bind(provider, to: 1, in: statement)
         try bind(stamp.path, to: 2, in: statement)
-        guard sqlite3_step(statement) == SQLITE_ROW else { return false }
+        guard try stepRow(statement, database: database, operation: "read legacy checkpoint") else {
+            return false
+        }
         return sqlite3_column_int64(statement, 0) == stamp.size
             && abs(sqlite3_column_double(statement, 1) - stamp.modifiedAt) < 0.000_001
     }

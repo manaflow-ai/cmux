@@ -101,8 +101,11 @@ extension CmuxAgentSessionRegistry {
         defer { sqlite3_finalize(statement) }
         try bind(provider, to: 1, in: statement)
         var result: [Record] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            guard let sessionID = text(statement, column: 0), let json = data(statement, column: 3) else { continue }
+        while try stepRow(statement, database: database, operation: "read sessions") {
+            guard let sessionID = text(statement, column: 0),
+                  let json = data(statement, column: 3) else {
+                throw corruptRowError(operation: "read sessions")
+            }
             result.append(Record(
                 provider: provider,
                 sessionID: sessionID,
@@ -125,7 +128,10 @@ extension CmuxAgentSessionRegistry {
         defer { sqlite3_finalize(statement) }
         try bind(provider, to: 1, in: statement)
         try bind(sessionID, to: 2, in: statement)
-        guard sqlite3_step(statement) == SQLITE_ROW, let json = data(statement, column: 2) else { return nil }
+        guard try stepRow(statement, database: database, operation: "read session") else { return nil }
+        guard let json = data(statement, column: 2) else {
+            throw corruptRowError(operation: "read session")
+        }
         return Record(
             provider: provider,
             sessionID: sessionID,
@@ -159,12 +165,14 @@ extension CmuxAgentSessionRegistry {
         defer { sqlite3_finalize(statement) }
         try bind(provider, to: 1, in: statement)
         var result: [ActiveSlot] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
+        while try stepRow(statement, database: database, operation: "read active slots") {
             guard let scopeValue = text(statement, column: 0),
                   let scope = Scope(rawValue: scopeValue),
                   let scopeID = text(statement, column: 1),
                   let sessionID = text(statement, column: 2),
-                  let json = data(statement, column: 5) else { continue }
+                  let json = data(statement, column: 5) else {
+                throw corruptRowError(operation: "read active slots")
+            }
             result.append(ActiveSlot(
                 provider: provider,
                 scope: scope,
@@ -196,9 +204,11 @@ extension CmuxAgentSessionRegistry {
         try bind(provider, to: 1, in: statement)
         try bind(scope.rawValue, to: 2, in: statement)
         try bind(scopeID, to: 3, in: statement)
-        guard sqlite3_step(statement) == SQLITE_ROW,
-              let sessionID = text(statement, column: 0),
-              let json = data(statement, column: 3) else { return nil }
+        guard try stepRow(statement, database: database, operation: "read active slot") else { return nil }
+        guard let sessionID = text(statement, column: 0),
+              let json = data(statement, column: 3) else {
+            throw corruptRowError(operation: "read active slot")
+        }
         return ActiveSlot(
             provider: provider,
             scope: scope,
@@ -576,6 +586,21 @@ extension CmuxAgentSessionRegistry {
         guard sqlite3_step(statement) == SQLITE_DONE else { throw error(database, operation: operation) }
     }
 
+    func stepRow(
+        _ statement: OpaquePointer,
+        database: OpaquePointer,
+        operation: String
+    ) throws -> Bool {
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW:
+            return true
+        case SQLITE_DONE:
+            return false
+        default:
+            throw error(database, operation: operation)
+        }
+    }
+
     func bind(_ value: String?, to index: Int32, in statement: OpaquePointer) throws {
         guard let value else {
             sqlite3_bind_null(statement, index)
@@ -626,6 +651,14 @@ extension CmuxAgentSessionRegistry {
             domain: "CmuxAgentSessionRegistry",
             code: Int(code),
             userInfo: [NSLocalizedDescriptionKey: "SQLite bind failed"]
+        )
+    }
+
+    func corruptRowError(operation: String) -> NSError {
+        NSError(
+            domain: "CmuxAgentSessionRegistry",
+            code: Int(SQLITE_CORRUPT),
+            userInfo: [NSLocalizedDescriptionKey: "\(operation): malformed registry row"]
         )
     }
 
