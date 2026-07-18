@@ -48,10 +48,36 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
-fileprivate struct PendingRestoredAgentHibernationAdoption {
+fileprivate struct PendingRestoredAgentHibernationAdoption: Sendable {
     let request: AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest
     let resumeWorkingDirectory: String?
 }
+
+private struct RestoredAgentHibernationAdoptionIdentity: Hashable, Sendable {
+    let kind: String
+    let sessionId: String
+    let previousWorkspaceId: UUID?
+    let previousSurfaceId: UUID
+    let workspaceId: UUID
+    let surfaceId: UUID
+    let adoptionId: UUID
+    let resumeWorkingDirectory: String?
+
+    init(_ adoption: PendingRestoredAgentHibernationAdoption) {
+        kind = adoption.request.agent.kind.rawValue
+        sessionId = adoption.request.agent.sessionId
+        previousWorkspaceId = adoption.request.previousWorkspaceId
+        previousSurfaceId = adoption.request.previousSurfaceId
+        workspaceId = adoption.request.workspaceId
+        surfaceId = adoption.request.surfaceId
+        adoptionId = adoption.request.adoptionId
+        resumeWorkingDirectory = adoption.resumeWorkingDirectory
+    }
+}
+
+typealias RestoredAgentHibernationAdoptionWaitHandler = @Sendable (
+    [AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest]
+) async -> [UUID: AgentHookSessionStateWriter.RestoredHibernationAdoptionOutcome]
 
 fileprivate struct AgentHibernationRestoreSuppressionState {
     let wasRestoring: Bool
@@ -280,6 +306,7 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        cancelAllRestoredAgentHibernationAdoptionWaits()
         pendingRestoredAgentHibernationAdoptionsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
@@ -479,16 +506,171 @@ extension Workspace {
     }
 
     private func retryPendingRestoredAgentHibernationAdoptions(panelIds: Set<UUID>) {
-        let pending = panelIds
+        let pending: [PendingRestoredAgentHibernationAdoption] = panelIds
             .sorted { $0.uuidString < $1.uuidString }
-            .compactMap { pendingRestoredAgentHibernationAdoptionsByPanelId[$0] }
+            .compactMap { panelId in
+                guard restoredAgentHibernationAdoptionWaitGroupIdByPanelId[panelId] == nil else {
+                    return nil
+                }
+                return pendingRestoredAgentHibernationAdoptionsByPanelId[panelId]
+            }
         guard !pending.isEmpty else { return }
         applyRestoredAgentHibernationAdoptions(
             pending,
             outcomes: AgentHookSessionStateWriter.recordRestoredHibernationOutcomes(
-                pending.map(\.request)
+                pending.map { $0.request }
             )
         )
+    }
+
+    /// Gives a transient SQLite writer one bounded chance to finish without
+    /// blocking the main actor. One task preserves the provider-batched restore
+    /// transaction for all newly visible panels, and panel/group ownership
+    /// prevents repeated visibility callbacks from scheduling duplicate claims.
+    private func scheduleRestoredAgentHibernationAdoptionWait(panelIds: Set<UUID>) {
+        let visiblePanelIds = agentHibernationVisiblePanelIdsForCurrentLayout()
+        let pending: [PendingRestoredAgentHibernationAdoption] = panelIds
+            .intersection(visiblePanelIds)
+            .sorted { $0.uuidString < $1.uuidString }
+            .compactMap { panelId in
+                guard restoredAgentHibernationAdoptionWaitGroupIdByPanelId[panelId] == nil else {
+                    return nil
+                }
+                return pendingRestoredAgentHibernationAdoptionsByPanelId[panelId]
+            }
+        guard !pending.isEmpty else { return }
+
+        let groupId = UUID()
+        for adoption in pending {
+            restoredAgentHibernationAdoptionWaitGroupIdByPanelId[adoption.request.surfaceId] = groupId
+        }
+#if DEBUG
+        debugRestoredAgentHibernationAdoptionWaitOperationCount += 1
+        let waitHandler = debugRestoredAgentHibernationAdoptionWaitHandler ?? {
+            await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes($0)
+        }
+        let ownerReleasedHandler = debugRestoredAgentHibernationAdoptionWaitOwnerReleased
+#else
+        let waitHandler: RestoredAgentHibernationAdoptionWaitHandler = {
+            await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes($0)
+        }
+#endif
+        let requests = pending.map { $0.request }
+        let task = Task { @MainActor [weak self] in
+            let outcomes = await waitHandler(requests)
+            let wasCancelled = Task.isCancelled
+            if let self {
+                await self.finishRestoredAgentHibernationAdoptionWait(
+                    groupId: groupId,
+                    capturedPending: pending,
+                    outcomes: outcomes,
+                    wasCancelled: wasCancelled
+                )
+            } else {
+                // Workspace teardown is also the app/window shutdown path. An
+                // adoption that already committed remains the next launch's
+                // restore authority. Explicit panel/workspace closes remove
+                // the panel while this owner is alive, then release the exact
+                // adoption generation through the normal finish path.
+#if DEBUG
+                ownerReleasedHandler?()
+#endif
+            }
+        }
+        restoredAgentHibernationAdoptionWaitTasksByGroupId[groupId] = task
+    }
+
+    private func finishRestoredAgentHibernationAdoptionWait(
+        groupId: UUID,
+        capturedPending: [PendingRestoredAgentHibernationAdoption],
+        outcomes: [UUID: AgentHookSessionStateWriter.RestoredHibernationAdoptionOutcome],
+        wasCancelled: Bool
+    ) async {
+        guard restoredAgentHibernationAdoptionWaitTasksByGroupId.removeValue(
+            forKey: groupId
+        ) != nil else { return }
+        let groupWasCanceled = canceledRestoredAgentHibernationAdoptionWaitGroupIds.remove(groupId) != nil
+
+        var applicable: [PendingRestoredAgentHibernationAdoption] = []
+        var adoptedButNoLongerOwned: [
+            AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest
+        ] = []
+        applicable.reserveCapacity(capturedPending.count)
+        for captured in capturedPending {
+            let panelId = captured.request.surfaceId
+            guard restoredAgentHibernationAdoptionWaitGroupIdByPanelId[panelId] == groupId else {
+                if outcomes[panelId] == .adopted {
+                    adoptedButNoLongerOwned.append(captured.request)
+                }
+                continue
+            }
+            restoredAgentHibernationAdoptionWaitGroupIdByPanelId.removeValue(forKey: panelId)
+            guard panels[panelId] != nil,
+                  let current = pendingRestoredAgentHibernationAdoptionsByPanelId[panelId],
+                  RestoredAgentHibernationAdoptionIdentity(current)
+                    == RestoredAgentHibernationAdoptionIdentity(captured) else {
+                if outcomes[panelId] == .adopted {
+                    adoptedButNoLongerOwned.append(captured.request)
+                }
+                continue
+            }
+            applicable.append(current)
+        }
+
+        applyRestoredAgentHibernationAdoptions(applicable, outcomes: outcomes)
+        let visiblePanelIds = agentHibernationVisiblePanelIdsForCurrentLayout()
+        let adoptedPanelIds = Set(applicable.compactMap { adoption in
+            outcomes[adoption.request.surfaceId] == .adopted
+                && visiblePanelIds.contains(adoption.request.surfaceId)
+                ? adoption.request.surfaceId
+                : nil
+        })
+        if !adoptedPanelIds.isEmpty {
+            _ = resumeAgentHibernationPanels(
+                panelIds: adoptedPanelIds,
+                focusPanelId: nil
+            )
+        }
+        await AgentHookSessionStateWriter.releaseCanceledRestoredHibernations(
+            adoptedButNoLongerOwned
+        )
+        if wasCancelled || groupWasCanceled {
+            scheduleRestoredAgentHibernationAdoptionWait(
+                panelIds: Set(capturedPending.compactMap { adoption in
+                    let panelId = adoption.request.surfaceId
+                    return pendingRestoredAgentHibernationAdoptionsByPanelId[panelId] != nil
+                        ? panelId
+                        : nil
+                })
+            )
+        }
+#if DEBUG
+        debugRestoredAgentHibernationAdoptionWaitDidFinish?(groupId)
+#endif
+    }
+
+    private func cancelRestoredAgentHibernationAdoptionWait(
+        containing panelId: UUID
+    ) {
+        guard let groupId = restoredAgentHibernationAdoptionWaitGroupIdByPanelId[panelId] else {
+            return
+        }
+        restoredAgentHibernationAdoptionWaitGroupIdByPanelId.removeValue(forKey: panelId)
+        canceledRestoredAgentHibernationAdoptionWaitGroupIds.insert(groupId)
+        restoredAgentHibernationAdoptionWaitTasksByGroupId[groupId]?.cancel()
+#if DEBUG
+        debugRestoredAgentHibernationAdoptionWaitCancellationCount += 1
+#endif
+        // Remaining group members are rescheduled only after the canceled
+        // transaction finishes or rolls back, preventing an old cleanup from
+        // racing a replacement adoption generation.
+    }
+
+    private func cancelAllRestoredAgentHibernationAdoptionWaits() {
+        let tasks = restoredAgentHibernationAdoptionWaitTasksByGroupId
+        canceledRestoredAgentHibernationAdoptionWaitGroupIds.formUnion(tasks.keys)
+        restoredAgentHibernationAdoptionWaitGroupIdByPanelId.removeAll(keepingCapacity: false)
+        for task in tasks.values { task.cancel() }
     }
 
     private func beginAgentHibernationRestoreSuppression() -> AgentHibernationRestoreSuppressionState {
@@ -524,6 +706,9 @@ extension Workspace {
     }
 
     func clearRejectedRestoredAgentHibernationMetadata(panelId: UUID) {
+        cancelRestoredAgentHibernationAdoptionWait(
+            containing: panelId
+        )
         pendingRestoredAgentHibernationAdoptionsByPanelId.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
@@ -531,6 +716,9 @@ extension Workspace {
     }
 
     func clearPendingRestoredAgentHibernationAdoption(panelId: UUID) {
+        cancelRestoredAgentHibernationAdoptionWait(
+            containing: panelId
+        )
         pendingRestoredAgentHibernationAdoptionsByPanelId.removeValue(forKey: panelId)
     }
 
@@ -2655,6 +2843,21 @@ final class Workspace: Identifiable, ObservableObject {
     fileprivate var pendingRestoredAgentHibernationAdoptionsByPanelId: [
         UUID: PendingRestoredAgentHibernationAdoption
     ] = [:]
+    private var restoredAgentHibernationAdoptionWaitTasksByGroupId: [
+        UUID: Task<Void, Never>
+    ] = [:]
+    private var restoredAgentHibernationAdoptionWaitGroupIdByPanelId: [UUID: UUID] = [:]
+    private var canceledRestoredAgentHibernationAdoptionWaitGroupIds: Set<UUID> = []
+#if DEBUG
+    var debugRestoredAgentHibernationAdoptionWaitHandler: RestoredAgentHibernationAdoptionWaitHandler?
+    var debugRestoredAgentHibernationAdoptionWaitDidFinish: (@MainActor @Sendable (UUID) -> Void)?
+    var debugRestoredAgentHibernationAdoptionWaitOwnerReleased: (@MainActor @Sendable () -> Void)?
+    private(set) var debugRestoredAgentHibernationAdoptionWaitOperationCount = 0
+    private(set) var debugRestoredAgentHibernationAdoptionWaitCancellationCount = 0
+    var debugRestoredAgentHibernationAdoptionWaitInFlightCount: Int {
+        restoredAgentHibernationAdoptionWaitTasksByGroupId.count
+    }
+#endif
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the lifetime of the resumed run (unlike the one-shot report guard
@@ -3454,6 +3657,9 @@ final class Workspace: Identifiable, ObservableObject {
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
     deinit {
+        for task in restoredAgentHibernationAdoptionWaitTasksByGroupId.values {
+            task.cancel()
+        }
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
@@ -4980,10 +5186,12 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func resumeAgentHibernation(panelId: UUID, focus: Bool) -> Bool {
         retryPendingRestoredAgentHibernationAdoptions(panelIds: [panelId])
-        return resumeAgentHibernationPanels(
+        let didResume = resumeAgentHibernationPanels(
             panelIds: [panelId],
             focusPanelId: focus ? panelId : nil
         )
+        scheduleRestoredAgentHibernationAdoptionWait(panelIds: [panelId])
+        return didResume
     }
 
     @discardableResult
@@ -5002,12 +5210,14 @@ final class Workspace: Identifiable, ObservableObject {
         if retryPendingAdoptions {
             retryPendingRestoredAgentHibernationAdoptions(panelIds: panelIds)
         }
-        return resumeAgentHibernationPanels(
+        let didResume = resumeAgentHibernationPanels(
             panelIds: panelIds,
             focusPanelId: nil,
             preclaimedResumeAuthorityOutcomes: preclaimedResumeAuthorityOutcomes,
             authorityClaimHandler: authorityClaimHandler
         )
+        scheduleRestoredAgentHibernationAdoptionWait(panelIds: panelIds)
+        return didResume
     }
 
     private func agentHibernationResumeCandidate(
