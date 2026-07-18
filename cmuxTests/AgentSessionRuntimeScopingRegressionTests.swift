@@ -2057,6 +2057,64 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func liveHibernationSnapshotCarriesCanonicalAuthorityGeneration() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-live-hibernation-generation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let runtimeID = "live-hibernation-generation-runtime"
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": runtimeID,
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeLiveHibernationAuthorityFixture(
+            root: root,
+            runtimeID: runtimeID,
+            sessionID: "live-hibernation-generation-session"
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        fixture.panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { pointer in
+            pointer.deallocate()
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        #expect(await fixture.workspace.enterAgentHibernation(
+            panelId: fixture.panelID,
+            agent: fixture.agent,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            finalValidation: { true }
+        ))
+        #expect(fixture.panel.isAgentHibernated)
+
+        let panelSnapshot = try #require(
+            fixture.workspace.sessionSnapshot(includeScrollback: false).panels.first {
+                $0.id == fixture.panelID
+            }
+        )
+        let hibernatedAt = try #require(panelSnapshot.terminal?.hibernation?.hibernatedAt)
+        let registrySnapshot = try fixture.registry.snapshot(provider: "codex")
+        let canonicalRecord = try #require(registrySnapshot.records.first)
+        let canonicalObject = try #require(
+            JSONSerialization.jsonObject(with: canonicalRecord.json) as? [String: Any]
+        )
+        let canonicalUpdatedAt = try #require(canonicalObject["updatedAt"] as? TimeInterval)
+
+        #expect(hibernatedAt.bitPattern == canonicalRecord.updatedAt.bitPattern)
+        #expect(hibernatedAt.bitPattern == canonicalUpdatedAt.bitPattern)
+    }
+
+    @MainActor
     @Test func transientRegistryContentionKeepsManualResumeRetryable() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hibernation-resume-contention-\(UUID().uuidString)", isDirectory: true)
