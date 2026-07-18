@@ -288,7 +288,7 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
         print(f"FAIL: surface.resume.set had wrong OMP binding params: {params!r}")
         return False
     command = params.get("command")
-    if not isinstance(command, str) or "--session" not in command or session_id not in command:
+    if not isinstance(command, str) or "--resume" not in command or session_id not in command:
         print(f"FAIL: surface.resume.set command cannot resume OMP session: {params!r}")
         return False
     return True
