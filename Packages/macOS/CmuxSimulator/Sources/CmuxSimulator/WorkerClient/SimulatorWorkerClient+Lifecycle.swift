@@ -128,9 +128,14 @@ extension SimulatorWorkerClient {
             }
         case let .capabilities(capabilities):
             currentCapabilities = capabilities
+            currentCapabilitiesAreHydrated = false
+        case let .capabilitiesHydrated(capabilities):
+            currentCapabilities = capabilities
+            currentCapabilitiesAreHydrated = true
         case .status(.deviceUnavailable):
             clearFrameTransportState()
             currentCapabilities = []
+            currentCapabilitiesAreHydrated = false
             lastDisplayOrientation = nil
             currentDisplayMetadata = nil
             await failOutstandingRequests(with: SimulatorFailure(
@@ -145,6 +150,7 @@ extension SimulatorWorkerClient {
         case let .status(.failed(failure)):
             clearFrameTransportState()
             currentCapabilities = []
+            currentCapabilitiesAreHydrated = false
             lastDisplayOrientation = nil
             currentDisplayMetadata = nil
             await failOutstandingRequests(with: failure)
@@ -397,6 +403,7 @@ extension SimulatorWorkerClient {
         cancelReplayWait()
         clearFrameTransportState()
         currentCapabilities = []
+        currentCapabilitiesAreHydrated = false
         currentStatus = nil
         failDeferredDeliveries(with: SimulatorFailure(
             code: "worker_stopped",

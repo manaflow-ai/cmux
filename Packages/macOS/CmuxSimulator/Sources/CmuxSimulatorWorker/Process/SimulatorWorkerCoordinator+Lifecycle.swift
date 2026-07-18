@@ -225,7 +225,7 @@ extension SimulatorWorkerCoordinator {
                 else { return }
                 self.capabilityHydrationTask = nil
                 self.capabilityHydrationGeneration = nil
-                self.send(.capabilities(capabilities))
+                self.send(.capabilitiesHydrated(capabilities))
             }
         )
     }

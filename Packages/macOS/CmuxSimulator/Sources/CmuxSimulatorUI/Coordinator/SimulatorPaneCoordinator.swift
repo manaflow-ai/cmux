@@ -134,6 +134,8 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var liveStatusGeneration: UInt64 = 0
     @ObservationIgnored var liveStatusIsVisible = false
     @ObservationIgnored var liveStatusPollingActive = false
+    @ObservationIgnored var capabilityHydrationCompleted = false
+    @ObservationIgnored var capabilityHydrationWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     @ObservationIgnored var paneIsVisible = false
     @ObservationIgnored var frameIsVisible = false
     @ObservationIgnored var locationRouteDeviceID: String?

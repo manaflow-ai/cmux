@@ -70,16 +70,20 @@ extension TerminalController {
             if !operation.isAvailableWithoutStreaming {
                 try await coordinator.waitForSelectedDeviceStreaming()
             }
-            if let capability = simulatorCapability(for: operation),
-               !coordinator.supports(capability) {
-                throw SimulatorFailure(
-                    code: "simulator_capability_unavailable",
-                    message: String(
-                        localized: "cli.simulator.error.capabilityUnavailable",
-                        defaultValue: "The active Simulator worker does not support this operation"
-                    ),
-                    isRecoverable: true
-                )
+            if let capability = simulatorCapability(for: operation) {
+                if capability.requiresAttachmentHydration {
+                    try await coordinator.waitForCapabilityHydration()
+                }
+                if !coordinator.supports(capability) {
+                    throw SimulatorFailure(
+                        code: "simulator_capability_unavailable",
+                        message: String(
+                            localized: "cli.simulator.error.capabilityUnavailable",
+                            defaultValue: "The active Simulator worker does not support this operation"
+                        ),
+                        isRecoverable: true
+                    )
+                }
             }
             let payload: JSONValue
             var mutationCommitted = false
@@ -526,6 +530,20 @@ extension TerminalController {
         return .object(payload)
     }
 
+}
+
+private extension SimulatorCapability {
+    var requiresAttachmentHydration: Bool {
+        switch self {
+        case .accessibility, .foregroundApplication, .webInspector:
+            true
+        case .framebuffer, .touch, .multiTouch, .keyboard, .hostInputCapture,
+             .hardwareButtons, .rotation, .digitalCrown, .memoryWarning,
+             .coreAnimationDiagnostics, .userInterfaceSettings, .cameraInjection,
+             .extendedPermissions, .deviceChrome:
+            false
+        }
+    }
 }
 
 extension ControlSimulatorOperation {

@@ -78,6 +78,7 @@ extension SimulatorPaneCoordinator {
         case let .message(message):
             receive(message)
         case .workerStopped:
+            resetCapabilityHydration()
             failPendingTextInputCompletions()
             frameTransport = nil
             hidCaptureMode = .none
@@ -105,6 +106,7 @@ extension SimulatorPaneCoordinator {
             case .idle, .connecting, .streaming, .workerCrashed: false
             }
             if sessionEnded {
+                resetCapabilityHydration()
                 frameTransport = nil
                 display = nil
                 hidCaptureMode = .none
@@ -116,8 +118,16 @@ extension SimulatorPaneCoordinator {
             updateLiveStatusWatcher()
         case let .capabilities(capabilities):
             self.capabilities = capabilities
+            capabilityHydrationCompleted = false
             if selectedDeviceID != nil { self.capabilities.insert(.userInterfaceSettings) }
             if chromeProfile != nil { self.capabilities.insert(.deviceChrome) }
+            updateLiveStatusWatcher()
+        case let .capabilitiesHydrated(capabilities):
+            self.capabilities = capabilities
+            capabilityHydrationCompleted = true
+            if selectedDeviceID != nil { self.capabilities.insert(.userInterfaceSettings) }
+            if chromeProfile != nil { self.capabilities.insert(.deviceChrome) }
+            resolveCapabilityHydrationWaiters()
             updateLiveStatusWatcher()
         case let .display(display):
             self.display = display

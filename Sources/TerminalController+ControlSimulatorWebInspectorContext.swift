@@ -104,9 +104,10 @@ extension TerminalController {
             return .failed(failure)
         case let .panel(panel):
             let coordinator = panel.coordinator
-            guard coordinator.status == .streaming,
-                  coordinator.supports(.webInspector) else { return .unavailable }
-            if requiresSession, case .detached = coordinator.webInspectorSession {
+            if coordinator.status == .streaming,
+               coordinator.supports(.webInspector),
+               requiresSession,
+               case .detached = coordinator.webInspectorSession {
                 return .sessionDetached
             }
             let receipt = ControlSimulatorWebInspectorReceipt()
@@ -119,6 +120,34 @@ extension TerminalController {
                             defaultValue: "The Simulator pane closed before the operation started"
                         )
                     ))
+                    return
+                }
+                do {
+                    await coordinator.start()
+                    try await coordinator.waitForSelectedDeviceStreaming()
+                    try await coordinator.waitForCapabilityHydration()
+                    guard coordinator.supports(.webInspector) else {
+                        throw SimulatorFailure(
+                            code: "simulator_capability_unavailable",
+                            message: String(
+                                localized: "cli.simulator.error.capabilityUnavailable",
+                                defaultValue: "The active Simulator worker does not support this operation"
+                            ),
+                            isRecoverable: true
+                        )
+                    }
+                    if requiresSession, case .detached = coordinator.webInspectorSession {
+                        receipt.complete(.failed(
+                            code: "web_inspector_session_detached",
+                            message: String(
+                                localized: "cli.simulator.error.webInspectorDetached",
+                                defaultValue: "No Web Inspector target is attached"
+                            )
+                        ))
+                        return
+                    }
+                } catch {
+                    self.completeWebInspectorFailure(receipt, error: error)
                     return
                 }
                 await operation(coordinator, panel.id, receipt)

@@ -124,6 +124,7 @@ extension SimulatorPaneCoordinator {
         _ = await locationRouteTeardownTask?.value
         failPendingTextInputCompletions()
         clearWebInspectorState()
+        resetCapabilityHydration()
         selectionGeneration &+= 1
         let startupTask = startupTask
         self.startupTask = nil
@@ -682,6 +683,7 @@ extension SimulatorPaneCoordinator {
         display = nil
         frameTransport = nil
         capabilities = [.userInterfaceSettings]
+        resetCapabilityHydration()
         foregroundApplication = nil
         accessibilitySnapshot = nil
         accessibilityRows = []

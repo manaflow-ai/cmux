@@ -45,6 +45,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     var currentFrameTransport: SimulatorFrameTransportDescriptor?
     var frameTransportSharedMemoryNames: Set<String> = []
     var currentCapabilities: Set<SimulatorCapability> = []
+    var currentCapabilitiesAreHydrated = false
     var currentStatus: SimulatorSessionStatus?
 
     var lastAttachment: SimulatorWorkerInbound?
@@ -288,7 +289,9 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         if let currentFrameTransport {
             await yield(.message(.frameTransport(currentFrameTransport)), to: continuation)
         }
-        if !currentCapabilities.isEmpty {
+        if currentCapabilitiesAreHydrated {
+            await yield(.message(.capabilitiesHydrated(currentCapabilities)), to: continuation)
+        } else if !currentCapabilities.isEmpty {
             await yield(.message(.capabilities(currentCapabilities)), to: continuation)
         }
         if let currentStatus {

@@ -10,6 +10,8 @@ public enum SimulatorWorkerOutbound: Codable, Equatable, Sendable {
     case status(SimulatorSessionStatus)
     /// Reports negotiated private and supported capabilities.
     case capabilities(Set<SimulatorCapability>)
+    /// Reports the final capability set after optional attachment probes finish.
+    case capabilitiesHydrated(Set<SimulatorCapability>)
     /// Reports current framebuffer dimensions and orientation.
     case display(SimulatorDisplayMetadata)
     /// Reports native host-input capture, including Escape-driven release.
