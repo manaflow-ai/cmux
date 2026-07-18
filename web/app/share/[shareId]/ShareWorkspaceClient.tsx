@@ -17,6 +17,7 @@ import {
   terminalCommandForKeyboardEvent,
   type TerminalInputCommand,
 } from "../../../services/share/terminalInput";
+import { sharePointerCoordinates } from "../../../services/share/pointerCoordinates";
 import {
   initialShareWorkspaceViewState,
   ShareWorkspaceConnection,
@@ -78,21 +79,21 @@ export function ShareWorkspaceClient({
     if (!view.scene || view.status !== "approved") return;
     const now = performance.now();
     if (now - lastPointerSent.current < 35) return;
-    const canvas = event.currentTarget.querySelector<HTMLElement>("[data-share-canvas]");
-    if (!canvas) return;
-    const bounds = canvas.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) return;
-    const x = clamp((event.clientX - bounds.left) / bounds.width);
-    const y = clamp((event.clientY - bounds.top) / bounds.height);
+    const point = sharePointerCoordinates(
+      event.clientX,
+      event.clientY,
+      event.currentTarget.getBoundingClientRect(),
+    );
+    if (!point) return;
     lastPointerSent.current = now;
-    connection.current?.pointer(x, y, view.scene.layoutRevision, pointerTarget(event.target));
+    connection.current?.pointer(point.x, point.y, view.scene.layoutRevision, pointerTarget(event.target));
   };
 
   const latestChatByUser = new Map<string, string>();
   for (const message of view.chat.slice(-12)) latestChatByUser.set(message.userId, message.text);
 
   return (
-    <main ref={mount} className="share-page ph-no-capture" onPointerMove={movePointer}>
+    <main ref={mount} className="share-page ph-no-capture">
       <header className="share-header">
         <div className="share-brand"><span className="share-brand-mark">c</span>cmux</div>
         <div className="share-participants" aria-label={copy.participants}>
@@ -120,6 +121,7 @@ export function ShareWorkspaceClient({
           <div
             data-share-canvas
             className="share-scene-canvas"
+            onPointerMove={movePointer}
             style={{ aspectRatio: `${view.scene.width} / ${view.scene.height}` }}
           >
             {view.scene.panes.map((pane) => {
@@ -549,8 +551,4 @@ function initials(name: string): string {
 
 function color(index: number): string {
   return COLORS[Math.abs(Math.floor(index)) % COLORS.length] ?? COLORS[0];
-}
-
-function clamp(value: number): number {
-  return Math.max(0, Math.min(1, value));
 }
