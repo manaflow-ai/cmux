@@ -939,6 +939,31 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func extensionControllerInstallsWebKitNotificationCompatibility() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configuration = WKWebExtensionController.Configuration.nonPersistent()
+
+        _ = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: configuration
+        )
+
+        let scripts = configuration.webViewConfiguration.userContentController.userScripts
+        #expect(scripts.contains { script in
+            script.source == BrowserWebExtensionsManager.notificationsCompatibilityScriptSource
+                && script.injectionTime == .atDocumentStart
+                && script.isForMainFrameOnly == false
+        })
+        #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
+            "chrome.notifications"
+        ))
+        #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
+            "onClicked"
+        ))
+    }
+
+    @available(macOS 15.4, *)
     @Test func extensionControllerUsesSafariCompatibleApplicationName() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
