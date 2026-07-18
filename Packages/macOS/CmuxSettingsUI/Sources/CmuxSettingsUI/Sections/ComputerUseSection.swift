@@ -175,8 +175,6 @@ public struct ComputerUseSection: View {
 
     private func refreshPermissions() {
         Task {
-            // Query the helper's own TCC identity out of process, then read the
-            // refreshed cache. The helper — not cmux — owns the grants.
             await hostActions.refreshComputerUsePermissions()
             accessibilityGranted = hostActions.computerUseAccessibilityGranted()
             screenRecordingGranted = hostActions.computerUseScreenRecordingGranted()

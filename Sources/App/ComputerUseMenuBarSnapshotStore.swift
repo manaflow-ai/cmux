@@ -16,7 +16,6 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     private let showInMenuBarKey: JSONKey<Bool>
     private let workspaceTitle: @MainActor (UUID) -> String?
     private let featureEnabled: @MainActor () -> Bool
-    private let onCapableSessionStarted: @MainActor () -> Void
     private let refreshPolicy: ComputerUseMenuBarRefreshPolicy
 
     private var showInMenuBar: Bool
@@ -26,12 +25,6 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource requires a delivery queue; every mutation hops back to MainActor.
     private let directoryWatchQueue = DispatchQueue(label: "com.cmuxterm.app.computerUseStateWatch")
-    private var previousCapableSessionIDs: Set<String> = []
-    // Sessions already running the first time scanning activates (e.g. at app
-    // launch, or a restored agent session) must NOT trigger onboarding — only a
-    // session that genuinely starts afterward does. The first scan seeds the
-    // baseline without firing; reset alongside previousCapableSessionIDs.
-    private var capableSessionBaselineSeeded = false
     private var refreshGeneration = 0
 
     init(
@@ -42,7 +35,6 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         showInMenuBarKey: JSONKey<Bool>,
         workspaceTitle: @escaping @MainActor (UUID) -> String?,
         featureEnabled: @escaping @MainActor () -> Bool,
-        onCapableSessionStarted: @escaping @MainActor () -> Void,
         refreshPolicy: ComputerUseMenuBarRefreshPolicy = .live
     ) {
         self.liveAgentIndex = liveAgentIndex
@@ -52,7 +44,6 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         self.showInMenuBarKey = showInMenuBarKey
         self.workspaceTitle = workspaceTitle
         self.featureEnabled = featureEnabled
-        self.onCapableSessionStarted = onCapableSessionStarted
         self.refreshPolicy = refreshPolicy
         self.showInMenuBar = configStore.snapshotValue(for: showInMenuBarKey)
     }
@@ -113,8 +104,6 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             showInMenuBar: currentShowInMenuBar
         ) else {
             refreshTask = nil
-            previousCapableSessionIDs = []
-            capableSessionBaselineSeeded = false
             snapshot = ComputerUseMenuBarSnapshot(
                 rows: [],
                 hasRecentStateFiles: false,
@@ -149,8 +138,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             )
             return (
                 row: row,
-                rootPIDs: rootPIDs,
-                computerUseCapable: snapshot.kind == .claude || snapshot.kind == .codex
+                rootPIDs: rootPIDs
             )
         }
 
@@ -190,10 +178,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                     guard !Task.isCancelled else { return nil }
                     return ComputerUseMenuBarScanResult(
                         rows: pending.map(\.row),
-                        scan: scan,
-                        capableSessionIDs: Set(
-                            pending.filter { $0.computerUseCapable }.map { $0.row.id }
-                        )
+                        scan: scan
                     )
                 }
                 return await group.next() ?? nil
@@ -217,16 +202,6 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 showInMenuBar: currentShowInMenuBar,
                 featureEnabled: currentFeatureEnabled
             )
-            let newlyStarted = result.capableSessionIDs.subtracting(self.previousCapableSessionIDs)
-            self.previousCapableSessionIDs = result.capableSessionIDs
-            if !self.capableSessionBaselineSeeded {
-                // First scan after (re)activation: record the baseline only.
-                // Pre-existing sessions must not present onboarding — computer use
-                // onboarding appears only when a session starts afterward.
-                self.capableSessionBaselineSeeded = true
-            } else if currentFeatureEnabled, !newlyStarted.isEmpty {
-                self.onCapableSessionStarted()
-            }
         }
     }
 

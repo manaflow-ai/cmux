@@ -7,9 +7,9 @@ public struct ComputerUseCatalogSection: SettingCatalogSection {
     /// On by default so an agent already has the computer-use tools the moment a
     /// user asks it to drive the machine. This does not prompt for anything at
     /// launch: the tools stay dormant until actually invoked, and the first
-    /// TCC-gated action relaunches the bundled "cmux Computer Use.app" helper via
-    /// LaunchServices, which is what raises the Accessibility / Screen Recording
-    /// prompt under its own identity — never the host app, never at startup.
+    /// tool call presents cmux's onboarding if a required permission is missing.
+    /// The bundled driver stays in cmux's responsibility chain, so macOS grants
+    /// Accessibility and Screen Recording to cmux rather than a helper identity.
     public let enabled = JSONKey<Bool>(
         id: "computerUse.enabled",
         defaultValue: true

@@ -183,17 +183,13 @@ public protocol SettingsHostActions: AnyObject {
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
 
-    /// Refreshes the cached computer-use permission status by querying the helper
-    /// app's own TCC identity out of process. Call before reading the granted
-    /// getters so the UI reflects the helper's real grants, not stale values.
+    /// Gives the host a chance to refresh computer-use permission state.
     func refreshComputerUsePermissions() async
 
-    /// Whether the computer-use helper currently has Accessibility permission.
-    /// Reads the last value cached by ``refreshComputerUsePermissions()``.
+    /// Whether cmux currently has Accessibility permission.
     func computerUseAccessibilityGranted() -> Bool
 
-    /// Whether the computer-use helper currently has Screen Recording permission.
-    /// Reads the last value cached by ``refreshComputerUsePermissions()``.
+    /// Whether cmux currently has Screen Recording permission.
     func computerUseScreenRecordingGranted() -> Bool
 
     /// Requests Accessibility permission through the system trust prompt.

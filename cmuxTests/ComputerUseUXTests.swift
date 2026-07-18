@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxTerminal
 import Foundation
 import Testing
@@ -96,19 +97,45 @@ struct ComputerUseUXTests {
     }
 
     @MainActor
-    @Test func onboardingSurfacesWhenPermissionsMissingEvenAfterSeen() {
-        // Missing permission must surface regardless of `seen` — a dev rebuild
-        // drops the TCC grant, and gating on `seen` left the user with no prompt.
-        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+    @Test func onboardingAutomaticallySurfacesOnlyOnceWhenPermissionsAreMissing() {
+        #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: true, featureEnabled: true, accessibilityGranted: false, screenRecordingGranted: true))
-        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+        #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: true, featureEnabled: true, accessibilityGranted: true, screenRecordingGranted: false))
-        // Both granted -> never surfaced (no nag for a set-up user).
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: false, featureEnabled: true, accessibilityGranted: false, screenRecordingGranted: true))
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: false, featureEnabled: true, accessibilityGranted: true, screenRecordingGranted: false))
         #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: false, featureEnabled: true, accessibilityGranted: true, screenRecordingGranted: true))
-        // Feature off -> never surfaced.
         #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: false, featureEnabled: false, accessibilityGranted: false, screenRecordingGranted: false))
+    }
+
+    @Test @MainActor func onlyRealComputerUseToolHooksTriggerOnboarding() {
+        let invocation = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "claude",
+            toolName: "mcp__cmux-computer-use__start_session"
+        )
+        #expect(ComputerUseUXCoordinator.isComputerUseToolInvocation(invocation))
+
+        let sessionStart = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .sessionStart,
+            source: "claude",
+            toolName: "mcp__cmux-computer-use__start_session"
+        )
+        #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(sessionStart))
+
+        let unrelatedTool = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "claude",
+            toolName: "Bash"
+        )
+        #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(unrelatedTool))
     }
 
     @Test func parsesRealDriverStateFileShape() throws {

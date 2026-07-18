@@ -4,5 +4,4 @@ import Foundation
 struct ComputerUseMenuBarScanResult: Sendable {
     let rows: [ComputerUseMenuBarRow]
     let scan: ComputerUseStateScan
-    let capableSessionIDs: Set<String>
 }

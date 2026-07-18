@@ -2,9 +2,8 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="c1fd8feda43412bff476c5bc126938d930a4a4b8"
+CMUX_CUA_PINNED_SHA="4a31b7f8c1db7e53acb698a9d787b2ab9269e5f8"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT=""
 ARCHS_RAW=""
 CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cua-driver}"
@@ -269,72 +268,14 @@ chmod 0755 "$OUTPUT"
 /usr/bin/codesign --force --sign - --timestamp=none "$OUTPUT"
 /usr/bin/codesign --verify --strict "$OUTPUT"
 
-# ── Package the driver as a standalone "cmux Computer Use.app" helper ──────────
-# When $OUTPUT lands inside an app bundle (…/Contents/Resources/bin/…), also
-# assemble the driver into its OWN nested app bundle with its own bundle id and
-# the cmux icon. Spawning the driver from THIS bundle non-embedded (so it becomes
-# its own TCC "responsible process") makes macOS attribute Accessibility / Screen
-# Recording to "cmux Computer Use" — a clear, cmux-branded identity distinct from
-# the host app. The host wrappers prefer this bundle and fall back to the bare
-# binary above.
+# The driver used to be copied into a separate nested app. Remove that legacy
+# bundle from incremental products so only the embedded cmux-owned binary ships.
 _cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd)"
 _cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd || true)"
 if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
-  HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
-  rm -rf "$HELPER_APP"
-  mkdir -p "$HELPER_APP/Contents/MacOS" "$HELPER_APP/Contents/Resources"
-  cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/cmux-cua-driver"
-  chmod 0755 "$HELPER_APP/Contents/MacOS/cmux-cua-driver"
-  # Give the helper its own icon: the cmux-blue agent cursor (the shape the
-  # driver paints while steering the pointer), so System Settings shows a
-  # recognizable computer-use glyph rather than a blank placeholder. Prefer the
-  # dedicated asset; fall back to the host app's compiled icon. (The host's icon
-  # is AppIcon-Debug.icns in Debug builds, so the old AppIcon.icns-only copy left
-  # the helper icon blank.)
-  _helper_icon="$ROOT/Resources/ComputerUseHelperIcon.icns"
-  if [ -f "$_helper_icon" ]; then
-    cp "$_helper_icon" "$HELPER_APP/Contents/Resources/AppIcon.icns"
-  elif [ -f "$_cua_contents/Resources/AppIcon.icns" ]; then
-    cp "$_cua_contents/Resources/AppIcon.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
-  elif [ -f "$_cua_contents/Resources/AppIcon-Debug.icns" ]; then
-    cp "$_cua_contents/Resources/AppIcon-Debug.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
-  fi
-  # Derive the helper's identity from the HOST app so a dev/tagged cmux
-  # ("cmux DEV <tag>" / com.cmuxterm.cmux.dev.<tag>) produces a distinctly named
-  # helper with its OWN TCC identity — separate from a release "cmux Computer Use"
-  # so their System Settings grants never collide. The .app DIRECTORY name stays
-  # constant ("cmux Computer Use.app") so the wrappers' and app's fixed lookup
-  # paths keep resolving; only the display name and bundle id vary.
-  _host_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$_cua_contents/Info.plist" 2>/dev/null || true)"
-  _host_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$_cua_contents/Info.plist" 2>/dev/null || true)"
-  [ -n "$_host_id" ] || _host_id="com.cmuxterm"
-  [ -n "$_host_name" ] || _host_name="cmux"
-  HELPER_ID="${_host_id}.computer-use"
-  HELPER_DISPLAY="${_host_name} Computer Use"
-  cat > "$HELPER_APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key><string>${HELPER_DISPLAY}</string>
-  <key>CFBundleDisplayName</key><string>${HELPER_DISPLAY}</string>
-  <key>CFBundleIdentifier</key><string>${HELPER_ID}</string>
-  <key>CFBundleExecutable</key><string>cmux-cua-driver</string>
-  <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
-  <key>LSUIElement</key><true/>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
-  <key>NSAccessibilityUsageDescription</key><string>${HELPER_DISPLAY} inspects and controls the apps you ask an agent to drive.</string>
-  <key>NSScreenCaptureUsageDescription</key><string>${HELPER_DISPLAY} captures app windows so it can act on what is visible on screen.</string>
-</dict>
-</plist>
-PLIST
-  /usr/bin/codesign --force --deep --sign - --timestamp=none "$HELPER_APP" 2>/dev/null || true
-  echo "$HELPER_DISPLAY.app assembled at: $HELPER_APP (id $HELPER_ID)"
+  rm -rf "$_cua_contents/Library/cmux Computer Use.app"
 fi
+
 # Launchability probe. Deliberately NOT `doctor --json`: doctor's macOS
 # platform probes are mutating (they `launchctl unload` + delete a legacy
 # LaunchAgent plist and remove the hard-coded /usr/local/bin/cua-driver-update,
