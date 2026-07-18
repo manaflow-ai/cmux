@@ -84,6 +84,30 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Kimi resume drops inline configuration secrets but keeps configuration files")
+    func kimiResumeDropsInlineConfiguration() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "kimi",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "kimi",
+                    "--config", #"model.api_key = "inline-secret""#,
+                    "--mcp-config", #"{"mcpServers":{"private":{"env":{"TOKEN":"inline-secret"}}}}"#,
+                    "--config-file", "/tmp/kimi.toml",
+                    "--mcp-config-file", "/tmp/mcp.json",
+                    "--model", "kimi-k2",
+                ]
+            ) == [
+                "kimi", "--session", "SID",
+                "--config-file", "/tmp/kimi.toml",
+                "--mcp-config-file", "/tmp/mcp.json",
+                "--model", "kimi-k2",
+            ]
+        )
+    }
+
     @Test("Built-in special-shaped kinds")
     func builtInSpecialShapes() {
         #expect(
