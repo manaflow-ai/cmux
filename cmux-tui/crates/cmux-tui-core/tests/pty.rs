@@ -9,6 +9,12 @@ use cmux_tui_core::{AttachFrame, CursorShape, DefaultColors, Mux, MuxEvent, Rgb,
 use ghostty_vt::RenderState;
 
 fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
+    let timeout_scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|scale| *scale > 0)
+        .unwrap_or(1);
+    let timeout = timeout.saturating_mul(timeout_scale);
     let start = Instant::now();
     while start.elapsed() < timeout {
         if let Some(v) = f() {
@@ -227,6 +233,9 @@ fn shared_surface_uses_smallest_viewer_size_until_that_viewer_detaches() {
     assert_eq!(mux.surface(surface).unwrap().size(), (80, 40));
 
     mux.remove_surface_size_client(surface, 2);
+    assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
+
+    mux.remove_surface_size_client(surface, 1);
     assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
 
     mux.shutdown();

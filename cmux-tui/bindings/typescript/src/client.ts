@@ -405,6 +405,15 @@ export class CmuxClient {
   }
   listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
   detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
+  setClientSizing(client: Id, enabled: boolean): Promise<EmptyResult> {
+    return this.request("set-client-sizing", { client, enabled });
+  }
+  useOnlyClientSizing(client: Id): Promise<EmptyResult> {
+    return this.request("set-client-sizing", { client, enabled: true, exclusive: true });
+  }
+  useAllClientSizing(): Promise<EmptyResult> {
+    return this.request("set-client-sizing", { enabled: true });
+  }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }
@@ -463,6 +472,9 @@ export class CmuxClient {
   async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
     const result = await this.request("resize-surface", { surface, cols, rows });
     return { ...result, accepted: result.accepted ?? true };
+  }
+  releaseSurfaceSize(surface: Id): Promise<EmptyResult> {
+    return this.request("release-surface-size", { surface });
   }
   focusPane(pane: Id): Promise<EmptyResult> { return this.request("focus-pane", { pane }); }
   selectTab(options: SelectTabOptions = {}): Promise<EmptyResult> { return this.request("select-tab", options); }
