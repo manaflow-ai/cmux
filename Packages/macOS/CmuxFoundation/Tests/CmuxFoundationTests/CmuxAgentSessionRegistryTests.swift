@@ -165,6 +165,42 @@ struct CmuxAgentSessionRegistryTests {
         #expect(elapsed < .seconds(1))
     }
 
+    @Test("disjoint hook mutations do not lose writes at the retention boundary")
+    func disjointMutationsAtRetentionBoundary() async throws {
+        let fixture = try Fixture(busyTimeoutMilliseconds: 25)
+        let records = try (0..<10_000).map { index in
+            try fixture.record(sessionID: "session-\(index)", updatedAt: Double(index), generation: 1)
+        }
+        try fixture.registry.apply(provider: "codex", records: records)
+        let registry = fixture.registry
+
+        let successes = await withTaskGroup(of: Bool.self, returning: Int.self) { group in
+            for index in 0..<16 {
+                group.addTask {
+                    do {
+                        return try registry.mutateSnapshot(provider: "codex") { snapshot in
+                            guard let recordIndex = snapshot.records.firstIndex(where: {
+                                $0.sessionID == "session-\(index)"
+                            }) else { return false }
+                            snapshot.records[recordIndex].updatedAt = 20_000 + Double(index)
+                            return true
+                        }
+                    } catch {
+                        return false
+                    }
+                }
+            }
+            var count = 0
+            for await success in group where success { count += 1 }
+            return count
+        }
+
+        #expect(successes == 16)
+        let stored = try fixture.registry.snapshot(provider: "codex")
+        let updated = stored.records.filter { $0.updatedAt >= 20_000 }
+        #expect(updated.count == 16)
+    }
+
     @Test("WAL snapshots stay readable while another connection owns the writer lock")
     func snapshotDoesNotJoinWriterContention() throws {
         let fixture = try Fixture(busyTimeoutMilliseconds: 10)
