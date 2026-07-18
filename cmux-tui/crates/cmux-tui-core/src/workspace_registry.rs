@@ -16,9 +16,10 @@ use serde_json::Value;
 
 use crate::platform;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const MAX_ID_LEN: usize = 128;
 const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
+const MAX_LAUNCH_SPEC_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryWorkspace {
@@ -67,6 +68,75 @@ pub struct RegistryCommit {
 pub struct RegistryEvent {
     pub revision: u64,
     pub kind: String,
+    pub workspace_key: String,
+    pub origin: String,
+    pub mutation_id: String,
+    pub result: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalLifecycle {
+    Launching,
+    Adopting,
+    Running,
+    Exited,
+    Tombstoned,
+}
+
+impl TerminalLifecycle {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Launching => "launching",
+            Self::Adopting => "adopting",
+            Self::Running => "running",
+            Self::Exited => "exited",
+            Self::Tombstoned => "tombstoned",
+        }
+    }
+
+    fn parse(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "launching" => Ok(Self::Launching),
+            "adopting" => Ok(Self::Adopting),
+            "running" => Ok(Self::Running),
+            "exited" => Ok(Self::Exited),
+            "tombstoned" => Ok(Self::Tombstoned),
+            other => anyhow::bail!("invalid terminal lifecycle {other:?}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RegistryTerminal {
+    pub terminal_id: String,
+    pub workspace_key: String,
+    pub incarnation: Option<String>,
+    pub lifecycle: TerminalLifecycle,
+    pub launch_spec: Value,
+    pub exit: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TerminalRegistrySnapshot {
+    pub registry_id: String,
+    pub generation: String,
+    pub revision: u64,
+    pub terminals: Vec<RegistryTerminal>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TerminalRegistryCommit {
+    pub revision: u64,
+    pub result: Value,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TerminalRegistryEvent {
+    pub revision: u64,
+    pub kind: String,
+    pub terminal_id: String,
     pub workspace_key: String,
     pub origin: String,
     pub mutation_id: String,
@@ -145,69 +215,55 @@ impl WorkspaceRegistry {
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS workspaces (
-               workspace_key TEXT PRIMARY KEY NOT NULL,
-               numeric_id INTEGER UNIQUE NOT NULL,
-               name TEXT NOT NULL,
-               group_key TEXT NOT NULL,
-               position INTEGER,
-               tombstoned INTEGER NOT NULL DEFAULT 0 CHECK(tombstoned IN (0,1)),
-               created_revision INTEGER NOT NULL,
-               updated_revision INTEGER NOT NULL
-               ,deleted_revision INTEGER
-             );
-             CREATE UNIQUE INDEX IF NOT EXISTS live_workspace_position
-               ON workspaces(position) WHERE tombstoned = 0;
-             CREATE TABLE IF NOT EXISTS mutations (
-               origin TEXT NOT NULL,
-               mutation_id TEXT NOT NULL,
-               fingerprint TEXT NOT NULL,
-               result_json TEXT NOT NULL,
-               committed_revision INTEGER NOT NULL,
-               PRIMARY KEY(origin, mutation_id)
-             );
-             CREATE TABLE IF NOT EXISTS workspace_events (
-               revision INTEGER PRIMARY KEY NOT NULL,
-               kind TEXT NOT NULL,
-               workspace_key TEXT NOT NULL,
-               origin TEXT NOT NULL,
-               mutation_id TEXT NOT NULL,
-               result_json TEXT NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS frontend_projections (
-               frontend TEXT NOT NULL,
-               scope TEXT NOT NULL,
-               subject_key TEXT NOT NULL,
-               schema_version INTEGER NOT NULL,
-               projection_revision INTEGER NOT NULL,
-               payload TEXT NOT NULL,
-               PRIMARY KEY(frontend, scope, subject_key)
-             );
-             CREATE TABLE IF NOT EXISTS projection_mutations (
-               origin TEXT NOT NULL,
-               mutation_id TEXT NOT NULL,
-               fingerprint TEXT NOT NULL,
-               result_json TEXT NOT NULL,
-               PRIMARY KEY(origin, mutation_id)
              );",
         )?;
 
         let stored_schema = meta_value(&connection, "schema_version")?;
         match stored_schema {
-            Some(value) if value.parse::<i64>()? != SCHEMA_VERSION => {
+            Some(value) if value.parse::<i64>()? > SCHEMA_VERSION => {
                 anyhow::bail!(
-                    "unsupported workspace registry schema {value}; expected {SCHEMA_VERSION}"
+                    "unsupported workspace registry schema {value}; newest supported is {SCHEMA_VERSION}"
                 );
             }
-            Some(_) => {}
+            Some(value) if value.parse::<i64>()? == SCHEMA_VERSION => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
+                )?;
+                tx.commit()?;
+            }
+            Some(value) if value.parse::<i64>()? == 1 => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
+                )?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
+                tx.commit()?;
+            }
+            Some(value) => {
+                anyhow::bail!(
+                    "unsupported workspace registry schema {value}; expected 1 or {SCHEMA_VERSION}"
+                );
+            }
             None => {
                 let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
                 tx.execute(
                     "INSERT INTO meta(key, value) VALUES('schema_version', ?1)",
                     [SCHEMA_VERSION.to_string()],
                 )?;
                 tx.execute("INSERT INTO meta(key, value) VALUES('revision', '0')", [])?;
+                tx.execute("INSERT INTO meta(key, value) VALUES('terminal_revision', '0')", [])?;
                 tx.execute(
                     "INSERT INTO meta(key, value) VALUES('session_name', ?1)",
                     [&session_name],
@@ -280,6 +336,329 @@ impl WorkspaceRegistry {
 
     pub fn generation(&self) -> &str {
         &self.generation
+    }
+
+    /// Returns the canonical, non-tombstoned terminal placement projection.
+    /// Runtime surface ids and renderer process ids are intentionally absent.
+    pub fn terminal_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
+        let revision = current_terminal_revision(&self.connection)?;
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, workspace_key, incarnation, lifecycle,
+                    launch_spec_json, exit_json
+             FROM terminal_placements
+             WHERE lifecycle != 'tombstoned'
+             ORDER BY created_revision ASC, terminal_id ASC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+        let terminals =
+            rows.map(|row| terminal_from_stored(row?)).collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(TerminalRegistrySnapshot {
+            registry_id: self.registry_id.clone(),
+            generation: self.generation.clone(),
+            revision,
+            terminals,
+        })
+    }
+
+    /// Includes tombstones and is intended for reconciliation and idempotent
+    /// close handling, not frontend materialization.
+    pub fn terminal_record(&self, terminal_id: &str) -> anyhow::Result<Option<RegistryTerminal>> {
+        validate_identifier("terminal id", terminal_id)?;
+        read_terminal(&self.connection, terminal_id)
+    }
+
+    pub fn replay_terminal(
+        &self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+    ) -> anyhow::Result<Option<TerminalRegistryCommit>> {
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        let fingerprint = canonical_json(fingerprint)?;
+        terminal_replay(&self.connection, mutation, &fingerprint)
+    }
+
+    /// Commits one terminal state transition and its event in a single SQLite
+    /// transaction. Callers reserve a stable id in `launching` before spawning
+    /// a host, then advance it through `adopting`/`running` only after the host
+    /// record is durable. A tombstoned id can never be resurrected.
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_terminal(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        event_kind: &str,
+        terminal: &RegistryTerminal,
+        result: &Value,
+    ) -> anyhow::Result<TerminalRegistryCommit> {
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        validate_identifier("terminal event kind", event_kind)?;
+        validate_terminal(terminal)?;
+        let fingerprint = canonical_json(fingerprint)?;
+        let result_json = canonical_json(result)?;
+        let launch_spec_json = canonical_json(&terminal.launch_spec)?;
+        if launch_spec_json.len() > MAX_LAUNCH_SPEC_BYTES {
+            anyhow::bail!("terminal launch spec exceeds {MAX_LAUNCH_SPEC_BYTES} bytes");
+        }
+        let exit_json = terminal.exit.as_ref().map(canonical_json).transpose()?;
+        let tx = self.connection.transaction()?;
+
+        if let Some(replay) = terminal_replay(&tx, mutation, &fingerprint)? {
+            return Ok(replay);
+        }
+        if let Some(expected) = expected_generation
+            && expected != self.generation
+        {
+            anyhow::bail!(
+                "terminal generation conflict: expected {expected}, current {}",
+                self.generation
+            );
+        }
+        let current_revision = transaction_terminal_revision(&tx)?;
+        if let Some(expected) = expected_revision
+            && expected != current_revision
+        {
+            anyhow::bail!(
+                "terminal revision conflict: expected {expected}, current {current_revision}"
+            );
+        }
+        let existing = read_terminal(&tx, &terminal.terminal_id)?;
+        validate_terminal_transition(existing.as_ref(), terminal)?;
+        if terminal.lifecycle != TerminalLifecycle::Tombstoned {
+            require_live_workspace(&tx, &terminal.workspace_key)?;
+        }
+
+        let revision = current_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+        tx.execute(
+            "INSERT INTO terminal_placements(
+               terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+               exit_json, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)
+             ON CONFLICT(terminal_id) DO UPDATE SET
+               workspace_key=excluded.workspace_key,
+               incarnation=excluded.incarnation,
+               lifecycle=excluded.lifecycle,
+               launch_spec_json=excluded.launch_spec_json,
+               exit_json=excluded.exit_json,
+               updated_revision=excluded.updated_revision,
+               deleted_revision=excluded.deleted_revision",
+            params![
+                terminal.terminal_id,
+                terminal.workspace_key,
+                terminal.incarnation,
+                terminal.lifecycle.as_str(),
+                launch_spec_json,
+                exit_json,
+                sqlite_revision,
+                (terminal.lifecycle == TerminalLifecycle::Tombstoned).then_some(sqlite_revision),
+            ],
+        )?;
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO terminal_mutations(
+               origin, mutation_id, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
+        )?;
+        tx.execute(
+            "INSERT INTO terminal_events(
+               revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                sqlite_revision,
+                event_kind,
+                terminal.terminal_id,
+                terminal.workspace_key,
+                mutation.origin,
+                mutation.id,
+                result_json,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(TerminalRegistryCommit { revision, result: result.clone(), replayed: false })
+    }
+
+    /// Durably tombstones a terminal before the caller signals its host. This
+    /// makes a repeated close safe even if the first success reply was lost.
+    pub fn close_terminal(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        terminal_id: &str,
+        expected_incarnation: Option<&str>,
+    ) -> anyhow::Result<TerminalRegistryCommit> {
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        validate_identifier("terminal id", terminal_id)?;
+        if let Some(incarnation) = expected_incarnation {
+            validate_identifier("terminal incarnation", incarnation)?;
+        }
+        let fingerprint_value = serde_json::json!({
+            "op": "close-terminal",
+            "terminal_id": terminal_id,
+            "incarnation": expected_incarnation,
+        });
+        let fingerprint = canonical_json(&fingerprint_value)?;
+        let tx = self.connection.transaction()?;
+        if let Some(replay) = terminal_replay(&tx, mutation, &fingerprint)? {
+            return Ok(replay);
+        }
+        if let Some(expected) = expected_generation
+            && expected != self.generation
+        {
+            anyhow::bail!(
+                "terminal generation conflict: expected {expected}, current {}",
+                self.generation
+            );
+        }
+        let current_revision = transaction_terminal_revision(&tx)?;
+        if let Some(expected) = expected_revision
+            && expected != current_revision
+        {
+            anyhow::bail!(
+                "terminal revision conflict: expected {expected}, current {current_revision}"
+            );
+        }
+        let Some(terminal) = read_terminal(&tx, terminal_id)? else {
+            anyhow::bail!("unknown terminal {terminal_id}; it may not have been adopted yet");
+        };
+        if let Some(expected) = expected_incarnation
+            && terminal.incarnation.as_deref() != Some(expected)
+        {
+            anyhow::bail!(
+                "terminal incarnation conflict for {terminal_id}: expected {expected}, current {:?}",
+                terminal.incarnation
+            );
+        }
+
+        if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+            let result = serde_json::json!({
+                "terminal_id": terminal_id,
+                "incarnation": terminal.incarnation,
+                "closed": true,
+                "already_closed": true,
+            });
+            let result_json = canonical_json(&result)?;
+            tx.execute(
+                "INSERT INTO terminal_mutations(
+                   origin, mutation_id, fingerprint, result_json, committed_revision
+                 ) VALUES(?1, ?2, ?3, ?4, ?5)",
+                params![
+                    mutation.origin,
+                    mutation.id,
+                    fingerprint,
+                    result_json,
+                    i64::try_from(current_revision)
+                        .context("terminal revision exceeds SQLite integer range")?,
+                ],
+            )?;
+            tx.commit()?;
+            return Ok(TerminalRegistryCommit {
+                revision: current_revision,
+                result,
+                replayed: false,
+            });
+        }
+
+        let revision = current_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+        let result = serde_json::json!({
+            "terminal_id": terminal_id,
+            "incarnation": terminal.incarnation,
+            "closed": true,
+            "already_closed": false,
+        });
+        let result_json = canonical_json(&result)?;
+        tx.execute(
+            "UPDATE terminal_placements
+             SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
+             WHERE terminal_id = ?2",
+            params![sqlite_revision, terminal_id],
+        )?;
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO terminal_mutations(
+               origin, mutation_id, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
+        )?;
+        tx.execute(
+            "INSERT INTO terminal_events(
+               revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
+             ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
+            params![
+                sqlite_revision,
+                terminal_id,
+                terminal.workspace_key,
+                mutation.origin,
+                mutation.id,
+                result_json,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(TerminalRegistryCommit { revision, result, replayed: false })
+    }
+
+    pub fn terminal_events_after(
+        &self,
+        revision: u64,
+    ) -> anyhow::Result<Vec<TerminalRegistryEvent>> {
+        let mut statement = self.connection.prepare(
+            "SELECT revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
+             FROM terminal_events WHERE revision > ?1 ORDER BY revision ASC",
+        )?;
+        let sqlite_revision =
+            i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+        let rows = statement.query_map([sqlite_revision], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (revision, kind, terminal_id, workspace_key, origin, mutation_id, result) = row?;
+            Ok(TerminalRegistryEvent {
+                revision: u64::try_from(revision).context("terminal event revision is negative")?,
+                kind,
+                terminal_id,
+                workspace_key,
+                origin,
+                mutation_id,
+                result: serde_json::from_str(&result)?,
+            })
+        })
+        .collect()
     }
 
     /// Look up an already-committed mutation before resolving any live
@@ -404,6 +783,12 @@ impl WorkspaceRegistry {
                 anyhow::bail!("tombstoned workspace key cannot be reused: {}", workspace.key);
             }
         }
+
+        // Child terminals become durable tombstones in this same transaction,
+        // before their workspace rows are tombstoned. Process termination is a
+        // post-commit effect and can therefore be retried after a daemon crash
+        // without ever letting a frontend resurrect the terminal elsewhere.
+        tombstone_terminals_in_removed_workspaces(&tx, workspaces, mutation)?;
 
         tx.execute(
             "UPDATE workspaces SET tombstoned = 1, position = NULL,
@@ -637,6 +1022,176 @@ impl WorkspaceRegistry {
     }
 }
 
+fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS workspaces (
+           workspace_key TEXT PRIMARY KEY NOT NULL,
+           numeric_id INTEGER UNIQUE NOT NULL,
+           name TEXT NOT NULL,
+           group_key TEXT NOT NULL,
+           position INTEGER,
+           tombstoned INTEGER NOT NULL DEFAULT 0 CHECK(tombstoned IN (0,1)),
+           created_revision INTEGER NOT NULL,
+           updated_revision INTEGER NOT NULL,
+           deleted_revision INTEGER
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS live_workspace_position
+           ON workspaces(position) WHERE tombstoned = 0;
+         CREATE TABLE IF NOT EXISTS mutations (
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           fingerprint TEXT NOT NULL,
+           result_json TEXT NOT NULL,
+           committed_revision INTEGER NOT NULL,
+           PRIMARY KEY(origin, mutation_id)
+         );
+         CREATE TABLE IF NOT EXISTS workspace_events (
+           revision INTEGER PRIMARY KEY NOT NULL,
+           kind TEXT NOT NULL,
+           workspace_key TEXT NOT NULL,
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           result_json TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS frontend_projections (
+           frontend TEXT NOT NULL,
+           scope TEXT NOT NULL,
+           subject_key TEXT NOT NULL,
+           schema_version INTEGER NOT NULL,
+           projection_revision INTEGER NOT NULL,
+           payload TEXT NOT NULL,
+           PRIMARY KEY(frontend, scope, subject_key)
+         );
+         CREATE TABLE IF NOT EXISTS projection_mutations (
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           fingerprint TEXT NOT NULL,
+           result_json TEXT NOT NULL,
+           PRIMARY KEY(origin, mutation_id)
+         );",
+    )?;
+    Ok(())
+}
+
+fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS terminal_placements (
+           terminal_id TEXT PRIMARY KEY NOT NULL,
+           workspace_key TEXT NOT NULL REFERENCES workspaces(workspace_key),
+           incarnation TEXT,
+           lifecycle TEXT NOT NULL CHECK(
+             lifecycle IN ('launching','adopting','running','exited','tombstoned')
+           ),
+           launch_spec_json TEXT NOT NULL,
+           exit_json TEXT,
+           created_revision INTEGER NOT NULL,
+           updated_revision INTEGER NOT NULL,
+           deleted_revision INTEGER
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS terminal_incarnation
+           ON terminal_placements(incarnation) WHERE incarnation IS NOT NULL;
+         CREATE INDEX IF NOT EXISTS live_terminals_by_workspace
+           ON terminal_placements(workspace_key, updated_revision)
+           WHERE lifecycle != 'tombstoned';
+         CREATE TABLE IF NOT EXISTS terminal_mutations (
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           fingerprint TEXT NOT NULL,
+           result_json TEXT NOT NULL,
+           committed_revision INTEGER NOT NULL,
+           PRIMARY KEY(origin, mutation_id)
+         );
+         CREATE TABLE IF NOT EXISTS terminal_events (
+           revision INTEGER PRIMARY KEY NOT NULL,
+           kind TEXT NOT NULL,
+           terminal_id TEXT NOT NULL,
+           workspace_key TEXT NOT NULL,
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           result_json TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS terminal_events_by_terminal
+           ON terminal_events(terminal_id, revision);",
+    )?;
+    Ok(())
+}
+
+fn tombstone_terminals_in_removed_workspaces(
+    transaction: &Transaction<'_>,
+    remaining_workspaces: &[RegistryWorkspace],
+    mutation: &WorkspaceMutation,
+) -> anyhow::Result<()> {
+    let remaining = remaining_workspaces
+        .iter()
+        .map(|workspace| workspace.key.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let terminals = {
+        let mut statement = transaction.prepare(
+            "SELECT terminal_id, workspace_key, incarnation
+             FROM terminal_placements
+             WHERE lifecycle != 'tombstoned'
+             ORDER BY created_revision ASC, terminal_id ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let removed = terminals
+        .into_iter()
+        .filter(|(_, workspace_key, _)| !remaining.contains(workspace_key.as_str()))
+        .collect::<Vec<_>>();
+    if removed.is_empty() {
+        return Ok(());
+    }
+
+    let mut revision = transaction_terminal_revision(transaction)?;
+    for (terminal_id, workspace_key, incarnation) in removed {
+        revision = revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+        let result = serde_json::json!({
+            "terminal_id": terminal_id,
+            "workspace_key": workspace_key,
+            "incarnation": incarnation,
+            "closed": true,
+            "reason": "workspace-closed",
+        });
+        let result_json = canonical_json(&result)?;
+        transaction.execute(
+            "UPDATE terminal_placements
+             SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
+             WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
+            params![sqlite_revision, terminal_id],
+        )?;
+        transaction.execute(
+            "INSERT INTO terminal_events(
+               revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
+             ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
+            params![
+                sqlite_revision,
+                terminal_id,
+                workspace_key,
+                mutation.origin,
+                mutation.id,
+                result_json,
+            ],
+        )?;
+    }
+    transaction.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
+        [revision.to_string()],
+    )?;
+    Ok(())
+}
+
 fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
     let mut keys = std::collections::HashSet::new();
     for workspace in workspaces {
@@ -650,6 +1205,157 @@ fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn validate_terminal(terminal: &RegistryTerminal) -> anyhow::Result<()> {
+    validate_identifier("terminal id", &terminal.terminal_id)?;
+    validate_identifier("workspace key", &terminal.workspace_key)?;
+    if let Some(incarnation) = &terminal.incarnation {
+        validate_identifier("terminal incarnation", incarnation)?;
+    }
+    match terminal.lifecycle {
+        TerminalLifecycle::Launching if terminal.incarnation.is_some() => {
+            anyhow::bail!("launching terminal cannot have an incarnation before host adoption");
+        }
+        TerminalLifecycle::Adopting | TerminalLifecycle::Running
+            if terminal.incarnation.is_none() =>
+        {
+            anyhow::bail!("{:?} terminal requires a host incarnation", terminal.lifecycle);
+        }
+        _ => {}
+    }
+    if terminal.lifecycle != TerminalLifecycle::Exited && terminal.exit.is_some() {
+        anyhow::bail!("only an exited terminal can carry exit metadata");
+    }
+    Ok(())
+}
+
+fn validate_terminal_transition(
+    existing: Option<&RegistryTerminal>,
+    desired: &RegistryTerminal,
+) -> anyhow::Result<()> {
+    let Some(existing) = existing else {
+        if desired.lifecycle != TerminalLifecycle::Launching {
+            anyhow::bail!("new terminal must be reserved in launching state before host spawn");
+        }
+        return Ok(());
+    };
+    if existing.lifecycle == TerminalLifecycle::Tombstoned {
+        anyhow::bail!("tombstoned terminal id cannot be reused: {}", desired.terminal_id);
+    }
+    let allowed = matches!(
+        (existing.lifecycle, desired.lifecycle),
+        (TerminalLifecycle::Launching, TerminalLifecycle::Launching)
+            | (TerminalLifecycle::Launching, TerminalLifecycle::Adopting)
+            | (TerminalLifecycle::Launching, TerminalLifecycle::Running)
+            | (TerminalLifecycle::Launching, TerminalLifecycle::Exited)
+            | (TerminalLifecycle::Launching, TerminalLifecycle::Tombstoned)
+            | (TerminalLifecycle::Adopting, TerminalLifecycle::Adopting)
+            | (TerminalLifecycle::Adopting, TerminalLifecycle::Running)
+            | (TerminalLifecycle::Adopting, TerminalLifecycle::Exited)
+            | (TerminalLifecycle::Adopting, TerminalLifecycle::Tombstoned)
+            | (TerminalLifecycle::Running, TerminalLifecycle::Running)
+            | (TerminalLifecycle::Running, TerminalLifecycle::Exited)
+            | (TerminalLifecycle::Running, TerminalLifecycle::Tombstoned)
+            | (TerminalLifecycle::Exited, TerminalLifecycle::Exited)
+            | (TerminalLifecycle::Exited, TerminalLifecycle::Launching)
+            | (TerminalLifecycle::Exited, TerminalLifecycle::Tombstoned)
+    );
+    if !allowed {
+        anyhow::bail!(
+            "invalid terminal transition {:?} -> {:?}",
+            existing.lifecycle,
+            desired.lifecycle
+        );
+    }
+    if existing.lifecycle == TerminalLifecycle::Running
+        && desired.lifecycle == TerminalLifecycle::Running
+        && existing.incarnation != desired.incarnation
+    {
+        anyhow::bail!("running terminal incarnation cannot change without an exit transition");
+    }
+    if existing.lifecycle != TerminalLifecycle::Exited
+        && existing.launch_spec != desired.launch_spec
+    {
+        anyhow::bail!("terminal launch spec cannot change during a live incarnation");
+    }
+    Ok(())
+}
+
+fn require_live_workspace(connection: &Connection, workspace_key: &str) -> anyhow::Result<()> {
+    let live = connection
+        .query_row(
+            "SELECT 1 FROM workspaces WHERE workspace_key = ?1 AND tombstoned = 0",
+            [workspace_key],
+            |_| Ok(()),
+        )
+        .optional()?;
+    if live.is_none() {
+        anyhow::bail!("terminal workspace is missing or closed: {workspace_key}");
+    }
+    Ok(())
+}
+
+type StoredTerminal = (String, String, Option<String>, String, String, Option<String>);
+
+fn terminal_from_stored(stored: StoredTerminal) -> anyhow::Result<RegistryTerminal> {
+    let (terminal_id, workspace_key, incarnation, lifecycle, launch_spec, exit) = stored;
+    Ok(RegistryTerminal {
+        terminal_id,
+        workspace_key,
+        incarnation,
+        lifecycle: TerminalLifecycle::parse(&lifecycle)?,
+        launch_spec: serde_json::from_str(&launch_spec)?,
+        exit: exit.map(|value| serde_json::from_str(&value)).transpose()?,
+    })
+}
+
+fn read_terminal(
+    connection: &Connection,
+    terminal_id: &str,
+) -> anyhow::Result<Option<RegistryTerminal>> {
+    let stored = connection
+        .query_row(
+            "SELECT terminal_id, workspace_key, incarnation, lifecycle,
+                    launch_spec_json, exit_json
+             FROM terminal_placements WHERE terminal_id = ?1",
+            [terminal_id],
+            |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+            },
+        )
+        .optional()?;
+    stored.map(terminal_from_stored).transpose()
+}
+
+fn terminal_replay(
+    connection: &Connection,
+    mutation: &WorkspaceMutation,
+    fingerprint: &str,
+) -> anyhow::Result<Option<TerminalRegistryCommit>> {
+    let stored = connection
+        .query_row(
+            "SELECT fingerprint, result_json, committed_revision
+             FROM terminal_mutations WHERE origin = ?1 AND mutation_id = ?2",
+            params![mutation.origin, mutation.id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
+        )
+        .optional()?;
+    let Some((stored_fingerprint, stored_result, revision)) = stored else {
+        return Ok(None);
+    };
+    if stored_fingerprint != fingerprint {
+        anyhow::bail!(
+            "terminal mutation {} from {} was retried with a different payload",
+            mutation.id,
+            mutation.origin
+        );
+    }
+    Ok(Some(TerminalRegistryCommit {
+        revision: u64::try_from(revision).context("stored terminal revision is negative")?,
+        result: serde_json::from_str(&stored_result)?,
+        replayed: true,
+    }))
 }
 
 fn validate_identifier(label: &str, value: &str) -> anyhow::Result<()> {
@@ -721,6 +1427,21 @@ fn transaction_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
         transaction
             .query_row("SELECT value FROM meta WHERE key = 'revision'", [], |row| row.get(0))?;
     value.parse().context("workspace registry revision is invalid")
+}
+
+fn current_terminal_revision(connection: &Connection) -> anyhow::Result<u64> {
+    required_meta(connection, "terminal_revision")?
+        .parse()
+        .context("terminal registry revision is invalid")
+}
+
+fn transaction_terminal_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
+    let value: String = transaction.query_row(
+        "SELECT value FROM meta WHERE key = 'terminal_revision'",
+        [],
+        |row| row.get(0),
+    )?;
+    value.parse().context("terminal registry revision is invalid")
 }
 
 fn session_storage_component(session: &str) -> String {
@@ -802,6 +1523,32 @@ mod tests {
 
     fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
         RegistryWorkspace { id, key: key.into(), name: name.into(), group_key: "default".into() }
+    }
+
+    fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
+        registry
+            .commit(
+                &WorkspaceMutation::new(format!("create-{key}"), "test").unwrap(),
+                &json!({"op":"create","key":key}),
+                None,
+                Some(registry.snapshot().unwrap().revision),
+                "workspace-added",
+                key,
+                &[workspace(1, key, "Workspace")],
+                &json!({"key":key}),
+            )
+            .unwrap();
+    }
+
+    fn terminal(id: &str, workspace_key: &str) -> RegistryTerminal {
+        RegistryTerminal {
+            terminal_id: id.into(),
+            workspace_key: workspace_key.into(),
+            incarnation: None,
+            lifecycle: TerminalLifecycle::Launching,
+            launch_spec: json!({"command":["/bin/zsh"],"cwd":"/tmp","rows":24,"cols":80}),
+            exit: None,
+        }
     }
 
     #[test]
@@ -1005,6 +1752,213 @@ mod tests {
             .unwrap();
         assert_eq!(recovered.projection_revision, 1);
         assert_eq!(recovered.projection["columns"][0]["workspace"], "one");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn terminal_lifecycle_is_exactly_once_and_has_an_independent_revision() {
+        let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+        seed_workspace(&mut registry, "one");
+        assert_eq!(registry.snapshot().unwrap().revision, 1);
+        assert_eq!(registry.terminal_snapshot().unwrap().revision, 0);
+
+        let terminal = terminal("terminal-1", "one");
+        let reserve = WorkspaceMutation::new("reserve-1", "browser").unwrap();
+        let fingerprint = json!({"op":"reserve-terminal","terminal_id":"terminal-1"});
+        let result = json!({"terminal_id":"terminal-1","state":"launching"});
+        let first = registry
+            .commit_terminal(
+                &reserve,
+                &fingerprint,
+                None,
+                Some(0),
+                "terminal-added",
+                &terminal,
+                &result,
+            )
+            .unwrap();
+        assert_eq!(first.revision, 1);
+        assert!(!first.replayed);
+        let retry = registry
+            .commit_terminal(
+                &reserve,
+                &fingerprint,
+                None,
+                Some(0),
+                "terminal-added",
+                &terminal,
+                &result,
+            )
+            .unwrap();
+        assert_eq!(retry.revision, 1);
+        assert!(retry.replayed);
+
+        let mut adopting = terminal.clone();
+        adopting.lifecycle = TerminalLifecycle::Adopting;
+        adopting.incarnation = Some("incarnation-1".into());
+        registry
+            .commit_terminal(
+                &WorkspaceMutation::new("adopt-1", "daemon").unwrap(),
+                &json!({"op":"adopt-terminal","terminal_id":"terminal-1"}),
+                None,
+                Some(1),
+                "terminal-adopting",
+                &adopting,
+                &json!({"terminal_id":"terminal-1","state":"adopting"}),
+            )
+            .unwrap();
+        let mut running = adopting;
+        running.lifecycle = TerminalLifecycle::Running;
+        registry
+            .commit_terminal(
+                &WorkspaceMutation::new("ready-1", "daemon").unwrap(),
+                &json!({"op":"terminal-ready","terminal_id":"terminal-1"}),
+                None,
+                Some(2),
+                "terminal-ready",
+                &running,
+                &json!({"terminal_id":"terminal-1","state":"running"}),
+            )
+            .unwrap();
+
+        let terminals = registry.terminal_snapshot().unwrap();
+        assert_eq!(terminals.revision, 3);
+        assert_eq!(terminals.terminals, vec![running]);
+        assert_eq!(registry.snapshot().unwrap().revision, 1);
+        assert_eq!(registry.terminal_events_after(0).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn terminal_close_tombstones_before_kill_and_retries_safely() {
+        let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+        seed_workspace(&mut registry, "one");
+        let terminal = terminal("terminal-1", "one");
+        registry
+            .commit_terminal(
+                &WorkspaceMutation::new("reserve-1", "browser").unwrap(),
+                &json!({"op":"reserve-terminal","terminal_id":"terminal-1"}),
+                None,
+                Some(0),
+                "terminal-added",
+                &terminal,
+                &json!({"terminal_id":"terminal-1"}),
+            )
+            .unwrap();
+
+        let close = WorkspaceMutation::new("close-1", "browser").unwrap();
+        let first = registry.close_terminal(&close, None, Some(1), "terminal-1", None).unwrap();
+        assert_eq!(first.revision, 2);
+        assert_eq!(first.result["already_closed"], false);
+        assert_eq!(
+            registry.terminal_record("terminal-1").unwrap().unwrap().lifecycle,
+            TerminalLifecycle::Tombstoned
+        );
+        assert!(registry.terminal_snapshot().unwrap().terminals.is_empty());
+
+        let lost_reply_retry =
+            registry.close_terminal(&close, None, Some(1), "terminal-1", None).unwrap();
+        assert!(lost_reply_retry.replayed);
+        assert_eq!(lost_reply_retry.revision, 2);
+
+        let second_close = registry
+            .close_terminal(
+                &WorkspaceMutation::new("close-2", "tui").unwrap(),
+                None,
+                Some(2),
+                "terminal-1",
+                None,
+            )
+            .unwrap();
+        assert_eq!(second_close.revision, 2);
+        assert_eq!(second_close.result["already_closed"], true);
+        assert_eq!(registry.terminal_events_after(0).unwrap().len(), 2);
+
+        assert!(
+            registry
+                .commit_terminal(
+                    &WorkspaceMutation::new("reuse", "browser").unwrap(),
+                    &json!({"op":"reserve-terminal","terminal_id":"terminal-1"}),
+                    None,
+                    Some(2),
+                    "terminal-added",
+                    &terminal,
+                    &json!({"terminal_id":"terminal-1"}),
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("tombstoned terminal id cannot be reused")
+        );
+    }
+
+    #[test]
+    fn closing_workspace_atomically_tombstones_all_child_terminals() {
+        let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+        seed_workspace(&mut registry, "one");
+        for index in 1..=2 {
+            let id = format!("terminal-{index}");
+            registry
+                .commit_terminal(
+                    &WorkspaceMutation::new(format!("reserve-{index}"), "browser").unwrap(),
+                    &json!({"op":"reserve-terminal","terminal_id":id}),
+                    None,
+                    Some(index - 1),
+                    "terminal-added",
+                    &terminal(&id, "one"),
+                    &json!({"terminal_id":id}),
+                )
+                .unwrap();
+        }
+        registry
+            .commit(
+                &WorkspaceMutation::new("close-workspace", "browser").unwrap(),
+                &json!({"op":"close-workspace","workspace_key":"one"}),
+                None,
+                Some(1),
+                "workspace-closed",
+                "one",
+                &[],
+                &json!({"workspace_key":"one"}),
+            )
+            .unwrap();
+
+        assert!(registry.snapshot().unwrap().workspaces.is_empty());
+        let terminals = registry.terminal_snapshot().unwrap();
+        assert_eq!(terminals.revision, 4);
+        assert!(terminals.terminals.is_empty());
+        for index in 1..=2 {
+            assert_eq!(
+                registry.terminal_record(&format!("terminal-{index}")).unwrap().unwrap().lifecycle,
+                TerminalLifecycle::Tombstoned
+            );
+        }
+        let events = registry.terminal_events_after(2).unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| event.result["reason"] == "workspace-closed"));
+    }
+
+    #[test]
+    fn schema_one_migrates_transactionally_to_terminal_registry() {
+        let root = temp_root("schema-one");
+        let session_dir = root.join(session_storage_component("session"));
+        {
+            let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+            drop(registry);
+            let connection =
+                Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+            connection
+                .execute_batch(
+                    "DROP TABLE terminal_events;
+                     DROP TABLE terminal_mutations;
+                     DROP TABLE terminal_placements;
+                     DELETE FROM meta WHERE key = 'terminal_revision';
+                     UPDATE meta SET value = '1' WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+        let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+        assert_eq!(migrated.terminal_snapshot().unwrap().revision, 0);
+        assert!(migrated.terminal_snapshot().unwrap().terminals.is_empty());
+        assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "2");
         fs::remove_dir_all(root).unwrap();
     }
 
