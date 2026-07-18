@@ -226,6 +226,84 @@ struct AgentHibernationRestoreMonitorTests {
         #expect(try String(contentsOf: retained, encoding: .utf8) == snapshotContent)
     }
 
+    @Test
+    func normalMonitorPreservesSnapshotWhenLiveIsPopulatedButDivergent() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-normal-divergence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let snapshotContent = #"{"type":"user","message":{"content":"protected"}}"# + "\n"
+        let divergentContent = #"{"type":"user","message":{"content":"different history"}}"# + "\n"
+        try divergentContent.write(to: live, atomically: true, encoding: .utf8)
+        try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
+
+        await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+            snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
+            processIDs: [],
+            initialRetryDelaysNanoseconds: [0],
+            backstopDelaysSeconds: []
+        )
+
+        #expect(try String(contentsOf: live, encoding: .utf8) == divergentContent)
+        #expect(try String(contentsOf: snapshot, encoding: .utf8) == snapshotContent)
+    }
+
+    @Test
+    func normalMonitorDeletesSnapshotWhenStableLivePrefixContainsIt() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-normal-prefix-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let snapshotContent = #"{"type":"user","message":{"content":"protected"}}"# + "\n"
+        let appendedContent = #"{"type":"assistant","message":{"content":"continued"}}"# + "\n"
+        try (snapshotContent + appendedContent).write(to: live, atomically: true, encoding: .utf8)
+        try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
+
+        await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+            snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
+            processIDs: [],
+            initialRetryDelaysNanoseconds: [0],
+            backstopDelaysSeconds: []
+        )
+
+        #expect(try String(contentsOf: live, encoding: .utf8) == snapshotContent + appendedContent)
+        #expect(FileManager.default.fileExists(atPath: snapshot.path) == false)
+    }
+
+    @Test
+    func forfeitMonitorDeletesSnapshotWhenStableLivePrefixContainsIt() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-forfeit-prefix-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let snapshotContent = #"{"type":"user","message":{"content":"protected"}}"# + "\n"
+        let appendedContent = #"{"type":"assistant","message":{"content":"continued"}}"# + "\n"
+        try (snapshotContent + appendedContent).write(to: live, atomically: true, encoding: .utf8)
+        try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
+
+        await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+            snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
+            processIDs: [],
+            initialRetryDelaysNanoseconds: [0],
+            backstopDelaysSeconds: [],
+            snapshotDisposal: .retainForRecovery(sessionId: "forfeit-prefix")
+        )
+
+        #expect(FileManager.default.fileExists(atPath: snapshot.path) == false)
+        #expect(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("forfeit-prefix-retained.jsonl").path
+        ) == false)
+    }
+
     @MainActor
     @Test
     func monitorKeyResolvesSymlinkedTranscriptPathAliases() throws {

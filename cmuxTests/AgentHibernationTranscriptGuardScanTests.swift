@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -9,6 +10,124 @@ import Testing
 
 @Suite
 struct AgentHibernationTranscriptGuardScanTests {
+    @Test
+    func liveVersionCheckRevalidatesBytesAfterSameSizeRewriteWithRestoredModificationDate() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let original = Data("abcdef".utf8)
+        let replacement = Data("UVWXYZ".utf8)
+        try original.write(to: live)
+        try original.write(to: snapshot)
+        let validated = try #require(AgentHibernationTranscriptGuard.snapshotStillMatchesLive(
+            .init(transcriptPath: live.path, snapshotPath: snapshot.path)
+        ))
+        let originalVersion = try #require(validated.liveFileVersion)
+
+        let handle = try FileHandle(forWritingTo: live)
+        try handle.seek(toOffset: 0)
+        try handle.write(contentsOf: replacement)
+        try handle.truncate(atOffset: UInt64(replacement.count))
+        try handle.close()
+        try FileManager.default.setAttributes(
+            [.modificationDate: originalVersion.modificationDate],
+            ofItemAtPath: live.path
+        )
+        let rewrittenAttributes = try FileManager.default.attributesOfItem(atPath: live.path)
+        #expect((rewrittenAttributes[.systemFileNumber] as? NSNumber)?.uint64Value == originalVersion.fileNumber)
+        #expect((rewrittenAttributes[.size] as? NSNumber)?.uint64Value == originalVersion.size)
+        #expect(rewrittenAttributes[.modificationDate] as? Date == originalVersion.modificationDate)
+
+        #expect(AgentHibernationTranscriptGuard.liveFileVersionStillMatches(validated) == false)
+    }
+
+    @Test
+    func transcriptReadsRejectSymlinksNamedPipesAndDirectories() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let conversation = Data((#"{"type":"user","message":{"content":"protected"}}"# + "\n").utf8)
+        let target = directory.appendingPathComponent("target.jsonl")
+        let symlink = directory.appendingPathComponent("symlink.jsonl")
+        try conversation.write(to: target)
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: symlink.path) == false)
+
+        let fifo = directory.appendingPathComponent("transcript.fifo")
+        try #require(mkfifo(fifo.path, S_IRUSR | S_IWUSR) == 0)
+        let fifoDescriptor = open(fifo.path, O_RDWR | O_NONBLOCK | O_CLOEXEC)
+        try #require(fifoDescriptor >= 0)
+        defer { Darwin.close(fifoDescriptor) }
+        let bytesWritten = conversation.withUnsafeBytes { buffer in
+            Darwin.write(fifoDescriptor, buffer.baseAddress, buffer.count)
+        }
+        try #require(bytesWritten == conversation.count)
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: fifo.path) == false)
+
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: directory.path) == false)
+    }
+
+    @Test
+    func stableComparisonRejectsSymlinksAndNamedPipesBeforeReading() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // Keep the relative symlink target and file contents the same byte
+        // length so metadata-only validation cannot reject it by size alone.
+        let target = directory.appendingPathComponent("target")
+        let symlink = directory.appendingPathComponent("live")
+        let snapshot = directory.appendingPathComponent("snapshot")
+        try Data("abcdef".utf8).write(to: target)
+        try Data("abcdef".utf8).write(to: snapshot)
+        try FileManager.default.createSymbolicLink(
+            atPath: symlink.path,
+            withDestinationPath: target.lastPathComponent
+        )
+        #expect(AgentHibernationTranscriptGuard.snapshotStillMatchesLive(
+            .init(transcriptPath: symlink.path, snapshotPath: snapshot.path)
+        ) == nil)
+
+        let fifo = directory.appendingPathComponent("empty.fifo")
+        let emptySnapshot = directory.appendingPathComponent("empty.snapshot")
+        try #require(mkfifo(fifo.path, S_IRUSR | S_IWUSR) == 0)
+        try Data().write(to: emptySnapshot)
+        let writer = Process()
+        writer.executableURL = URL(fileURLWithPath: "/bin/sh")
+        writer.arguments = ["-c", ": > \"$1\"", "fifo-writer", fifo.path]
+        try writer.run()
+        defer {
+            if writer.isRunning {
+                writer.terminate()
+                writer.waitUntilExit()
+            }
+        }
+        #expect(AgentHibernationTranscriptGuard.snapshotStillMatchesLive(
+            .init(transcriptPath: fifo.path, snapshotPath: emptySnapshot.path)
+        ) == nil)
+    }
+
+    @Test
+    func conversationScanStopsAtTotalByteBudget() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let transcript = directory.appendingPathComponent("over-budget.jsonl")
+        _ = FileManager.default.createFile(atPath: transcript.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcript)
+        defer { try? handle.close() }
+        var malformedLine = Data(repeating: 120, count: 1024 * 1024)
+        malformedLine.append(10)
+        for _ in 0..<65 {
+            try handle.write(contentsOf: malformedLine)
+        }
+        try handle.write(contentsOf: Data((#"{"type":"user","message":{"content":"too late"}}"# + "\n").utf8))
+        try handle.synchronize()
+
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: transcript.path) == false)
+    }
+
     @Test
     func oversizedLineDiscardResumesScanningAfterNewline() throws {
         let directory = try temporaryDirectory()
