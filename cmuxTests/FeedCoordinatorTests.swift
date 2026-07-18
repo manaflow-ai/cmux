@@ -56,6 +56,59 @@ struct FeedCoordinatorTests {
         #expect(target?.surfaceId == targetSurfaceID)
     }
 
+    @Test func feedJumpResolverRefreshesChangedGenerationZeroLegacyRecord() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-legacy-refresh-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let sessionID = "legacy-session"
+        let firstWorkspaceID = UUID().uuidString
+        let secondWorkspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let legacyURL = stateDirectory.appendingPathComponent("codex-hook-sessions.json")
+        func writeLegacy(workspaceID: String, updatedAt: TimeInterval, padding: String) throws {
+            let data = try JSONSerialization.data(withJSONObject: [
+                "version": 1,
+                "sessions": [
+                    sessionID: [
+                        "sessionId": sessionID,
+                        "workspaceId": workspaceID,
+                        "surfaceId": surfaceID,
+                        "updatedAt": updatedAt,
+                        "padding": padding,
+                    ],
+                ],
+            ], options: [.sortedKeys])
+            try data.write(to: legacyURL, options: .atomic)
+        }
+
+        try writeLegacy(workspaceID: firstWorkspaceID, updatedAt: 1, padding: "first")
+        #expect(
+            FeedJumpResolver.lookup(
+                agent: "codex",
+                sessionId: sessionID,
+                homeDirectory: home,
+                environment: [:]
+            )?.workspaceId == firstWorkspaceID
+        )
+
+        try writeLegacy(
+            workspaceID: secondWorkspaceID,
+            updatedAt: 2,
+            padding: String(repeating: "changed", count: 4)
+        )
+        #expect(
+            FeedJumpResolver.lookup(
+                agent: "codex",
+                sessionId: sessionID,
+                homeDirectory: home,
+                environment: [:]
+            )?.workspaceId == secondWorkspaceID
+        )
+    }
+
     @Test func feedJumpResolverKeepsHyphenatedProviderIdentity() {
         #expect(
             FeedJumpResolver.parse(
