@@ -47,6 +47,14 @@ struct AgentForkArgvTests {
         )
         #expect(
             AgentForkArgv().builtInKind(
+                kind: "campfire",
+                sessionId: "SID",
+                executablePath: "/opt/bin/campfire",
+                arguments: ["/opt/bin/campfire", "--model", "anthropic/claude-sonnet-4-6"]
+            ) == ["/opt/bin/campfire", "--fork", "SID", "--model", "anthropic/claude-sonnet-4-6"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
                 kind: "grok",
                 sessionId: "SID",
                 executablePath: "/opt/bin/grok",
