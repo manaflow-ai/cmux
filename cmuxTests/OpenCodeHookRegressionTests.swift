@@ -194,24 +194,37 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
             "payload=\"$(cat)\"",
             "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
-            "if [ \"$3\" = \"session-start\" ]; then IFS= read -r _ < \"$TEST_HOOK_RELEASE_FIFO\"; fi",
+            "if [ \"$3\" = \"session-start\" ]; then /usr/bin/nc -U \"$TEST_HOOK_RELEASE_SOCKET\" >/dev/null; fi",
         ])
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
         let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
-        let releaseFIFO = fixture.root.appendingPathComponent("release.fifo", isDirectory: false)
-        XCTAssertEqual(mkfifo(releaseFIFO.path, S_IRUSR | S_IWUSR), 0)
+        let releaseSocket = fixture.root.appendingPathComponent("release.sock", isDirectory: false)
         var environment = fixture.environment
         environment["TEST_HOOK_CAPTURE"] = capture.path
-        environment["TEST_HOOK_RELEASE_FIFO"] = releaseFIFO.path
+        environment["TEST_HOOK_RELEASE_SOCKET"] = releaseSocket.path
 
         let harness = fixture.root.appendingPathComponent("overload.mjs", isDirectory: false)
         try """
         import fs from "node:fs";
-        import { spawn } from "node:child_process";
+        import net from "node:net";
         import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
 
         const hooks = await plugin({ directory: process.cwd() });
+        let releaseStarts = false;
+        const heldStarts = [];
+        const releaseServer = net.createServer((socket) => {
+          socket.on("error", () => {});
+          if (releaseStarts) {
+            socket.end("release\\n");
+          } else {
+            heldStarts.push(socket);
+          }
+        });
+        await new Promise((resolve, reject) => {
+          releaseServer.once("error", reject);
+          releaseServer.listen(process.env.TEST_HOOK_RELEASE_SOCKET, resolve);
+        });
         const captureLines = () => fs.existsSync(process.env.TEST_HOOK_CAPTURE)
           ? fs.readFileSync(process.env.TEST_HOOK_CAPTURE, "utf8").trim().split("\\n").filter(Boolean)
           : [];
@@ -250,11 +263,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         await hooks.event({ event: { type: "session.deleted", properties: { info: terminalInfo } } });
 
         await waitFor("four blocked session starts", () => records().length >= 4);
-        const fifoWriter = fs.openSync(process.env.TEST_HOOK_RELEASE_FIFO, "w");
-        const releaser = spawn("/usr/bin/yes", ["release"], {
-          stdio: ["ignore", fifoWriter, "ignore"],
-        });
-        fs.closeSync(fifoWriter);
+        releaseStarts = true;
+        for (const socket of heldStarts.splice(0)) socket.end("release\\n");
         await waitFor(
           "the terminal hook reserved while the queue was full",
           () => records().some((record) =>
@@ -262,7 +272,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
               && record.subcommand === "session-end"
           )
         );
-        releaser.kill("SIGKILL");
+        await new Promise((resolve) => releaseServer.close(resolve));
         console.log(JSON.stringify(records()));
         """.write(to: harness, atomically: true, encoding: .utf8)
 

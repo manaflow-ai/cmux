@@ -26689,19 +26689,27 @@ struct CMUXCLI {
     private static let openCodeSessionPluginMarker = "cmux-opencode-session-plugin-marker"
     private static let openCodeSessionPluginFilename = "cmux-session.js"
     private static let openCodeSessionPluginSource = #"""
-// cmux-opencode-session-plugin-marker v1
+// cmux-opencode-session-plugin-marker v2
 // Bridges OpenCode session lifecycle events into cmux's restorable session store.
 // Installed by `cmux hooks opencode install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 const CMUX_PLUGIN_INSTALLED_KEY = Symbol.for("cmux.session.restore.plugin.installed");
 const MAX_TRACKED_SESSIONS = 100;
+const MAX_ACTIVE_HOOKS = 4;
+const MAX_PENDING_HOOKS = 256;
+const HOOK_TIMEOUT_MS = 5000;
 const messageRoles = new Map();
 const sessions = new Map();
+const pendingHooks = [];
+const activeHookSessions = new Set();
+const reservedTerminalSessions = new Set();
+let activeHookCount = 0;
+let hookDrainScheduled = false;
 
 function firstString(...values) {
   for (const value of values) {
@@ -26728,6 +26736,7 @@ function sessionState(sessionId) {
       lastUserMessage: null,
       assistantPreamble: null,
       cwd: null,
+      sessionStartSent: false,
       updatedAt: Date.now(),
     });
   }
@@ -26867,12 +26876,128 @@ function hookEnvironment(cwd) {
   return env;
 }
 
+function scheduleHookDrain() {
+  if (hookDrainScheduled) return;
+  hookDrainScheduled = true;
+  queueMicrotask(() => {
+    hookDrainScheduled = false;
+    drainHookQueue();
+  });
+}
+
+function finishHookDispatch(sessionId) {
+  activeHookSessions.delete(sessionId);
+  activeHookCount = Math.max(0, activeHookCount - 1);
+  drainHookQueue();
+}
+
+function dispatchHook(invocation) {
+  let child = null;
+  let timeout = null;
+  let settled = false;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    if (timeout) clearTimeout(timeout);
+    finishHookDispatch(invocation.sessionId);
+  };
+
+  try {
+    child = spawn(invocation.cmux, ["hooks", "opencode", invocation.subcommand], {
+      env: invocation.env,
+      stdio: ["pipe", "ignore", "ignore"],
+      detached: true,
+    });
+    child.once("error", settle);
+    child.once("close", settle);
+    child.stdin.on("error", () => {});
+    child.stdin.end(invocation.payload);
+    // Neither a slow hook process nor its stdin pipe may keep OpenCode's event
+    // loop alive. The timeout bounds the four detached children we retain.
+    child.stdin.unref?.();
+    child.unref();
+    timeout = setTimeout(() => {
+      try {
+        // Wait for close before dispatching this session's next transition.
+        // SIGKILL cannot be ignored, so this keeps the per-session ordering
+        // guarantee without letting a wedged hook hold a slot indefinitely.
+        if (!child.kill("SIGKILL")) settle();
+      } catch (_) {
+        settle();
+      }
+    }, HOOK_TIMEOUT_MS);
+    timeout.unref?.();
+  } catch (_) {
+    settle();
+  }
+}
+
+function drainHookQueue() {
+  while (activeHookCount < MAX_ACTIVE_HOOKS && pendingHooks.length > 0) {
+    const index = pendingHooks.findIndex(
+      (invocation) => !activeHookSessions.has(invocation.sessionId)
+    );
+    if (index < 0) return;
+    const [invocation] = pendingHooks.splice(index, 1);
+    activeHookSessions.add(invocation.sessionId);
+    activeHookCount += 1;
+    dispatchHook(invocation);
+  }
+}
+
+function enqueueHook(invocation) {
+  // Coalesce only the newest uninterrupted run of this session's same event.
+  // Crossing another lifecycle event is an ordering boundary: start, stop,
+  // end, start must remain four ordered transitions even when dispatch stalls.
+  for (let index = pendingHooks.length - 1; index >= 0; index -= 1) {
+    const pending = pendingHooks[index];
+    if (pending.sessionId !== invocation.sessionId) continue;
+    if (pending.subcommand === invocation.subcommand) {
+      pendingHooks[index] = invocation;
+      scheduleHookDrain();
+      return true;
+    }
+    break;
+  }
+
+  const isStart = invocation.subcommand === "session-start";
+  const isEnd = invocation.subcommand === "session-end";
+  const hasTerminalReservation = reservedTerminalSessions.has(invocation.sessionId);
+  if (isStart && hasTerminalReservation) {
+    // The durable session already has an accepted start. A pruned in-memory
+    // metadata entry must not generate another one.
+    return true;
+  }
+
+  // Every accepted start reserves room for its matching end. End admission
+  // consumes that reservation, so a full queue cannot strand a durable active
+  // session. Starts and ends may evict nonterminal stop refreshes under load.
+  const reservationDelta = isStart ? 1 : (isEnd && hasTerminalReservation ? -1 : 0);
+  let projectedCost = pendingHooks.length + 1
+    + reservedTerminalSessions.size + reservationDelta;
+  while (projectedCost > MAX_PENDING_HOOKS && invocation.subcommand !== "stop") {
+    const stopIndex = pendingHooks.findIndex((pending) => pending.subcommand === "stop");
+    if (stopIndex < 0) break;
+    pendingHooks.splice(stopIndex, 1);
+    projectedCost -= 1;
+  }
+  if (projectedCost > MAX_PENDING_HOOKS) return false;
+
+  pendingHooks.push(invocation);
+  if (isStart) reservedTerminalSessions.add(invocation.sessionId);
+  if (isEnd && hasTerminalReservation) {
+    reservedTerminalSessions.delete(invocation.sessionId);
+  }
+  scheduleHookDrain();
+  return true;
+}
+
 function sendHook(subcommand, ctx, event, extra = {}) {
-  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return false;
+  if (!process.env.CMUX_SURFACE_ID) return false;
 
   const sessionId = sessionIdFor(event);
-  if (!sessionId) return;
+  if (!sessionId) return false;
 
   const cwd = cwdFor(ctx, event);
   const state = sessionState(sessionId);
@@ -26887,15 +27012,21 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   const context = extra.context || contextForSession(sessionId);
   if (context) payload.context = context;
   const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || process.env.CMUX_BUNDLED_CLI_PATH || "cmux";
-  try {
-    spawnSync(cmux, ["hooks", "opencode", subcommand], {
-      input: JSON.stringify(payload),
-      encoding: "utf8",
-      env: hookEnvironment(cwd),
-      stdio: ["pipe", "ignore", "ignore"],
-      timeout: 5000,
-    });
-  } catch (_) {}
+  return enqueueHook({
+    cmux,
+    subcommand,
+    sessionId,
+    payload: JSON.stringify(payload),
+    env: hookEnvironment(cwd),
+  });
+}
+
+function sendSessionStartOnce(ctx, event) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId) return;
+  const state = sessionState(sessionId);
+  if (state.sessionStartSent) return;
+  if (sendHook("session-start", ctx, event)) state.sessionStartSent = true;
 }
 
 function trackMessage(event) {
@@ -26938,14 +27069,15 @@ const CMUXSessionRestore = async (ctx) => {
       const props = eventProperties(event);
       switch (event && event.type) {
         case "session.created":
-          sendHook("session-start", ctx, event);
+          sendSessionStartOnce(ctx, event);
           break;
         case "session.updated":
           if (props.info && props.info.time && props.info.time.archived) {
-            sendHook("session-end", ctx, event);
-            dropSession(sessionIdFor(event));
+            if (sendHook("session-end", ctx, event)) {
+              dropSession(sessionIdFor(event));
+            }
           } else {
-            sendHook("session-start", ctx, event);
+            sendSessionStartOnce(ctx, event);
           }
           break;
         case "session.status":
@@ -26957,8 +27089,9 @@ const CMUXSessionRestore = async (ctx) => {
           sendHook("stop", ctx, event);
           break;
         case "session.deleted":
-          sendHook("session-end", ctx, event);
-          dropSession(sessionIdFor(event));
+          if (sendHook("session-end", ctx, event)) {
+            dropSession(sessionIdFor(event));
+          }
           break;
         default:
           break;
