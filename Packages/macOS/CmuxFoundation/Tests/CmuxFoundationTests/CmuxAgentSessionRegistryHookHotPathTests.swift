@@ -312,6 +312,21 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         #expect(error.maximumBytes == 64 * 1_024 * 1_024)
     }
 
+    @Test("legacy reads reject non-regular files before reading")
+    func legacyReadRejectsNonRegularFile() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        try FileManager.default.createDirectory(at: fixture.legacyURL, withIntermediateDirectories: false)
+
+        var failure: POSIXError?
+        do {
+            _ = try fixture.registry.readHookLegacySourceData(at: fixture.legacyURL)
+        } catch let error as POSIXError {
+            failure = error
+        }
+        #expect(try #require(failure).code == .EFTYPE)
+    }
+
     @Test("thirty-two disjoint hook mutations do not lose rows")
     func disjointConcurrentMutationsDoNotLoseRows() async throws {
         let fixture = try makeFixture()
