@@ -248,6 +248,17 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test func taggedRuntimeSocketFitsDarwinUnixPathLimit() {
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/\(String(repeating: "long-home-", count: 10))"),
+            environment: ["CMUX_TAG": "permission-owner-v2"]
+        )
+
+        // Darwin's `sockaddr_un.sun_path` holds at most 104 bytes including
+        // the terminating NUL, so the filesystem path must stay below 104.
+        #expect(paths.daemonSocketURL.path.utf8.count < 104)
+    }
+
     @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
