@@ -238,6 +238,41 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func pullRequestStatusKeepsEnoughWidthToRenderWithoutTruncation() throws {
+        let model = Self.makeModel()
+        let url = try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/8413"))
+        let content = SidebarWorkspacePullRequestRowContent(
+            display: .init(
+                id: "pr#8413",
+                number: 8413,
+                label: "PR",
+                url: url,
+                status: .open,
+                isStale: false
+            ),
+            isClickable: true
+        )
+        let row = SidebarRowPullRequestLine()
+        row.configure(
+            content,
+            model: model,
+            palette: SidebarRowPalette(model: model),
+            onOpen: {}
+        )
+        row.frame = NSRect(x: 0, y: 0, width: 300, height: row.measuredHeight(width: 300))
+        row.layoutSubtreeIfNeeded()
+
+        let statusLabel = try #require(
+            row.subviews
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { $0.stringValue == content.statusLabel }
+        )
+        let requiredWidth = ceil(try #require(statusLabel.cell).cellSize.width)
+
+        #expect(statusLabel.frame.width >= requiredWidth)
+    }
+
+    @Test
     func explicitInlineBranchDirectoryPreferenceIsPreserved() throws {
         let settings = Self.makeSettings(stacksBranchAndDirectory: false)
         let content = SidebarWorkspaceRowContentModel(
