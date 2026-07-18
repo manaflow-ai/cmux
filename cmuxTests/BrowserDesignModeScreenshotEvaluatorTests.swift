@@ -195,6 +195,27 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(controller.phase == .active(annotation: .drawing(id: "active-stroke")))
     }
 
+    @Test func switchingToSelectInvalidatesAnInFlightAnnotationCommit() async {
+        let controller = makeDetachedController()
+        let webView = WKWebView()
+        controller.install(on: webView)
+        let request = BrowserDesignModeAnnotationCaptureRequest(
+            id: "active-stroke",
+            strokeBounds: BrowserDesignModeRect(x: 10, y: 10, width: 100, height: 100),
+            viewport: BrowserDesignModeViewport(width: 800, height: 600),
+            scrollX: 0,
+            scrollY: 0
+        )
+        controller.phase = .active(annotation: .capturing(request))
+        controller.adoptInteractionModeFromRuntime("draw")
+        let captureRevision = controller.operationRevision
+
+        await controller.setInteractionMode(.select)
+
+        #expect(controller.operationRevision > captureRevision)
+        #expect(controller.phase == .active(annotation: .idle))
+    }
+
     @Test func composerCopyRequestWritesSelectedContextWithoutDescriptionOrRuntimeEdits() async throws {
         let image = NSImage(size: NSSize(width: 640, height: 480))
         image.lockFocus()
