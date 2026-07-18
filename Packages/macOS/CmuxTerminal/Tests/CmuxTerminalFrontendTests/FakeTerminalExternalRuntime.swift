@@ -12,6 +12,7 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
     private(set) var adoptedWorkspaceIDs: [UUID] = []
     private(set) var mutations: [TerminalExternalRuntimeMutation] = []
     private(set) var accessibilityEnableCount = 0
+    private(set) var accessibilityStreamSubscriptionCount = 0
     private(set) var selectionReadCount = 0
     private(set) var accessibilityLinkActivations: [(
         link: TerminalAccessibilityLink,
@@ -27,6 +28,7 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
         rectangle: false
     )
     var stubbedAccessibilitySnapshots: [TerminalAccessibilitySnapshot] = []
+    var stubbedAccessibilityStream: AsyncStream<TerminalAccessibilitySnapshot>?
     var stubbedAccessibilityLinkTarget: String?
     private var stubbedIngressResultIndex = 0
 
@@ -71,6 +73,10 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
     }
 
     func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
+        accessibilityStreamSubscriptionCount += 1
+        if let stubbedAccessibilityStream {
+            return stubbedAccessibilityStream
+        }
         let snapshots = stubbedAccessibilitySnapshots
         return AsyncStream { continuation in
             for snapshot in snapshots {

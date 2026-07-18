@@ -1,27 +1,6 @@
 internal import AppKit
 internal import CmuxTerminalDomain
 
-/// Main-actor clipboard sink for terminal text returned by the canonical runtime.
-@MainActor
-public protocol TerminalFrontendClipboardWriting: AnyObject {
-    /// Replaces the platform clipboard with one canonical terminal text value.
-    @discardableResult
-    func writeTerminalText(_ text: String) -> Bool
-}
-
-/// Default platform clipboard sink used by the AppKit interaction host.
-@MainActor
-public final class TerminalFrontendSystemClipboardWriter: TerminalFrontendClipboardWriting {
-    public init() {}
-
-    @discardableResult
-    public func writeTerminalText(_ text: String) -> Bool {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        return pasteboard.setString(text, forType: .string)
-    }
-}
-
 /// Fixed-memory adapter from AppKit gestures to ordered runtime mutations.
 ///
 /// The adapter retains only three admitted-button bits, one pointer sample,
@@ -34,6 +13,7 @@ final class TerminalFrontendInteractionAdapter {
     private let runtime: any TerminalExternalRuntime
     private let translator: TerminalFrontendInputTranslator
     private let clipboardWriter: any TerminalFrontendClipboardWriting
+    private let clipboardReader: any TerminalFrontendClipboardReading
 
     private var pressedButtonBits: UInt8 = 0
     private var lastPointerSample = PointerSample.zero
@@ -43,11 +23,13 @@ final class TerminalFrontendInteractionAdapter {
     init(
         runtime: any TerminalExternalRuntime,
         translator: TerminalFrontendInputTranslator,
-        clipboardWriter: any TerminalFrontendClipboardWriting
+        clipboardWriter: any TerminalFrontendClipboardWriting,
+        clipboardReader: any TerminalFrontendClipboardReading
     ) {
         self.runtime = runtime
         self.translator = translator
         self.clipboardWriter = clipboardWriter
+        self.clipboardReader = clipboardReader
     }
 
     func hasPressedButton(_ button: TerminalExternalMouseButton) -> Bool {
@@ -273,9 +255,34 @@ final class TerminalFrontendInteractionAdapter {
 
     func copySelectionToClipboard() async -> Bool {
         guard let selection = await runtime.readSelection(),
+              !Task.isCancelled,
               !selection.text.isEmpty
         else { return false }
         return clipboardWriter.writeTerminalText(selection.text)
+    }
+
+    var hasCopyableSelection: Bool {
+        if let selection = runtime.snapshot.selection, !selection.text.isEmpty {
+            return true
+        }
+        return runtime.snapshot.accessibility?.selections.contains {
+            !$0.text.isEmpty
+        } == true
+    }
+
+    var hasPasteboardText: Bool {
+        clipboardReader.hasTerminalText
+    }
+
+    @discardableResult
+    func pasteClipboardText() -> TerminalExternalIngressResult? {
+        guard let text = clipboardReader.readTerminalText(), !text.isEmpty else {
+            return nil
+        }
+        return runtime.enqueue(.input(.text(TerminalExternalTextInput(
+            text: text,
+            kind: .paste
+        ))))
     }
 
     func enableTerminalAccessibility() {
