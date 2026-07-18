@@ -787,11 +787,10 @@ final class cmuxUITests: XCTestCase {
             "Opening New Task from the production workspace must focus the prompt without an extra tap."
         )
         XCTAssertTrue(
-            waitForSoftwareKeyboardKeyPlane(in: app, minimumOverlap: 1, timeout: 3) != nil,
+            waitForSoftwareKeyboardKeyPlane(in: app, minimumOverlap: 120, timeout: 3) != nil,
             "Opening New Task must raise the software keyboard without an extra tap."
         )
-        tap(app.buttons["Claude"], in: app)
-        try replaceText(promptText, in: prompt, app: app)
+        prompt.typeText(promptText)
 
         tap(app.buttons["MobileTaskComposerDirectory"], in: app)
         let directorySearch = app.searchFields["Search folders"]
