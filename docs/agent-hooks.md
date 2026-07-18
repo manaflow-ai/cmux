@@ -11,7 +11,7 @@ cmux hooks setup --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kiro`, `antigravity` (or `agy`), `rovodev` (or `rovo`), `hermes-agent`, `copilot`, `codebuddy`, `factory`, `qoder`, and `kimi`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
 ## Integrations
 
@@ -28,12 +28,14 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | Cursor CLI | `cursor-agent` | `~/.cursor/hooks.json` | `cursor-agent --resume <id>` | beforeShellExecution |
 | Gemini | `gemini` | `~/.gemini/settings.json` | `gemini --resume <id>` | PreToolUse |
 | Kiro CLI | `kiro-cli` | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json` | `kiro-cli chat --resume-id <id>` | preToolUse, postToolUse |
+| Antigravity | `agy` | `~/.gemini/config/hooks.json` | `agy --conversation <id>` | PreToolUse, PostToolUse |
 | Rovo Dev | `acli` | `~/.rovodev/config.yml` | `acli rovodev run --restore <id>` | none |
+| Hermes Agent | `hermes` | `~/.hermes/config.yaml` or `$HERMES_HOME/config.yaml` | `hermes --resume <id>` | pre_tool_call, post_tool_call, approvals |
 | Copilot | `copilot` | `~/.copilot/config.json` | `copilot --resume <id>` | PreToolUse |
 | CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` | PreToolUse |
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
-| Kimi Code | `kimi` | `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
+| Kimi Code | `kimi` | `~/.kimi/config.toml` | `kimi --session <id>` | PreToolUse, PostToolUse |
 
 OpenCode also supports project-local Feed installation:
 
@@ -146,8 +148,10 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | Cursor CLI | none | `CMUX_CURSOR_HOOKS_DISABLED=1` |
 | Gemini | none | `CMUX_GEMINI_HOOKS_DISABLED=1` |
 | Kiro CLI | `KIRO_HOME` | `CMUX_KIRO_HOOKS_DISABLED=1` |
+| Antigravity | none | `CMUX_ANTIGRAVITY_HOOKS_DISABLED=1` |
 | Kimi Code | `KIMI_SHARE_DIR` | `CMUX_KIMI_HOOKS_DISABLED=1` |
 | Rovo Dev | none | `CMUX_ROVODEV_HOOKS_DISABLED=1` |
+| Hermes Agent | `HERMES_HOME` | `CMUX_HERMES_AGENT_HOOKS_DISABLED=1` |
 | Copilot | `COPILOT_HOME` | `CMUX_COPILOT_HOOKS_DISABLED=1` |
 | CodeBuddy | `CODEBUDDY_CONFIG_DIR` | `CMUX_CODEBUDDY_HOOKS_DISABLED=1` |
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
