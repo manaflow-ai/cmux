@@ -285,13 +285,12 @@ impl Session {
         }
     }
 
-    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
+    /// Read the canonical renderer colors without granting the frontend a
+    /// mutation path back into daemon configuration state.
+    pub fn renderer_default_colors(&self) -> anyhow::Result<DefaultColors> {
         match self {
-            Session::Local(mux) => {
-                mux.set_default_colors(colors);
-                Ok(())
-            }
-            Session::Remote(remote) => remote.set_default_colors(colors),
+            Session::Local(mux) => Ok(mux.default_colors()),
+            Session::Remote(remote) => remote.renderer_default_colors(),
         }
     }
 

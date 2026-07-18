@@ -969,13 +969,6 @@ impl CmuxClient {
         self.request::<Empty>("set-ratio", params).map(|_| ())
     }
 
-    pub fn set_default_colors(&mut self, fg: Option<&str>, bg: Option<&str>) -> Result<()> {
-        let mut params = Map::new();
-        insert_opt(&mut params, "fg", fg);
-        insert_opt(&mut params, "bg", bg);
-        self.request::<Empty>("set-default-colors", params).map(|_| ())
-    }
-
     pub fn close_surface(&mut self, surface: u64) -> Result<()> {
         self.request::<Empty>("close-surface", surface_params(surface)).map(|_| ())
     }

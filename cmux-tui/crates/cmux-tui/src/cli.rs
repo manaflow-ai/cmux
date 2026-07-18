@@ -265,12 +265,6 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_surface, print_process_info, false),
     },
     VerbSpec {
-        name: "set-default-colors",
-        help: "Set default terminal colors.",
-        allowed: &["fg", "bg"],
-        kind: socket(build_set_default_colors, print_empty, false),
-    },
-    VerbSpec {
         name: "close-surface",
         help: "Close a surface.",
         allowed: &["surface"],
@@ -1080,13 +1074,6 @@ fn build_zoom_pane(flags: &FlagMap) -> Result<Value, UsageError> {
     if let Some(mode) = flags.optional("mode") {
         value["mode"] = json!(parse_zoom_mode(&mode)?);
     }
-    Ok(value)
-}
-
-fn build_set_default_colors(flags: &FlagMap) -> Result<Value, UsageError> {
-    let mut value = json!({});
-    flags.insert_optional_string(&mut value, "fg");
-    flags.insert_optional_string(&mut value, "bg");
     Ok(value)
 }
 

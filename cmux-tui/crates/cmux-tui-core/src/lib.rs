@@ -50,8 +50,9 @@ pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CanonicalSnapshot,
     CellPixelUpdate, CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
-    NotificationEvent, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
-    SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ZoomMode, ZoomState,
+    NotificationEvent, RendererConfigSnapshot, RunPlacement, SidebarPluginOptions,
+    SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind,
+    ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use presentation::{Presentation, PresentationScroll, PresentationView, PresentationZoom};

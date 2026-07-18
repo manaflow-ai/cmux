@@ -8,6 +8,7 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use anyhow::Context as _;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -29,9 +30,10 @@ use crate::remote_tmux_producer::{
     RemoteTmuxProducerRegistry, RemoteTmuxProducerSource, RemoteTmuxProducerSourceUpdateReceipt,
 };
 use crate::renderer_control::{
-    RendererColorSpace, RendererControlDirection, RendererControlEncoder, RendererControlMessage,
-    RendererFrameRelease, RendererPixelFormat, RendererPresentationAttachment,
-    RendererPresentationReady, RendererPresentationRemoval, RendererSemanticScene,
+    MAXIMUM_RESOLVED_CONFIG_LENGTH, RendererColorSpace, RendererControlDirection,
+    RendererControlEncoder, RendererControlMessage, RendererFrameRelease, RendererPixelFormat,
+    RendererPresentationAttachment, RendererPresentationReady, RendererPresentationRemoval,
+    RendererSemanticScene,
 };
 use crate::renderer_supervisor::{
     RendererProcessInstanceToken, RendererSupervisor, RendererSupervisorConfig,
@@ -179,6 +181,7 @@ pub enum MuxEvent {
     /// renderer frame is considered current.
     RendererConfigInvalidated {
         revision: u64,
+        digest: [u8; 32],
         reason: Arc<str>,
         default_colors: DefaultColors,
     },
@@ -1701,6 +1704,40 @@ pub struct CanonicalSnapshot<T> {
     pub state: T,
 }
 
+/// One daemon-owned, canonical Ghostty configuration snapshot.
+///
+/// Frontends may request a renderer presentation but cannot provide the
+/// configuration attached to its worker. A revision identifies all render
+/// inputs in this snapshot; the digest identifies the canonical Ghostty bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RendererConfigSnapshot {
+    pub revision: u64,
+    pub digest: [u8; 32],
+    pub resolved_config: Arc<[u8]>,
+    pub default_colors: DefaultColors,
+}
+
+impl RendererConfigSnapshot {
+    fn empty() -> Self {
+        Self {
+            revision: 0,
+            digest: Sha256::digest(b"").into(),
+            resolved_config: Arc::<[u8]>::from([]),
+            default_colors: DefaultColors::default(),
+        }
+    }
+
+    pub fn digest_hex(&self) -> String {
+        use std::fmt::Write as _;
+
+        let mut result = String::with_capacity(self.digest.len() * 2);
+        for byte in self.digest {
+            write!(&mut result, "{byte:02x}").expect("writing to a String cannot fail");
+        }
+        result
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct RendererPresentationConfiguration {
     pub width: u32,
@@ -1754,6 +1791,8 @@ pub(crate) struct RendererPresentationReceipt {
     pub rows: u16,
     pub pixel_format: RendererPixelFormat,
     pub color_space: RendererColorSpace,
+    pub resolved_config_revision: u64,
+    pub resolved_config_digest: [u8; 32],
 }
 
 struct RendererSceneBinding {
@@ -2039,6 +2078,7 @@ struct RendererPresentationRuntime {
     workspace_uuid: WorkspaceUuid,
     surface: Arc<Surface>,
     attachment: RendererPresentationAttachment,
+    resolved_config_digest: [u8; 32],
     capture: SemanticSceneCaptureOptions,
     preedit: Mutex<Option<RendererPreedit>>,
     /// Orders exact worker publication against every local retirement path.
@@ -2503,6 +2543,27 @@ fn resolved_custom_shader_count(config: &[u8]) -> anyhow::Result<u32> {
         .map_err(|_| anyhow::anyhow!("resolved renderer config has too many custom shaders"))
 }
 
+fn renderer_runtime_matches_config(
+    runtime: &RendererPresentationRuntime,
+    current: &RendererConfigSnapshot,
+) -> bool {
+    runtime.attachment.resolved_config_revision == current.revision
+        && runtime.resolved_config_digest == current.digest
+        && runtime.attachment.resolved_config.as_slice() == current.resolved_config.as_ref()
+}
+
+fn renderer_config_changed_diagnostic(
+    runtime: &RendererPresentationRuntime,
+    current: &RendererConfigSnapshot,
+) -> String {
+    format!(
+        "renderer config changed during activation; reconfigure presentation from revision {} to current revision {} ({})",
+        runtime.attachment.resolved_config_revision,
+        current.revision,
+        current.digest_hex(),
+    )
+}
+
 fn ensure_terminal_placement_for_surface(
     state: &CanonicalState,
     workspace_uuid: WorkspaceUuid,
@@ -2743,7 +2804,7 @@ pub struct Mux {
     frontend_native_browsers: FrontendNativeBrowserRegistry,
     remote_tmux_producers: RemoteTmuxProducerRegistry,
     cell_pixels: Mutex<(u16, u16)>,
-    default_colors: Mutex<(u64, DefaultColors)>,
+    renderer_config: Mutex<RendererConfigSnapshot>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
@@ -2933,7 +2994,7 @@ impl Mux {
             frontend_native_browsers: FrontendNativeBrowserRegistry::new(),
             remote_tmux_producers: RemoteTmuxProducerRegistry::new(),
             cell_pixels: Mutex::new((8, 16)),
-            default_colors: Mutex::new((0, DefaultColors::default())),
+            renderer_config: Mutex::new(RendererConfigSnapshot::empty()),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
             control_clients: crate::server::ClientRegistry::new(),
@@ -3318,6 +3379,10 @@ impl Mux {
 
     pub fn subscribe_terminal_activity(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_terminal_activity()
+    }
+
+    pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_config_reload()
     }
 
     pub fn emit(&self, event: MuxEvent) {
@@ -5397,11 +5462,17 @@ impl Mux {
         client: u64,
         presentation_id: crate::PresentationId,
         expected_generation: u64,
-        configuration: RendererPresentationConfiguration,
+        mut configuration: RendererPresentationConfiguration,
     ) -> anyhow::Result<RendererPresentationReceipt> {
         if configuration.columns == 0 || configuration.rows == 0 {
             anyhow::bail!("renderer terminal columns and rows must be nonzero");
         }
+        // The frontend owns only presentation geometry and the frame endpoint.
+        // Resolve configuration from daemon state even while older protocol
+        // clients still send the legacy fields.
+        let renderer_config = self.renderer_config_snapshot();
+        configuration.resolved_config_revision = renderer_config.revision;
+        configuration.resolved_config = renderer_config.resolved_config.to_vec();
         let presentation = self.presentations.get_for_client(client, presentation_id)?;
         if presentation.generation != expected_generation {
             anyhow::bail!(
@@ -5540,6 +5611,7 @@ impl Mux {
             workspace_uuid,
             surface: surface.clone(),
             attachment: attachment.clone(),
+            resolved_config_digest: renderer_config.digest,
             capture,
             preedit: Mutex::new(configuration.preedit),
             operation: Mutex::new(()),
@@ -5605,6 +5677,8 @@ impl Mux {
             rows,
             pixel_format: configuration.pixel_format,
             color_space: configuration.color_space,
+            resolved_config_revision: renderer_config.revision,
+            resolved_config_digest: renderer_config.digest,
         })
     }
 
@@ -6379,6 +6453,9 @@ impl Mux {
             );
         }
         let _operation = runtime.operation.lock().unwrap();
+        if let Some(current) = self.renderer_config_mismatch(&runtime) {
+            anyhow::bail!(renderer_config_changed_diagnostic(&runtime, &current));
+        }
         let supervisor = self
             .renderer_supervisor
             .lock()
@@ -6543,7 +6620,24 @@ impl Mux {
         if let Some(before_commit) = self.renderer_activation_before_commit.lock().unwrap().take() {
             before_commit();
         }
+        // This lock is the linearization fence shared with config install.
+        // A reload that commits first makes this activation retract its stale
+        // publication. An activation that commits first becomes usable before
+        // the reload can publish its invalidation.
+        let current_config = self.renderer_config.lock().unwrap();
+        if !renderer_runtime_matches_config(&runtime, &current_config) {
+            let diagnostic = renderer_config_changed_diagnostic(&runtime, &current_config);
+            drop(current_config);
+            self.rollback_renderer_publication_locked(
+                &runtime,
+                supervisor.as_ref(),
+                renderer_epoch,
+            )
+            .with_context(|| diagnostic.clone())?;
+            anyhow::bail!(diagnostic);
+        }
         if !activation_claim.commit() {
+            drop(current_config);
             // Upsert and the initial full scene reached this exact renderer.
             // Retract that exact presentation before detaching the local
             // semantic source so retirement never leaves an orphan endpoint.
@@ -6555,6 +6649,7 @@ impl Mux {
             anyhow::bail!("renderer activation was revoked during publication");
         }
         if scene_pump.arm().is_err() {
+            drop(current_config);
             self.rollback_renderer_publication_locked(
                 &runtime,
                 supervisor.as_ref(),
@@ -6562,7 +6657,16 @@ impl Mux {
             )?;
             anyhow::bail!("renderer scene pump terminated before activation");
         }
+        drop(current_config);
         Ok(published_worker)
+    }
+
+    fn renderer_config_mismatch(
+        &self,
+        runtime: &RendererPresentationRuntime,
+    ) -> Option<RendererConfigSnapshot> {
+        let current = self.renderer_config.lock().unwrap();
+        (!renderer_runtime_matches_config(runtime, &current)).then(|| current.clone())
     }
 
     fn reconcile_renderer_workspaces(&self) {
@@ -6730,32 +6834,92 @@ impl Mux {
     }
 
     pub fn default_colors(&self) -> DefaultColors {
-        self.default_colors.lock().unwrap().1
+        self.renderer_config.lock().unwrap().default_colors
     }
 
     pub fn default_colors_snapshot(&self) -> (u64, DefaultColors) {
-        *self.default_colors.lock().unwrap()
+        let current = self.renderer_config.lock().unwrap();
+        (current.revision, current.default_colors)
     }
 
+    pub fn renderer_config_snapshot(&self) -> RendererConfigSnapshot {
+        self.renderer_config.lock().unwrap().clone()
+    }
+
+    /// Install one complete canonical renderer configuration.
+    ///
+    /// Validation happens before the state lock is taken. An invalid snapshot
+    /// therefore cannot replace the last-known-good value or emit an
+    /// invalidation. Returns whether a new revision was installed.
+    pub fn install_renderer_config(
+        &self,
+        resolved_config: Vec<u8>,
+        default_colors: DefaultColors,
+        reason: Arc<str>,
+    ) -> anyhow::Result<bool> {
+        if resolved_config.len() > MAXIMUM_RESOLVED_CONFIG_LENGTH {
+            anyhow::bail!(
+                "resolved renderer config is too large ({} bytes; maximum is {MAXIMUM_RESOLVED_CONFIG_LENGTH})",
+                resolved_config.len()
+            );
+        }
+        std::str::from_utf8(&resolved_config)
+            .map_err(|error| anyhow::anyhow!("resolved renderer config is not UTF-8: {error}"))?;
+        if resolved_config.contains(&0) {
+            anyhow::bail!("resolved renderer config contains NUL");
+        }
+
+        let digest: [u8; 32] = Sha256::digest(&resolved_config).into();
+        let snapshot = {
+            let mut current = self.renderer_config.lock().unwrap();
+            if current.digest == digest
+                && current.resolved_config.as_ref() == resolved_config.as_slice()
+                && current.default_colors == default_colors
+            {
+                return Ok(false);
+            }
+            let revision = current
+                .revision
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("renderer config revision exhausted"))?;
+            *current = RendererConfigSnapshot {
+                revision,
+                digest,
+                resolved_config: Arc::from(resolved_config),
+                default_colors,
+            };
+            current.clone()
+        };
+        self.publish_renderer_config_change(&snapshot, reason);
+        Ok(true)
+    }
+
+    #[cfg(test)]
     pub fn set_default_colors(&self, colors: DefaultColors) {
-        let revision = {
-            let mut current = self.default_colors.lock().unwrap();
-            if current.1 == colors {
+        let snapshot = {
+            let mut current = self.renderer_config.lock().unwrap();
+            if current.default_colors == colors {
                 return;
             }
-            current.0 = current.0.checked_add(1).expect("default colors revision exhausted");
-            current.1 = colors;
-            current.0
+            current.revision =
+                current.revision.checked_add(1).expect("renderer config revision exhausted");
+            current.default_colors = colors;
+            current.clone()
         };
+        self.publish_renderer_config_change(&snapshot, Arc::<str>::from("default-colors-changed"));
+    }
+
+    fn publish_renderer_config_change(&self, snapshot: &RendererConfigSnapshot, reason: Arc<str>) {
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
-            surface.set_default_colors(colors);
+            surface.set_default_colors(snapshot.default_colors);
             self.emit(MuxEvent::SurfaceOutput(surface.id));
         }
         self.emit(MuxEvent::RendererConfigInvalidated {
-            revision,
-            reason: Arc::<str>::from("default-colors-changed"),
-            default_colors: colors,
+            revision: snapshot.revision,
+            digest: snapshot.digest,
+            reason,
+            default_colors: snapshot.default_colors,
         });
     }
 
@@ -16151,6 +16315,7 @@ mod tests {
                 revision: 1,
                 reason,
                 default_colors,
+                ..
             } if reason.as_ref() == "default-colors-changed" && default_colors == colors
         ));
         assert_eq!(mux.default_colors_snapshot(), (1, colors));
@@ -16188,8 +16353,9 @@ mod tests {
             .unwrap()
         );
         let installed = mux.renderer_config_snapshot();
+        let expected_digest: [u8; 32] = Sha256::digest(&resolved).into();
         assert_eq!(installed.revision, 1);
-        assert_eq!(installed.digest, Sha256::digest(&resolved).into());
+        assert_eq!(installed.digest, expected_digest);
         assert_eq!(installed.resolved_config.as_ref(), resolved.as_slice());
         assert_eq!(installed.default_colors, colors);
         assert!(matches!(
@@ -16252,12 +16418,7 @@ mod tests {
 
         let receipt = fixture
             .mux
-            .configure_renderer_presentation(
-                fixture.client,
-                fixture.presentation_id,
-                1,
-                untrusted,
-            )
+            .configure_renderer_presentation(fixture.client, fixture.presentation_id, 1, untrusted)
             .unwrap();
         assert_eq!(receipt.resolved_config_revision, daemon.revision);
         assert_eq!(receipt.resolved_config_digest, daemon.digest);

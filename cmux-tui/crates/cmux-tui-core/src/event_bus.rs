@@ -25,6 +25,7 @@ enum MuxEventFilter {
     All,
     AttachedSurface(SurfaceId),
     TerminalActivity,
+    ConfigReload,
 }
 
 pub struct MuxEventReceiver {
@@ -62,6 +63,10 @@ impl MuxEventBroadcaster {
         self.subscribe_with_filter(MuxEventFilter::TerminalActivity)
     }
 
+    pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::ConfigReload)
+    }
+
     fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
         let mailbox = Arc::new(MuxEventMailbox::default());
         self.subscribers
@@ -93,6 +98,7 @@ impl MuxEventFilter {
                 event,
                 MuxEvent::TerminalActivity(_) | MuxEvent::TerminalActivityReceipt(_)
             ),
+            Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
         }
     }
 }
@@ -192,6 +198,17 @@ impl MuxEventMailbox {
         self.state.lock().unwrap().closed = true;
         self.changed.notify_all();
     }
+
+    fn cancel(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        state.events.clear();
+        state.title_sequences.clear();
+        state.titles.clear();
+        state.surface_output_sequences.clear();
+        state.surface_outputs.clear();
+        self.changed.notify_all();
+    }
 }
 
 impl MuxEventMailboxState {
@@ -229,6 +246,12 @@ impl MuxEventMailboxState {
 }
 
 impl MuxEventReceiver {
+    /// Cancel this subscriber and wake a thread blocked in [`Self::recv`].
+    /// Pending events are discarded because the receiver has no future owner.
+    pub fn close(&self) {
+        self.mailbox.cancel();
+    }
+
     pub fn overflowed(&self) -> bool {
         self.mailbox.state.lock().unwrap().overflowed
     }
@@ -291,6 +314,36 @@ impl MuxEventReceiver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receiver_close_wakes_blocked_recv_without_polling() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = Arc::new(broadcaster.subscribe());
+        let blocked = events.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            blocked.recv()
+        });
+        started_rx.recv().unwrap();
+
+        events.close();
+
+        assert!(thread.join().unwrap().is_err());
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Disconnected)));
+    }
+
+    #[test]
+    fn config_reload_subscription_does_not_accumulate_unrelated_events() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_config_reload();
+
+        broadcaster.emit(MuxEvent::SurfaceOutput(7));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+
+        broadcaster.emit(MuxEvent::ConfigReloadRequested);
+        assert!(matches!(events.recv().unwrap(), MuxEvent::ConfigReloadRequested));
+    }
 
     #[test]
     fn title_churn_keeps_one_latest_value_per_surface_and_subscriber() {

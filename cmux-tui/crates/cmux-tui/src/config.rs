@@ -97,10 +97,15 @@
 //! keys.
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
+#[cfg(not(target_os = "macos"))]
+use std::io::Read;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "macos"))]
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(not(target_os = "macos"))]
+use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
@@ -990,6 +995,7 @@ pub struct Config {
     pub theme: Theme,
     pub theme_overrides: ThemeOverrides,
     pub terminal_defaults: DefaultColors,
+    pub resolved_renderer_config: Vec<u8>,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
     pub chrome: ChromeMode,
@@ -1031,13 +1037,32 @@ pub struct SidebarPluginConfig {
     pub cwd: Option<String>,
 }
 
-/// Load the config: defaults, overlaid with the user's Ghostty selection
-/// colors, overlaid with `cmux-tui.json` or legacy `mux.json`.
-pub fn load() -> Config {
-    let mut config = Config::default();
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedRendererConfig {
+    pub bytes: Vec<u8>,
+    pub default_colors: DefaultColors,
+}
 
-    let defaults = ghostty_defaults();
+/// Load daemon state, including the canonical Ghostty renderer snapshot.
+/// This is the only configuration entrypoint that may invoke ConfigKit.
+pub fn load_daemon() -> Config {
+    load_with_renderer_config(initial_renderer_config())
+}
+
+/// Load frontend-only cmux settings from colors already authorized by the
+/// daemon. Attached processes never discover or parse Ghostty config files.
+pub fn load_frontend(daemon_colors: DefaultColors) -> Config {
+    load_with_renderer_config(ResolvedRendererConfig {
+        bytes: Vec::new(),
+        default_colors: daemon_colors,
+    })
+}
+
+fn load_with_renderer_config(renderer_config: ResolvedRendererConfig) -> Config {
+    let mut config = Config::default();
+    let defaults = renderer_config.default_colors;
     config.terminal_defaults = defaults;
+    config.resolved_renderer_config = renderer_config.bytes;
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
         config.theme_overrides.selection = true;
@@ -1341,9 +1366,74 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-/// The user's relevant Ghostty settings with Ghostty's application defaults
-/// resolved for values that the low-level terminal otherwise leaves unset.
-fn ghostty_defaults() -> DefaultColors {
+/// Resolve one canonical Ghostty renderer snapshot in the daemon process.
+/// ConfigKit owns file discovery; consumers receive only canonical bytes.
+pub fn resolve_renderer_config_for_daemon() -> anyhow::Result<ResolvedRendererConfig> {
+    #[cfg(target_os = "macos")]
+    {
+        let bytes = ghostty_config::resolve_default_files()?;
+        return renderer_config_from_bytes(bytes);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(ResolvedRendererConfig { bytes: Vec::new(), default_colors: legacy_ghostty_defaults() })
+    }
+}
+
+fn initial_renderer_config() -> ResolvedRendererConfig {
+    match resolve_renderer_config_for_daemon() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: Ghostty config is invalid; starting from canonical built-ins: {error}"
+            );
+            builtin_renderer_config().unwrap_or_else(|builtin_error| {
+                eprintln!(
+                    "cmux-tui: failed to resolve canonical Ghostty built-ins: {builtin_error}"
+                );
+                ResolvedRendererConfig {
+                    bytes: Vec::new(),
+                    default_colors: emergency_renderer_defaults(),
+                }
+            })
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn builtin_renderer_config() -> anyhow::Result<ResolvedRendererConfig> {
+    renderer_config_from_bytes(ghostty_config::resolve_builtin()?)
+}
+
+#[cfg(target_os = "macos")]
+fn emergency_renderer_defaults() -> DefaultColors {
+    resolve_ghostty_application_defaults(DefaultColors::default())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn emergency_renderer_defaults() -> DefaultColors {
+    legacy_ghostty_defaults()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn builtin_renderer_config() -> anyhow::Result<ResolvedRendererConfig> {
+    Ok(ResolvedRendererConfig { bytes: Vec::new(), default_colors: legacy_ghostty_defaults() })
+}
+
+fn renderer_config_from_bytes(bytes: Vec<u8>) -> anyhow::Result<ResolvedRendererConfig> {
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|error| anyhow::anyhow!("canonical Ghostty config is not UTF-8: {error}"))?;
+    Ok(ResolvedRendererConfig {
+        default_colors: resolve_ghostty_application_defaults(parse_resolved_ghostty_defaults(text)),
+        bytes,
+    })
+}
+
+/// Portable fallback for platforms where the isolated macOS ConfigKit is not
+/// available, and for the startup-only built-in failure path.
+#[cfg(not(target_os = "macos"))]
+fn legacy_ghostty_defaults() -> DefaultColors {
     let parsed = resolved_ghostty_defaults()
         .or_else(|| {
             let text = platform::ghostty_config_paths()
@@ -1364,6 +1454,7 @@ fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultC
 /// Ask Ghostty to resolve its configuration so cmux-tui inherits precisely the
 /// same theme-loading behavior as the graphical terminal. A failed or slow
 /// invocation is deliberately ignored; startup then uses the file fallback.
+#[cfg(not(target_os = "macos"))]
 fn resolved_ghostty_defaults() -> Option<DefaultColors> {
     platform::ghostty_binary_paths()
         .iter()
@@ -1371,6 +1462,7 @@ fn resolved_ghostty_defaults() -> Option<DefaultColors> {
         .map(|text| parse_resolved_ghostty_defaults(&text))
 }
 
+#[cfg(not(target_os = "macos"))]
 fn run_ghostty_show_config(path: &Path) -> Option<String> {
     let mut child = Command::new(path)
         .args(["+show-config", "--no-pager"])
@@ -1543,7 +1635,7 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 mod tests {
     use super::*;
     use std::ffi::OsString;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     /// Config env vars are process-global state; tests that set them must not
     /// run concurrently with each other.
@@ -1708,12 +1800,10 @@ mod tests {
             session,
             SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() },
         );
-        mux.set_default_colors(defaults);
+        mux.install_renderer_config(Vec::new(), defaults, Arc::<str>::from("headless-test-config"))
+            .unwrap();
         let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
         surface.try_with_terminal(|term| term.vt_write(b"\x1b[31mR")).unwrap();
-        // Re-applying through the mux exercises the existing-surface path and
-        // publishes a fresh immutable render frame for the protocol server.
-        mux.set_default_colors(defaults);
 
         let socket = server::serve(mux.clone(), None).unwrap();
         let stream = transport::connect(&socket).unwrap();
@@ -1791,6 +1881,16 @@ mod tests {
 
     #[test]
     fn frontend_load_uses_only_the_daemon_renderer_snapshot() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let path = std::env::temp_dir().join(format!(
+            "cmux-frontend-config-{}-{}.json",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&path, "{}").unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         let daemon_colors = DefaultColors {
             fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
             bg: Some(Rgb { r: 0x11, g: 0x12, b: 0x13 }),
@@ -1802,6 +1902,9 @@ mod tests {
         };
 
         let config = load_frontend(daemon_colors);
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_file(path);
 
         assert_eq!(config.terminal_defaults, daemon_colors);
         assert!(config.resolved_renderer_config.is_empty());
@@ -1825,7 +1928,7 @@ mod tests {
         .unwrap();
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
-        let mut config = load();
+        let mut config = load_frontend(DefaultColors::default());
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
@@ -1859,7 +1962,7 @@ mod tests {
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
 
-        let mut config = load();
+        let mut config = load_daemon();
 
         restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
         restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
@@ -1890,7 +1993,7 @@ mod tests {
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
 
-        let config = load();
+        let config = load_daemon();
 
         restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
         restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
@@ -1963,7 +2066,7 @@ mod tests {
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
 
-        let config = load();
+        let config = load_frontend(DefaultColors::default());
 
         restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
         let _ = std::fs::remove_dir_all(&dir);
@@ -2029,7 +2132,7 @@ mod tests {
         .unwrap();
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
-        let config = load();
+        let config = load_frontend(DefaultColors::default());
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
@@ -2282,11 +2385,13 @@ mod tests {
         std::fs::write(&path, r##"{"theme": {"selection_foreground": null}}"##).unwrap();
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
-        // `load()` always seeds `selection_fg` from the Ghostty selection
-        // colors (or leaves it `None` if there aren't any) before applying
-        // this override, so regardless of the ambient Ghostty config, an
-        // explicit `null` here must land back on `None`.
-        let config = load();
+        // Frontend loading seeds `selection_fg` from the daemon snapshot
+        // before applying this override, so an explicit `null` must clear it.
+        let daemon_colors = DefaultColors {
+            selection_fg: Some(Rgb { r: 1, g: 2, b: 3 }),
+            ..DefaultColors::default()
+        };
+        let config = load_frontend(daemon_colors);
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
@@ -2307,7 +2412,7 @@ mod tests {
         .unwrap();
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
-        let config = load();
+        let config = load_frontend(DefaultColors::default());
         assert_eq!(config.browser.max_capture_megapixels, 1.5);
         assert_eq!(config.browser.capture_scale, Some(0.5));
 
@@ -2316,7 +2421,7 @@ mod tests {
             r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
         )
         .unwrap();
-        let config = load();
+        let config = load_frontend(DefaultColors::default());
         assert_eq!(config.browser.max_capture_megapixels, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS);
         assert_eq!(config.browser.capture_scale, Some(0.5));
 
@@ -2325,7 +2430,7 @@ mod tests {
             r##"{"browser": {"max_capture_megapixels": 0, "capture_scale": 1.5}}"##,
         )
         .unwrap();
-        let config = load();
+        let config = load_frontend(DefaultColors::default());
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);

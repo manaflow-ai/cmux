@@ -1275,10 +1275,10 @@ enum Command {
         index: usize,
     },
     SetDefaultColors {
-        #[serde(default)]
-        fg: Option<String>,
-        #[serde(default)]
-        bg: Option<String>,
+        #[serde(default, rename = "fg")]
+        _fg: Option<String>,
+        #[serde(default, rename = "bg")]
+        _bg: Option<String>,
     },
     /// Close one tab.
     CloseSurface {
@@ -1831,7 +1831,6 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "select-tab"
             | "select-screen"
             | "select-workspace"
-            | "set-default-colors"
             | "notify"
             | "report-agent"
             | "sidebar-plugin"
@@ -1884,6 +1883,11 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
     }
     if matches!(command, "prepare-service-handoff" | "cancel-service-handoff") {
         policy.permission = Some(ConnectionPermission::ServiceHandoff);
+    }
+    if command == "set-default-colors" {
+        // Preserve a precise migration error for old clients without
+        // admitting the command to any authority role.
+        policy.permission = None;
     }
     policy.protocol_v9 = matches!(
         command,
@@ -4474,25 +4478,6 @@ fn agent_json(record: &AgentRecord) -> Value {
     })
 }
 
-fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
-    let bytes = value.as_bytes();
-    if bytes.len() != 7 || bytes[0] != b'#' {
-        anyhow::bail!("bad color {value:?} (want \"#rrggbb\")");
-    }
-    let nibble = |b: u8| -> anyhow::Result<u8> {
-        match b {
-            b'0'..=b'9' => Ok(b - b'0'),
-            b'a'..=b'f' => Ok(b - b'a' + 10),
-            b'A'..=b'F' => Ok(b - b'A' + 10),
-            _ => anyhow::bail!("bad color {value:?} (want \"#rrggbb\")"),
-        }
-    };
-    let hex = |idx: usize| -> anyhow::Result<u8> {
-        Ok((nibble(bytes[idx])? << 4) | nibble(bytes[idx + 1])?)
-    };
-    Ok(Rgb { r: hex(1)?, g: hex(3)?, b: hex(5)? })
-}
-
 fn color_hex(color: Option<Rgb>) -> Option<String> {
     color.map(|color| format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b))
 }
@@ -4534,6 +4519,16 @@ fn default_colors_json(colors: DefaultColors) -> Value {
         cursor_style: colors.cursor_style,
         cursor_blink: colors.cursor_blink,
     })
+}
+
+fn sha256_hex(digest: [u8; 32]) -> String {
+    use std::fmt::Write as _;
+
+    let mut result = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut result, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    result
 }
 
 fn rgb_hex(color: Rgb) -> String {
@@ -5647,12 +5642,14 @@ fn handle_command(
             if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
                 anyhow::bail!("renderer worker status requires a trusted local connection");
             }
-            let (default_colors_revision, default_colors) = mux.default_colors_snapshot();
+            let renderer_config = mux.renderer_config_snapshot();
             Ok(json!({
                 "daemon_instance_id": mux.daemon_instance_id,
                 "workers": mux.renderer_worker_statuses(),
-                "default_colors_revision": default_colors_revision,
-                "default_colors": default_colors_json(default_colors),
+                "default_colors_revision": renderer_config.revision,
+                "default_colors": default_colors_json(renderer_config.default_colors),
+                "renderer_config_revision": renderer_config.revision,
+                "renderer_config_digest": renderer_config.digest_hex(),
             }))
         }
         Command::ConfigureRendererPresentation {
@@ -5667,8 +5664,8 @@ fn handle_command(
             color_space,
             frame_endpoint_service,
             frame_endpoint_capability,
-            resolved_config_revision,
-            resolved_config,
+            resolved_config_revision: _,
+            resolved_config: _,
             focused,
             cursor_blink_visible,
             preedit,
@@ -5698,9 +5695,8 @@ fn handle_command(
                 frame_endpoint_service,
                 frame_endpoint_capability: base64::engine::general_purpose::STANDARD
                     .decode(frame_endpoint_capability)?,
-                resolved_config_revision,
-                resolved_config: base64::engine::general_purpose::STANDARD
-                    .decode(resolved_config)?,
+                resolved_config_revision: 0,
+                resolved_config: Vec::new(),
                 focused,
                 cursor_blink_visible,
                 preedit: parse_renderer_preedit(
@@ -5757,6 +5753,8 @@ fn handle_command(
                 "metrics": Value::Null,
                 "pixel_format": renderer_pixel_format_name(receipt.pixel_format),
                 "color_space": renderer_color_space_name(receipt.color_space),
+                "resolved_config_revision": receipt.resolved_config_revision,
+                "resolved_config_digest": sha256_hex(receipt.resolved_config_digest),
             }))
         }
         Command::ActivateRendererPresentation {
@@ -7824,22 +7822,9 @@ fn handle_command(
             mux.move_workspace(workspace, index);
             Ok(json!({}))
         }
-        Command::SetDefaultColors { fg, bg } => {
-            let current = mux.default_colors();
-            let colors = DefaultColors {
-                fg: match fg {
-                    Some(value) => Some(parse_hex_color(&value)?),
-                    None => current.fg,
-                },
-                bg: match bg {
-                    Some(value) => Some(parse_hex_color(&value)?),
-                    None => current.bg,
-                },
-                ..current
-            };
-            mux.set_default_colors(colors);
-            Ok(json!({}))
-        }
+        Command::SetDefaultColors { .. } => anyhow::bail!(
+            "set-default-colors is deprecated because renderer configuration is daemon-owned; edit Ghostty config and use reload-config"
+        ),
         Command::CloseSurface { .. }
         | Command::ClosePane { .. }
         | Command::CloseScreen { .. }
@@ -8507,9 +8492,10 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
                 "left": metrics.padding_left,
             },
         }),
-        MuxEvent::RendererConfigInvalidated { revision, reason, default_colors } => json!({
+        MuxEvent::RendererConfigInvalidated { revision, digest, reason, default_colors } => json!({
             "event": "renderer-config-invalidated",
             "revision": revision,
+            "digest": sha256_hex(*digest),
             "reason": reason.as_ref(),
             "default_colors": default_colors_json(*default_colors),
         }),
@@ -8654,7 +8640,10 @@ mod tests {
         assert!(registration["topology_lease_id"].is_null());
 
         let normal_mutation = r#"{"id":1,"cmd":"new-workspace"}"#;
-        let error = preflight_request(&mux, coordinator, normal_mutation, None).unwrap_err();
+        let error = match preflight_request(&mux, coordinator, normal_mutation, None) {
+            Ok(_) => panic!("service coordinator unexpectedly admitted a normal mutation"),
+            Err(error) => error,
+        };
         assert!(error.to_string().contains("trusted frontend or automation"));
 
         let frontend_writer = test_writer();
@@ -8662,7 +8651,10 @@ mod tests {
         let handoff = format!(
             r#"{{"id":2,"cmd":"prepare-service-handoff","target_build_id":"{HANDOFF_TARGET_BUILD_ID}"}}"#
         );
-        let error = preflight_request(&mux, frontend, &handoff, None).unwrap_err();
+        let error = match preflight_request(&mux, frontend, &handoff, None) {
+            Ok(_) => panic!("frontend unexpectedly admitted a service handoff"),
+            Err(error) => error,
+        };
         assert!(error.to_string().contains("service coordinator"));
 
         preflight_request(&mux, coordinator, &handoff, None).unwrap();
@@ -13051,13 +13043,15 @@ mod tests {
         assert_eq!(
             subscribed_event_json(&MuxEvent::RendererConfigInvalidated {
                 revision: 7,
-                reason: Arc::<str>::from("default-colors-changed"),
+                digest: [0x5a; 32],
+                reason: Arc::<str>::from("ghostty-config-reloaded"),
                 default_colors: colors,
             }),
             json!({
                 "event": "renderer-config-invalidated",
                 "revision": 7,
-                "reason": "default-colors-changed",
+                "digest": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+                "reason": "ghostty-config-reloaded",
                 "default_colors": {
                     "fg": "#112233",
                     "bg": "#445566",

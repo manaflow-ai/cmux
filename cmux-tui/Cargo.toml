@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "bindings/rust",
+    "crates/ghostty-config",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
@@ -28,6 +29,7 @@ redundant_clone = "warn"
 [workspace.dependencies]
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
+ghostty-config = { path = "crates/ghostty-config" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 anyhow = "1"

@@ -23,10 +23,49 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use cmux_tui_core::{Mux, RendererSupervisorConfig, StateStore, SurfaceOptions};
+use cmux_tui_core::{
+    DefaultColors, Mux, MuxEvent, MuxEventReceiver, RendererSupervisorConfig, StateStore,
+    SurfaceOptions,
+};
 use session::{RemoteSession, Session};
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+struct RendererConfigReloader {
+    events: Arc<MuxEventReceiver>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl RendererConfigReloader {
+    fn start(mux: &Arc<Mux>) -> std::io::Result<Self> {
+        let events = Arc::new(mux.subscribe_config_reload());
+        let thread_events = events.clone();
+        let weak_mux = Arc::downgrade(mux);
+        let thread =
+            std::thread::Builder::new().name("cmux-renderer-config".into()).spawn(move || {
+                loop {
+                    match thread_events.recv() {
+                        Ok(MuxEvent::ConfigReloadRequested) => {
+                            let Some(mux) = weak_mux.upgrade() else { break };
+                            reload_renderer_config(&mux);
+                        }
+                        Ok(_) => {}
+                        Err(_) => break,
+                    }
+                }
+            })?;
+        Ok(Self { events, thread: Some(thread) })
+    }
+}
+
+impl Drop for RendererConfigReloader {
+    fn drop(&mut self) {
+        self.events.close();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
 
 #[cfg(unix)]
 extern "C" fn handle_signal(_: libc::c_int) {
@@ -103,7 +142,7 @@ CLI VERBS
   list-workspaces, export-layout, apply-layout, send,
   read-screen, read-scrollback, vt-state, new-tab, new-browser-tab, new-workspace,
   new-screen, split, set-ratio, pane-neighbor, focus-direction,
-  swap-pane, zoom-pane, process-info, set-default-colors,
+  swap-pane, zoom-pane, process-info,
   close-surface, close-pane, close-screen, close-workspace,
   rename-pane, rename-surface, rename-screen, rename-workspace,
   resize-surface, release-surface-size, focus-pane, select-tab, select-screen,
@@ -269,7 +308,7 @@ fn resolved_socket_path(args: &Args) -> PathBuf {
 
 fn run_server(args: Args) -> anyhow::Result<()> {
     let mut surface_options = SurfaceOptions::default();
-    let config = config::load();
+    let config = config::load_daemon();
     // Resolve before moving optional argument fields below.
     let socket_path = resolved_socket_path(&args);
     let ws_addr = args.ws.or(config.server.ws.clone());
@@ -309,9 +348,14 @@ fn run_server(args: Args) -> anyhow::Result<()> {
             mux.daemon_instance_id,
         )?)?;
     }
-    // Headless sessions have no host terminal to query, so seed the mux from
-    // Ghostty's config before any protocol client can create a surface.
-    mux.set_default_colors(config.terminal_defaults);
+    // Install the daemon-owned canonical bytes before a protocol client can
+    // create a renderer presentation. Legacy client config fields are ignored.
+    mux.install_renderer_config(
+        config.resolved_renderer_config.clone(),
+        config.terminal_defaults,
+        Arc::<str>::from("ghostty-config-loaded"),
+    )?;
+    let renderer_config_reloader = RendererConfigReloader::start(&mux)?;
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     let websocket_server = match ws_addr {
         Some(addr) => {
@@ -341,6 +385,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
         let remote = RemoteSession::connect(&socket_path)?;
         run_tui(Session::Remote(remote), args.session)
     };
+    drop(renderer_config_reloader);
     drop(websocket_server);
     mux.shutdown();
     cmux_tui_core::server::cleanup(&socket_path);
@@ -349,22 +394,26 @@ fn run_server(args: Args) -> anyhow::Result<()> {
 
 fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
     crossterm::terminal::enable_raw_mode()?;
-    let config = config::load();
-    let mut colors = config.terminal_defaults;
     let host_colors = host_colors::probe_default_colors();
+    let raw_result = crossterm::terminal::disable_raw_mode();
+    raw_result?;
+    let (daemon_colors, display_colors) = resolve_frontend_colors(&session, host_colors)?;
+    app::run(session, session_label, daemon_colors, display_colors)
+}
+
+fn resolve_frontend_colors(
+    session: &Session,
+    host_colors: DefaultColors,
+) -> anyhow::Result<(DefaultColors, DefaultColors)> {
+    let daemon_colors = session.renderer_default_colors()?;
+    let mut display_colors = daemon_colors;
     if host_colors.fg.is_some() {
-        colors.fg = host_colors.fg;
+        display_colors.fg = host_colors.fg;
     }
     if host_colors.bg.is_some() {
-        colors.bg = host_colors.bg;
+        display_colors.bg = host_colors.bg;
     }
-    let color_result = session.set_default_colors(colors);
-    let raw_result = crossterm::terminal::disable_raw_mode();
-    if let Err(err) = color_result {
-        eprintln!("cmux-tui: failed to set default colors: {err}");
-    }
-    raw_result?;
-    app::run(session, session_label, colors)
+    Ok((daemon_colors, display_colors))
 }
 
 fn run_headless(
@@ -408,6 +457,28 @@ fn run_headless(
     Ok(())
 }
 
+fn reload_renderer_config(mux: &Mux) {
+    let resolved = match config::resolve_renderer_config_for_daemon() {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: Ghostty config reload failed; retaining last-known-good snapshot: {error}"
+            );
+            return;
+        }
+    };
+    match mux.install_renderer_config(
+        resolved.bytes,
+        resolved.default_colors,
+        Arc::<str>::from("ghostty-config-reloaded"),
+    ) {
+        Ok(_) => {}
+        Err(error) => eprintln!(
+            "cmux-tui: Ghostty config reload was rejected; retaining last-known-good snapshot: {error}"
+        ),
+    }
+}
+
 fn usage_exit(msg: &str) -> ! {
     eprintln!("cmux-tui: {msg}\n\n{USAGE}");
     std::process::exit(2);
@@ -416,6 +487,14 @@ fn usage_exit(msg: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renderer_config_reloader_shutdown_wakes_its_blocked_thread() {
+        let mux = Mux::new("renderer-config-reloader", SurfaceOptions::default());
+        let reloader = RendererConfigReloader::start(&mux).unwrap();
+
+        drop(reloader);
+    }
 
     #[test]
     fn frontend_color_resolution_is_read_only_and_host_scoped() {

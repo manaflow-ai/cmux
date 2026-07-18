@@ -2669,10 +2669,11 @@ fn pane_parts_for_rect(
 pub fn run(
     session: Session,
     session_label: String,
-    default_colors: cmux_tui_core::DefaultColors,
+    daemon_colors: cmux_tui_core::DefaultColors,
+    display_colors: cmux_tui_core::DefaultColors,
 ) -> anyhow::Result<()> {
-    let mut config = crate::config::load();
-    let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
+    let mut config = crate::config::load_frontend(daemon_colors);
+    let chrome = ChromeTheme::for_defaults(config.chrome, display_colors);
     config.apply_chrome_defaults(chrome);
     // First workspace before the terminal switches modes, so a spawn
     // failure prints a normal error. Spawn at the size the first pane
@@ -3443,7 +3444,11 @@ impl App {
     }
 
     fn reload_config(&mut self) {
-        let mut config = crate::config::load();
+        self.reload_config_with_daemon_colors(self.config.terminal_defaults);
+    }
+
+    fn reload_config_with_daemon_colors(&mut self, daemon_colors: cmux_tui_core::DefaultColors) {
+        let mut config = crate::config::load_frontend(daemon_colors);
         config.apply_chrome_defaults(self.chrome);
         self.sidebar_plugin_error = None;
         self.sidebar_plugin_retry_after_ms = None;
@@ -3922,6 +3927,10 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::ConfigReloadRequested) => {
                 self.reload_config();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::RendererConfigInvalidated { default_colors, .. }) => {
+                self.reload_config_with_daemon_colors(default_colors);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::WindowTitleRequested(title)) => {

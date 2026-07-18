@@ -198,6 +198,7 @@ dependencies = [
  "cmux-tui-core",
  "crossterm",
  "fs2",
+ "ghostty-config",
  "ghostty-vt",
  "libc",
  "ratatui",
@@ -577,6 +578,13 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi 6.0.0",
+]
+
+[[package]]
+name = "ghostty-config"
+version = "0.1.0"
+dependencies = [
+ "fs2",
 ]
 
 [[package]]

@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PresentationId, Rgb,
-    SurfaceId, SurfaceKind, SurfaceUuid, platform::transport,
+    BrowserFrame, BrowserSource, BrowserStatus, CursorShape, DefaultColors, MuxEvent,
+    MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
+    PresentationId, Rgb, SurfaceId, SurfaceKind, SurfaceUuid, platform::transport,
 };
 use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
 use serde_json::{Value, json};
@@ -762,6 +762,11 @@ impl RemoteSession {
                 }
             }
             Some("config-reload-requested") => self.emit(MuxEvent::ConfigReloadRequested),
+            Some("renderer-config-invalidated") => {
+                if let Ok(event) = parse_renderer_config_invalidation(&value) {
+                    self.emit(event);
+                }
+            }
             Some("window-title-requested") => {
                 if let Some(title) = value.get("title").and_then(|v| v.as_str()) {
                     self.emit(MuxEvent::WindowTitleRequested(title.to_string()));
@@ -1321,18 +1326,12 @@ impl RemoteSession {
         Ok(RemoteCellPixelUpdate { resizes, failures })
     }
 
-    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
-        if colors.fg.is_none() && colors.bg.is_none() {
-            return Ok(());
-        }
-        let mut cmd = json!({"cmd": "set-default-colors"});
-        if let Some(fg) = colors.fg {
-            cmd["fg"] = json!(hex_color(fg));
-        }
-        if let Some(bg) = colors.bg {
-            cmd["bg"] = json!(hex_color(bg));
-        }
-        self.request(cmd).map(|_| ())
+    pub fn renderer_default_colors(&self) -> anyhow::Result<DefaultColors> {
+        let response = self.request(json!({"cmd": "renderer-workers"}))?;
+        let colors = response
+            .get("default_colors")
+            .ok_or_else(|| anyhow::anyhow!("renderer worker status omitted daemon colors"))?;
+        parse_default_colors(colors)
     }
 
     pub fn supports_browser_attach(&self) -> bool {
@@ -1646,8 +1645,103 @@ fn browser_source_from_tree(tree: &TreeView, id: SurfaceId) -> Option<BrowserSou
         .and_then(|tab| tab.browser_source)
 }
 
-fn hex_color(color: Rgb) -> String {
-    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+fn parse_default_colors(value: &Value) -> anyhow::Result<DefaultColors> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("daemon default colors are not an object"))?;
+    let optional_color = |field: &str| -> anyhow::Result<Option<Rgb>> {
+        match object.get(field) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(value)) => ghostty_vt::parse_color(value)
+                .ok_or_else(|| anyhow::anyhow!("daemon default color {field:?} is invalid"))
+                .map(Some),
+            Some(_) => anyhow::bail!("daemon default color {field:?} is not text"),
+        }
+    };
+    let cursor_style = match object.get("cursor_style") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(match value.as_str() {
+            "block" => CursorShape::Block,
+            "underline" => CursorShape::Underline,
+            "bar" => CursorShape::Bar,
+            _ => anyhow::bail!("daemon cursor style {value:?} is invalid"),
+        }),
+        Some(_) => anyhow::bail!("daemon cursor style is not text"),
+    };
+    let cursor_blink = match object.get("cursor_blink") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(value)) => Some(*value),
+        Some(_) => anyhow::bail!("daemon cursor blink is not a boolean"),
+    };
+    let mut palette = [None; 256];
+    match object.get("palette") {
+        None | Some(Value::Null) => {}
+        Some(Value::Object(entries)) => {
+            for (index, value) in entries {
+                let index =
+                    index.parse::<usize>().ok().filter(|index| *index < palette.len()).ok_or_else(
+                        || anyhow::anyhow!("daemon palette index {index:?} is invalid"),
+                    )?;
+                let value = value
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("daemon palette entry {index} is not text"))?;
+                palette[index] =
+                    Some(ghostty_vt::parse_color(value).ok_or_else(|| {
+                        anyhow::anyhow!("daemon palette entry {index} is invalid")
+                    })?);
+            }
+        }
+        Some(_) => anyhow::bail!("daemon palette is not an object"),
+    }
+    Ok(DefaultColors {
+        fg: optional_color("fg")?,
+        bg: optional_color("bg")?,
+        cursor: optional_color("cursor")?,
+        selection_bg: optional_color("selection_bg")?,
+        selection_fg: optional_color("selection_fg")?,
+        cursor_style,
+        cursor_blink,
+        palette,
+    })
+}
+
+fn parse_renderer_config_invalidation(value: &Value) -> anyhow::Result<MuxEvent> {
+    let revision = value
+        .get("revision")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow::anyhow!("renderer config invalidation omitted its revision"))?;
+    let digest = value
+        .get("digest")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("renderer config invalidation omitted its digest"))
+        .and_then(parse_sha256_hex)?;
+    let reason = value
+        .get("reason")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("renderer config invalidation omitted its reason"))?;
+    let default_colors = value
+        .get("default_colors")
+        .ok_or_else(|| anyhow::anyhow!("renderer config invalidation omitted daemon colors"))
+        .and_then(parse_default_colors)?;
+    Ok(MuxEvent::RendererConfigInvalidated {
+        revision,
+        digest,
+        reason: Arc::<str>::from(reason),
+        default_colors,
+    })
+}
+
+fn parse_sha256_hex(value: &str) -> anyhow::Result<[u8; 32]> {
+    if value.len() != 64 {
+        anyhow::bail!("renderer config digest is not 64 hexadecimal characters");
+    }
+    let mut digest = [0; 32];
+    for (index, byte) in digest.iter_mut().enumerate() {
+        let offset = index * 2;
+        *byte = u8::from_str_radix(&value[offset..offset + 2], 16)
+            .map_err(|_| anyhow::anyhow!("renderer config digest is not hexadecimal"))?;
+    }
+    Ok(digest)
 }
 
 fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
@@ -1746,6 +1840,44 @@ mod tests {
         assert_eq!(colors.cursor_blink, Some(false));
         assert_eq!(colors.palette[1], Some(Rgb { r: 0x51, g: 0x52, b: 0x53 }));
         assert_eq!(colors.palette[255], Some(Rgb { r: 0x61, g: 0x62, b: 0x63 }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn renderer_config_invalidation_reaches_attached_frontend_with_daemon_colors() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+
+        session.handle_line(json!({
+            "event": "renderer-config-invalidated",
+            "revision": 7,
+            "digest": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "reason": "ghostty-config-reloaded",
+            "default_colors": {
+                "fg": "#010203",
+                "bg": "#111213",
+                "cursor": null,
+                "selection_bg": null,
+                "selection_fg": null,
+                "cursor_style": null,
+                "cursor_blink": null,
+                "palette": {}
+            }
+        }));
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::RendererConfigInvalidated {
+                revision: 7,
+                digest,
+                reason,
+                default_colors,
+            }) if digest == [0x5a; 32]
+                && reason.as_ref() == "ghostty-config-reloaded"
+                && default_colors.fg == Some(Rgb { r: 1, g: 2, b: 3 })
+                && default_colors.bg == Some(Rgb { r: 0x11, g: 0x12, b: 0x13 })
+        ));
     }
 
     #[cfg(unix)]

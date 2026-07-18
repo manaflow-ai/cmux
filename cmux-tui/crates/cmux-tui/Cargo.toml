@@ -29,5 +29,8 @@ libc.workspace = true
 smallvec.workspace = true
 uuid.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+ghostty-config.workspace = true
+
 [dev-dependencies]
 fs2.workspace = true

@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -35,6 +36,11 @@ fn shell_opts(script: &str) -> SurfaceOptions {
 fn unique_session(prefix: &str) -> String {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     format!("{prefix}-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn install_renderer_colors(mux: &Mux, colors: DefaultColors) {
+    mux.install_renderer_config(Vec::new(), colors, Arc::<str>::from("test-renderer-config"))
+        .unwrap();
 }
 
 fn connect(path: &Path) -> Box<dyn transport::Stream> {
@@ -605,9 +611,10 @@ fn control_socket_wait_for_matches_one_shot_output_already_on_screen() {
 }
 
 #[test]
-fn control_socket_set_default_colors_merges_fields() {
+fn control_socket_set_default_colors_cannot_advance_daemon_renderer_revision() {
     let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
     let mux = Mux::new(format!("test-colors-{}", std::process::id()), opts);
+    let before = mux.renderer_config_snapshot();
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
     let mut writer = stream.try_clone_box().unwrap();
@@ -617,31 +624,9 @@ fn control_socket_set_default_colors_merges_fields() {
     writeln!(writer, r##"{{"id":1,"cmd":"set-default-colors","fg":"#010203"}}"##).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(v["ok"], true, "set-default-colors failed: {line}");
-    assert_eq!(
-        mux.default_colors(),
-        DefaultColors { fg: Some(Rgb { r: 1, g: 2, b: 3 }), bg: None, ..Default::default() }
-    );
-
-    line.clear();
-    writeln!(writer, r##"{{"id":2,"cmd":"set-default-colors","bg":"#131415"}}"##).unwrap();
-    reader.read_line(&mut line).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(v["ok"], true, "set-default-colors failed: {line}");
-    assert_eq!(
-        mux.default_colors(),
-        DefaultColors {
-            fg: Some(Rgb { r: 1, g: 2, b: 3 }),
-            bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
-            ..Default::default()
-        }
-    );
-
-    line.clear();
-    writeln!(writer, r##"{{"id":3,"cmd":"set-default-colors","bg":"#bad"}}"##).unwrap();
-    reader.read_line(&mut line).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(v["ok"], false, "bad color unexpectedly accepted: {line}");
+    assert_eq!(v["ok"], false, "deprecated renderer mutation unexpectedly succeeded: {line}");
+    assert!(v["error"].as_str().is_some_and(|error| error.contains("daemon-owned")));
+    assert_eq!(mux.renderer_config_snapshot(), before);
 
     cmux_tui_core::server::cleanup(&sock_path);
 }
@@ -657,7 +642,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
         ..Default::default()
     };
     defaults.palette[4] = Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc });
-    mux.set_default_colors(defaults);
+    install_renderer_colors(&mux, defaults);
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     surface
         .try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07\x1b]4;4;#112233\x07"))
@@ -699,7 +684,7 @@ fn control_socket_attach_vt_state_osc_palette_reset_restores_presentation_author
     let mux = Mux::new(unique_session("test-attach-palette-reset"), shell_opts("cat"));
     let mut defaults = DefaultColors::default();
     defaults.palette[4] = Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc });
-    mux.set_default_colors(defaults);
+    install_renderer_colors(&mux, defaults);
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     surface.try_with_terminal(|term| term.vt_write(b"\x1b]4;4;#112233\x07\x1b]104;4\x07")).unwrap();
 
@@ -743,11 +728,14 @@ fn control_socket_attach_vt_state_cursor_is_null_without_config_or_decscusr() {
 #[test]
 fn control_socket_attach_vt_state_prefers_surface_decscusr_cursor() {
     let mux = Mux::new(unique_session("test-attach-cursor-override"), shell_opts("cat"));
-    mux.set_default_colors(DefaultColors {
-        cursor_style: Some(CursorShape::Bar),
-        cursor_blink: Some(false),
-        ..Default::default()
-    });
+    install_renderer_colors(
+        &mux,
+        DefaultColors {
+            cursor_style: Some(CursorShape::Bar),
+            cursor_blink: Some(false),
+            ..Default::default()
+        },
+    );
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     surface.try_with_terminal(|term| term.vt_write(b"\x1b[3 q")).unwrap();
 
@@ -769,15 +757,18 @@ fn control_socket_attach_vt_state_prefers_surface_decscusr_cursor() {
 }
 
 #[test]
-fn control_socket_attach_stream_receives_merged_colors_changed() {
+fn daemon_renderer_config_update_reaches_attached_color_stream() {
     let mux = Mux::new(unique_session("test-colors-changed"), shell_opts("cat"));
-    mux.set_default_colors(DefaultColors {
-        fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
-        bg: None,
-        cursor_style: Some(CursorShape::Bar),
-        cursor_blink: Some(false),
-        ..Default::default()
-    });
+    install_renderer_colors(
+        &mux,
+        DefaultColors {
+            fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
+            bg: None,
+            cursor_style: Some(CursorShape::Bar),
+            cursor_blink: Some(false),
+            ..Default::default()
+        },
+    );
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
@@ -795,12 +786,16 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
         .expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
-    let command_stream = connect(&sock_path);
-    let mut command_writer = command_stream.try_clone_box().unwrap();
-    let mut command_reader = BufReader::new(command_stream);
-    writeln!(command_writer, r##"{{"id":2,"cmd":"set-default-colors","bg":"#131415"}}"##).unwrap();
-    let response = read_json_line(&mut command_reader).expect("set-default-colors response");
-    assert_eq!(response["ok"], true, "set-default-colors failed: {response}");
+    install_renderer_colors(
+        &mux,
+        DefaultColors {
+            fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
+            bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
+            cursor_style: Some(CursorShape::Bar),
+            cursor_blink: Some(false),
+            ..Default::default()
+        },
+    );
 
     let event = wait_for(
         || {
@@ -923,7 +918,7 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
         cursor_blink: Some(true),
         ..Default::default()
     };
-    mux.set_default_colors(colors);
+    install_renderer_colors(&mux, colors);
 
     let mut first_state = RenderState::new().unwrap();
     first.snapshot(&mut first_state).unwrap();

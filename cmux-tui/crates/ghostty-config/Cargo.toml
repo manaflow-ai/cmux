@@ -1,0 +1,15 @@
+[package]
+name = "ghostty-config"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Safe Rust boundary for the isolated GhosttyConfigKit C ABI"
+links = "ghostty-config-kit"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+fs2.workspace = true
