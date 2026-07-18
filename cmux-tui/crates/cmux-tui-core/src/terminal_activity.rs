@@ -95,6 +95,7 @@ struct ReceiptKey {
     surface_uuid: SurfaceUuid,
 }
 
+#[derive(Clone)]
 pub(crate) struct TerminalActivityState {
     latest_sequence: u64,
     facts: BTreeMap<SurfaceUuid, TerminalActivityFact>,

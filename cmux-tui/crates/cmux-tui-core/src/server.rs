@@ -5286,6 +5286,7 @@ fn handle_command(
         Command::Identify => {
             let (topology_revision, canonical_topology_revision) = mux.topology_revisions();
             let renderer_workers = mux.renderer_worker_statuses();
+            let durable_storage = mux.durable_storage_status();
             Ok(json!({
                 "app": "cmux-tui",
                 "version": env!("CARGO_PKG_VERSION"),
@@ -5302,11 +5303,13 @@ fn handle_command(
                 "pid": std::process::id(),
                 "connection_id": mux.control_clients.connection_id(client),
                 "renderer_workers": renderer_workers,
+                "durable_storage": durable_storage,
             }))
         }
         Command::Ping => {
             let (topology_revision, canonical_topology_revision) = mux.topology_revisions();
             let renderer_workers = mux.renderer_worker_statuses();
+            let durable_storage = mux.durable_storage_status();
             Ok(json!({
                 "ok": true,
                 "version": env!("CARGO_PKG_VERSION"),
@@ -5323,6 +5326,7 @@ fn handle_command(
                 "pid": std::process::id(),
                 "connection_id": mux.control_clients.connection_id(client),
                 "renderer_workers": renderer_workers,
+                "durable_storage": durable_storage,
             }))
         }
         Command::RegisterClient {
@@ -9519,7 +9523,7 @@ mod tests {
     }
 
     #[test]
-    fn durable_append_failure_child_aborts_before_response() {
+    fn durable_append_rejection_child_returns_error_response() {
         let Some(root) = std::env::var_os("CMUX_TEST_DURABILITY_ROOT") else { return };
         let acknowledgement_path = std::env::var_os("CMUX_TEST_DURABILITY_ACK")
             .map(PathBuf::from)
@@ -9529,11 +9533,14 @@ mod tests {
             .expect("durability child command marker path");
         let store = crate::state_store::StateStore::new(PathBuf::from(root));
         let mux = Mux::recover_from_state_store(
-            "durability-fail-stop",
+            "durability-rejection",
             SurfaceOptions::default(),
             &store,
         )
         .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let journal_path = store.journal_path("durability-rejection");
+        std::fs::set_permissions(&journal_path, std::fs::Permissions::from_mode(0o400)).unwrap();
         let writer = MessageWriter::new(DurableAcknowledgementSink { path: acknowledgement_path });
         let (client, _, registration) =
             register_v9_client_kind(&mux, &writer, ClientTransport::Unix, "swift-shell");
@@ -9558,14 +9565,17 @@ mod tests {
         })
         .to_string();
 
-        let _ = handle_message(&mux, client, &message, &writer);
-        panic!("injected durable append failure returned instead of aborting");
+        assert!(handle_message(&mux, client, &message, &writer));
+        std::fs::set_permissions(&journal_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert_eq!(mux.surface_count(), 0);
+        assert_eq!(mux.durable_storage_status().state, "healthy");
     }
 
     #[test]
-    fn durable_append_failure_is_fail_stop_before_acknowledgement() {
+    fn durable_append_rejection_returns_error_before_user_exec() {
         let root = std::env::temp_dir().join(format!(
-            "cmux-durable-fail-stop-{}-{}",
+            "cmux-durable-rejection-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -9574,31 +9584,42 @@ mod tests {
         let gate_exit_marker = root.join("gate-exited");
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("--exact")
-            .arg("server::tests::durable_append_failure_child_aborts_before_response")
+            .arg("server::tests::durable_append_rejection_child_returns_error_response")
             .arg("--nocapture")
             .env("CMUX_TEST_DURABILITY_ROOT", &root)
             .env("CMUX_TEST_DURABILITY_ACK", &acknowledgement_path)
             .env("CMUX_TEST_DURABILITY_COMMAND_MARKER", &command_marker)
+            .env(crate::launch_gate::test_support::IGNORE_HUP_ENV, "1")
             .env(crate::launch_gate::test_support::EXIT_MARKER_ENV, &gate_exit_marker)
-            .env("CMUX_TEST_FAIL_DURABLE_APPEND", "1")
             .output()
             .unwrap();
 
-        assert!(!output.status.success(), "durability child unexpectedly returned success");
-        let acknowledgements = std::fs::read_to_string(&acknowledgement_path).unwrap_or_default();
         assert!(
-            acknowledgements.is_empty(),
-            "mutation response escaped before durable append: {acknowledgements}"
+            output.status.success(),
+            "durability child did not return a normal error: {}",
+            String::from_utf8_lossy(&output.stderr)
         );
+        let acknowledgements = std::fs::read_to_string(&acknowledgement_path).unwrap_or_default();
+        let responses = acknowledgements.lines().collect::<Vec<_>>();
+        assert_eq!(responses.len(), 1, "unexpected responses: {acknowledgements}");
+        let response: Value = serde_json::from_str(responses[0]).unwrap();
+        assert_eq!(response["id"], 71);
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().unwrap().contains("durable mutation rejected"));
+        let gate_deadline = Instant::now() + Duration::from_secs(2);
+        while !gate_exit_marker.is_file() && Instant::now() < gate_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
         assert!(gate_exit_marker.is_file(), "blocked launch helper did not observe daemon EOF");
         assert!(!command_marker.exists(), "user command executed despite failed durable append");
         let reopened = crate::state_store::StateStore::new(&root)
-            .open_session("durability-fail-stop")
+            .open_session("durability-rejection")
             .unwrap();
         assert_eq!(reopened.snapshot.topology_revision, 0);
         assert!(reopened.snapshot.workspaces.is_empty());
         assert!(reopened.snapshot.surfaces.is_empty());
         assert!(reopened.snapshot.idempotency_results.is_empty());
+        assert!(reopened.launch_attempts.is_empty());
         drop(reopened.durable);
         std::fs::remove_dir_all(&root).unwrap();
     }
@@ -10132,6 +10153,43 @@ mod tests {
         assert_eq!(data["canonical_topology_revision"], 0);
         assert_eq!(data["pid"], std::process::id());
         assert_eq!(data["renderer_workers"], json!([]));
+        assert_eq!(data["durable_storage"]["state"], "disabled");
+        assert_eq!(data["durable_storage"]["unresolved_mutation"], false);
+        assert_eq!(data["durable_storage"]["unresolved_launch_attempts"], 0);
+    }
+
+    #[test]
+    fn authority_responses_expose_only_content_free_durable_storage_status() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-authority-storage-status-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let store = crate::state_store::StateStore::new(&root);
+        let mux = Mux::recover_from_state_store(
+            "authority-storage-status",
+            SurfaceOptions::default(),
+            &store,
+        )
+        .unwrap();
+
+        for command in [Command::Ping, Command::Identify] {
+            let response = handle_command(&mux, 0, command, &test_writer()).unwrap();
+            assert_eq!(
+                response["durable_storage"],
+                json!({
+                    "state": "healthy",
+                    "incident_id": null,
+                    "failure_phase": null,
+                    "failure_resolution": null,
+                    "unresolved_mutation": false,
+                    "unresolved_launch_attempts": 0,
+                })
+            );
+        }
+
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -10157,6 +10215,9 @@ mod tests {
         assert_eq!(data["topology_revision"], 0);
         assert_eq!(data["canonical_topology_revision"], 0);
         assert_eq!(data["renderer_workers"], json!([]));
+        assert_eq!(data["durable_storage"]["state"], "disabled");
+        assert_eq!(data["durable_storage"]["unresolved_mutation"], false);
+        assert_eq!(data["durable_storage"]["unresolved_launch_attempts"], 0);
 
         let replacement =
             Mux::new_with_session_id("named-session", SurfaceOptions::default(), session_id);

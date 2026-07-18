@@ -43,10 +43,13 @@ use crate::semantic_scene::{
     SemanticScenePresentationIdentity, SemanticSceneReceiver,
 };
 use crate::state_store::{
-    DurableSession, MAX_PERSISTED_IDEMPOTENCY_RESULTS, MAX_PERSISTED_TOMBSTONES,
-    PersistedEntityKind, PersistedIdempotencyResult, PersistedLaunchRecipe, PersistedNode,
+    DurableAppendOutcome, DurableFailureResolution, DurableSession,
+    MAX_PERSISTED_IDEMPOTENCY_RESULTS,
+    MAX_PERSISTED_TOMBSTONES, PersistedEntityKind, PersistedIdempotencyResult,
+    PersistedLaunchAttempt, PersistedLaunchAttemptPhase, PersistedLaunchRecipe, PersistedNode,
     PersistedPane, PersistedScreen, PersistedSessionState, PersistedSplitDirection,
     PersistedSurface, PersistedSurfaceKind, PersistedTombstone, PersistedWorkspace, StateStore,
+    StorageCircuit,
 };
 use crate::surface::{
     DefaultColors, ExternalTerminalClaimReceipt, ExternalTerminalOutputReceipt,
@@ -594,6 +597,31 @@ struct PreparedTerminalLaunch {
     gate: Option<PreparedTerminalGate>,
     input_authority: Option<InputAuthorityPermit>,
     initial_input: Vec<u8>,
+    attempt_id: Option<uuid::Uuid>,
+    committed: bool,
+    mux: std::sync::Weak<Mux>,
+}
+
+impl Drop for PreparedTerminalLaunch {
+    fn drop(&mut self) {
+        if !self.committed {
+            // A still-gated helper is canceled by closing the authenticated
+            // release channel. Let it observe EOF and exit normally instead
+            // of racing a kill signal against that no-exec proof. Once the
+            // gate has been consumed, the real command may be running and
+            // must be killed when publication is abandoned.
+            let pending_gate = self.gate.take();
+            let helper_is_still_gated =
+                matches!(pending_gate.as_ref(), Some(PreparedTerminalGate::Real(_)));
+            drop(pending_gate);
+            if !helper_is_still_gated {
+                self.surface.kill();
+            }
+            if let (Some(attempt_id), Some(mux)) = (self.attempt_id, self.mux.upgrade()) {
+                mux.quarantine_launch_attempt(attempt_id, "launch-abandoned-before-publication");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -920,6 +948,8 @@ struct CanonicalState {
     idempotency_results: VecDeque<PersistedIdempotencyResult>,
     terminal_activity: TerminalActivityState,
     durable: Option<DurableSession>,
+    committed_image: CanonicalLiveImage,
+    unresolved_durable_mutation: Option<CanonicalDraft>,
     #[cfg(test)]
     topology_commit_count: u64,
     #[cfg(test)]
@@ -932,6 +962,34 @@ struct CanonicalState {
     terminal_launch_atomicity_probe: Option<TerminalLaunchAtomicityProbe>,
 }
 
+#[derive(Clone)]
+struct CanonicalLiveImage {
+    value: State,
+    legacy_topology_revision: u64,
+    launch_recipes: HashMap<SurfaceUuid, PersistedLaunchRecipe>,
+    tombstones: VecDeque<PersistedTombstone>,
+    idempotency_results: VecDeque<PersistedIdempotencyResult>,
+    terminal_activity: TerminalActivityState,
+}
+
+#[derive(Clone)]
+struct CanonicalDraft {
+    snapshot: PersistedSessionState,
+    launch_attempts: Vec<PersistedLaunchAttempt>,
+    idempotency_key: String,
+    result: Option<PersistedIdempotencyResult>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct DurableStorageStatus {
+    pub state: &'static str,
+    pub incident_id: Option<uuid::Uuid>,
+    pub failure_phase: Option<&'static str>,
+    pub failure_resolution: Option<&'static str>,
+    pub unresolved_mutation: bool,
+    pub unresolved_launch_attempts: usize,
+}
+
 impl CanonicalState {
     fn new(
         value: State,
@@ -942,6 +1000,14 @@ impl CanonicalState {
     ) -> Self {
         let topology_index = CanonicalTopologyIndex::build(&value)
             .expect("initial canonical topology must have valid lookup indexes");
+        let committed_image = CanonicalLiveImage {
+            value: value.clone(),
+            legacy_topology_revision: 0,
+            launch_recipes: HashMap::new(),
+            tombstones: VecDeque::new(),
+            idempotency_results: VecDeque::new(),
+            terminal_activity: TerminalActivityState::default(),
+        };
         Self {
             value,
             topology_index,
@@ -961,6 +1027,8 @@ impl CanonicalState {
             idempotency_results: VecDeque::new(),
             terminal_activity: TerminalActivityState::default(),
             durable: None,
+            committed_image,
+            unresolved_durable_mutation: None,
             #[cfg(test)]
             topology_commit_count: 0,
             #[cfg(test)]
@@ -999,13 +1067,13 @@ impl CanonicalState {
         self.topology_index.screen_location_by_pane.get(&pane).copied()
     }
 
-    fn commit_legacy_topology(&mut self) -> u64 {
+    fn commit_legacy_topology(&mut self) -> anyhow::Result<u64> {
         self.legacy_topology_revision = self
             .legacy_topology_revision
             .checked_add(1)
-            .expect("legacy topology revision exhausted");
-        self.persist(self.topology.revision(), format!("legacy:{}", uuid::Uuid::new_v4()), None);
-        self.legacy_topology_revision
+            .ok_or_else(|| anyhow::anyhow!("legacy topology revision exhausted"))?;
+        self.persist(self.topology.revision(), format!("legacy:{}", uuid::Uuid::new_v4()), None)?;
+        Ok(self.legacy_topology_revision)
     }
 
     /// Commit state, revision, retained history, and live delivery as one
@@ -1014,7 +1082,7 @@ impl CanonicalState {
         &mut self,
         operation: TopologyOperation,
         targets: TopologyTargets,
-    ) -> Arc<crate::TopologyDelta> {
+    ) -> anyhow::Result<Arc<crate::TopologyDelta>> {
         self.commit_topology_with_idempotency(
             operation,
             targets,
@@ -1030,9 +1098,8 @@ impl CanonicalState {
         operation: TopologyOperation,
         targets: TopologyTargets,
         key: String,
-    ) -> Arc<crate::TopologyDelta> {
-        self.rebuild_topology_index()
-            .expect("committed canonical topology must have valid lookup indexes");
+    ) -> anyhow::Result<Arc<crate::TopologyDelta>> {
+        self.rebuild_topology_index()?;
         #[cfg(test)]
         {
             self.topology_commit_count += 1;
@@ -1048,9 +1115,12 @@ impl CanonicalState {
         self.legacy_topology_revision = self
             .legacy_topology_revision
             .checked_add(1)
-            .expect("legacy topology revision exhausted");
-        let revision =
-            self.topology.revision().checked_add(1).expect("canonical topology revision exhausted");
+            .ok_or_else(|| anyhow::anyhow!("legacy topology revision exhausted"))?;
+        let revision = self
+            .topology
+            .revision()
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("canonical topology revision exhausted"))?;
         self.retain_deleted_targets(operation, &targets, revision);
         let result = PersistedIdempotencyResult {
             key: key.clone(),
@@ -1065,13 +1135,15 @@ impl CanonicalState {
         while self.idempotency_results.len() > MAX_PERSISTED_IDEMPOTENCY_RESULTS {
             self.idempotency_results.pop_front();
         }
-        self.persist(revision, key, Some(result));
+        self.persist(revision, key, Some(result))?;
         #[cfg(test)]
         {
             self.topology_replacement_serialization_count += 1;
         }
         let replacement = topology_json(&self.value);
-        self.topology.commit(replacement, operation, targets)
+        let delta = self.topology.commit(replacement, operation, targets);
+        self.mark_live_committed();
+        Ok(delta)
     }
 
     fn persist(
@@ -1079,37 +1151,131 @@ impl CanonicalState {
         topology_revision: u64,
         idempotency_key: String,
         result: Option<PersistedIdempotencyResult>,
-    ) {
+    ) -> anyhow::Result<()> {
         if self.durable.is_none() {
-            return;
+            self.mark_live_committed();
+            return Ok(());
         }
         #[cfg(test)]
         {
             self.persisted_snapshot_count += 1;
         }
-        let snapshot = self
-            .persisted_snapshot(topology_revision)
-            .expect("canonical state must remain persistable after a committed mutation");
-        #[cfg(test)]
-        if let Some(probe) = &self.terminal_launch_atomicity_probe {
-            probe(TerminalLaunchAtomicityPhase::BeforeFsync);
+        let snapshot = self.persisted_snapshot(topology_revision)?;
+        let launch_attempts = self.resolved_launch_attempts(&snapshot)?;
+        let draft = CanonicalDraft { snapshot, launch_attempts, idempotency_key, result };
+        self.append_draft(draft)?;
+        self.mark_live_committed();
+        Ok(())
+    }
+
+    fn resolved_launch_attempts(
+        &self,
+        snapshot: &PersistedSessionState,
+    ) -> anyhow::Result<Vec<PersistedLaunchAttempt>> {
+        let Some(durable) = self.durable.as_ref() else { return Ok(Vec::new()) };
+        let terminal_launches = snapshot
+            .surfaces
+            .iter()
+            .filter_map(|surface| match &surface.kind {
+                PersistedSurfaceKind::Terminal { launch } => Some((surface.uuid, launch.clone())),
+                PersistedSurfaceKind::ExternalTerminal { .. }
+                | PersistedSurfaceKind::Browser { .. } => None,
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut attempts = durable.launch_attempts().to_vec();
+        attempts.retain(|attempt| {
+            attempt.phase != PersistedLaunchAttemptPhase::Active
+                || terminal_launches.contains_key(&attempt.surface_uuid)
+        });
+        for (surface_uuid, launch) in terminal_launches {
+            if let Some(index) = attempts.iter().position(|attempt| {
+                attempt.surface_uuid == surface_uuid
+                    && attempt.phase == PersistedLaunchAttemptPhase::PendingActivation
+                    && attempt.launch == launch
+            }) {
+                let attempt_id = attempts[index].attempt_id;
+                attempts.retain(|attempt| {
+                    attempt.attempt_id == attempt_id
+                        || attempt.phase != PersistedLaunchAttemptPhase::Active
+                        || attempt.surface_uuid != surface_uuid
+                });
+                let promoted = attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.attempt_id == attempt_id)
+                    .expect("retained pending launch attempt");
+                promoted.set_phase(PersistedLaunchAttemptPhase::Active);
+            } else if !attempts.iter().any(|attempt| {
+                attempt.surface_uuid == surface_uuid
+                    && attempt.phase == PersistedLaunchAttemptPhase::Active
+                    && attempt.launch == launch
+            }) {
+                anyhow::bail!(
+                    "terminal {surface_uuid} has no activated durable launch attempt"
+                );
+            }
         }
-        self.durable
-            .as_mut()
-            .expect("durable session checked above")
-            .append(snapshot, idempotency_key, result)
-            .unwrap_or_else(|error| {
-                // Mutation handlers run on detached connection threads. A
-                // panic would only poison the mutex while leaving a live
-                // socket and daemon lock behind, so fail the whole process
-                // before any handler can acknowledge undurable state.
-                eprintln!("cmux-tui: fatal canonical persistence failure: {error}");
-                std::process::abort();
-            });
-        #[cfg(test)]
-        if let Some(probe) = &self.terminal_launch_atomicity_probe {
-            probe(TerminalLaunchAtomicityPhase::AfterFsync);
+        attempts.sort_by_key(|attempt| attempt.attempt_id);
+        Ok(attempts)
+    }
+
+    fn append_draft(&mut self, draft: CanonicalDraft) -> anyhow::Result<()> {
+        let Some(durable) = self.durable.as_mut() else {
+            self.mark_live_committed();
+            return Ok(());
+        };
+        let outcome = durable.append_resolved(
+            draft.snapshot.clone(),
+            draft.launch_attempts.clone(),
+            draft.idempotency_key.clone(),
+            draft.result.clone(),
+        );
+        match outcome {
+            DurableAppendOutcome::Committed { .. } => {
+                self.unresolved_durable_mutation = None;
+                Ok(())
+            }
+            DurableAppendOutcome::Rejected(failure) => {
+                self.restore_committed_image()?;
+                Err(anyhow::Error::new(failure.error).context(format!(
+                    "durable mutation rejected during {}",
+                    failure.phase.as_str()
+                )))
+            }
+            DurableAppendOutcome::CommitIndeterminate(failure) => {
+                self.unresolved_durable_mutation = Some(draft);
+                self.restore_committed_image()?;
+                Err(anyhow::Error::new(failure.error).context(format!(
+                    "durable mutation commit is indeterminate during {}",
+                    failure.phase.as_str()
+                )))
+            }
         }
+    }
+
+    fn live_image(&self) -> CanonicalLiveImage {
+        CanonicalLiveImage {
+            value: self.value.clone(),
+            legacy_topology_revision: self.legacy_topology_revision,
+            launch_recipes: self.launch_recipes.clone(),
+            tombstones: self.tombstones.clone(),
+            idempotency_results: self.idempotency_results.clone(),
+            terminal_activity: self.terminal_activity.clone(),
+        }
+    }
+
+    fn mark_live_committed(&mut self) {
+        self.committed_image = self.live_image();
+    }
+
+    fn restore_committed_image(&mut self) -> anyhow::Result<()> {
+        let committed = self.committed_image.clone();
+        self.value = committed.value;
+        self.legacy_topology_revision = committed.legacy_topology_revision;
+        self.launch_recipes = committed.launch_recipes;
+        self.tombstones = committed.tombstones;
+        self.idempotency_results = committed.idempotency_results;
+        self.terminal_activity = committed.terminal_activity;
+        self.rebuild_topology_index()
     }
 
     fn retain_deleted_targets(
@@ -1165,12 +1331,12 @@ impl CanonicalState {
         persisted_snapshot(self, topology_revision)
     }
 
-    fn persist_terminal_activity(&mut self, key: &str) {
+    fn persist_terminal_activity(&mut self, key: &str) -> anyhow::Result<()> {
         self.persist(
             self.topology.revision(),
             format!("terminal-activity:{key}:{}", uuid::Uuid::new_v4()),
             None,
-        );
+        )
     }
 
     fn discard_surface_runtime(&mut self, id: SurfaceId) -> Option<Arc<Surface>> {
@@ -2496,8 +2662,7 @@ pub struct Mux {
     #[cfg(test)]
     test_surface_runtime: bool,
     #[cfg(test)]
-    test_surface_registered_barriers:
-        Mutex<Option<(Arc<std::sync::Barrier>, Arc<std::sync::Barrier>)>>,
+    test_prepared_surface_hook: Mutex<Option<Arc<dyn Fn(&Arc<Surface>) + Send + Sync>>>,
     #[cfg(test)]
     ensure_terminal_initial_writes: AtomicU64,
     #[cfg(test)]
@@ -2684,7 +2849,7 @@ impl Mux {
             #[cfg(test)]
             test_surface_runtime,
             #[cfg(test)]
-            test_surface_registered_barriers: Mutex::new(None),
+            test_prepared_surface_hook: Mutex::new(None),
             #[cfg(test)]
             ensure_terminal_initial_writes: AtomicU64::new(0),
             #[cfg(test)]
@@ -2908,6 +3073,7 @@ impl Mux {
             state.tombstones = snapshot.tombstones.into();
             state.idempotency_results = snapshot.idempotency_results.into();
             state.terminal_activity = terminal_activity;
+            state.mark_live_committed();
             restored_surfaces
         };
         self.next_notification_id.store(next_notification_id, Ordering::Relaxed);
@@ -3103,13 +3269,50 @@ impl Mux {
         )
     }
 
-    /// Finish a topology-visible terminal launch after its journal record is
-    /// durable. Any failure is process-fatal: returning an error would invite
-    /// a retry after some startup bytes may already have crossed the PTY.
-    fn complete_committed_terminal_launch(self: &Arc<Self>, mut prepared: PreparedTerminalLaunch) {
+    /// Mark an activated launch lease complete after its Active record and
+    /// topology snapshot are durable. Gate release happened while the lease
+    /// was still PendingActivation, so this step never executes user code.
+    fn complete_committed_terminal_launch(
+        self: &Arc<Self>,
+        mut prepared: PreparedTerminalLaunch,
+    ) -> anyhow::Result<()> {
+        if let Some(attempt_id) = prepared.attempt_id {
+            let state = self.state.lock().unwrap();
+            let active = state.durable.as_ref().is_some_and(|durable| {
+                durable.launch_attempts().iter().any(|attempt| {
+                    attempt.attempt_id == attempt_id
+                        && attempt.phase == PersistedLaunchAttemptPhase::Active
+                })
+            });
+            if !active {
+                anyhow::bail!("terminal launch attempt was not durably activated");
+            }
+        }
+        prepared.committed = true;
+        Ok(())
+    }
+
+    fn persist_prepared_terminal_launch(
+        self: &Arc<Self>,
+        prepared: &mut PreparedTerminalLaunch,
+    ) -> anyhow::Result<()> {
+        let launch = prepared
+            .launch
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("prepared terminal has no launch recipe"))?;
+        prepared.attempt_id = self.persist_pending_launch_attempt(prepared.surface.uuid, launch)?;
+        Ok(())
+    }
+
+    fn activate_prepared_terminal_launch(
+        self: &Arc<Self>,
+        prepared: &mut PreparedTerminalLaunch,
+    ) -> anyhow::Result<()> {
         let gate = prepared.gate.take().expect("prepared terminal retains its launch gate");
-        let input_authority =
-            prepared.input_authority.take().expect("prepared terminal retains input authority");
+        let input_authority = prepared
+            .input_authority
+            .take()
+            .expect("prepared terminal retains input authority");
         let had_initial_input = !prepared.initial_input.is_empty();
         let phase = self.terminal_launch_completion_probe(had_initial_input);
         let result = match gate {
@@ -3135,11 +3338,94 @@ impl Mux {
                 Ok(())
             }
         };
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                prepared.surface.kill();
+                Err(error.context("activate durably pending terminal launch"))
+            }
+        }
+    }
+
+    fn persist_pending_launch_attempt(
+        &self,
+        surface_uuid: SurfaceUuid,
+        launch: &PersistedLaunchRecipe,
+    ) -> anyhow::Result<Option<uuid::Uuid>> {
+        let mut state = self.state.lock().unwrap();
+        if state.durable.is_none() {
+            return Ok(None);
+        }
+        if state.unresolved_durable_mutation.is_some() {
+            anyhow::bail!("durable storage has an unresolved mutation");
+        }
+        let durable = state.durable.as_ref().expect("durable session checked above");
+        if durable.launch_attempts().iter().any(|attempt| {
+            attempt.surface_uuid == surface_uuid
+                && attempt.phase == PersistedLaunchAttemptPhase::PendingActivation
+        }) {
+            anyhow::bail!("terminal {surface_uuid} already has an unresolved launch attempt");
+        }
+        let attempt_id = uuid::Uuid::new_v4();
+        let payload_digest = canonical_payload_digest(
+            "terminal-launch-attempt",
+            &(surface_uuid, launch, attempt_id),
+        )?;
+        let attempt = PersistedLaunchAttempt::pending(
+            attempt_id,
+            format!("launch-pending:{attempt_id}"),
+            payload_digest,
+            surface_uuid,
+            launch.clone(),
+        );
+        let snapshot = durable.latest_snapshot().clone();
+        let mut launch_attempts = durable.launch_attempts().to_vec();
+        launch_attempts.push(attempt);
+        launch_attempts.sort_by_key(|attempt| attempt.attempt_id);
+        let draft = CanonicalDraft {
+            snapshot,
+            launch_attempts,
+            idempotency_key: format!("launch-pending:{attempt_id}"),
+            result: None,
+        };
+        #[cfg(test)]
+        if let Some(probe) = &state.terminal_launch_atomicity_probe {
+            probe(TerminalLaunchAtomicityPhase::BeforeFsync);
+        }
+        state.append_draft(draft)?;
+        #[cfg(test)]
+        if let Some(probe) = &state.terminal_launch_atomicity_probe {
+            probe(TerminalLaunchAtomicityPhase::AfterFsync);
+        }
+        Ok(Some(attempt_id))
+    }
+
+    fn quarantine_launch_attempt(&self, attempt_id: uuid::Uuid, reason: &str) {
+        let result = (|| -> anyhow::Result<()> {
+            let mut state = self.state.lock().unwrap();
+            let Some(durable) = state.durable.as_ref() else { return Ok(()) };
+            if state.unresolved_durable_mutation.is_some()
+                || matches!(durable.storage_circuit(), StorageCircuit::Degraded(_))
+            {
+                return Ok(());
+            }
+            let snapshot = durable.latest_snapshot().clone();
+            let mut launch_attempts = durable.launch_attempts().to_vec();
+            let attempt = launch_attempts
+                .iter_mut()
+                .find(|attempt| attempt.attempt_id == attempt_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown durable launch attempt {attempt_id}"))?;
+            attempt.set_phase(PersistedLaunchAttemptPhase::Quarantined);
+            let draft = CanonicalDraft {
+                snapshot,
+                launch_attempts,
+                idempotency_key: format!("launch-quarantine:{attempt_id}:{}", uuid::Uuid::new_v4()),
+                result: None,
+            };
+            state.append_draft(draft)
+        })();
         if let Err(error) = result {
-            eprintln!(
-                "cmux-tui: fatal terminal launch completion failure after durable commit: {error}"
-            );
-            std::process::abort();
+            eprintln!("cmux-tui: could not quarantine terminal launch ({reason}): {error:#}");
         }
     }
 
@@ -3208,13 +3494,6 @@ impl Mux {
         state.launch_recipes.insert(uuid, launch);
         state.surfaces.insert(id, surface.clone());
         drop(state);
-        #[cfg(test)]
-        if let Some((registered, resume)) =
-            self.test_surface_registered_barriers.lock().unwrap().take()
-        {
-            registered.wait();
-            resume.wait();
-        }
         Ok(surface)
     }
 
@@ -3262,6 +3541,44 @@ impl Mux {
         scrollback: Option<usize>,
         initial_input: Option<String>,
     ) -> anyhow::Result<PreparedTerminalLaunch> {
+        let mut prepared = self.create_prepared_surface_with_allocated_identity(
+            id,
+            uuid,
+            cwd,
+            command,
+            extra_env,
+            wait_after_command,
+            size,
+            scrollback,
+            initial_input,
+        )?;
+        let activated = self
+            .persist_prepared_terminal_launch(&mut prepared)
+            .and_then(|()| self.activate_prepared_terminal_launch(&mut prepared));
+        if let Err(error) = activated {
+            prepared.surface.kill();
+            return Err(error);
+        }
+        #[cfg(test)]
+        if let Some(hook) = self.test_prepared_surface_hook.lock().unwrap().take() {
+            hook(&prepared.surface);
+        }
+        Ok(prepared)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_prepared_surface_with_allocated_identity(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        uuid: SurfaceUuid,
+        cwd: Option<String>,
+        command: Option<Vec<String>>,
+        extra_env: Vec<(String, String)>,
+        wait_after_command: Option<bool>,
+        size: Option<(u16, u16)>,
+        scrollback: Option<usize>,
+        initial_input: Option<String>,
+    ) -> anyhow::Result<PreparedTerminalLaunch> {
         let (surface, launch, gate, input_authority) = self
             .create_surface_with_allocated_identity_mode(
                 id,
@@ -3283,6 +3600,9 @@ impl Mux {
                 .filter(|input| !input.is_empty())
                 .unwrap_or_default()
                 .into_bytes(),
+            attempt_id: None,
+            committed: false,
+            mux: Arc::downgrade(self),
         })
     }
 
@@ -3391,18 +3711,6 @@ impl Mux {
         let surface = Surface::spawn_with_uuid(id, uuid, opts, Arc::downgrade(self))?;
         self.state.lock().unwrap().surfaces.insert(id, surface.clone());
         Ok(surface)
-    }
-
-    fn spawn_browser_surface(
-        self: &Arc<Self>,
-        url: String,
-        size: Option<(u16, u16)>,
-    ) -> Arc<Surface> {
-        let (id, uuid) = self.entity_ids.surface();
-        let surface = self.create_browser_surface_with_uuid(id, uuid, url.clone(), size);
-        self.state.lock().unwrap().surfaces.insert(id, surface.clone());
-        self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
-        surface
     }
 
     /// Constructs a browser runtime without publishing it into canonical
@@ -4129,21 +4437,21 @@ impl Mux {
         operation: TopologyOperation,
         targets: TopologyTargets,
         key: String,
-    ) -> CanonicalMutationReceipt {
+    ) -> anyhow::Result<CanonicalMutationReceipt> {
         let request_id = key
             .rsplit(':')
             .next()
             .and_then(|value| value.parse().ok())
             .expect("canonical idempotency key ends in request UUID");
-        let delta = state.commit_topology_with_idempotency(operation, targets, key);
-        CanonicalMutationReceipt {
+        let delta = state.commit_topology_with_idempotency(operation, targets, key)?;
+        Ok(CanonicalMutationReceipt {
             request_id,
             daemon_instance_id: self.daemon_instance_id,
             session_id: self.session_id,
             base_revision: delta.base_revision,
             revision: delta.revision,
             replayed: false,
-        }
+        })
     }
 
     /// Capture both public revisions atomically for identity and liveness
@@ -4151,6 +4459,64 @@ impl Mux {
     pub fn topology_revisions(&self) -> (u64, u64) {
         let canonical = self.state.lock().unwrap();
         (canonical.legacy_topology_revision, canonical.topology.revision())
+    }
+
+    pub(crate) fn durable_storage_status(&self) -> DurableStorageStatus {
+        let canonical = self.state.lock().unwrap();
+        let Some(durable) = canonical.durable.as_ref() else {
+            return DurableStorageStatus {
+                state: "disabled",
+                incident_id: None,
+                failure_phase: None,
+                failure_resolution: None,
+                unresolved_mutation: false,
+                unresolved_launch_attempts: 0,
+            };
+        };
+        let mut unresolved_attempt_ids = durable
+            .launch_attempts()
+            .iter()
+            .filter(|attempt| attempt.phase != PersistedLaunchAttemptPhase::Active)
+            .map(|attempt| attempt.attempt_id)
+            .collect::<BTreeSet<_>>();
+        if let Some(draft) = &canonical.unresolved_durable_mutation {
+            let durable_attempts = durable
+                .launch_attempts()
+                .iter()
+                .map(|attempt| (attempt.attempt_id, attempt))
+                .collect::<BTreeMap<_, _>>();
+            unresolved_attempt_ids.extend(
+                draft
+                    .launch_attempts
+                    .iter()
+                    .filter(|attempt| {
+                        durable_attempts.get(&attempt.attempt_id).copied() != Some(*attempt)
+                    })
+                    .map(|attempt| attempt.attempt_id),
+            );
+        }
+        let unresolved_launch_attempts = unresolved_attempt_ids.len();
+        match durable.storage_circuit() {
+            StorageCircuit::Healthy => DurableStorageStatus {
+                state: "healthy",
+                incident_id: None,
+                failure_phase: None,
+                failure_resolution: None,
+                unresolved_mutation: canonical.unresolved_durable_mutation.is_some(),
+                unresolved_launch_attempts,
+            },
+            StorageCircuit::Degraded(incident) => DurableStorageStatus {
+                state: "degraded",
+                incident_id: Some(incident.id),
+                failure_phase: Some(incident.phase.as_str()),
+                failure_resolution: Some(match incident.resolution {
+                    DurableFailureResolution::Rejected => "rejected",
+                    DurableFailureResolution::CommitIndeterminate => "commit-indeterminate",
+                }),
+                unresolved_mutation: canonical.unresolved_durable_mutation.is_some(),
+                unresolved_launch_attempts,
+            },
+        }
     }
 
     #[cfg(test)]
@@ -4247,7 +4613,9 @@ impl Mux {
             })
             .is_some_and(|(_, changed)| changed);
         if changed {
-            state.persist_terminal_activity("legacy-seen");
+            if state.persist_terminal_activity("legacy-seen").is_err() {
+                return false;
+            }
         }
         changed
     }
@@ -4276,7 +4644,7 @@ impl Mux {
                     fact.sequence,
                 )?;
             }
-            state.persist_terminal_activity("notification");
+            state.persist_terminal_activity("notification")?;
             // Publish while the canonical lock still establishes mutation
             // order. A later receipt can never overtake its activity fact.
             self.emit(MuxEvent::TerminalActivity(fact));
@@ -4319,7 +4687,7 @@ impl Mux {
             let (receipt, changed) =
                 state.terminal_activity.mark_seen(reader_uuid, surface_uuid, activity_sequence)?;
             if changed {
-                state.persist_terminal_activity("seen");
+                state.persist_terminal_activity("seen")?;
                 // Keep receipt delivery ordered behind the persisted fact and
                 // any earlier receipt serialized by this same state lock.
                 self.emit(MuxEvent::TerminalActivityReceipt(receipt));
@@ -6201,7 +6569,7 @@ impl Mux {
                     Some(pane_id),
                     Some(surface.id),
                 );
-                state.commit_topology(TopologyOperation::SurfaceAttached, targets);
+                state.commit_topology(TopologyOperation::SurfaceAttached, targets)?;
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
@@ -6260,7 +6628,7 @@ impl Mux {
                     Some(pane_id),
                     Some(surface.id),
                 );
-                state.commit_topology(TopologyOperation::WorkspaceCreated, targets);
+                state.commit_topology(TopologyOperation::WorkspaceCreated, targets)?;
                 let index = state.workspaces.len() - 1;
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -6293,7 +6661,7 @@ impl Mux {
                 )
             }
         };
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
         drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
@@ -6403,7 +6771,7 @@ impl Mux {
                 anyhow::bail!("injected ensure-terminal batch spawn failure");
             }
             let (surface_id, _) = self.entity_ids.surface();
-            let created = self.prepare_surface_with_allocated_identity(
+            let created = self.create_prepared_surface_with_allocated_identity(
                 surface_id,
                 request.surface_uuid,
                 request.cwd.clone(),
@@ -6425,6 +6793,20 @@ impl Mux {
             };
             spawned_position_by_request[request_index] = Some(spawned.len());
             spawned.push(SpawnedTerminal { request_index, prepared });
+        }
+
+        // Persist the complete pending set before any helper can execute user
+        // code. A spawn or pending-record failure therefore leaves every
+        // candidate gated and absent from topology.
+        for terminal in &mut spawned {
+            if let Err(error) = self.persist_prepared_terminal_launch(&mut terminal.prepared) {
+                return Err(error);
+            }
+        }
+        for terminal in &mut spawned {
+            if let Err(error) = self.activate_prepared_terminal_launch(&mut terminal.prepared) {
+                return Err(error);
+            }
         }
 
         #[cfg(test)]
@@ -6635,7 +7017,7 @@ impl Mux {
                     });
                 }
             }
-            state.commit_topology(TopologyOperation::LayoutApplied, targets);
+            state.commit_topology(TopologyOperation::LayoutApplied, targets)?;
             Ok(())
         })();
 
@@ -6650,7 +7032,7 @@ impl Mux {
         let surfaces =
             spawned.iter().map(|terminal| terminal.prepared.surface.clone()).collect::<Vec<_>>();
         for terminal in spawned {
-            self.complete_committed_terminal_launch(terminal.prepared);
+            self.complete_committed_terminal_launch(terminal.prepared)?;
         }
         drop(terminal_control);
         for surface in surfaces {
@@ -6750,7 +7132,7 @@ impl Mux {
                     Some(target_pane),
                     Some(surface_id),
                 ));
-                state.commit_topology(TopologyOperation::TabMoved, targets);
+                state.commit_topology(TopologyOperation::TabMoved, targets)?;
 
                 let placement = ensure_terminal_placement_for_surface(
                     &state,
@@ -6951,7 +7333,7 @@ impl Mux {
                 TopologyOperation::WorkspaceCreated,
                 targets,
                 key,
-            );
+            )?;
             canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
         })();
         let placement = match transaction {
@@ -6961,7 +7343,7 @@ impl Mux {
                 return Err(error);
             }
         };
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
         drop(terminal_control);
         self.emit(MuxEvent::TreeChanged);
         self.reap_if_dead(&surface);
@@ -7091,7 +7473,7 @@ impl Mux {
                 TopologyOperation::SurfaceAttached,
                 targets,
                 key,
-            );
+            )?;
             canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
         })();
         let placement = match transaction {
@@ -7101,7 +7483,7 @@ impl Mux {
                 return Err(error);
             }
         };
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
         drop(terminal_control);
         self.emit(MuxEvent::TreeChanged);
         self.reap_if_dead(&surface);
@@ -7239,7 +7621,7 @@ impl Mux {
                     TopologyOperation::WorkspaceCreated,
                     targets,
                     key,
-                );
+                )?;
                 canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
             };
             self.remote_tmux_producers.transactionally_register_surface(
@@ -7386,7 +7768,7 @@ impl Mux {
                     TopologyOperation::SurfaceAttached,
                     targets,
                     key,
-                );
+                )?;
                 canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
             };
             self.remote_tmux_producers.transactionally_register_existing_surface(
@@ -7448,7 +7830,7 @@ impl Mux {
                 revision,
                 format!("external-terminal-policy:{surface_uuid}:{request_id}"),
                 None,
-            );
+            )?;
         }
         Ok(receipt)
     }
@@ -7695,7 +8077,7 @@ impl Mux {
                 TopologyOperation::SurfaceReplaced,
                 targets,
                 key,
-            );
+            )?;
             Ok(canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
                 .expect("committed respawn surface remains in canonical topology"))
         })();
@@ -7706,7 +8088,7 @@ impl Mux {
                 return Err(error);
             }
         };
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
 
         self.terminal_authority.retire_terminal(surface_uuid);
         let renderer_presentations = self
@@ -7897,7 +8279,7 @@ impl Mux {
                     TopologyOperation::WorkspaceCreated,
                     targets,
                     key,
-                );
+                )?;
                 canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
             };
             match presentation {
@@ -8050,7 +8432,7 @@ impl Mux {
                     TopologyOperation::SurfaceAttached,
                     targets,
                     key,
-                );
+                )?;
                 canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
             };
             match presentation {
@@ -8245,7 +8627,7 @@ impl Mux {
                     TopologyOperation::PaneSplit,
                     targets,
                     key,
-                );
+                )?;
                 Ok((
                     canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)?,
                     screen_id,
@@ -8365,7 +8747,7 @@ impl Mux {
                 TopologyOperation::SurfaceAttached,
                 targets,
                 key,
-            );
+            )?;
             canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
         })();
         let placement = match transaction {
@@ -8375,7 +8757,7 @@ impl Mux {
                 return Err(error);
             }
         };
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
         drop(terminal_control);
         self.emit(MuxEvent::TreeChanged);
         self.reap_if_dead(&surface);
@@ -8509,7 +8891,7 @@ impl Mux {
                 TopologyOperation::PaneSplit,
                 targets,
                 key,
-            );
+            )?;
             Ok((canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)?, screen_id))
         })();
         let (placement, screen) = match transaction {
@@ -8519,7 +8901,7 @@ impl Mux {
                 return Err(error);
             }
         };
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
         drop(terminal_control);
         self.emit(MuxEvent::TreeChanged);
         self.emit(MuxEvent::LayoutChanged(screen));
@@ -8638,7 +9020,7 @@ impl Mux {
                 TopologyOperation::PaneSplit,
                 targets,
                 key,
-            );
+            )?;
             (
                 canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)?,
                 screen_id,
@@ -8696,7 +9078,7 @@ impl Mux {
                 TopologyOperation::SurfaceClosed,
                 targets,
                 key,
-            );
+            )?;
             let closed = ClosedTree {
                 surface_ids: vec![surface],
                 removed,
@@ -8754,7 +9136,7 @@ impl Mux {
                 TopologyOperation::PaneClosed,
                 targets,
                 key,
-            );
+            )?;
             let closed = ClosedTree {
                 surface_ids: tabs,
                 removed,
@@ -8819,7 +9201,7 @@ impl Mux {
                 TopologyOperation::WorkspaceClosed,
                 targets,
                 key,
-            );
+            )?;
             let closed = ClosedTree {
                 surface_ids: tabs,
                 removed,
@@ -8868,7 +9250,7 @@ impl Mux {
                 TopologyOperation::WorkspaceRenamed,
                 TopologyTargets { workspaces: vec![workspace_uuid], ..TopologyTargets::default() },
                 key,
-            )
+            )?
         };
         self.emit(MuxEvent::TreeChanged);
         Ok(receipt)
@@ -8902,14 +9284,20 @@ impl Mux {
             let surface = state
                 .indexed_surface_id_by_uuid(surface_uuid)
                 .ok_or_else(|| anyhow::anyhow!("unknown canonical surface {surface_uuid}"))?;
-            state.surfaces[&surface].set_name((!name.is_empty()).then_some(name));
+            let runtime = state.surfaces[&surface].clone();
+            let previous_name = runtime.name();
+            runtime.set_name((!name.is_empty()).then_some(name));
             let targets = TopologyTargets::from_legacy(&state, None, None, None, Some(surface));
-            self.commit_canonical_mutation(
+            let committed = self.commit_canonical_mutation(
                 &mut state,
                 TopologyOperation::SurfaceRenamed,
                 targets,
                 key,
-            )
+            );
+            if committed.is_err() {
+                runtime.set_name(previous_name);
+            }
+            committed?
         };
         self.emit(MuxEvent::TreeChanged);
         Ok(receipt)
@@ -8977,7 +9365,7 @@ impl Mux {
                 TopologyOperation::TabMoved,
                 targets,
                 key,
-            );
+            )?;
             (receipt, surface, source_workspace, target_workspace)
         };
         if source_workspace != target_workspace {
@@ -9052,7 +9440,7 @@ impl Mux {
                     ..TopologyTargets::default()
                 },
                 key,
-            );
+            )?;
             receipt
         };
         self.emit(MuxEvent::TreeChanged);
@@ -9115,7 +9503,7 @@ impl Mux {
                 TopologyOperation::WorkspaceMoved,
                 TopologyTargets { workspaces: workspace_uuids, ..TopologyTargets::default() },
                 key,
-            )
+            )?
         };
         self.emit(MuxEvent::TreeChanged);
         Ok(receipt)
@@ -9238,7 +9626,7 @@ impl Mux {
                 TopologyOperation::WorkspaceCreated,
                 targets,
                 key,
-            );
+            )?;
             (
                 canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)?,
                 surface,
@@ -9309,7 +9697,7 @@ impl Mux {
                     ..TopologyTargets::default()
                 },
                 key,
-            );
+            )?;
             (receipt, screen_id)
         };
         self.emit(MuxEvent::TreeChanged);
@@ -9375,7 +9763,7 @@ impl Mux {
                 Some(pane_id),
                 Some(surface.id),
             );
-            state.commit_topology(TopologyOperation::WorkspaceCreated, targets);
+            state.commit_topology(TopologyOperation::WorkspaceCreated, targets)?;
             let index = state.workspaces.len() - 1;
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -9394,7 +9782,7 @@ impl Mux {
                 entity,
             }
         };
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
         drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
@@ -9457,7 +9845,7 @@ impl Mux {
                     Some(pane_id),
                     Some(surface.id),
                 );
-                state.commit_topology(TopologyOperation::WorkspaceCreated, targets);
+                state.commit_topology(TopologyOperation::WorkspaceCreated, targets)?;
                 let index = state.workspaces.len() - 1;
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -9476,7 +9864,7 @@ impl Mux {
                     entity,
                 }
             };
-            self.complete_committed_terminal_launch(prepared);
+            self.complete_committed_terminal_launch(prepared)?;
             drop(terminal_control);
             self.emit(MuxEvent::TreeDelta(delta));
             self.reap_if_dead(&surface);
@@ -9548,7 +9936,7 @@ impl Mux {
                 Some(target),
                 Some(surface.id),
             );
-            state.commit_topology(TopologyOperation::SurfaceAttached, targets);
+            state.commit_topology(TopologyOperation::SurfaceAttached, targets)?;
             let entity = crate::server::tree_entity_json(
                 &state,
                 &notifications,
@@ -9567,7 +9955,7 @@ impl Mux {
             };
             (placement, delta)
         };
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
         drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
@@ -9643,7 +10031,7 @@ impl Mux {
                         Some(pane_id),
                         Some(surface.id),
                     );
-                    state.commit_topology(TopologyOperation::ScreenCreated, targets);
+                    state.commit_topology(TopologyOperation::ScreenCreated, targets)?;
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &notifications,
@@ -9668,7 +10056,7 @@ impl Mux {
             surface.kill();
             anyhow::bail!("workspace disappeared while creating screen");
         };
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
         drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
@@ -9747,7 +10135,7 @@ impl Mux {
                             Some(target),
                             Some(surface.id),
                         );
-                        state.commit_topology(TopologyOperation::SurfaceAttached, targets);
+                        state.commit_topology(TopologyOperation::SurfaceAttached, targets)?;
                         let entity = crate::server::tree_entity_json(
                             &state,
                             &notifications,
@@ -9775,7 +10163,7 @@ impl Mux {
             surface.kill();
             anyhow::bail!("pane disappeared while creating tab");
         };
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
         drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
@@ -9804,13 +10192,16 @@ impl Mux {
             }
         };
         let Some(target) = target else {
-            let surface = self.spawn_browser_surface(url, size);
+            let (surface_id, surface_uuid) = self.entity_ids.surface();
+            let surface =
+                self.create_browser_surface_with_uuid(surface_id, surface_uuid, url.clone(), size);
             let (pane_id, pane) = self.make_pane(surface.id);
             let (screen_id, screen_uuid) = self.entity_ids.screen();
             let (ws_id, workspace_uuid) = self.entity_ids.workspace();
             let notifications = self.surface_notifications();
-            let delta = {
+            let transaction = (|| -> anyhow::Result<TreeDelta> {
                 let mut state = self.state.lock().unwrap();
+                state.surfaces.insert(surface.id, surface.clone());
                 let name = format!("{}", state.workspaces.len() + 1);
                 state.panes.insert(pane_id, pane);
                 state.workspaces.push(Workspace {
@@ -9835,7 +10226,7 @@ impl Mux {
                     Some(pane_id),
                     Some(surface.id),
                 );
-                state.commit_topology(TopologyOperation::WorkspaceCreated, targets);
+                state.commit_topology(TopologyOperation::WorkspaceCreated, targets)?;
                 let index = state.workspaces.len() - 1;
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -9844,7 +10235,7 @@ impl Mux {
                     ws_id,
                 )
                 .expect("new workspace is present in tree snapshot");
-                TreeDelta {
+                Ok(TreeDelta {
                     kind: TreeDeltaKind::WorkspaceAdded,
                     workspace: ws_id,
                     screen: None,
@@ -9852,63 +10243,37 @@ impl Mux {
                     surface: None,
                     index: Some(index),
                     entity,
+                })
+            })();
+            let delta = match transaction {
+                Ok(delta) => delta,
+                Err(error) => {
+                    surface.kill();
+                    return Err(error);
                 }
             };
             self.emit(MuxEvent::TreeDelta(delta));
+            self.start_browser_bootstrap(
+                surface.clone(),
+                BrowserBootstrap::Create { url },
+                None,
+            );
             self.reap_if_dead(&surface);
             return Ok(surface);
         };
 
-        let surface = self.spawn_browser_surface(url, size);
+        let (surface_id, surface_uuid) = self.entity_ids.surface();
+        let surface =
+            self.create_browser_surface_with_uuid(surface_id, surface_uuid, url.clone(), size);
         let active_at = self.next_active_at();
-        let notifications = self.surface_notifications();
-        let attached = {
-            let mut state = self.state.lock().unwrap();
-            match state.panes.get_mut(&target) {
-                Some(pane) => {
-                    pane.tabs.push(surface.id);
-                    pane.active_tab = pane.tabs.len() - 1;
-                    pane.active_at = active_at;
-                    let index = pane.tabs.len() - 1;
-                    let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
-                    let workspace = state.workspaces[wi].id;
-                    let screen = state.workspaces[wi].screens[si].id;
-                    let targets = topology_targets(
-                        &state,
-                        Some(workspace),
-                        Some(screen),
-                        Some(target),
-                        Some(surface.id),
-                    );
-                    state.commit_topology(TopologyOperation::SurfaceAttached, targets);
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &notifications,
-                        TreeDeltaKind::TabAdded,
-                        surface.id,
-                    )
-                    .expect("new browser tab is present in tree snapshot");
-                    Some(TreeDelta {
-                        kind: TreeDeltaKind::TabAdded,
-                        workspace,
-                        screen: Some(screen),
-                        pane: Some(target),
-                        surface: Some(surface.id),
-                        index: Some(index),
-                        entity,
-                    })
-                }
-                None => {
-                    state.discard_surface_runtime(surface.id);
-                    None
-                }
+        match self.attach_browser_surface_to_pane_or_kill(target, &surface, active_at) {
+            BrowserSurfaceAttach::MissingPane => {
+                anyhow::bail!("pane disappeared while creating browser tab")
             }
-        };
-        let Some(delta) = attached else {
-            surface.kill();
-            anyhow::bail!("pane disappeared while creating browser tab");
-        };
-        self.emit(MuxEvent::TreeDelta(delta));
+            BrowserSurfaceAttach::Attached(Some(delta)) => self.emit(MuxEvent::TreeDelta(delta)),
+            BrowserSurfaceAttach::Attached(None) => self.emit(MuxEvent::TreeChanged),
+        }
+        self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
         self.reap_if_dead(&surface);
         Ok(surface)
     }
@@ -9980,28 +10345,34 @@ impl Mux {
                         Some(pane_id),
                         Some(surface.id),
                     );
-                    state.commit_topology(TopologyOperation::SurfaceAttached, targets);
-                    let delta = (|| {
-                        let (wi, si) = state.screen_of(pane_id)?;
-                        let pane = state.panes.get(&pane_id)?;
-                        let index = pane.tabs.iter().position(|id| *id == surface.id)?;
-                        let entity = crate::server::tree_entity_json(
-                            &state,
-                            &notifications,
-                            TreeDeltaKind::TabAdded,
-                            surface.id,
-                        )?;
-                        Some(TreeDelta {
-                            kind: TreeDeltaKind::TabAdded,
-                            workspace: state.workspaces[wi].id,
-                            screen: Some(state.workspaces[wi].screens[si].id),
-                            pane: Some(pane_id),
-                            surface: Some(surface.id),
-                            index: Some(index),
-                            entity,
-                        })
-                    })();
-                    BrowserSurfaceAttach::Attached(delta)
+                    if state
+                        .commit_topology(TopologyOperation::SurfaceAttached, targets)
+                        .is_err()
+                    {
+                        BrowserSurfaceAttach::MissingPane
+                    } else {
+                        let delta = (|| {
+                            let (wi, si) = state.screen_of(pane_id)?;
+                            let pane = state.panes.get(&pane_id)?;
+                            let index = pane.tabs.iter().position(|id| *id == surface.id)?;
+                            let entity = crate::server::tree_entity_json(
+                                &state,
+                                &notifications,
+                                TreeDeltaKind::TabAdded,
+                                surface.id,
+                            )?;
+                            Some(TreeDelta {
+                                kind: TreeDeltaKind::TabAdded,
+                                workspace: state.workspaces[wi].id,
+                                screen: Some(state.workspaces[wi].screens[si].id),
+                                pane: Some(pane_id),
+                                surface: Some(surface.id),
+                                index: Some(index),
+                                entity,
+                            })
+                        })();
+                        BrowserSurfaceAttach::Attached(delta)
+                    }
                 }
                 None => BrowserSurfaceAttach::MissingPane,
             }
@@ -10099,7 +10470,7 @@ impl Mux {
                     Some(pane_id),
                     Some(surface.id),
                 );
-                state.commit_topology(TopologyOperation::PaneSplit, targets);
+                state.commit_topology(TopologyOperation::PaneSplit, targets)?;
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
@@ -10122,7 +10493,7 @@ impl Mux {
             surface.kill();
             anyhow::bail!("pane {target} not found");
         }
-        self.complete_committed_terminal_launch(prepared);
+        self.complete_committed_terminal_launch(prepared)?;
         drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta.expect("successful split has a tree delta")));
         if let Some(screen) = changed_screen {
@@ -10208,7 +10579,7 @@ impl Mux {
                 Some(pane_id),
                 Some(surface),
             ));
-            state.commit_topology(TopologyOperation::PaneSplit, targets);
+            state.commit_topology(TopologyOperation::PaneSplit, targets)?;
             (screen_id, source_workspace_uuid, target_workspace_uuid)
         };
         if source_workspace_uuid != target_workspace_uuid {
@@ -10293,7 +10664,7 @@ impl Mux {
                 Some(pane_id),
                 Some(surface),
             ));
-            state.commit_topology(TopologyOperation::WorkspaceCreated, targets);
+            state.commit_topology(TopologyOperation::WorkspaceCreated, targets)?;
         }
         self.rehome_renderer_presentations(surface, workspace_uuid);
         self.emit(MuxEvent::TreeChanged);
@@ -10415,7 +10786,9 @@ impl Mux {
             }
         }
         if let (Some(delta), Some(targets)) = (&delta, topology_targets) {
-            state.commit_topology(close_topology_operation(delta.kind), targets);
+            if state.commit_topology(close_topology_operation(delta.kind), targets).is_err() {
+                return None;
+            }
         }
         Some(ClosedTree {
             surface_ids,
@@ -10471,11 +10844,16 @@ impl Mux {
                         state.workspaces[index].name = name;
                         ChangeState::Changed
                     };
-                    if change == ChangeState::Changed {
+                    let committed = if change == ChangeState::Changed {
                         let targets = topology_targets(&state, Some(target), None, None, None);
-                        state.commit_topology(TopologyOperation::WorkspaceRenamed, targets);
+                        state
+                            .commit_topology(TopologyOperation::WorkspaceRenamed, targets)
+                            .map(|_| ())
                     } else {
-                        state.commit_legacy_topology();
+                        state.commit_legacy_topology().map(|_| ())
+                    };
+                    if committed.is_err() {
+                        return false;
                     }
                     let entity = crate::server::tree_entity_json(
                         &state,
@@ -10520,11 +10898,16 @@ impl Mux {
                             next_name;
                         ChangeState::Changed
                     };
-                    if change == ChangeState::Changed {
+                    let committed = if change == ChangeState::Changed {
                         let targets = topology_targets(&state, None, None, Some(target), None);
-                        state.commit_topology(TopologyOperation::PaneRenamed, targets);
+                        state
+                            .commit_topology(TopologyOperation::PaneRenamed, targets)
+                            .map(|_| ())
                     } else {
-                        state.commit_legacy_topology();
+                        state.commit_legacy_topology().map(|_| ())
+                    };
+                    if committed.is_err() {
+                        return false;
                     }
                     true
                 }
@@ -10543,9 +10926,10 @@ impl Mux {
         let notifications = self.surface_notifications();
         let delta = {
             let mut state = self.state.lock().unwrap();
-            let Some(surface) = state.surfaces.get(&target) else { return false };
+            let Some(surface) = state.surfaces.get(&target).cloned() else { return false };
             let next_name = (!name.is_empty()).then_some(name);
-            let change = if surface.name() == next_name {
+            let previous_name = surface.name();
+            let change = if previous_name == next_name {
                 ChangeState::Unchanged
             } else {
                 surface.set_name(next_name);
@@ -10560,9 +10944,17 @@ impl Mux {
                     .and_then(|pane| state.screen_of(pane))
                     .map(|(wi, _)| state.workspaces[wi].id);
                 let targets = topology_targets(&state, workspace, screen, pane, Some(target));
-                state.commit_topology(TopologyOperation::SurfaceRenamed, targets);
+                if state
+                    .commit_topology(TopologyOperation::SurfaceRenamed, targets)
+                    .is_err()
+                {
+                    surface.set_name(previous_name);
+                    return false;
+                }
             } else if state.pane_of(target).is_some() {
-                state.commit_legacy_topology();
+                if state.commit_legacy_topology().is_err() {
+                    return false;
+                }
             }
             (|| {
                 let pane = state.pane_of(target)?;
@@ -10609,12 +11001,17 @@ impl Mux {
                 state.workspaces[wi].screens[si].name = next_name;
                 ChangeState::Changed
             };
-            if change == ChangeState::Changed {
+            let committed = if change == ChangeState::Changed {
                 let workspace = state.workspaces[wi].id;
                 let targets = topology_targets(&state, Some(workspace), Some(target), None, None);
-                state.commit_topology(TopologyOperation::ScreenRenamed, targets);
+                state
+                    .commit_topology(TopologyOperation::ScreenRenamed, targets)
+                    .map(|_| ())
             } else {
-                state.commit_legacy_topology();
+                state.commit_legacy_topology().map(|_| ())
+            };
+            if committed.is_err() {
+                return false;
             }
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -10709,7 +11106,9 @@ impl Mux {
                     ws.active_screen = si;
                     ws.screens[si].active_pane = pane;
                     stamp_pane(&mut state, pane, active_at);
-                    state.commit_legacy_topology();
+                    if state.commit_legacy_topology().is_err() {
+                        return false;
+                    }
                     (true, Self::active_surface_in_state(&state))
                 }
                 None => (false, None),
@@ -10741,9 +11140,16 @@ impl Mux {
                     .find(|workspace| workspace.screens.iter().any(|item| item.id == screen))
                     .map(|workspace| workspace.id);
                 let targets = topology_targets(&state, workspace, Some(screen), Some(pane), None);
-                state.commit_topology(TopologyOperation::SplitRatioChanged, targets);
+                if state
+                    .commit_topology(TopologyOperation::SplitRatioChanged, targets)
+                    .is_err()
+                {
+                    return false;
+                }
             } else if resolved.is_some() {
-                state.commit_legacy_topology();
+                if state.commit_legacy_topology().is_err() {
+                    return false;
+                }
             }
             resolved
         };
@@ -10808,7 +11214,9 @@ impl Mux {
                     [pane, target],
                     None,
                 );
-                state.commit_topology(TopologyOperation::PanesSwapped, targets);
+                if state.commit_topology(TopologyOperation::PanesSwapped, targets).is_err() {
+                    return false;
+                }
             }
             changed
         };
@@ -10842,7 +11250,7 @@ impl Mux {
             screen.zoomed_pane = next;
             let screen_id = screen.id;
             if changed {
-                state.commit_legacy_topology();
+                state.commit_legacy_topology()?;
             }
             (screen_id, target, next, changed)
         };
@@ -10956,7 +11364,7 @@ impl Mux {
                 &created_panes,
                 &created_surfaces,
             );
-            state.commit_topology(TopologyOperation::LayoutApplied, targets);
+            state.commit_topology(TopologyOperation::LayoutApplied, targets)?;
             if let Some(workspace_id) = created_workspace {
                 let index = state
                     .workspaces
@@ -11008,7 +11416,7 @@ impl Mux {
         };
         let spawned = prepared.iter().map(|terminal| terminal.surface.clone()).collect::<Vec<_>>();
         for terminal in prepared {
-            self.complete_committed_terminal_launch(terminal);
+            self.complete_committed_terminal_launch(terminal)?;
         }
         drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
@@ -11082,7 +11490,9 @@ impl Mux {
                     Some(pane),
                     Some(surface),
                 ));
-                state.commit_topology(TopologyOperation::TabMoved, targets);
+                if state.commit_topology(TopologyOperation::TabMoved, targets).is_err() {
+                    return false;
+                }
             }
             moved
         };
@@ -11111,7 +11521,9 @@ impl Mux {
                 .and_then(|id| state.workspaces.iter().position(|ws| ws.id == id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
             let targets = topology_targets(&state, Some(workspace), None, None, None);
-            state.commit_topology(TopologyOperation::WorkspaceMoved, targets);
+            if state.commit_topology(TopologyOperation::WorkspaceMoved, targets).is_err() {
+                return false;
+            }
             true
         };
         if moved {
@@ -11147,7 +11559,9 @@ impl Mux {
                 ChangeState::Changed
             };
             stamp_pane(&mut state, target, active_at);
-            state.commit_legacy_topology();
+            if state.commit_legacy_topology().is_err() {
+                return;
+            }
             (change, state.panes.get(&target).and_then(|pane| pane.active_surface()))
         };
         self.clear_viewed_notification(viewed);
@@ -11185,7 +11599,9 @@ impl Mux {
             if let Some(pane) = pane {
                 stamp_pane(&mut state, pane, active_at);
             }
-            state.commit_legacy_topology();
+            if state.commit_legacy_topology().is_err() {
+                return;
+            }
             (change, Self::active_surface_in_state(&state))
         };
         self.clear_viewed_notification(viewed);
@@ -11222,7 +11638,9 @@ impl Mux {
             {
                 stamp_pane(&mut state, pane, active_at);
             }
-            state.commit_legacy_topology();
+            if state.commit_legacy_topology().is_err() {
+                return;
+            }
             (change, Self::active_surface_in_state(&state))
         };
         self.clear_viewed_notification(viewed);
@@ -11661,6 +12079,8 @@ mod tests {
     use crate::{PresentationScroll, PresentationView, PresentationZoom};
     use ghostty_vt::Rgb;
     use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+    use std::fs::{File, OpenOptions};
+    use std::io::Write;
     use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 
     const LARGE_INITIAL_INPUT_PREFIX: &str = "\u{1b}[200~日本語🙂";
@@ -12038,7 +12458,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_close_waits_for_single_durable_launch_completion() {
+    fn terminal_launch_stays_invisible_until_active_record_commits() {
         let directory = PersistenceTestDirectory::new("terminal-launch-close-fence");
         let store = StateStore::new(&directory.0);
         let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
@@ -12067,34 +12487,21 @@ mod tests {
             )
         });
         before_release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        let surface = mux.surface_by_uuid(surface_uuid).unwrap();
-        assert_eq!(mux.canonical_topology_revision(), 1);
-
-        let close_mux = mux.clone();
-        let (close_attempt_tx, close_attempt_rx) = std::sync::mpsc::sync_channel(1);
-        let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
-        let close = std::thread::spawn(move || {
-            let launch_is_fenced = close_mux.terminal_control_lifecycle.try_write().is_err();
-            close_attempt_tx.send(launch_is_fenced).unwrap();
-            close_mux.close_surface(surface.id);
-            close_done_tx.send(()).unwrap();
-        });
-        assert!(close_attempt_rx.recv_timeout(Duration::from_secs(1)).unwrap());
-        assert_eq!(close_done_rx.try_recv(), Err(TryRecvError::Empty));
-        assert_eq!(mux.canonical_topology_revision(), 1);
-        assert!(mux.surface_by_uuid(surface_uuid).is_ok());
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert!(mux.surface_by_uuid(surface_uuid).is_err());
+        assert_eq!(mux.surface_count(), 0);
 
         resume_tx.send(()).unwrap();
         let placement = launch.join().unwrap().unwrap();
         assert_eq!(placement.receipt.revision, 1);
-        close_done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        close.join().unwrap();
+        assert!(mux.surface_by_uuid(surface_uuid).is_ok());
+        mux.close_surface(placement.surface);
         assert_eq!(mux.canonical_topology_revision(), 2);
         assert!(mux.surface_by_uuid(surface_uuid).is_err());
     }
 
     #[test]
-    fn terminal_close_waits_for_every_launch_in_a_durable_batch() {
+    fn durable_batch_publishes_only_after_every_launch_activates() {
         let directory = PersistenceTestDirectory::new("terminal-launch-batch-close-fence");
         let store = StateStore::new(&directory.0);
         let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
@@ -12126,36 +12533,36 @@ mod tests {
             ])
         });
         assert_eq!(before_release_rx.recv_timeout(Duration::from_secs(2)).unwrap(), 1);
-        let second_surface = mux.surface_by_uuid(second_surface_uuid).unwrap();
-        assert_eq!(mux.canonical_topology_revision(), 1);
-
-        let close_mux = mux.clone();
-        let (close_attempt_tx, close_attempt_rx) = std::sync::mpsc::sync_channel(1);
-        let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
-        let close = std::thread::spawn(move || {
-            let batch_is_fenced = close_mux.terminal_control_lifecycle.try_write().is_err();
-            close_attempt_tx.send(batch_is_fenced).unwrap();
-            close_mux.close_surface(second_surface.id);
-            close_done_tx.send(()).unwrap();
-        });
-        assert!(close_attempt_rx.recv_timeout(Duration::from_secs(1)).unwrap());
-        assert_eq!(close_done_rx.try_recv(), Err(TryRecvError::Empty));
-        assert_eq!(mux.canonical_topology_revision(), 1);
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert!(mux.surface_by_uuid(first_surface_uuid).is_err());
+        assert!(mux.surface_by_uuid(second_surface_uuid).is_err());
+        assert_eq!(
+            mux.state
+                .lock()
+                .unwrap()
+                .durable
+                .as_ref()
+                .unwrap()
+                .launch_attempts()
+                .iter()
+                .filter(|attempt| {
+                    attempt.phase == PersistedLaunchAttemptPhase::PendingActivation
+                })
+                .count(),
+            2
+        );
 
         resume_tx.send(()).unwrap();
         assert_eq!(before_release_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
-        assert_eq!(close_done_rx.try_recv(), Err(TryRecvError::Empty));
-        assert_eq!(mux.canonical_topology_revision(), 1);
-        assert!(mux.surface_by_uuid(second_surface_uuid).is_ok());
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert!(mux.surface_by_uuid(second_surface_uuid).is_err());
 
         resume_tx.send(()).unwrap();
         let placements = launch.join().unwrap().unwrap();
         assert_eq!(placements.len(), 2);
-        close_done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        close.join().unwrap();
-        assert_eq!(mux.canonical_topology_revision(), 2);
+        assert_eq!(mux.canonical_topology_revision(), 1);
         assert!(mux.surface_by_uuid(first_surface_uuid).is_ok());
-        assert!(mux.surface_by_uuid(second_surface_uuid).is_err());
+        assert!(mux.surface_by_uuid(second_surface_uuid).is_ok());
         assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 2);
     }
 
@@ -12258,14 +12665,14 @@ mod tests {
                 .iter()
                 .filter(|phase| **phase == TerminalLaunchAtomicityPhase::BeforeFsync)
                 .count(),
-            13
+            14
         );
         assert_eq!(
             phases
                 .iter()
                 .filter(|phase| **phase == TerminalLaunchAtomicityPhase::AfterFsync)
                 .count(),
-            13
+            14
         );
         assert_eq!(
             phases
@@ -12476,9 +12883,18 @@ mod tests {
             )
         });
         before_release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        let surface = mux.surface_by_uuid(surface_uuid).unwrap();
+        assert!(mux.surface_by_uuid(surface_uuid).is_err());
         let (write_done_tx, write_done_rx) = std::sync::mpsc::channel();
+        let writer_mux = mux.clone();
         let write_worker = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let surface = loop {
+                if let Ok(surface) = writer_mux.surface_by_uuid(surface_uuid) {
+                    break surface;
+                }
+                assert!(Instant::now() < deadline, "terminal never became topology-visible");
+                std::thread::yield_now();
+            };
             surface.write_bytes(b"y\n").unwrap();
             write_done_tx.send(()).unwrap();
         });
@@ -12487,7 +12903,7 @@ mod tests {
                 write_done_rx.recv_timeout(Duration::from_millis(50)),
                 Err(RecvTimeoutError::Timeout)
             ),
-            "ordinary PTY input bypassed the launch input reservation"
+            "ordinary PTY input reached a terminal before its Active record was durable"
         );
         resume_tx.send(()).unwrap();
         launch_worker.join().unwrap().unwrap();
@@ -12537,7 +12953,7 @@ mod tests {
     }
 
     #[test]
-    fn initial_input_missing_reader_child_aborts() {
+    fn initial_input_missing_reader_child_returns_error() {
         let Some(root) = std::env::var_os("CMUX_TEST_MISSING_READER_ROOT") else {
             return;
         };
@@ -12546,52 +12962,71 @@ mod tests {
         let store = StateStore::new(root.join("store"));
         let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
         let executable = std::env::current_exe().unwrap();
-        mux.canonical_new_workspace(
-            canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
-            WorkspaceUuid::new(),
-            SurfaceUuid::new(),
-            None,
-            Some((80, 24)),
-            TerminalLaunchRequest {
-                argv: Some(vec![
-                    executable.to_string_lossy().into_owned(),
-                    "--exact".to_string(),
-                    "mux::tests::initial_input_non_reader_entrypoint".to_string(),
-                    "--nocapture".to_string(),
-                ]),
-                env: vec![(
-                    "CMUX_TEST_NON_READER_EXIT_MARKER".to_string(),
-                    target_exit_marker.to_string_lossy().into_owned(),
-                )],
-                initial_input: Some(canonical_safe_initial_input(1024 * 1024)),
-                ..TerminalLaunchRequest::default()
-            },
-        )
-        .unwrap();
-        panic!("missing initial-input reader returned instead of aborting");
+        let error = mux
+            .canonical_new_workspace(
+                canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+                WorkspaceUuid::new(),
+                SurfaceUuid::new(),
+                None,
+                Some((80, 24)),
+                TerminalLaunchRequest {
+                    argv: Some(vec![
+                        executable.to_string_lossy().into_owned(),
+                        "--exact".to_string(),
+                        "mux::tests::initial_input_non_reader_entrypoint".to_string(),
+                        "--nocapture".to_string(),
+                    ]),
+                    env: vec![(
+                        "CMUX_TEST_NON_READER_EXIT_MARKER".to_string(),
+                        target_exit_marker.to_string_lossy().into_owned(),
+                    )],
+                    initial_input: Some(canonical_safe_initial_input(1024 * 1024)),
+                    ..TerminalLaunchRequest::default()
+                },
+            )
+            .expect_err("missing initial-input reader unexpectedly committed topology");
+        assert!(format!("{error:#}").contains("initial-input delivery deadline"));
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert_eq!(mux.surface_count(), 0);
+        std::fs::write(root.join("returned-error"), b"returned-error").unwrap();
     }
 
     #[test]
-    fn missing_initial_input_reader_fails_stop_after_durable_commit() {
+    fn missing_initial_input_reader_returns_error_and_quarantines_attempt() {
         let directory = PersistenceTestDirectory::new("missing-initial-input-reader");
         std::fs::create_dir_all(&directory.0).unwrap();
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("--exact")
-            .arg("mux::tests::initial_input_missing_reader_child_aborts")
+            .arg("mux::tests::initial_input_missing_reader_child_returns_error")
             .arg("--nocapture")
             .env("CMUX_TEST_MISSING_READER_ROOT", &directory.0)
             .env("CMUX_TEST_TERMINAL_INITIAL_INPUT_DEADLINE_MS", "100")
             .output()
             .unwrap();
-        assert!(!output.status.success(), "missing-reader child unexpectedly returned success");
-        assert!(directory.0.join("target-exited").is_file());
+        assert!(
+            output.status.success(),
+            "missing-reader child did not return a normal error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(directory.0.join("returned-error").is_file());
+        let target_exit_marker = directory.0.join("target-exited");
+        let marker_deadline = Instant::now() + Duration::from_secs(2);
+        while !target_exit_marker.is_file() && Instant::now() < marker_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(target_exit_marker.is_file());
         let reopened = StateStore::new(directory.0.join("store")).open_session("main").unwrap();
-        assert_eq!(reopened.snapshot.topology_revision, 1);
-        assert_eq!(reopened.snapshot.surfaces.len(), 1);
+        assert_eq!(reopened.snapshot.topology_revision, 0);
+        assert!(reopened.snapshot.surfaces.is_empty());
+        assert_eq!(reopened.launch_attempts.len(), 1);
+        assert_eq!(
+            reopened.launch_attempts[0].phase,
+            PersistedLaunchAttemptPhase::Quarantined
+        );
     }
 
     #[test]
-    fn executable_disappearance_after_ready_child_aborts() {
+    fn executable_disappearance_after_ready_child_returns_error() {
         let Some(root) = std::env::var_os("CMUX_TEST_DISAPPEARING_EXECUTABLE_ROOT") else {
             return;
         };
@@ -12610,52 +13045,67 @@ mod tests {
                 std::fs::remove_file(&remove).unwrap();
             }
         }));
-        mux.canonical_new_workspace(
-            canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
-            WorkspaceUuid::new(),
-            SurfaceUuid::new(),
-            None,
-            None,
-            TerminalLaunchRequest {
-                argv: Some(vec![executable.to_string_lossy().into_owned()]),
-                ..TerminalLaunchRequest::default()
-            },
-        )
-        .unwrap();
-        panic!("disappearing executable returned instead of aborting");
+        let error = mux
+            .canonical_new_workspace(
+                canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+                WorkspaceUuid::new(),
+                SurfaceUuid::new(),
+                None,
+                None,
+                TerminalLaunchRequest {
+                    argv: Some(vec![executable.to_string_lossy().into_owned()]),
+                    ..TerminalLaunchRequest::default()
+                },
+            )
+            .expect_err("disappearing executable unexpectedly committed topology");
+        assert!(error.to_string().contains("activate durably pending terminal launch"));
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert_eq!(mux.surface_count(), 0);
+        std::fs::write(root.join("returned-error"), b"returned-error").unwrap();
     }
 
     #[test]
-    fn executable_disappearance_after_ready_is_fail_stop_without_user_code() {
+    fn executable_disappearance_after_ready_returns_error_without_user_code() {
         let directory = PersistenceTestDirectory::new("disappearing-executable");
         std::fs::create_dir_all(&directory.0).unwrap();
         let gate_exit_marker = directory.0.join("gate-exited");
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("--exact")
-            .arg("mux::tests::executable_disappearance_after_ready_child_aborts")
+            .arg("mux::tests::executable_disappearance_after_ready_child_returns_error")
             .arg("--nocapture")
             .env("CMUX_TEST_DISAPPEARING_EXECUTABLE_ROOT", &directory.0)
             .env(crate::launch_gate::test_support::EXIT_MARKER_ENV, &gate_exit_marker)
             .output()
             .unwrap();
-        assert!(!output.status.success(), "disappearing-executable child returned success");
+        assert!(
+            output.status.success(),
+            "disappearing-executable child did not return a normal error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(directory.0.join("returned-error").is_file());
         assert!(gate_exit_marker.is_file());
         assert!(!directory.0.join("user-command-ran").exists());
         let reopened = StateStore::new(directory.0.join("store")).open_session("main").unwrap();
-        assert_eq!(reopened.snapshot.topology_revision, 1);
-        assert_eq!(reopened.snapshot.surfaces.len(), 1);
+        assert_eq!(reopened.snapshot.topology_revision, 0);
+        assert!(reopened.snapshot.surfaces.is_empty());
+        assert_eq!(reopened.launch_attempts.len(), 1);
+        assert_eq!(
+            reopened.launch_attempts[0].phase,
+            PersistedLaunchAttemptPhase::Quarantined
+        );
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn post_release_helper_death_child_must_abort_before_acknowledgement() {
+    fn post_release_helper_death_child_returns_error_before_acknowledgement() {
         let Some(root) = std::env::var_os("CMUX_TEST_POST_RELEASE_HELPER_DEATH_ROOT") else {
             return;
         };
         let root = std::path::PathBuf::from(root);
         let store = StateStore::new(root.join("store"));
         let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
-        mux.canonical_new_workspace(
+        let error = mux
+            .canonical_new_workspace(
             canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
             WorkspaceUuid::new(),
             SurfaceUuid::new(),
@@ -12670,27 +13120,41 @@ mod tests {
                 ..TerminalLaunchRequest::default()
             },
         )
-        .unwrap();
-        std::fs::write(root.join("acknowledged"), b"acknowledged").unwrap();
+            .expect_err("dead launch helper unexpectedly committed topology");
+        assert!(error.to_string().contains("activate durably pending terminal launch"));
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert_eq!(mux.surface_count(), 0);
+        std::fs::write(root.join("returned-error"), b"returned-error").unwrap();
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn post_release_helper_death_is_fail_stop_with_durable_topology() {
+    fn post_release_helper_death_returns_error_with_quarantined_attempt() {
         let directory = PersistenceTestDirectory::new("post-release-helper-death");
         std::fs::create_dir_all(&directory.0).unwrap();
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("--exact")
-            .arg("mux::tests::post_release_helper_death_child_must_abort_before_acknowledgement")
+            .arg(
+                "mux::tests::post_release_helper_death_child_returns_error_before_acknowledgement",
+            )
             .arg("--nocapture")
             .env("CMUX_TEST_POST_RELEASE_HELPER_DEATH_ROOT", &directory.0)
             .output()
             .unwrap();
-        assert!(!output.status.success(), "post-release helper death was acknowledged");
-        assert!(!directory.0.join("acknowledged").exists());
+        assert!(
+            output.status.success(),
+            "post-release helper death did not return a normal error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(directory.0.join("returned-error").is_file());
         let reopened = StateStore::new(directory.0.join("store")).open_session("main").unwrap();
-        assert_eq!(reopened.snapshot.topology_revision, 1);
-        assert_eq!(reopened.snapshot.surfaces.len(), 1);
+        assert_eq!(reopened.snapshot.topology_revision, 0);
+        assert!(reopened.snapshot.surfaces.is_empty());
+        assert_eq!(reopened.launch_attempts.len(), 1);
+        assert_eq!(
+            reopened.launch_attempts[0].phase,
+            PersistedLaunchAttemptPhase::Quarantined
+        );
     }
 
     #[test]
@@ -15805,34 +16269,34 @@ mod tests {
     }
 
     #[test]
-    fn exit_after_registration_before_tab_attach_publishes_only_valid_topology() {
+    fn exit_after_activation_before_tab_attach_publishes_only_valid_topology() {
         let mux = test_mux();
         let existing = mux.new_workspace(Some("existing".into()), None).unwrap();
         let pane = mux.with_state(|state| state.pane_of(existing.id).unwrap());
         let before = mux.topology_snapshot();
         let subscription = topology_subscription(&mux, before.revision);
-        let registered = Arc::new(std::sync::Barrier::new(2));
+        let prepared = Arc::new(std::sync::Barrier::new(2));
         let resume = Arc::new(std::sync::Barrier::new(2));
-        *mux.test_surface_registered_barriers.lock().unwrap() =
-            Some((registered.clone(), resume.clone()));
+        let pending_id = Arc::new(AtomicU64::new(0));
+        *mux.test_prepared_surface_hook.lock().unwrap() = Some(Arc::new({
+            let prepared = prepared.clone();
+            let resume = resume.clone();
+            let pending_id = pending_id.clone();
+            move |surface| {
+                pending_id.store(surface.id, Ordering::Release);
+                surface.mark_dead_for_test();
+                prepared.wait();
+                resume.wait();
+            }
+        }));
 
         let worker_mux = mux.clone();
         let worker = std::thread::spawn(move || worker_mux.new_tab(Some(pane), None, None));
-        registered.wait();
+        prepared.wait();
 
-        let pending = mux.with_state(|state| {
-            state
-                .surfaces
-                .keys()
-                .copied()
-                .find(|surface| *surface != existing.id && state.pane_of(*surface).is_none())
-                .expect("registered surface is pending tree attachment")
-        });
-        let pending_surface = mux.surface(pending).unwrap();
-        pending_surface.mark_dead_for_test();
-        mux.surface_exited(pending);
-
-        assert!(mux.surface(pending).is_some());
+        let pending = pending_id.load(Ordering::Acquire);
+        assert_ne!(pending, 0);
+        assert!(mux.surface(pending).is_none());
         assert_eq!(mux.canonical_topology_revision(), before.revision);
         assert!(matches!(subscription.receiver.try_recv(), Err(TryRecvError::Empty)));
 
@@ -16178,6 +16642,117 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy)]
+    struct DurableFaultRule {
+        phase: crate::state_store::DurableIoPhase,
+        occurrence: usize,
+    }
+
+    #[derive(Debug)]
+    struct OccurrenceFaultDurableIo {
+        rules: Vec<DurableFaultRule>,
+        occurrences: Mutex<Vec<(crate::state_store::DurableIoPhase, usize)>>,
+    }
+
+    impl OccurrenceFaultDurableIo {
+        fn new(rules: impl IntoIterator<Item = DurableFaultRule>) -> Arc<Self> {
+            Arc::new(Self { rules: rules.into_iter().collect(), occurrences: Mutex::new(Vec::new()) })
+        }
+
+        fn check(&self, phase: crate::state_store::DurableIoPhase) -> std::io::Result<()> {
+            let mut occurrences = self.occurrences.lock().unwrap();
+            let occurrence = if let Some((_, count)) =
+                occurrences.iter_mut().find(|(candidate, _)| *candidate == phase)
+            {
+                *count += 1;
+                *count
+            } else {
+                occurrences.push((phase, 1));
+                1
+            };
+            if self
+                .rules
+                .iter()
+                .any(|rule| rule.phase == phase && rule.occurrence == occurrence)
+            {
+                Err(std::io::Error::other(format!(
+                    "injected {} failure at occurrence {occurrence}",
+                    phase.as_str()
+                )))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl crate::state_store::DurableIo for OccurrenceFaultDurableIo {
+        fn open_append(
+            &self,
+            phase: crate::state_store::DurableIoPhase,
+            path: &std::path::Path,
+        ) -> std::io::Result<File> {
+            self.check(phase)?;
+            OpenOptions::new().create(true).append(true).open(path)
+        }
+
+        fn open_temp(
+            &self,
+            phase: crate::state_store::DurableIoPhase,
+            path: &std::path::Path,
+        ) -> std::io::Result<File> {
+            self.check(phase)?;
+            OpenOptions::new().create_new(true).write(true).open(path)
+        }
+
+        fn write(
+            &self,
+            phase: crate::state_store::DurableIoPhase,
+            file: &mut File,
+            bytes: &[u8],
+        ) -> std::io::Result<usize> {
+            self.check(phase)?;
+            file.write(bytes)
+        }
+
+        fn sync_file(
+            &self,
+            phase: crate::state_store::DurableIoPhase,
+            file: &File,
+        ) -> std::io::Result<()> {
+            self.check(phase)?;
+            file.sync_all()
+        }
+
+        fn set_len(
+            &self,
+            phase: crate::state_store::DurableIoPhase,
+            file: &File,
+            length: u64,
+        ) -> std::io::Result<()> {
+            self.check(phase)?;
+            file.set_len(length)
+        }
+
+        fn rename(
+            &self,
+            phase: crate::state_store::DurableIoPhase,
+            from: &std::path::Path,
+            to: &std::path::Path,
+        ) -> std::io::Result<()> {
+            self.check(phase)?;
+            std::fs::rename(from, to)
+        }
+
+        fn sync_directory(
+            &self,
+            phase: crate::state_store::DurableIoPhase,
+            path: &std::path::Path,
+        ) -> std::io::Result<()> {
+            self.check(phase)?;
+            File::open(path)?.sync_all()
+        }
+    }
+
     fn persisted_launch(argv: Vec<String>, cwd: Option<String>) -> PersistedLaunchRecipe {
         PersistedLaunchRecipe::sanitized(argv, cwd, Vec::new(), 80, 24, 10_000, false)
     }
@@ -16230,6 +16805,143 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         panic!("surface {uuid} presence did not become {present}");
+    }
+
+    #[test]
+    fn rejected_pending_launch_never_releases_user_exec_or_publishes_topology() {
+        let directory = PersistenceTestDirectory::new("pending-rejected");
+        let io = OccurrenceFaultDurableIo::new([DurableFaultRule {
+            phase: crate::state_store::DurableIoPhase::JournalOpen,
+            occurrence: 1,
+        }]);
+        let store = StateStore::with_io(&directory.0, io);
+        let mux =
+            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+                .unwrap();
+        let before = mux.topology_snapshot();
+        let subscription = topology_subscription(&mux, before.revision);
+
+        let error = match mux.new_workspace(Some("rejected".into()), None) {
+            Ok(_) => panic!("rejected pending launch unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("durable mutation rejected"));
+        assert_eq!(mux.topology_snapshot(), before);
+        assert_eq!(mux.surface_count(), 0);
+        assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 0);
+        assert_eq!(mux.ensure_terminal_initial_writes.load(Ordering::Relaxed), 0);
+        assert!(matches!(subscription.receiver.try_recv(), Err(TryRecvError::Empty)));
+        assert_eq!(mux.durable_storage_status().state, "healthy");
+    }
+
+    #[test]
+    fn rejected_active_record_rolls_back_live_state_and_quarantines_exact_attempt() {
+        let directory = PersistenceTestDirectory::new("active-rejected");
+        let io = OccurrenceFaultDurableIo::new([DurableFaultRule {
+            phase: crate::state_store::DurableIoPhase::JournalOpen,
+            occurrence: 2,
+        }]);
+        let store = StateStore::with_io(&directory.0, io);
+        let mux =
+            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+                .unwrap();
+        let before = mux.topology_snapshot();
+
+        let error = match mux.new_workspace(Some("rejected-active".into()), None) {
+            Ok(_) => panic!("rejected Active record unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("durable mutation rejected"));
+        assert_eq!(mux.topology_snapshot(), before);
+        assert_eq!(mux.surface_count(), 0);
+        assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 1);
+        let state = mux.state.lock().unwrap();
+        let attempts = state.durable.as_ref().unwrap().launch_attempts();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].phase, PersistedLaunchAttemptPhase::Quarantined);
+        drop(state);
+        let status = mux.durable_storage_status();
+        assert_eq!(status.state, "healthy");
+        assert_eq!(status.unresolved_launch_attempts, 1);
+        assert!(!status.unresolved_mutation);
+
+        mux.new_workspace(Some("later-success".into()), None).unwrap();
+        assert_eq!(mux.canonical_topology_revision(), 1);
+        assert_eq!(mux.surface_count(), 1);
+    }
+
+    #[test]
+    fn indeterminate_active_record_retains_exact_draft_and_trips_session_circuit() {
+        let directory = PersistenceTestDirectory::new("active-indeterminate");
+        let io = OccurrenceFaultDurableIo::new([
+            DurableFaultRule {
+                phase: crate::state_store::DurableIoPhase::JournalSync,
+                occurrence: 2,
+            },
+            DurableFaultRule {
+                phase: crate::state_store::DurableIoPhase::JournalResync,
+                occurrence: 1,
+            },
+        ]);
+        let store = StateStore::with_io(&directory.0, io);
+        let mux =
+            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+                .unwrap();
+        let before = mux.topology_snapshot();
+
+        let error = match mux.new_workspace(Some("indeterminate".into()), None) {
+            Ok(_) => panic!("indeterminate Active record unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("commit is indeterminate"));
+        assert_eq!(mux.topology_snapshot(), before);
+        assert_eq!(mux.surface_count(), 0);
+        assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 1);
+        let status = mux.durable_storage_status();
+        assert_eq!(status.state, "degraded");
+        assert_eq!(status.failure_resolution, Some("commit-indeterminate"));
+        assert!(status.unresolved_mutation);
+        assert_eq!(status.unresolved_launch_attempts, 1);
+        let state = mux.state.lock().unwrap();
+        let draft = state.unresolved_durable_mutation.as_ref().unwrap();
+        assert_eq!(draft.snapshot.topology_revision, 1);
+        assert_eq!(draft.snapshot.surfaces.len(), 1);
+        assert_eq!(
+            draft
+                .launch_attempts
+                .iter()
+                .filter(|attempt| attempt.phase == PersistedLaunchAttemptPhase::Active)
+                .count(),
+            1
+        );
+        drop(state);
+
+        assert!(mux.new_workspace(Some("blocked".into()), None).is_err());
+        assert_eq!(mux.topology_snapshot(), before);
+        assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 1);
+
+        drop(mux);
+        let recovered =
+            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+                .unwrap();
+        assert_eq!(recovered.canonical_topology_revision(), 1);
+        assert_eq!(recovered.surface_count(), 1);
+        assert_eq!(recovered.durable_storage_status().state, "healthy");
+        let state = recovered.state.lock().unwrap();
+        assert_eq!(
+            state
+                .durable
+                .as_ref()
+                .unwrap()
+                .launch_attempts()
+                .iter()
+                .filter(|attempt| attempt.phase == PersistedLaunchAttemptPhase::Active)
+                .count(),
+            1
+        );
     }
 
     #[test]

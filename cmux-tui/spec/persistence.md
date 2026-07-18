@@ -57,8 +57,10 @@ The checkpoint stores only stable identities and ordered canonical values:
 - terminal UUID, user name, retention policy, and safe launch recipe;
 - browser placement UUID and user name without URL or browser engine state;
 - bounded deletion tombstones;
-- bounded idempotency results.
-- a globally monotonic terminal activity sequence, the latest content-free fact per live terminal, and bounded per-reader receipts.
+- bounded idempotency results;
+- durable terminal launch attempts and their activation phases;
+- a globally monotonic terminal activity sequence, the latest content-free fact
+  per live terminal, and bounded per-reader receipts.
 
 Legacy numeric workspace, screen, pane, surface, and process aliases are not
 serialized. Terminal output, VT state, scrollback bytes, pasted text, browser
@@ -88,8 +90,10 @@ respawns a terminal.
 
 ## Mutation ordering and acknowledgement
 
-Every canonical mutation computes the complete post-mutation persisted state
-while holding the canonical state mutex. Before the topology revision is
+Every canonical mutation stages its complete post-mutation state while holding
+the canonical state mutex. The staged state is private until the daemon creates
+one exact `CanonicalDraft` containing the full snapshot, launch-attempt set,
+idempotency key, and optional retained result. Before the topology journal is
 published or the command handler can return success, the daemon:
 
 1. assigns the next journal sequence in the current epoch;
@@ -97,12 +101,51 @@ published or the command handler can return success, the daemon:
 3. appends one complete newline-terminated record;
 4. calls `fsync` on the journal file.
 
-An append or sync failure terminates the daemon process before acknowledgement.
-This releases its socket and daemon-lifetime lock instead of leaving a live
-service whose canonical mutex is poisoned. The installed launchd service uses
-`KeepAlive` and restarts the backend after the process exits; a persistent disk
-failure remains visible as a throttled restart failure rather than an
-undurable live daemon.
+The durable writer classifies every failure by commit certainty. A known
+rejection, including a partial write whose truncation and rollback sync
+succeed, restores the exact previously committed live image and returns an
+error. It does not publish a topology delta, emit a success event, or poison
+the storage circuit. A later mutation may retry under a new request.
+
+A failure whose commit is indeterminate retains the exact `CanonicalDraft`,
+restores the previously committed live image, and opens a session-scoped
+storage circuit. Existing terminals and read-only service remain available,
+but every later topology or launch mutation fails closed without another
+append. The daemon reports only content-free circuit phase, incident identity,
+resolution, and unresolved-mutation or launch-attempt counts through liveness
+and identity responses. Restart replay decides whether the exact record
+committed. The in-process daemon never retries an indeterminate draft under a
+new key and never aborts solely because storage failed.
+
+## Terminal launch activation journal
+
+Creating a topology-visible PTY uses a two-record activation protocol:
+
+1. The daemon creates an unpublished PTY and a same-PID launch helper. The
+   helper authenticates its private socket, validates the executable, and waits
+   without executing user code.
+2. The daemon appends and syncs a `PendingActivation` attempt against the last
+   durable topology snapshot. The gate cannot release before this record is
+   durable.
+3. The daemon releases the gate and tracks helper exec plus ordered initial
+   input while retaining exclusive input authority.
+4. After tracked activation succeeds, the daemon stages topology, changes that
+   exact attempt to `Active`, appends the full draft, and only then publishes
+   the topology revision and success response.
+
+A batch creates every gated candidate and syncs every `PendingActivation`
+attempt before releasing any gate. It publishes one topology draft only after
+all required activations succeed. Failure while building the candidate set
+cannot execute user code, and no failure exposes a partial batch.
+
+A release failure, deadline, or ambiguous completion kills the candidate and
+records that exact attempt as `Quarantined`. A known rejection of the `Active`
+record restores the old live topology, kills the activated candidate, and
+quarantines its pending attempt. An indeterminate `Active` record retains the
+exact draft and opens the storage circuit; the candidate is killed and remains
+invisible in the current daemon. Startup replay exposes it exactly once only if
+the `Active` record is present. Pending and quarantined attempts are never
+executed or made visible during recovery.
 
 Topology transactions currently mint an internal idempotency key and retain a
 stable UUID-only result. The Mux exposes the retained-result lookup and keyed
@@ -147,15 +190,27 @@ Activity keeps at most 16,384 latest facts, 1,024 reader UUIDs, and 65,536 stabl
 
 ## Recovery behavior
 
-Version-1 identity-only state migrates atomically through the canonical schema. Version-2 topology checkpoints and their synced journals migrate atomically to version 3 with empty activity state without changing `session_id`. Unsupported versions and
-corrupt checkpoints fail closed. Explicit `--recover-state` archives corrupt
-checkpoint and journal bytes before creating a new session identity.
+Version-1 identity-only state migrates atomically through the canonical schema.
+Version-2 topology and version-3 activity checkpoints plus their synced
+journals migrate atomically to version 4 without changing `session_id`.
+Version-3 visible terminals receive deterministic `Active` attempts. Immutable
+pre-migration checkpoint and journal bytes remain available for explicit
+rollback. Unsupported versions and corrupt checkpoints fail closed. Explicit
+`--recover-state` archives corrupt checkpoint and journal bytes before creating
+a new session identity.
 
 On normal restart, the daemon allocates new process-local numeric aliases,
 rebuilds the exact UUID topology and ordering, and respawns every retained
 terminal recipe under its original terminal UUID. The new process reports
 only its new PID, TTY, and runtime epoch. No old PID is present in durable
 state or copied into the recovered runtime.
+
+Recovery never infers activation from a recipe alone. Every terminal present in
+the recovered topology must have exactly one matching `Active` attempt.
+`PendingActivation` attempts become quarantined before the daemon can spawn
+anything, and quarantined attempts remain absent from topology. A replacement
+attempt may coexist with the prior terminal's `Active` attempt while pending;
+only a durably committed replacement changes which attempt is active.
 
 Terminal restore failures are isolated per surface. If a saved cwd no longer
 exists, the daemon retries the exact saved argv from the account's native home

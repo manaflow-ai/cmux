@@ -248,19 +248,24 @@ does not change its `terminal_id`, shell PID, PTY, or canonical state.
 
 cmuxd sends a canonical mutation success response only after the complete
 snapshot, idempotency result, and topology revision have been appended and
-synced. An append or checkpoint failure is fail-stop: cmuxd aborts while the
-mutation lock is held, sends no response, and recovery exposes the last durable
-revision. It does not attempt an in-process rollback after a storage failure.
+synced. A known rejection restores the exact prior live image and returns an
+error without publishing the staged topology. An indeterminate commit retains
+the exact snapshot, launch attempts, idempotency key, and result as one draft,
+restores the prior live image, and opens a session storage circuit. Existing
+terminals remain available, while later topology and launch mutations fail
+closed until restart replay resolves whether the draft reached disk. Ping and
+identify expose content-free circuit and unresolved-attempt status. Storage
+failure does not abort cmuxd.
+
 Every topology-visible terminal launch first starts a same-PID internal helper
-inside the candidate PTY. The helper authenticates its private Unix socket,
-validates the requested executable, and waits without executing user code. An
-append failure closes the gate and terminates that exact helper PID before any
-success response. After the append is synced, cmuxd releases the helper into the
-requested executable and then writes the complete initial input while retaining
-exclusive input order. Release, exec, or input-delivery uncertainty after the
-commit is fail-stop because returning an error could invite an ambiguous retry.
-Recovery of a recipe committed by an earlier daemon is intentionally ungated;
-that recipe already crossed this durable boundary.
+inside an unpublished candidate PTY. The helper authenticates its private Unix
+socket, validates the requested executable, and waits without executing user
+code. cmuxd syncs a `PendingActivation` attempt before releasing the helper.
+After tracked exec and ordered initial-input delivery succeed, cmuxd syncs the
+topology with that exact attempt marked `Active`, then publishes the revision.
+Release failure or ambiguity kills the candidate and marks the attempt
+`Quarantined`. Recovery executes only recipes backed by visible topology and a
+matching `Active` attempt. Pending and quarantined attempts never execute.
 
 ### Generations and revisions
 
@@ -689,7 +694,9 @@ Exit gate: ownership and failure invariants have test IDs and evidence paths.
 - Add stable IDs, daemon instance ID, topology revisions, snapshots, deltas,
   detach versus destroy, idempotency, tombstones, checkpoint, and journal.
 - Gate every new topology-visible PTY child before user exec, release it only
-  after the journal sync, and fail-stop on post-commit launch uncertainty.
+  after its `PendingActivation` record syncs, then publish topology only after
+  the tracked activation is recorded `Active`; quarantine failed or ambiguous
+  attempts.
 - Start cmuxd independently of Swift and reconnect after Swift termination.
 - Use the existing styled-cell view only as a temporary authority migration
   proof. It is not a renderer-performance milestone.

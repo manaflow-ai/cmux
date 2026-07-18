@@ -1835,9 +1835,9 @@ impl Surface {
     ///
     /// The same writer lock remains held while the helper execs and while the
     /// complete startup payload is written afterward, so protocol input cannot
-    /// interleave with one-time startup input. The caller treats any error or
-    /// deadline as fail-stop because the topology commit already crossed its
-    /// durability boundary.
+    /// interleave with one-time startup input. The caller has already stored a
+    /// PendingActivation attempt, and quarantines any error or ambiguous
+    /// completion without publishing the terminal into canonical topology.
     pub(crate) fn complete_gated_launch(
         self: &Arc<Self>,
         permit: InputAuthorityPermit,

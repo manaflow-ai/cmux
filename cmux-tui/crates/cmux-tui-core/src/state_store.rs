@@ -114,7 +114,7 @@ pub(crate) enum DurableIoPhase {
 }
 
 impl DurableIoPhase {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Validation => "validation",
             Self::CircuitOpen => "circuit-open",
@@ -518,6 +518,27 @@ pub(crate) struct PersistedLaunchAttempt {
 }
 
 impl PersistedLaunchAttempt {
+    pub(crate) fn pending(
+        attempt_id: Uuid,
+        request_id: String,
+        payload_digest: String,
+        surface_uuid: SurfaceUuid,
+        launch: PersistedLaunchRecipe,
+    ) -> Self {
+        Self {
+            attempt_id,
+            request_id,
+            payload_digest,
+            surface_uuid,
+            launch,
+            phase: PersistedLaunchAttemptPhase::PendingActivation,
+        }
+    }
+
+    pub(crate) fn set_phase(&mut self, phase: PersistedLaunchAttemptPhase) {
+        self.phase = phase;
+    }
+
     /// Startup never promotes a pending launch. It becomes quarantined in the
     /// recovered in-memory image and remains absent from visible topology.
     fn quarantine_for_recovery(&mut self) {
@@ -938,11 +959,15 @@ impl DurableSession {
         &self.latest_launch_attempts
     }
 
+    pub(crate) fn latest_snapshot(&self) -> &PersistedSessionState {
+        &self.latest
+    }
+
     fn fail_append(&mut self, failure: DurableWriteFailure) -> DurableAppendOutcome {
-        self.storage_circuit = StorageCircuit::Degraded(StorageCircuit::incident(&failure));
         match failure.resolution {
             DurableFailureResolution::Rejected => DurableAppendOutcome::Rejected(failure),
             DurableFailureResolution::CommitIndeterminate => {
+                self.storage_circuit = StorageCircuit::Degraded(StorageCircuit::incident(&failure));
                 DurableAppendOutcome::CommitIndeterminate(failure)
             }
         }
@@ -1010,7 +1035,7 @@ impl StateStore {
     }
 
     #[cfg(test)]
-    fn with_io(root: impl Into<PathBuf>, io: Arc<dyn DurableIo>) -> Self {
+    pub(crate) fn with_io(root: impl Into<PathBuf>, io: Arc<dyn DurableIo>) -> Self {
         Self { root: root.into(), limits: StateStoreLimits::default(), io }
     }
 
@@ -2370,17 +2395,10 @@ fn reconcile_legacy_launch_attempts(
         .filter(|attempt| attempt.phase != PersistedLaunchAttemptPhase::Active)
         .cloned()
         .collect::<Vec<_>>();
-    let reserved = attempts.iter().map(|attempt| attempt.surface_uuid).collect::<BTreeSet<_>>();
     for surface in &state.surfaces {
         let PersistedSurfaceKind::Terminal { launch } = &surface.kind else {
             continue;
         };
-        if reserved.contains(&surface.uuid) {
-            return Err(StateStoreError::corrupt(
-                path,
-                "legacy topology made a pending or quarantined launch visible",
-            ));
-        }
         attempts.push(active_launch_attempt(state.session_id, surface.uuid, launch)?);
     }
     attempts.sort_by_key(|attempt| attempt.attempt_id);
@@ -2433,7 +2451,6 @@ fn validate_launch_attempts(
         .collect::<BTreeMap<_, _>>();
     let mut attempt_ids = BTreeSet::new();
     let mut request_ids = BTreeSet::new();
-    let mut attempted_surfaces = BTreeSet::new();
     let mut active_surfaces = BTreeSet::new();
     for attempt in attempts {
         validate_uuid(path, attempt.attempt_id, "launch attempt")?;
@@ -2443,7 +2460,6 @@ fn validate_launch_attempts(
         validate_launch_recipe(path, &attempt.launch)?;
         if !attempt_ids.insert(attempt.attempt_id)
             || !request_ids.insert(attempt.request_id.as_str())
-            || !attempted_surfaces.insert(attempt.surface_uuid)
         {
             return Err(StateStoreError::corrupt(path, "duplicate persisted launch attempt"));
         }
@@ -2463,14 +2479,7 @@ fn validate_launch_attempts(
                 }
             }
             PersistedLaunchAttemptPhase::PendingActivation
-            | PersistedLaunchAttemptPhase::Quarantined => {
-                if state.surfaces.iter().any(|surface| surface.uuid == attempt.surface_uuid) {
-                    return Err(StateStoreError::corrupt(
-                        path,
-                        "unactivated launch attempt appears in visible topology",
-                    ));
-                }
-            }
+            | PersistedLaunchAttemptPhase::Quarantined => {}
         }
     }
     let expected_active = terminal_surfaces.keys().copied().collect::<BTreeSet<_>>();
@@ -3595,7 +3604,7 @@ mod tests {
     }
 
     #[test]
-    fn injected_partial_append_rolls_back_and_opens_rejected_storage_circuit() {
+    fn injected_partial_append_rolls_back_without_opening_storage_circuit() {
         let directory = TestDirectory::new("partial-append-rollback");
         let io = ScriptedDurableIo::new([
             short_write(DurableIoPhase::JournalWrite, 17),
@@ -3605,8 +3614,12 @@ mod tests {
         let mut opened = store.open_session("main").unwrap();
         let original = fs::read(store.journal_path("main")).unwrap();
         let (state, outcome) = revision(opened.snapshot.clone(), "partial", 1);
-        let append =
-            opened.durable.append_resolved(state, Vec::new(), "partial".to_string(), Some(outcome));
+        let append = opened.durable.append_resolved(
+            state.clone(),
+            Vec::new(),
+            "partial".to_string(),
+            Some(outcome.clone()),
+        );
 
         let DurableAppendOutcome::Rejected(failure) = append else {
             panic!("partial append must be a known rejection after rollback");
@@ -3615,12 +3628,15 @@ mod tests {
         assert_eq!(failure.resolution, DurableFailureResolution::Rejected);
         assert_eq!(opened.durable.sequence, 0);
         assert_eq!(fs::read(store.journal_path("main")).unwrap(), original);
+        assert_eq!(opened.durable.storage_circuit(), &StorageCircuit::Healthy);
         assert!(matches!(
-            opened.durable.storage_circuit(),
-            StorageCircuit::Degraded(StorageCircuitIncident {
-                resolution: DurableFailureResolution::Rejected,
-                ..
-            })
+            opened.durable.append_resolved(
+                state,
+                Vec::new(),
+                "partial".to_string(),
+                Some(outcome),
+            ),
+            DurableAppendOutcome::Committed { sequence: 1, .. }
         ));
         io.assert_consumed();
     }
@@ -3981,6 +3997,38 @@ mod tests {
         );
         assert!(reopened.launch_attempts.iter().any(|attempt| {
             attempt.surface_uuid == pending_surface
+                && attempt.phase == PersistedLaunchAttemptPhase::Quarantined
+        }));
+    }
+
+    #[test]
+    fn recovery_preserves_active_runtime_while_quarantining_its_pending_replacement() {
+        let directory = TestDirectory::new("pending-replacement-recovery");
+        let store = StateStore::new(&directory.0);
+        let mut opened = store.open_session("main").unwrap();
+        let (state, surface_uuid) = state_with_terminal(opened.snapshot.session_id);
+        let active = launch_attempt(surface_uuid, PersistedLaunchAttemptPhase::Active);
+        let mut replacement =
+            launch_attempt(surface_uuid, PersistedLaunchAttemptPhase::PendingActivation);
+        replacement.request_id = format!("replacement-{}", replacement.attempt_id);
+        replacement.payload_digest = "b".repeat(64);
+
+        assert!(matches!(
+            opened.durable.append_resolved(
+                state.clone(),
+                vec![active.clone(), replacement.clone()],
+                "pending-replacement".to_string(),
+                None,
+            ),
+            DurableAppendOutcome::Committed { .. }
+        ));
+        drop(opened.durable);
+
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot, state);
+        assert!(reopened.launch_attempts.iter().any(|attempt| attempt == &active));
+        assert!(reopened.launch_attempts.iter().any(|attempt| {
+            attempt.attempt_id == replacement.attempt_id
                 && attempt.phase == PersistedLaunchAttemptPhase::Quarantined
         }));
     }
