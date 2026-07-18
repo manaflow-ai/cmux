@@ -155,6 +155,27 @@ extension CMUXCLI {
                 transcriptPath: record.transcriptPath
             )
         }
+        return sessionsListClaudeHasExactTranscript(
+            record: record,
+            lookup: claudeTranscriptLookup
+        )
+    }
+
+    func sessionsListRegularNonEmptyFileExists(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? NSNumber else {
+            return false
+        }
+        return size.intValue > 0
+    }
+
+    func sessionsListClaudeHasExactTranscript(
+        record: ClaudeHookSessionRecord,
+        lookup: SessionsListClaudeTranscriptLookupCache
+    ) -> Bool {
         guard sessionsListClaudeSessionIdIsSafeFilename(record.sessionId) else {
             return false
         }
@@ -170,18 +191,7 @@ extension CMUXCLI {
                 return true
             }
         }
-        return sessionsListClaudeTranscriptExists(record: record, lookup: claudeTranscriptLookup)
-    }
-
-    func sessionsListRegularNonEmptyFileExists(atPath path: String) -> Bool {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
-              !isDirectory.boolValue,
-              let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-              let size = attrs[.size] as? NSNumber else {
-            return false
-        }
-        return size.intValue > 0
+        return sessionsListClaudeTranscriptExists(record: record, lookup: lookup)
     }
 
     private func sessionsListClaudeTranscriptExists(

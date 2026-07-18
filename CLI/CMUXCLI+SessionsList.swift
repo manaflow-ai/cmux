@@ -354,6 +354,19 @@ extension CMUXCLI {
                     payload["codex_transcript_found"] = transcriptPath != nil || expandedSavedTranscriptPath.map { fileManager.fileExists(atPath: $0) } == true
                     payload["codex_transcript_path"] = transcriptPath ?? expandedSavedTranscriptPath ?? NSNull()
                     transcriptBacked = payload["codex_transcript_found"] as? Bool == true
+                } else if spec.name == "claude" {
+                    if let envKey = spec.configDirEnvOverride,
+                       let value = sessionsListNormalized(record.launchCommand?.environment?[envKey]) {
+                        payload["session_home"] = sessionsListExpandedPath(value)
+                        payload["session_dir"] = sessionsListExpandedPath(value)
+                    } else {
+                        payload["session_home"] = NSNull()
+                        payload["session_dir"] = NSNull()
+                    }
+                    transcriptBacked = sessionsListClaudeHasExactTranscript(
+                        record: record,
+                        lookup: claudeTranscriptLookup
+                    )
                 } else if let envKey = spec.configDirEnvOverride,
                           let value = sessionsListNormalized(record.launchCommand?.environment?[envKey]) {
                     payload["session_home"] = sessionsListExpandedPath(value)

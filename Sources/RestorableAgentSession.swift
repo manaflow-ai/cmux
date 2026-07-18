@@ -1170,6 +1170,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 if kind == .codex, normalizedNonEmptyValue(effectiveRecord.launchCommand?.source)?.lowercased() == "environment", normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CODEX_HOME"]) == nil, (normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil) { effectiveRecord.launchCommand = nil }
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
+                      kind != .claude || normalizedSessionId == effectiveRecord.sessionId,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
                       let panelId = UUID(uuidString: effectiveRecord.surfaceId),
                       hookRecordIsRestorable(
@@ -1496,8 +1497,8 @@ struct RestorableAgentSessionIndex: Sendable {
         guard kind == .claude else {
             return record.isRestorable != false
         }
-        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
-              claudeSessionIdIsSafeFilename(sessionId) else {
+        let sessionId = record.sessionId
+        guard claudeSessionIdIsSafeFilename(sessionId) else {
             return false
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
@@ -1517,8 +1518,8 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         lookup: ClaudeTranscriptLookupCache
     ) -> Bool {
-        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
-              claudeSessionIdIsSafeFilename(sessionId) else {
+        let sessionId = record.sessionId
+        guard claudeSessionIdIsSafeFilename(sessionId) else {
             return false
         }
 
@@ -1610,8 +1611,8 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         lookup: ClaudeTranscriptLookupCache
     ) -> String? {
-        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
-              claudeSessionIdIsSafeFilename(sessionId) else {
+        let sessionId = record.sessionId
+        guard claudeSessionIdIsSafeFilename(sessionId) else {
             return nil
         }
         let candidates = [launchCwd, recordedCwd].compactMap { $0 }
@@ -1620,17 +1621,20 @@ struct RestorableAgentSessionIndex: Sendable {
         // so the candidate whose encoding matches it is the one Claude can resume from.
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
             let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
-            let roots = lookup.configRoots(for: record)
-            let expectedProjectDirName = claudeProjectDirName(
-                containingTranscriptPath: expandedTranscriptPath,
-                configRoots: roots
-            ) ?? (((expandedTranscriptPath as NSString).deletingLastPathComponent) as NSString)
-                .lastPathComponent
-            if !expectedProjectDirName.isEmpty,
-               let matched = candidates.first(where: {
-                   encodeClaudeProjectDir($0) == expectedProjectDirName
-               }) {
-                return matched
+            if claudeTranscriptPath(expandedTranscriptPath, matchesSessionId: sessionId),
+               regularNonEmptyFileExists(atPath: expandedTranscriptPath, fileManager: fileManager) {
+                let roots = lookup.configRoots(for: record)
+                let expectedProjectDirName = claudeProjectDirName(
+                    containingTranscriptPath: expandedTranscriptPath,
+                    configRoots: roots
+                ) ?? (((expandedTranscriptPath as NSString).deletingLastPathComponent) as NSString)
+                    .lastPathComponent
+                if !expectedProjectDirName.isEmpty,
+                   let matched = candidates.first(where: {
+                       encodeClaudeProjectDir($0) == expectedProjectDirName
+                   }) {
+                    return matched
+                }
             }
         }
 
