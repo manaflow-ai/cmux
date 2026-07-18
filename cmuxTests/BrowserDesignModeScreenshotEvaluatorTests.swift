@@ -56,6 +56,32 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
     }
 
+    @Test func screenshotPruningPinsOnlyLiveAnnotationContext() async throws {
+        let directory = URL.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode-pinning-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BrowserDesignModeScreenshotStore(directory: directory)
+        let surfaceID = UUID()
+        let pinned = try await store.save(
+            Data([0]),
+            surfaceID: surfaceID,
+            retention: .liveContext
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: pinned.path
+        )
+
+        for value in 1...101 {
+            _ = try await store.save(Data([UInt8(value)]), surfaceID: surfaceID)
+        }
+        #expect(FileManager.default.fileExists(atPath: pinned.path))
+
+        await store.release(pinned)
+        _ = try await store.save(Data([255]), surfaceID: surfaceID)
+        #expect(!FileManager.default.fileExists(atPath: pinned.path))
+    }
+
     @Test func synthesizedClickKeepsPageRuntimeOutOfTheNativeComposerInputPath() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
