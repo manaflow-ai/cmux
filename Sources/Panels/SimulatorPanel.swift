@@ -27,6 +27,8 @@ final class SimulatorPanel: Panel {
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
     @ObservationIgnored private var featureEnableTask: Task<Void, Never>?
     @ObservationIgnored private weak var focusOwnershipView: NSView?
+    @ObservationIgnored private var directVisibleInUI = false
+    @ObservationIgnored private var visibleUIHostIDs: Set<UUID> = []
     @ObservationIgnored private var featureTransitionGeneration = 0
     private var isFeatureDisabled = false
     private var isClosed = false
@@ -158,8 +160,18 @@ final class SimulatorPanel: Panel {
 
     func setVisibleInUI(_ visible: Bool) {
         guard !isClosed else { return }
-        isVisibleInUI = visible
-        applyEffectiveVisibility()
+        directVisibleInUI = visible
+        applyRegisteredVisibility()
+    }
+
+    func setVisibleInUI(_ visible: Bool, hostID: UUID) {
+        guard !isClosed else { return }
+        if visible {
+            visibleUIHostIDs.insert(hostID)
+        } else {
+            visibleUIHostIDs.remove(hostID)
+        }
+        applyRegisteredVisibility()
     }
 
     func setCanvasRendering(_ rendering: Bool?) {
@@ -272,6 +284,11 @@ final class SimulatorPanel: Panel {
 
     private var isEffectivelyVisible: Bool {
         isVisibleInUI && (canvasRendering ?? true)
+    }
+
+    private func applyRegisteredVisibility() {
+        isVisibleInUI = directVisibleInUI || !visibleUIHostIDs.isEmpty
+        applyEffectiveVisibility()
     }
 
     private func applyEffectiveVisibility() {

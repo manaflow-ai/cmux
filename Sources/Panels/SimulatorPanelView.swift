@@ -10,6 +10,7 @@ struct SimulatorPanelView: View {
     let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
+    @State private var visibilityHostID = UUID()
 
     var body: some View {
         SimulatorPaneView(
@@ -28,7 +29,7 @@ struct SimulatorPanelView: View {
             )
             .onAppear {
                 panel.coordinator.setActive(isFocused)
-                panel.setVisibleInUI(isVisibleInUI)
+                panel.setVisibleInUI(isVisibleInUI, hostID: visibilityHostID)
             }
             .onChange(of: isFocused) { _, focused in
                 panel.coordinator.setActive(focused)
@@ -37,11 +38,11 @@ struct SimulatorPanelView: View {
                 if !visible {
                     panel.coordinator.releaseInputs()
                 }
-                panel.setVisibleInUI(visible)
+                panel.setVisibleInUI(visible, hostID: visibilityHostID)
             }
             .onDisappear {
                 panel.coordinator.releaseInputs()
-                panel.setVisibleInUI(false)
+                panel.setVisibleInUI(false, hostID: visibilityHostID)
             }
     }
 }
