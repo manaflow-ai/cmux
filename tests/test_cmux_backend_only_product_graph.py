@@ -359,12 +359,156 @@ def test_dynamic_load_source_policy_is_exact_and_hash_bound() -> None:
             raise AssertionError("unreviewed loader source was accepted")
 
 
+def write_xcode_target_fixture(root: Path) -> Path:
+    source = root / "Sources/BackendHost.swift"
+    source.parent.mkdir(parents=True)
+    source.write_text("import Foundation\nstruct BackendHost {}\n", encoding="utf-8")
+    products = [
+        "CmuxTerminalBackend",
+        "CmuxTerminalBackendService",
+        "CmuxTerminalFrontend",
+        "CmuxTerminalRenderCompositor",
+        "CmuxTerminalRenderProtocol",
+        "CmuxTerminalRenderTransport",
+    ]
+    objects: dict[str, object] = {
+        "TARGET": {
+            "isa": "PBXNativeTarget",
+            "name": "cmux-backend-only",
+            "buildPhases": ["SOURCES"],
+            "packageProductDependencies": [f"PRODUCT-{index}" for index in range(len(products))],
+            "buildConfigurationList": "CONFIG-LIST",
+        },
+        "SOURCES": {
+            "isa": "PBXSourcesBuildPhase",
+            "files": ["BUILD-FILE"],
+        },
+        "BUILD-FILE": {"isa": "PBXBuildFile", "fileRef": "SOURCE-FILE"},
+        "SOURCE-GROUP": {
+            "isa": "PBXGroup",
+            "path": "Sources",
+            "sourceTree": "<group>",
+            "children": ["SOURCE-FILE"],
+        },
+        "SOURCE-FILE": {
+            "isa": "PBXFileReference",
+            "path": "BackendHost.swift",
+            "sourceTree": "<group>",
+        },
+        "CONFIG-LIST": {
+            "isa": "XCConfigurationList",
+            "buildConfigurations": ["DEBUG", "RELEASE"],
+        },
+        "DEBUG": {
+            "isa": "XCBuildConfiguration",
+            "name": "Debug",
+            "buildSettings": {
+                "CMUX_TERMINAL_BACKEND_ENABLED": "YES",
+                "CMUX_TERMINAL_RUNTIME_OWNERSHIP": "backend-only",
+                "LD_GENERATE_MAP_FILE": "YES",
+            },
+        },
+        "RELEASE": {
+            "isa": "XCBuildConfiguration",
+            "name": "Release",
+            "buildSettings": {
+                "CMUX_TERMINAL_BACKEND_ENABLED": "YES",
+                "CMUX_TERMINAL_RUNTIME_OWNERSHIP": "backend-only",
+                "LD_GENERATE_MAP_FILE": "YES",
+            },
+        },
+    }
+    for index, product in enumerate(products):
+        objects[f"PRODUCT-{index}"] = {
+            "isa": "XCSwiftPackageProductDependency",
+            "productName": product,
+        }
+    project = root / "project.json"
+    project.write_text(json.dumps({"objects": objects}), encoding="utf-8")
+    return project
+
+
+def test_xcode_target_and_link_map_bind_the_actual_host_boundary() -> None:
+    verifier = load_verifier_module()
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        project = write_xcode_target_fixture(root)
+        report = verifier.xcode_target_report(project, "cmux-backend-only")
+        assert report["target"] == "cmux-backend-only"
+        assert report["sources"] == [
+            {
+                "path": "Sources/BackendHost.swift",
+                "sha256": verifier.sha256_file(root / "Sources/BackendHost.swift"),
+            }
+        ]
+        assert len(report["sha256"]) == 64
+
+        link_map = root / "cmux-backend-only-LinkMap.txt"
+        link_map.write_text(
+            """# Path: /tmp/cmux.debug.dylib
+# Object files:
+[  0] linker synthesized
+[  1] /tmp/CmuxTerminalFrontend.build/TerminalFrontendPanel.o
+[  2] /tmp/cmux-backend-only.build/BackendHost.o
+# Sections:
+""",
+            encoding="utf-8",
+        )
+        link_report = verifier.verify_link_map(
+            link_map,
+            artifact_basenames={"cmux", "cmux.debug.dylib"},
+        )
+        assert link_report["object_count"] == 2
+        assert len(link_report["objects_sha256"]) == 64
+
+        link_map.write_text(
+            """# Path: /tmp/cmux.debug.dylib
+# Object files:
+[  0] linker synthesized
+[  1] /tmp/CmuxTerminalFrontend.build/TerminalFrontendPanel.o
+[  2] /tmp/CmuxTerminal.build/TerminalSurface.o
+# Sections:
+""",
+            encoding="utf-8",
+        )
+        try:
+            verifier.verify_link_map(
+                link_map,
+                artifact_basenames={"cmux.debug.dylib"},
+            )
+        except verifier.VerificationError as error:
+            assert "forbidden terminal object" in str(error)
+        else:
+            raise AssertionError("legacy terminal object was accepted in link map")
+
+        source = root / "Sources/BackendHost.swift"
+        source.write_text("import GhosttyKit\n", encoding="utf-8")
+        try:
+            verifier.xcode_target_report(project, "cmux-backend-only")
+        except verifier.VerificationError as error:
+            assert "legacy terminal import" in str(error)
+        else:
+            raise AssertionError("legacy target source was accepted")
+
+        source.write_text("import Foundation\n", encoding="utf-8")
+        raw = json.loads(project.read_text(encoding="utf-8"))
+        raw["objects"]["PRODUCT-2"]["productName"] = "CmuxTerminal"
+        project.write_text(json.dumps(raw), encoding="utf-8")
+        try:
+            verifier.xcode_target_report(project, "cmux-backend-only")
+        except verifier.VerificationError as error:
+            assert "links forbidden products: CmuxTerminal" in str(error)
+        else:
+            raise AssertionError("legacy terminal product was accepted")
+
+
 def main() -> int:
     test_repository_frontend_product_has_a_ghostty_free_closure()
     test_source_policy_rejects_ghostty_and_dynamic_loading()
     test_product_closure_rejects_legacy_targets_even_without_forbidden_imports()
     test_artifact_attestation_binds_graph_to_recursive_host_load_closure()
     test_dynamic_load_source_policy_is_exact_and_hash_bound()
+    test_xcode_target_and_link_map_bind_the_actual_host_boundary()
     print("PASS: backend-only product graph and host artifact are bound")
     return 0
 

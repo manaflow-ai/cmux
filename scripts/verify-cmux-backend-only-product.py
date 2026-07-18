@@ -110,6 +110,48 @@ DYNAMIC_LOAD_SOURCE_PATTERN = re.compile(
 SANCTIONED_DYNAMIC_LOADS = (
     "Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib",
 )
+FORBIDDEN_XCODE_PRODUCTS = frozenset(
+    {"CmuxGhosttyKit", "CmuxTerminal", "CmuxTerminalCore", "GhosttyKit"}
+)
+REQUIRED_XCODE_PRODUCTS = frozenset(
+    {
+        "CmuxTerminalBackend",
+        "CmuxTerminalBackendService",
+        "CmuxTerminalFrontend",
+        "CmuxTerminalRenderCompositor",
+        "CmuxTerminalRenderProtocol",
+        "CmuxTerminalRenderTransport",
+    }
+)
+FORBIDDEN_XCODE_SOURCE_PATTERNS = (
+    (
+        "legacy terminal import",
+        re.compile(r"(?m)^\s*(?:public\s+|internal\s+)?import\s+(?:CmuxTerminal|CmuxTerminalCore|GhosttyKit)\s*$"),
+    ),
+    (
+        "legacy terminal identity",
+        re.compile(
+            r"\b(?:GhosttyApp|GhosttyNSView|GhosttyTerminalView|EmbeddedTerminalPanelFactory|"
+            r"ExternalTerminalHostNSView|TerminalSurfaceRuntimeWiring)\b|"
+            r"\bghostty_[A-Za-z0-9_]+\b"
+        ),
+    ),
+    (
+        "PTY ownership constructor",
+        re.compile(
+            r"\b(?:forkpty|openpty|posix_openpt|grantpt|unlockpt|ptsname|"
+            r"ptsname_r|login_tty)\b"
+        ),
+    ),
+)
+FORBIDDEN_LINK_MAP_PATTERNS = (
+    re.compile(r"(?:^|/)CmuxTerminal\.build/"),
+    re.compile(r"(?:^|/)CmuxTerminalCore\.build/"),
+    re.compile(r"(?:^|/)GhosttyKit(?:\.build|\.framework|\.xcframework|/|$)"),
+    re.compile(r"(?:^|/)(?:GhosttyTerminalView|EmbeddedTerminalPanelFactory|"
+               r"ExternalTerminalHostNSView|TerminalSurfaceRuntimeWiring)\.o$"),
+    re.compile(r"(?:^|/)libghostty[^/]*$", re.IGNORECASE),
+)
 ALLOWED_EXTERNAL_LOAD_PREFIXES = (
     "/System/Library/",
     "/usr/lib/",
@@ -419,6 +461,218 @@ def graph_report(
     return graph
 
 
+def load_xcode_project(project_file: Path) -> dict[str, Any]:
+    resolved = project_file.resolve(strict=True)
+    if resolved.suffix == ".json":
+        return json.loads(resolved.read_text(encoding="utf-8"))
+    process = subprocess.run(
+        ["plutil", "-convert", "json", "-o", "-", str(resolved)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if process.returncode != 0:
+        raise VerificationError(
+            f"plutil could not parse Xcode project {resolved}: {process.stderr.strip()}"
+        )
+    try:
+        return json.loads(process.stdout)
+    except json.JSONDecodeError as error:
+        raise VerificationError(f"invalid Xcode project JSON for {resolved}: {error}") from error
+
+
+def resolve_xcode_file_path(
+    *,
+    identifier: str,
+    objects: dict[str, dict[str, Any]],
+    parents: dict[str, str],
+    source_root: Path,
+) -> Path:
+    components: list[str] = []
+    current = identifier
+    seen: set[str] = set()
+    while current in objects and current not in seen:
+        seen.add(current)
+        item = objects[current]
+        path = item.get("path")
+        if isinstance(path, str) and path:
+            components.append(path)
+        source_tree = item.get("sourceTree")
+        if source_tree in {"SOURCE_ROOT", "<absolute>"}:
+            break
+        parent = parents.get(current)
+        if parent is None:
+            break
+        current = parent
+    candidate = source_root.joinpath(*reversed(components)).resolve(strict=False)
+    try:
+        candidate.relative_to(source_root)
+    except ValueError as error:
+        raise VerificationError(f"Xcode source escapes repository root: {candidate}") from error
+    return candidate
+
+
+def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
+    raw = load_xcode_project(project_file)
+    objects = raw.get("objects")
+    if not isinstance(objects, dict):
+        raise VerificationError("Xcode project has no objects table")
+    targets = [
+        (identifier, item)
+        for identifier, item in objects.items()
+        if item.get("isa") == "PBXNativeTarget" and item.get("name") == target_name
+    ]
+    if len(targets) != 1:
+        raise VerificationError(
+            f"expected exactly one Xcode target named {target_name}, found {len(targets)}"
+        )
+    target_identifier, target = targets[0]
+    source_root = project_file.resolve(strict=True).parent
+    if source_root.suffix == ".xcodeproj":
+        source_root = source_root.parent
+
+    parents: dict[str, str] = {}
+    for parent_identifier, item in objects.items():
+        for child in item.get("children", []):
+            if isinstance(child, str):
+                parents[child] = parent_identifier
+
+    product_names: set[str] = set()
+    for dependency_identifier in target.get("packageProductDependencies", []):
+        dependency = objects.get(dependency_identifier, {})
+        product_name = dependency.get("productName")
+        if isinstance(product_name, str):
+            product_names.add(product_name)
+    forbidden_products = sorted(product_names & FORBIDDEN_XCODE_PRODUCTS)
+    if forbidden_products:
+        raise VerificationError(
+            f"Xcode target {target_name} links forbidden products: "
+            + ", ".join(forbidden_products)
+        )
+    missing_products = sorted(REQUIRED_XCODE_PRODUCTS - product_names)
+    if missing_products:
+        raise VerificationError(
+            f"Xcode target {target_name} is missing backend products: "
+            + ", ".join(missing_products)
+        )
+
+    source_records: list[dict[str, str]] = []
+    source_paths: set[Path] = set()
+    for phase_identifier in target.get("buildPhases", []):
+        phase = objects.get(phase_identifier, {})
+        if phase.get("isa") != "PBXSourcesBuildPhase":
+            continue
+        for build_file_identifier in phase.get("files", []):
+            build_file = objects.get(build_file_identifier, {})
+            file_reference = build_file.get("fileRef")
+            if not isinstance(file_reference, str):
+                continue
+            source_path = resolve_xcode_file_path(
+                identifier=file_reference,
+                objects=objects,
+                parents=parents,
+                source_root=source_root,
+            )
+            if not source_path.is_file():
+                raise VerificationError(f"Xcode target source is missing: {source_path}")
+            source_paths.add(source_path.resolve(strict=True))
+
+    if not source_paths:
+        raise VerificationError(f"Xcode target {target_name} contains no source files")
+    for source_path in sorted(source_paths):
+        contents = source_path.read_text(encoding="utf-8")
+        relative = source_path.relative_to(source_root).as_posix()
+        for description, pattern in FORBIDDEN_XCODE_SOURCE_PATTERNS:
+            if pattern.search(contents):
+                raise VerificationError(
+                    f"Xcode target {target_name} source {relative} contains {description}"
+                )
+        source_records.append({"path": relative, "sha256": sha256_file(source_path)})
+
+    configuration_list = objects.get(target.get("buildConfigurationList"), {})
+    configuration_records: list[dict[str, str]] = []
+    for configuration_identifier in configuration_list.get("buildConfigurations", []):
+        configuration = objects.get(configuration_identifier, {})
+        name = configuration.get("name")
+        settings = configuration.get("buildSettings", {})
+        enabled = str(settings.get("CMUX_TERMINAL_BACKEND_ENABLED", "")).upper()
+        ownership = str(settings.get("CMUX_TERMINAL_RUNTIME_OWNERSHIP", ""))
+        link_map_enabled = str(settings.get("LD_GENERATE_MAP_FILE", "")).upper()
+        if enabled not in {"1", "YES", "TRUE"}:
+            raise VerificationError(
+                f"Xcode target {target_name} configuration {name} does not enable backend service"
+            )
+        if ownership != "backend-only":
+            raise VerificationError(
+                f"Xcode target {target_name} configuration {name} has ownership {ownership!r}"
+            )
+        if link_map_enabled not in {"1", "YES", "TRUE"}:
+            raise VerificationError(
+                f"Xcode target {target_name} configuration {name} does not generate a link map"
+            )
+        configuration_records.append(
+            {
+                "name": str(name),
+                "backend_enabled": enabled,
+                "runtime_ownership": ownership,
+                "link_map_enabled": link_map_enabled,
+            }
+        )
+    if not configuration_records:
+        raise VerificationError(f"Xcode target {target_name} has no build configurations")
+
+    report: dict[str, Any] = {
+        "target_id": target_identifier,
+        "target": target_name,
+        "products": sorted(product_names),
+        "sources": source_records,
+        "configurations": sorted(configuration_records, key=lambda item: item["name"]),
+    }
+    report["sha256"] = sha256_bytes(canonical_json(report))
+    return report
+
+
+def verify_link_map(link_map: Path, *, artifact_basenames: set[str]) -> dict[str, Any]:
+    resolved = link_map.resolve(strict=True)
+    contents = resolved.read_text(encoding="utf-8", errors="replace")
+    linked_path_match = re.search(r"(?m)^# Path:\s+(.+?)\s*$", contents)
+    if not linked_path_match:
+        raise VerificationError(f"link map has no output path: {resolved}")
+    linked_basename = Path(linked_path_match.group(1)).name
+    if linked_basename not in artifact_basenames:
+        raise VerificationError(
+            f"link map output {linked_basename} is not in the audited app load closure"
+        )
+    object_match = re.search(
+        r"(?ms)^# Object files:\s*$\n(.*?)(?=^# (?:Sections|Symbols|Dead Stripped Symbols):)",
+        contents,
+    )
+    if not object_match:
+        raise VerificationError(f"link map has no object-file inventory: {resolved}")
+    object_paths = [
+        match.group(1).strip()
+        for match in re.finditer(r"(?m)^\[\s*\d+\]\s+(.+?)\s*$", object_match.group(1))
+        if match.group(1).strip() != "linker synthesized"
+    ]
+    if not object_paths:
+        raise VerificationError(f"link map has an empty object-file inventory: {resolved}")
+    for object_path in object_paths:
+        for pattern in FORBIDDEN_LINK_MAP_PATTERNS:
+            if pattern.search(object_path):
+                raise VerificationError(
+                    f"link map contains forbidden terminal object: {object_path}"
+                )
+    if not any("CmuxTerminalFrontend.build/" in path for path in object_paths):
+        raise VerificationError("link map does not contain CmuxTerminalFrontend objects")
+    return {
+        "path": resolved.name,
+        "linked_output": linked_basename,
+        "sha256": sha256_file(resolved),
+        "object_count": len(object_paths),
+        "objects_sha256": sha256_bytes(canonical_json(sorted(object_paths))),
+    }
+
+
 def run_tool(arguments: list[str]) -> str:
     process = subprocess.run(arguments, text=True, capture_output=True, check=False)
     if process.returncode != 0:
@@ -568,7 +822,12 @@ def relative_bundle_path(path: Path, bundle_root: Path) -> str:
         raise VerificationError(f"host load closure escaped app bundle: {path}") from error
 
 
-def verify_host_artifact(app_bundle: Path, graph_sha256: str) -> dict[str, Any]:
+def verify_host_artifact(
+    app_bundle: Path,
+    graph_sha256: str,
+    *,
+    link_map: Path | None = None,
+) -> dict[str, Any]:
     bundle_root = app_bundle.resolve(strict=True)
     info_plist = bundle_root / "Contents/Info.plist"
     if not info_plist.is_file():
@@ -677,6 +936,11 @@ def verify_host_artifact(app_bundle: Path, graph_sha256: str) -> dict[str, Any]:
         "dynamic_symbols": sorted(dynamic_symbol_reports, key=lambda item: item["path"]),
         "linkage_auditor_sha256": sha256_file(MACHO_AUDITOR),
     }
+    if link_map is not None:
+        artifact["link_map"] = verify_link_map(
+            link_map,
+            artifact_basenames={Path(item["path"]).name for item in closure},
+        )
     artifact["attestation_sha256"] = sha256_bytes(
         canonical_json({"graph_sha256": graph_sha256, "host_artifact": artifact})
     )
@@ -688,6 +952,9 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--package-path", type=Path, required=True)
     result.add_argument("--product", required=True)
     result.add_argument("--app-bundle", type=Path)
+    result.add_argument("--xcode-project", type=Path)
+    result.add_argument("--xcode-target")
+    result.add_argument("--link-map", type=Path)
     result.add_argument("--output", type=Path)
     result.add_argument("--swift", default=os.environ.get("SWIFT_EXEC", "swift"))
     return result
@@ -697,12 +964,40 @@ def main(arguments: list[str] | None = None) -> int:
     options = parser().parse_args(arguments)
     try:
         loader = PackageGraphLoader(options.swift)
-        report: dict[str, Any] = {"schema_version": 1}
+        report: dict[str, Any] = {"schema_version": 2}
         report.update(graph_report(loader, options.package_path, options.product))
+        xcode_arguments = (
+            options.xcode_project,
+            options.xcode_target,
+            options.link_map,
+        )
+        if any(value is not None for value in xcode_arguments) and not all(
+            value is not None for value in xcode_arguments
+        ):
+            raise VerificationError(
+                "--xcode-project, --xcode-target, and --link-map must be supplied together"
+            )
+        graph_binding_sha256 = str(report["graph_sha256"])
+        if options.xcode_project is not None and options.xcode_target is not None:
+            xcode_report = xcode_target_report(
+                options.xcode_project,
+                options.xcode_target,
+            )
+            report["xcode_target"] = xcode_report
+            graph_binding_sha256 = sha256_bytes(
+                canonical_json(
+                    {
+                        "swiftpm_graph_sha256": report["graph_sha256"],
+                        "xcode_target_sha256": xcode_report["sha256"],
+                    }
+                )
+            )
+            report["graph_binding_sha256"] = graph_binding_sha256
         if options.app_bundle is not None:
             report["host_artifact"] = verify_host_artifact(
                 options.app_bundle,
-                str(report["graph_sha256"]),
+                graph_binding_sha256,
+                link_map=options.link_map,
             )
         rendered = json.dumps(report, sort_keys=True, indent=2) + "\n"
         if options.output is not None:
