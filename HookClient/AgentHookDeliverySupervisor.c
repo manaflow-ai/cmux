@@ -481,12 +481,16 @@ int main(int argument_count, char **arguments) {
     }
 
     (void)signal(SIGPIPE, SIG_IGN);
-    if (setsid() < 0) {
+    const pid_t supervisor = getpid();
+    // Foundation may spawn the executable as the leader of a fresh process
+    // group. That group already has the identity property we need, and POSIX
+    // deliberately rejects setsid() for a process-group leader. Otherwise,
+    // create a new session so this live supervisor becomes the unique leader.
+    if (getpgrp() != supervisor && setsid() < 0) {
         const int session_error = errno;
         cmux_emit_launch_error(session_error);
         return 70;
     }
-    const pid_t supervisor = getpid();
     if (getpgrp() != supervisor) {
         cmux_emit_launch_error(EPERM);
         return 70;
