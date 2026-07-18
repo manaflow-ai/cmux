@@ -194,7 +194,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":8}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":9}}
 ```
 
 ### set-client-info
