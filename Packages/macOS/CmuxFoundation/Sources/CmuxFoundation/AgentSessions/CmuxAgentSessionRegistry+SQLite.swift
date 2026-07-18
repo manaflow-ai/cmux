@@ -17,15 +17,26 @@ extension CmuxAgentSessionRegistry {
         }
         defer { sqlite3_close(database) }
         sqlite3_busy_timeout(database, busyTimeoutMilliseconds)
-        try execute(database, sql: "PRAGMA journal_mode=WAL")
+        if try schemaVersion(database) < 1 {
+            try execute(database, sql: "PRAGMA journal_mode=WAL")
+            try migrate(database)
+        }
         try execute(database, sql: "PRAGMA synchronous=NORMAL")
-        try migrate(database)
         for path in [url.path, url.path + "-wal", url.path + "-shm"] {
             if FileManager.default.fileExists(atPath: path) {
                 _ = chmod(path, S_IRUSR | S_IWUSR)
             }
         }
         return try body(database)
+    }
+
+    func schemaVersion(_ database: OpaquePointer) throws -> Int {
+        let statement = try prepare(database, "PRAGMA user_version")
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw error(database, operation: "read schema version")
+        }
+        return Int(sqlite3_column_int64(statement, 0))
     }
 
     func migrate(_ database: OpaquePointer) throws {
