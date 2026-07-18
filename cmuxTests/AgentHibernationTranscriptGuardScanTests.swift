@@ -523,6 +523,79 @@ struct AgentHibernationTranscriptGuardScanTests {
         ) == workflowTranscript.path)
     }
 
+    @Test
+    func resolveTranscriptPathDoesNotScanWorkflowsWhenDirectClaudeTranscriptResolves() throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/direct-before-workflow"
+        let sessionId = "direct-before-workflow-session"
+        let directTranscript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(#"{"type":"user","message":{"content":"before"}}"# + "\n", to: directTranscript)
+        let projectRoot = directTranscript.deletingLastPathComponent().path
+        let fileManager = DirectoryReadTrackingFileManager(trackedPath: projectRoot)
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: sessionId, workingDirectory: cwd),
+            homeDirectory: home.path,
+            fileManager: fileManager
+        ) == directTranscript.path)
+        #expect(fileManager.trackedDirectoryReadCount == 0)
+    }
+
+    @Test
+    func resolveTranscriptPathDoesNotFollowWorkflowDirectorySymlinks() throws {
+        let home = try temporaryDirectory()
+        let externalRoot = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: home)
+            try? FileManager.default.removeItem(at: externalRoot)
+        }
+
+        let cwd = "/tmp/symlinked-workflow"
+        let sessionId = "symlinked-workflow-session"
+        let projectRoot = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+            .deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let externalTranscript = externalRoot
+            .appendingPathComponent("messages", isDirectory: true)
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try writeFile(#"{"type":"user","message":{"content":"outside"}}"# + "\n", to: externalTranscript)
+        try FileManager.default.createSymbolicLink(
+            at: projectRoot.appendingPathComponent("linked-workflow", isDirectory: true),
+            withDestinationURL: externalRoot
+        )
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: sessionId, workingDirectory: cwd),
+            homeDirectory: home.path
+        ) == nil)
+    }
+
+    @Test
+    func resolveTranscriptPathRejectsWorkflowCandidateThatExhaustsGlobalByteBudget() throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/oversized-workflow"
+        let sessionId = "oversized-workflow-session"
+        let workflowTranscript = workflowTranscriptURL(
+            home: home,
+            cwd: cwd,
+            containerSessionId: "workflow-container",
+            sessionId: sessionId
+        )
+        try writeFile(#"{"type":"user","message":{"content":"before"}}"# + "\n", to: workflowTranscript)
+        let handle = try FileHandle(forWritingTo: workflowTranscript)
+        try handle.truncate(atOffset: UInt64(64 * 1_024 * 1_024 + 1))
+        try handle.close()
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: sessionId, workingDirectory: cwd),
+            homeDirectory: home.path
+        ) == nil)
+    }
+
     private var metadataStub: String {
         [
             #"{"type":"last-prompt","prompt":"continue"}"#,
@@ -611,6 +684,23 @@ struct AgentHibernationTranscriptGuardScanTests {
         override func copyItem(atPath srcPath: String, toPath dstPath: String) throws {
             try replacement.write(toFile: srcPath, atomically: true, encoding: .utf8)
             try super.copyItem(atPath: srcPath, toPath: dstPath)
+        }
+    }
+
+    private final class DirectoryReadTrackingFileManager: FileManager {
+        private let trackedPath: String
+        private(set) var trackedDirectoryReadCount = 0
+
+        init(trackedPath: String) {
+            self.trackedPath = (trackedPath as NSString).standardizingPath
+            super.init()
+        }
+
+        override func contentsOfDirectory(atPath path: String) throws -> [String] {
+            if (path as NSString).standardizingPath == trackedPath {
+                trackedDirectoryReadCount += 1
+            }
+            return try super.contentsOfDirectory(atPath: path)
         }
     }
 }
