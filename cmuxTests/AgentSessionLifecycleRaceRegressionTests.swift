@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxFoundation
 import Darwin
 import Dispatch
@@ -518,6 +519,81 @@ extension CMUXCLIErrorOutputRegressionTests {
                 ))
             }
         }
+    }
+
+    @Test func protectedLifecycleRequiresInteractiveOrExactRootCustomResumeEvidence() {
+        let savedRun = AgentSessionRunRecord(
+            runId: "stable-run", pid: 123, processStartedAt: 100,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true, startedAt: 100, updatedAt: 200, endedAt: nil
+        )
+        let attemptID = UUID()
+        let matchingCustomResume = AgentHookSessionLineage(
+            runId: savedRun.runId, pid: 456, processStartedAt: 300,
+            processDescribesAgent: true, processLaunchMode: .unknown,
+            hibernationResumeAttemptId: attemptID,
+            parentRunId: nil, parentSessionId: nil, relationship: .resumed,
+            restoreAuthority: true
+        )
+        var mismatchedCustomResume = matchingCustomResume
+        mismatchedCustomResume.hibernationResumeAttemptId = UUID()
+        var nestedCustomResume = matchingCustomResume
+        nestedCustomResume.relationship = .spawned
+        nestedCustomResume.restoreAuthority = false
+        var unrecognizedCustomResume = matchingCustomResume
+        unrecognizedCustomResume.processDescribesAgent = false
+        var oneShotCustomResume = matchingCustomResume
+        oneShotCustomResume.processLaunchMode = .oneShot
+        var nonSessionCustomResume = matchingCustomResume
+        nonSessionCustomResume.processLaunchMode = .nonSession
+        var nestedInteractiveResume = matchingCustomResume
+        nestedInteractiveResume.processLaunchMode = .interactive
+        nestedInteractiveResume.relationship = .spawned
+        nestedInteractiveResume.restoreAuthority = false
+        let rejected = [
+            mismatchedCustomResume,
+            nestedCustomResume,
+            unrecognizedCustomResume,
+            oneShotCustomResume,
+            nonSessionCustomResume,
+            nestedInteractiveResume,
+        ]
+
+        for state in [AgentSessionLifecycleState.hibernated, .restoring] {
+            let record = ClaudeHookSessionRecord(
+                sessionId: "protected-session", workspaceId: "workspace", surfaceId: "surface",
+                pid: savedRun.pid, startedAt: 100, updatedAt: 200, sessionState: state,
+                runs: [savedRun], activeRunId: savedRun.runId,
+                cmuxHibernationResumeAttemptId: attemptID.uuidString
+            )
+            #expect(AgentHookSessionActivationPolicy().canActivate(
+                record: record, lineage: matchingCustomResume, hasIncomingPID: true
+            ))
+            for lineage in rejected {
+                #expect(!AgentHookSessionActivationPolicy().canActivate(
+                    record: record, lineage: lineage, hasIncomingPID: true
+                ))
+            }
+        }
+    }
+
+    @Test func lineageResolverReadsValidatedHibernationResumeAttemptEvidence() {
+        let attemptID = UUID()
+        let valid = AgentHookSessionLineageResolver().resolve(
+            agentName: "local-agent",
+            sessionId: "custom-session",
+            pid: nil,
+            environment: [AgentHibernationResumeEvidence.environmentKey: attemptID.uuidString]
+        )
+        let malformed = AgentHookSessionLineageResolver().resolve(
+            agentName: "local-agent",
+            sessionId: "custom-session",
+            pid: nil,
+            environment: [AgentHibernationResumeEvidence.environmentKey: "not-a-uuid"]
+        )
+
+        #expect(valid.hibernationResumeAttemptId == attemptID)
+        #expect(malformed.hibernationResumeAttemptId == nil)
     }
 
     @MainActor
