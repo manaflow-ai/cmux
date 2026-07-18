@@ -64,6 +64,11 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
                         "bundle_path": "/Applications/Settings.app",
                     }
                 }
+            elif method == "simulator.context":
+                result = {
+                    "simulator_id": "SIMULATOR-1",
+                    "device_name": "iPhone Fixture",
+                }
             else:
                 result = {}
             response = {"ok": True, "result": result, "id": request.get("id")}
@@ -96,6 +101,30 @@ def run_cli(
     env["HOME"] = str(fake_home)
     return subprocess.run(
         [cli_path, "--socket", str(socket_path), "simulator", *arguments],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=10,
+    )
+
+
+def run_ios_cli(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    arguments: list[str],
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
+        env.pop(key, None)
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SOCKET"] = str(socket_path)
+    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+    env["HOME"] = str(fake_home)
+    return subprocess.run(
+        [cli_path, "--socket", str(socket_path), "ios", *arguments],
         capture_output=True,
         text=True,
         check=False,
@@ -325,6 +354,25 @@ def check_inspection(
     )
 
 
+def check_ios_error_identity(
+    cli_path: str, socket_path: Path, fake_home: Path, state: RecordingState
+) -> None:
+    start = state.count()
+    proc = run_ios_cli(
+        cli_path, socket_path, fake_home,
+        ["screenshot", "--surface", "surface:missing-ref"],
+    )
+    if proc.returncode == 0:
+        raise AssertionError("iOS screenshot without a surface reference unexpectedly succeeded")
+    if "no surface reference" not in proc.stderr:
+        raise AssertionError(
+            f"iOS screenshot misidentified a missing surface reference: {proc.stderr!r}"
+        )
+    requests = state.requests_since(start)
+    if len(requests) != 1 or requests[0].get("method") != "simulator.context":
+        raise AssertionError(f"unexpected iOS screenshot requests: {requests!r}")
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -342,6 +390,7 @@ def main() -> int:
                 check_permissions(cli_path, socket_path, fake_home, state)
                 check_interface(cli_path, socket_path, fake_home, state)
                 check_inspection(cli_path, socket_path, fake_home, state)
+                check_ios_error_identity(cli_path, socket_path, fake_home, state)
             finally:
                 server.shutdown()
                 server.server_close()
