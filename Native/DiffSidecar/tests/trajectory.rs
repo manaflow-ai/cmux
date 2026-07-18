@@ -557,6 +557,58 @@ fn codex_resolver_normalizes_a_nested_cwd_to_the_repository_root() {
 }
 
 #[test]
+fn codex_resolver_resolves_relative_apply_patch_paths_from_nested_cwd() {
+    let fixture = FixtureRoot::new("codex-relative-nested-cwd");
+    prepare_common_directories(&fixture);
+    init_git_repository(&fixture.repo());
+    let nested = fixture.repo().join("Sources/Feature");
+    fs::create_dir_all(&nested).expect("create nested working directory");
+    fs::write(nested.join("File.swift"), "before\n").expect("write nested file");
+    let transcript = fixture.home().join("codex-relative-nested.jsonl");
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn"}}),
+            serde_json::json!({"type":"response_item","payload":{
+                "type":"custom_tool_call",
+                "name":"apply_patch",
+                "call_id":"patch",
+                "input":"*** Begin Patch\n*** Update File: File.swift\n@@\n-before\n+after\n*** End Patch"
+            }}),
+            serde_json::json!({"type":"response_item","payload":{
+                "type":"custom_tool_call_output",
+                "call_id":"patch",
+                "output":"Success"
+            }}),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "session",
+        &nested,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve relative patch from nested launch directory");
+
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/Sources/Feature/File.swift b/Sources/Feature/File.swift")
+    );
+    assert!(
+        !resolved
+            .patch
+            .contains("diff --git a/File.swift b/File.swift")
+    );
+}
+
+#[test]
 fn codex_deletion_uses_recorded_content_when_unified_diff_is_absent() {
     let fixture = FixtureRoot::new("codex-delete-content");
     prepare_common_directories(&fixture);

@@ -242,27 +242,29 @@ struct BrowserPrewarmedWebViewPoolTests {
         #expect(harness.madeWebViews[0].window == nil)
     }
 
-    @Test func trustedInlinePageRemainsReadyUntilClaimed() async {
+    @Test func trustedInlinePageExpiresWhenItIsNotClaimed() async {
         let harness = PrewarmPoolHarness(expirySleep: { _ in })
         harness.pool.prewarmTrustedInlinePage(url: inlineLoadingURL, profileID: profileID)
         harness.pool.webView(harness.madeWebViews[0], didFinish: nil)
 
-        for _ in 0..<100 {
+        var remainingYields = 1000
+        while harness.pool.hasEntry(url: inlineLoadingURL, profileID: profileID), remainingYields > 0 {
+            remainingYields -= 1
             await Task.yield()
         }
 
-        #expect(harness.pool.hasEntry(url: inlineLoadingURL, profileID: profileID))
-        harness.pool.discard(reason: "test-teardown")
+        #expect(!harness.pool.hasEntry(url: inlineLoadingURL, profileID: profileID))
+        #expect(harness.madeWebViews[0].window == nil)
     }
 
-    @Test func expiringPrewarmsAreEvictedBeforeDurableInlinePage() {
+    @Test func capacityEvictsTheOldestPrewarmIncludingInlinePages() {
         let harness = PrewarmPoolHarness(capacity: 2)
         harness.pool.prewarmTrustedInlinePage(url: inlineLoadingURL, profileID: profileID)
         harness.pool.prewarm(url: pricingURL, profileID: profileID)
         harness.pool.prewarm(url: otherURL, profileID: profileID)
 
-        #expect(harness.pool.hasEntry(url: inlineLoadingURL, profileID: profileID))
-        #expect(!harness.pool.hasEntry(url: pricingURL, profileID: profileID))
+        #expect(!harness.pool.hasEntry(url: inlineLoadingURL, profileID: profileID))
+        #expect(harness.pool.hasEntry(url: pricingURL, profileID: profileID))
         #expect(harness.pool.hasEntry(url: otherURL, profileID: profileID))
         harness.pool.discard(reason: "test-teardown")
     }
