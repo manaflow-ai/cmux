@@ -79,4 +79,32 @@ struct BrowserDesignModeComposerHostingViewTests {
             "Events outside the composer card must pass through to the page"
         )
     }
+
+    @Test func selectionTokenExposesAnAccessibleRemovalAction() {
+        let selection = BrowserDesignModeSelection(
+            selector: "#hero",
+            selectors: ["#hero"],
+            tagName: "h1",
+            domSnippet: "<h1 id=\"hero\">Hero</h1>",
+            textContent: "Hero",
+            textEditable: true,
+            bounds: BrowserDesignModeRect(x: 10, y: 20, width: 200, height: 60),
+            viewport: BrowserDesignModeViewport(width: 800, height: 600),
+            computedStyles: [:]
+        )
+        var removedIdentity: String?
+        let cell = BrowserDesignModeTokenCell(selection: selection) { identity in
+            removedIdentity = identity
+        }
+
+        #expect(cell.accessibilityRole() == .button)
+        #expect(
+            cell.accessibilityLabel() == String(
+                localized: "browser.designMode.context.remove",
+                defaultValue: "Remove h1 context"
+            )
+        )
+        #expect(cell.accessibilityPerformPress())
+        #expect(removedIdentity == "#hero")
+    }
 }

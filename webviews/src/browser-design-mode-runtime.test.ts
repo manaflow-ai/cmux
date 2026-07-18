@@ -49,7 +49,14 @@ type DesignRuntime = {
   destroy(): Snapshot;
   snapshot(): Snapshot;
   select(selector: string, stack?: boolean): Snapshot;
-  composerState(): { selection_count: number; selectors: string[]; can_copy: boolean; mode: string; hovered_selector: string | null };
+  composerState(): {
+    selection_count: number;
+    selectors: string[];
+    can_copy: boolean;
+    mode: string;
+    hovered_selector: string | null;
+    annotation_phase: "idle" | "drawing" | "ink_only" | "capturing" | "captured";
+  };
   setMode(mode: string): Snapshot;
   clearHover(): Snapshot;
   flashSelection(index: number): Snapshot;
@@ -59,6 +66,21 @@ type DesignRuntime = {
   revertAll(): Snapshot;
   prepareCapture(): Snapshot;
   finishCapture(): Snapshot;
+  prepareAnnotationCapture(id: string): {
+    id: string;
+    stroke_bounds: { x: number; y: number; width: number; height: number };
+    viewport: { width: number; height: number };
+    scroll_x: number;
+    scroll_y: number;
+  } | null;
+  completeAnnotationCapture(
+    id: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    imageURL: string,
+  ): Snapshot;
 };
 
 afterEach(() => {
@@ -660,8 +682,8 @@ describe("browser design-mode runtime", () => {
     expect(dom.window.document.querySelector(selector)).toBe(second);
   });
 
-  test("dragging draws a marquee that captures a screenshot region", () => {
-    const { dom, runtime } = fixture(`<main><button id="b">B</button></main>`);
+  test("freehand ink becomes a captured context card only after native capture completes", () => {
+    const { dom, messages, runtime } = fixture(`<main><button id="b">B</button></main>`);
     const doc = dom.window.document;
     const at = (name: string, x: number, y: number) => doc.dispatchEvent(
       new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
@@ -673,28 +695,68 @@ describe("browser design-mode runtime", () => {
     // A freehand stroke whose farthest sweep goes beyond where the pointer is
     // released: the region must bound the WHOLE stroke, not the endpoints.
     at("pointerdown", 10, 20);
+    expect(runtime.composerState().annotation_phase).toBe("drawing");
     at("pointermove", 40, 50);
     at("pointermove", 210, 340);
     at("pointerup", 110, 140);
 
-    const state = runtime.composerState();
-    expect(state.selection_count).toBe(1);
-    expect(state.can_copy).toBe(true);
-    const selection = runtime.snapshot().selections?.[0];
+    // Completion is ink-only: no region token/card exists until the native
+    // screenshot callback returns the exact composited artifact.
+    const inkOnly = runtime.composerState();
+    expect(inkOnly.annotation_phase).toBe("ink_only");
+    expect(inkOnly.selection_count).toBe(0);
+    expect(inkOnly.can_copy).toBe(false);
+    const requestMessage = messages.findLast(
+      (message) => (message as { type?: string }).type === "annotation_capture_requested",
+    ) as { request: { id: string } } | undefined;
+    expect(requestMessage).toBeDefined();
+    const annotationID = requestMessage?.request.id ?? "";
+
+    const descriptor = runtime.prepareAnnotationCapture(annotationID);
+    expect(runtime.composerState().annotation_phase).toBe("capturing");
+    expect(descriptor?.stroke_bounds).toEqual({ x: 10, y: 20, width: 200, height: 320 });
+    const completed = runtime.completeAnnotationCapture(
+      annotationID,
+      0,
+      0,
+      258,
+      408,
+      "data:image/png;base64,Y2FyZA==",
+    );
+
+    expect(runtime.composerState().annotation_phase).toBe("captured");
+    expect(runtime.composerState().selection_count).toBe(1);
+    expect(runtime.composerState().can_copy).toBe(true);
+    const selection = completed.selections?.[0];
     expect(selection?.tag_name).toBe("region");
-    expect(selection?.bounds).toEqual({ x: 10, y: 20, width: 200, height: 320 });
+    expect(selection?.selector).toBe(`@annotation(${annotationID})`);
+    expect(selection?.bounds).toEqual({ x: 0, y: 0, width: 258, height: 408 });
 
     // The trailing click from the same gesture must not add an element selection.
     at("click", 110, 140);
     expect(runtime.composerState().selection_count).toBe(1);
 
-    // Every draw stacks another region token; earlier captures persist.
+    // One stroke is one immutable context artifact. A later stroke stacks a
+    // new request/card rather than merging into or replacing the first.
     at("pointerdown", 300, 300);
     at("pointermove", 360, 360);
     at("pointerup", 360, 360);
-    const regions = runtime.snapshot().selections ?? [];
+    const secondRequest = messages.findLast(
+      (message) => (message as { type?: string }).type === "annotation_capture_requested"
+        && (message as { request?: { id?: string } }).request?.id !== annotationID,
+    ) as { request: { id: string } } | undefined;
+    expect(secondRequest).toBeDefined();
+    runtime.prepareAnnotationCapture(secondRequest?.request.id ?? "");
+    const regions = runtime.completeAnnotationCapture(
+      secondRequest?.request.id ?? "",
+      252,
+      252,
+      156,
+      156,
+      "data:image/png;base64,Y2FyZDI=",
+    ).selections ?? [];
     expect(regions).toHaveLength(2);
-    expect(regions[1]?.bounds?.x).toBe(300);
+    expect(regions[1]?.bounds?.x).toBe(252);
 
     // Escape clears regions before exiting design mode.
     doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
