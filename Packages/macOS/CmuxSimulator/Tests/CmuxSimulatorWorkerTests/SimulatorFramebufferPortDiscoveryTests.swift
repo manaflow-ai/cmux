@@ -164,8 +164,8 @@ struct SimulatorFramebufferPortDiscoveryTests {
         #expect(transports.first?.height == 12)
     }
 
-    @Test("Replacing geometry releases the obsolete worker-owned frame ring")
-    func resizeReleasesObsoleteFrameRing() async throws {
+    @Test("Replacing geometry keeps the obsolete ring name available to the host")
+    func resizeKeepsObsoleteFrameRingAvailable() async throws {
         let fixture = SimulatorFramebufferPortFixture()
         var transports: [SimulatorFrameTransportDescriptor] = []
         let framebuffer = SimulatorFramebuffer(
@@ -185,7 +185,7 @@ struct SimulatorFramebufferPortDiscoveryTests {
         #expect(transports.count == 2)
         let obsoleteHandle = try simulatorOpenSharedMemory(named: obsoleteName, flags: O_RDONLY)
         if obsoleteHandle >= 0 { close(obsoleteHandle) }
-        #expect(obsoleteHandle == -1)
+        #expect(obsoleteHandle >= 0)
         framebuffer.stop()
     }
 

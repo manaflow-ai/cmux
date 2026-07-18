@@ -126,8 +126,8 @@ extension SimulatorWorkerClientTests {
         await client.stop()
     }
 
-    @Test("Replacing a framebuffer transport evicts its obsolete shared-memory name")
-    func replacementFrameTransportEvictsObsoleteName() async throws {
+    @Test("Replacing a framebuffer transport retains both names until host adoption")
+    func replacementFrameTransportRetainsNamesUntilAdoption() async throws {
         let launcher = TestWorkerLauncher()
         let client = makeClient(launcher: launcher)
         await client.send(.attach(udid: "DEVICE", geometry: nil))
@@ -142,7 +142,10 @@ extension SimulatorWorkerClientTests {
             await Task.yield()
         }
 
-        #expect(await client.frameTransportSharedMemoryNames == [second.sharedMemoryName])
+        #expect(await client.frameTransportSharedMemoryNames == [
+            first.sharedMemoryName,
+            second.sharedMemoryName,
+        ])
         await client.stop()
     }
 
