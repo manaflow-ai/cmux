@@ -577,6 +577,106 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func exactCustomResumeActivationRetainsFutureRestoreAuthorityThroughStore() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-custom-resume-authority-\(UUID().uuidString)", isDirectory: true)
+        let customAgent = root.appendingPathComponent("local-agent")
+        let fakeCmux = root.appendingPathComponent("cmux")
+        let pidFile = root.appendingPathComponent("agent-pid")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: customAgent.path)
+        try FileManager.default.copyItem(atPath: "/bin/sh", toPath: fakeCmux.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let terminalHost = Process()
+        terminalHost.executableURL = fakeCmux
+        terminalHost.arguments = [
+            "-c",
+            "\(customAgent.path) 30 & echo $! > \(pidFile.path); wait",
+        ]
+        try terminalHost.run()
+        defer {
+            if terminalHost.isRunning { terminalHost.terminate() }
+            terminalHost.waitUntilExit()
+        }
+
+        let deadline = Date().addingTimeInterval(2)
+        var agentPID: Int?
+        repeat {
+            if let contents = try? String(contentsOf: pidFile, encoding: .utf8) {
+                agentPID = Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            if agentPID != nil { break }
+            usleep(10_000)
+        } while Date() < deadline
+        let resumedPID = try #require(agentPID)
+        defer { kill(pid_t(resumedPID), SIGTERM) }
+
+        let sessionID = "custom-resumed-session"
+        let resumeAttemptID = UUID()
+        let stateURL = root.appendingPathComponent("local-agent-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: [
+                "sessionId": sessionID,
+                "workspaceId": "workspace-before",
+                "surfaceId": "surface-before",
+                "pid": 123,
+                "runId": "saved-run",
+                "activeRunId": "saved-run",
+                "sessionState": "restoring",
+                "restoreAuthority": true,
+                "cmuxHibernationResumeAttemptId": resumeAttemptID.uuidString,
+                "cmuxHibernationResumeStartedAt": 20.0,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+                "runs": [[
+                    "runId": "saved-run",
+                    "pid": 123,
+                    "processStartedAt": 10.0,
+                    "restoreAuthority": true,
+                    "startedAt": 10.0,
+                    "updatedAt": 20.0,
+                ]],
+            ]],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+            AgentHibernationResumeEvidence.environmentKey: resumeAttemptID.uuidString,
+        ], agentName: "local-agent")
+
+        #expect(try store.upsert(
+            sessionId: sessionID,
+            workspaceId: "workspace-after",
+            surfaceId: "surface-after",
+            cwd: root.path,
+            pid: resumedPID,
+            markActive: true
+        ))
+
+        let activated = try #require(try store.lookup(sessionId: sessionID))
+        let activeRunID = try #require(activated.activeRunId)
+        let activeRun = try #require(activated.runs?.first { $0.runId == activeRunID })
+        #expect(activated.sessionState == .active)
+        #expect(activated.cmuxHibernationResumeAttemptId == nil)
+        #expect(activated.restoreAuthority)
+        #expect(activeRun.restoreAuthority)
+
+        #expect(try store.upsert(
+            sessionId: sessionID,
+            workspaceId: "workspace-after",
+            surfaceId: "surface-after",
+            cwd: root.path,
+            pid: resumedPID,
+            markActive: true
+        ))
+        let afterDuplicateHook = try #require(try store.lookup(sessionId: sessionID))
+        #expect(afterDuplicateHook.activeRunId == activeRunID)
+        #expect(afterDuplicateHook.restoreAuthority)
+        #expect(afterDuplicateHook.runs?.first { $0.runId == activeRunID }?.restoreAuthority == true)
+    }
+
     @Test func lineageResolverReadsValidatedHibernationResumeAttemptEvidence() {
         let attemptID = UUID()
         let valid = AgentHookSessionLineageResolver().resolve(
