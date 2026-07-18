@@ -292,7 +292,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     stamp: stamp
                 ) else { continue }
                 do {
-                    let data = try Data(contentsOf: source.url)
+                    let data = try readHookLegacySourceData(at: source.url)
                     changed.append((source, stamp, try legacyPayload(provider: source.provider, json: data)))
                 } catch {
                     failedProviders.insert(source.provider)
@@ -339,7 +339,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
                         provider: source.provider,
                         stamp: stamp
                       ) else { continue }
-                let data = try Data(contentsOf: source.url)
+                let data = try readHookLegacySourceData(at: source.url)
                 changed.append((source, stamp, try legacyPayload(provider: source.provider, json: data)))
             }
             if !changed.isEmpty {
@@ -481,8 +481,17 @@ public struct CmuxAgentSessionRegistry: Sendable {
         activeSlots: [ActiveSlot] = [],
         deletedSlots: Set<String> = []
     ) throws {
+        try validateHookWriteBatch(
+            provider: provider,
+            records: records,
+            activeSlots: activeSlots
+        )
         try withDatabase { database in
             try transaction(database) {
+                let previousProviderBytes = try hookProviderStorageBytes(
+                    database: database,
+                    provider: provider
+                )
                 for var record in records {
                     record.provider = provider
                     try upsert(record, database: database)
@@ -510,6 +519,12 @@ public struct CmuxAgentSessionRegistry: Sendable {
                         maximumWriterGeneration: Self.currentWriterGeneration
                     )
                 }
+                try reconcileHookProviderStorageLimit(
+                    database: database,
+                    provider: provider,
+                    protectedSessionIDs: Set(records.map(\.sessionID)),
+                    previousBytes: previousProviderBytes
+                )
             }
         }
     }
@@ -532,6 +547,10 @@ public struct CmuxAgentSessionRegistry: Sendable {
     ) throws -> Bool {
         try withDatabase { database in
             try transaction(database) {
+                let previousProviderBytes = try hookProviderStorageBytes(
+                    database: database,
+                    provider: provider
+                )
                 guard let existing = try readRecord(
                     database: database,
                     provider: provider,
@@ -563,6 +582,12 @@ public struct CmuxAgentSessionRegistry: Sendable {
                         maximumWriterGeneration: Self.currentWriterGeneration
                     )
                 }
+                try reconcileHookProviderStorageLimit(
+                    database: database,
+                    provider: provider,
+                    protectedSessionIDs: [sessionID],
+                    previousBytes: previousProviderBytes
+                )
                 return true
             }
         }
@@ -673,7 +698,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     stamp,
                     try legacyPayload(
                         provider: provider,
-                        json: Data(contentsOf: legacyURL)
+                        json: readHookLegacySourceData(at: legacyURL)
                     )
                 )
             } else {
@@ -710,6 +735,10 @@ public struct CmuxAgentSessionRegistry: Sendable {
         shouldMutate: ([String: Any]) -> Bool,
         mutate: (inout [String: Any]) -> Void
     ) throws -> RecordRebindResult {
+        let previousProviderBytes = try hookProviderStorageBytes(
+            database: database,
+            provider: provider
+        )
         let previousKeys = Set(previousSlots)
         let activeKeys = Set(activeSlots)
         let keys = previousKeys.union(activeKeys)
@@ -840,6 +869,12 @@ public struct CmuxAgentSessionRegistry: Sendable {
                 database: database
             )
         }
+        try reconcileHookProviderStorageLimit(
+            database: database,
+            provider: provider,
+            protectedSessionIDs: [sessionID],
+            previousBytes: previousProviderBytes
+        )
         return .patched
     }
 

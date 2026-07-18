@@ -37,8 +37,12 @@ extension CmuxAgentSessionRegistry {
         sqlite3_busy_timeout(database, busyTimeoutMilliseconds)
         if try schemaVersion(database) < 1 {
             try execute(database, sql: "PRAGMA journal_mode=WAL")
-            try migrate(database)
+            try transaction(database, retryBeginContention: false) {
+                guard try schemaVersion(database) < 1 else { return }
+                try migrate(database)
+            }
         }
+        try ensureHookHotPathSchema(database)
         try execute(database, sql: "PRAGMA synchronous=NORMAL")
         for path in [url.path, url.path + "-wal", url.path + "-shm"] {
             if FileManager.default.fileExists(atPath: path) {
@@ -402,6 +406,15 @@ extension CmuxAgentSessionRegistry {
     }
 
     func upsert(_ record: Record, database: OpaquePointer) throws {
+        guard record.json.count <= Self.maximumHookRecordBytes else {
+            throw HookStorageLimitError(
+                scope: .record,
+                provider: record.provider,
+                sessionID: record.sessionID,
+                observedBytes: Int64(record.json.count),
+                maximumBytes: Int64(Self.maximumHookRecordBytes)
+            )
+        }
         let metadata = (try? JSONSerialization.jsonObject(with: record.json) as? [String: Any]) ?? [:]
         let runtime = metadata["cmuxRuntime"] as? [String: Any]
         let statement = try prepare(

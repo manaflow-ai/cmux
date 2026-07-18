@@ -2,8 +2,15 @@ import Foundation
 import SQLite3
 
 extension CmuxAgentSessionRegistry {
-    func deleteLegacyRows(database: OpaquePointer, provider: String) throws {
-        for table in ["agent_sessions", "agent_active_slots"] {
+    func deleteLegacyRows(
+        database: OpaquePointer,
+        provider: String,
+        preservingSessionRows: Bool = false
+    ) throws {
+        let tables = preservingSessionRows
+            ? ["agent_active_slots"]
+            : ["agent_sessions", "agent_active_slots"]
+        for table in tables {
             let statement = try prepare(
                 database,
                 "DELETE FROM \(table) WHERE provider = ?1 AND writer_generation = 0"
@@ -42,7 +49,29 @@ extension CmuxAgentSessionRegistry {
         stamp: LegacyStamp,
         payload: LegacyPayload
     ) throws {
-        try deleteLegacyRows(database: database, provider: provider)
+        try validateHookWriteBatch(
+            provider: provider,
+            records: payload.records,
+            activeSlots: payload.activeSlots
+        )
+        let previousProviderBytes = try hookProviderStorageBytes(
+            database: database,
+            provider: provider
+        )
+        // Once cmux has published a bounded compatibility projection, absence
+        // from legacy JSON no longer means a canonical session was deleted.
+        // Older writers see only active owners plus recent history and can
+        // safely append or update generation-zero records. Active slots remain
+        // a complete projection, so their removals must still propagate.
+        let preservesOmittedSessions = try hookProjectionHasPublished(
+            database: database,
+            provider: provider
+        )
+        try deleteLegacyRows(
+            database: database,
+            provider: provider,
+            preservingSessionRows: preservesOmittedSessions
+        )
         for var record in payload.records {
             record.provider = provider
             record.writerGeneration = 0
@@ -53,7 +82,49 @@ extension CmuxAgentSessionRegistry {
             slot.writerGeneration = 0
             try upsert(slot, database: database)
         }
+        try reconcileHookProviderStorageLimit(
+            database: database,
+            provider: provider,
+            protectedSessionIDs: [],
+            previousBytes: previousProviderBytes
+        )
         try writeLegacyStamp(database: database, provider: provider, stamp: stamp)
+    }
+
+    private func hookProjectionHasPublished(
+        database: OpaquePointer,
+        provider: String
+    ) throws -> Bool {
+        let table = try prepare(
+            database,
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'agent_provider_metadata'
+            """
+        )
+        defer { sqlite3_finalize(table) }
+        guard try stepRow(table, database: database, operation: "find hook projection metadata") else {
+            return false
+        }
+
+        let statement = try prepare(
+            database,
+            """
+            SELECT projected_revision > 0
+            FROM agent_provider_metadata
+            WHERE provider = ?1
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider, to: 1, in: statement)
+        guard try stepRow(
+            statement,
+            database: database,
+            operation: "read hook projection publication"
+        ) else {
+            return false
+        }
+        return sqlite3_column_int(statement, 0) != 0
     }
 
     func writeLegacyStamp(
