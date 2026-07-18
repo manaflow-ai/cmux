@@ -8,6 +8,8 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 const S = 2; // render at 2x for sharper images on social platforms
+const SCREENSHOT_INSET = 40;
+const SCREENSHOT_RADIUS = 18;
 const localeFonts: Partial<
   Record<Locale, { name: string; filename: string }>
 > = {
@@ -148,9 +150,15 @@ export async function renderOpenGraphImage(locale: string) {
               flex: 1,
               overflow: "hidden",
               position: "relative",
+              margin: `${SCREENSHOT_INSET * S}px ${SCREENSHOT_INSET * S}px 0`,
+              borderRadius: SCREENSHOT_RADIUS * S,
             }}
           >
-            <img src={screenshotSrc} width={size.width * S} alt="" />
+            <img
+              src={screenshotSrc}
+              width={(size.width - SCREENSHOT_INSET * 2) * S}
+              alt=""
+            />
             <div
               style={{
                 position: "absolute",
