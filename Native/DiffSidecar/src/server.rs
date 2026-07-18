@@ -81,13 +81,19 @@ type TrajectoryScanResult = Result<ResolvedTurnPatch, TrajectoryError>;
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct TrajectoryScanKey {
     identity: AgentTurnIdentity,
+    roots: TrajectoryRoots,
     generation: AgentTurnGeneration,
 }
 
 impl TrajectoryScanKey {
-    fn new(identity: AgentTurnIdentity, location: &AgentTurnLocation) -> Self {
+    fn new(
+        identity: AgentTurnIdentity,
+        roots: &TrajectoryRoots,
+        location: &AgentTurnLocation,
+    ) -> Self {
         Self {
             identity,
+            roots: roots.clone(),
             generation: location.generation().clone(),
         }
     }
@@ -132,11 +138,15 @@ struct BranchSessionAuthorization {
     allowed_agent_turns: Vec<AgentTurnAuthorization>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentTurnAuthorization {
     provider: crate::protocol::AgentProvider,
     session_id: String,
+    #[serde(default)]
+    hook_state_dir: Option<String>,
+    #[serde(default)]
+    claude_hook_state_path: Option<String>,
 }
 
 const MAX_CACHED_MANIFESTS: usize = 64;
@@ -425,11 +435,17 @@ where
         }
     };
     if value.get("control").and_then(serde_json::Value::as_str) == Some("cancel") {
-        let request_id = value
+        let Some(request_id) = value
             .get("requestId")
             .and_then(serde_json::Value::as_str)
             .filter(|request_id| !request_id.is_empty())
-            .ok_or_else(|| "cancel control frame requires requestId".to_owned())?;
+        else {
+            return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
+                UNTRUSTED_RPC_REQUEST_ID.to_owned(),
+                "invalidRequest",
+                "Cancel control frame requires a non-empty requestId",
+            )));
+        };
         return Ok(RpcRequestRead::Cancel(request_id.to_owned()));
     }
     match serde_json::from_value(value) {
@@ -740,9 +756,10 @@ impl Drop for CancelTrajectoryOnDrop {
 async fn resolve_agent_turn_coalesced(
     state: &AppState,
     identity: AgentTurnIdentity,
+    roots: TrajectoryRoots,
     location: AgentTurnLocation,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
-    let key = TrajectoryScanKey::new(identity.clone(), &location);
+    let key = TrajectoryScanKey::new(identity.clone(), &roots, &location);
     let (mut receiver, producer) = {
         let mut scans = state.trajectory_scans.lock().await;
         if let Some(sender) = scans.get(&key).filter(|sender| !sender.is_closed()) {
@@ -760,6 +777,7 @@ async fn resolve_agent_turn_coalesced(
         let child_processes = Arc::clone(&state.child_processes);
         let map_key = key;
         let worker_location = location;
+        let worker_roots = roots;
         tokio::spawn(async move {
             let cancellation = TrajectoryCancellation::default();
             let cancellation_monitor = cancellation.clone();
@@ -779,10 +797,9 @@ async fn resolve_agent_turn_coalesced(
                     // Blocking tasks outlive an aborted async waiter, so the work
                     // itself owns the permit until its transcript scan finishes.
                     let _permit = permit;
-                    let roots = TrajectoryRoots::from_environment()?;
                     resolve_last_turn_patch_at_location_cancellable(
                         &worker_identity,
-                        &roots,
+                        &worker_roots,
                         &worker_location,
                         &cancellation,
                     )
@@ -856,10 +873,17 @@ async fn open_session(
             .await
             .ok_or(SessionOpenError::Unauthorized)?;
         let identity = AgentTurnIdentity::new(*provider, session_id.clone());
-        if !authorizations_allow_agent_turn(&authorizations, &identity) {
-            return Err(SessionOpenError::Unauthorized);
-        }
+        let authorization = agent_turn_authorization(&authorizations, &identity)
+            .ok_or(SessionOpenError::Unauthorized)?
+            .clone();
+        let roots = TrajectoryRoots::from_environment()
+            .map_err(|_| SessionOpenError::Failed)?
+            .with_hook_state_overrides(
+                authorization.hook_state_dir.as_deref(),
+                authorization.claude_hook_state_path.as_deref(),
+            );
         let worker_identity = identity.clone();
+        let worker_roots = roots.clone();
         let cancellation = TrajectoryCancellation::default();
         let worker_cancellation = cancellation.clone();
         let permit = state
@@ -870,20 +894,23 @@ async fn open_session(
         let cancellation_guard = CancelTrajectoryOnDrop(cancellation);
         let location = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            let roots = TrajectoryRoots::from_environment()?;
-            resolve_agent_turn_location_cancellable(&worker_identity, &roots, &worker_cancellation)
+            resolve_agent_turn_location_cancellable(
+                &worker_identity,
+                &worker_roots,
+                &worker_cancellation,
+            )
         })
         .await
         .map_err(|_| SessionOpenError::Failed)?
         .map_err(|_| SessionOpenError::Failed)?;
         drop(cancellation_guard);
-        Some((identity, location))
+        Some((identity, roots, location))
     } else {
         None
     };
-    let resolved_turn = if let Some((identity, location)) = authorized_agent_turn {
+    let resolved_turn = if let Some((identity, roots, location)) = authorized_agent_turn {
         let authorized_repo_root = location.repo_root().to_owned();
-        let resolved = resolve_agent_turn_coalesced(state, identity, location)
+        let resolved = resolve_agent_turn_coalesced(state, identity, roots, location)
             .await
             .map_err(|error| match error {
                 TrajectoryError::Empty => SessionOpenError::Empty,
@@ -2130,15 +2157,16 @@ async fn authorizations_allow_repo(
     false
 }
 
-fn authorizations_allow_agent_turn(
-    authorizations: &[BranchSessionAuthorization],
+fn agent_turn_authorization<'a>(
+    authorizations: &'a [BranchSessionAuthorization],
     identity: &AgentTurnIdentity,
-) -> bool {
-    authorizations.iter().any(|authorization| {
-        authorization.allowed_agent_turns.iter().any(|allowed| {
+) -> Option<&'a AgentTurnAuthorization> {
+    authorizations
+        .iter()
+        .flat_map(|authorization| &authorization.allowed_agent_turns)
+        .find(|allowed| {
             allowed.provider == identity.provider && allowed.session_id == identity.session_id
         })
-    })
 }
 
 async fn authorize_branch_change(state: &AppState, token: &str, group: &str, repo: &str) -> bool {
@@ -2360,6 +2388,7 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::path::PathBuf;
     use std::process::Command;
     use std::time::Duration;
 
@@ -2368,7 +2397,7 @@ mod tests {
 
     use crate::PROTOCOL_VERSION;
     use crate::protocol::{AgentProvider, DiffCommand, DiffRequest, DiffResult};
-    use crate::trajectory::{AgentTurnGeneration, AgentTurnIdentity};
+    use crate::trajectory::{AgentTurnGeneration, AgentTurnIdentity, TrajectoryRoots};
 
     use super::{
         AllowedFile, DiffSource, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
@@ -2456,6 +2485,7 @@ mod tests {
         let identity = AgentTurnIdentity::new(AgentProvider::Codex, "replacement-session");
         let canceled_key = TrajectoryScanKey {
             identity: identity.clone(),
+            roots: TrajectoryRoots::for_home(PathBuf::from("/tmp/cmux-test-home")),
             generation: AgentTurnGeneration::for_test(1),
         };
         let (canceled_sender, canceled_receiver) = watch::channel(None);
@@ -2471,6 +2501,7 @@ mod tests {
 
         let replacement_key = TrajectoryScanKey {
             identity,
+            roots: TrajectoryRoots::for_home(PathBuf::from("/tmp/cmux-test-home")),
             generation: AgentTurnGeneration::for_test(2),
         };
         let (replacement_sender, _replacement_receiver) = watch::channel(None);

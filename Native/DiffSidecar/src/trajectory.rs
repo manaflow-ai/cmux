@@ -57,7 +57,7 @@ impl AgentTurnIdentity {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TrajectoryRoots {
     home: PathBuf,
     hook_state_dir: Option<PathBuf>,
@@ -81,6 +81,21 @@ impl TrajectoryRoots {
     /// Returns [`TrajectoryError::Unavailable`] when `HOME` is unset or empty.
     pub fn from_environment() -> Result<Self, TrajectoryError> {
         Self::from_environment_values(|key| std::env::var_os(key))
+    }
+
+    #[must_use]
+    pub fn with_hook_state_overrides(
+        mut self,
+        hook_state_dir: Option<&str>,
+        claude_hook_state_path: Option<&str>,
+    ) -> Self {
+        self.hook_state_dir = hook_state_dir
+            .filter(|value| !value.is_empty())
+            .map(|path| expand_home(Path::new(path), &self.home));
+        self.claude_hook_state_path = claude_hook_state_path
+            .filter(|value| !value.is_empty())
+            .map(|path| expand_home(Path::new(path), &self.home));
+        self
     }
 
     fn from_environment_values(
@@ -530,11 +545,11 @@ fn resolve_opencode(
     let mut patch = String::new();
     for row in rows {
         cancellation.check()?;
-        append_opencode_patch(
-            &mut patch,
-            &repo_root,
-            &row.map_err(|_| TrajectoryError::Invalid)?,
-        )?;
+        if let Some(fragment) =
+            append_opencode_patch(&repo_root, &row.map_err(|_| TrajectoryError::Invalid)?)?
+        {
+            append_patch_fragment(&mut patch, &fragment)?;
+        }
     }
     finish(repo_root, patch)
 }
@@ -1681,10 +1696,10 @@ fn append_patch_fragment(output: &mut String, fragment: &str) -> Result<(), Traj
 }
 
 fn append_opencode_patch(
-    output: &mut String,
     repo_root: &Path,
     fragment: &str,
-) -> Result<(), TrajectoryError> {
+) -> Result<Option<String>, TrajectoryError> {
+    let mut output = String::new();
     let mut saw_path = false;
     let mut in_hunk = false;
     for line in fragment.lines() {
@@ -1697,7 +1712,9 @@ fn append_opencode_patch(
         if let Some(raw) = line.strip_prefix("Index: ") {
             in_hunk = false;
             let (path, suffix) = split_patch_header_value(raw)?;
-            let relative = normalized_opencode_path(repo_root, path, false)?;
+            let Ok(relative) = normalized_opencode_path(repo_root, path, false) else {
+                return Ok(None);
+            };
             writeln!(output, "Index: {}{suffix}", git_quote_path(&relative))
                 .map_err(|_| TrajectoryError::Invalid)?;
             saw_path = true;
@@ -1717,7 +1734,9 @@ fn append_opencode_patch(
                 writeln!(output, "{marker} /dev/null{suffix}")
                     .map_err(|_| TrajectoryError::Invalid)?;
             } else {
-                let relative = normalized_opencode_path(repo_root, path, true)?;
+                let Ok(relative) = normalized_opencode_path(repo_root, path, true) else {
+                    return Ok(None);
+                };
                 writeln!(
                     output,
                     "{marker} {}{suffix}",
@@ -1733,7 +1752,8 @@ fn append_opencode_patch(
     if !saw_path {
         return Err(TrajectoryError::Invalid);
     }
-    ensure_patch_limit(output)
+    ensure_patch_limit(&output)?;
+    Ok(Some(output))
 }
 
 fn split_patch_header_value(raw: &str) -> Result<(&str, &str), TrajectoryError> {

@@ -110,7 +110,13 @@ extension CMUXCLI {
             let provider = providerInput.lowercased()
             allowedAgentTurns = [DiffViewerAgentTurnAuthorization(
                 provider: provider == "opencode" ? "openCode" : provider,
-                sessionId: sessionId
+                sessionId: sessionId,
+                hookStateDir: normalizedDiffSourceValue(
+                    ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_STATE_DIR"]
+                ),
+                claudeHookStatePath: normalizedDiffSourceValue(
+                    ProcessInfo.processInfo.environment["CMUX_CLAUDE_HOOK_STATE_PATH"]
+                )
             )]
         } else {
             allowedAgentTurns = []

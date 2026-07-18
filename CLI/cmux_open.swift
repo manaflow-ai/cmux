@@ -388,6 +388,8 @@ extension CMUXCLI {
     struct DiffViewerAgentTurnAuthorization: Codable, Equatable {
         var provider: String
         var sessionId: String
+        var hookStateDir: String?
+        var claudeHookStatePath: String?
     }
 
     struct DiffViewerBranchSession: Codable {
@@ -1644,7 +1646,7 @@ extension CMUXCLI {
         case .lastTurn:
             throw EmptyDiffSourceError(message: CMUXDiffViewerLocalization.string(
                 "cli.diff.error.sidecarRequired",
-                defaultValue: "Last-turn diffs require the Rust diff sidecar."
+                defaultValue: "Last-turn diffs require agent trajectory support."
             ))
         }
         return DiffInput(
@@ -3159,7 +3161,7 @@ extension CMUXCLI {
            !diffViewerUsesTypedSidecar(runtime: target.runtime) {
             throw CLIError(message: CMUXDiffViewerLocalization.string(
                 "cli.diff.error.sidecarRequired",
-                defaultValue: "Last-turn diffs require the Rust diff sidecar."
+                defaultValue: "Last-turn diffs require agent trajectory support."
             ))
         }
         return try writeOpeningGitDiffViewerHTMLSet(

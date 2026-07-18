@@ -301,7 +301,6 @@ actor DiffSidecarProcessSupervisor {
     private static let maximumRequestBytes = 1024 * 1024
     private static let maximumResponseBytes = 32 * 1024 * 1024
     private static let processGroupReadyMarker = Data("cmux-diff-sidecar-process-group-ready\n".utf8)
-    private static let startupTimeout: TimeInterval = 5
     // Longer than the sidecar's 120-second branch regeneration limit.
     private static let requestTimeout: TimeInterval = 130
 
@@ -578,7 +577,10 @@ actor DiffSidecarProcessSupervisor {
         try handle.write(contentsOf: framed)
     }
 
-    private nonisolated static func waitForProcessGroupReady(from handle: FileHandle) async throws {
+    nonisolated static func waitForProcessGroupReady(
+        from handle: FileHandle,
+        timeout: Duration = .seconds(5)
+    ) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
                 var received = Data()
@@ -594,7 +596,8 @@ actor DiffSidecarProcessSupervisor {
                 throw SupervisorError.invalidResponse
             }
             group.addTask {
-                try await ContinuousClock().sleep(for: .seconds(startupTimeout))
+                try await ContinuousClock().sleep(for: timeout)
+                try? handle.close()
                 throw SupervisorError.startupTimedOut
             }
             _ = try await group.next()

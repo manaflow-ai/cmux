@@ -1252,7 +1252,7 @@ fn opencode_resolver_skips_patch_paths_outside_the_repository() {
     )
     .expect_err("an outside-only OpenCode turn has no usable patch");
 
-    assert_eq!(error.to_string(), "agent turn has no file changes");
+    assert_eq!(error.to_string(), "agent turn has no recorded patches");
 }
 
 #[test]

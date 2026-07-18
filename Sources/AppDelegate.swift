@@ -77,6 +77,19 @@ final class DiffViewerAgentSnapshotDeadline<Value> {
     }
 }
 
+@MainActor
+private final class DiffViewerProcessStore {
+    private var processes: [Int32: Process] = [:]
+
+    func retain(_ process: Process) {
+        processes[process.processIdentifier] = process
+    }
+
+    func remove(processIdentifier: Int32) {
+        processes.removeValue(forKey: processIdentifier)
+    }
+}
+
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -979,9 +992,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         method_exchangeImplementations(originalMethod, swizzledMethod)
     }()
 
-    /// Live `cmux diff` viewer subprocesses, keyed by pid, retained until they exit.
-    /// Declared outside `#if DEBUG` because process retention is production behavior.
-    private var diffViewerProcesses: [Int32: Process] = [:]
+    private let diffViewerProcessStore = DiffViewerProcessStore()
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -6336,7 +6347,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
-                AppDelegate.shared?.diffViewerProcesses.removeValue(forKey: processIdentifier)
+                AppDelegate.shared?.diffViewerProcessStore.remove(
+                    processIdentifier: processIdentifier
+                )
                 guard terminationStatus != 0 else { return }
 #if DEBUG
                 // Log only non-sensitive metadata: the child's stdout/stderr can echo
@@ -6362,9 +6375,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         do {
             try process.run()
             let processIdentifier = process.processIdentifier
-            diffViewerProcesses[processIdentifier] = process
+            diffViewerProcessStore.retain(process)
             if !process.isRunning {
-                diffViewerProcesses.removeValue(forKey: processIdentifier)
+                diffViewerProcessStore.remove(processIdentifier: processIdentifier)
             }
 #if DEBUG
             cmuxDebugLog("openDiffViewer pid=\(process.processIdentifier)")
