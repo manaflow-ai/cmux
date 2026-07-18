@@ -48,7 +48,14 @@ extension TerminalController {
             return .workspaceNotFound
         }
 
-        let resolvedSurfaceId = surfaceID ?? workspace.focusedPanelId
+        let resolvedSurfaceId: UUID?
+        if let surfaceID {
+            resolvedSurfaceId = surfaceID
+        } else {
+            resolvedSurfaceId = workspace.focusedPanelId.flatMap {
+                workspace.controlSurfaceProjection(forContainerPanelID: $0)?.surfaceID
+            }
+        }
         guard let surfaceId = resolvedSurfaceId else {
             return .noFocusedTab
         }

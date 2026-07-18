@@ -18,6 +18,7 @@ struct RemoteTmuxMirrorRenameTests {
 
         let initialSurfaces = try harness.surfaces()
         #expect(initialSurfaces.map(\.title) == ["main", "main [1]"])
+        let focusedSurface = try #require(initialSurfaces.first(where: { $0.isFocused }))
         let containerIDs = try initialSurfaces.map {
             try #require(harness.workspace.remoteTmuxControlPane(surfaceID: $0.surfaceID)?.containerPanelID)
         }
@@ -60,12 +61,38 @@ struct RemoteTmuxMirrorRenameTests {
             #expect(try harness.surfaces().map(\.title) == [title, "\(title) [1]"])
         }
 
+        let focusedTitle = "dogfood-multi-renamed-focused"
+        let focusedResolution = TerminalController.shared.controlTabAction(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: harness.workspace.id,
+                surfaceID: nil,
+                paneID: nil
+            ),
+            actionKey: "rename",
+            title: focusedTitle,
+            rawURL: nil,
+            surfaceID: nil,
+            requestedFocus: false,
+            moveParams: [:]
+        )
+        guard case .completed(let focusedOutcome) = focusedResolution else {
+            Issue.record("Expected a completed focused rename, got \(focusedResolution)")
+            return
+        }
+        #expect(focusedOutcome.surfaceID == focusedSurface.surfaceID)
+        #expect(focusedOutcome.paneID == focusedSurface.paneID)
+        #expect(harness.workspace.panelCustomTitles[containerID] == focusedTitle)
+
         let renameCommands = try harness.finishCommands().filter {
             $0.hasPrefix("rename-window ")
         }
         #expect(renameCommands == [
             "rename-window -t @2 'dogfood-multi-renamed-0'",
             "rename-window -t @2 'dogfood-multi-renamed-1'",
+            "rename-window -t @2 'dogfood-multi-renamed-focused'",
         ])
     }
 }

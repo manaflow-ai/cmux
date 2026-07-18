@@ -79,15 +79,19 @@ extension Workspace {
     }
 
     /// Resolves a control-plane surface identity to its tab mutation owner and
-    /// exposed pane. Ordinary and single-pane surfaces retain their existing
-    /// identities; every projected pane in a multi-pane tmux window resolves
-    /// to the shared window container while preserving its projected pane ID.
+    /// exposed pane. Mirror topology remains authoritative: projected panes
+    /// resolve to their window container, while an unresolved hidden container
+    /// fails closed instead of falling through to its local wrapper panel.
     func controlTabTarget(for surfaceID: UUID) -> (panelID: UUID, paneID: UUID?)? {
-        if panels[surfaceID] != nil {
+        switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+        case .pane(let location):
+            return (location.containerPanelID, location.pane.paneID.id)
+        case .unresolvedMirror:
+            return nil
+        case .notRemote:
+            guard panels[surfaceID] != nil else { return nil }
             return (surfaceID, paneId(forPanelId: surfaceID)?.id)
         }
-        guard let location = remoteTmuxControlPane(surfaceID: surfaceID) else { return nil }
-        return (location.containerPanelID, location.pane.paneID.id)
     }
 
     /// Resolves every mirror-owned surface identity without conflating an
