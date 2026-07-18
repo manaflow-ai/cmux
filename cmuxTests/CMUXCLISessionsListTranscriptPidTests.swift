@@ -2,19 +2,23 @@ import Foundation
 import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
-    @Test func testSessionsListTreatsTranscriptBackedClaudeRecordAsRestorable() throws {
+    @Test(arguments: [true, false])
+    func testSessionsListRequiresClaudeTranscriptPathToMatchSession(
+        transcriptMatchesSession: Bool
+    ) throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-sessions-list-claude-transcript-\(UUID().uuidString)", isDirectory: true)
         let stateDir = root.appendingPathComponent("state", isDirectory: true)
         let repoDir = root.appendingPathComponent("repo", isDirectory: true)
-        let transcriptURL = root.appendingPathComponent("claude-session.jsonl", isDirectory: false)
+        let sessionId = "claude-transcript-backed-session"
+        let transcriptFilename = transcriptMatchesSession ? "\(sessionId).jsonl" : "another-session.jsonl"
+        let transcriptURL = root.appendingPathComponent(transcriptFilename, isDirectory: false)
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: repoDir, withIntermediateDirectories: true)
         try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let sessionId = "claude-transcript-backed-session"
         let workspaceId = "33B0D372-292E-42BF-97B6-E37CCA79AB84"
         let surfaceId = "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D8"
         let store: [String: Any] = [
@@ -64,10 +68,13 @@ extension CMUXCLIErrorOutputRegressionTests {
         let sessions = try #require(object["sessions"] as? [[String: Any]])
         let session = try #require(sessions.first)
         #expect(session["session_id"] as? String == sessionId)
-        #expect(session["hook_record_restorable"] as? Bool == true)
-        #expect(session["fork_command_available"] as? Bool == true)
-        #expect(session["fork_supported"] as? Bool == true)
-        #expect(session["fork_unavailable_reason"] as? String == "available")
+        #expect(session["hook_record_restorable"] as? Bool == transcriptMatchesSession)
+        #expect(session["fork_command_available"] as? Bool == transcriptMatchesSession)
+        #expect(session["fork_supported"] as? Bool == transcriptMatchesSession)
+        #expect(
+            session["fork_unavailable_reason"] as? String
+                == (transcriptMatchesSession ? "available" : "record_marked_non_restorable")
+        )
     }
 
     @Test func testSessionsListDoesNotTrustClaudeRestorableFlagWithoutTranscript() throws {
@@ -213,7 +220,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_unavailable_reason"] as? String == "available")
     }
 
-    @Test func testSessionsListRejectsAmbiguousClaudeWorkflowContainerTranscripts() throws {
+    @Test(arguments: [1, 2])
+    func testSessionsListRejectsUnrelatedClaudeWorkflowContainerTranscripts(
+        siblingCount: Int
+    ) throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-sessions-list-claude-workflow-\(UUID().uuidString)", isDirectory: true)
@@ -225,7 +235,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let containerSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
-        let siblingSessionIds = ["bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb", "cccccccc-3333-3333-3333-cccccccccccc"]
+        let siblingSessionIds = Array([
+            "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb",
+            "cccccccc-3333-3333-3333-cccccccccccc",
+        ].prefix(siblingCount))
         let projectDirName = repoDir.path
             .replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ".", with: "-")
@@ -295,7 +308,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_unavailable_reason"] as? String == "record_marked_non_restorable")
     }
 
-    @Test func testClaudeTranscriptLookupIndexesProjectDirectoriesOncePerInvocation() throws {
+    @Test func testClaudeTranscriptLookupDoesNotScanUnrelatedProjectDirectories() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-sessions-list-claude-scale-\(UUID().uuidString)", isDirectory: true)
         let configRoot = root.appendingPathComponent("claude-config", isDirectory: true)
@@ -339,96 +352,15 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         for record in records {
             let configRoot = try #require(lookup.configRoots(record: record).first)
-            #expect(lookup.workflowProjectRoots(configRoot: configRoot, sessionId: record.sessionId).isEmpty)
             #expect(lookup.transcriptPath(
                 configRoot: configRoot,
                 projectDirName: "missing-project-\(record.sessionId)",
                 sessionId: record.sessionId
             ) == nil)
-            #expect(lookup.transcriptPathInAnyProject(
-                configRoot: configRoot,
-                sessionId: record.sessionId
-            ) == nil)
         }
 
-        #expect(fileManager.directoryReadCount <= count + 2)
+        #expect(fileManager.directoryReadCount == 0)
         #expect(fileManager.existenceCheckCount <= (count * 4) + 8)
-    }
-
-    @Test func testClaudeWorkflowContainerNeverInfersSiblingTranscript() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-sessions-list-claude-sibling-\(UUID().uuidString)", isDirectory: true)
-        let projectRoot = root.appendingPathComponent("project", isDirectory: true)
-        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let containerSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
-        let siblingSessionId = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
-        for sessionId in [containerSessionId, siblingSessionId] {
-            try "{}\n".write(
-                to: projectRoot.appendingPathComponent("\(sessionId).jsonl"),
-                atomically: true,
-                encoding: .utf8
-            )
-        }
-
-        let lookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: root.path)
-        #expect(lookup.singleSiblingTranscript(
-            projectRoots: [projectRoot.path],
-            excludingSessionId: containerSessionId
-        ) == nil)
-    }
-
-    @Test func testClaudeSingleSiblingTranscriptStopsBeforeScanningEveryCachedTranscript() throws {
-        let source = try String(
-            contentsOf: sessionsListForkDiagnosticsSourceURL(),
-            encoding: .utf8
-        )
-        let body = try #require(sessionsListSourceFunctionBody(
-            signature: "func singleSiblingTranscript(",
-            source: source
-        ))
-
-        #expect(!body.contains(".filter"))
-        #expect(!body.contains("append(contentsOf:"))
-    }
-
-    @Test func testClaudeSingleSiblingTranscriptSharedProjectScaleIsBounded() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-sessions-list-claude-sibling-scale-\(UUID().uuidString)", isDirectory: true)
-        let projectRoot = root.appendingPathComponent("project", isDirectory: true)
-        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let count = 6_000
-        let sessionIds = (0..<count).map { String(format: "session-%05d", $0) }
-        for sessionId in sessionIds {
-            try "{}\n".write(
-                to: projectRoot.appendingPathComponent("\(sessionId).jsonl"),
-                atomically: true,
-                encoding: .utf8
-            )
-        }
-
-        let lookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: root.path)
-        #expect(lookup.singleSiblingTranscript(
-            projectRoots: [projectRoot.path],
-            excludingSessionId: "warm-cache"
-        ) == nil)
-
-        let startedAt = ProcessInfo.processInfo.systemUptime
-        for sessionId in sessionIds {
-            #expect(lookup.singleSiblingTranscript(
-                projectRoots: [projectRoot.path],
-                excludingSessionId: sessionId
-            ) == nil)
-        }
-        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
-
-        #expect(
-            elapsed < 1.5,
-            "Resolving \(count) records in one shared project took \(elapsed)s"
-        )
     }
 
     @Test func testSessionsListIgnoresOutOfRangeStoredPID() throws {
@@ -632,37 +564,6 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == true)
     }
 
-    private func sessionsListForkDiagnosticsSourceURL() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("CLI/CMUXCLI+SessionsListForkDiagnostics.swift")
-    }
-
-    private func sessionsListSourceFunctionBody(signature: String, source: String) -> String? {
-        guard let signatureRange = source.range(of: signature),
-              let openingBrace = source[signatureRange.lowerBound...].firstIndex(of: "{") else {
-            return nil
-        }
-
-        var depth = 0
-        var index = openingBrace
-        while index < source.endIndex {
-            switch source[index] {
-            case "{":
-                depth += 1
-            case "}":
-                depth -= 1
-                if depth == 0 {
-                    return String(source[openingBrace...index])
-                }
-            default:
-                break
-            }
-            index = source.index(after: index)
-        }
-        return nil
-    }
 }
 
 private final class SessionsListCountingFileManager: FileManager {
