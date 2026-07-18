@@ -335,6 +335,31 @@ struct CmuxAgentSessionRegistryTests {
         #expect(snapshot.records.map(\.sessionID) == ["committed"])
     }
 
+    @Test("malformed registry rows fail instead of returning a partial snapshot")
+    func malformedRowsFailClosed() throws {
+        let fixture = try Fixture()
+        _ = try fixture.registry.snapshot(provider: "codex")
+        var database: OpaquePointer?
+        #expect(sqlite3_open(fixture.registry.url.path, &database) == SQLITE_OK)
+        let writer = try #require(database)
+        defer { sqlite3_close(writer) }
+        #expect(sqlite3_exec(
+            writer,
+            """
+            INSERT INTO agent_active_slots (
+                provider, scope, scope_id, session_id, updated_at, writer_generation, record_json
+            ) VALUES ('codex', 'future-scope', 'scope', 'session', 1, 1, X'7B7D')
+            """,
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK)
+
+        #expect(throws: (any Error).self) {
+            try fixture.registry.snapshot(provider: "codex")
+        }
+    }
+
     @Test("registry storage repairs an existing state directory to owner-only access")
     func registryRepairsStateDirectoryPermissions() throws {
         let fixture = try Fixture()
