@@ -12,11 +12,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `b5c39a8f7`. It adds indented hard-newline
+Current cmux pinned fork patch head: `eb9004aa8`. It adds indented hard-newline
 link continuations on top of `bb30526cd` and is published through
 https://github.com/manaflow-ai/ghostty/pull/124.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b5c39a8f708ac1dfa200684e2caac890dabd0cc2-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-eb9004aa8ee3582f6199a4d8f8f74faec4967c24-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Indented hard-newline link continuations
@@ -26,26 +26,36 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - `11dd30a9b` (fix: join indented hard-wrapped links)
   - `6596607d1` (test: cover overlapping wrapped URL matchers)
   - `b5c39a8f7` (fix: align hover matcher priority with clicks)
+  - `0a714f958` (test: reject non-link cells in wrapped URLs)
+  - `eb9004aa8` (fix: resolve wrapped links from exact terminal cells)
 - Files:
   - `src/Surface.zig`
   - `src/config/Config.zig`
+  - `src/config/url.zig`
   - `src/input/Link.zig`
+  - `src/link.zig`
   - `src/link_wrap.zig`
+  - `src/renderer/generic.zig`
   - `src/renderer/link.zig`
 - Summary:
-  - Recognizes built-in URLs and paths split by a real CRLF/newline plus
-    indentation after punctuation commonly chosen by prose wrappers.
-  - Uses one normalized byte-to-cell map for hit testing, opened text, link
-    previews, and Cmd-hover highlighting. Newline indentation and trailing
-    sentence punctuation are excluded from the opened value and highlight.
-  - Keeps custom matchers literal by default and preserves the existing
-    semantic soft-wrap boundary for path matching.
-  - Resolves overlapping hover matchers in configuration order, matching
-    click behavior so a lower-priority path match cannot widen a URL's
-    underline to include trailing sentence punctuation.
+  - Resolves each link to one exact value and exact terminal-cell set shared
+    by hit testing, open/copy actions, previews, always highlighting, and
+    Cmd-hover. Bounding selections are retained only for selection UI.
+  - Recognizes conservative hard-newline continuations after URL/path break
+    punctuation with 1-16 cells of indentation inside one semantic region.
+    Period-ending rows, new rooted or scheme links, and ambiguous bare paths
+    after `/` fail closed instead of merging unrelated rows.
+  - Excludes indentation and trailing sentence punctuation from both actions
+    and highlights. The built-in path matcher uses an unmapped match delimiter
+    after joined candidates; custom end-of-input matchers retain literal
+    behavior.
+  - Applies matcher priority across overlapping candidate scopes, keeps OSC 8
+    ownership authoritative, and maps both cells of wide UTF-8 glyphs.
+  - Bounds cell, byte, candidate, and regex work; compressed pages stay cold.
+    Regex work runs outside the terminal lock and stale snapshots are
+    revalidated before results are applied.
   - Conflict note: future link matching or renderer string-map changes must
-    keep candidate normalization, opened text, and highlighted coordinates on
-    the same hard-wrap policy.
+    keep click actions and highlighted cells on the shared exact resolver.
 
 The previous pin `bb30526cd` advances `b4b6d69c8` through the already-merged
 theme, render-grid, and wrap-aware URL updates, then preserves authoritative
