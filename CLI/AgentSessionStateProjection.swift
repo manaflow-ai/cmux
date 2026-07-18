@@ -10,14 +10,18 @@ struct AgentSessionStateProjection: Sendable, Equatable {
     var activity: AgentActivitySnapshot
     var effective: AgentEffectiveState
 
-    init(record: ClaudeHookSessionRecord, run: AgentSessionRunRecord) {
+    init(
+        record: ClaudeHookSessionRecord,
+        run: AgentSessionRunRecord,
+        probedProcessState: AgentProcessState? = nil
+    ) {
         let ended = run.endedAt != nil || record.completedAt != nil
         process = ended
             ? .exited
-            : AgentHookSessionLineageResolver().processState(
+            : (probedProcessState ?? AgentHookSessionLineageResolver().processState(
                 pid: run.pid,
                 expectedStartedAt: run.processStartedAt
-            )
+            ))
         session = ended ? .ended : (record.sessionState ?? .active)
         foreground = ended
             ? .completed

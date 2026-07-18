@@ -10,8 +10,6 @@ final class ClaudeHookSessionStore {
     }
 
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
-    private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
-    private static let maxSessionRecords = 10_000
     private static let maxRunsPerSession = 128
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
@@ -23,7 +21,15 @@ final class ClaudeHookSessionStore {
     let agentName: String
     private let lineageResolver: AgentHookSessionLineageResolver
     private let decoder = JSONDecoder()
-    private let encoder = JSONEncoder()
+
+    private var registryBridge: AgentHookSessionRegistryBridge {
+        AgentHookSessionRegistryBridge(
+            provider: agentName,
+            statePath: statePath,
+            environment: processEnv,
+            fileManager: fileManager
+        )
+    }
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
@@ -46,15 +52,12 @@ final class ClaudeHookSessionStore {
         self.processEnv = processEnv
         self.agentName = agentName
         self.lineageResolver = lineageResolver
-        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
     func lookup(sessionId: String) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
-        return withSnapshotState { state in
-            state.sessions[normalized]
-        }
+        return try registryBridge.lookup(sessionID: normalized, decoder: decoder)
     }
 
     func snapshot() -> ClaudeHookSessionStoreFile {
@@ -70,7 +73,7 @@ final class ClaudeHookSessionStore {
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
-        try withLockedState { state in
+        try withLockedSessionState(sessionID: normalized) { state in
             guard var record = state.sessions[normalized],
                   AgentSessionSemanticUpdatePolicy().canUpdate(record: record) else { return }
             if let foregroundState { record.foregroundState = foregroundState }
@@ -97,7 +100,7 @@ final class ClaudeHookSessionStore {
         let normalized = normalizeSessionId(sessionId)
         let mode = permissionMode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, !mode.isEmpty else { return }
-        try withLockedState { state in
+        try withLockedSessionState(sessionID: normalized) { state in
             guard var record = state.sessions[normalized],
                   record.lastPermissionMode != mode else { return }
             record.lastPermissionMode = mode
@@ -120,8 +123,7 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else {
             return AutoNamingRecentMessagesSnapshot(messages: [], totalMessageCount: 0)
         }
-        return withSnapshotState { state in
-            let record = state.sessions[normalized]
+        return try withSessionSnapshot(sessionID: normalized) { record in
             let messages = record?.autoNameRecentMessages ?? []
             return AutoNamingRecentMessagesSnapshot(
                 messages: messages,
@@ -153,7 +155,11 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else {
             return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil)
         }
-        return try withLockedState { state in
+        return try withLockedSessionState(
+            sessionID: normalized,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId
+        ) { state in
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
                 workspaceId: workspaceId,
@@ -198,7 +204,7 @@ final class ClaudeHookSessionStore {
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
-        try withLockedState { state in
+        try withLockedSessionState(sessionID: normalized) { state in
             guard var record = state.sessions[normalized] else { return }
             record.autoNameInFlightAt = nil
             // Stamp every completed pass (success or failure) so the throttle
@@ -221,7 +227,11 @@ final class ClaudeHookSessionStore {
     ) throws {
         let normalizedSessionId = normalizeSessionId(sessionId)
         guard !normalizedSessionId.isEmpty else { return }
-        try withLockedState { state in
+        try withLockedSessionState(
+            sessionID: normalizedSessionId,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId
+        ) { state in
             guard var record = state.sessions[normalizedSessionId] else { return }
             record.agentLifecycle = .unknown
             record.updatedAt = Date().timeIntervalSince1970
@@ -249,7 +259,11 @@ final class ClaudeHookSessionStore {
     ) throws -> AgentPromptSubmitResult {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return AgentPromptSubmitResult(accepted: false, staleTerminalTurn: false, nested: false) }
-        return try withLockedState { state in
+        return try withLockedSessionState(
+            sessionID: normalized,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId
+        ) { state in
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
@@ -358,7 +372,11 @@ final class ClaudeHookSessionStore {
     ) throws -> AgentPromptStopResult {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return AgentPromptStopResult(accepted: false, nested: false) }
-        return try withLockedState { state in
+        return try withLockedSessionState(
+            sessionID: normalized,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId
+        ) { state in
             let now = Date().timeIntervalSince1970
             let existingRecord = state.sessions[normalized]
             let allowsTerminalLaunchCompletion = promptStopIsRootBoundary(existingRecord)
@@ -599,7 +617,11 @@ final class ClaudeHookSessionStore {
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
-        return try withLockedState { state in
+        return try withLockedSessionState(
+            sessionID: normalized,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId
+        ) { state in
             applyUpsert(
                 in: &state,
                 normalizedSessionId: normalized,
@@ -652,7 +674,11 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else {
             return AgentPromptStopResult(accepted: false, nested: false)
         }
-        return try withLockedState { state in
+        return try withLockedSessionState(
+            sessionID: normalized,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId
+        ) { state in
             let existingRecord = state.sessions[normalized]
             let allowsTerminalLaunchCompletion = promptStopIsRootBoundary(existingRecord)
                 && !recordHasLiveBackgroundAuthority(
@@ -808,7 +834,11 @@ final class ClaudeHookSessionStore {
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
-        return try withLockedState { state in
+        return try withLockedSessionState(
+            sessionID: normalized,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId
+        ) { state in
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
@@ -857,7 +887,11 @@ final class ClaudeHookSessionStore {
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
-        return try withLockedState { state in
+        return try withLockedSessionState(
+            sessionID: normalized,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId
+        ) { state in
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
@@ -900,8 +934,8 @@ final class ClaudeHookSessionStore {
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
-        return withSnapshotState { state in
-            guard let record = state.sessions[normalized] else { return false }
+        return try withSessionSnapshot(sessionID: normalized) { record in
+            guard let record else { return false }
             return codexSessionStartIsStale(
                 record,
                 incomingPID: incomingPID,
@@ -913,8 +947,8 @@ final class ClaudeHookSessionStore {
     func codexPromptTurnIsTerminal(sessionId: String, turnId: String?) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty, let normalizedTurnId = normalizeOptional(turnId) else { return false }
-        return withSnapshotState { state in
-            guard let record = state.sessions[normalized] else { return false }
+        return try withSessionSnapshot(sessionID: normalized) { record in
+            guard let record else { return false }
             return terminalPromptTurnSet(from: record).contains(normalizedTurnId)
         }
     }
@@ -932,7 +966,11 @@ final class ClaudeHookSessionStore {
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
-        return try withLockedState { state in
+        return try withLockedSessionState(
+            sessionID: normalized,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId
+        ) { state in
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
@@ -1232,6 +1270,11 @@ final class ClaudeHookSessionStore {
             // alive, but they never own an interactive conversation that cmux
             // may replay after hibernation or app restore.
             effectiveLineage.restoreAuthority = false
+        case .unknown where lineage.processStartedAt != nil:
+            // A live native process with an argv shape we do not understand is
+            // not safe to replay. This catches newly added one-shot provider
+            // flags without breaking legacy hook payloads that carry no PID.
+            effectiveLineage.restoreAuthority = false
         case .interactive, .unknown:
             break
         }
@@ -1255,7 +1298,7 @@ final class ClaudeHookSessionStore {
     func clearNotificationEmission(sessionId: String) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
-        try withLockedState { state in
+        try withLockedSessionState(sessionID: normalized) { state in
             guard var record = state.sessions[normalized] else { return }
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = nil
@@ -1275,8 +1318,8 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return false }
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedFingerprint.isEmpty else { return false }
-        return withSnapshotState { state in
-            guard let record = state.sessions[normalized] else { return false }
+        return try withSessionSnapshot(sessionID: normalized) { record in
+            guard let record else { return false }
             let now = Date().timeIntervalSince1970
             if let emittedAt = record.recentEmittedNotificationFingerprints?[normalizedFingerprint],
                now - emittedAt <= interval {
@@ -1295,7 +1338,7 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return }
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedFingerprint.isEmpty else { return }
-        try withLockedState { state in
+        try withLockedSessionState(sessionID: normalized) { state in
             guard var record = state.sessions[normalized] else { return }
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = normalizedFingerprint
@@ -1328,40 +1371,38 @@ final class ClaudeHookSessionStore {
         }
         let normalizedSurface = normalizeOptional(surfaceId)
         let excluded = normalizeOptional(excludingSessionId)
-        return try withLockedState { state in
-            let excludedUpdatedAt = excluded.flatMap { state.sessions[$0]?.updatedAt }
-            var foundRunningSession = false
-            let now = Date().timeIntervalSince1970
-
-            for sessionId in Array(state.sessions.keys) {
-                guard var record = state.sessions[sessionId] else { continue }
-                guard normalizeOptional(record.workspaceId) == normalizedWorkspace,
-                      record.sessionId != excluded,
-                      record.runtimeStatus == .running else {
-                    continue
-                }
-                if let normalizedSurface, normalizeOptional(record.surfaceId) != normalizedSurface {
-                    continue
-                }
-                if onlyNewerThanExcludedSession, let excludedUpdatedAt {
-                    guard record.updatedAt > excludedUpdatedAt else {
-                        continue
-                    }
-                }
-
-                if requireLiveProcess, !Self.processExists(record.pid) {
-                    record.runtimeStatus = nil
-                    record.updatedAt = now
-                    state.sessions[sessionId] = record
-                    continue
-                }
-
-                foundRunningSession = true
-                break
-            }
-
-            return foundRunningSession
+        let excludedUpdatedAt = try excluded.flatMap {
+            try registryBridge.lookup(sessionID: $0, decoder: decoder)?.updatedAt
         }
+        let candidates = try registryBridge.runningRecords(
+            workspaceID: normalizedWorkspace,
+            surfaceID: normalizedSurface,
+            decoder: decoder
+        )
+        for candidate in candidates {
+            guard candidate.sessionId != excluded else { continue }
+            if onlyNewerThanExcludedSession, let excludedUpdatedAt,
+               candidate.updatedAt <= excludedUpdatedAt {
+                continue
+            }
+            guard requireLiveProcess else { return true }
+            guard !Self.processExists(candidate.pid) else { return true }
+
+            let observedPID = candidate.pid
+            try withLockedSessionState(
+                sessionID: candidate.sessionId,
+                workspaceID: candidate.workspaceId,
+                surfaceID: candidate.surfaceId
+            ) { state in
+                guard var current = state.sessions[candidate.sessionId],
+                      current.runtimeStatus == .running,
+                      current.pid == observedPID else { return }
+                current.runtimeStatus = nil
+                current.updatedAt = Date().timeIntervalSince1970
+                state.sessions[candidate.sessionId] = current
+            }
+        }
+        return false
     }
 
     private static func processExists(_ pid: Int?) -> Bool {
@@ -1386,7 +1427,13 @@ final class ClaudeHookSessionStore {
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return true
         }
-        return withSnapshotState { state in
+        var state = try registryBridge.activeContext(
+            workspaceID: normalizedWorkspace,
+            surfaceID: normalizeOptional(surfaceId),
+            decoder: decoder
+        )
+        backfillSurfaceActiveSlots(&state)
+        return {
             // The pane's own active boundary decides first: a hook is stale when a
             // DIFFERENT session was promoted in the SAME surface (post-/clear or
             // replaced-session races in one pane). This stays true even after a
@@ -1427,7 +1474,7 @@ final class ClaudeHookSessionStore {
                 return true
             }
             return activeTurnId == normalizedTurnId
-        }
+        }()
     }
 
     func canReplaceActiveSession(
@@ -1439,7 +1486,13 @@ final class ClaudeHookSessionStore {
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return false
         }
-        return withSnapshotState { state in
+        var state = try registryBridge.activeContext(
+            workspaceID: normalizedWorkspace,
+            surfaceID: normalizeOptional(surfaceId),
+            decoder: decoder
+        )
+        backfillSurfaceActiveSlots(&state)
+        return {
             // Replacement is pane-scoped like staleness: a stopped session in
             // THIS surface allows its own pane to start a new session even when
             // another pane currently holds the workspace-active slot.
@@ -1456,7 +1509,7 @@ final class ClaudeHookSessionStore {
                 return false
             }
             return active.allowsNewSessionReplacement == true
-        }
+        }()
     }
 
     func consume(
@@ -1468,31 +1521,40 @@ final class ClaudeHookSessionStore {
         let normalizedSessionId = normalizeOptional(sessionId)
         let normalizedWorkspace = normalizeOptional(workspaceId)
         let normalizedSurface = normalizeOptional(surfaceId)
-        return try withLockedState { state in
-            if let normalizedSessionId,
-               let existing = state.sessions[normalizedSessionId] {
-                guard AgentSessionTeardownConsumptionPolicy().canConsume(record: existing) else { return nil }
-                guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
-                    return nil
-                }
-                let completed = completeSessionRecord(existing)
-                state.sessions[normalizedSessionId] = completed
-                clearActiveSessionIfMatching(&state, removed: completed, turnId: turnId)
-                return completed
+        let exact = try normalizedSessionId.flatMap {
+            try registryBridge.lookup(sessionID: $0, decoder: decoder)
+        }
+        let target: ClaudeHookSessionRecord
+        if let exact {
+            target = exact
+        } else {
+            let fallbacks = try registryBridge.fallbackRecords(
+                workspaceID: normalizedWorkspace,
+                surfaceID: normalizedSurface,
+                decoder: decoder
+            )
+            if normalizedSurface != nil {
+                guard let fallback = fallbacks.first else { return nil }
+                target = fallback
+            } else {
+                guard fallbacks.count == 1, let fallback = fallbacks.first else { return nil }
+                target = fallback
             }
-
-            guard let fallback = fallbackRecord(
-                sessions: Array(state.sessions.values),
-                workspaceId: normalizedWorkspace,
-                surfaceId: normalizedSurface
-            ), AgentSessionTeardownConsumptionPolicy().canConsume(record: fallback) else {
+        }
+        return try withLockedSessionState(
+            sessionID: target.sessionId,
+            workspaceID: target.workspaceId,
+            surfaceID: target.surfaceId
+        ) { state in
+            guard let existing = state.sessions[target.sessionId],
+                  AgentSessionTeardownConsumptionPolicy().canConsume(record: existing) else {
                 return nil
             }
-            guard !hasActiveTurnMismatch(state, record: fallback, turnId: turnId) else {
+            guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
                 return nil
             }
-            let completed = completeSessionRecord(fallback)
-            state.sessions[fallback.sessionId] = completed
+            let completed = completeSessionRecord(existing)
+            state.sessions[target.sessionId] = completed
             clearActiveSessionIfMatching(&state, removed: completed, turnId: turnId)
             return completed
         }
@@ -1560,57 +1622,27 @@ final class ClaudeHookSessionStore {
         return cleared
     }
 
-    private func fallbackRecord(
-        sessions: [ClaudeHookSessionRecord],
-        workspaceId: String?,
-        surfaceId: String?
-    ) -> ClaudeHookSessionRecord? {
-        let sessions = sessions.filter { $0.completedAt == nil && $0.sessionState != .ended }
-        if let surfaceId {
-            let matches = sessions.filter { $0.surfaceId == surfaceId }
-            return matches.max(by: { $0.updatedAt < $1.updatedAt })
-        }
-        if let workspaceId {
-            let matches = sessions.filter { $0.workspaceId == workspaceId }
-            if matches.count == 1 {
-                return matches[0]
-            }
-        }
-        return nil
+    private func withLockedSessionState<T>(
+        sessionID: String,
+        workspaceID: String? = nil,
+        surfaceID: String? = nil,
+        _ body: (inout ClaudeHookSessionStoreFile) throws -> T
+    ) throws -> T {
+        try registryBridge.mutateSession(
+            sessionID: sessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        ) { state in
+            backfillSurfaceActiveSlots(&state)
+            return try body(&state)
+        }.result
     }
 
-    private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
-        let stateURL = URL(fileURLWithPath: statePath)
-        try fileManager.createDirectory(
-            at: stateURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
-        )
-        let lockPath = statePath + ".lock"
-        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
-        let ownsLegacyLock = fd >= 0 && flock(fd, LOCK_EX | LOCK_NB) == 0
-        defer {
-            if ownsLegacyLock { _ = flock(fd, LOCK_UN) }
-            if fd >= 0 { Darwin.close(fd) }
-        }
-
-        let bridge = AgentHookSessionRegistryBridge(
-            provider: agentName,
-            statePath: statePath,
-            environment: processEnv,
-            fileManager: fileManager
-        )
-        let mutation = try bridge.mutate { state in
-            pruneExpired(&state)
-            let result = try body(&state)
-            pruneExpired(&state)
-            return result
-        }
-        if ownsLegacyLock {
-            try saveUnlocked(mutation.state)
-            bridge.markLegacySourceCurrent()
-        }
-        return mutation.result
+    private func withSessionSnapshot<T>(
+        sessionID: String,
+        _ body: (ClaudeHookSessionRecord?) -> T
+    ) throws -> T {
+        try body(registryBridge.lookup(sessionID: sessionID, decoder: decoder))
     }
 
     /// Read-only hook decisions use an immutable file snapshot. Writers publish
@@ -1646,66 +1678,6 @@ final class ClaudeHookSessionStore {
                 continue
             }
             state.activeSessionsBySurface[surfaceId] = active
-        }
-    }
-
-    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
-        let stateURL = URL(fileURLWithPath: statePath)
-        let parentURL = stateURL.deletingLastPathComponent()
-        try fileManager.createDirectory(
-            at: parentURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
-        )
-        try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o700))], ofItemAtPath: parentURL.path)
-        let data = try encoder.encode(state)
-        let tempURL = parentURL.appendingPathComponent(".\(stateURL.lastPathComponent).\(UUID().uuidString).tmp")
-        guard fileManager.createFile(atPath: tempURL.path, contents: data, attributes: [
-            .posixPermissions: NSNumber(value: Int16(0o600))
-        ]) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: statePath])
-        }
-        let renameResult = tempURL.path.withCString { source in
-            stateURL.path.withCString { destination in
-                Darwin.rename(source, destination)
-            }
-        }
-        if renameResult != 0 {
-            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
-            try? fileManager.removeItem(at: tempURL)
-            throw POSIXError(code)
-        }
-        try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o600))], ofItemAtPath: stateURL.path)
-    }
-
-    private func pruneExpired(_ state: inout ClaudeHookSessionStoreFile) {
-        let now = Date().timeIntervalSince1970
-        let cutoff = now - Self.maxStateAgeSeconds
-        state.sessions = state.sessions.filter { _, record in
-            record.updatedAt >= cutoff
-        }
-        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { workspaceId, active in
-            guard active.updatedAt >= cutoff, let record = state.sessions[active.sessionId] else { return false }
-            // Self-heal cross-workspace/pane pollution: a session may only be active
-            // for its own recorded workspace (and surface, below). Stale focused/TTY
-            // misroutes from older builds could register a session as active for an
-            // unrelated tab or pane, stealing its notifications (isCurrent trusts the
-            // surface slot first) and suppressing that pane's own session.
-            return normalizeOptional(record.workspaceId) == workspaceId
-        }
-        state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
-            active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
-        }
-        if state.sessions.count > Self.maxSessionRecords {
-            let activeIds = Set(state.activeSessionsByWorkspace.values.map(\.sessionId))
-                .union(state.activeSessionsBySurface.values.map(\.sessionId))
-            let removable = state.sessions.values
-                .filter { !activeIds.contains($0.sessionId) }
-                .sorted { $0.updatedAt < $1.updatedAt }
-            let removeCount = min(state.sessions.count - Self.maxSessionRecords, removable.count)
-            for record in removable.prefix(removeCount) {
-                state.sessions.removeValue(forKey: record.sessionId)
-            }
         }
     }
 

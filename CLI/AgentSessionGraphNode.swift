@@ -219,7 +219,7 @@ struct AgentSessionGraphNodeIndex: Sendable {
         }
     }
 
-    private static func prefers(_ candidate: AgentSessionGraphNode, over existing: AgentSessionGraphNode) -> Bool {
+    static func prefers(_ candidate: AgentSessionGraphNode, over existing: AgentSessionGraphNode) -> Bool {
         if candidate.updatedAt != existing.updatedAt { return candidate.updatedAt > existing.updatedAt }
         if candidate.startedAt != existing.startedAt { return candidate.startedAt > existing.startedAt }
         let candidateKey = "\(candidate.provider):\(candidate.sessionId ?? ""):\(candidate.surfaceId)"

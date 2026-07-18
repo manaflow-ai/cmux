@@ -5,6 +5,7 @@ struct AgentHookSessionStoreLoadWarning: Codable, Sendable, Equatable {
     enum Code: String, Codable, Sendable {
         case authoritativeSnapshotDecodeFailed = "authoritative_snapshot_decode_failed"
         case legacySourceImportFailed = "legacy_source_import_failed"
+        case storageLimitExceeded = "storage_limit_exceeded"
     }
 
     enum Fallback: String, Codable, Sendable {
@@ -29,9 +30,28 @@ struct AgentHookSessionRegistrySnapshots {
 }
 
 struct AgentHookSessionStoreLoadFailure: Error {
+    enum Scope: String, Sendable {
+        case registryRecord = "registry_record"
+        case registryProvider = "registry_provider"
+        case registryGraphNodes = "registry_graph_nodes"
+        case providerMaterialization = "provider_materialization"
+        case selectionMaterialization = "selection_materialization"
+        case legacyFile = "legacy_file"
+        case legacySessions = "legacy_sessions"
+        case legacyGraphNodes = "legacy_graph_nodes"
+        case legacyRecord = "legacy_record"
+    }
+
     var provider: String
     var path: String
     var code: AgentHookSessionStoreLoadWarning.Code
+    var scope: Scope? = nil
+    var sessionID: String? = nil
+    var observedBytes: Int64? = nil
+    var maximumBytes: Int64? = nil
+    var observedCount: Int64? = nil
+    var maximumCount: Int64? = nil
+    var canonicalPath: String? = nil
 }
 
 /// Converts provider-specific hook models to the shared row-oriented registry.
@@ -40,6 +60,22 @@ struct AgentHookSessionStoreLoadFailure: Error {
 struct AgentHookSessionRegistryBridge {
     enum MutationError: Error {
         case newerWriterGeneration
+    }
+
+    private static let maximumInspectionRecordBytes: Int64 = 4 * 1_024 * 1_024
+    private static let maximumInspectionProviderBytes: Int64 = 64 * 1_024 * 1_024
+    private static let maximumInspectionSelectionBytes: Int64 = 128 * 1_024 * 1_024
+    private static let maximumLegacyFileBytes: Int64 = 64 * 1_024 * 1_024
+    private static let maximumLegacySessions = 20_000
+    private static let maximumLegacyGraphNodes = 20_000
+
+    struct InspectionSourcePreflight {
+        var provider: String
+        var registryPath: String
+        var legacyPath: String
+        var metrics: CmuxAgentSessionRegistry.HookStorageMetrics
+        var legacyBytes: Int64
+        var legacyMetrics: CmuxAgentSessionRegistry.HookLegacySourceMetrics? = nil
     }
 
     let provider: String
@@ -67,7 +103,8 @@ struct AgentHookSessionRegistryBridge {
         specifications: [(provider: String, suffix: String)],
         stateDirectory: String,
         environment: [String: String],
-        fileManager: FileManager
+        fileManager: FileManager,
+        maximumLegacyGraphNodes: Int = AgentHookSessionRegistryBridge.maximumLegacyGraphNodes
     ) throws -> AgentHookSessionRegistrySnapshots {
         let registryURL: URL
         if let explicit = environment["CMUX_AGENT_SESSION_REGISTRY_PATH"]?
@@ -86,6 +123,13 @@ struct AgentHookSessionRegistryBridge {
                     .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
             )
         }.sorted { $0.provider < $1.provider }
+        try preflightInspectionSources(
+            sources,
+            registry: registry,
+            registryPath: registryURL.path,
+            fileManager: fileManager,
+            maximumLegacyGraphNodes: max(0, maximumLegacyGraphNodes)
+        )
         do {
             return AgentHookSessionRegistrySnapshots(
                 snapshots: try registry.snapshotsImportingLegacy(
@@ -145,6 +189,13 @@ struct AgentHookSessionRegistryBridge {
     }
 
     func load(decoder: JSONDecoder = JSONDecoder()) -> ClaudeHookSessionStoreFile {
+        if legacyFileSizeExceedsLimit() {
+            if let snapshot = try? registry.snapshot(provider: provider),
+               let state = try? decode(snapshot, decoder: decoder) {
+                return state
+            }
+            return ClaudeHookSessionStoreFile()
+        }
         do {
             let snapshot = try registry.snapshotImportingLegacy(
                 provider: provider,
@@ -161,6 +212,75 @@ struct AgentHookSessionRegistryBridge {
                 return state
             }
             return readLegacy(decoder: decoder)
+        }
+    }
+
+    func lookup(
+        sessionID: String,
+        decoder: JSONDecoder = JSONDecoder()
+    ) throws -> ClaudeHookSessionRecord? {
+        try refreshLegacySource()
+        guard let stored = try registry.hookRecord(provider: provider, sessionID: sessionID) else {
+            return nil
+        }
+        let record = try decoder.decode(ClaudeHookSessionRecord.self, from: stored.json)
+        guard record.sessionId == stored.sessionID else {
+            throw ProjectionError.recordIdentityMismatch
+        }
+        return record
+    }
+
+    func activeContext(
+        workspaceID: String,
+        surfaceID: String?,
+        decoder: JSONDecoder = JSONDecoder()
+    ) throws -> ClaudeHookSessionStoreFile {
+        try refreshLegacySource()
+        return try decode(
+            registry.hookActiveContext(
+                provider: provider,
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ).snapshot,
+            decoder: decoder
+        )
+    }
+
+    func fallbackRecords(
+        workspaceID: String?,
+        surfaceID: String?,
+        decoder: JSONDecoder = JSONDecoder()
+    ) throws -> [ClaudeHookSessionRecord] {
+        try refreshLegacySource()
+        return try registry.hookFallbackRecords(
+            provider: provider,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        ).map { stored in
+            let record = try decoder.decode(ClaudeHookSessionRecord.self, from: stored.json)
+            guard record.sessionId == stored.sessionID else {
+                throw ProjectionError.recordIdentityMismatch
+            }
+            return record
+        }
+    }
+
+    func runningRecords(
+        workspaceID: String,
+        surfaceID: String?,
+        decoder: JSONDecoder = JSONDecoder()
+    ) throws -> [ClaudeHookSessionRecord] {
+        try refreshLegacySource()
+        return try registry.hookRunningRecords(
+            provider: provider,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        ).map { stored in
+            let record = try decoder.decode(ClaudeHookSessionRecord.self, from: stored.json)
+            guard record.sessionId == stored.sessionID else {
+                throw ProjectionError.recordIdentityMismatch
+            }
+            return record
         }
     }
 
@@ -282,6 +402,137 @@ struct AgentHookSessionRegistryBridge {
         }
     }
 
+    func mutateSession<T>(
+        sessionID: String,
+        workspaceID: String?,
+        surfaceID: String?,
+        includeOwnedSlots: Bool = true,
+        _ body: (inout ClaudeHookSessionStoreFile) throws -> T
+    ) throws -> (
+        result: T,
+        state: ClaudeHookSessionStoreFile,
+        revision: Int64,
+        recordsRead: Int,
+        slotsRead: Int,
+        recordsWritten: Int,
+        slotsWritten: Int
+    ) {
+        try refreshLegacySource()
+        let decoder = JSONDecoder()
+        let encoder = JSONEncoder()
+        var explicitSlots = Set<CmuxAgentSessionRegistry.ActiveSlotKey>()
+        if let workspaceID = normalized(workspaceID) {
+            explicitSlots.insert(.init(scope: .workspace, scopeID: workspaceID))
+        }
+        if let surfaceID = normalized(surfaceID) {
+            explicitSlots.insert(.init(scope: .surface, scopeID: surfaceID))
+        }
+        let mutation = try registry.mutateHookSession(
+            provider: provider,
+            sessionID: sessionID,
+            activeSlots: explicitSlots,
+            includeOwnedSlots: includeOwnedSlots
+        ) { snapshot in
+            var state = try decode(snapshot, decoder: decoder)
+            let previous = state
+            let result = try body(&state)
+
+            let previousRecord = snapshot.records.first { $0.sessionID == sessionID }
+            let previousValue = previous.sessions[sessionID]
+            let currentValue = state.sessions[sessionID]
+            if let currentValue {
+                let currentTypedJSON = try encoder.encode(currentValue)
+                let previousTypedJSON = try previousValue.map(encoder.encode)
+                if previousTypedJSON != currentTypedJSON || previousRecord == nil {
+                    if let previousRecord,
+                       previousRecord.writerGeneration > CmuxAgentSessionRegistry.currentWriterGeneration {
+                        throw MutationError.newerWriterGeneration
+                    }
+                    snapshot.records = [CmuxAgentSessionRegistry.Record(
+                        provider: provider,
+                        sessionID: sessionID,
+                        updatedAt: currentValue.updatedAt,
+                        json: try mergedJSON(
+                            original: previousRecord?.json,
+                            previousTyped: previousTypedJSON,
+                            currentTyped: currentTypedJSON
+                        )
+                    )]
+                }
+            } else {
+                if let previousRecord,
+                   previousRecord.writerGeneration > CmuxAgentSessionRegistry.currentWriterGeneration {
+                    throw MutationError.newerWriterGeneration
+                }
+                snapshot.records = []
+            }
+
+            let previousSlots = slotMap(previous)
+            let currentSlots = slotMap(state)
+            let storedSlots = Dictionary(uniqueKeysWithValues: snapshot.activeSlots.map {
+                (CmuxAgentSessionRegistry.slotKey(scope: $0.scope, scopeID: $0.scopeID), $0)
+            })
+            var projectedSlots: [CmuxAgentSessionRegistry.ActiveSlot] = []
+            projectedSlots.reserveCapacity(currentSlots.count)
+            for (key, slot) in currentSlots {
+                let oldValue = previousSlots[key]?.record
+                let oldTypedJSON = try oldValue.map(encoder.encode)
+                let currentTypedJSON = try encoder.encode(slot.record)
+                if oldTypedJSON == currentTypedJSON, let stored = storedSlots[key] {
+                    projectedSlots.append(stored)
+                    continue
+                }
+                if let stored = storedSlots[key],
+                   stored.writerGeneration > CmuxAgentSessionRegistry.currentWriterGeneration,
+                   oldTypedJSON != currentTypedJSON {
+                    throw MutationError.newerWriterGeneration
+                }
+                projectedSlots.append(CmuxAgentSessionRegistry.ActiveSlot(
+                    provider: provider,
+                    scope: slot.scope,
+                    scopeID: slot.scopeID,
+                    sessionID: slot.record.sessionId,
+                    updatedAt: slot.record.updatedAt,
+                    writerGeneration: max(
+                        storedSlots[key]?.writerGeneration ?? 0,
+                        CmuxAgentSessionRegistry.currentWriterGeneration
+                    ),
+                    json: try mergedJSON(
+                        original: storedSlots[key]?.json,
+                        previousTyped: oldTypedJSON,
+                        currentTyped: currentTypedJSON
+                    )
+                ))
+            }
+            for (key, stored) in storedSlots where currentSlots[key] == nil {
+                guard stored.writerGeneration <= CmuxAgentSessionRegistry.currentWriterGeneration else {
+                    throw MutationError.newerWriterGeneration
+                }
+            }
+            snapshot.activeSlots = projectedSlots
+            return (result, state)
+        }
+        try projectLegacy(including: mutation.revision)
+        return (
+            mutation.result.0,
+            mutation.result.1,
+            mutation.revision,
+            mutation.recordsRead,
+            mutation.slotsRead,
+            mutation.recordsWritten,
+            mutation.slotsWritten
+        )
+    }
+
+    func projectLegacy(including requiredRevision: Int64) throws {
+        try registry.projectHookLegacyStore(
+            provider: provider,
+            to: URL(fileURLWithPath: statePath),
+            including: requiredRevision,
+            fileManager: fileManager
+        )
+    }
+
     func markLegacySourceCurrent() {
         guard let stamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: statePath, fileManager: fileManager) else {
             return
@@ -293,17 +544,291 @@ struct AgentHookSessionRegistryBridge {
         readLegacyIfPresent(decoder: decoder) ?? ClaudeHookSessionStoreFile()
     }
 
+    private func refreshLegacySource() throws {
+        try validateLegacyFileSize()
+        let result = try registry.refreshLegacySources(
+            [CmuxAgentSessionRegistry.LegacySource(
+                provider: provider,
+                url: URL(fileURLWithPath: statePath)
+            )],
+            fileManager: fileManager
+        )
+        guard !result.failedProviders.contains(provider)
+                || !fileManager.fileExists(atPath: statePath) else {
+            throw AgentHookSessionStoreLoadFailure(
+                provider: provider,
+                path: statePath,
+                code: .legacySourceImportFailed
+            )
+        }
+    }
+
+    private func mergedJSON(
+        original: Data?,
+        previousTyped: Data?,
+        currentTyped: Data
+    ) throws -> Data {
+        var object = original.flatMap {
+            try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+        } ?? [:]
+        let previous = previousTyped.flatMap {
+            try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+        } ?? [:]
+        guard let current = try JSONSerialization.jsonObject(with: currentTyped) as? [String: Any] else {
+            throw CocoaError(.propertyListReadCorrupt)
+        }
+        for key in Set(previous.keys).union(current.keys) {
+            object.removeValue(forKey: key)
+        }
+        object.merge(current) { _, new in new }
+        guard JSONSerialization.isValidJSONObject(object) else {
+            throw CocoaError(.propertyListWriteInvalid)
+        }
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
     private func readLegacyIfPresent(
         decoder: JSONDecoder,
         requireInspectionProjectionIdentity: Bool = false
     ) -> ClaudeHookSessionStoreFile? {
-        guard fileManager.fileExists(atPath: statePath),
-              let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
+        guard !legacyFileSizeExceedsLimit(),
+              fileManager.fileExists(atPath: statePath),
+              let data = readLegacyDataIfWithinLimit(),
               let store = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data),
               !requireInspectionProjectionIdentity || inspectionProjectionIdentityIsConsistent(store) else {
             return nil
         }
         return store
+    }
+
+    private static func preflightInspectionSources(
+        _ sources: [CmuxAgentSessionRegistry.LegacySource],
+        registry: CmuxAgentSessionRegistry,
+        registryPath: String,
+        fileManager: FileManager,
+        maximumLegacyGraphNodes: Int
+    ) throws {
+        var preflights: [InspectionSourcePreflight] = []
+        var remainingLegacyGraphNodes = maximumLegacyGraphNodes
+        var selectedRegistryRecords = 0
+        var selectedLegacyGraphNodes = 0
+        for source in sources {
+            let storageMetrics = try registry.hookStorageMetrics(provider: source.provider)
+            selectedRegistryRecords += storageMetrics.recordCount
+            if selectedRegistryRecords > maximumLegacyGraphNodes {
+                throw AgentHookSessionStoreLoadFailure(
+                    provider: source.provider,
+                    path: registryPath,
+                    code: .storageLimitExceeded,
+                    scope: .registryGraphNodes,
+                    observedCount: Int64(selectedRegistryRecords),
+                    maximumCount: Int64(maximumLegacyGraphNodes),
+                    canonicalPath: registryPath
+                )
+            }
+            remainingLegacyGraphNodes = max(
+                0,
+                maximumLegacyGraphNodes - selectedRegistryRecords - selectedLegacyGraphNodes
+            )
+            let stamp = CmuxAgentSessionRegistry.LegacyStamp.read(
+                path: source.url.path,
+                fileManager: fileManager
+            )
+            let changedLegacyBytes: Int64
+            let legacyMetrics: CmuxAgentSessionRegistry.HookLegacySourceMetrics?
+            if let stamp,
+               try !registry.legacySourceIsCurrent(provider: source.provider, stamp: stamp) {
+                changedLegacyBytes = stamp.size
+                do {
+                    legacyMetrics = try registry.hookLegacySourceMetrics(
+                        at: source.url,
+                        maximumBytes: maximumLegacyFileBytes,
+                        maximumSessions: maximumLegacySessions,
+                        maximumGraphNodes: remainingLegacyGraphNodes,
+                        maximumRecordBytes: maximumInspectionRecordBytes
+                    )
+                } catch let error as CmuxAgentSessionRegistry.HookLegacySourceInspectionLimitError {
+                    throw legacyInspectionFailure(
+                        provider: source.provider,
+                        error: error,
+                        aggregateMaximumGraphNodes: maximumLegacyGraphNodes,
+                        registryPath: registryPath
+                    )
+                } catch let error as CmuxAgentSessionRegistry.HookLegacySourceSizeError {
+                    throw AgentHookSessionStoreLoadFailure(
+                        provider: source.provider,
+                        path: source.url.path,
+                        code: .storageLimitExceeded,
+                        scope: .legacyFile,
+                        observedBytes: error.observedBytes,
+                        maximumBytes: error.maximumBytes,
+                        canonicalPath: registryPath
+                    )
+                } catch {
+                    throw AgentHookSessionStoreLoadFailure(
+                        provider: source.provider,
+                        path: source.url.path,
+                        code: .legacySourceImportFailed
+                    )
+                }
+                selectedLegacyGraphNodes += legacyMetrics?.graphNodeCount ?? 0
+            } else {
+                changedLegacyBytes = 0
+                legacyMetrics = nil
+            }
+            preflights.append(InspectionSourcePreflight(
+                provider: source.provider,
+                registryPath: registryPath,
+                legacyPath: source.url.path,
+                metrics: storageMetrics,
+                legacyBytes: changedLegacyBytes,
+                legacyMetrics: legacyMetrics
+            ))
+        }
+        try validateInspectionStorage(preflights)
+    }
+
+    private static func legacyInspectionFailure(
+        provider: String,
+        error: CmuxAgentSessionRegistry.HookLegacySourceInspectionLimitError,
+        aggregateMaximumGraphNodes: Int,
+        registryPath: String
+    ) -> AgentHookSessionStoreLoadFailure {
+        switch error.scope {
+        case .sessions:
+            AgentHookSessionStoreLoadFailure(
+                provider: provider,
+                path: error.path,
+                code: .storageLimitExceeded,
+                scope: .legacySessions,
+                observedCount: error.observed,
+                maximumCount: error.maximum,
+                canonicalPath: registryPath
+            )
+        case .graphNodes:
+            AgentHookSessionStoreLoadFailure(
+                provider: provider,
+                path: error.path,
+                code: .storageLimitExceeded,
+                scope: .legacyGraphNodes,
+                sessionID: error.sessionID,
+                observedCount: Int64(aggregateMaximumGraphNodes) + 1,
+                maximumCount: Int64(aggregateMaximumGraphNodes),
+                canonicalPath: registryPath
+            )
+        case .recordBytes, .identifierBytes:
+            AgentHookSessionStoreLoadFailure(
+                provider: provider,
+                path: error.path,
+                code: .storageLimitExceeded,
+                scope: .legacyRecord,
+                sessionID: error.sessionID,
+                observedBytes: error.observed,
+                maximumBytes: error.maximum,
+                canonicalPath: registryPath
+            )
+        }
+    }
+
+    static func validateInspectionStorage(
+        _ sources: [InspectionSourcePreflight]
+    ) throws {
+        var selectedBytes: Int64 = 0
+        for source in sources {
+            let metrics = source.metrics
+            if metrics.largestRecordBytes > maximumInspectionRecordBytes {
+                throw AgentHookSessionStoreLoadFailure(
+                    provider: source.provider,
+                    path: source.registryPath,
+                    code: .storageLimitExceeded,
+                    scope: .registryRecord,
+                    sessionID: metrics.largestRecordSessionID,
+                    observedBytes: metrics.largestRecordBytes,
+                    maximumBytes: maximumInspectionRecordBytes
+                )
+            }
+            if metrics.totalBytes > maximumInspectionProviderBytes {
+                throw AgentHookSessionStoreLoadFailure(
+                    provider: source.provider,
+                    path: source.registryPath,
+                    code: .storageLimitExceeded,
+                    scope: .registryProvider,
+                    observedBytes: metrics.totalBytes,
+                    maximumBytes: maximumInspectionProviderBytes
+                )
+            }
+            if source.legacyBytes > maximumLegacyFileBytes {
+                throw AgentHookSessionStoreLoadFailure(
+                    provider: source.provider,
+                    path: source.legacyPath,
+                    code: .storageLimitExceeded,
+                    scope: .legacyFile,
+                    observedBytes: source.legacyBytes,
+                    maximumBytes: maximumLegacyFileBytes,
+                    canonicalPath: source.registryPath
+                )
+            }
+            let (providerBytes, providerOverflow) = metrics.totalBytes.addingReportingOverflow(
+                source.legacyBytes
+            )
+            let boundedProviderBytes: Int64 = providerOverflow ? .max : providerBytes
+            if boundedProviderBytes > maximumInspectionProviderBytes {
+                throw AgentHookSessionStoreLoadFailure(
+                    provider: source.provider,
+                    path: source.legacyBytes > 0 ? source.legacyPath : source.registryPath,
+                    code: .storageLimitExceeded,
+                    scope: .providerMaterialization,
+                    observedBytes: boundedProviderBytes,
+                    maximumBytes: maximumInspectionProviderBytes
+                )
+            }
+            let (sum, overflow) = selectedBytes.addingReportingOverflow(boundedProviderBytes)
+            selectedBytes = overflow ? .max : sum
+            if selectedBytes > maximumInspectionSelectionBytes {
+                throw AgentHookSessionStoreLoadFailure(
+                    provider: source.provider,
+                    path: source.registryPath,
+                    code: .storageLimitExceeded,
+                    scope: .selectionMaterialization,
+                    observedBytes: selectedBytes,
+                    maximumBytes: maximumInspectionSelectionBytes
+                )
+            }
+        }
+    }
+
+    private func validateLegacyFileSize() throws {
+        guard let stamp = CmuxAgentSessionRegistry.LegacyStamp.read(
+            path: statePath,
+            fileManager: fileManager
+        ), stamp.size > Self.maximumLegacyFileBytes else {
+            return
+        }
+        throw AgentHookSessionStoreLoadFailure(
+            provider: provider,
+            path: statePath,
+            code: .storageLimitExceeded,
+            scope: .legacyFile,
+            observedBytes: stamp.size,
+            maximumBytes: Self.maximumLegacyFileBytes
+        )
+    }
+
+    private func legacyFileSizeExceedsLimit() -> Bool {
+        guard let stamp = CmuxAgentSessionRegistry.LegacyStamp.read(
+            path: statePath,
+            fileManager: fileManager
+        ) else {
+            return false
+        }
+        return stamp.size > Self.maximumLegacyFileBytes
+    }
+
+    private func readLegacyDataIfWithinLimit() -> Data? {
+        try? registry.readHookLegacySourceData(
+            at: URL(fileURLWithPath: statePath),
+            maximumBytes: Self.maximumLegacyFileBytes
+        )
     }
 
     private func inspectionProjectionIdentityIsConsistent(
