@@ -183,6 +183,39 @@ import Testing
         #expect(GhosttySurfaceScrollView.flashCount(for: targetPanel.id) == 1)
     }
 
+    @Test func feedOnlyWorkspaceJumpKeepsLiveTerminalSelectedAfterFocusSettles() async throws {
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let targetWorkspace = try #require(manager.selectedWorkspace)
+        let targetPanel = try #require(targetWorkspace.focusedTerminalPanel)
+        let targetSurfaceID = try #require(
+            targetWorkspace.surfaceIdFromPanelId(targetPanel.id)?.uuid
+        )
+        let feedWorkspace = manager.addWorkspace(
+            title: "Feed",
+            initialSurface: .feed,
+            inheritWorkingDirectory: false,
+            select: true,
+            autoWelcomeIfNeeded: false,
+            allowTextBoxFocusDefault: false
+        )
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+
+        #expect(feedWorkspace.panels.values.contains {
+            ($0 as? RightSidebarToolPanel)?.mode == .feed
+        })
+        #expect(appDelegate.routeFeedFocus(
+            workspaceId: targetWorkspace.id.uuidString,
+            surfaceId: targetSurfaceID.uuidString
+        ))
+
+        await Task.yield()
+
+        #expect(manager.selectedTabId == targetWorkspace.id)
+        #expect(targetWorkspace.focusedPanelId == targetPanel.id)
+    }
+
     @Test func resolvedQuestionSelectionsRemainAvailableForPresentation() {
         let status = WorkstreamStatus.resolved(
             .question(selections: ["Answering a question"]),
