@@ -27,18 +27,38 @@ final class BrowserWebExtensionsManager: NSObject {
     static let notificationsCompatibilityScriptSource = #"""
     (() => {
       const notifications = new Map();
+      const dispatchEvent = Symbol('dispatchEvent');
       const makeEvent = () => {
         const listeners = new Set();
         return {
           addListener(listener) { if (typeof listener === 'function') listeners.add(listener); },
           removeListener(listener) { listeners.delete(listener); },
           hasListener(listener) { return listeners.has(listener); },
-          hasListeners() { return listeners.size > 0; }
+          hasListeners() { return listeners.size > 0; },
+          [dispatchEvent](...args) {
+            for (const listener of listeners) listener(...args);
+          }
         };
       };
       const complete = (value, callback) => {
         if (typeof callback === 'function') queueMicrotask(() => callback(value));
         return Promise.resolve(value);
+      };
+      const makeDisconnectedNativePort = application => {
+        const messageEvent = makeEvent();
+        const disconnectEvent = makeEvent();
+        const port = {
+          name: application || '',
+          error: new Error('No such native application'),
+          onMessage: messageEvent,
+          onDisconnect: disconnectEvent,
+          postMessage() {},
+          disconnect() {}
+        };
+        queueMicrotask(() => {
+          disconnectEvent[dispatchEvent](port);
+        });
+        return port;
       };
       const api = {
         onClicked: makeEvent(),
@@ -89,6 +109,15 @@ final class BrowserWebExtensionsManager: NSObject {
                 configurable: false,
                 enumerable: true,
                 value: makeEvent()
+              });
+            } catch (_) {}
+          }
+          if (namespace.runtime && !namespace.runtime.connectNative) {
+            try {
+              Object.defineProperty(namespace.runtime, 'connectNative', {
+                configurable: false,
+                enumerable: true,
+                value: makeDisconnectedNativePort
               });
             } catch (_) {}
           }
