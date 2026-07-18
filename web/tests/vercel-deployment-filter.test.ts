@@ -3,6 +3,17 @@ import { expect, test } from "bun:test";
 import docsVercelConfig from "../vercel.docs-channel.json";
 import vercelConfig from "../vercel.json";
 
+function deploymentEnabled(
+  branch: string,
+  rules: Record<string, boolean>,
+): boolean {
+  const matchingRules = [rules[branch], rules["**"]].filter(
+    (rule): rule is boolean => rule !== undefined,
+  );
+
+  return matchingRules.length === 0 || matchingRules.includes(true);
+}
+
 test("automatically deploys main but skips ephemeral branches", () => {
   for (const config of [vercelConfig, docsVercelConfig]) {
     expect(config.git.deploymentEnabled).toEqual({
@@ -12,7 +23,7 @@ test("automatically deploys main but skips ephemeral branches", () => {
 
     const deploymentRules: Record<string, boolean> =
       config.git.deploymentEnabled;
-    expect(deploymentRules.main).toBe(true);
+    expect(deploymentEnabled("main", deploymentRules)).toBe(true);
 
     for (const branch of [
       "codex/refresh-generated-assets",
@@ -20,8 +31,7 @@ test("automatically deploys main but skips ephemeral branches", () => {
       "reload-build/dsfix-123",
       "gate/dsfix-123",
     ]) {
-      expect(branch).toContain("/");
-      expect(deploymentRules["**"]).toBe(false);
+      expect(deploymentEnabled(branch, deploymentRules)).toBe(false);
     }
   }
 });
