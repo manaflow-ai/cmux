@@ -189,6 +189,7 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                     workspace.syncCanvasBrowserPortalZOrder()
                 },
                 onViewportGeometryChanged: { [weak workspace] window in
+                    workspace?.noteCanvasViewportGeometryChanged()
                     // Window-portal-hosted content (browser webviews) tracks
                     // anchor geometry; canvas scrolls/zooms/drags move anchors
                     // without any split-layout event. Sync each browser anchor

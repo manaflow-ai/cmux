@@ -1,6 +1,7 @@
 public import Foundation
 public import CoreGraphics
 public import CmuxCanvas
+public import Combine
 
 /// The durable canvas state for one workspace.
 ///
@@ -18,7 +19,18 @@ public final class CanvasModel {
     public private(set) var layout = CanvasLayout()
 
     /// Monotonic revision so callers can cheaply detect changes.
-    public private(set) var revision: UInt64 = 0
+    public private(set) var revision: UInt64 = 0 {
+        didSet { revisionSubject.send(revision) }
+    }
+
+    /// Emits the current revision immediately and every durable layout change
+    /// thereafter. Consumers use this instead of polling or observing the
+    /// AppKit canvas hierarchy.
+    public var revisionPublisher: AnyPublisher<UInt64, Never> {
+        revisionSubject.eraseToAnyPublisher()
+    }
+
+    private let revisionSubject = CurrentValueSubject<UInt64, Never>(0)
 
     /// The attached canvas view, when one is mounted. Lets the host's action
     /// executors drive viewport operations (reveal, overview) through a

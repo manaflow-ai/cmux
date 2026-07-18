@@ -10,6 +10,7 @@ import {
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
+import { isPrivateSharePath } from "./services/share/privacy";
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -63,6 +64,22 @@ export default function middleware(request: NextRequest) {
 
   if (pathname === "/app-pro-welcome" || pathname === "/app-pro-welcome/") {
     return NextResponse.next();
+  }
+
+  // Shared workspaces stay outside the localized marketing tree so terminal,
+  // cursor, and chat content never enters PostHog autocapture or page URLs.
+  if (isPrivateSharePath(pathname)) {
+    const requestHeaders = new Headers(request.headers);
+    const preferredLanguage = request.headers.get("accept-language")
+      ?.split(",")[0]?.trim().toLowerCase();
+    requestHeaders.set("x-next-intl-locale", preferredLanguage === "ja" || preferredLanguage?.startsWith("ja-")
+      ? "ja"
+      : "en");
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
+    response.headers.set("Cache-Control", "private, no-store");
+    response.headers.set("Referrer-Policy", "no-referrer");
+    response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+    return response;
   }
 
   // Post-checkout pages live outside the [locale] tree, like /app-pricing.

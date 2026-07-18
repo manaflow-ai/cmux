@@ -15648,6 +15648,7 @@ struct CMUXCLI {
               close-others | close-above | close-below
               mark-read | mark-unread
               set-color | clear-color
+              share
 
             Flags:
               --action <name>              Action name (required if not positional)
@@ -15671,6 +15672,7 @@ struct CMUXCLI {
               cmux workspace-action --action set-description --description "Ship checklist"
               cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
+              cmux workspace-action share
             """
         case "tab-action":
             return """

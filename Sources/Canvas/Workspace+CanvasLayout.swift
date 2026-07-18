@@ -9,6 +9,12 @@ extension Notification.Name {
     /// so window chrome can reflect canvas vs splits without observing the
     /// workspace directly.
     static let workspaceLayoutModeDidChange = Notification.Name("cmux.workspaceLayoutModeDidChange")
+    /// Posted (object = the `Workspace`) whenever panning, magnification, or
+    /// live canvas presentation geometry changes without mutating the durable
+    /// canvas layout.
+    static let workspaceCanvasViewportGeometryDidChange = Notification.Name(
+        "cmux.workspaceCanvasViewportGeometryDidChange"
+    )
 }
 
 /// Canvas-layout behavior for `Workspace`. The workspace stays the owner of
@@ -79,8 +85,15 @@ extension Workspace {
 
     /// Called by the canvas after a user gesture commits a frame change.
     func noteCanvasLayoutChanged() {
-        // Session persistence snapshots read `canvasModel` directly; nothing
-        // else needs to react to pure geometry changes today.
+        // Durable observers read `canvasModel.revisionPublisher` directly;
+        // session persistence snapshots read the model when requested.
+    }
+
+    func noteCanvasViewportGeometryChanged() {
+        NotificationCenter.default.post(
+            name: .workspaceCanvasViewportGeometryDidChange,
+            object: self
+        )
     }
 
     // MARK: - Session persistence

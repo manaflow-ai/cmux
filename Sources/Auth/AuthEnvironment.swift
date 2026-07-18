@@ -190,6 +190,21 @@ enum AuthEnvironment {
         return canonicalizedLoopbackURL(URL(string: defaultVMAPIOrigin)!)
     }
 
+    /// Dedicated Durable Object service used for authenticated workspace sharing.
+    static var workspaceShareServiceURL: URL {
+        if let overridden = ProcessInfo.processInfo.environment["CMUX_SHARE_SERVICE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return canonicalizedLoopbackURL(url)
+        }
+        if let override = devOverride(key: "CMUX_SHARE_SERVICE_URL"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
+        }
+        return URL(string: "https://share.cmux.dev")!
+    }
+
     /// Look up `key=value` in `~/.cmux-dev.env` for the DEBUG build. Returns nil in Release.
     /// Kept tiny on purpose — this is a "drop a file, restart the app, it picks up" override,
     /// not a real config system.

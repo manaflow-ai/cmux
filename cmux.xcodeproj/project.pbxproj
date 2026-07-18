@@ -689,6 +689,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */; };
 		A6AC72080000000000000001 /* CMUXWorkspaceLoadingCLIRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72080000000000000002 /* CMUXWorkspaceLoadingCLIRegressionTests.swift */; };
 		E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A3000000000000000102 /* CmuxWorkspaces */; };
+		C5A4E00000000000000000A3 /* CmuxWorkspaceShare in Frameworks */ = {isa = PBXBuildFile; productRef = C5A4E00000000000000000A2 /* CmuxWorkspaceShare */; };
+		C5A4E00000000000000000A4 /* CmuxWorkspaceShare in Frameworks */ = {isa = PBXBuildFile; productRef = C5A4E00000000000000000A2 /* CmuxWorkspaceShare */; };
 		C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */; };
 		AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */; };
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
@@ -723,6 +725,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */; };
 		C0DE1A010000000000000001 /* ContentView+SavedLayoutCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A010000000000000002 /* ContentView+SavedLayoutCommands.swift */; };
 		C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */; };
+		C5A4E000000000000000020B /* ContentView+WorkspaceShareCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E000000000000000010B /* ContentView+WorkspaceShareCommandPalette.swift */; };
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
@@ -2005,6 +2008,16 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		EE30D6000000000000000002 /* WorkspaceRemoteSessionHostAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */; };
 		44FF9EFEEF762BE6CF158E42 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */; };
 		619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */; };
+		C5A4E0000000000000000203 /* WorkspaceShareAccessPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E0000000000000000103 /* WorkspaceShareAccessPromptCoordinator.swift */; };
+		C5A4E0000000000000000202 /* WorkspaceShareAccessRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E0000000000000000102 /* WorkspaceShareAccessRequest.swift */; };
+		C5A4E0000000000000000205 /* WorkspaceShareChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E0000000000000000105 /* WorkspaceShareChatMessage.swift */; };
+		C5A4E000000000000000020A /* WorkspaceShareCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E000000000000000010A /* WorkspaceShareCoordinator.swift */; };
+		C5A4E0000000000000000207 /* WorkspaceShareCursorOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E0000000000000000107 /* WorkspaceShareCursorOverlayController.swift */; };
+		C5A4E0000000000000000206 /* WorkspaceShareCursorOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E0000000000000000106 /* WorkspaceShareCursorOverlayView.swift */; };
+		C5A4E0000000000000000208 /* WorkspaceShareExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E0000000000000000108 /* WorkspaceShareExporter.swift */; };
+		C5A4E0000000000000000209 /* WorkspaceShareHostSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E0000000000000000109 /* WorkspaceShareHostSession.swift */; };
+		C5A4E0000000000000000204 /* WorkspaceShareRemotePointer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E0000000000000000104 /* WorkspaceShareRemotePointer.swift */; };
+		C5A4E0000000000000000201 /* WorkspaceShareScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A4E0000000000000000101 /* WorkspaceShareScene.swift */; };
 		6799A0016799A0016799A001 /* WorkspaceSidebarAgentRuntimeObservationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */; };
 		5659B0015659B0015659B001 /* WorkspaceSidebarLogEntryLimitProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */; };
 		5659A0015659A0015659A001 /* WorkspaceSidebarObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */; };
@@ -2760,6 +2773,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+RightSidebarCommandPalette.swift"; sourceTree = "<group>"; };
 		C0DE1A010000000000000002 /* ContentView+SavedLayoutCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+SavedLayoutCommands.swift"; sourceTree = "<group>"; };
 		C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ViewCommandPalette.swift"; sourceTree = "<group>"; };
+		C5A4E000000000000000010B /* ContentView+WorkspaceShareCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+WorkspaceShareCommandPalette.swift"; sourceTree = "<group>"; };
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewIdentifierCopyCommands.swift; sourceTree = "<group>"; };
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
@@ -4023,6 +4037,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteSessionHostAdapter.swift; sourceTree = "<group>"; };
 		92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift; sourceTree = "<group>"; };
 		9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceRuntimeSettings.swift; sourceTree = "<group>"; };
+		C5A4E0000000000000000103 /* WorkspaceShareAccessPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareAccessPromptCoordinator.swift; sourceTree = "<group>"; };
+		C5A4E0000000000000000102 /* WorkspaceShareAccessRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareAccessRequest.swift; sourceTree = "<group>"; };
+		C5A4E0000000000000000105 /* WorkspaceShareChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareChatMessage.swift; sourceTree = "<group>"; };
+		C5A4E000000000000000010A /* WorkspaceShareCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareCoordinator.swift; sourceTree = "<group>"; };
+		C5A4E0000000000000000107 /* WorkspaceShareCursorOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareCursorOverlayController.swift; sourceTree = "<group>"; };
+		C5A4E0000000000000000106 /* WorkspaceShareCursorOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareCursorOverlayView.swift; sourceTree = "<group>"; };
+		C5A4E0000000000000000108 /* WorkspaceShareExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareExporter.swift; sourceTree = "<group>"; };
+		C5A4E0000000000000000109 /* WorkspaceShareHostSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareHostSession.swift; sourceTree = "<group>"; };
+		C5A4E0000000000000000104 /* WorkspaceShareRemotePointer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareRemotePointer.swift; sourceTree = "<group>"; };
+		C5A4E0000000000000000101 /* WorkspaceShareScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareScene.swift; sourceTree = "<group>"; };
 		6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarAgentRuntimeObservationModel.swift; sourceTree = "<group>"; };
 		5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarLogEntryLimitProvider.swift; sourceTree = "<group>"; };
 		5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarObservation.swift; sourceTree = "<group>"; };
@@ -4100,6 +4124,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
 				5E55200000000000000000B3 /* CmuxWindowing in Frameworks */,
 				E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */,
+				C5A4E00000000000000000A3 /* CmuxWorkspaceShare in Frameworks */,
 				A5001006 /* GhosttyKit.xcframework in Frameworks */,
 				A5001290 /* MarkdownUI in Frameworks */,
 				A5001270 /* PostHog in Frameworks */,
@@ -4158,6 +4183,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
+				C5A4E00000000000000000A4 /* CmuxWorkspaceShare in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -4370,6 +4396,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001041 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				C5A4E0000000000000000001 /* Sharing */,
 				A11CE0030000000000000001 /* AboutLicenseContent.swift */,
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
@@ -5564,6 +5591,24 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			path = Sources;
 			sourceTree = "<group>";
 		};
+		C5A4E0000000000000000001 /* Sharing */ = {
+			isa = PBXGroup;
+			children = (
+				C5A4E0000000000000000101 /* WorkspaceShareScene.swift */,
+				C5A4E0000000000000000102 /* WorkspaceShareAccessRequest.swift */,
+				C5A4E0000000000000000103 /* WorkspaceShareAccessPromptCoordinator.swift */,
+				C5A4E0000000000000000104 /* WorkspaceShareRemotePointer.swift */,
+				C5A4E0000000000000000105 /* WorkspaceShareChatMessage.swift */,
+				C5A4E0000000000000000106 /* WorkspaceShareCursorOverlayView.swift */,
+				C5A4E0000000000000000107 /* WorkspaceShareCursorOverlayController.swift */,
+				C5A4E0000000000000000108 /* WorkspaceShareExporter.swift */,
+				C5A4E0000000000000000109 /* WorkspaceShareHostSession.swift */,
+				C5A4E000000000000000010A /* WorkspaceShareCoordinator.swift */,
+				C5A4E000000000000000010B /* ContentView+WorkspaceShareCommandPalette.swift */,
+			);
+			path = Sharing;
+			sourceTree = "<group>";
+		};
 		CA52D0010000000000000000 /* Canvas */ = {
 			isa = PBXGroup;
 			children = (
@@ -6250,6 +6295,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			name = cmux;
 			packageProductDependencies = (
+				C5A4E00000000000000000A2 /* CmuxWorkspaceShare */,
 				A5001231 /* Sparkle */,
 				A5001251 /* Sentry */,
 				A5001271 /* PostHog */,
@@ -6374,6 +6420,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			name = cmuxTests;
 			packageProductDependencies = (
+				C5A4E00000000000000000A2 /* CmuxWorkspaceShare */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
 				1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */,
@@ -6435,6 +6482,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			mainGroup = A5001040;
 			packageReferences = (
+				C5A4E00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxWorkspaceShare" */,
 				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
@@ -7052,6 +7100,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
 				C0DE1A010000000000000001 /* ContentView+SavedLayoutCommands.swift in Sources */,
 				C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */,
+				C5A4E000000000000000020B /* ContentView+WorkspaceShareCommandPalette.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
 				C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */,
 				C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */,
@@ -7938,6 +7987,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				EE30D6000000000000000002 /* WorkspaceRemoteSessionHostAdapter.swift in Sources */,
 				44FF9EFEEF762BE6CF158E42 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift in Sources */,
 				619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */,
+				C5A4E0000000000000000203 /* WorkspaceShareAccessPromptCoordinator.swift in Sources */,
+				C5A4E0000000000000000202 /* WorkspaceShareAccessRequest.swift in Sources */,
+				C5A4E0000000000000000205 /* WorkspaceShareChatMessage.swift in Sources */,
+				C5A4E000000000000000020A /* WorkspaceShareCoordinator.swift in Sources */,
+				C5A4E0000000000000000207 /* WorkspaceShareCursorOverlayController.swift in Sources */,
+				C5A4E0000000000000000206 /* WorkspaceShareCursorOverlayView.swift in Sources */,
+				C5A4E0000000000000000208 /* WorkspaceShareExporter.swift in Sources */,
+				C5A4E0000000000000000209 /* WorkspaceShareHostSession.swift in Sources */,
+				C5A4E0000000000000000204 /* WorkspaceShareRemotePointer.swift in Sources */,
+				C5A4E0000000000000000201 /* WorkspaceShareScene.swift in Sources */,
 				6799A0016799A0016799A001 /* WorkspaceSidebarAgentRuntimeObservationModel.swift in Sources */,
 				5659B0015659B0015659B001 /* WorkspaceSidebarLogEntryLimitProvider.swift in Sources */,
 				5659A0015659A0015659A001 /* WorkspaceSidebarObservation.swift in Sources */,
@@ -9050,6 +9109,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		C5A4E00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxWorkspaceShare" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxWorkspaceShare;
+		};
 		0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CMUXMobileCore;
@@ -9264,6 +9327,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		C5A4E00000000000000000A2 /* CmuxWorkspaceShare */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C5A4E00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxWorkspaceShare" */;
+			productName = CmuxWorkspaceShare;
+		};
 		29813FE5A6CBC1019289A251 /* CMUXAuthCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */;

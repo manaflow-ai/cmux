@@ -355,6 +355,24 @@ public final class CanvasRootView: NSView {
         rect.offsetBy(dx: documentOriginInCanvas.x, dy: documentOriginInCanvas.y)
     }
 
+    /// Converts a point from a host view into durable canvas coordinates.
+    /// Returns nil when the point is outside this canvas viewport.
+    public func canvasPoint(from point: CGPoint, in sourceView: NSView) -> CGPoint? {
+        let rootPoint = convert(point, from: sourceView)
+        guard bounds.contains(rootPoint) else { return nil }
+        let documentPoint = documentView.convert(point, from: sourceView)
+        return CGPoint(
+            x: documentPoint.x + documentOriginInCanvas.x,
+            y: documentPoint.y + documentOriginInCanvas.y
+        )
+    }
+
+    /// Projects a durable canvas rect into a host view's native coordinate
+    /// space, including the current pan and magnification.
+    public func convertCanvasRect(_ rect: CGRect, to targetView: NSView) -> CGRect {
+        targetView.convert(documentRect(fromCanvas: rect), from: documentView)
+    }
+
     /// Sizes the document around the content with a viewport-sized margin on
     /// every side, shifting the scroll origin so nothing moves on screen.
     func recomputeDocumentGeometry() {
