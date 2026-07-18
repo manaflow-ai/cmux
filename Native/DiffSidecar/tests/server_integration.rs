@@ -458,6 +458,52 @@ fn rpc_resolves_agent_turn_from_provider_and_session_id() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[test]
+fn rpc_rejects_agent_turn_outside_the_token_repository_scope() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-agent-scope-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = prepare_agent_rpc_fixture(&root);
+    let token = "0123456789abcdef";
+    let unauthorized_repo = root.join("unauthorized-repo");
+    std::fs::create_dir_all(&unauthorized_repo).expect("create unauthorized repo");
+    std::fs::write(
+        root.join(".branch-session-agent-test.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "groupID": "agent-test",
+            "allowedRepoRoots": [unauthorized_repo]
+        }))
+        .expect("encode restricted authorization"),
+    )
+    .expect("restrict authorization");
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "agent-session-outside-scope",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {
+            "source": {
+                "kind": "agentTurn",
+                "provider": "claude",
+                "sessionId": "claude-session"
+            },
+            "capabilityToken": token
+        }
+    }))
+    .expect("encode request");
+
+    let output = run_stdio_rpc_in_root_with_home(&request, &root, Some(&home));
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["error"]["code"], "notAllowed", "{response}");
+    assert!(response["result"].is_null(), "{response}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 fn prepare_agent_rpc_fixture(root: &Path) -> std::path::PathBuf {
     let home = root.join("home");
     let repo = root.join("repo");
@@ -517,7 +563,7 @@ fn prepare_agent_rpc_fixture(root: &Path) -> std::path::PathBuf {
         serde_json::to_vec(&serde_json::json!({
             "token": token,
             "groupID": "agent-test",
-            "allowedRepoRoots": []
+            "allowedRepoRoots": [repo]
         }))
         .expect("encode authorization"),
     )
