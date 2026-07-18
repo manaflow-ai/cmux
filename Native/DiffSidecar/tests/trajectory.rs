@@ -477,6 +477,110 @@ fn claude_resolver_keeps_turn_patches_across_automated_user_records() {
 }
 
 #[test]
+fn claude_resolver_includes_subagent_patches_from_the_latest_prompt() {
+    let fixture = FixtureRoot::new("claude-subagent");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("claude-subagent.jsonl");
+    let subagents = transcript.with_extension("").join("subagents");
+    let repo = fixture.repo();
+    fs::create_dir_all(&subagents).expect("create Claude subagent directory");
+    write_lines(
+        &transcript,
+        &[
+            claude_prompt("prompt-old", "old request"),
+            claude_prompt("prompt-current", "current request"),
+            serde_json::json!({
+                "type":"user",
+                "promptId":"prompt-current",
+                "message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"agent-tool"}]},
+                "toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"current-agent"}
+            }),
+        ],
+    );
+    write_lines(
+        &subagents.join("agent-old-agent.jsonl"),
+        &[
+            claude_prompt("prompt-old", "delegated old request"),
+            claude_patch_result("prompt-old", &repo.join("old.txt"), "-old", "+stale"),
+        ],
+    );
+    write_lines(
+        &subagents.join("agent-current-agent.jsonl"),
+        &[
+            claude_prompt("prompt-current", "delegated current request"),
+            claude_patch_result(
+                "prompt-current",
+                &repo.join("delegated.txt"),
+                "-before",
+                "+after",
+            ),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "claude",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve delegated Claude patch");
+
+    assert!(resolved.patch.contains("delegated.txt"));
+    assert!(resolved.patch.contains("+after"));
+    assert!(!resolved.patch.contains("old.txt"));
+    assert!(!resolved.patch.contains("+stale"));
+}
+
+#[test]
+fn claude_resolver_ignores_an_unterminated_trailing_record() {
+    let fixture = FixtureRoot::new("claude-active-write");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("claude-active-write.jsonl");
+    let repo = fixture.repo();
+    write_lines(
+        &transcript,
+        &[
+            claude_prompt("prompt-current", "current request"),
+            claude_patch_result(
+                "prompt-current",
+                &repo.join("current.txt"),
+                "-before",
+                "+after",
+            ),
+        ],
+    );
+    use std::io::Write as _;
+    let mut active_transcript = fs::OpenOptions::new()
+        .append(true)
+        .open(&transcript)
+        .expect("open active Claude transcript");
+    active_transcript
+        .write_all(br#"{"type":"assistant","message":{"content":"still writing"#)
+        .expect("append partial Claude record");
+    write_hook_store(
+        &fixture.home(),
+        "claude",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("ignore the actively written final record");
+
+    assert!(resolved.patch.contains("current.txt"));
+    assert!(resolved.patch.contains("+after"));
+}
+
+#[test]
 fn claude_resolver_does_not_reuse_patch_after_prompt_without_id() {
     let fixture = FixtureRoot::new("claude-missing-prompt-id");
     prepare_common_directories(&fixture);

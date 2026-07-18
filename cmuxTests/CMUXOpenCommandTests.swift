@@ -545,6 +545,35 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(URL(string: rawURL)?.scheme, "cmux-diff-viewer")
     }
 
+    func testDiffViewerAssetCacheRepairsMissingFileDespiteCompletionMarker() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let appURL = rootURL.appendingPathComponent("cmux DEV cache.app", isDirectory: true)
+        let resourcesURL = appURL.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let runtimeURL = resourcesURL.appendingPathComponent("bin/cmux", isDirectory: false)
+        let viewerURL = rootURL.appendingPathComponent("viewer/index.html", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try writeTestDiffViewerAssets(resourcesURL: resourcesURL, appMain: "export const cacheFixture = true;\n")
+        try writeTestDiffViewerAssetManifests(resourcesURL: resourcesURL)
+        try FileManager.default.createDirectory(at: viewerURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let cli = CMUXCLI(args: [])
+        let initialAssets = try cli.ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtimeURL)
+        let cachedWorker = try XCTUnwrap(initialAssets.files.first { $0.path.hasSuffix("worker-portable.js.deflate") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachedWorker.path))
+        try FileManager.default.removeItem(at: cachedWorker)
+
+        let repairedAssets = try cli.ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtimeURL)
+        let repairedWorker = try XCTUnwrap(repairedAssets.files.first { $0.path.hasSuffix("worker-portable.js.deflate") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: repairedWorker.path))
+        XCTAssertEqual(
+            try Data(contentsOf: repairedWorker),
+            try Data(contentsOf: resourcesURL
+                .appendingPathComponent("markdown-viewer/diff-viewer/worker-pool/worker-portable.js.deflate"))
+        )
+    }
+
     func testDiffCommandMaterializesRemotePatchForCustomScheme() throws {
         let cliPath = try bundledCLIPath()
         let fakeBin = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-diff-fake-curl-\(UUID().uuidString)", isDirectory: true)
@@ -2148,6 +2177,42 @@ final class CMUXOpenCommandTests: XCTestCase {
             to: appURL.appendingPathComponent("main.mjs", isDirectory: false),
             atomically: true,
             encoding: .utf8
+        )
+    }
+
+    private func writeTestDiffViewerAssetManifests(resourcesURL: URL) throws {
+        let viewerDirectory = resourcesURL.appendingPathComponent("markdown-viewer/diff-viewer", isDirectory: true)
+        let appDirectory = resourcesURL.appendingPathComponent("markdown-viewer/diff-viewer-app", isDirectory: true)
+        try writeTestDiffViewerAssetManifest(
+            directory: viewerDirectory,
+            contentKey: String(repeating: "a", count: 64),
+            logicalPaths: [
+                "diffs.mjs",
+                "trees.mjs",
+                "worker-pool/worker-pool.mjs",
+                "worker-pool/worker-portable.js"
+            ]
+        )
+        try writeTestDiffViewerAssetManifest(
+            directory: appDirectory,
+            contentKey: String(repeating: "b", count: 64),
+            logicalPaths: ["main.mjs"]
+        )
+    }
+
+    private func writeTestDiffViewerAssetManifest(
+        directory: URL,
+        contentKey: String,
+        logicalPaths: [String]
+    ) throws {
+        let manifest: [String: Any] = [
+            "version": 1,
+            "contentKey": contentKey,
+            "files": logicalPaths.map { ["logicalPath": $0, "storedPath": $0 + ".deflate"] }
+        ]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]).write(
+            to: directory.appendingPathComponent(CMUXCLI.diffViewerBundledAssetManifestName),
+            options: .atomic
         )
     }
 
