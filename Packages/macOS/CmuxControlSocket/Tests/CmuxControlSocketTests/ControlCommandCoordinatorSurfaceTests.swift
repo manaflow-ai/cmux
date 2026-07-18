@@ -94,6 +94,32 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["type"] == .string("terminal"))
     }
 
+    @Test func surfaceCreateRemotePayloadIdentifiesTmuxNewWindow() throws {
+        let workspaceID = UUID()
+        let (coordinator, context) = coordinator(createResolution: .routedToRemote(
+            windowID: nil,
+            workspaceID: workspaceID,
+            typeRawValue: "terminal"
+        ))
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: ["type": .string("terminal")]
+        ))
+        _ = context
+
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected routed remote create payload")
+            return
+        }
+
+        #expect(payload["accepted"] == .bool(true))
+        #expect(payload["routed"] == .string("remote-tmux"))
+        #expect(payload["remote_tmux_operation"] == .string("new-window"))
+        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+    }
+
     @Test func surfaceCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let (coordinator, context) = coordinator(createResolution: .dockUnsupportedType(
             typeRawValue: "agentSession",
