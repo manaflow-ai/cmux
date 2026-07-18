@@ -59,6 +59,38 @@ struct AgentHookSessionStateWriter: Sendable {
             )
         }
 
+        func projectHibernatedResumesToLegacy(
+            using writer: AgentHookSessionStateWriter,
+            provider: String,
+            stateURL: URL,
+            claims: [HibernatedResumeAuthorityClaim],
+            now: TimeInterval
+        ) {
+            writer.projectHibernatedResumesToLegacy(
+                provider: provider,
+                stateURL: stateURL,
+                claims: claims,
+                now: now
+            )
+        }
+
+        func projectEstablishedHibernationToLegacy(
+            using writer: AgentHookSessionStateWriter,
+            provider: String,
+            stateURL: URL,
+            request: HibernatedResumeAuthorityRequest,
+            legacyStampAtClaim: CmuxAgentSessionRegistry.LegacyStamp?,
+            now: TimeInterval
+        ) {
+            writer.projectEstablishedHibernationToLegacy(
+                provider: provider,
+                stateURL: stateURL,
+                request: request,
+                legacyStampAtClaim: legacyStampAtClaim,
+                now: now
+            )
+        }
+
     }
 
     private static let writeCoordinator = WriteCoordinator()
@@ -69,6 +101,25 @@ struct AgentHookSessionStateWriter: Sendable {
         var workspaceId: UUID
         var surfaceId: UUID
         var rebindWorkspaceActiveSlot = false
+    }
+    enum RestoredHibernationAdoptionOutcome: Equatable, Sendable {
+        case adopted
+        case rejected
+        case unavailable
+    }
+    struct HibernatedResumeAuthorityRequest: Sendable {
+        var agent: SessionRestorableAgentSnapshot
+        var workspaceId: UUID
+        var surfaceId: UUID
+    }
+    enum HibernatedResumeAuthorityOutcome: Equatable, Sendable {
+        case acquired
+        case rejected
+        case unavailable
+    }
+    struct HibernatedResumeAuthorityClaim: Sendable {
+        var request: HibernatedResumeAuthorityRequest
+        var legacyStampAtClaim: CmuxAgentSessionRegistry.LegacyStamp?
     }
     private let homeDirectory: String
     private let environment: [String: String]
@@ -140,32 +191,92 @@ struct AgentHookSessionStateWriter: Sendable {
         _ requests: [RestoredHibernationAdoptionRequest],
         now: TimeInterval = Date().timeIntervalSince1970
     ) -> Set<UUID> {
-        AgentHookSessionStateWriter().recordRestoredHibernationsSynchronously(
+        Set(recordRestoredHibernationOutcomes(requests, now: now).compactMap {
+            $0.value == .adopted ? $0.key : nil
+        })
+    }
+
+    static func recordRestoredHibernationOutcomes(
+        _ requests: [RestoredHibernationAdoptionRequest],
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> [UUID: RestoredHibernationAdoptionOutcome] {
+        AgentHookSessionStateWriter().recordRestoredHibernationOutcomesSynchronously(
             requests,
             now: now
         )
     }
 
-    private func recordRestoredHibernationsSynchronously(
+    /// Atomically claims the durable surface owner immediately before cmux
+    /// queues a hibernated agent's resume input. A missing or changed slot is a
+    /// lost authority lease, even when the record still carries the old binding.
+    @discardableResult
+    static func acquireHibernatedResumeAuthority(
+        agent: SessionRestorableAgentSnapshot,
+        workspaceId: UUID,
+        surfaceId: UUID,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> HibernatedResumeAuthorityOutcome {
+        acquireHibernatedResumeAuthorities([
+            HibernatedResumeAuthorityRequest(
+                agent: agent,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            ),
+        ], now: now)[surfaceId] ?? .unavailable
+    }
+
+    /// Claims many hibernated records with one bounded SQLite transaction per
+    /// provider. Rejected siblings do not prevent independent claims from
+    /// succeeding in the same transaction.
+    static func acquireHibernatedResumeAuthorities(
+        _ requests: [HibernatedResumeAuthorityRequest],
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> [UUID: HibernatedResumeAuthorityOutcome] {
+        AgentHookSessionStateWriter().acquireHibernatedResumeAuthoritiesSynchronously(
+            requests,
+            now: now
+        )
+    }
+
+    /// Establishes the durable hibernated lease at the native teardown commit
+    /// point. Failure leaves the live runtime intact and retryable.
+    static func establishHibernatedAuthority(
+        agent: SessionRestorableAgentSnapshot,
+        workspaceId: UUID,
+        surfaceId: UUID,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> HibernatedResumeAuthorityOutcome {
+        AgentHookSessionStateWriter().establishHibernatedAuthoritySynchronously(
+            request: HibernatedResumeAuthorityRequest(
+                agent: agent,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            ),
+            now: now
+        )
+    }
+
+    private func recordRestoredHibernationOutcomesSynchronously(
         _ requests: [RestoredHibernationAdoptionRequest],
         now: TimeInterval
-    ) -> Set<UUID> {
-        var adoptedSurfaceIds = Set<UUID>()
+    ) -> [UUID: RestoredHibernationAdoptionOutcome] {
+        var outcomes: [UUID: RestoredHibernationAdoptionOutcome] = [:]
         for (provider, providerRequests) in Dictionary(grouping: requests, by: { $0.agent.kind.rawValue }) {
             guard let kind = providerRequests.first?.agent.kind else { continue }
             let stateURL = kind.hookStoreFileURL(
                 homeDirectory: homeDirectory,
                 environment: environment
             )
-            let adopted = adoptRestoredHibernationsHoldingLegacyReadLock(
+            let providerResult = adoptRestoredHibernationsHoldingLegacyReadLock(
                 provider: provider,
                 stateURL: stateURL,
                 requests: providerRequests,
                 now: now,
                 busyTimeoutMilliseconds: 25
             )
+            outcomes.merge(providerResult.outcomes) { _, new in new }
+            let adopted = providerResult.adopted
             guard !adopted.isEmpty else { continue }
-            adoptedSurfaceIds.formUnion(adopted.map(\.surfaceId))
             Task(priority: .utility) {
                 await Self.writeCoordinator.projectRestoredHibernationsToLegacy(
                     using: self,
@@ -176,7 +287,7 @@ struct AgentHookSessionStateWriter: Sendable {
                 )
             }
         }
-        return adoptedSurfaceIds
+        return outcomes
     }
 
     func schedule(
@@ -304,7 +415,10 @@ struct AgentHookSessionStateWriter: Sendable {
             workspaceId: workspaceUUID,
             surfaceId: surfaceUUID
         )
-        return recordRestoredHibernationsSynchronously([request], now: now).contains(surfaceUUID)
+        return recordRestoredHibernationOutcomesSynchronously(
+            [request],
+            now: now
+        )[surfaceUUID] == .adopted
     }
 
     private func complete(
@@ -378,26 +492,219 @@ struct AgentHookSessionStateWriter: Sendable {
         if wroteLegacy { markLegacySource(provider: provider, stateURL: stateURL) }
     }
 
+    private func establishHibernatedAuthoritySynchronously(
+        request: HibernatedResumeAuthorityRequest,
+        now: TimeInterval
+    ) -> HibernatedResumeAuthorityOutcome {
+        guard let sessionId = normalized(request.agent.sessionId) else { return .rejected }
+        let provider = request.agent.kind.rawValue
+        let stateURL = request.agent.kind.hookStoreFileURL(
+            homeDirectory: homeDirectory,
+            environment: environment
+        )
+        let legacyStampAtClaim = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path)
+        let result: CmuxAgentSessionRegistry.RecordRebindResult
+        do {
+            result = try registry(
+                provider: provider,
+                stateURL: stateURL,
+                busyTimeoutMilliseconds: 25
+            ).patchRecordRebindingActiveSlots(
+                provider: provider,
+                sessionID: sessionId,
+                updatedAt: now,
+                previousSlots: [],
+                activeSlots: [.init(scope: .surface, scopeID: request.surfaceId.uuidString)],
+                requireExistingActiveSlots: true,
+                monotonicUpdatedAt: true,
+                shouldMutate: { record in
+                    let allowedStates: Set<String> = [
+                        AgentSessionLifecycleState.active.rawValue,
+                        AgentSessionLifecycleState.restoring.rawValue,
+                        AgentSessionLifecycleState.hibernated.rawValue,
+                    ]
+                    guard let state = record["sessionState"] as? String,
+                          allowedStates.contains(state),
+                          record["restoreAuthority"] as? Bool != false,
+                          !hasCompletion(record),
+                          record["updatedAt"] is TimeInterval,
+                          recordBelongsToCurrentRuntime(record),
+                          let recordWorkspaceId = normalized(record["workspaceId"] as? String),
+                          let recordSurfaceId = normalized(record["surfaceId"] as? String) else {
+                        return false
+                    }
+                    return identifiersEqual(recordWorkspaceId, request.workspaceId.uuidString)
+                        && identifiersEqual(recordSurfaceId, request.surfaceId.uuidString)
+                }
+            ) { record in
+                let effectiveNow = max(now, record["updatedAt"] as? TimeInterval ?? now)
+                applyLifecycle(.hibernated, to: &record, now: effectiveNow)
+            }
+        } catch {
+            return .unavailable
+        }
+        guard result == .patched else { return .rejected }
+        Task(priority: .utility) {
+            await Self.writeCoordinator.projectEstablishedHibernationToLegacy(
+                using: self,
+                provider: provider,
+                stateURL: stateURL,
+                request: request,
+                legacyStampAtClaim: legacyStampAtClaim,
+                now: now
+            )
+        }
+        return .acquired
+    }
+
+    private func acquireHibernatedResumeAuthoritiesSynchronously(
+        _ requests: [HibernatedResumeAuthorityRequest],
+        now: TimeInterval
+    ) -> [UUID: HibernatedResumeAuthorityOutcome] {
+        var outcomes: [UUID: HibernatedResumeAuthorityOutcome] = [:]
+        for (provider, providerRequests) in Dictionary(
+            grouping: requests,
+            by: { $0.agent.kind.rawValue }
+        ) {
+            guard let kind = providerRequests.first?.agent.kind else { continue }
+            let stateURL = kind.hookStoreFileURL(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+            let normalizedRequests = providerRequests.compactMap {
+                request -> (request: HibernatedResumeAuthorityRequest, sessionId: String)? in
+                guard let sessionId = normalized(request.agent.sessionId) else {
+                    outcomes[request.surfaceId] = .rejected
+                    return nil
+                }
+                return (request, sessionId)
+            }
+            guard !normalizedRequests.isEmpty else { continue }
+            let legacyStampAtClaim = CmuxAgentSessionRegistry.LegacyStamp.read(
+                path: stateURL.path
+            )
+            let providerClaims: [HibernatedResumeAuthorityClaim]
+            let providerOutcomes: [UUID: HibernatedResumeAuthorityOutcome]
+            do {
+                let result = try registry(
+                    provider: provider,
+                    stateURL: stateURL,
+                    busyTimeoutMilliseconds: 25
+                ).withRecordRebindBatch { batch in
+                    var accepted: [HibernatedResumeAuthorityClaim] = []
+                    var transactionOutcomes: [UUID: HibernatedResumeAuthorityOutcome] = [:]
+                    accepted.reserveCapacity(normalizedRequests.count)
+                    for (request, sessionId) in normalizedRequests {
+                        let activeSurfaceSlot = CmuxAgentSessionRegistry.ActiveSlotKey(
+                            scope: .surface,
+                            scopeID: request.surfaceId.uuidString
+                        )
+                        let result = try batch.patchRecordRebindingActiveSlots(
+                            provider: provider,
+                            sessionID: sessionId,
+                            updatedAt: now,
+                            previousSlots: [],
+                            activeSlots: [activeSurfaceSlot],
+                            requireExistingActiveSlots: true,
+                            monotonicUpdatedAt: true,
+                            shouldMutate: { record in
+                                guard record["sessionState"] as? String
+                                        == AgentSessionLifecycleState.hibernated.rawValue,
+                                      record["restoreAuthority"] as? Bool != false,
+                                      !hasCompletion(record),
+                                      record["updatedAt"] is TimeInterval,
+                                      recordBelongsToCurrentRuntime(record),
+                                      let recordWorkspaceId = normalized(record["workspaceId"] as? String),
+                                      let recordSurfaceId = normalized(record["surfaceId"] as? String) else {
+                                    return false
+                                }
+                                return identifiersEqual(
+                                    recordWorkspaceId,
+                                    request.workspaceId.uuidString
+                                ) && identifiersEqual(
+                                    recordSurfaceId,
+                                    request.surfaceId.uuidString
+                                )
+                            }
+                        ) { record in
+                            let effectiveNow = max(
+                                now,
+                                record["updatedAt"] as? TimeInterval ?? now
+                            )
+                            applyLifecycle(.restoring, to: &record, now: effectiveNow)
+                        }
+                        if result == .patched {
+                            transactionOutcomes[request.surfaceId] = .acquired
+                            accepted.append(HibernatedResumeAuthorityClaim(
+                                request: request,
+                                legacyStampAtClaim: legacyStampAtClaim
+                            ))
+                        } else {
+                            transactionOutcomes[request.surfaceId] = .rejected
+                        }
+                    }
+                    return (accepted, transactionOutcomes)
+                }
+                providerClaims = result.0
+                providerOutcomes = result.1
+            } catch {
+                for request in providerRequests {
+                    outcomes[request.surfaceId] = .unavailable
+                }
+                continue
+            }
+            outcomes.merge(providerOutcomes) { _, new in new }
+            guard !providerClaims.isEmpty else { continue }
+            Task(priority: .utility) {
+                await Self.writeCoordinator.projectHibernatedResumesToLegacy(
+                    using: self,
+                    provider: provider,
+                    stateURL: stateURL,
+                    claims: providerClaims,
+                    now: now
+                )
+            }
+        }
+        return outcomes
+    }
+
     private func adoptRestoredHibernationsHoldingLegacyReadLock(
         provider: String,
         stateURL: URL,
         requests: [RestoredHibernationAdoptionRequest],
         now: TimeInterval,
         busyTimeoutMilliseconds: Int32
-    ) -> [RestoredHibernationAdoptionRequest] {
+    ) -> (
+        adopted: [RestoredHibernationAdoptionRequest],
+        outcomes: [UUID: RestoredHibernationAdoptionOutcome]
+    ) {
+        var initialOutcomes: [UUID: RestoredHibernationAdoptionOutcome] = [:]
         let normalizedRequests = requests.compactMap { request -> (RestoredHibernationAdoptionRequest, String)? in
-            guard let sessionId = normalized(request.agent.sessionId) else { return nil }
+            guard let sessionId = normalized(request.agent.sessionId) else {
+                initialOutcomes[request.surfaceId] = .rejected
+                return nil
+            }
             return (request, sessionId)
         }
-        guard !normalizedRequests.isEmpty else { return [] }
+        guard !normalizedRequests.isEmpty else { return ([], initialOutcomes) }
+        func unavailableResult() -> (
+            adopted: [RestoredHibernationAdoptionRequest],
+            outcomes: [UUID: RestoredHibernationAdoptionOutcome]
+        ) {
+            var outcomes = initialOutcomes
+            for (request, _) in normalizedRequests {
+                outcomes[request.surfaceId] = .unavailable
+            }
+            return ([], outcomes)
+        }
         let descriptor = open(
             stateURL.path + ".lock",
             O_CREAT | O_RDWR,
             mode_t(S_IRUSR | S_IWUSR)
         )
-        guard descriptor >= 0 else { return [] }
+        guard descriptor >= 0 else { return unavailableResult() }
         defer { Darwin.close(descriptor) }
-        guard flock(descriptor, LOCK_SH | LOCK_NB) == 0 else { return [] }
+        guard flock(descriptor, LOCK_SH | LOCK_NB) == 0 else { return unavailableResult() }
         defer { _ = flock(descriptor, LOCK_UN) }
 
         let registry = registry(
@@ -411,6 +718,7 @@ struct AgentHookSessionStateWriter: Sendable {
                 legacyURL: stateURL
             ) { batch in
                 var adopted: [RestoredHibernationAdoptionRequest] = []
+                var outcomes = initialOutcomes
                 adopted.reserveCapacity(normalizedRequests.count)
                 for (request, sessionId) in normalizedRequests {
                     let previousSurfaceSlot = CmuxAgentSessionRegistry.ActiveSlotKey(
@@ -455,14 +763,14 @@ struct AgentHookSessionStateWriter: Sendable {
                         updatedAt: now,
                         previousSlots: previousSlots,
                         activeSlots: activeSlots,
+                        monotonicUpdatedAt: true,
                         shouldMutate: { record in
                             guard restoredRecordCanBeAdopted(
                                 record,
                                 previousWorkspaceId: request.previousWorkspaceId?.uuidString,
                                 previousSurfaceId: request.previousSurfaceId.uuidString,
                                 workspaceId: request.workspaceId.uuidString,
-                                surfaceId: request.surfaceId.uuidString,
-                                now: now
+                                surfaceId: request.surfaceId.uuidString
                             ),
                             let recordWorkspaceId = normalized(record["workspaceId"] as? String),
                             let recordSurfaceId = normalized(record["surfaceId"] as? String) else {
@@ -486,23 +794,27 @@ struct AgentHookSessionStateWriter: Sendable {
                                 : previousSurfaceOwner == sessionId
                         }
                     ) { record in
+                        let effectiveNow = max(now, record["updatedAt"] as? TimeInterval ?? now)
                         applyRestoredHibernation(
                             to: &record,
                             workspaceId: request.workspaceId.uuidString,
                             surfaceId: request.surfaceId.uuidString,
-                            now: now
+                            now: effectiveNow
                         )
                     }
                     if result == .patched {
                         var adoptedRequest = request
                         adoptedRequest.rebindWorkspaceActiveSlot = rebindWorkspaceActiveSlot
                         adopted.append(adoptedRequest)
+                        outcomes[request.surfaceId] = .adopted
+                    } else {
+                        outcomes[request.surfaceId] = .rejected
                     }
                 }
-                return adopted
+                return (adopted, outcomes)
             }
         } catch {
-            return []
+            return unavailableResult()
         }
     }
 
@@ -539,11 +851,15 @@ struct AgentHookSessionStateWriter: Sendable {
             guard let value = slots[scopeId] else { return true }
             guard let slot = value as? [String: Any],
                   let owner = normalized(slot["sessionId"] as? String),
-                  let updatedAt = slot["updatedAt"] as? TimeInterval else { return false }
-            return owner == sessionId && updatedAt <= now
+                  slot["updatedAt"] is TimeInterval else { return false }
+            return owner == sessionId
         }
 
-        var accepted: [(request: RestoredHibernationAdoptionRequest, sessionId: String)] = []
+        var accepted: [(
+            request: RestoredHibernationAdoptionRequest,
+            sessionId: String,
+            updatedAt: TimeInterval
+        )] = []
         accepted.reserveCapacity(requests.count)
         for request in requests {
             guard let sessionId = normalized(request.agent.sessionId),
@@ -563,17 +879,22 @@ struct AgentHookSessionStateWriter: Sendable {
                     previousWorkspaceId: request.previousWorkspaceId?.uuidString,
                     previousSurfaceId: request.previousSurfaceId.uuidString,
                     workspaceId: request.workspaceId.uuidString,
-                    surfaceId: request.surfaceId.uuidString,
-                    now: now
+                    surfaceId: request.surfaceId.uuidString
+                  ),
+                  let effectiveNow = monotonicTimestamp(
+                    requested: now,
+                    record: record,
+                    slotCollections: [currentWorkspaceSlots, currentSurfaceSlots],
+                    sessionId: sessionId
                   ) else { continue }
             applyRestoredHibernation(
                 to: &record,
                 workspaceId: request.workspaceId.uuidString,
                 surfaceId: request.surfaceId.uuidString,
-                now: now
+                now: effectiveNow
             )
             sessions[sessionId] = record
-            accepted.append((request, sessionId))
+            accepted.append((request, sessionId, effectiveNow))
         }
         guard !accepted.isEmpty else { return }
 
@@ -613,18 +934,189 @@ struct AgentHookSessionStateWriter: Sendable {
             if item.request.rebindWorkspaceActiveSlot {
                 var workspaceSlot = workspaceSlots.templates[item.sessionId] ?? [:]
                 workspaceSlot["sessionId"] = item.sessionId
-                workspaceSlot["updatedAt"] = now
+                workspaceSlot["updatedAt"] = item.updatedAt
                 workspaceSlots.remaining[item.request.workspaceId.uuidString] = workspaceSlot
             }
 
             var surfaceSlot = surfaceSlots.templates[item.sessionId] ?? [:]
             surfaceSlot["sessionId"] = item.sessionId
-            surfaceSlot["updatedAt"] = now
+            surfaceSlot["updatedAt"] = item.updatedAt
             surfaceSlots.remaining[item.request.surfaceId.uuidString] = surfaceSlot
         }
         root["sessions"] = sessions
         root["activeSessionsByWorkspace"] = workspaceSlots.remaining
         root["activeSessionsBySurface"] = surfaceSlots.remaining
+        guard JSONSerialization.isValidJSONObject(root),
+              let encoded = try? JSONSerialization.data(
+                withJSONObject: root,
+                options: [.prettyPrinted, .sortedKeys]
+              ),
+              replacePrivateStateFile(with: encoded, at: stateURL) else { return }
+        markLegacySource(provider: provider, stateURL: stateURL)
+    }
+
+    private func projectHibernatedResumesToLegacy(
+        provider: String,
+        stateURL: URL,
+        claims: [HibernatedResumeAuthorityClaim],
+        now: TimeInterval
+    ) {
+        let sessionIds = Set(claims.compactMap { normalized($0.request.agent.sessionId) })
+        guard let canonicalRecords = try? registry(
+            provider: provider,
+            stateURL: stateURL
+        ).records(provider: provider, sessionIDs: sessionIds) else { return }
+        let canonicalBySessionId = Dictionary(
+            canonicalRecords.map { ($0.sessionID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let descriptor = open(
+            stateURL.path + ".lock",
+            O_CREAT | O_RDWR,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        guard descriptor >= 0 else { return }
+        defer { Darwin.close(descriptor) }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        guard let data = try? Data(contentsOf: stateURL),
+              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var sessions = root["sessions"] as? [String: Any] else { return }
+        let rawWorkspaceSlots = root["activeSessionsByWorkspace"]
+        let rawSurfaceSlots = root["activeSessionsBySurface"]
+        guard rawWorkspaceSlots == nil || rawWorkspaceSlots is [String: Any],
+              rawSurfaceSlots == nil || rawSurfaceSlots is [String: Any] else { return }
+        var workspaceSlots = rawWorkspaceSlots as? [String: Any] ?? [:]
+        var surfaceSlots = rawSurfaceSlots as? [String: Any] ?? [:]
+        let currentLegacyStamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path)
+        var didMutate = false
+
+        for claim in claims {
+            let request = claim.request
+            guard let sessionId = normalized(request.agent.sessionId),
+                  let canonical = canonicalBySessionId[sessionId],
+                  let canonicalRecord = try? JSONSerialization.jsonObject(
+                    with: canonical.json
+                  ) as? [String: Any],
+                  lifecycleProjectionStillOwned(
+                    canonicalRecord,
+                    state: .restoring,
+                    workspaceId: request.workspaceId,
+                    surfaceId: request.surfaceId
+                  ),
+                  var record = sessions[sessionId] as? [String: Any] else { continue }
+            let legacySourceIsUnchanged = claim.legacyStampAtClaim == currentLegacyStamp
+            guard legacySourceIsUnchanged || recordBelongsToCurrentRuntime(record) else {
+                continue
+            }
+            guard record["sessionState"] as? String == AgentSessionLifecycleState.hibernated.rawValue,
+                  record["restoreAuthority"] as? Bool != false,
+                  !hasCompletion(record),
+                  targetSlotIsAvailable(
+                    surfaceSlots,
+                    scopeId: request.surfaceId.uuidString,
+                    sessionId: sessionId
+                  ),
+                  let effectiveNow = monotonicTimestamp(
+                    requested: now,
+                    record: record,
+                    slotCollections: [workspaceSlots, surfaceSlots],
+                    sessionId: sessionId
+                  ) else { continue }
+
+            applyLifecycle(.restoring, to: &record, now: effectiveNow)
+            record["workspaceId"] = request.workspaceId.uuidString
+            record["surfaceId"] = request.surfaceId.uuidString
+
+            var surfaceSlot = surfaceSlots[request.surfaceId.uuidString] as? [String: Any] ?? [:]
+            surfaceSlots = slotsRemovingSession(sessionId, from: surfaceSlots)
+            surfaceSlot["sessionId"] = sessionId
+            surfaceSlot["updatedAt"] = effectiveNow
+            surfaceSlots[request.surfaceId.uuidString] = surfaceSlot
+
+            let ownedWorkspaceSlot = workspaceSlots.values.compactMap { value -> [String: Any]? in
+                guard let slot = value as? [String: Any],
+                      normalized(slot["sessionId"] as? String) == sessionId else {
+                    return nil
+                }
+                return slot
+            }.max {
+                ($0["updatedAt"] as? TimeInterval ?? -.infinity)
+                    < ($1["updatedAt"] as? TimeInterval ?? -.infinity)
+            }
+            if var workspaceSlot = ownedWorkspaceSlot {
+                let targetWorkspaceAvailable = targetSlotIsAvailable(
+                    workspaceSlots,
+                    scopeId: request.workspaceId.uuidString,
+                    sessionId: sessionId
+                )
+                workspaceSlots = slotsRemovingSession(sessionId, from: workspaceSlots)
+                if targetWorkspaceAvailable {
+                    workspaceSlot["sessionId"] = sessionId
+                    workspaceSlot["updatedAt"] = effectiveNow
+                    workspaceSlots[request.workspaceId.uuidString] = workspaceSlot
+                }
+            }
+            sessions[sessionId] = record
+            didMutate = true
+        }
+        guard didMutate else { return }
+        root["sessions"] = sessions
+        root["activeSessionsByWorkspace"] = workspaceSlots
+        root["activeSessionsBySurface"] = surfaceSlots
+        guard JSONSerialization.isValidJSONObject(root),
+              let encoded = try? JSONSerialization.data(
+                withJSONObject: root,
+                options: [.prettyPrinted, .sortedKeys]
+              ),
+              replacePrivateStateFile(with: encoded, at: stateURL) else { return }
+        markLegacySource(provider: provider, stateURL: stateURL)
+    }
+
+    func projectEstablishedHibernationToLegacy(
+        provider: String,
+        stateURL: URL,
+        request: HibernatedResumeAuthorityRequest,
+        legacyStampAtClaim: CmuxAgentSessionRegistry.LegacyStamp?,
+        now: TimeInterval
+    ) {
+        guard let sessionId = normalized(request.agent.sessionId),
+              let canonicalRecords = try? registry(
+                provider: provider,
+                stateURL: stateURL
+              ).records(provider: provider, sessionIDs: [sessionId]),
+              let canonical = canonicalRecords.first,
+              let canonicalRecord = try? JSONSerialization.jsonObject(
+                with: canonical.json
+              ) as? [String: Any],
+              lifecycleProjectionStillOwned(
+                canonicalRecord,
+                state: .hibernated,
+                workspaceId: request.workspaceId,
+                surfaceId: request.surfaceId
+              ) else { return }
+
+        let descriptor = open(
+            stateURL.path + ".lock",
+            O_CREAT | O_RDWR,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        guard descriptor >= 0 else { return }
+        defer { Darwin.close(descriptor) }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        guard let data = try? Data(contentsOf: stateURL),
+              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var sessions = root["sessions"] as? [String: Any],
+              var record = sessions[sessionId] as? [String: Any] else { return }
+        let currentLegacyStamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path)
+        guard legacyStampAtClaim == currentLegacyStamp || recordBelongsToCurrentRuntime(record),
+              record["restoreAuthority"] as? Bool != false,
+              !hasCompletion(record),
+              let recordUpdatedAt = record["updatedAt"] as? TimeInterval else { return }
+        applyLifecycle(.hibernated, to: &record, now: max(now, recordUpdatedAt))
+        sessions[sessionId] = record
+        root["sessions"] = sessions
         guard JSONSerialization.isValidJSONObject(root),
               let encoded = try? JSONSerialization.data(
                 withJSONObject: root,
@@ -683,12 +1175,12 @@ struct AgentHookSessionStateWriter: Sendable {
         previousWorkspaceId: String?,
         previousSurfaceId: String,
         workspaceId: String,
-        surfaceId: String,
-        now: TimeInterval
+        surfaceId: String
     ) -> Bool {
         guard record["sessionState"] as? String == AgentSessionLifecycleState.hibernated.rawValue,
-              let actualUpdatedAt = record["updatedAt"] as? TimeInterval,
-              actualUpdatedAt <= now,
+              record["restoreAuthority"] as? Bool != false,
+              !hasCompletion(record),
+              record["updatedAt"] is TimeInterval,
               let recordWorkspaceId = normalized(record["workspaceId"] as? String),
               let recordSurfaceId = normalized(record["surfaceId"] as? String) else {
             return false
@@ -816,6 +1308,48 @@ struct AgentHookSessionStateWriter: Sendable {
         return payload
     }
 
+    /// Resume authority belongs to a concrete cmux process, not only to the
+    /// stable workspace/surface UUIDs that session restore preserves. Both the
+    /// root record and its active run must still name this process before cmux
+    /// can queue provider resume input.
+    private func recordBelongsToCurrentRuntime(_ record: [String: Any]) -> Bool {
+        guard let currentRuntimeId = normalized(environment["CMUX_RUNTIME_ID"]),
+              let runtime = record["cmuxRuntime"] as? [String: Any],
+              normalized(runtime["id"] as? String) == currentRuntimeId else {
+            return false
+        }
+        guard let activeRunId = normalized(record["activeRunId"] as? String) else {
+            return true
+        }
+        guard let runs = record["runs"] as? [[String: Any]],
+              let activeRun = runs.first(where: {
+                  normalized($0["runId"] as? String) == activeRunId
+              }),
+              let activeRunRuntime = activeRun["cmuxRuntime"] as? [String: Any],
+              normalized(activeRunRuntime["id"] as? String) == currentRuntimeId else {
+            return false
+        }
+        return true
+    }
+
+    private func lifecycleProjectionStillOwned(
+        _ record: [String: Any],
+        state: AgentSessionLifecycleState,
+        workspaceId: UUID,
+        surfaceId: UUID
+    ) -> Bool {
+        guard record["sessionState"] as? String == state.rawValue,
+              record["restoreAuthority"] as? Bool != false,
+              !hasCompletion(record),
+              recordBelongsToCurrentRuntime(record),
+              let recordWorkspaceId = normalized(record["workspaceId"] as? String),
+              let recordSurfaceId = normalized(record["surfaceId"] as? String) else {
+            return false
+        }
+        return identifiersEqual(recordWorkspaceId, workspaceId.uuidString)
+            && identifiersEqual(recordSurfaceId, surfaceId.uuidString)
+    }
+
     private func assigningRuntime(
         _ runtime: [String: Any],
         to value: Any?,
@@ -853,6 +1387,61 @@ struct AgentHookSessionStateWriter: Sendable {
 
     private func identifiersEqual(_ lhs: String, _ rhs: String) -> Bool {
         lhs.caseInsensitiveCompare(rhs) == .orderedSame
+    }
+
+    private func hasCompletion(_ record: [String: Any]) -> Bool {
+        guard let completedAt = record["completedAt"] else { return false }
+        return !(completedAt is NSNull)
+    }
+
+    private func targetSlotIsAvailable(
+        _ slots: [String: Any],
+        scopeId: String,
+        sessionId: String
+    ) -> Bool {
+        guard let value = slots[scopeId] else { return true }
+        guard let slot = value as? [String: Any],
+              normalized(slot["sessionId"] as? String) == sessionId,
+              slot["updatedAt"] is TimeInterval else {
+            return false
+        }
+        return true
+    }
+
+    private func monotonicTimestamp(
+        requested: TimeInterval,
+        record: [String: Any],
+        slotCollections: [[String: Any]],
+        sessionId: String
+    ) -> TimeInterval? {
+        guard let recordUpdatedAt = record["updatedAt"] as? TimeInterval else { return nil }
+        var effective = max(requested, recordUpdatedAt)
+        for slots in slotCollections {
+            for value in slots.values {
+                guard let slot = value as? [String: Any],
+                      normalized(slot["sessionId"] as? String) == sessionId else {
+                    continue
+                }
+                guard let slotUpdatedAt = slot["updatedAt"] as? TimeInterval else { return nil }
+                effective = max(effective, slotUpdatedAt)
+            }
+        }
+        return effective
+    }
+
+    private func slotsRemovingSession(
+        _ sessionId: String,
+        from records: [String: Any]
+    ) -> [String: Any] {
+        var result = records
+        for (key, value) in records {
+            guard let record = value as? [String: Any],
+                  normalized(record["sessionId"] as? String) == sessionId else {
+                continue
+            }
+            result.removeValue(forKey: key)
+        }
+        return result
     }
 
     private func removingSession(_ sessionId: String, from value: Any?) -> [String: Any] {

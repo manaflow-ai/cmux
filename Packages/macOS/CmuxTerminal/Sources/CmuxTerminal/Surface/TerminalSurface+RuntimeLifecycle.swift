@@ -316,12 +316,15 @@ extension TerminalSurface {
     /// - Parameters:
     ///   - reason: The teardown reason, for diagnostics.
     ///   - finalValidation: The last safety gate before native teardown.
+    ///   - finalCommit: Durable commit performed only after local invalidation
+    ///     has been atomically closed. A rejection restores the live runtime.
     /// - Returns: `true` only after native free and callback-userdata release
     ///   complete and the model commits its suspended state.
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(
         reason: String,
-        finalValidation: @escaping @Sendable () async -> Bool
+        finalValidation: @escaping @Sendable () async -> Bool,
+        finalCommit: @escaping @Sendable () async -> Bool = { true }
     ) async -> Bool {
         guard portalLifecycleState == .live,
               !runtimeSurfaceHibernationTeardownInFlight,
@@ -376,8 +379,13 @@ extension TerminalSurface {
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
                 finalValidation: {
-                    guard await finalValidation() else { return false }
-                    return validationGate.claim()
+                    guard await finalValidation(), validationGate.claim() else {
+                        return false
+                    }
+                    // Input after the local claim is queued. The durable lease
+                    // is the final commit before native free, so a rejection
+                    // restores the exact runtime and flushes queued input.
+                    return await finalCommit()
                 },
                 freeSurface: freeSurface
             )
@@ -455,8 +463,15 @@ extension TerminalSurface {
     /// Marks the resume side of agent hibernation and primes the next runtime
     /// spawn's initial input.
     @MainActor
+    public var canPrepareAgentHibernationResume: Bool {
+        portalLifecycleState == .live
+            && runtimeSurfaceSuspendedForAgentHibernation
+            && !runtimeSurfaceHibernationTeardownInFlight
+    }
+
+    @MainActor
     public func prepareAgentHibernationResume(initialInput: String?) {
-        guard !runtimeSurfaceHibernationTeardownInFlight else { return }
+        guard canPrepareAgentHibernationResume else { return }
         runtimeSurfaceSuspendedForAgentHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
     }

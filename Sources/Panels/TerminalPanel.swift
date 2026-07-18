@@ -709,12 +709,14 @@ final class TerminalPanel: Panel, ObservableObject {
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date,
         hibernatedAt: Date = Date(),
-        finalValidation: @escaping @Sendable () async -> Bool
+        finalValidation: @escaping @Sendable () async -> Bool,
+        finalCommit: @escaping @Sendable () async -> Bool = { true }
     ) async -> Bool {
         guard agentHibernationState == nil,
               await surface.suspendRuntimeSurfaceForAgentHibernation(
                   reason: "agentHibernation",
-                  finalValidation: finalValidation
+                  finalValidation: finalValidation,
+                  finalCommit: finalCommit
               ) else {
             return false
         }
@@ -745,7 +747,8 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func prepareAgentHibernationResume() -> AgentHibernationResumePreparation {
-        guard let state = agentHibernationState else {
+        guard let state = agentHibernationState,
+              surface.canPrepareAgentHibernationResume else {
             return .unavailable
         }
         let resumeStartupInput = state.agent.resumeStartupInput()
@@ -754,6 +757,10 @@ final class TerminalPanel: Panel, ObservableObject {
         requestViewReattach()
         surface.requestBackgroundSurfaceStartIfNeeded()
         return .resumed(queuedStartupInput: resumeStartupInput != nil)
+    }
+
+    var canPrepareAgentHibernationResume: Bool {
+        agentHibernationState != nil && surface.canPrepareAgentHibernationResume
     }
 
     /// Abandons a persisted hibernation placeholder whose durable session

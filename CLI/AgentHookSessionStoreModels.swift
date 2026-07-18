@@ -246,6 +246,15 @@ struct ClaudeHookSessionStoreFile: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = max(try container.decodeIfPresent(Int.self, forKey: .version) ?? 1, 2)
         sessions = try container.decodeIfPresent([String: ClaudeHookSessionRecord].self, forKey: .sessions) ?? [:]
+        guard sessions.allSatisfy({ sessionID, record in
+            sessionID == record.sessionId
+        }) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .sessions,
+                in: container,
+                debugDescription: "Session dictionary keys must match embedded session identifiers."
+            )
+        }
         activeSessionsByWorkspace = try container.decodeIfPresent(
             [String: ClaudeHookActiveSessionRecord].self,
             forKey: .activeSessionsByWorkspace
@@ -283,6 +292,16 @@ struct AgentHookSessionActivationPolicy: Sendable {
            incomingStartedAt + 0.001 < activeStartedAt {
             return false
         }
+        switch record.sessionState {
+        case .hibernated, .restoring:
+            return canActivateProtectedLifecycle(
+                record: record,
+                lineage: lineage,
+                hasIncomingPID: hasIncomingPID
+            )
+        case .active, .ended, nil:
+            break
+        }
         guard record.completedAt != nil else { return true }
         // A completed record is a durable root-exit boundary. Only a hook that
         // supplies a verified, different process generation can reopen it.
@@ -299,6 +318,23 @@ struct AgentHookSessionActivationPolicy: Sendable {
             guard let completedAt = record.completedAt else { return false }
             return incomingStartedAt > completedAt + 0.001
         }
+    }
+
+    private func canActivateProtectedLifecycle(
+        record: ClaudeHookSessionRecord,
+        lineage: AgentHookSessionLineage,
+        hasIncomingPID: Bool
+    ) -> Bool {
+        guard hasIncomingPID,
+              lineage.pid != nil,
+              let incomingStartedAt = lineage.processStartedAt else { return false }
+        let relevantRuns = (record.runs ?? []).filter { run in
+            run.runId == lineage.runId || run.runId == record.activeRunId
+        }
+        let generationBoundary = relevantRuns.compactMap(\.processStartedAt).max()
+            .map { max($0, record.updatedAt) }
+            ?? record.updatedAt
+        return incomingStartedAt > generationBoundary + 0.001
     }
 }
 

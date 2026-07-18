@@ -195,6 +195,21 @@ public struct CmuxAgentSessionRegistry: Sendable {
         }
     }
 
+    /// Reads selected session rows through one consistent, indexed snapshot.
+    public func records(
+        provider: String,
+        sessionIDs: Set<String>
+    ) throws -> [Record] {
+        guard !sessionIDs.isEmpty else { return [] }
+        return try withDatabase { database in
+            try readTransaction(database) {
+                try sessionIDs.compactMap {
+                    try readRecord(database: database, provider: provider, sessionID: $0)
+                }
+            }
+        }
+    }
+
     /// Applies a provider snapshot mutation without holding the SQLite writer
     /// lock while the caller decodes or transforms records.
     ///
@@ -406,6 +421,8 @@ public struct CmuxAgentSessionRegistry: Sendable {
         records.reserveCapacity(sessions.count)
         for (sessionID, value) in sessions {
             guard let object = value as? [String: Any],
+                  let embeddedSessionID = object["sessionId"] as? String,
+                  embeddedSessionID == sessionID,
                   JSONSerialization.isValidJSONObject(object),
                   let updatedAt = object["updatedAt"] as? TimeInterval,
                   let recordJSON = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
@@ -556,6 +573,8 @@ public struct CmuxAgentSessionRegistry: Sendable {
     /// does not grow with the number of sessions owned by the provider.
     ///
     /// A destination owned by another session rejects the complete mutation.
+    /// Callers can also require every destination to exist already, turning the
+    /// operation into an ownership claim rather than a slot creation.
     /// A previous slot that has already changed owners is left untouched. Slot
     /// JSON merges the owned sources from oldest to newest so unknown keys and
     /// a newer writer generation survive the move.
@@ -565,6 +584,8 @@ public struct CmuxAgentSessionRegistry: Sendable {
         updatedAt: TimeInterval,
         previousSlots: [ActiveSlotKey],
         activeSlots: [ActiveSlotKey],
+        requireExistingActiveSlots: Bool = false,
+        monotonicUpdatedAt: Bool = false,
         shouldMutate: ([String: Any]) -> Bool = { _ in true },
         mutate: (inout [String: Any]) -> Void
     ) throws -> RecordRebindResult {
@@ -579,6 +600,8 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     updatedAt: updatedAt,
                     previousSlots: previousSlots,
                     activeSlots: activeSlots,
+                    requireExistingActiveSlots: requireExistingActiveSlots,
+                    monotonicUpdatedAt: monotonicUpdatedAt,
                     shouldMutate: shouldMutate,
                     mutate: mutate
                 )
@@ -598,6 +621,8 @@ public struct CmuxAgentSessionRegistry: Sendable {
         updatedAt: TimeInterval,
         previousSlots: [ActiveSlotKey],
         activeSlots: [ActiveSlotKey],
+        requireExistingActiveSlots: Bool = false,
+        monotonicUpdatedAt: Bool = false,
         shouldMutate: ([String: Any]) -> Bool = { _ in true },
         mutate: (inout [String: Any]) -> Void
     ) throws -> RecordRebindResult {
@@ -608,9 +633,26 @@ public struct CmuxAgentSessionRegistry: Sendable {
                 updatedAt: updatedAt,
                 previousSlots: previousSlots,
                 activeSlots: activeSlots,
+                requireExistingActiveSlots: requireExistingActiveSlots,
+                monotonicUpdatedAt: monotonicUpdatedAt,
                 shouldMutate: shouldMutate,
                 mutate: mutate
             )
+        }
+    }
+
+    /// Performs indexed record/slot mutations through one SQLite connection
+    /// and one writer transaction. The complete batch consumes at most one
+    /// busy-timeout budget, independent of its record count.
+    public func withRecordRebindBatch<T>(
+        _ body: (RecordRebindBatch) throws -> T
+    ) throws -> T {
+        try withDatabase { database in
+            try transaction(database, retryBeginContention: false) {
+                let batch = RecordRebindBatch(registry: self, database: database)
+                defer { batch.invalidate() }
+                return try body(batch)
+            }
         }
     }
 
@@ -663,6 +705,8 @@ public struct CmuxAgentSessionRegistry: Sendable {
         updatedAt: TimeInterval,
         previousSlots: [ActiveSlotKey],
         activeSlots: [ActiveSlotKey],
+        requireExistingActiveSlots: Bool,
+        monotonicUpdatedAt: Bool,
         shouldMutate: ([String: Any]) -> Bool,
         mutate: (inout [String: Any]) -> Void
     ) throws -> RecordRebindResult {
@@ -695,7 +739,10 @@ public struct CmuxAgentSessionRegistry: Sendable {
             }
         }
         guard activeKeys.allSatisfy({ key in
-            storedSlots[key].map { $0.sessionID == sessionID } ?? true
+            guard let slot = storedSlots[key] else {
+                return !requireExistingActiveSlots
+            }
+            return slot.sessionID == sessionID
         }) else {
             return .rejected
         }
@@ -708,6 +755,13 @@ public struct CmuxAgentSessionRegistry: Sendable {
                 }
                 return $0.scopeID < $1.scopeID
             }
+        var effectiveUpdatedAt = monotonicUpdatedAt
+            ? max(
+                updatedAt,
+                existingRecord.updatedAt,
+                ownedSlots.map(\.updatedAt).max() ?? -.infinity
+            )
+            : updatedAt
         var slotObject: [String: Any] = [:]
         for ownedSlot in ownedSlots {
             guard let decodedJSON = try? JSONSerialization.jsonObject(with: ownedSlot.json),
@@ -717,18 +771,27 @@ public struct CmuxAgentSessionRegistry: Sendable {
             slotObject.merge(decoded) { _, new in new }
         }
         slotObject["sessionId"] = sessionID
-        slotObject["updatedAt"] = updatedAt
-        guard JSONSerialization.isValidJSONObject(slotObject) else { return .rejected }
-        guard let slotJSON = try? JSONSerialization.data(
-            withJSONObject: slotObject,
-            options: [.sortedKeys]
-        ) else { return .rejected }
         let slotWriterGeneration = max(
             Self.currentWriterGeneration,
             ownedSlots.map(\.writerGeneration).max() ?? 0
         )
 
         mutate(&object)
+        if monotonicUpdatedAt {
+            effectiveUpdatedAt = max(
+                effectiveUpdatedAt,
+                object["updatedAt"] as? TimeInterval ?? -.infinity
+            )
+            object["updatedAt"] = effectiveUpdatedAt
+        }
+        slotObject["updatedAt"] = effectiveUpdatedAt
+        guard JSONSerialization.isValidJSONObject(slotObject),
+              let slotJSON = try? JSONSerialization.data(
+                  withJSONObject: slotObject,
+                  options: [.sortedKeys]
+              ) else {
+            return .rejected
+        }
         guard JSONSerialization.isValidJSONObject(object),
               let recordJSON = try? JSONSerialization.data(
                 withJSONObject: object,
@@ -738,7 +801,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
             Record(
                 provider: provider,
                 sessionID: sessionID,
-                updatedAt: updatedAt,
+                updatedAt: effectiveUpdatedAt,
                 writerGeneration: max(
                     existingRecord.writerGeneration,
                     Self.currentWriterGeneration
@@ -770,7 +833,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     scope: key.scope,
                     scopeID: key.scopeID,
                     sessionID: sessionID,
-                    updatedAt: updatedAt,
+                    updatedAt: effectiveUpdatedAt,
                     writerGeneration: slotWriterGeneration,
                     json: slotJSON
                 ),

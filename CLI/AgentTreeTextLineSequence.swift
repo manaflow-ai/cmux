@@ -18,13 +18,19 @@ struct AgentTreeTextLineSequence: Sequence {
 
         private struct RenderFrame {
             var node: AgentSessionGraphNode
+            var relationship: AgentSessionRelationship?
             var prefix: String
             var connector: String
             var depth: Int
         }
 
+        private struct Child {
+            var node: AgentSessionGraphNode
+            var relationship: AgentSessionRelationship
+        }
+
         private let maximumDepth: Int
-        private let childrenByNodeID: [String: [AgentSessionGraphNode]]
+        private let childrenByNodeID: [String: [Child]]
         private let roots: [AgentSessionGraphNode]
         private let nodes: [AgentSessionGraphNode]
         private var nextRootIndex = 0
@@ -53,7 +59,11 @@ struct AgentTreeTextLineSequence: Sequence {
                 by: \.parentNodeID
             ).mapValues { $0.map(\.edge) }
             childrenByNodeID = childEdgesByNodeID.mapValues { edges in
-                edges.compactMap { nodeByID[$0.toNodeId] }
+                edges.compactMap { edge in
+                    nodeByID[edge.toNodeId].map {
+                        Child(node: $0, relationship: edge.relationship)
+                    }
+                }
             }
             let childNodeIDs = Set(resolvedEdges.map { $0.edge.toNodeId })
             roots = snapshot.nodes.filter { !childNodeIDs.contains($0.nodeId) }
@@ -74,13 +84,19 @@ struct AgentTreeTextLineSequence: Sequence {
                     + (frame.connector == "├── " ? "│   " : frame.connector == "└── " ? "    " : "")
                 for index in children.indices.reversed() {
                     stack.append(RenderFrame(
-                        node: children[index],
+                        node: children[index].node,
+                        relationship: children[index].relationship,
                         prefix: childPrefix,
                         connector: index == children.count - 1 ? "└── " : "├── ",
                         depth: frame.depth + 1
                     ))
                 }
-                return Self.line(for: node, prefix: frame.prefix, connector: frame.connector)
+                return Self.line(
+                    for: node,
+                    relationship: frame.relationship,
+                    prefix: frame.prefix,
+                    connector: frame.connector
+                )
             }
         }
 
@@ -90,7 +106,13 @@ struct AgentTreeTextLineSequence: Sequence {
                 nextRootIndex += 1
                 guard !covered.contains(root.nodeId) else { continue }
                 markReachable(from: root)
-                stack.append(RenderFrame(node: root, prefix: "", connector: "", depth: 0))
+                stack.append(RenderFrame(
+                    node: root,
+                    relationship: nil,
+                    prefix: "",
+                    connector: "",
+                    depth: 0
+                ))
                 return true
             }
             while nextFallbackIndex < nodes.count {
@@ -101,7 +123,13 @@ struct AgentTreeTextLineSequence: Sequence {
                 // whole component before rendering its fallback seed so a
                 // depth-truncated descendant cannot later reappear as a root.
                 markReachable(from: node)
-                stack.append(RenderFrame(node: node, prefix: "", connector: "", depth: 0))
+                stack.append(RenderFrame(
+                    node: node,
+                    relationship: nil,
+                    prefix: "",
+                    connector: "",
+                    depth: 0
+                ))
                 return true
             }
             return false
@@ -111,12 +139,13 @@ struct AgentTreeTextLineSequence: Sequence {
             var pending = [root]
             while let node = pending.popLast() {
                 guard covered.insert(node.nodeId).inserted else { continue }
-                pending.append(contentsOf: childrenByNodeID[node.nodeId] ?? [])
+                pending.append(contentsOf: (childrenByNodeID[node.nodeId] ?? []).map(\.node))
             }
         }
 
         private static func line(
             for node: AgentSessionGraphNode,
+            relationship: AgentSessionRelationship?,
             prefix: String,
             connector: String
         ) -> String {
@@ -131,7 +160,8 @@ struct AgentTreeTextLineSequence: Sequence {
             let identity = node.sessionId ?? "pid \(node.pid.map(String.init) ?? "unknown")"
             let location = "workspace:\(node.workspaceId) surface:\(node.surfaceId)"
             let workingDirectory = node.cwd.map { " cwd:\($0)" } ?? ""
-            return "\(prefix)\(connector)\(node.provider) \(identity) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(location)\(workingDirectory)"
+            let relationshipLabel = relationship.map { "\($0.rawValue) " } ?? ""
+            return "\(prefix)\(connector)\(relationshipLabel)\(node.provider) \(identity) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(location)\(workingDirectory)"
         }
     }
 }

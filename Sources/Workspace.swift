@@ -48,15 +48,101 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
-private struct PendingRestoredAgentHibernationAdoption {
+fileprivate struct PendingRestoredAgentHibernationAdoption {
     let request: AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest
     let resumeWorkingDirectory: String?
 }
 
-private struct AgentHibernationRestoreSuppressionState {
+fileprivate struct AgentHibernationRestoreSuppressionState {
     let wasRestoring: Bool
     let presentationVisible: Bool
     let presentationVisibilityWasUpdated: Bool
+}
+
+private enum AgentHibernationResumeAuthority {
+    case untracked
+    case claim(AgentHookSessionStateWriter.HibernatedResumeAuthorityRequest)
+    case rejected
+}
+
+private struct AgentHibernationResumeCandidate {
+    let panelId: UUID
+    let panel: TerminalPanel
+    let agent: SessionRestorableAgentSnapshot
+    let authority: AgentHibernationResumeAuthority
+}
+
+/// Owns one window restore's hibernation transfer. Every workspace remains
+/// suppressed until the complete request set has crossed one adoption call,
+/// which the writer then groups into one SQLite transaction per provider.
+@MainActor
+final class RestoredAgentHibernationAdoptionBatch {
+    typealias AdoptionHandler = (
+        [AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest]
+    ) -> [UUID: AgentHookSessionStateWriter.RestoredHibernationAdoptionOutcome]
+
+    private struct Entry {
+        let workspace: Workspace
+        let pending: [PendingRestoredAgentHibernationAdoption]
+        let suppression: AgentHibernationRestoreSuppressionState
+    }
+
+    private let adoptionHandler: AdoptionHandler
+    private var entries: [Entry] = []
+    private var isFinalized = false
+    private(set) var adoptionOperationCount = 0
+
+    init(
+        adoptionHandler: @escaping AdoptionHandler = {
+            AgentHookSessionStateWriter.recordRestoredHibernationOutcomes($0)
+        }
+    ) {
+        self.adoptionHandler = adoptionHandler
+    }
+
+    @discardableResult
+    fileprivate func append(
+        workspace: Workspace,
+        pending: [PendingRestoredAgentHibernationAdoption],
+        suppression: AgentHibernationRestoreSuppressionState
+    ) -> Bool {
+        guard !isFinalized else { return false }
+        entries.append(Entry(
+            workspace: workspace,
+            pending: pending,
+            suppression: suppression
+        ))
+        return true
+    }
+
+    func finalize() {
+        guard !isFinalized else { return }
+        isFinalized = true
+        let entries = entries
+        self.entries.removeAll(keepingCapacity: false)
+        defer {
+            for entry in entries {
+                entry.workspace.endAgentHibernationRestoreSuppression(entry.suppression)
+            }
+        }
+
+        let requests = entries.flatMap { $0.pending.map(\.request) }
+        let adoptionOutcomes: [
+            UUID: AgentHookSessionStateWriter.RestoredHibernationAdoptionOutcome
+        ]
+        if requests.isEmpty {
+            adoptionOutcomes = [:]
+        } else {
+            adoptionOperationCount += 1
+            adoptionOutcomes = adoptionHandler(requests)
+        }
+        for entry in entries {
+            entry.workspace.applyRestoredAgentHibernationAdoptions(
+                entry.pending,
+                outcomes: adoptionOutcomes
+            )
+        }
+    }
 }
 
 extension Workspace {
@@ -161,13 +247,20 @@ extension Workspace {
     }
 
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot, excludingStableIdentities: Set<UUID> = []) -> [UUID: UUID] {
+    func restoreSessionSnapshot(
+        _ snapshot: SessionWorkspaceSnapshot,
+        excludingStableIdentities: Set<UUID> = [],
+        restoredAgentHibernationAdoptionBatch: RestoredAgentHibernationAdoptionBatch? = nil
+    ) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         let hibernationSuppression = beginAgentHibernationRestoreSuppression()
+        var transferredHibernationSuppression = false
         suppressClosedPanelHistory = true
         defer {
             suppressClosedPanelHistory = previousSuppressClosedPanelHistory
-            endAgentHibernationRestoreSuppression(hibernationSuppression)
+            if !transferredHibernationSuppression {
+                endAgentHibernationRestoreSuppression(hibernationSuppression)
+            }
         }
         sessionRestoreIdentityExclusions.beginRestore(excluding: excludingStableIdentities)
         defer { sessionRestoreIdentityExclusions.endRestore() }
@@ -187,6 +280,7 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        pendingRestoredAgentHibernationAdoptionsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
@@ -241,7 +335,18 @@ extension Workspace {
             )
         }
 
-        finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
+        if let restoredAgentHibernationAdoptionBatch {
+            transferredHibernationSuppression = restoredAgentHibernationAdoptionBatch.append(
+                workspace: self,
+                pending: pendingAgentHibernationAdoptions,
+                suppression: hibernationSuppression
+            )
+            if !transferredHibernationSuppression {
+                finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
+            }
+        } else {
+            finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
+        }
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
@@ -317,12 +422,33 @@ extension Workspace {
         _ pending: [PendingRestoredAgentHibernationAdoption]
     ) {
         guard !pending.isEmpty else { return }
-        let adoptedSurfaceIds = AgentHookSessionStateWriter.recordRestoredHibernations(
+        let outcomes = AgentHookSessionStateWriter.recordRestoredHibernationOutcomes(
             pending.map(\.request)
         )
+        applyRestoredAgentHibernationAdoptions(
+            pending,
+            outcomes: outcomes
+        )
+    }
+
+    fileprivate func applyRestoredAgentHibernationAdoptions(
+        _ pending: [PendingRestoredAgentHibernationAdoption],
+        outcomes: [UUID: AgentHookSessionStateWriter.RestoredHibernationAdoptionOutcome]
+    ) {
         for adoption in pending {
             let request = adoption.request
-            if adoptedSurfaceIds.contains(request.surfaceId) {
+            switch outcomes[request.surfaceId] ?? .unavailable {
+            case .adopted:
+                pendingRestoredAgentHibernationAdoptionsByPanelId.removeValue(
+                    forKey: request.surfaceId
+                )
+                if let resumeDirectory = adoption.resumeWorkingDirectory?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !resumeDirectory.isEmpty {
+                    restoredResumeSessionWorkingDirectoriesByPanelId[request.surfaceId] = resumeDirectory
+                } else {
+                    restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: request.surfaceId)
+                }
                 AgentChatTranscriptService.recordResumeIntent(
                     sessionID: request.agent.sessionId,
                     source: request.agent.kind.rawValue,
@@ -330,7 +456,10 @@ extension Workspace {
                     workspaceID: request.workspaceId.uuidString,
                     workingDirectory: adoption.resumeWorkingDirectory
                 )
-            } else {
+            case .rejected:
+                pendingRestoredAgentHibernationAdoptionsByPanelId.removeValue(
+                    forKey: request.surfaceId
+                )
                 discardRejectedRestoredAgentHibernation(
                     panelId: request.surfaceId,
                     restoredAgent: request.agent
@@ -339,8 +468,27 @@ extension Workspace {
                     "[Workspace] discarded unowned restored agent hibernation session=%@",
                     request.agent.sessionId
                 )
+            case .unavailable:
+                pendingRestoredAgentHibernationAdoptionsByPanelId[request.surfaceId] = adoption
+                NSLog(
+                    "[Workspace] deferred restored agent hibernation adoption while authority store is unavailable session=%@",
+                    request.agent.sessionId
+                )
             }
         }
+    }
+
+    private func retryPendingRestoredAgentHibernationAdoptions(panelIds: Set<UUID>) {
+        let pending = panelIds
+            .sorted { $0.uuidString < $1.uuidString }
+            .compactMap { pendingRestoredAgentHibernationAdoptionsByPanelId[$0] }
+        guard !pending.isEmpty else { return }
+        applyRestoredAgentHibernationAdoptions(
+            pending,
+            outcomes: AgentHookSessionStateWriter.recordRestoredHibernationOutcomes(
+                pending.map(\.request)
+            )
+        )
     }
 
     private func beginAgentHibernationRestoreSuppression() -> AgentHibernationRestoreSuppressionState {
@@ -355,7 +503,7 @@ extension Workspace {
         return state
     }
 
-    private func endAgentHibernationRestoreSuppression(
+    fileprivate func endAgentHibernationRestoreSuppression(
         _ state: AgentHibernationRestoreSuppressionState
     ) {
         let presentationVisible = agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore
@@ -368,14 +516,22 @@ extension Workspace {
             agentHibernationAutoResumePresentationVisible = presentationVisible
             agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore = true
         } else {
-            setAgentHibernationAutoResumePresentationVisible(presentationVisible)
+            setAgentHibernationAutoResumePresentationVisible(
+                presentationVisible,
+                retryPendingAdoptions: false
+            )
         }
     }
 
     func clearRejectedRestoredAgentHibernationMetadata(panelId: UUID) {
+        pendingRestoredAgentHibernationAdoptionsByPanelId.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+    }
+
+    func clearPendingRestoredAgentHibernationAdoption(panelId: UUID) {
+        pendingRestoredAgentHibernationAdoptionsByPanelId.removeValue(forKey: panelId)
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -2496,6 +2652,9 @@ final class Workspace: Identifiable, ObservableObject {
         set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    fileprivate var pendingRestoredAgentHibernationAdoptionsByPanelId: [
+        UUID: PendingRestoredAgentHibernationAdoption
+    ] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the lifetime of the resumed run (unlike the one-shot report guard
@@ -4760,17 +4919,37 @@ final class Workspace: Identifiable, ObservableObject {
     ) async -> Bool {
         guard let terminalPanel = panels[panelId] as? TerminalPanel,
               !terminalPanel.isAgentHibernated,
-              agent.resumeCommand != nil,
-              await terminalPanel.enterAgentHibernation(
-                  agent: agent,
-                  lastActivityAt: lastActivityAt,
-                  finalValidation: finalValidation
-              ) else {
+              agent.resumeCommand != nil else {
+            return false
+        }
+        let agentHookBinding = surfaceResumeBindingsByPanelId[panelId].flatMap {
+            $0.isAgentHookBinding ? $0 : nil
+        }
+        if let agentHookBinding,
+           !agentHookBindingMatchesAgent(agentHookBinding, agent: agent) {
+            return false
+        }
+        let workspaceId = id
+        let requiresDurableAuthority = agentHookBinding != nil
+        guard await terminalPanel.enterAgentHibernation(
+            agent: agent,
+            lastActivityAt: lastActivityAt,
+            finalValidation: finalValidation,
+            finalCommit: {
+                guard requiresDurableAuthority else { return true }
+                return AgentHookSessionStateWriter.establishHibernatedAuthority(
+                    agent: agent,
+                    workspaceId: workspaceId,
+                    surfaceId: panelId
+                ) == .acquired
+            }
+        ) else {
             return false
         }
         commitAgentHibernationMetadata(
             panelId: panelId,
-            agent: agent
+            agent: agent,
+            recordLifecycle: !requiresDurableAuthority
         )
         if terminalPanel.surface.hasPendingInputForAgentHibernationResume {
             _ = resumeAgentHibernation(panelId: panelId, focus: false)
@@ -4780,7 +4959,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func commitAgentHibernationMetadata(
         panelId: UUID,
-        agent: SessionRestorableAgentSnapshot
+        agent: SessionRestorableAgentSnapshot,
+        recordLifecycle: Bool = true
     ) {
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
@@ -4792,41 +4972,177 @@ final class Workspace: Identifiable, ObservableObject {
         if !keys.isEmpty {
             refreshTrackedAgentPorts()
         }
-        AgentHookSessionStateWriter.recordLifecycle(agent: agent, state: .hibernated)
+        if recordLifecycle {
+            AgentHookSessionStateWriter.recordLifecycle(agent: agent, state: .hibernated)
+        }
     }
 
     @discardableResult
     func resumeAgentHibernation(panelId: UUID, focus: Bool) -> Bool {
-        guard let terminalPanel = panels[panelId] as? TerminalPanel,
-              terminalPanel.isAgentHibernated else {
-            return false
-        }
-        let preparation = terminalPanel.prepareAgentHibernationResume()
-        guard preparation.didResume else { return false }
-        AgentHookSessionStateWriter.recordLifecycle(agent: restoredAgentSnapshotsByPanelId[panelId], state: .restoring)
-        if restoredAgentSnapshotsByPanelId[panelId] != nil {
-            restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
-                ? .awaitingAutoResumeCommand
-                : .manualResumeAvailable
-            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
-        }
-        clearAgentLifecycleStates(panelId: panelId)
-        AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
-        if focus {
-            focusPanel(panelId)
-        }
-        return true
+        retryPendingRestoredAgentHibernationAdoptions(panelIds: [panelId])
+        return resumeAgentHibernationPanels(
+            panelIds: [panelId],
+            focusPanelId: focus ? panelId : nil
+        )
     }
 
     @discardableResult
-    func resumeVisibleAgentHibernationPanels(panelIds: Set<UUID>) -> Bool {
+    func resumeVisibleAgentHibernationPanels(
+        panelIds: Set<UUID>,
+        retryPendingAdoptions: Bool = true,
+        preclaimedResumeAuthorityOutcomes: [
+            UUID: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome
+        ]? = nil,
+        authorityClaimHandler: (
+            [AgentHookSessionStateWriter.HibernatedResumeAuthorityRequest]
+        ) -> [UUID: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome] = {
+            AgentHookSessionStateWriter.acquireHibernatedResumeAuthorities($0)
+        }
+    ) -> Bool {
+        if retryPendingAdoptions {
+            retryPendingRestoredAgentHibernationAdoptions(panelIds: panelIds)
+        }
+        return resumeAgentHibernationPanels(
+            panelIds: panelIds,
+            focusPanelId: nil,
+            preclaimedResumeAuthorityOutcomes: preclaimedResumeAuthorityOutcomes,
+            authorityClaimHandler: authorityClaimHandler
+        )
+    }
+
+    private func agentHibernationResumeCandidate(
+        panelId: UUID
+    ) -> AgentHibernationResumeCandidate? {
+        guard pendingRestoredAgentHibernationAdoptionsByPanelId[panelId] == nil,
+              let terminalPanel = panels[panelId] as? TerminalPanel,
+              terminalPanel.isAgentHibernated,
+              let hibernatedAgent = terminalPanel.agentHibernationState?.agent,
+              terminalPanel.canPrepareAgentHibernationResume else {
+            return nil
+        }
+        guard let agentHookBinding = surfaceResumeBindingsByPanelId[panelId].flatMap({
+            $0.isAgentHookBinding ? $0 : nil
+        }) else {
+            return AgentHibernationResumeCandidate(
+                panelId: panelId,
+                panel: terminalPanel,
+                agent: hibernatedAgent,
+                authority: .untracked
+            )
+        }
+
+        let authority: AgentHibernationResumeAuthority = agentHookBindingMatchesAgent(
+            agentHookBinding,
+            agent: hibernatedAgent
+        )
+            ? .claim(.init(agent: hibernatedAgent, workspaceId: id, surfaceId: panelId))
+            : .rejected
+        return AgentHibernationResumeCandidate(
+            panelId: panelId,
+            panel: terminalPanel,
+            agent: hibernatedAgent,
+            authority: authority
+        )
+    }
+
+    private func agentHookBindingMatchesAgent(
+        _ binding: SurfaceResumeBindingSnapshot,
+        agent: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        let checkpointId = binding.checkpointId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = binding.kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (checkpointId == nil || checkpointId == agent.sessionId)
+            && (kind.map { RestorableAgentKind(rawValue: $0) == agent.kind } ?? true)
+    }
+
+    @discardableResult
+    private func resumeAgentHibernationPanels(
+        panelIds: Set<UUID>,
+        focusPanelId: UUID?,
+        preclaimedResumeAuthorityOutcomes: [
+            UUID: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome
+        ]? = nil,
+        authorityClaimHandler: (
+            [AgentHookSessionStateWriter.HibernatedResumeAuthorityRequest]
+        ) -> [UUID: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome] = {
+            AgentHookSessionStateWriter.acquireHibernatedResumeAuthorities($0)
+        }
+    ) -> Bool {
+        let candidates = panelIds
+            .sorted { $0.uuidString < $1.uuidString }
+            .compactMap(agentHibernationResumeCandidate(panelId:))
+        let authorityRequests = candidates.compactMap { candidate in
+            if case .claim(let request) = candidate.authority { return request }
+            return nil
+        }
+        let authorityOutcomes: [
+            UUID: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome
+        ]
+        if let preclaimedResumeAuthorityOutcomes {
+            authorityOutcomes = preclaimedResumeAuthorityOutcomes
+        } else if authorityRequests.isEmpty {
+            authorityOutcomes = [:]
+        } else {
+            authorityOutcomes = authorityClaimHandler(authorityRequests)
+        }
+
         var didResume = false
-        for panelId in panelIds {
-            guard let terminalPanel = panels[panelId] as? TerminalPanel,
-                  terminalPanel.isAgentHibernated else {
+        for candidate in candidates {
+            let requiresAuthority: Bool
+            let authorityOutcome: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome
+            switch candidate.authority {
+            case .untracked:
+                requiresAuthority = false
+                authorityOutcome = .acquired
+            case .claim:
+                requiresAuthority = true
+                authorityOutcome = authorityOutcomes[candidate.panelId] ?? .unavailable
+            case .rejected:
+                requiresAuthority = true
+                authorityOutcome = .rejected
+            }
+            if authorityOutcome == .unavailable {
+                NSLog(
+                    "[Workspace] deferred hibernated agent resume while authority store is unavailable session=%@",
+                    candidate.agent.sessionId
+                )
                 continue
             }
-            didResume = resumeAgentHibernation(panelId: panelId, focus: false) || didResume
+            guard authorityOutcome == .acquired else {
+                discardRejectedRestoredAgentHibernation(
+                    panelId: candidate.panelId,
+                    restoredAgent: candidate.agent
+                )
+                NSLog(
+                    "[Workspace] discarded hibernated agent after resume authority loss session=%@",
+                    candidate.agent.sessionId
+                )
+                if focusPanelId == candidate.panelId { focusPanel(candidate.panelId) }
+                continue
+            }
+            let preparation = candidate.panel.prepareAgentHibernationResume()
+            guard preparation.didResume else { continue }
+            if !requiresAuthority {
+                AgentHookSessionStateWriter.recordLifecycle(
+                    agent: candidate.agent,
+                    state: .restoring
+                )
+            }
+            if restoredAgentSnapshotsByPanelId[candidate.panelId] != nil {
+                restoredAgentResumeStatesByPanelId[candidate.panelId] = preparation.queuedStartupInput
+                    ? .awaitingAutoResumeCommand
+                    : .manualResumeAvailable
+                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: candidate.panelId)
+            }
+            clearAgentLifecycleStates(panelId: candidate.panelId)
+            AgentHibernationController.shared.recordTerminalFocus(
+                workspaceId: id,
+                panelId: candidate.panelId
+            )
+            if focusPanelId == candidate.panelId { focusPanel(candidate.panelId) }
+            didResume = true
         }
         return didResume
     }
@@ -9887,7 +10203,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func setAgentHibernationAutoResumePresentationVisible(_ isVisible: Bool) {
+    func setAgentHibernationAutoResumePresentationVisible(
+        _ isVisible: Bool,
+        retryPendingAdoptions: Bool = true
+    ) {
         agentHibernationAutoResumePresentationVisible = isVisible
         if isRestoringSessionSnapshot {
             agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore = true
@@ -9897,7 +10216,15 @@ final class Workspace: Identifiable, ObservableObject {
         // Visibility can become true before a restore installs its hibernated
         // placeholders. Treat every visible update as an idempotent sweep so
         // that lifecycle ordering cannot strand a visible agent asleep.
-        _ = resumeVisibleAgentHibernationPanels(panelIds: agentHibernationVisiblePanelIdsForCurrentLayout())
+        _ = resumeVisibleAgentHibernationPanels(
+            panelIds: agentHibernationVisiblePanelIdsForCurrentLayout(),
+            retryPendingAdoptions: retryPendingAdoptions
+        )
+        // Restored focus requests were intentionally suppressed while the
+        // selected terminal was hibernated. Resume (or authority-loss fallback)
+        // changes the hosted view, so converge model focus and first responder
+        // synchronously after that lifecycle transition.
+        reconcileFocusState()
     }
 
     // MARK: - Utility

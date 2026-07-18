@@ -43,6 +43,8 @@ extension CmuxAgentSessionRegistry {
         ///   - updatedAt: The timestamp written to the record and active slots.
         ///   - previousSlots: Slots that may be removed when owned by `sessionID`.
         ///   - activeSlots: Slots the rebound session must own after the mutation.
+        ///   - requireExistingActiveSlots: Whether every active slot must already be owned by `sessionID`.
+        ///   - monotonicUpdatedAt: Whether the write must preserve the greatest timestamp already owned by the record or slots.
         ///   - shouldMutate: A predicate that validates the current record before mutation.
         ///   - mutate: The record mutation applied after ownership validation.
         /// - Returns: Whether the record was patched, missing, or rejected.
@@ -52,6 +54,8 @@ extension CmuxAgentSessionRegistry {
             updatedAt: TimeInterval,
             previousSlots: [ActiveSlotKey],
             activeSlots: [ActiveSlotKey],
+            requireExistingActiveSlots: Bool = false,
+            monotonicUpdatedAt: Bool = false,
             shouldMutate: ([String: Any]) -> Bool = { _ in true },
             mutate: (inout [String: Any]) -> Void
         ) throws -> RecordRebindResult {
@@ -63,6 +67,8 @@ extension CmuxAgentSessionRegistry {
                 updatedAt: updatedAt,
                 previousSlots: previousSlots,
                 activeSlots: activeSlots,
+                requireExistingActiveSlots: requireExistingActiveSlots,
+                monotonicUpdatedAt: monotonicUpdatedAt,
                 shouldMutate: shouldMutate,
                 mutate: mutate
             )

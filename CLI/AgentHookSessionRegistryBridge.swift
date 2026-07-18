@@ -1,6 +1,39 @@
 import CmuxFoundation
 import Foundation
 
+struct AgentHookSessionStoreLoadWarning: Codable, Sendable, Equatable {
+    enum Code: String, Codable, Sendable {
+        case authoritativeSnapshotDecodeFailed = "authoritative_snapshot_decode_failed"
+        case legacySourceImportFailed = "legacy_source_import_failed"
+    }
+
+    enum Fallback: String, Codable, Sendable {
+        case legacy
+        case registry
+    }
+
+    var provider: String
+    var path: String
+    var code: Code
+    var fallback: Fallback
+}
+
+struct AgentHookSessionStoreLoadResult {
+    var store: ClaudeHookSessionStoreFile
+    var warning: AgentHookSessionStoreLoadWarning?
+}
+
+struct AgentHookSessionRegistrySnapshots {
+    var snapshots: [String: CmuxAgentSessionRegistry.Snapshot]
+    var warnings: [AgentHookSessionStoreLoadWarning]
+}
+
+struct AgentHookSessionStoreLoadFailure: Error {
+    var provider: String
+    var path: String
+    var code: AgentHookSessionStoreLoadWarning.Code
+}
+
 /// Converts provider-specific hook models to the shared row-oriented registry.
 /// The bridge keeps legacy JSON as a compatibility projection while making the
 /// registry authoritative for any row written by this schema generation.
@@ -35,7 +68,7 @@ struct AgentHookSessionRegistryBridge {
         stateDirectory: String,
         environment: [String: String],
         fileManager: FileManager
-    ) -> [String: CmuxAgentSessionRegistry.Snapshot]? {
+    ) throws -> AgentHookSessionRegistrySnapshots {
         let registryURL: URL
         if let explicit = environment["CMUX_AGENT_SESSION_REGISTRY_PATH"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -52,22 +85,62 @@ struct AgentHookSessionRegistryBridge {
                 url: URL(fileURLWithPath: stateDirectory, isDirectory: true)
                     .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
             )
-        }
+        }.sorted { $0.provider < $1.provider }
         do {
-            return try registry.snapshotsImportingLegacy(
-                sources: sources,
-                fileManager: fileManager
+            return AgentHookSessionRegistrySnapshots(
+                snapshots: try registry.snapshotsImportingLegacy(
+                    sources: sources,
+                    fileManager: fileManager
+                ),
+                warnings: []
             )
         } catch {
             var recovered: [String: CmuxAgentSessionRegistry.Snapshot] = [:]
+            var warnings: [AgentHookSessionStoreLoadWarning] = []
             for source in sources {
-                recovered[source.provider] = (try? registry.snapshotImportingLegacy(
-                    provider: source.provider,
-                    legacyURL: source.url,
-                    fileManager: fileManager
-                )) ?? (try? registry.snapshot(provider: source.provider))
+                do {
+                    recovered[source.provider] = try registry.snapshotImportingLegacy(
+                        provider: source.provider,
+                        legacyURL: source.url,
+                        fileManager: fileManager
+                    )
+                } catch {
+                    guard let fallback = try? registry.snapshot(provider: source.provider),
+                          !fallback.records.isEmpty else {
+                        throw AgentHookSessionStoreLoadFailure(
+                            provider: source.provider,
+                            path: source.url.path,
+                            code: .legacySourceImportFailed
+                        )
+                    }
+                    let bridge = AgentHookSessionRegistryBridge(
+                        provider: source.provider,
+                        statePath: source.url.path,
+                        environment: environment,
+                        fileManager: fileManager
+                    )
+                    guard let validation = try? bridge.loadForInspection(snapshot: fallback),
+                          validation.warning == nil,
+                          !validation.store.sessions.isEmpty else {
+                        throw AgentHookSessionStoreLoadFailure(
+                            provider: source.provider,
+                            path: source.url.path,
+                            code: .legacySourceImportFailed
+                        )
+                    }
+                    recovered[source.provider] = fallback
+                    warnings.append(AgentHookSessionStoreLoadWarning(
+                        provider: source.provider,
+                        path: source.url.path,
+                        code: .legacySourceImportFailed,
+                        fallback: .registry
+                    ))
+                }
             }
-            return recovered.isEmpty ? nil : recovered
+            return AgentHookSessionRegistrySnapshots(
+                snapshots: recovered,
+                warnings: warnings
+            )
         }
     }
 
@@ -95,7 +168,44 @@ struct AgentHookSessionRegistryBridge {
         snapshot: CmuxAgentSessionRegistry.Snapshot,
         decoder: JSONDecoder = JSONDecoder()
     ) -> ClaudeHookSessionStoreFile {
-        (try? decode(snapshot, decoder: decoder)) ?? readLegacy(decoder: decoder)
+        (try? loadForInspection(snapshot: snapshot, decoder: decoder).store)
+            ?? ClaudeHookSessionStoreFile()
+    }
+
+    func loadForInspection(
+        snapshot: CmuxAgentSessionRegistry.Snapshot,
+        decoder: JSONDecoder = JSONDecoder()
+    ) throws -> AgentHookSessionStoreLoadResult {
+        do {
+            let store = try decode(snapshot, decoder: decoder)
+            guard inspectionProjectionIdentityIsConsistent(store) else {
+                throw ProjectionError.slotIdentityMismatch
+            }
+            return AgentHookSessionStoreLoadResult(
+                store: store,
+                warning: nil
+            )
+        } catch {
+            guard let legacy = readLegacyIfPresent(
+                decoder: decoder,
+                requireInspectionProjectionIdentity: true
+            ) else {
+                throw AgentHookSessionStoreLoadFailure(
+                    provider: provider,
+                    path: registryURL.path,
+                    code: .authoritativeSnapshotDecodeFailed
+                )
+            }
+            return AgentHookSessionStoreLoadResult(
+                store: legacy,
+                warning: AgentHookSessionStoreLoadWarning(
+                    provider: provider,
+                    path: registryURL.path,
+                    code: .authoritativeSnapshotDecodeFailed,
+                    fallback: .legacy
+                )
+            )
+        }
     }
 
     func mutate<T>(
@@ -180,12 +290,34 @@ struct AgentHookSessionRegistryBridge {
     }
 
     private func readLegacy(decoder: JSONDecoder) -> ClaudeHookSessionStoreFile {
+        readLegacyIfPresent(decoder: decoder) ?? ClaudeHookSessionStoreFile()
+    }
+
+    private func readLegacyIfPresent(
+        decoder: JSONDecoder,
+        requireInspectionProjectionIdentity: Bool = false
+    ) -> ClaudeHookSessionStoreFile? {
         guard fileManager.fileExists(atPath: statePath),
               let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
-              let state = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
-            return ClaudeHookSessionStoreFile()
+              let store = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data),
+              !requireInspectionProjectionIdentity || inspectionProjectionIdentityIsConsistent(store) else {
+            return nil
         }
-        return state
+        return store
+    }
+
+    private func inspectionProjectionIdentityIsConsistent(
+        _ store: ClaudeHookSessionStoreFile
+    ) -> Bool {
+        guard store.sessions.allSatisfy({ sessionID, record in
+            sessionID == record.sessionId
+        }) else { return false }
+        guard store.activeSessionsByWorkspace.allSatisfy({ workspaceID, slot in
+            store.sessions[slot.sessionId]?.workspaceId == workspaceID
+        }) else { return false }
+        return store.activeSessionsBySurface.allSatisfy({ surfaceID, slot in
+            store.sessions[slot.sessionId]?.surfaceId == surfaceID
+        })
     }
 
     private func decode(

@@ -1,6 +1,71 @@
 import CmuxFoundation
 import Foundation
 
+/// Retains same-process siblings for exact-session reconciliation without
+/// admitting a different kernel process generation that reused the numeric PID.
+/// Missing start metadata remains a wildcard for compatibility with legacy rows.
+struct AgentSessionProcessCohortMatcher: Sendable {
+    private struct Base: Hashable, Sendable {
+        var provider: String
+        var runtimeID: String
+        var surfaceID: String
+        var pid: Int
+    }
+
+    private var allBases: Set<Base> = []
+    private var basesWithUnknownStart: Set<Base> = []
+    private var startMillisecondsByBase: [Base: Set<Int64>] = [:]
+
+    mutating func insert(
+        provider: String,
+        record: ClaudeHookSessionRecord,
+        run: AgentSessionRunRecord
+    ) {
+        guard let base = base(provider: provider, record: record, run: run) else { return }
+        allBases.insert(base)
+        if let startedAt = run.processStartedAt {
+            startMillisecondsByBase[base, default: []].insert(Self.milliseconds(startedAt))
+        } else {
+            basesWithUnknownStart.insert(base)
+        }
+    }
+
+    func matches(
+        provider: String,
+        record: ClaudeHookSessionRecord,
+        run: AgentSessionRunRecord
+    ) -> Bool {
+        guard let base = base(provider: provider, record: record, run: run),
+              allBases.contains(base) else { return false }
+        guard let startedAt = run.processStartedAt else { return true }
+        if basesWithUnknownStart.contains(base) { return true }
+        let milliseconds = Self.milliseconds(startedAt)
+        let knownStarts = startMillisecondsByBase[base] ?? []
+        return knownStarts.contains(milliseconds - 1)
+            || knownStarts.contains(milliseconds)
+            || knownStarts.contains(milliseconds + 1)
+    }
+
+    private func base(
+        provider: String,
+        record: ClaudeHookSessionRecord,
+        run: AgentSessionRunRecord
+    ) -> Base? {
+        guard let runtimeID = (run.cmuxRuntime ?? record.cmuxRuntime)?.id,
+              let pid = run.pid else { return nil }
+        return Base(
+            provider: provider,
+            runtimeID: runtimeID,
+            surfaceID: record.surfaceId.lowercased(),
+            pid: pid
+        )
+    }
+
+    private static func milliseconds(_ value: TimeInterval) -> Int64 {
+        Int64((value * 1_000).rounded())
+    }
+}
+
 /// Reconciles cached terminal observations with durable hook-session nodes.
 ///
 /// Matching requires cmux runtime, surface, provider, PID, and kernel process
@@ -179,6 +244,7 @@ struct AgentTerminalObservationJoiner: Sendable {
     ) -> AgentSessionGraphNode {
         var result = node
         result.terminalObservation = observation
+        result.workspaceId = observation.workspaceID.uuidString
         if result.cwd == nil { result.cwd = observation.cwd }
         guard result.sessionState == .active,
               (!observation.lifecycleAuthoritative || result.effectiveState == .unknown) else {

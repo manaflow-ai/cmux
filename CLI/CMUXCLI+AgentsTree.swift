@@ -1,32 +1,6 @@
 import CmuxFoundation
 import Foundation
 
-enum AgentSessionGraphOrdering {
-    static func nodePrecedes(_ lhs: AgentSessionGraphNode, _ rhs: AgentSessionGraphNode) -> Bool {
-        if lhs.startedAt != rhs.startedAt { return lhs.startedAt < rhs.startedAt }
-        if lhs.runId != rhs.runId { return lhs.runId < rhs.runId }
-        return lhs.nodeId < rhs.nodeId
-    }
-
-    static func edgePrecedes(_ lhs: AgentSessionGraphEdge, _ rhs: AgentSessionGraphEdge) -> Bool {
-        if lhs.toNodeId != rhs.toNodeId { return lhs.toNodeId < rhs.toNodeId }
-        if lhs.relationship != rhs.relationship {
-            return lhs.relationship.rawValue < rhs.relationship.rawValue
-        }
-        if lhs.toRunId != rhs.toRunId { return lhs.toRunId < rhs.toRunId }
-        if let result = optionalStringPrecedes(lhs.fromRunId, rhs.fromRunId) { return result }
-        if let result = optionalStringPrecedes(lhs.fromSessionId, rhs.fromSessionId) { return result }
-        return false
-    }
-
-    private static func optionalStringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
-        if lhs == rhs { return nil }
-        guard let lhs else { return true }
-        guard let rhs else { return false }
-        return lhs < rhs
-    }
-}
-
 extension CMUXCLI {
     func runAgentsTreeCommand(
         commandArgs: [String],
@@ -163,15 +137,21 @@ extension CMUXCLI {
             homeDirectory: homeDirectory,
             fileManager: fileManager
         )
-        let snapshots = AgentHookSessionRegistryBridge.snapshots(
-            specifications: selectedSpecifications.map { (provider: $0.name, suffix: $0.suffix) },
-            stateDirectory: stateDirectory,
-            environment: processEnv,
-            fileManager: fileManager
-        )
+        let snapshotLoad: AgentHookSessionRegistrySnapshots
+        do {
+            snapshotLoad = try AgentHookSessionRegistryBridge.snapshots(
+                specifications: selectedSpecifications.map { (provider: $0.name, suffix: $0.suffix) },
+                stateDirectory: stateDirectory,
+                environment: processEnv,
+                fileManager: fileManager
+            )
+        } catch let failure as AgentHookSessionStoreLoadFailure {
+            throw agentsStoreLoadCLIError(failure)
+        }
         var nodes: [AgentSessionGraphNode] = []
         var edges: [AgentSessionGraphEdge] = []
         var activeSessionBySurface: [String: String] = [:]
+        var storeWarnings = snapshotLoad.warnings
         for specification in selectedSpecifications {
             let url = URL(fileURLWithPath: stateDirectory, isDirectory: true)
                 .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
@@ -184,20 +164,48 @@ extension CMUXCLI {
                 environment: storeEnvironment,
                 fileManager: fileManager
             )
-            let store = snapshots?[specification.name].map { bridge.load(snapshot: $0) }
-                ?? ClaudeHookSessionStore(
+            let store: ClaudeHookSessionStoreFile
+            if let snapshot = snapshotLoad.snapshots[specification.name] {
+                let load: AgentHookSessionStoreLoadResult
+                do {
+                    load = try bridge.loadForInspection(snapshot: snapshot)
+                } catch let failure as AgentHookSessionStoreLoadFailure {
+                    throw agentsStoreLoadCLIError(failure)
+                }
+                store = load.store
+                if let warning = load.warning { storeWarnings.append(warning) }
+            } else {
+                store = ClaudeHookSessionStore(
                     processEnv: storeEnvironment,
                     fileManager: fileManager,
                     agentName: specification.name
                 ).snapshot()
+            }
             guard !store.sessions.isEmpty else { continue }
             let activeSessionIds = Set(store.activeSessionsBySurface.values.map(\.sessionId))
                 .union(store.activeSessionsByWorkspace.values.map(\.sessionId))
+            let sessionProcessCohort = normalizedSession.map { normalizedSession in
+                var matcher = AgentSessionProcessCohortMatcher()
+                for record in store.sessions.values
+                    where record.sessionId.lowercased() == normalizedSession {
+                    for run in agentsTreeRuns(record: record, provider: specification.name) {
+                        matcher.insert(provider: specification.name, record: record, run: run)
+                    }
+                }
+                return matcher
+            }
             for record in store.sessions.values {
-                if let normalizedSession, record.sessionId.lowercased() != normalizedSession { continue }
-                if let normalizedWorkspace, record.workspaceId.lowercased() != normalizedWorkspace { continue }
-                if let normalizedSurface, record.surfaceId.lowercased() != normalizedSurface { continue }
                 let runs = agentsTreeRuns(record: record, provider: specification.name)
+                if let normalizedSession, record.sessionId.lowercased() != normalizedSession {
+                    guard runs.contains(where: { run in
+                        sessionProcessCohort?.matches(
+                            provider: specification.name,
+                            record: record,
+                            run: run
+                        ) == true
+                    }) else { continue }
+                }
+                if let normalizedSurface, record.surfaceId.lowercased() != normalizedSurface { continue }
                 let legacyRecordVisible = activeSessionIds.contains(record.sessionId)
                     || agentHookRecordIsRestorable(
                         agent: specification.name,
@@ -263,8 +271,6 @@ extension CMUXCLI {
                !agentTerminalObservation(observation, matchesAnyAgentID: observationAgentIDs) {
                 return false
             }
-            if let normalizedWorkspace,
-               observation.workspaceID.uuidString.lowercased() != normalizedWorkspace { return false }
             if let normalizedSurface,
                observation.surfaceID.uuidString.lowercased() != normalizedSurface { return false }
             switch queryScope {
@@ -281,6 +287,7 @@ extension CMUXCLI {
         )
         nodes.removeAll { node in
             if let normalizedSession, node.sessionId?.lowercased() != normalizedSession { return true }
+            if let normalizedWorkspace, node.workspaceId.lowercased() != normalizedWorkspace { return true }
             if let normalizedState, node.effectiveState.rawValue != normalizedState { return true }
             if let normalizedActivity, node.activity.state.rawValue != normalizedActivity { return true }
             if let normalizedWorkKind,
@@ -299,16 +306,23 @@ extension CMUXCLI {
 
         nodes.sort(by: AgentSessionGraphOrdering.nodePrecedes)
         edges.sort(by: AgentSessionGraphOrdering.edgePrecedes)
-        let snapshot = AgentSessionGraphSnapshot(nodes: nodes, edges: edges)
+        let snapshot = AgentSessionGraphSnapshot(
+            nodes: nodes,
+            edges: edges,
+            storeWarnings: storeWarnings.isEmpty ? nil : storeWarnings
+        )
         if localJSONOutput {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             print(String(decoding: try encoder.encode(snapshot), as: UTF8.self))
-        } else if snapshot.nodes.isEmpty {
-            print(String(localized: "cli.agents.tree.output.noMatches", defaultValue: "No saved agent runs matched."))
         } else {
-            for line in AgentTreeTextLineSequence(snapshot: snapshot, maximumDepth: maximumDepth) {
-                print(line)
+            agentsWriteStoreWarnings(storeWarnings)
+            if snapshot.nodes.isEmpty {
+                print(String(localized: "cli.agents.tree.output.noMatches", defaultValue: "No saved agent runs matched."))
+            } else {
+                for line in AgentTreeTextLineSequence(snapshot: snapshot, maximumDepth: maximumDepth) {
+                    print(line)
+                }
             }
         }
     }
@@ -317,19 +331,7 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord,
         provider: String
     ) -> [AgentSessionRunRecord] {
-        if let runs = record.runs, !runs.isEmpty { return runs }
-        return [AgentSessionRunRecord(
-            runId: record.runId ?? "session:\(provider):\(record.sessionId)",
-            pid: record.pid,
-            processStartedAt: nil,
-            cmuxRuntime: record.cmuxRuntime,
-            parentRunId: record.parentRunId,
-            parentSessionId: record.parentSessionId,
-            relationship: record.relationship,
-            restoreAuthority: record.restoreAuthority ?? (record.relationship != .spawned),
-            startedAt: record.startedAt,
-            updatedAt: record.updatedAt
-        )]
+        AgentSessionRunCanonicalizer.runs(record: record, provider: provider)
     }
 
     private func agentsTreeExpandedPath(_ value: String) -> String {

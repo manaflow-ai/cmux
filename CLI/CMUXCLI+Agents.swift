@@ -83,6 +83,41 @@ extension CMUXCLI {
 
     func sessionsUsage() -> String { agentsUsage() }
 
+    func agentsWriteStoreWarnings(_ warnings: [AgentHookSessionStoreLoadWarning]) {
+        for warning in warnings {
+            let format = switch warning.fallback {
+            case .legacy:
+                String(
+                    localized: "cli.agents.warning.authoritativeSnapshotDecodeFailed.legacy",
+                    defaultValue: "Warning [%@]: saved %@ agent state at %@ is damaged; using the last complete fallback, so newer sessions may be missing."
+                )
+            case .registry:
+                String(
+                    localized: "cli.agents.warning.legacySourceImportFailed.registry",
+                    defaultValue: "Warning [%@]: saved %@ agent state at %@ could not be imported; using the last complete registry snapshot, so newer sessions may be missing."
+                )
+            }
+            cliWriteStderr(String(
+                format: format,
+                warning.code.rawValue,
+                warning.provider,
+                warning.path
+            ) + "\n")
+        }
+    }
+
+    func agentsStoreLoadCLIError(_ failure: AgentHookSessionStoreLoadFailure) -> CLIError {
+        CLIError(message: String(
+            format: String(
+                localized: "cli.agents.error.storeLoadFailed",
+                defaultValue: "agents: [%@] saved %@ agent state at %@ could not be read and no complete fallback is available"
+            ),
+            failure.code.rawValue,
+            failure.provider,
+            failure.path
+        ))
+    }
+
     func sessionsListEncodableJSONObject<T: Encodable>(_ value: T) -> Any {
         guard let data = try? JSONEncoder().encode(value),
               let object = try? JSONSerialization.jsonObject(with: data) else {

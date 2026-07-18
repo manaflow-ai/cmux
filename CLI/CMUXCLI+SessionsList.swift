@@ -158,12 +158,8 @@ extension CMUXCLI {
                !agentTerminalObservation(observation, matchesAnyAgentID: observationAgentIDs) {
                 return false
             }
-            if let workspaceFilter,
-               observation.workspaceID.uuidString.lowercased() != workspaceFilter { return false }
             if let surfaceFilter,
                observation.surfaceID.uuidString.lowercased() != surfaceFilter { return false }
-            if let cwdFilter,
-               observation.cwd?.lowercased().contains(cwdFilter) != true { return false }
             switch queryScope {
             case .history, .legacyUnscoped:
                 return true
@@ -183,15 +179,22 @@ extension CMUXCLI {
         var entries = SessionListEntryAccumulator(limit: limit)
         var activeSessionBySurface: [String: String] = [:]
         var stores: [[String: Any]] = []
+        var storeWarnings: [AgentHookSessionStoreLoadWarning] = []
 
         let timestampFormatter = ISO8601DateFormatter()
         timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let snapshots = AgentHookSessionRegistryBridge.snapshots(
-            specifications: selectedSpecs.map { (provider: $0.name, suffix: $0.sessionStoreSuffix) },
-            stateDirectory: stateDir,
-            environment: processEnv,
-            fileManager: fileManager
-        )
+        let snapshotLoad: AgentHookSessionRegistrySnapshots
+        do {
+            snapshotLoad = try AgentHookSessionRegistryBridge.snapshots(
+                specifications: selectedSpecs.map { (provider: $0.name, suffix: $0.sessionStoreSuffix) },
+                stateDirectory: stateDir,
+                environment: processEnv,
+                fileManager: fileManager
+            )
+        } catch let failure as AgentHookSessionStoreLoadFailure {
+            throw agentsStoreLoadCLIError(failure)
+        }
+        storeWarnings.append(contentsOf: snapshotLoad.warnings)
         for spec in selectedSpecs {
             let storePath = URL(fileURLWithPath: stateDir, isDirectory: true)
                 .appendingPathComponent("\(spec.sessionStoreSuffix)-hook-sessions.json", isDirectory: false)
@@ -205,12 +208,23 @@ extension CMUXCLI {
                 environment: storeEnvironment,
                 fileManager: fileManager
             )
-            let store = snapshots?[spec.name].map { bridge.load(snapshot: $0) }
-                ?? ClaudeHookSessionStore(
+            let store: ClaudeHookSessionStoreFile
+            if let snapshot = snapshotLoad.snapshots[spec.name] {
+                let load: AgentHookSessionStoreLoadResult
+                do {
+                    load = try bridge.loadForInspection(snapshot: snapshot)
+                } catch let failure as AgentHookSessionStoreLoadFailure {
+                    throw agentsStoreLoadCLIError(failure)
+                }
+                store = load.store
+                if let warning = load.warning { storeWarnings.append(warning) }
+            } else {
+                store = ClaudeHookSessionStore(
                     processEnv: storeEnvironment,
                     fileManager: fileManager,
                     agentName: spec.name
                 ).snapshot()
+            }
             var storePayload: [String: Any] = [
                 "agent": spec.name,
                 "path": storePath,
@@ -225,29 +239,37 @@ extension CMUXCLI {
             storePayload["session_count"] = store.sessions.count
             stores.append(storePayload)
 
+            let sessionProcessCohort = sessionFilter.map { sessionFilter in
+                var matcher = AgentSessionProcessCohortMatcher()
+                for record in store.sessions.values
+                    where record.sessionId.lowercased() == sessionFilter {
+                    matcher.insert(
+                        provider: spec.name,
+                        record: record,
+                        run: sessionsListProjectedRun(record: record, provider: spec.name)
+                    )
+                }
+                return matcher
+            }
+
             for rawRecord in store.sessions.values {
-                let rawRunRuntime = rawRecord.runs?
-                    .first(where: { $0.runId == rawRecord.activeRunId })?
-                    .cmuxRuntime
-                    ?? rawRecord.runs?.max(by: { $0.updatedAt < $1.updatedAt })?.cmuxRuntime
+                let projectedRun = sessionsListProjectedRun(record: rawRecord, provider: spec.name)
                 guard queryScope.includes(
                     recordRuntime: rawRecord.cmuxRuntime,
-                    runRuntime: rawRunRuntime,
+                    runRuntime: projectedRun.cmuxRuntime,
                     legacyVisible: true
                 ) else { continue }
                 let record = rawRecord
-                let rawSessionId = rawRecord.sessionId.lowercased()
-                guard sessionFilter == nil || rawSessionId == sessionFilter else {
-                    continue
+                if let sessionFilter, record.sessionId.lowercased() != sessionFilter {
+                    guard sessionProcessCohort?.matches(
+                        provider: spec.name,
+                        record: record,
+                        run: projectedRun
+                    ) == true else {
+                        continue
+                    }
                 }
-                guard workspaceFilter == nil || record.workspaceId.lowercased() == workspaceFilter else { continue }
                 guard surfaceFilter == nil || record.surfaceId.lowercased() == surfaceFilter else { continue }
-                if let cwdFilter {
-                    let cwd = (record.cwd ?? "").lowercased()
-                    let launchCwd = (record.launchCommand?.workingDirectory ?? "").lowercased()
-                    guard cwd.contains(cwdFilter) || launchCwd.contains(cwdFilter) else { continue }
-                }
-
                 var payload: [String: Any] = [
                     "agent": spec.name,
                     "agent_display_name": spec.displayName,
@@ -264,26 +286,6 @@ extension CMUXCLI {
                 payload["pid"] = record.pid ?? NSNull()
                 payload["runtime_status"] = record.runtimeStatus?.rawValue ?? NSNull()
                 payload["agent_lifecycle"] = record.agentLifecycle?.rawValue ?? NSNull()
-                let projectedRun = record.runs?.first(where: { $0.runId == record.activeRunId })
-                    ?? record.runs?.max(by: { $0.updatedAt < $1.updatedAt })
-                    ?? AgentSessionRunRecord(
-                        runId: record.runId ?? "session:\(spec.name):\(record.sessionId)",
-                        pid: record.pid,
-                        processStartedAt: nil,
-                        cmuxRuntime: record.cmuxRuntime,
-                        parentRunId: record.parentRunId,
-                        parentSessionId: record.parentSessionId,
-                        relationship: record.relationship,
-                        restoreAuthority: record.restoreAuthority ?? (record.relationship != .spawned),
-                        startedAt: record.startedAt,
-                        updatedAt: record.updatedAt,
-                        endedAt: record.completedAt
-                    )
-                guard queryScope.includes(
-                    recordRuntime: record.cmuxRuntime,
-                    runRuntime: projectedRun.cmuxRuntime,
-                    legacyVisible: true
-                ) else { continue }
                 let projection = AgentSessionStateProjection(record: record, run: projectedRun)
                 guard includesEndedRecords || queryScope.includes(projection: projection) else { continue }
                 payload["process_state"] = projection.process.rawValue
@@ -438,6 +440,8 @@ extension CMUXCLI {
                     node: node,
                     payload: payload,
                     sessionFilter: sessionFilter,
+                    workspaceFilter: workspaceFilter,
+                    cwdFilter: cwdFilter,
                     stateFilter: stateFilter,
                     activityFilter: activityFilter,
                     workKindFilter: workKindFilter
@@ -474,6 +478,8 @@ extension CMUXCLI {
                 node: node,
                 payload: payload,
                 sessionFilter: sessionFilter,
+                workspaceFilter: workspaceFilter,
+                cwdFilter: cwdFilter,
                 stateFilter: stateFilter,
                 activityFilter: activityFilter,
                 workKindFilter: workKindFilter
@@ -484,17 +490,22 @@ extension CMUXCLI {
         let limitedPayloads = entries.sortedPayloads
 
         if localJSONOutput {
-            print(jsonString([
+            var output: [String: Any] = [
                 "state_dir": stateDir,
                 "default_codex_home": defaultCodexHome,
                 "total_matches": entries.totalCount,
                 "limit": limit == Int.max ? NSNull() : limit,
                 "stores": stores,
                 "sessions": limitedPayloads
-            ]))
+            ]
+            if !storeWarnings.isEmpty {
+                output["store_warnings"] = storeWarnings.map(sessionsListEncodableJSONObject)
+            }
+            print(jsonString(output))
             return
         }
 
+        agentsWriteStoreWarnings(storeWarnings)
         if limitedPayloads.isEmpty {
             print(String(localized: "cli.sessions.output.noMatches", defaultValue: "No saved agent sessions matched."))
             print("state_dir=\(stateDir)")
@@ -512,15 +523,30 @@ extension CMUXCLI {
         }
     }
 
+    private func sessionsListProjectedRun(
+        record: ClaudeHookSessionRecord,
+        provider: String
+    ) -> AgentSessionRunRecord {
+        AgentSessionRunCanonicalizer.projectedRun(record: record, provider: provider)
+    }
+
     private func sessionsListFilteredPayload(
         node: AgentSessionGraphNode,
         payload: [String: Any],
         sessionFilter: String?,
+        workspaceFilter: String?,
+        cwdFilter: String?,
         stateFilter: String?,
         activityFilter: String?,
         workKindFilter: String?
     ) -> [String: Any]? {
-        if sessionFilter != nil, node.sessionId == nil { return nil }
+        if let sessionFilter, node.sessionId?.lowercased() != sessionFilter { return nil }
+        if let workspaceFilter, node.workspaceId.lowercased() != workspaceFilter { return nil }
+        if let cwdFilter {
+            let cwd = (node.cwd ?? "").lowercased()
+            let launchCWD = (payload["launch_working_directory"] as? String ?? "").lowercased()
+            if !cwd.contains(cwdFilter) && !launchCWD.contains(cwdFilter) { return nil }
+        }
         if let stateFilter, node.effectiveState.rawValue != stateFilter { return nil }
         if let activityFilter, node.activity.state.rawValue != activityFilter { return nil }
         if let workKindFilter,
@@ -542,6 +568,7 @@ extension CMUXCLI {
         payload["run_id"] = node.runId
         payload["pid"] = node.pid ?? NSNull()
         payload["process_started_at"] = node.processStartedAt ?? NSNull()
+        payload["workspace_id"] = node.workspaceId
         payload["cwd"] = node.cwd ?? NSNull()
         payload["process_state"] = node.processState.rawValue
         payload["session_state"] = node.sessionState.rawValue
