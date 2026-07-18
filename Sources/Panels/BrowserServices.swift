@@ -257,14 +257,13 @@ final class BrowserServices {
             },
             focusPanel: { [weak workspace] panelID in workspace?.focusPanel(panelID) },
             orderedPanelIDs: { [weak workspace] in workspace?.orderedPanelIds ?? [] },
-            createTab: { [weak workspace, weak panel] url, index, shouldBeActive, shouldAddToSelection in
+            createTab: { [weak workspace, weak panel] index, shouldBeActive, shouldAddToSelection in
                 guard let workspace, let panel else { return nil }
                 let previousFocusedPanelID = workspace.focusedPanelId
                 let anchorPanelID = previousFocusedPanelID ?? panel.id
                 guard let paneID = workspace.paneId(forPanelId: anchorPanelID),
                       let newPanel = workspace.newBrowserSurface(
                         inPane: paneID,
-                        url: url,
                         focus: shouldBeActive,
                         selectWhenNotFocused: shouldAddToSelection,
                         insertAtEnd: true,
@@ -309,7 +308,7 @@ final class BrowserServices {
                 guard let dock else { return [] }
                 return dock.bonsplitController.allTabIds.compactMap { dock.panel(for: $0)?.id }
             },
-            createTab: { [weak dock, weak panel] url, index, shouldBeActive, shouldAddToSelection in
+            createTab: { [weak dock, weak panel] index, shouldBeActive, shouldAddToSelection in
                 guard let dock, let panel else { return nil }
                 let shouldFocus = shouldBeActive || shouldAddToSelection
                 let previousSelection = shouldFocus ? nil : dock.focusedDockPaneSelection()
@@ -318,7 +317,6 @@ final class BrowserServices {
                       let newPanelID = dock.newSurface(
                         kind: .browser,
                         inPane: paneID,
-                        url: url,
                         focus: shouldFocus,
                         preferredProfileID: panel.profileID
                       ),
@@ -443,7 +441,7 @@ final class BrowserServices {
         focusPriority: @escaping @MainActor () -> Int,
         focusPanel: @escaping @MainActor (UUID) -> Void,
         orderedPanelIDs: @escaping @MainActor () -> [UUID],
-        createTab: @escaping @MainActor (URL?, Int, Bool, Bool) -> BrowserPanel?
+        createTab: @escaping @MainActor (Int, Bool, Bool) -> BrowserPanel?
     ) {
         guard #available(macOS 15.4, *) else { return }
         if let previousProfileID = registeredPanelProfileIDs[panel.id],

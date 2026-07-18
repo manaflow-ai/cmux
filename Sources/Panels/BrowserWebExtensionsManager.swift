@@ -425,7 +425,7 @@ final class BrowserWebExtensionsManager: NSObject {
         focusPriority: @escaping @MainActor () -> Int = { 0 },
         focusPanel: @escaping @MainActor (UUID) -> Void,
         orderedPanelIDs: @escaping @MainActor () -> [UUID] = { [] },
-        createTab: @escaping @MainActor (URL?, Int, Bool, Bool) -> BrowserPanel? = { _, _, _, _ in nil }
+        createTab: @escaping @MainActor (Int, Bool, Bool) -> BrowserPanel? = { _, _, _ in nil }
     ) {
         if tabAdapters[panel.id] != nil { return }
 
@@ -480,7 +480,7 @@ final class BrowserWebExtensionsManager: NSObject {
         focusPriority: @MainActor () -> Int,
         focusPanel: @MainActor (UUID) -> Void,
         orderedPanelIDs: @MainActor () -> [UUID],
-        createTab: @MainActor (URL?, Int, Bool, Bool) -> BrowserPanel?
+        createTab: @MainActor (Int, Bool, Bool) -> BrowserPanel?
     )? {
         guard let windowAdapter = tabAdapters[panelID]?.windowAdapter else { return nil }
         return (
@@ -1022,7 +1022,6 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
             ?? orderedWindowAdapters().first
         guard let windowAdapter,
               let panel = windowAdapter.createTab(
-                configuration.url,
                 configuration.index,
                 configuration.shouldBeActive,
                 configuration.shouldAddToSelection
@@ -1030,6 +1029,9 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
               let tabAdapter = tabAdapters[panel.id] else {
             completionHandler(nil, BrowserWebExtensionNewTabError.creationFailed)
             return
+        }
+        if let url = configuration.url {
+            panel.navigate(to: url)
         }
         completionHandler(tabAdapter, nil)
     }
