@@ -23,6 +23,12 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     /// process memory while preserving complete Unicode scalars.
     static let maximumMarkedTextUTF16Length = 4_096
 
+    /// Canonical daemon ceiling for repeat counts and one-shot scroll amounts.
+    static let maximumCommandCount: UInt32 = 10_000
+
+    /// Canonical daemon ceiling for retained search-query bytes.
+    static let maximumSearchQueryUTF8Length = 65_536
+
     /// Ghostty-free pixel surface mounted edge-to-edge behind interaction.
     public let surfaceView: TerminalFrontendSurfaceView
 
@@ -40,6 +46,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
 
     private let runtime: any TerminalExternalRuntime
     private let translator: TerminalFrontendInputTranslator
+    private let interactionAdapter: TerminalFrontendInteractionAdapter
     private let keyEventInterpreter:
         @MainActor (TerminalFrontendInteractionView, [NSEvent]) -> Void
 
@@ -95,12 +102,19 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         runtime: any TerminalExternalRuntime,
         surfaceView: TerminalFrontendSurfaceView,
         translator: TerminalFrontendInputTranslator = TerminalFrontendInputTranslator(),
+        clipboardWriter: any TerminalFrontendClipboardWriting =
+            TerminalFrontendSystemClipboardWriter(),
         keyEventInterpreter:
             (@MainActor (TerminalFrontendInteractionView, [NSEvent]) -> Void)?
     ) {
         self.runtime = runtime
         self.surfaceView = surfaceView
         self.translator = translator
+        self.interactionAdapter = TerminalFrontendInteractionAdapter(
+            runtime: runtime,
+            translator: translator,
+            clipboardWriter: clipboardWriter
+        )
         self.keyEventInterpreter = keyEventInterpreter ?? { client, events in
             client.interpretKeyEvents(events)
         }
@@ -134,9 +148,17 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     public override func resignFirstResponder() -> Bool {
         let accepted = super.resignFirstResponder()
         if accepted {
+            interactionAdapter.cancelPointerInteractions()
             enqueueInteraction(.focus(false))
         }
         return accepted
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            interactionAdapter.cancelAllInteractions()
+        }
     }
 
     /// Shared ordered mutation seam for the remaining interaction adapters.
@@ -150,6 +172,204 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         let result = runtime.enqueue(mutation)
         lastIngressResult = result
         return result
+    }
+
+    public override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        recordIngressIfPresent(
+            interactionAdapter.pointerDown(event, button: .left, in: self)
+        )
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        recordIngressIfPresent(
+            interactionAdapter.pointerUp(event, button: .left, in: self)
+        )
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        recordIngressIfPresent(
+            interactionAdapter.pointerDragged(event, button: .left, in: self)
+        )
+    }
+
+    public override func rightMouseDown(with event: NSEvent) {
+        guard interactionSnapshot.mouseTracking else {
+            super.rightMouseDown(with: event)
+            return
+        }
+        window?.makeFirstResponder(self)
+        recordIngressIfPresent(
+            interactionAdapter.pointerDown(event, button: .right, in: self)
+        )
+    }
+
+    public override func rightMouseUp(with event: NSEvent) {
+        guard interactionAdapter.hasPressedButton(.right) else {
+            super.rightMouseUp(with: event)
+            return
+        }
+        recordIngressIfPresent(
+            interactionAdapter.pointerUp(event, button: .right, in: self)
+        )
+    }
+
+    public override func rightMouseDragged(with event: NSEvent) {
+        guard interactionAdapter.hasPressedButton(.right) else {
+            super.rightMouseDragged(with: event)
+            return
+        }
+        recordIngressIfPresent(
+            interactionAdapter.pointerDragged(event, button: .right, in: self)
+        )
+    }
+
+    public override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        window?.makeFirstResponder(self)
+        recordIngressIfPresent(
+            interactionAdapter.pointerDown(event, button: .middle, in: self)
+        )
+    }
+
+    public override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2,
+              interactionAdapter.hasPressedButton(.middle)
+        else {
+            super.otherMouseUp(with: event)
+            return
+        }
+        recordIngressIfPresent(
+            interactionAdapter.pointerUp(event, button: .middle, in: self)
+        )
+    }
+
+    public override func otherMouseDragged(with event: NSEvent) {
+        guard event.buttonNumber == 2,
+              interactionAdapter.hasPressedButton(.middle)
+        else {
+            super.otherMouseDragged(with: event)
+            return
+        }
+        recordIngressIfPresent(
+            interactionAdapter.pointerDragged(event, button: .middle, in: self)
+        )
+    }
+
+    public override func mouseMoved(with event: NSEvent) {
+        recordIngressIfPresent(interactionAdapter.pointerMoved(event, in: self))
+    }
+
+    public override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        recordIngressIfPresent(interactionAdapter.pointerMoved(event, in: self))
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        recordIngressIfPresent(interactionAdapter.pointerExited(event, in: self))
+    }
+
+    public override func scrollWheel(with event: NSEvent) {
+        recordIngressIfPresent(interactionAdapter.scrollWheel(event, in: self))
+    }
+
+    /// Releases every admitted pointer button once and clears bounded gesture state.
+    public func cancelPointerInteractions() {
+        recordIngressIfPresent(interactionAdapter.cancelPointerInteractions())
+    }
+
+    /// Enqueues one canonical selection command without blocking AppKit.
+    @discardableResult
+    public func performSelection(
+        _ operation: TerminalExternalSelectionOperation
+    ) -> TerminalExternalIngressResult {
+        recordIngress(interactionAdapter.performSelection(operation))
+    }
+
+    /// Enqueues one bounded canonical copy-mode command.
+    @discardableResult
+    public func performCopyMode(
+        _ operation: TerminalExternalCopyModeOperation,
+        adjustment: TerminalExternalCopyModeAdjustment? = nil,
+        count: UInt32 = 1
+    ) -> TerminalExternalIngressResult {
+        recordIngress(interactionAdapter.performCopyMode(
+            operation,
+            adjustment: adjustment,
+            count: count
+        ))
+    }
+
+    /// Enqueues one canonical search command with a scalar-safe byte ceiling.
+    @discardableResult
+    public func performSearch(
+        _ operation: TerminalExternalSearchOperation,
+        query: String? = nil
+    ) -> TerminalExternalIngressResult {
+        recordIngress(interactionAdapter.performSearch(operation, query: query))
+    }
+
+    /// Enqueues one bounded canonical scroll command.
+    @discardableResult
+    public func performScroll(
+        _ operation: TerminalExternalScrollOperation,
+        amount: Int64? = nil
+    ) -> TerminalExternalIngressResult {
+        recordIngress(interactionAdapter.performScroll(operation, amount: amount))
+    }
+
+    /// Reads the canonical selection asynchronously and writes nonempty text once.
+    public func copySelectionToClipboard() async -> Bool {
+        await interactionAdapter.copySelectionToClipboard()
+    }
+
+    /// Latest revision-fenced accessibility value in the coherent runtime snapshot.
+    public var terminalAccessibilitySnapshot: TerminalAccessibilitySnapshot? {
+        interactionSnapshot.accessibility
+    }
+
+    /// Enables demand-driven accessibility production in the canonical runtime.
+    public func enableTerminalAccessibility() {
+        interactionAdapter.enableTerminalAccessibility()
+    }
+
+    /// Forwards the runtime's bounded newest-only accessibility stream.
+    public func terminalAccessibilitySnapshots()
+        -> AsyncStream<TerminalAccessibilitySnapshot> {
+        interactionAdapter.terminalAccessibilitySnapshots()
+    }
+
+    /// Revalidates an action against the exact currently presented snapshot.
+    public func activateTerminalAccessibilityLink(
+        _ link: TerminalAccessibilityLink,
+        snapshot: TerminalAccessibilitySnapshot
+    ) async -> String? {
+        guard interactionSnapshot.accessibility == snapshot,
+              snapshot.links.contains(link)
+        else { return nil }
+        return await interactionAdapter.activateTerminalAccessibilityLink(
+            link,
+            snapshot: snapshot
+        )
+    }
+
+    @discardableResult
+    private func recordIngress(
+        _ result: TerminalExternalIngressResult
+    ) -> TerminalExternalIngressResult {
+        lastIngressResult = result
+        return result
+    }
+
+    private func recordIngressIfPresent(
+        _ result: TerminalExternalIngressResult?
+    ) {
+        guard let result else { return }
+        lastIngressResult = result
     }
 
     public override func keyDown(with event: NSEvent) {

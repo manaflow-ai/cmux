@@ -35,7 +35,7 @@ public struct TerminalFrontendInputTranslator {
         unshiftedCodepoint: UInt32? = nil,
         action: TerminalExternalKeyAction? = nil
     ) -> TerminalExternalKeyEvent {
-        let modifiers = modifiers(from: event.modifierFlags)
+        let modifiers = keyModifiers(from: event.modifierFlags)
         let consumedModifiers = textConsumedModifiers(
             from: consumedModifierFlags
         ).intersection(modifiers)
@@ -131,7 +131,11 @@ public struct TerminalFrontendInputTranslator {
         )
     }
 
-    private func modifiers(
+    /// Translates AppKit modifier flags for pointer and keyboard DTOs.
+    ///
+    /// Device-side bits preserve right-hand modifier identity without exposing
+    /// AppKit or Ghostty values beyond the frontend process boundary.
+    public func keyModifiers(
         from flags: NSEvent.ModifierFlags
     ) -> TerminalExternalKeyModifiers {
         var result: TerminalExternalKeyModifiers = []
