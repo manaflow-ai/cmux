@@ -90,17 +90,31 @@ extension CMUXCLIErrorOutputRegressionTests {
             "activeSessionsByWorkspace": [source.id.uuidString: activeSlot],
             "activeSessionsBySurface": [sourcePanelID.uuidString: activeSlot],
         ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
-        let startupSnapshots = RestorableAgentSessionIndex.agentRegistrySnapshots(
-            [(kind: .codex, fileURL: stateURL)],
-            fileManager: .default,
-            environment: environmentOverrides
-        )
-        #expect(startupSnapshots?["codex"]?.records.contains { $0.sessionID == sessionID } == true)
         let registry = CmuxAgentSessionRegistry(url: registryURL)
 
         let sourceSnapshot = source.sessionSnapshot(includeScrollback: false)
-        let restored = Workspace()
-        restored.restoreSessionSnapshot(sourceSnapshot)
+        let restoredWindowID = UUID()
+        let appDelegate = try #require(AppDelegate.shared)
+        defer {
+            _ = appDelegate.closeMainWindow(windowId: restoredWindowID, recordHistory: false)
+        }
+        let appSnapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 100,
+            windows: [SessionWindowSnapshot(
+                windowId: restoredWindowID,
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(
+                    selectedWorkspaceIndex: 0,
+                    workspaces: [sourceSnapshot]
+                ),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )]
+        )
+        #expect(appDelegate.restorePreviousSessionSnapshot(appSnapshot, shouldActivate: false))
+        let restoredManager = try #require(appDelegate.tabManagerFor(windowId: restoredWindowID))
+        let restored = try #require(restoredManager.tabs.first)
         let restoredPanelSnapshot = try #require(
             restored.sessionSnapshot(includeScrollback: false).panels.first {
                 $0.terminal?.agent?.sessionId == sessionID
