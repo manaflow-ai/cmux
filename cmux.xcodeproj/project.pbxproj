@@ -1316,6 +1316,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8382C0028382C0028382C002 /* RemoteTmuxMirrorTeardownReason.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8382D0028382D0028382D002 /* RemoteTmuxMirrorTeardownReason.swift */; };
 		7910A0017910A0017910A001 /* RemoteTmuxMirrorTopTopologyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7910B0017910B0017910B001 /* RemoteTmuxMirrorTopTopologyTests.swift */; };
 		7368BEEF7368BEEF7368B002 /* RemoteTmuxMissingTmuxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7368BEEF7368BEEF7368B001 /* RemoteTmuxMissingTmuxTests.swift */; };
+		C0DE0000000000000000B003 /* RemoteTmuxMultiplexFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE0000000000000000B004 /* RemoteTmuxMultiplexFuzzTests.swift */; };
 		C0DE0000000000000000A009 /* RemoteTmuxMultiplexReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE0000000000000000A00A /* RemoteTmuxMultiplexReconciler.swift */; };
 		B8E2A4C1D5F3096871A2B3C3 /* RemoteTmuxNativeMirrorLayoutFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E2A4C1D5F3096871A2B3C4 /* RemoteTmuxNativeMirrorLayoutFuzzTests.swift */; };
 		0C7D0CDD0C7D0CDD0C7D0002 /* RemoteTmuxNewWindowCwdTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C7D0CDD0C7D0CDD0C7D0001 /* RemoteTmuxNewWindowCwdTests.swift */; };
@@ -3384,6 +3385,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8382D0028382D0028382D002 /* RemoteTmuxMirrorTeardownReason.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorTeardownReason.swift; sourceTree = "<group>"; };
 		7910B0017910B0017910B001 /* RemoteTmuxMirrorTopTopologyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorTopTopologyTests.swift; sourceTree = "<group>"; };
 		7368BEEF7368BEEF7368B001 /* RemoteTmuxMissingTmuxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMissingTmuxTests.swift; sourceTree = "<group>"; };
+		C0DE0000000000000000B004 /* RemoteTmuxMultiplexFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMultiplexFuzzTests.swift; sourceTree = "<group>"; };
 		C0DE0000000000000000A00A /* RemoteTmuxMultiplexReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMultiplexReconciler.swift; sourceTree = "<group>"; };
 		B8E2A4C1D5F3096871A2B3C4 /* RemoteTmuxNativeMirrorLayoutFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxNativeMirrorLayoutFuzzTests.swift; sourceTree = "<group>"; };
 		0C7D0CDD0C7D0CDD0C7D0001 /* RemoteTmuxNewWindowCwdTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxNewWindowCwdTests.swift; sourceTree = "<group>"; };
@@ -6140,6 +6142,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0793DC7D7B61CF54886EC36 /* RemoteTmuxControlParserTests.swift */,
 				9C3345C0EC55F1C725B3A4E3 /* RemoteTmuxControlParserLayoutTests.swift */,
 				C0DE0000000000000000B002 /* RemoteTmuxLinkedWorkspaceModelTests.swift */,
+				C0DE0000000000000000B004 /* RemoteTmuxMultiplexFuzzTests.swift */,
 				B0555302B0555302B0555302 /* RemoteTmuxControlStreamParserBudgetTests.swift */,
 				B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */,
 				A7E1C4D2B3F09865E217D4C0 /* RemoteTmuxMirrorSplitRoutingTests.swift */,
@@ -8612,6 +8615,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				736200000000000000000008 /* RemoteTmuxMirrorTargetingTests.swift in Sources */,
 				7910A0017910A0017910A001 /* RemoteTmuxMirrorTopTopologyTests.swift in Sources */,
 				7368BEEF7368BEEF7368B002 /* RemoteTmuxMissingTmuxTests.swift in Sources */,
+				C0DE0000000000000000B003 /* RemoteTmuxMultiplexFuzzTests.swift in Sources */,
 				B8E2A4C1D5F3096871A2B3C3 /* RemoteTmuxNativeMirrorLayoutFuzzTests.swift in Sources */,
 				0C7D0CDD0C7D0CDD0C7D0002 /* RemoteTmuxNewWindowCwdTests.swift in Sources */,
 				7020C0DE7020C0DE7020A002 /* RemoteTmuxProxyTransportRetryTests.swift in Sources */,
