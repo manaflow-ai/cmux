@@ -83,7 +83,7 @@ struct WorkspaceCloseTabsContextMenuTests {
     func tabCloseButtonKeepOpenRecordsClosedSurfaceHistoryForLastSurface() throws {
         try withCleanClosedHistory {
             try withManager(closeWorkspaceOnLastSurface: false) { manager in
-                let workspace = manager.addWorkspace()
+                let workspace = manager.addLocalWorkspace()
                 manager.selectWorkspace(workspace)
 
                 let panelId = try #require(workspace.focusedPanelId)

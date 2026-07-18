@@ -358,7 +358,7 @@ struct AuthEnvironmentTests {
         let appDelegate = AppDelegate()
         let manager = TabManager()
         let pricingURL = URL(string: "https://cmux.com/app-pricing?cmux_app=1")!
-        let workspace = manager.addWorkspace(
+        let workspace = manager.addLocalWorkspace(
             title: "cmux Pro",
             initialSurface: .browser,
             initialBrowserURL: pricingURL,

@@ -35,4 +35,12 @@ public enum ControlPaneBreakResolution: Sendable, Equatable {
     /// The surface was broken out into a new workspace. Carries the echoed
     /// identity (window may be absent; workspace, pane, and surface present).
     case broken(windowID: UUID?, workspaceID: UUID, paneID: UUID, surfaceID: UUID)
+    /// The daemon mutation is queued and the destination pane will be known
+    /// only after canonical projection.
+    case pending(
+        windowID: UUID?,
+        workspaceID: UUID,
+        surfaceID: UUID,
+        requestID: UUID
+    )
 }

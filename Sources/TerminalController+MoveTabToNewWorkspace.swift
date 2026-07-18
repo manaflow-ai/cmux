@@ -53,7 +53,7 @@ extension TerminalController {
         action: String,
         result: SurfaceNewWorkspaceMoveResult
     ) -> [String: Any] {
-        [
+        var payload: [String: Any] = [
             "action": action,
             "source_window_id": result.sourceWindowId.uuidString,
             "source_window_ref": v2Ref(kind: .window, uuid: result.sourceWindowId),
@@ -72,6 +72,12 @@ extension TerminalController {
             "pane_id": v2OrNull(result.paneId?.uuidString),
             "pane_ref": v2Ref(kind: .pane, uuid: result.paneId),
         ]
+        if let requestID = result.backendRequestId {
+            payload["pending"] = true
+            payload["backend_request_id"] = requestID.uuidString
+            payload["status_method"] = "terminal_backend.mutation_status"
+        }
+        return payload
     }
 }
 

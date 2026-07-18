@@ -66,6 +66,8 @@ public enum ControlLayoutOpenResolution: Sendable {
     case corruptFile(String)
     /// The workspace was opened.
     case opened(workspaceID: UUID)
+    /// The daemon accepted a queued creation whose projection is pending.
+    case pending(workspaceID: UUID, requestID: UUID)
     /// An unexpected store error occurred.
     case failed(String)
 }

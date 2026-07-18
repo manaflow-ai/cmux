@@ -41,7 +41,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -109,8 +109,8 @@ final class TerminalNotificationCallerTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let fallbackWorkspace = manager.addWorkspace(select: true)
-        let targetWorkspace = manager.addWorkspace(select: false)
+        let fallbackWorkspace = manager.addLocalWorkspace(select: true)
+        let targetWorkspace = manager.addLocalWorkspace(select: false)
         defer {
             for workspace in [fallbackWorkspace, targetWorkspace] where manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -182,8 +182,8 @@ final class TerminalNotificationCallerTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let fallbackWorkspace = manager.addWorkspace(select: true)
-        let targetWorkspace = manager.addWorkspace(select: false)
+        let fallbackWorkspace = manager.addLocalWorkspace(select: true)
+        let targetWorkspace = manager.addLocalWorkspace(select: false)
         defer {
             for workspace in [fallbackWorkspace, targetWorkspace] where manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -245,7 +245,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
         AppFocusState.overrideIsFocused = false
         TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         defer {
             TerminalMutationBus.shared.setDrainsSuspendedForTesting(false)
             TerminalMutationBus.shared.drainForTesting()

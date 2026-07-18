@@ -488,6 +488,19 @@ extension ControlCommandCoordinator {
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
             ]))
+        case .pending(let windowID, let workspaceID, let surfaceID, let requestID):
+            return .ok(.object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "surface_id": .string(surfaceID.uuidString),
+                "surface_ref": ref(.surface, surfaceID),
+                "type": .string("terminal"),
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "pending": .bool(true),
+                "backend_request_id": .string(requestID.uuidString),
+                "status_method": .string("terminal_backend.mutation_status"),
+            ]))
         }
     }
 

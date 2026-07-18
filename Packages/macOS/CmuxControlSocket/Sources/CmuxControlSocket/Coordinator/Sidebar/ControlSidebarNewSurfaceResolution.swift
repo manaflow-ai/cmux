@@ -11,7 +11,8 @@ public enum ControlSidebarNewSurfaceResolution: Sendable, Equatable {
     /// The create was routed to the remote tmux mirror backing the workspace
     /// (`new-window`); the tab arrives asynchronously via `%window-add`.
     case routedToRemote
-    /// The daemon accepted the create; the tab arrives by canonical projection.
+    /// The create entered the local serialized backend queue. The tab arrives
+    /// only after daemon commit and canonical projection.
     case submittedToBackend(requestID: UUID)
     /// Creation failed.
     case failed

@@ -255,8 +255,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     func testBatchWorkspaceColorAppliesOnlyRequestedWorkspaces() {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.applyWorkspaceColor("#C0392B", toWorkspaceIds: [second.id])
 
         manager.applyWorkspaceColor("#1565C0", toWorkspaceIds: [first.id, third.id])
@@ -308,8 +308,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     func testBatchWorkspaceTerminalScrollBarVisibilityAppliesOnlyRequestedWorkspaces() {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.setWorkspaceTerminalScrollBarHidden(hidden: true, forWorkspaceIds: [first.id, second.id, third.id])
 
         manager.setWorkspaceTerminalScrollBarHidden(hidden: false, forWorkspaceIds: [first.id, third.id])
@@ -2333,11 +2333,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             return
         }
 
-        let second = manager.addWorkspace(placementOverride: .end)
-        let third = manager.addWorkspace(placementOverride: .end)
+        let second = manager.addLocalWorkspace(placementOverride: .end)
+        let third = manager.addLocalWorkspace(placementOverride: .end)
         manager.selectWorkspace(first)
 
-        let inserted = manager.addWorkspace()
+        let inserted = manager.addLocalWorkspace()
 
         XCTAssertEqual(manager.tabs.map(\.id), [inserted.id, first.id, second.id, third.id])
         XCTAssertEqual(manager.selectedTabId, inserted.id)
@@ -3044,7 +3044,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
                 autoWelcomeIfNeeded: false
             )
 
-            let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
+            let inserted = manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
 
             XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, sourceCwd)
             XCTAssertEqual(inserted.currentDirectory, sourceCwd)
@@ -3059,7 +3059,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
                 autoWelcomeIfNeeded: false
             )
 
-            let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
+            let inserted = manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
 
             XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
             XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
@@ -3074,7 +3074,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
                 autoWelcomeIfNeeded: false
             )
 
-            let inserted = manager.addWorkspace(
+            let inserted = manager.addLocalWorkspace(
                 inheritWorkingDirectory: false,
                 autoWelcomeIfNeeded: false
             )
@@ -3093,7 +3093,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
                 autoWelcomeIfNeeded: false
             )
 
-            let inserted = manager.addWorkspace(
+            let inserted = manager.addLocalWorkspace(
                 workingDirectory: explicitCwd,
                 autoWelcomeIfNeeded: false
             )
@@ -3113,7 +3113,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             let source = try XCTUnwrap(manager.selectedWorkspace)
             let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
 
-            let inserted = try XCTUnwrap(manager.addWorkspace(
+            let inserted = try XCTUnwrap(manager.addLocalWorkspace(
                 fromDetachedSurface: detached,
                 select: false
             ))
@@ -3134,7 +3134,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             let source = try XCTUnwrap(manager.selectedWorkspace)
             let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
 
-            let inserted = try XCTUnwrap(manager.addWorkspace(
+            let inserted = try XCTUnwrap(manager.addLocalWorkspace(
                 fromDetachedSurface: detached,
                 select: false
             ))
@@ -3158,7 +3158,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
                 directory: transferCwd
             )
 
-            let inserted = try XCTUnwrap(manager.addWorkspace(
+            let inserted = try XCTUnwrap(manager.addLocalWorkspace(
                 fromDetachedSurface: detached,
                 select: false
             ))
@@ -3188,7 +3188,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             resumeBinding: binding
         )
 
-        let inserted = try XCTUnwrap(manager.addWorkspace(
+        let inserted = try XCTUnwrap(manager.addLocalWorkspace(
             fromDetachedSurface: detached,
             select: false
         ))
@@ -3307,7 +3307,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 
         let defaultManager = makeManagerWithThreeWorkspaces()
         let defaultBaselineOrder = defaultManager.tabs.map(\.id)
-        let defaultInserted = defaultManager.addWorkspace()
+        let defaultInserted = defaultManager.addLocalWorkspace()
         guard let defaultInsertedIndex = defaultManager.tabs.firstIndex(where: { $0.id == defaultInserted.id }) else {
             XCTFail("Expected inserted workspace in tab list")
             return
@@ -3316,7 +3316,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 
         let explicitManager = makeManagerWithThreeWorkspaces()
         let explicitBaselineOrder = explicitManager.tabs.map(\.id)
-        let explicitInserted = explicitManager.addWorkspace(placementOverride: currentPlacement)
+        let explicitInserted = explicitManager.addLocalWorkspace(placementOverride: currentPlacement)
         guard let explicitInsertedIndex = explicitManager.tabs.firstIndex(where: { $0.id == explicitInserted.id }) else {
             XCTFail("Expected inserted workspace in tab list")
             return
@@ -3333,7 +3333,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             return
         }
 
-        let inserted = manager.addWorkspace(placementOverride: .end)
+        let inserted = manager.addLocalWorkspace(placementOverride: .end)
         guard let insertedIndex = manager.tabs.firstIndex(where: { $0.id == inserted.id }) else {
             XCTFail("Expected inserted workspace in tab list")
             return
@@ -3370,11 +3370,11 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             return
         }
         manager.setPinned(pinned, pinned: true)
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        let second = manager.addLocalWorkspace(select: false, placementOverride: .end)
+        let third = manager.addLocalWorkspace(select: false, placementOverride: .end)
         manager.selectWorkspace(third)
 
-        let inserted = manager.addWorkspace()
+        let inserted = manager.addLocalWorkspace()
 
         XCTAssertEqual(manager.tabs.map(\.id), [pinned.id, inserted.id, second.id, third.id])
         XCTAssertEqual(manager.selectedTabId, inserted.id)
@@ -3386,13 +3386,13 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             XCTFail("Expected TabManager to initialise with at least one workspace")
             return
         }
-        _ = manager.addWorkspace()
-        _ = manager.addWorkspace()
-        let fourth = manager.addWorkspace()
+        _ = manager.addLocalWorkspace()
+        _ = manager.addLocalWorkspace()
+        let fourth = manager.addLocalWorkspace()
         let baselineOrder = manager.tabs.map(\.id)
 
         manager.selectWorkspace(fourth)
-        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+        let inserted = manager.addLocalWorkspace(placementOverride: .afterCurrent)
 
         XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != inserted.id }, baselineOrder)
         XCTAssertEqual(manager.tabs.last?.id, inserted.id)
@@ -3406,8 +3406,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         }
 
         manager.setPinned(first, pinned: true)
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.selectWorkspace(third)
 
         let baselineOrder = manager.tabs.map(\.id)
@@ -3415,7 +3415,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             manager.selectWorkspace(first)
         }
 
-        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+        let inserted = manager.addLocalWorkspace(placementOverride: .afterCurrent)
 
         XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != inserted.id }, baselineOrder)
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, inserted.id])
@@ -3429,15 +3429,15 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             return
         }
 
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.selectWorkspace(third)
 
         manager.afterCaptureWorkspaceCreationSnapshot = {
             manager.closeWorkspace(second)
         }
 
-        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+        let inserted = manager.addLocalWorkspace(placementOverride: .afterCurrent)
 
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, inserted.id])
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == second.id }))
@@ -3451,15 +3451,15 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             return
         }
 
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.selectWorkspace(third)
 
         manager.afterCaptureWorkspaceCreationSnapshot = {
             manager.closeWorkspace(third)
         }
 
-        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+        let inserted = manager.addLocalWorkspace(placementOverride: .afterCurrent)
 
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, inserted.id])
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == third.id }))
@@ -3473,8 +3473,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             return
         }
 
-        let closingWorkspace = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let closingWorkspace = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.selectWorkspace(third)
 
         let closingWorkspaceId = closingWorkspace.id
@@ -3488,7 +3488,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             manager.closeWorkspace(liveWorkspace)
         }
 
-        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+        let inserted = manager.addLocalWorkspace(placementOverride: .afterCurrent)
 
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == closingWorkspaceId }))
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, inserted.id])
@@ -3503,8 +3503,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         }
 
         manager.setPinned(first, pinned: true)
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.selectWorkspace(first)
         let baselineOrder = manager.tabs.map(\.id)
 
@@ -3512,7 +3512,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             manager.setPinned(first, pinned: false)
         }
 
-        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+        let inserted = manager.addLocalWorkspace(placementOverride: .afterCurrent)
 
         XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != inserted.id }, baselineOrder)
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, inserted.id, second.id, third.id])
@@ -3526,8 +3526,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             return
         }
 
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.selectWorkspace(second)
 
         manager.afterCaptureWorkspaceCreationSnapshot = {
@@ -3537,7 +3537,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             )
         }
 
-        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+        let inserted = manager.addLocalWorkspace(placementOverride: .afterCurrent)
 
         XCTAssertEqual(
             manager.tabs.map(\.id).filter { $0 != inserted.id },
@@ -3549,8 +3549,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 
     private func makeManagerWithThreeWorkspaces() -> TabManager {
         let manager = TabManager()
-        _ = manager.addWorkspace()
-        _ = manager.addWorkspace()
+        _ = manager.addLocalWorkspace()
+        _ = manager.addLocalWorkspace()
         if let first = manager.tabs.first {
             manager.selectWorkspace(first)
         }
@@ -3617,7 +3617,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         let manager = UnsafeConfigSnapshotTabManager()
         manager.installInjectedConfig(fontSize: 19)
 
-        _ = manager.addWorkspace()
+        _ = manager.addLocalWorkspace()
 
         guard let capturedConfig = manager.capturedConfigTemplate else {
             XCTFail("Expected captured config template for new workspace")
@@ -3666,7 +3666,7 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
         let manager = TabManager()
         let baselineOrder = manager.tabs.map(\.id)
 
-        let workspace = manager.addWorkspace(initialSurface: .browser)
+        let workspace = manager.addLocalWorkspace(initialSurface: .browser)
 
         XCTAssertEqual(manager.selectedTabId, workspace.id)
         XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != workspace.id }, baselineOrder)
@@ -3694,11 +3694,11 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
 
     func testBrowserInitialSurfacePlacementMatchesTerminalPlacement() {
         let terminalManager = makeManagerWithThreeWorkspaces()
-        let terminalInserted = terminalManager.addWorkspace()
+        let terminalInserted = terminalManager.addLocalWorkspace()
         let terminalIndex = terminalManager.tabs.firstIndex { $0.id == terminalInserted.id }
 
         let browserManager = makeManagerWithThreeWorkspaces()
-        let browserInserted = browserManager.addWorkspace(initialSurface: .browser)
+        let browserInserted = browserManager.addLocalWorkspace(initialSurface: .browser)
         let browserIndex = browserManager.tabs.firstIndex { $0.id == browserInserted.id }
 
         XCTAssertNotNil(terminalIndex)
@@ -3711,8 +3711,8 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
 
     private func makeManagerWithThreeWorkspaces() -> TabManager {
         let manager = TabManager()
-        _ = manager.addWorkspace()
-        _ = manager.addWorkspace()
+        _ = manager.addLocalWorkspace()
+        _ = manager.addLocalWorkspace()
         if let first = manager.tabs.first {
             manager.selectWorkspace(first)
         }
@@ -4127,8 +4127,8 @@ final class WorkspaceReorderTests: XCTestCase {
     @MainActor
     func testReorderWorkspacePostsMovedWorkspaceId() {
         let manager = TabManager()
-        let second = manager.addWorkspace()
-        _ = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        _ = manager.addLocalWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
             forName: .workspaceOrderDidChange,
@@ -4148,8 +4148,8 @@ final class WorkspaceReorderTests: XCTestCase {
     func testMoveTabsToTopPostsMovedWorkspaceIds() {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
             forName: .workspaceOrderDidChange,
@@ -4190,7 +4190,7 @@ final class WorkspaceReorderTests: XCTestCase {
     func testMoveTabToTopPostsMovedWorkspaceIdWhenOrderChanges() {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
             forName: .workspaceOrderDidChange,
@@ -4214,7 +4214,7 @@ final class WorkspaceReorderTests: XCTestCase {
 
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
         CmuxEventBus.shared.resetForTesting()
 
         manager.moveTabToTop(second.id)
@@ -4239,7 +4239,7 @@ final class WorkspaceReorderTests: XCTestCase {
 
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
         CmuxEventBus.shared.resetForTesting()
 
         manager.setPinned(second, pinned: true)
@@ -4262,8 +4262,8 @@ final class WorkspaceReorderTests: XCTestCase {
         let manager = TabManager()
         let pinned = manager.tabs[0]
         manager.setPinned(pinned, pinned: true)
-        let firstUnpinned = manager.addWorkspace()
-        _ = manager.addWorkspace()
+        let firstUnpinned = manager.addLocalWorkspace()
+        _ = manager.addLocalWorkspace()
         var notificationCount = 0
         let token = NotificationCenter.default.addObserver(
             forName: .workspaceOrderDidChange,
@@ -4284,8 +4284,8 @@ final class WorkspaceReorderTests: XCTestCase {
     func testReorderWorkspaceMovesWorkspaceToRequestedIndex() {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
 
         manager.selectWorkspace(second)
         XCTAssertEqual(manager.selectedTabId, second.id)
@@ -4299,8 +4299,8 @@ final class WorkspaceReorderTests: XCTestCase {
     func testReorderWorkspaceClampsOutOfRangeTargetIndex() {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
 
         XCTAssertTrue(manager.reorderWorkspace(tabId: first.id, toIndex: 999))
         XCTAssertEqual(manager.tabs.map(\.id), [second.id, third.id, first.id])
@@ -4317,9 +4317,9 @@ final class WorkspaceReorderTests: XCTestCase {
         let manager = TabManager()
         let firstPinned = manager.tabs[0]
         manager.setPinned(firstPinned, pinned: true)
-        let secondPinned = manager.addWorkspace()
+        let secondPinned = manager.addLocalWorkspace()
         manager.setPinned(secondPinned, pinned: true)
-        let unpinned = manager.addWorkspace()
+        let unpinned = manager.addLocalWorkspace()
 
         XCTAssertTrue(manager.reorderWorkspace(tabId: unpinned.id, toIndex: 0))
         XCTAssertEqual(manager.tabs.map(\.id), [firstPinned.id, secondPinned.id, unpinned.id])
@@ -4330,9 +4330,9 @@ final class WorkspaceReorderTests: XCTestCase {
         let manager = TabManager()
         let firstPinned = manager.tabs[0]
         manager.setPinned(firstPinned, pinned: true)
-        let secondPinned = manager.addWorkspace()
+        let secondPinned = manager.addLocalWorkspace()
         manager.setPinned(secondPinned, pinned: true)
-        let unpinned = manager.addWorkspace()
+        let unpinned = manager.addLocalWorkspace()
 
         XCTAssertTrue(manager.reorderWorkspace(tabId: firstPinned.id, toIndex: 999))
         XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
@@ -4342,9 +4342,9 @@ final class WorkspaceReorderTests: XCTestCase {
     func testBatchReorderAppliesFinalLeadingOrderAtomically() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
-        let fourth = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
+        let fourth = manager.addLocalWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
             forName: .workspaceOrderDidChange,
@@ -4373,8 +4373,8 @@ final class WorkspaceReorderTests: XCTestCase {
     func testBatchReorderRejectsUnknownWorkspaceWithoutPartialMutation() {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         let originalOrder = manager.tabs.map(\.id)
         let unknown = UUID()
 
@@ -4389,8 +4389,8 @@ final class WorkspaceReorderTests: XCTestCase {
     func testBatchReorderDryRunReturnsPlanWithoutMutation() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         let originalOrder = manager.tabs.map(\.id)
 
         let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, first.id], dryRun: true)
@@ -4412,10 +4412,10 @@ final class WorkspaceReorderTests: XCTestCase {
         let manager = TabManager()
         let firstPinned = manager.tabs[0]
         manager.setPinned(firstPinned, pinned: true)
-        let secondPinned = manager.addWorkspace()
+        let secondPinned = manager.addLocalWorkspace()
         manager.setPinned(secondPinned, pinned: true)
-        let firstUnpinned = manager.addWorkspace()
-        let secondUnpinned = manager.addWorkspace()
+        let firstUnpinned = manager.addLocalWorkspace()
+        let secondUnpinned = manager.addLocalWorkspace()
 
         let result = manager.reorderWorkspaces(orderedWorkspaceIds: [secondUnpinned.id, secondPinned.id])
         let plan = try result.get()
@@ -4438,14 +4438,14 @@ final class WorkspaceReorderTests: XCTestCase {
         let manager = TabManager()
         let firstPinned = manager.tabs[0]
         manager.setPinned(firstPinned, pinned: true)
-        let secondPinned = manager.addWorkspace()
+        let secondPinned = manager.addLocalWorkspace()
         manager.setPinned(secondPinned, pinned: true)
-        let source = manager.addWorkspace()
+        let source = manager.addLocalWorkspace()
         manager.selectWorkspace(source)
 
         guard let panelId = source.focusedPanelId,
               let detached = source.detachSurface(panelId: panelId),
-              let inserted = manager.addWorkspace(
+              let inserted = manager.addLocalWorkspace(
                 fromDetachedSurface: detached,
                 insertionIndexOverride: 0
               ) else {
@@ -4493,9 +4493,9 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
 
         let firstPinned = manager.tabs[0]
         manager.setPinned(firstPinned, pinned: true)
-        let secondPinned = manager.addWorkspace()
+        let secondPinned = manager.addLocalWorkspace()
         manager.setPinned(secondPinned, pinned: true)
-        let unpinned = manager.addWorkspace()
+        let unpinned = manager.addLocalWorkspace()
         let expectedOrder = [firstPinned.id, secondPinned.id, unpinned.id]
 
         notificationStore.addNotification(
@@ -4987,7 +4987,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
     func testCloudVMLoadingWorkspaceStartsWithoutTerminalAndDoesNotPersist() {
         let manager = TabManager()
-        let workspace = manager.addWorkspace(
+        let workspace = manager.addLocalWorkspace(
             title: "Cloud VM",
             initialSurface: .cloudVMLoading,
             inheritWorkingDirectory: false,
@@ -5007,7 +5007,7 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
 
     func testCloudVMLoadingSurfaceSwapsToTerminalInPlace() throws {
         let manager = TabManager()
-        let workspace = manager.addWorkspace(
+        let workspace = manager.addLocalWorkspace(
             title: "Cloud VM",
             initialSurface: .cloudVMLoading,
             inheritWorkingDirectory: false,
@@ -5019,7 +5019,7 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         let stableSurfaceId = try XCTUnwrap(workspace.panels[loadingPanelId]).stableSurfaceId
 
         let command = "cmux vm-pty-connect --config /tmp/cmux.json --id vm_123"
-        let terminal = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+        let terminal = workspace.replaceCloudVMLoadingSurfaceWithLocalTerminal(
             workspaceId: workspace.id,
             initialCommand: command,
             focus: true

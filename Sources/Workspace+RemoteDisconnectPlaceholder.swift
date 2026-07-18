@@ -95,13 +95,36 @@ extension Workspace {
             return
         }
 
-        guard respawnTerminalSurface(
+        let outcome = requestRespawnTerminalSurface(
             panelId: surfaceId,
             command: prepared.placeholderCommand,
             workingDirectory: currentDirectory,
             waitAfterCommand: true,
-            replayFileURL: prepared.replayFileURL
-        ) != nil else {
+            replayFileURL: prepared.replayFileURL,
+            onReady: { [weak self] _ in
+                guard let self else { return }
+                self.pendingRemoteDisconnectReplacementsBySurfaceId
+                    .removeValue(forKey: surfaceId)
+                self.pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
+                self.remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
+                self.restoredTerminalScrollbackByPanelId[surfaceId] = scrollback
+            },
+            onFailure: { [weak self] in
+                guard let self else { return }
+                Task { @MainActor in
+                    await self.remoteDisconnectPreparationService.discard(
+                        placeholderCommand: prepared.placeholderCommand,
+                        replayFileURL: prepared.replayFileURL
+                    )
+                    self.resetRemoteDisconnectPreparationIfCurrent(
+                        surfaceId: surfaceId,
+                        token: token,
+                        runtimeSurface: runtimeSurface
+                    )
+                }
+            }
+        )
+        if case .failed = outcome {
             await remoteDisconnectPreparationService.discard(
                 placeholderCommand: prepared.placeholderCommand,
                 replayFileURL: prepared.replayFileURL
@@ -113,10 +136,6 @@ extension Workspace {
             )
             return
         }
-        pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: surfaceId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
-        remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
-        restoredTerminalScrollbackByPanelId[surfaceId] = scrollback
     }
 
     private func isCurrentRemoteDisconnectPreparation(

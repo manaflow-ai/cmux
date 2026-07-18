@@ -93,10 +93,25 @@ extension TerminalController: ControlLayoutContext {
                     return .tabManagerUnavailable
                 }
                 let focus = v2FocusAllowed(requested: focusRequested)
-                guard let workspace = tabManager.openWorkspace(fromSavedLayout: layout, cwdOverride: cwd, focus: focus) else {
+                let outcome = tabManager.openWorkspace(
+                    fromSavedLayout: layout,
+                    cwdOverride: cwd,
+                    focus: focus
+                )
+                switch outcome {
+                case .created(let workspace):
+                    return .opened(workspaceID: workspace.id)
+                case .submittedToBackend(let submission):
+                    guard let workspaceID = submission.workspaceID else {
+                        return .failed("Backend did not reserve a workspace identity")
+                    }
+                    return .pending(
+                        workspaceID: workspaceID,
+                        requestID: submission.requestID
+                    )
+                case .failed:
                     return .failed("Failed to open saved layout")
                 }
-                return .opened(workspaceID: workspace.id)
             } catch let error as SavedLayoutStoreError {
                 return controlLayoutOpenError(error)
             } catch {

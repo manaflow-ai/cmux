@@ -1543,7 +1543,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         }
 
         let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let backgroundWorkspace = manager.addWorkspace(
+        let backgroundWorkspace = manager.addLocalWorkspace(
             title: "Mobile Background",
             select: false,
             eagerLoadTerminal: false
@@ -1705,7 +1705,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         }
 
         let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let mobileWorkspace = manager.addWorkspace(
+        let mobileWorkspace = manager.addLocalWorkspace(
             title: "Mobile Hidden Workspace",
             select: false,
             eagerLoadTerminal: false,

@@ -35,4 +35,11 @@ public enum ControlSurfaceRespawnResolution: Sendable, Equatable {
         surfaceID: UUID,
         typeRawValue: String
     )
+    /// The daemon runtime swap is committed through canonical projection.
+    case pending(
+        windowID: UUID?,
+        workspaceID: UUID,
+        surfaceID: UUID,
+        requestID: UUID
+    )
 }

@@ -28,8 +28,8 @@ struct TerminalNotificationOpenPanelFallbackTests {
         AppFocusState.overrideIsFocused = false
         store.replaceNotificationsForTesting([])
 
-        let sourceWorkspace = manager.addWorkspace(title: "Source", select: true)
-        let targetWorkspace = manager.addWorkspace(title: "Open Panel Target", select: false)
+        let sourceWorkspace = manager.addLocalWorkspace(title: "Source", select: true)
+        let targetWorkspace = manager.addLocalWorkspace(title: "Open Panel Target", select: false)
         let targetPanelId = try #require(targetWorkspace.focusedPanelId)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         let window = NSWindow(
@@ -96,8 +96,8 @@ struct TerminalNotificationOpenPanelFallbackTests {
         appDelegate.notificationStore = store
         store.replaceNotificationsForTesting([])
 
-        let authorizedWorkspace = manager.addWorkspace(title: "Authorized", select: true)
-        let liveWorkspace = manager.addWorkspace(title: "Live owner", select: false)
+        let authorizedWorkspace = manager.addLocalWorkspace(title: "Authorized", select: true)
+        let liveWorkspace = manager.addLocalWorkspace(title: "Live owner", select: false)
         let movedPanelId = try #require(authorizedWorkspace.focusedPanelId)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         let window = NSWindow(

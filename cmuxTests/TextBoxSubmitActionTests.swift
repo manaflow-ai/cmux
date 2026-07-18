@@ -1162,7 +1162,7 @@ struct TextBoxSubmitActionTests {
             XCTAssertTrue(automationPanel.isTextBoxActive)
             #expect(automationPanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
 
-            let automationWorkspace = manager.addWorkspace(
+            let automationWorkspace = manager.addLocalWorkspace(
                 select: true,
                 allowTextBoxFocusDefault: false
             )
@@ -1174,7 +1174,7 @@ struct TextBoxSubmitActionTests {
             XCTAssertTrue(automationWorkspacePanel.isTextBoxActive)
             #expect(automationWorkspacePanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
 
-            let backgroundWorkspace = manager.addWorkspace(select: false)
+            let backgroundWorkspace = manager.addLocalWorkspace(select: false)
             guard let backgroundWorkspacePanel = backgroundWorkspace.focusedTerminalPanel else {
                 XCTFail("Expected background workspace terminal")
                 return
@@ -1184,7 +1184,7 @@ struct TextBoxSubmitActionTests {
             #expect(backgroundWorkspacePanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
 
             guard let respawnSourcePanel = workspace.focusedTerminalPanel,
-                  let respawnedPanel = workspace.respawnTerminalSurface(
+                  let respawnedPanel = workspace.respawnLocalTerminalSurface(
                     panelId: respawnSourcePanel.id,
                     command: "echo respawned",
                     focus: false,

@@ -209,7 +209,7 @@ final class MarkdownPanelTests: XCTestCase {
         try "# Title\n\nBody.\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let workspace = manager.addLocalWorkspace(select: true, eagerLoadTerminal: false)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         TerminalController.shared.setActiveTabManager(manager)
 
@@ -255,7 +255,7 @@ final class MarkdownPanelTests: XCTestCase {
         }
 
         let manager = TabManager()
-        let workspace = manager.addWorkspace(
+        let workspace = manager.addLocalWorkspace(
             workingDirectory: directoryURL.path,
             select: true,
             eagerLoadTerminal: false

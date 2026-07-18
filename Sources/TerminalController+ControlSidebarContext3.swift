@@ -188,14 +188,14 @@ extension TerminalController {
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
         if isBrowser {
-            guard let id = tab.newBrowserSplit(
+            guard let id = tab.requestNewBrowserSplit(
                 from: focusedPanelId,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 url: url,
                 focus: focus,
                 creationPolicy: .automationPreload
-            )?.id else {
+            ).surfaceID else {
                 return .failed
             }
             return .created(id)
@@ -253,12 +253,12 @@ extension TerminalController {
         }
 
         if isBrowser {
-            guard let id = tab.newBrowserSurface(
+            guard let id = tab.requestNewBrowserSurface(
                 inPane: targetPaneId,
                 url: url,
                 focus: focus,
                 creationPolicy: .automationPreload
-            )?.id else {
+            ).surfaceID else {
                 return .failed
             }
             return .created(id)

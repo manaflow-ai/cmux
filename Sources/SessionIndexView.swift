@@ -41,7 +41,7 @@ enum SessionEntryResumeCoordinator {
             return
         }
 
-        tabManager.addWorkspace(
+        _ = tabManager.requestAddWorkspace(
             workingDirectory: targetCwd,
             initialTerminalInput: inputWithReturn
         )

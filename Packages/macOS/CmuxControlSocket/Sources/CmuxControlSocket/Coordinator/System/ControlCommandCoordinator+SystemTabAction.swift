@@ -127,6 +127,7 @@ extension ControlCommandCoordinator {
                 payload["submitted"] = .bool(true)
                 payload["accepted"] = .bool(false)
                 payload["request_id"] = .string(requestID.uuidString)
+                payload["status_method"] = .string("terminal_backend.mutation_status")
                 payload["submission_target"] = .string("cmuxd")
                 payload["pending_projection"] = .bool(true)
                 payload["created_surface_id"] = .null

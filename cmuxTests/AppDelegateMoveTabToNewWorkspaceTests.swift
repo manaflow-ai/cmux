@@ -222,7 +222,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
         let movedBonsplitTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(movedPanelId)?.uuid)
-        let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
+        let destinationWorkspace = manager.addLocalWorkspace(title: "Operations", select: false)
         let destinationOriginalPanelId = try XCTUnwrap(destinationWorkspace.focusedTerminalPanel?.id)
 
         #expect(app.canMoveBonsplitTab(tabId: movedBonsplitTabId, toWorkspace: destinationWorkspace.id))
@@ -251,7 +251,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
 
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
-        let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
+        let destinationWorkspace = manager.addLocalWorkspace(title: "Operations", select: false)
         let destinationOriginalPanelId = try XCTUnwrap(destinationWorkspace.focusedTerminalPanel?.id)
 
         #expect(app.moveSurface(

@@ -409,7 +409,7 @@ struct PaneMemoryGuardrailTests {
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         let firstWorkspace = try #require(manager.selectedWorkspace)
-        let backgroundWorkspace = manager.addWorkspace(title: "Background", select: false)
+        let backgroundWorkspace = manager.addLocalWorkspace(title: "Background", select: false)
 
         let initialWorkspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
         #expect(initialWorkspaceIds.contains(firstWorkspace.id))

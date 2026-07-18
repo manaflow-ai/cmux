@@ -190,7 +190,7 @@ struct SSHStartupManualReconnectTests {
     @MainActor
     @Test func completedRemoteCommandKeepsLogicalSurfaceAndScrollback() async throws {
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addLocalWorkspace(select: true)
         let panel = try #require(workspace.focusedTerminalPanel)
         let output = "remote-command-output\n"
         workspace.configureRemoteConnection(Self.makeRemoteConfiguration(), autoConnect: false)

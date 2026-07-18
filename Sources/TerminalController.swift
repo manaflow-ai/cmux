@@ -1981,6 +1981,9 @@ class TerminalController {
         case "simulate_app_active":
             return simulateAppDidBecomeActive()
 
+        case "terminal_backend_mutation_status":
+            return terminalBackendMutationStatusCommand(args)
+
         // Sidebar metadata/reporting commands (set_status/report_meta/
         // report_meta_block/clear_status/clear_meta/clear_meta_block/list_status/
         // list_meta/list_meta_blocks/set_agent_pid/set_agent_lifecycle/
@@ -2334,6 +2337,7 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "terminal_backend.mutation_status",
             "sidebar.custom.open",
             "system.top",
             "system.memory",
@@ -6593,9 +6597,9 @@ class TerminalController {
 
             var createdSplit = true
             var placementStrategy = "split_right"
-            let createdPanel: BrowserPanel?
+            let creation: BrowserPanelCreationOutcome
             if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(
+                creation = ws.requestNewBrowserSurface(
                     inPane: targetPane,
                     url: url,
                     focus: focus,
@@ -6608,7 +6612,7 @@ class TerminalController {
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
             } else {
-                createdPanel = ws.newBrowserSplit(
+                creation = ws.requestNewBrowserSplit(
                     from: sourceSurfaceId,
                     orientation: .horizontal,
                     url: url,
@@ -6620,7 +6624,7 @@ class TerminalController {
                 )
             }
 
-            guard let browserPanelId = createdPanel?.id else {
+            guard let browserPanelId = creation.surfaceID else {
                 result = .err(code: "internal_error", message: "Failed to create browser", data: nil)
                 return
             }
@@ -6644,7 +6648,7 @@ class TerminalController {
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "created_split": createdSplit,
                 "placement_strategy": placementStrategy,
-                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "show_omnibar": omnibarVisible,
                 "transparent_background": transparentBackground,
                 "bypass_remote_proxy": bypassRemoteProxy
             ])
@@ -9655,12 +9659,13 @@ class TerminalController {
                 return
             }
 
-            guard let panel = ws.newBrowserSurface(
+            let creation = ws.requestNewBrowserSurface(
                 inPane: pane,
                 url: url,
                 focus: true,
                 creationPolicy: .automationPreload
-            ) else {
+            )
+            guard let panelID = creation.surfaceID else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
             }
@@ -9669,9 +9674,9 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "pane_id": pane.id.uuidString,
                 "pane_ref": v2Ref(kind: .pane, uuid: pane.id),
-                "surface_id": panel.id.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                "url": panel.currentURL?.absoluteString ?? ""
+                "surface_id": panelID.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: panelID),
+                "url": url?.absoluteString ?? ""
             ])
         }
         return result
@@ -10642,6 +10647,7 @@ class TerminalController {
           select_workspace <id|index> - Select workspace by ID or index (0-based)
           current_workspace           - Get current workspace ID
           close_workspace <id>        - Close workspace by ID
+          terminal_backend_mutation_status <request-id> - Read a queued backend topology request
 
         Split & surface commands:
           new_split <direction> [panel]   - Split panel (left/right/up/down)
@@ -10756,6 +10762,21 @@ class TerminalController {
         """
 #endif
         return text
+    }
+
+    private func terminalBackendMutationStatusCommand(_ args: String) -> String {
+        let rawRequestID = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let requestID = UUID(uuidString: rawRequestID) else {
+            return "ERROR: Missing or invalid request id"
+        }
+        switch controlTerminalBackendMutationStatus(requestID: requestID) {
+        case .unavailable:
+            return "ERROR: Persistent terminal backend is not enabled"
+        case .unknown:
+            return "ERROR: Terminal backend mutation request not found"
+        case .known(let status):
+            return "STATUS cmuxd request=\(requestID.uuidString) status=\(status.rawValue)"
+        }
     }
 
 #if DEBUG
@@ -11819,15 +11840,27 @@ class TerminalController {
         let title: String? = trimmed.isEmpty ? nil : trimmed
 
         var newTabId: UUID?
+        var backendRequestId: UUID?
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            let workspace = tabManager.addWorkspace(
+            let outcome = tabManager.requestAddWorkspace(
                 title: title,
                 select: focus,
                 eagerLoadTerminal: !focus,
                 allowTextBoxFocusDefault: false
             )
-            newTabId = workspace.id
+            switch outcome {
+            case .created(let workspace):
+                newTabId = workspace.id
+            case .submittedToBackend(let submission):
+                newTabId = submission.workspaceID
+                backendRequestId = submission.requestID
+            case .failed:
+                break
+            }
+        }
+        if let backendRequestId, let newTabId {
+            return "OK \(newTabId.uuidString) pending backend_request_id=\(backendRequestId.uuidString) status_method=terminal_backend.mutation_status"
         }
         return "OK \(newTabId?.uuidString ?? "unknown")"
     }

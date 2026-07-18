@@ -570,7 +570,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         let workspaceCount = 45
         var workspaces = manager.tabs
         while workspaces.count < workspaceCount {
-            workspaces.append(manager.addWorkspace(select: false, eagerLoadTerminal: false))
+            workspaces.append(manager.addLocalWorkspace(select: false, eagerLoadTerminal: false))
         }
 
         for (index, workspace) in workspaces.enumerated() {

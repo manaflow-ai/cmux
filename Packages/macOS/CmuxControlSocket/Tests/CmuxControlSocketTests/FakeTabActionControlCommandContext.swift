@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class FakeTabActionControlCommandContext: ControlCommandContext {
     var resolution: ControlTabActionResolution = .tabManagerUnavailable
+    var backendMutationStatus: ControlTerminalBackendMutationStatusResolution = .unavailable
     private(set) var actionKey: String?
     private(set) var surfaceID: UUID?
 
@@ -19,5 +20,11 @@ final class FakeTabActionControlCommandContext: ControlCommandContext {
         self.actionKey = actionKey
         self.surfaceID = surfaceID
         return resolution
+    }
+
+    func controlTerminalBackendMutationStatus(
+        requestID: UUID
+    ) -> ControlTerminalBackendMutationStatusResolution {
+        backendMutationStatus
     }
 }

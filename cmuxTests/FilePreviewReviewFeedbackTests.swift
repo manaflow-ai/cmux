@@ -326,7 +326,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         }
 
         let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let workspace = manager.addLocalWorkspace(select: true, eagerLoadTerminal: false)
         defer { workspace.teardownAllPanels() }
         let firstPane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let existingPanel = try XCTUnwrap(workspace.newFilePreviewSurface(

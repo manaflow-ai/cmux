@@ -568,7 +568,9 @@ struct BrowserPanelView: View {
 #endif
                 return
             }
-            guard let newPanel = workspace.duplicateBrowserToRight(panelId: panel.id) else {
+            guard let newPanelID = workspace.requestDuplicateBrowserToRight(
+                panelId: panel.id
+            ).surfaceID else {
 #if DEBUG
                 cmuxDebugLog("browser.reload.commandClickDuplicate.abort panel=\(panel.id.uuidString.prefix(5)) reason=newPanelFailed")
 #endif
@@ -577,7 +579,7 @@ struct BrowserPanelView: View {
 #if DEBUG
             cmuxDebugLog(
                 "browser.reload.commandClickDuplicate.done panel=\(panel.id.uuidString.prefix(5)) " +
-                "newPanel=\(newPanel.id.uuidString.prefix(5))"
+                "newPanel=\(newPanelID.uuidString.prefix(5))"
             )
 #endif
             return

@@ -16,6 +16,25 @@ import Foundation
 /// `drag_surface_to_split`), so their witnesses bridge.
 extension TerminalController: ControlSystemContext {
 
+    func controlTerminalBackendMutationStatus(
+        requestID: UUID
+    ) -> ControlTerminalBackendMutationStatusResolution {
+        guard let coordinator = tabManager?.terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator else {
+            return .unavailable
+        }
+        guard let status = coordinator.submissionStatus(requestID: requestID) else {
+            return .unknown
+        }
+        switch status {
+        case .queued: return .known(.queued)
+        case .running: return .known(.running)
+        case .committed: return .known(.committed)
+        case .projected: return .known(.projected)
+        case .failed: return .known(.failed)
+        }
+    }
+
     // MARK: - identify (bridge to the still-shared v2Identify)
 
     func controlSystemIdentify(params: [String: JSONValue]) -> JSONValue {

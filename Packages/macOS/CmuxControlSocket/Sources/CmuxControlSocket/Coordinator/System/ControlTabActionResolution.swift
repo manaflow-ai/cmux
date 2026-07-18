@@ -22,7 +22,8 @@ public enum ControlTabActionResolution: Sendable, Equatable {
         /// `%window-add`, so the `created_*` keys are null and the payload
         /// carries `accepted` / `routed` instead.
         case routedToRemote
-        /// The daemon accepted the terminal create and projection is pending.
+        /// The terminal create entered the local serialized backend queue.
+        /// RPC acceptance and canonical projection are still pending.
         case submittedToBackend(requestID: UUID)
         /// `close_left` / `close_right` / `close_others` — the `closed` and
         /// `skipped_pinned` counts.

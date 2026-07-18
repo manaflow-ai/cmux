@@ -357,19 +357,11 @@ extension TerminalController: ControlWorkspaceContext {
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .notFound
         }
-        if ws.panels.values.contains(where: { $0 is TerminalPanel }),
-           let mutationCoordinator = ws.terminalClientComposition.terminalBackendTopologyMutationCoordinator,
-           !ws.isApplyingCanonicalTopologyProjection {
-            mutationCoordinator.reject(.changeSplitRatio)
-            return .resolved(workspaceID: ws.id, equalized: false)
-        }
-        let tree = ws.bonsplitController.treeSnapshot()
-        let equalizeResult = tabManager.paneLayout.equalizeSplits(
-            in: tree,
-            controller: ws.bonsplitController,
+        let equalized = tabManager.equalizeSplits(
+            tabId: ws.id,
             orientationFilter: orientationFilter
         )
-        return .resolved(workspaceID: ws.id, equalized: equalizeResult.didFullyEqualize)
+        return .resolved(workspaceID: ws.id, equalized: equalized)
     }
 
     /// Mirrors the legacy `v2ResolveWorkspace(params:tabManager:)` precedence

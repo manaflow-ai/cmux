@@ -5695,8 +5695,8 @@ extension SessionPersistenceTests {
     ) throws -> [String: [String: String]] {
         let workspaces = [
             try XCTUnwrap(manager.selectedWorkspace),
-            manager.addWorkspace(inheritWorkingDirectory: false, select: true, autoWelcomeIfNeeded: false),
-            manager.addWorkspace(inheritWorkingDirectory: false, select: true, autoWelcomeIfNeeded: false),
+            manager.addLocalWorkspace(inheritWorkingDirectory: false, select: true, autoWelcomeIfNeeded: false),
+            manager.addLocalWorkspace(inheritWorkingDirectory: false, select: true, autoWelcomeIfNeeded: false),
         ]
         var expected: [String: [String: String]] = [:]
 

@@ -879,7 +879,7 @@ struct cmuxApp: App {
                             debugSource: "menu.newWorkspace"
                         )
                     } else {
-                        activeTabManager.addWorkspace()
+                        _ = activeTabManager.requestAddWorkspace()
                     }
                 }
 
@@ -893,7 +893,7 @@ struct cmuxApp: App {
                         // Last-resort fallback for a missing AppDelegate; keep
                         // the browser-availability gate identical to the
                         // shared action path.
-                        activeTabManager.addWorkspace(initialSurface: .browser)
+                        _ = activeTabManager.requestAddWorkspace(initialSurface: .browser)
                     }
                 }
 

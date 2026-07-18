@@ -300,7 +300,7 @@ final class RemoteTmuxController {
         // failed connection doesn't leave an orphaned empty mirror workspace in
         // the sidebar.
         let connection = try attach(host: host, sessionName: sessionName)
-        let workspace = tabManager.addWorkspace(
+        let workspace = tabManager.addLocalWorkspace(
             title: sessionName,
             select: false,
             autoWelcomeIfNeeded: false
@@ -604,7 +604,10 @@ final class RemoteTmuxController {
                 // Preserve a usable owning window when the remote disappears.
                 // The replacement is local and must not inherit the remote path.
                 if manager.tabs.count == 1 {
-                    _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+                    _ = manager.requestAddWorkspace(
+                        inheritWorkingDirectory: false,
+                        select: false
+                    )
                 }
                 manager.closeWorkspace(workspace)
             case .explicitDetach:

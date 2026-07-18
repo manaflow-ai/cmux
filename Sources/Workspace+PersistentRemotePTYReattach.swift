@@ -68,25 +68,33 @@ extension Workspace {
                 }
                 command = startupCommand
             }
-            guard respawnTerminalSurface(
+            let finalizeReattach: @MainActor (TerminalPanel) -> Void = { [weak self] _ in
+                guard let self else { return }
+                self.remotePTYSessionIDsByPanelId[panelId] = sessionID
+                self.registerRemoteRelayIDAliases(
+                    remotePTYSessionID: sessionID,
+                    restoredPanelId: panelId
+                )
+                if let resumeBinding {
+                    self.surfaceResumeBindingsByPanelId[panelId] = resumeBinding
+                }
+                self.remoteDisconnectPlaceholderPanelIds.remove(panelId)
+                self.pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+                self.pendingRemoteDisconnectReplacementsBySurfaceId
+                    .removeValue(forKey: panelId)
+                self.endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
+                self.trackRemoteTerminalSurface(panelId)
+            }
+            let outcome = requestRespawnTerminalSurface(
                 panelId: panelId,
                 command: command,
                 tmuxStartCommand: command,
-                waitAfterCommand: true
-            ) != nil else {
+                waitAfterCommand: true,
+                onReady: finalizeReattach
+            )
+            if case .failed = outcome {
                 continue
             }
-
-            remotePTYSessionIDsByPanelId[panelId] = sessionID
-            registerRemoteRelayIDAliases(remotePTYSessionID: sessionID, restoredPanelId: panelId)
-            if let resumeBinding {
-                surfaceResumeBindingsByPanelId[panelId] = resumeBinding
-            }
-            remoteDisconnectPlaceholderPanelIds.remove(panelId)
-            pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
-            pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: panelId)
-            endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
-            trackRemoteTerminalSurface(panelId)
             reattached.insert(panelId)
         }
         return reattached

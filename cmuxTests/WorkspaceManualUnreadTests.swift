@@ -224,7 +224,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         }
 
         _ = try XCTUnwrap(manager.selectedWorkspace)
-        let restoredWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let restoredWorkspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
 
         restoredWorkspace.restorePanelUnreadIndicator(restoredPanelId)
@@ -315,7 +315,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         }
 
         _ = try XCTUnwrap(manager.selectedWorkspace)
-        let restoredWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let restoredWorkspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
 
         restoredWorkspace.restorePanelUnreadIndicator(restoredPanelId)
@@ -352,7 +352,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         }
 
         _ = try XCTUnwrap(manager.selectedWorkspace)
-        let restoredWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let restoredWorkspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
 
         restoredWorkspace.restorePanelUnreadIndicator(restoredPanelId)
@@ -618,7 +618,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
-        let laterWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let laterWorkspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         let currentNotificationId = UUID()
         let laterNotificationId = UUID()
         let now = Date()
@@ -926,7 +926,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
-        let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let nextWorkspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         store.markUnread(forTabId: nextWorkspace.id)
 
         XCTAssertNil(appDelegate.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(preferredWindow: window))
@@ -959,7 +959,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
-        let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let nextWorkspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
 
         store.markUnread(forTabId: currentWorkspace.id)
         store.markUnread(forTabId: nextWorkspace.id)
@@ -995,7 +995,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let focusedPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
         let otherPanel = try XCTUnwrap(currentWorkspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal, focus: false))
-        let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let nextWorkspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
 
         currentWorkspace.focusPanel(focusedPanelId)
         currentWorkspace.markPanelUnread(otherPanel.id)
@@ -1029,7 +1029,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
-        let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let nextWorkspace = manager.addLocalWorkspace(select: false, eagerLoadTerminal: false)
         let nextPanelId = try XCTUnwrap(nextWorkspace.focusedPanelId)
         let currentNotificationId = UUID()
         let nextNotificationId = UUID()
@@ -1111,7 +1111,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.hasManualUnread(forTabId: unreadWorkspace.id))
         XCTAssertTrue(unreadWorkspace.manualUnreadPanelIds.contains(unreadPanelId))
 
-        let otherWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let otherWorkspace = manager.addLocalWorkspace(select: true, eagerLoadTerminal: false)
         XCTAssertEqual(manager.selectedTabId, otherWorkspace.id)
         XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashToken, 0)
 
@@ -1167,7 +1167,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         unreadWorkspace.restorePanelUnreadIndicator(unreadPanelId)
         store.restoreUnreadIndicator(forTabId: unreadWorkspace.id)
 
-        let otherWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let otherWorkspace = manager.addLocalWorkspace(select: true, eagerLoadTerminal: false)
         XCTAssertEqual(manager.selectedTabId, otherWorkspace.id)
         XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashToken, 0)
 

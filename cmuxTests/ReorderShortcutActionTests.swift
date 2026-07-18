@@ -93,10 +93,10 @@ struct ReorderShortcutActionTests {
         let manager = TabManager()
         let firstPinned = manager.tabs[0]
         manager.setPinned(firstPinned, pinned: true)
-        let secondPinned = manager.addWorkspace()
+        let secondPinned = manager.addLocalWorkspace()
         manager.setPinned(secondPinned, pinned: true)
-        let firstUnpinned = manager.addWorkspace()
-        let secondUnpinned = manager.addWorkspace()
+        let firstUnpinned = manager.addLocalWorkspace()
+        let secondUnpinned = manager.addLocalWorkspace()
 
         manager.selectWorkspace(secondPinned)
         let initialOrder = [firstPinned.id, secondPinned.id, firstUnpinned.id, secondUnpinned.id]

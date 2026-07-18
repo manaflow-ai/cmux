@@ -153,19 +153,33 @@ extension Workspace {
                 activeRemoteTerminalSurfaceIds.isEmpty ||
                 remoteConnectionState != .connected
             if shouldRespawnSurface {
-                didRespawnTerminal = respawnTerminalSurface(
+                let outcome = requestRespawnTerminalSurface(
                     panelId: reconnectingSurfaceId,
                     command: startupCommand,
                     tmuxStartCommand: startupCommand,
-                    waitAfterCommand: true
-                ) != nil
+                    waitAfterCommand: true,
+                    onReady: { [weak self] _ in
+                        guard let self else { return }
+                        self.remoteDisconnectPlaceholderPanelIds.remove(
+                            reconnectingSurfaceId
+                        )
+                        self.pendingRemoteTerminalChildExitSurfaceIds.remove(
+                            reconnectingSurfaceId
+                        )
+                        self.pendingRemoteDisconnectReplacementsBySurfaceId
+                            .removeValue(forKey: reconnectingSurfaceId)
+                        self.trackRemoteTerminalSurface(reconnectingSurfaceId)
+                    }
+                )
+                if case .failed = outcome {
+                    didRespawnTerminal = false
+                } else {
+                    didRespawnTerminal = true
+                }
             }
-            if didRespawnTerminal {
-                remoteDisconnectPlaceholderPanelIds.remove(reconnectingSurfaceId)
-                pendingRemoteTerminalChildExitSurfaceIds.remove(reconnectingSurfaceId)
-                pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: reconnectingSurfaceId)
+            if !shouldRespawnSurface {
+                trackRemoteTerminalSurface(reconnectingSurfaceId)
             }
-            if didRespawnTerminal || !shouldRespawnSurface { trackRemoteTerminalSurface(reconnectingSurfaceId) }
         }
         if reconnectingSurfaceId != nil, remoteConnectionState == .connected { return didRespawnTerminal }
         guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return didRespawnTerminal }

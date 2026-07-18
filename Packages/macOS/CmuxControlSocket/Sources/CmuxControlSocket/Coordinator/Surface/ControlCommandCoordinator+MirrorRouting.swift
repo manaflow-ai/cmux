@@ -4,8 +4,9 @@ internal import Foundation
 /// mirror workspace (used by `surface.split`, `surface.create`, and
 /// `pane.create`).
 extension ControlCommandCoordinator {
-    /// Success payload for a daemon-committed mutation whose stable identities
-    /// will appear through the canonical topology stream.
+    /// Submission payload for a mutation in the local serialized backend queue.
+    /// Callers use `terminal_backend.mutation_status` before treating it as
+    /// daemon-committed.
     func backendSubmittedCreationResult(
         requestID: UUID,
         windowID: UUID?,
@@ -16,6 +17,7 @@ extension ControlCommandCoordinator {
             "submitted": .bool(true),
             "accepted": .bool(false),
             "request_id": .string(requestID.uuidString),
+            "status_method": .string("terminal_backend.mutation_status"),
             "submission_target": .string("cmuxd"),
             "pending_projection": .bool(true),
             "window_id": orNull(windowID?.uuidString),

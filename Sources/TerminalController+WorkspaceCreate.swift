@@ -102,6 +102,7 @@ extension TerminalController {
 
         var newId: UUID?
         var initialSurfaceId: UUID?
+        var backendRequestId: UUID?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         let shouldEagerLoadTerminal = v2Bool(params, "eager_load_terminal") ?? !shouldFocus
         let shouldAutoRefreshMetadata = v2Bool(params, "auto_refresh_metadata") ?? true
@@ -128,8 +129,34 @@ extension TerminalController {
                 )
             }
         }
+        if layoutNode != nil,
+           tabManager.terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator != nil {
+            return .err(
+                code: "unavailable",
+                message: "Custom layouts are not supported by the persistent terminal backend",
+                data: nil
+            )
+        }
         v2MainSync {
-            let ws = tabManager.addWorkspace(
+            let configureWorkspace: @MainActor (Workspace) -> Void = { ws in
+                ws.setCustomDescription(description)
+                if let layoutNode {
+                    ws.applyCustomLayout(
+                        layoutNode,
+                        baseCwd: cwd ?? ws.currentDirectory
+                    )
+                }
+                if let groupId {
+                    tabManager.addWorkspaceToGroup(
+                        workspaceId: ws.id,
+                        groupId: groupId,
+                        placement: groupPlacement ?? .top,
+                        referenceWorkspaceId: groupReferenceWorkspaceId
+                    )
+                }
+            }
+            let outcome = tabManager.requestAddWorkspace(
                 title: title,
                 workingDirectory: cwd,
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
@@ -137,29 +164,28 @@ extension TerminalController {
                 workspaceEnvironment: workspaceEnv,
                 select: shouldFocus,
                 eagerLoadTerminal: shouldEagerLoadTerminal,
-                autoRefreshMetadata: shouldAutoRefreshMetadata
+                autoRefreshMetadata: shouldAutoRefreshMetadata,
+                onProjected: configureWorkspace
             )
-            ws.setCustomDescription(description)
-            if let layoutNode {
-                ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
+            switch outcome {
+            case .created(let workspace):
+                configureWorkspace(workspace)
+                newId = workspace.id
+                initialSurfaceId = workspace.focusedPanelId
+            case .submittedToBackend(let submission):
+                newId = submission.workspaceID
+                initialSurfaceId = submission.surfaceID
+                backendRequestId = submission.requestID
+            case .failed:
+                break
             }
-            if let groupId {
-                tabManager.addWorkspaceToGroup(
-                    workspaceId: ws.id,
-                    groupId: groupId,
-                    placement: groupPlacement ?? .top,
-                    referenceWorkspaceId: groupReferenceWorkspaceId
-                )
-            }
-            newId = ws.id
-            initialSurfaceId = ws.focusedPanelId
         }
 
         guard let newId else {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
         }
         let windowId = v2ResolveWindowId(tabManager: tabManager)
-        return .ok([
+        var payload: [String: Any] = [
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": newId.uuidString,
@@ -168,7 +194,13 @@ extension TerminalController {
             "group_ref": v2Ref(kind: .workspaceGroup, uuid: groupId),
             "surface_id": v2OrNull(initialSurfaceId?.uuidString),
             "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
-        ])
+        ]
+        if let backendRequestId {
+            payload["pending"] = true
+            payload["backend_request_id"] = backendRequestId.uuidString
+            payload["status_method"] = "terminal_backend.mutation_status"
+        }
+        return .ok(payload)
     }
 
     func v2WorkspaceCloudVMOpen(params: [String: Any]) -> V2CallResult {
@@ -222,26 +254,46 @@ extension TerminalController {
         }
 
         let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
-        guard let panel = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+        let outcome = workspace.requestCloudVMLoadingSurfaceTerminalReplacement(
             workspaceId: workspaceId,
             initialCommand: command,
             focus: focus
-        ) else {
+        )
+        if case .failed = outcome {
             return .err(
                 code: "not_found",
                 message: "Cloud VM loading surface not found",
                 data: ["workspace_id": workspaceId.uuidString]
             )
         }
+        let panelID: UUID?
+        let requestID: UUID?
+        switch outcome {
+        case .created(let panel):
+            panelID = panel.id
+            requestID = nil
+        case .submittedToBackend(let submission):
+            panelID = submission.surfaceID
+            requestID = submission.requestID
+        case .routedToRemote, .failed:
+            panelID = nil
+            requestID = nil
+        }
         let windowId = v2ResolveWindowId(tabManager: tabManager)
-        return .ok([
+        var payload: [String: Any] = [
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-            "surface_id": panel.id.uuidString,
-            "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-        ])
+            "surface_id": v2OrNull(panelID?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: panelID),
+        ]
+        if let requestID {
+            payload["pending"] = true
+            payload["backend_request_id"] = requestID.uuidString
+            payload["status_method"] = "terminal_backend.mutation_status"
+        }
+        return .ok(payload)
     }
 
     func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {

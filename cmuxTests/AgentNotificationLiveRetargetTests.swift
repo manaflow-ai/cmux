@@ -40,8 +40,8 @@ extension AgentNotificationRegressionTests {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let claimedWorkspace = manager.addWorkspace(select: false)
-        let owningWorkspace = manager.addWorkspace(select: true)
+        let claimedWorkspace = manager.addLocalWorkspace(select: false)
+        let owningWorkspace = manager.addLocalWorkspace(select: true)
         let panelId = try #require(owningWorkspace.focusedPanelId)
 
         let restore = {

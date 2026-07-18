@@ -17,7 +17,7 @@ struct LastSurfaceClosePreferenceTests {
     func tabCloseButtonClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsDisabled() throws {
         try withManager(closeWorkspaceOnLastSurface: true) { manager in
             let firstWorkspace = manager.tabs[0]
-            let secondWorkspace = manager.addWorkspace()
+            let secondWorkspace = manager.addLocalWorkspace()
             manager.selectWorkspace(secondWorkspace)
 
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
@@ -39,7 +39,7 @@ struct LastSurfaceClosePreferenceTests {
     func tabCloseButtonKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() throws {
         try withManager(closeWorkspaceOnLastSurface: false) { manager in
             let firstWorkspace = manager.tabs[0]
-            let secondWorkspace = manager.addWorkspace()
+            let secondWorkspace = manager.addLocalWorkspace()
             manager.selectWorkspace(secondWorkspace)
 
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
@@ -66,7 +66,7 @@ struct LastSurfaceClosePreferenceTests {
     func middleClickClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsDisabled() throws {
         try withManager(closeWorkspaceOnLastSurface: true) { manager in
             let firstWorkspace = manager.tabs[0]
-            let secondWorkspace = manager.addWorkspace()
+            let secondWorkspace = manager.addLocalWorkspace()
             manager.selectWorkspace(secondWorkspace)
 
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
@@ -88,7 +88,7 @@ struct LastSurfaceClosePreferenceTests {
     func middleClickKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() throws {
         try withManager(closeWorkspaceOnLastSurface: false) { manager in
             let firstWorkspace = manager.tabs[0]
-            let secondWorkspace = manager.addWorkspace()
+            let secondWorkspace = manager.addLocalWorkspace()
             manager.selectWorkspace(secondWorkspace)
 
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
@@ -115,7 +115,7 @@ struct LastSurfaceClosePreferenceTests {
     func remoteTmuxWindowCloseClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsDisabled() throws {
         try withManager(closeWorkspaceOnLastSurface: true) { manager in
             let firstWorkspace = manager.tabs[0]
-            let secondWorkspace = manager.addWorkspace()
+            let secondWorkspace = manager.addLocalWorkspace()
             manager.selectWorkspace(secondWorkspace)
 
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
@@ -141,7 +141,7 @@ struct LastSurfaceClosePreferenceTests {
     func remoteTmuxWindowCloseKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() throws {
         try withManager(closeWorkspaceOnLastSurface: false) { manager in
             let firstWorkspace = manager.tabs[0]
-            let secondWorkspace = manager.addWorkspace()
+            let secondWorkspace = manager.addLocalWorkspace()
             manager.selectWorkspace(secondWorkspace)
 
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
@@ -171,7 +171,7 @@ struct LastSurfaceClosePreferenceTests {
     func remoteTmuxSessionEndKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() throws {
         try withManager(closeWorkspaceOnLastSurface: false) { manager in
             let firstWorkspace = manager.tabs[0]
-            let secondWorkspace = manager.addWorkspace()
+            let secondWorkspace = manager.addLocalWorkspace()
             manager.selectWorkspace(secondWorkspace)
 
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
@@ -201,7 +201,7 @@ struct LastSurfaceClosePreferenceTests {
     func remoteTmuxWindowCloseKeepsWorkspaceOpenImmediatelyForShortcut() throws {
         try withManager(closeWorkspaceOnLastSurface: false) { manager in
             let firstWorkspace = manager.tabs[0]
-            let secondWorkspace = manager.addWorkspace()
+            let secondWorkspace = manager.addLocalWorkspace()
             manager.selectWorkspace(secondWorkspace)
 
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
@@ -231,7 +231,7 @@ struct LastSurfaceClosePreferenceTests {
     @Test
     func remoteTmuxWindowCloseClearsKeepOpenMarkerWhenWorkspaceNoLongerEmpty() throws {
         try withManager(closeWorkspaceOnLastSurface: false) { manager in
-            let secondWorkspace = manager.addWorkspace()
+            let secondWorkspace = manager.addLocalWorkspace()
             manager.selectWorkspace(secondWorkspace)
 
             let closingPanelId = try #require(secondWorkspace.focusedPanelId)
@@ -260,7 +260,7 @@ struct LastSurfaceClosePreferenceTests {
     func remoteTmuxWindowCloseDoesNotPromptAgainAfterRemoteCloseCommitted() throws {
         try withManager(closeWorkspaceOnLastSurface: true) { manager in
             let firstWorkspace = manager.tabs[0]
-            let secondWorkspace = manager.addWorkspace()
+            let secondWorkspace = manager.addLocalWorkspace()
             manager.selectWorkspace(secondWorkspace)
 
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)

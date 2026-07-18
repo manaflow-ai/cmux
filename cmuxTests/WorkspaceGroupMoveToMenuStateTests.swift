@@ -30,9 +30,9 @@ struct WorkspaceGroupMoveToMenuStateTests {
 
     @Test func mobileWorkspaceMoveBlankGroupIDUngroupsWorkspace() throws {
         let manager = TabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
         let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
             originalIds[1],
@@ -58,9 +58,9 @@ struct WorkspaceGroupMoveToMenuStateTests {
 
     @Test func mobileWorkspaceMoveGroupHeaderPreservesGroupMembership() throws {
         let manager = TabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
         let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
             originalIds[1],
@@ -91,8 +91,8 @@ struct WorkspaceGroupMoveToMenuStateTests {
 
     @Test func mobileWorkspaceGroupDeleteRejectsGroupContainingEveryWorkspace() throws {
         let manager = TabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
         let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: originalIds))
 
@@ -115,7 +115,7 @@ struct WorkspaceGroupMoveToMenuStateTests {
 
     @Test func mobileWorkspaceGroupCreateUsesTrimmedTitleAndReturnsWorkspaceList() throws {
         let manager = TabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         TerminalController.shared.setActiveTabManager(manager)
         defer { TerminalController.shared.setActiveTabManager(previousManager) }
@@ -135,7 +135,7 @@ struct WorkspaceGroupMoveToMenuStateTests {
 
     @Test func mobileWorkspaceGroupCreateTreatsBlankTitleAsAutoName() throws {
         let manager = TabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addLocalWorkspace(autoWelcomeIfNeeded: false)
         let expectedName = String.localizedStringWithFormat(manager.localizedAutoGroupNameFormat, 1)
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         TerminalController.shared.setActiveTabManager(manager)

@@ -113,6 +113,17 @@ public protocol ControlSystemContext: AnyObject {
     /// - Returns: The fully shaped call result.
     func controlSurfaceSplitOff(params: [String: JSONValue]) -> ControlCallResult
 
+    /// Reads one locally queued terminal-backend topology mutation. A known
+    /// request reaches `committed` only after the daemon receipt's canonical
+    /// revision has been observed by the backend client.
+    ///
+    /// - Parameter requestID: The request identifier returned by a queued
+    ///   topology mutation.
+    /// - Returns: Availability, lookup, and status in one typed value.
+    func controlTerminalBackendMutationStatus(
+        requestID: UUID
+    ) -> ControlTerminalBackendMutationStatusResolution
+
     #if DEBUG
     /// Configures (or clears, with `nil`) the accepted dev Stack auth token
     /// for the DEBUG-only `mobile.dev_stack_auth.configure`.
@@ -120,4 +131,33 @@ public protocol ControlSystemContext: AnyObject {
     /// - Parameter token: The token to accept, or `nil` to disable.
     func controlMobileDevStackAuthSetToken(_ token: String?)
     #endif
+}
+
+/// Stable control-wire phases for a locally queued backend topology mutation.
+public enum ControlTerminalBackendMutationStatus: String, Sendable, Equatable {
+    case queued
+    case running
+    case committed
+    case projected
+    case failed
+}
+
+/// App-side lookup result for `terminal_backend.mutation_status`.
+public enum ControlTerminalBackendMutationStatusResolution: Sendable, Equatable {
+    /// This cmux process does not use the persistent terminal backend.
+    case unavailable
+    /// The backend is enabled, but the bounded local request history no longer
+    /// contains this identifier.
+    case unknown
+    /// The request is present with its current phase.
+    case known(ControlTerminalBackendMutationStatus)
+}
+
+public extension ControlSystemContext {
+    func controlTerminalBackendMutationStatus(
+        requestID: UUID
+    ) -> ControlTerminalBackendMutationStatusResolution {
+        _ = requestID
+        return .unavailable
+    }
 }

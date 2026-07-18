@@ -140,7 +140,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let fixture = try makeSocketFixture(name: "notif-open", includeWindow: true)
         defer { fixture.cleanup() }
 
-        let targetWorkspace = fixture.manager.addWorkspace(title: "Open Target", select: false)
+        let targetWorkspace = fixture.manager.addLocalWorkspace(title: "Open Target", select: false)
         let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
         let notification = makeNotification(tabId: targetWorkspace.id, surfaceId: targetSurfaceId, title: "Open")
         fixture.store.replaceNotificationsForTesting([notification])
@@ -167,7 +167,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let fixture = try makeSocketFixture(name: "notif-jump", includeWindow: true)
         defer { fixture.cleanup() }
 
-        let targetWorkspace = fixture.manager.addWorkspace(title: "Unread Target", select: false)
+        let targetWorkspace = fixture.manager.addLocalWorkspace(title: "Unread Target", select: false)
         let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
         let older = makeNotification(tabId: fixture.workspace.id, surfaceId: fixture.surfaceId, title: "Older")
         let latest = makeNotification(tabId: targetWorkspace.id, surfaceId: targetSurfaceId, title: "Latest")
@@ -211,7 +211,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let fixture = try makeSocketFixture(name: "notif-jump-skip", includeWindow: true)
         defer { fixture.cleanup() }
 
-        let targetWorkspace = fixture.manager.addWorkspace(title: "Unread Fallback", select: false)
+        let targetWorkspace = fixture.manager.addLocalWorkspace(title: "Unread Fallback", select: false)
         let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
         let unopenable = makeNotification(tabId: UUID(), surfaceId: nil, title: "Closed Workspace")
         let openable = makeNotification(tabId: targetWorkspace.id, surfaceId: targetSurfaceId, title: "Openable")
@@ -292,7 +292,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(title: "Socket Notifications", select: true)
+        let workspace = manager.addLocalWorkspace(title: "Socket Notifications", select: true)
         let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
 
         let windowId: UUID?

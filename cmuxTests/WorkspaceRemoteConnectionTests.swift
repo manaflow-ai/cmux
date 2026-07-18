@@ -1645,7 +1645,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanup = NativeSSHCleanupRecorder()
         let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
         let remainingWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let remoteWorkspace = manager.addWorkspace()
+        let remoteWorkspace = manager.addLocalWorkspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: 2222,
@@ -1741,7 +1741,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanup = NativeSSHCleanupRecorder()
         let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let destinationWorkspace = manager.addWorkspace()
+        let destinationWorkspace = manager.addLocalWorkspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1792,7 +1792,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanup = NativeSSHCleanupRecorder()
         let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let destinationWorkspace = manager.addWorkspace()
+        let destinationWorkspace = manager.addLocalWorkspace()
         let sourcePaneID = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1845,7 +1845,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanup = NativeSSHCleanupRecorder()
         let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let destinationWorkspace = manager.addWorkspace()
+        let destinationWorkspace = manager.addLocalWorkspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,

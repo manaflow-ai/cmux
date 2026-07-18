@@ -14,8 +14,8 @@ struct WorkspacePromptSubmitTests {
     @Test func testPromptSubmitRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        let second = manager.addLocalWorkspace(select: false, placementOverride: .end)
+        let third = manager.addLocalWorkspace(select: false, placementOverride: .end)
         manager.selectWorkspace(second)
 
         let outcome = try #require(
@@ -41,8 +41,8 @@ struct WorkspacePromptSubmitTests {
 
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        let second = manager.addLocalWorkspace(select: false, placementOverride: .end)
+        let third = manager.addLocalWorkspace(select: false, placementOverride: .end)
         CmuxEventBus.shared.resetForTesting()
 
         let outcome = try #require(
@@ -66,8 +66,8 @@ struct WorkspacePromptSubmitTests {
     @Test func testPromptSubmitRecordsMessageWithoutReorderingWhenIMessageModeDisabled() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        let second = manager.addLocalWorkspace(select: false, placementOverride: .end)
+        let third = manager.addLocalWorkspace(select: false, placementOverride: .end)
 
         let outcome = try #require(
             manager.handlePromptSubmit(
@@ -89,8 +89,8 @@ struct WorkspacePromptSubmitTests {
         let manager = TabManager()
         let pinned = manager.tabs[0]
         manager.setPinned(pinned, pinned: true)
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        let second = manager.addLocalWorkspace(select: false, placementOverride: .end)
+        let third = manager.addLocalWorkspace(select: false, placementOverride: .end)
         manager.selectWorkspace(second)
 
         let outcome = try #require(
@@ -113,8 +113,8 @@ struct WorkspacePromptSubmitTests {
         let manager = TabManager()
         let pinned = manager.tabs[0]
         manager.setPinned(pinned, pinned: true)
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        let second = manager.addLocalWorkspace(select: false, placementOverride: .end)
+        let third = manager.addLocalWorkspace(select: false, placementOverride: .end)
         #expect(third.recordConversationMessage("Done."))
 
         let outcome = try #require(
@@ -135,7 +135,7 @@ struct WorkspacePromptSubmitTests {
     @Test func testBlankAssistantFinalMessageDoesNotMoveWorkspace() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let second = manager.addLocalWorkspace(select: false, placementOverride: .end)
 
         let outcome = try #require(
             manager.handleAssistantFinalMessage(
@@ -154,7 +154,7 @@ struct WorkspacePromptSubmitTests {
 
     @Test func testBlankPromptSubmitDoesNotRecordTimestampOrPublishEvent() throws {
         let manager = TabManager()
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let second = manager.addLocalWorkspace(select: false, placementOverride: .end)
         let sequenceBeforeSubmit = CmuxEventBus.shared.latestSequence
 
         let outcome = try #require(
@@ -175,7 +175,7 @@ struct WorkspacePromptSubmitTests {
     @Test func testFeedPromptSubmitEventExtractsToolInputMessage() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let second = manager.addLocalWorkspace(select: false, placementOverride: .end)
 
         let event = WorkstreamEvent(
             sessionId: "opencode-session",

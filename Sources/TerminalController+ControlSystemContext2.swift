@@ -210,10 +210,13 @@ extension TerminalController {
                 ))
             }
 
-            guard let newPanel = workspace.duplicateBrowserToRight(panelId: panelId, focus: focus) else {
+            guard let newPanelID = workspace.requestDuplicateBrowserToRight(
+                panelId: panelId,
+                focus: focus
+            ).surfaceID else {
                 return .duplicateFailed
             }
-            return finish(.created(newPanel.id))
+            return finish(.created(newPanelID))
 
         case "new_terminal_right", "new_terminal_to_right", "new_terminal_tab_to_right":
             guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),
@@ -261,16 +264,23 @@ extension TerminalController {
             }
 
             let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-            guard let newPanel = workspace.newBrowserSurface(
+            let creation = workspace.requestNewBrowserSurface(
                 inPane: paneId,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload
-            ) else {
+                creationPolicy: .automationPreload,
+                onProjected: { [weak workspace] panel in
+                    _ = workspace?.reorderSurface(
+                        panelId: panel.id,
+                        toIndex: targetIndex,
+                        focus: focus
+                    )
+                }
+            )
+            guard let newPanelID = creation.surfaceID else {
                 return .createFailed
             }
-            _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
-            return finish(.created(newPanel.id))
+            return finish(.created(newPanelID))
 
         case "close_left", "close_to_left":
             guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),

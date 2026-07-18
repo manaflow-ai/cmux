@@ -8,6 +8,25 @@ struct SurfaceNewWorkspaceMoveResult {
     let destinationWorkspaceId: UUID
     let surfaceId: UUID
     let paneId: UUID?
+    let backendRequestId: UUID?
+
+    init(
+        sourceWindowId: UUID,
+        sourceWorkspaceId: UUID,
+        destinationWindowId: UUID?,
+        destinationWorkspaceId: UUID,
+        surfaceId: UUID,
+        paneId: UUID?,
+        backendRequestId: UUID? = nil
+    ) {
+        self.sourceWindowId = sourceWindowId
+        self.sourceWorkspaceId = sourceWorkspaceId
+        self.destinationWindowId = destinationWindowId
+        self.destinationWorkspaceId = destinationWorkspaceId
+        self.surfaceId = surfaceId
+        self.paneId = paneId
+        self.backendRequestId = backendRequestId
+    }
 }
 
 @MainActor
@@ -91,13 +110,6 @@ extension AppDelegate {
               sourceWorkspace.panels.count > 1 else {
             return nil
         }
-        if sourcePanel is TerminalPanel,
-           let mutationCoordinator = sourceWorkspace.terminalClientComposition.terminalBackendTopologyMutationCoordinator,
-           !sourceWorkspace.isApplyingCanonicalTopologyProjection {
-            mutationCoordinator.reject(.createWorkspace)
-            return nil
-        }
-
         let targetManager = destinationManager ?? source.tabManager
         let hasExplicitTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         if !hasExplicitTitle {
@@ -109,6 +121,69 @@ extension AppDelegate {
             panelId: panelId,
             panel: sourcePanel
         )
+        if sourcePanel is TerminalPanel,
+           let mutationCoordinator = sourceWorkspace.terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator,
+           !sourceWorkspace.isApplyingCanonicalTopologyProjection {
+            guard targetManager === source.tabManager else {
+                mutationCoordinator.reportFailure(for: .createWorkspace)
+                return nil
+            }
+            let destinationWorkspaceID = UUID()
+            let requestedIndex = insertionIndexOverride.map {
+                max(0, min($0, targetManager.tabs.count))
+            }
+            let canonicalIndex = requestedIndex.map { requestedIndex in
+                targetManager.tabs.prefix(requestedIndex).filter { workspace in
+                    workspace.panels.values.contains { $0 is TerminalPanel }
+                }.count
+            }
+            let activationIntent = focusIntentForNewWorkspaceMove(panel: sourcePanel)
+            let submission = mutationCoordinator.requestMoveTabToNewWorkspace(
+                panelId,
+                workspaceID: destinationWorkspaceID,
+                name: destinationTitle,
+                index: canonicalIndex,
+                onProjected: { [weak self, weak targetManager] _ in
+                    guard focus, let self, let targetManager,
+                          targetManager.tabs.contains(where: {
+                              $0.id == destinationWorkspaceID
+                          }) else {
+                        return
+                    }
+                    let destinationWindowId = focusWindow
+                        ? self.windowId(for: targetManager)
+                        : nil
+                    if let destinationWindowId {
+                        _ = self.focusMainWindow(windowId: destinationWindowId)
+                    }
+                    targetManager.focusTab(
+                        destinationWorkspaceID,
+                        surfaceId: panelId,
+                        suppressFlash: true,
+                        focusIntent: activationIntent
+                    )
+                    if let destinationWindowId {
+                        self.reassertCrossWindowSurfaceMoveFocusIfNeeded(
+                            destinationWindowId: destinationWindowId,
+                            sourceWindowId: source.windowId,
+                            destinationWorkspaceId: destinationWorkspaceID,
+                            destinationPanelId: panelId,
+                            destinationManager: targetManager
+                        )
+                    }
+                }
+            )
+            return SurfaceNewWorkspaceMoveResult(
+                sourceWindowId: source.windowId,
+                sourceWorkspaceId: source.workspaceId,
+                destinationWindowId: windowId(for: targetManager),
+                destinationWorkspaceId: destinationWorkspaceID,
+                surfaceId: panelId,
+                paneId: nil,
+                backendRequestId: submission.requestID
+            )
+        }
         let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
         let activationIntent = focusIntentForNewWorkspaceMove(panel: sourcePanel)

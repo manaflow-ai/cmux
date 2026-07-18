@@ -9,6 +9,7 @@ import CmuxWindowing
 import CmuxNotifications
 import CmuxTerminalCore
 import CmuxTerminal
+import enum CmuxTerminalBackend.BackendSplitDirection
 import CmuxTerminalBackendService
 import CmuxSettings
 import CmuxSettingsUI
@@ -4958,14 +4959,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
-        if let terminalPanel = sourceWorkspace.panels[panelId] as? TerminalPanel,
-           let mutationCoordinator = sourceWorkspace.terminalClientComposition
-               .terminalBackendTopologyMutationCoordinator {
-            if destinationWorkspace.id == sourceWorkspace.id {
-                return mutationCoordinator.reject(splitTarget == nil ? .moveTab : .splitPane)
-            }
-            return mutationCoordinator.requestReparent(terminalPanel, to: destinationWorkspace.id)
-        }
 #if DEBUG
         cmuxDebugLog(
             "surface.move.route panel=\(panelId.uuidString.prefix(5)) sourceWs=\(sourceWorkspace.id.uuidString.prefix(5)) " +
@@ -4987,6 +4980,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             return false
+        }
+
+        if sourceWorkspace.panels[panelId] is TerminalPanel,
+           let mutationCoordinator = sourceWorkspace.terminalClientComposition
+               .terminalBackendTopologyMutationCoordinator {
+            let destinationTabs = destinationWorkspace.bonsplitController
+                .tabs(inPane: resolvedTargetPane)
+            let destinationHasCanonicalTerminal = destinationTabs.contains { tab in
+                destinationWorkspace.panelIdFromSurfaceId(tab.id).flatMap {
+                    destinationWorkspace.panels[$0]
+                } is TerminalPanel
+            }
+            guard destinationHasCanonicalTerminal else {
+                mutationCoordinator.reportFailure(
+                    for: splitTarget == nil ? .moveTab : .splitPane
+                )
+                return false
+            }
+
+            if let splitTarget {
+                let direction: BackendSplitDirection
+                switch (splitTarget.orientation, splitTarget.insertFirst) {
+                case (.horizontal, true): direction = .left
+                case (.horizontal, false): direction = .right
+                case (.vertical, true): direction = .up
+                case (.vertical, false): direction = .down
+                }
+                _ = mutationCoordinator.requestSplitTab(
+                    panelId,
+                    around: resolvedTargetPane.id,
+                    direction: direction
+                )
+                return true
+            }
+
+            let destinationWithoutMovedSurface = destinationTabs.filter { tab in
+                destinationWorkspace.panelIdFromSurfaceId(tab.id) != panelId
+            }
+            let requestedRowIndex = min(
+                max(targetIndex ?? destinationWithoutMovedSurface.count, 0),
+                destinationWithoutMovedSurface.count
+            )
+            let canonicalIndex = destinationWithoutMovedSurface
+                .prefix(requestedRowIndex)
+                .reduce(into: 0) { count, tab in
+                    guard let destinationPanelID = destinationWorkspace
+                        .panelIdFromSurfaceId(tab.id),
+                          destinationWorkspace.panels[destinationPanelID] is TerminalPanel else {
+                        return
+                    }
+                    count += 1
+                }
+            _ = mutationCoordinator.requestMoveTab(
+                panelId,
+                to: resolvedTargetPane.id,
+                index: canonicalIndex
+            )
+            return true
         }
 
         if destinationWorkspace.id == sourceWorkspace.id {
@@ -5245,11 +5296,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
-        let workspace = state.tabManager.addWorkspace(
+        let outcome = state.tabManager.requestAddWorkspace(
             workingDirectory: workingDirectory,
             select: shouldBringToFront
         )
-        return workspace.id
+        switch outcome {
+        case .created(let workspace): return workspace.id
+        case .submittedToBackend(let submission): return submission.workspaceID
+        case .failed: return nil
+        }
     }
 
     private func markCommandPaletteOpenRequested(for window: NSWindow?) {
@@ -7470,23 +7525,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // The fresh window boots with a terminal workspace; add the
                     // browser workspace and close that initial one so the
                     // action's result matches the no-window case for terminals.
-                    let workspace = context.tabManager.addWorkspace(
+                    let applyCreatedWorkspace: @MainActor (Workspace) -> Void = { workspace in
+                        self.closeInitialWorkspaceIfNeeded(
+                            initialWorkspaceId: initialWorkspace?.id,
+                            in: context
+                        )
+                        createdWorkspaceHandler?(workspace)
+                        if focusInitialBrowserAddressBarOnCreate {
+                            self.focusInitialBrowserAddressBar(in: workspace)
+                        }
+                    }
+                    let outcome = context.tabManager.requestAddWorkspace(
                         title: title,
                         initialSurface: .browser,
                         initialBrowserURL: initialBrowserURL,
                         initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                        initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                        initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                        onProjected: applyCreatedWorkspace
                     )
-                    closeInitialWorkspaceIfNeeded(
-                        initialWorkspaceId: initialWorkspace?.id,
-                        in: context
-                    )
-                    createdWorkspaceHandler?(workspace)
-                    if focusInitialBrowserAddressBarOnCreate {
-                        focusInitialBrowserAddressBar(in: workspace)
+                    if case .created(let workspace) = outcome {
+                        applyCreatedWorkspace(workspace)
                     }
+                    guard outcome.isAccepted else { return false }
                 case .cloudVMLoading:
-                    let workspace = context.tabManager.addWorkspace(initialSurface: .cloudVMLoading)
+                    let workspace = context.tabManager.addLocalWorkspace(
+                        initialSurface: .cloudVMLoading
+                    )
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
                         in: context
@@ -7515,7 +7579,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let context, let workspaceGroupTarget {
-            guard let workspace = context.tabManager.createWorkspaceInGroup(
+            guard let outcome = context.tabManager.requestCreateWorkspaceInGroup(
                 groupId: workspaceGroupTarget.groupId,
                 placement: workspaceGroupTarget.placement,
                 referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId,
@@ -7527,30 +7591,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) else {
                 return false
             }
-            createdWorkspaceHandler?(workspace)
-            if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
-                focusInitialBrowserAddressBar(in: workspace)
+            if case .created(let workspace) = outcome {
+                createdWorkspaceHandler?(workspace)
+                if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
+                    focusInitialBrowserAddressBar(in: workspace)
+                }
             }
-            return true
+            return outcome.isAccepted
         }
 
         if let preferredTabManager,
            preferredContext == nil || livePreferredContext != nil {
-            let workspace = preferredTabManager.addWorkspace(
+            let applyCreatedWorkspace: @MainActor (Workspace) -> Void = { workspace in
+                createdWorkspaceHandler?(workspace)
+                if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
+                    focusInitialBrowserAddressBar(in: workspace)
+                }
+            }
+            let outcome = preferredTabManager.requestAddWorkspace(
                 title: title,
                 initialSurface: initialSurface,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                onProjected: applyCreatedWorkspace
             )
-            createdWorkspaceHandler?(workspace)
-            if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
-                focusInitialBrowserAddressBar(in: workspace)
+            if case .created(let workspace) = outcome {
+                applyCreatedWorkspace(workspace)
             }
+            if case .failed = outcome { return false }
             return true
         }
 
-        if let workspace = addWorkspaceInPreferredMainWindow(
+        if let outcome = requestAddWorkspaceInPreferredMainWindow(
             title: title,
             initialSurface: initialSurface,
             initialBrowserURL: initialBrowserURL,
@@ -7559,9 +7632,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             debugSource: debugSource
         ) {
-            createdWorkspaceHandler?(workspace)
-            if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
-                focusInitialBrowserAddressBar(in: workspace)
+            if case .created(let workspace) = outcome {
+                createdWorkspaceHandler?(workspace)
+                if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
+                    focusInitialBrowserAddressBar(in: workspace)
+                }
             }
         } else {
 #if DEBUG
@@ -7647,7 +7722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
         } else {
-            workspace = context.tabManager.addWorkspace(
+            workspace = context.tabManager.addLocalWorkspace(
                 title: workspaceTitle,
                 initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false,
@@ -8018,7 +8093,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
             ?? targetTabManager.tabs.first?.id
-            ?? targetTabManager.addWorkspace(select: true).id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
@@ -8031,13 +8105,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            guard targetTabManager.openBrowser(
-                inWorkspace: targetWorkspaceId,
-                url: openFolderURL,
-                preferSplitRight: true
-            ) != nil else {
-                NSSound.beep()
-                return
+            if let targetWorkspaceId {
+                guard targetTabManager.openBrowser(
+                    inWorkspace: targetWorkspaceId,
+                    url: openFolderURL,
+                    preferSplitRight: true
+                ) != nil else {
+                    NSSound.beep()
+                    return
+                }
+            } else {
+                let outcome = targetTabManager.requestAddWorkspace(
+                    initialSurface: .browser,
+                    initialBrowserURL: openFolderURL,
+                    select: true
+                )
+                if case .failed = outcome {
+                    NSSound.beep()
+                    return
+                }
             }
         }
 
@@ -8212,7 +8298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workingDirectory: String,
         debugSource: String
     ) {
-        if addWorkspaceInPreferredMainWindow(
+        if requestAddWorkspaceInPreferredMainWindow(
             workingDirectory: workingDirectory,
             shouldBringToFront: true,
             debugSource: debugSource
@@ -8226,7 +8312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ request: TerminalDefaultFileOpenRequest,
         debugSource: String
     ) {
-        if addWorkspaceInPreferredMainWindow(
+        if requestAddWorkspaceInPreferredMainWindow(
             workingDirectory: request.workingDirectory,
             initialTerminalInput: request.initialInput,
             shouldBringToFront: true,
@@ -8264,8 +8350,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        let workspace = context.tabManager.selectedWorkspace
-            ?? context.tabManager.addWorkspace(select: shouldBringToFront, autoWelcomeIfNeeded: false)
+        guard let workspace = context.tabManager.selectedWorkspace else {
+            let outcome = context.tabManager.requestAddWorkspace(
+                initialTerminalInput: text,
+                select: shouldBringToFront,
+                autoWelcomeIfNeeded: false
+            )
+            if case .failed = outcome {
+                onSendFailure?()
+                return false
+            }
+            return true
+        }
         // In a remote tmux mirror workspace, paste targets the existing focused
         // pane. Do NOT fall back to creating a new surface there: that would
         // route to a remote `new-window` (a surprising side effect) yet still
@@ -8311,8 +8407,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        let workspace = context.tabManager.selectedWorkspace
-            ?? context.tabManager.addWorkspace(workingDirectory: parentDirectory, select: true)
+        guard let workspace = context.tabManager.selectedWorkspace else {
+            let outcome = context.tabManager.requestAddWorkspace(
+                workingDirectory: parentDirectory,
+                select: true,
+                onProjected: { workspace in
+                    guard let paneId = workspace.bonsplitController.focusedPaneId
+                            ?? workspace.bonsplitController.allPaneIds.first else {
+                        return
+                    }
+                    _ = workspace.openFileSurfaces(
+                        inPane: paneId,
+                        filePaths: [filePath],
+                        focus: true,
+                        reuseExisting: true
+                    )
+                }
+            )
+            if case .failed = outcome { return false }
+            return true
+        }
         guard let paneId = workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first else {
             return false
@@ -8330,7 +8444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func addWorkspaceInPreferredMainWindow(
+    func requestAddWorkspaceInPreferredMainWindow(
         title: String? = nil,
         workingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
@@ -8341,7 +8455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
-    ) -> Workspace? {
+    ) -> WorkspaceCreationOutcome? {
         #if DEBUG
         logWorkspaceCreationRouting(
             phase: "request",
@@ -8384,28 +8498,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             bringToFront(window)
         }
 
-        let workspace: Workspace
-        if initialSurface == .browser {
-            workspace = context.tabManager.addWorkspace(
-                title: title,
-                initialSurface: .browser,
-                initialBrowserURL: initialBrowserURL,
-                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                select: true
-            )
-        } else if workingDirectory != nil || initialTerminalInput != nil {
-            workspace = context.tabManager.addWorkspace(
-                title: title,
-                workingDirectory: workingDirectory,
-                initialTerminalInput: initialTerminalInput,
-                select: true,
-                autoWelcomeIfNeeded: initialTerminalInput == nil
-            )
-        } else if title != nil {
-            workspace = context.tabManager.addWorkspace(title: title, select: true)
-        } else {
-            workspace = context.tabManager.addTab(select: true)
+        let outcome = context.tabManager.requestAddWorkspace(
+            title: title,
+            workingDirectory: workingDirectory,
+            initialSurface: initialSurface,
+            initialTerminalInput: initialTerminalInput,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            select: true,
+            autoWelcomeIfNeeded: initialTerminalInput == nil
+        )
+        let workspaceID: UUID? = switch outcome {
+        case .created(let workspace): workspace.id
+        case .submittedToBackend(let submission): submission.workspaceID
+        case .failed: nil
         }
         #if DEBUG
         logWorkspaceCreationRouting(
@@ -8414,11 +8521,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             reason: "workspace_created",
             event: event,
             chosenContext: context,
-            workspaceId: workspace.id,
+            workspaceId: workspaceID,
             workingDirectory: workingDirectory
         )
         #endif
-        return workspace
+        return outcome
+    }
+
+    /// Embedded-runtime compatibility shim for synchronous callers.
+    @discardableResult
+    func addWorkspaceInPreferredMainWindow(
+        title: String? = nil,
+        workingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
+        shouldBringToFront: Bool = false,
+        event: NSEvent? = nil,
+        debugSource: String = "unspecified"
+    ) -> Workspace? {
+        requestAddWorkspaceInPreferredMainWindow(
+            title: title,
+            workingDirectory: workingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            initialSurface: initialSurface,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            shouldBringToFront: shouldBringToFront,
+            event: event,
+            debugSource: debugSource
+        )?.workspace
     }
 
     func preferredMainWindowContextForWorkspaceCreation(
@@ -9025,8 +9160,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
-        let workspace = context.tabManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
-        sendWelcomeCommandWhenReady(to: workspace)
+        let outcome = context.tabManager.requestAddWorkspace(
+            select: true,
+            autoWelcomeIfNeeded: false,
+            onProjected: { [weak self] workspace in
+                self?.sendWelcomeCommandWhenReady(to: workspace)
+            }
+        )
+        if case .created(let workspace) = outcome {
+            sendWelcomeCommandWhenReady(to: workspace)
+        }
     }
 
     func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
@@ -9864,7 +10007,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
-        let tab = tabManager.addTab()
+        if let coordinator = tabManager.terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator {
+            coordinator.reportFailure(for: .createWorkspace)
+            return
+        }
+        let tab = tabManager.addLocalTab()
         let config = GhosttyConfig.load()
         let minimumTargetBytes = 2_000_000
         let maximumTargetBytes = 200_000_000
@@ -9884,7 +10032,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func openDebugLoremTab(_ sender: Any?) {
         guard let tabManager else { return }
-        let tab = tabManager.addTab()
+        if let coordinator = tabManager.terminalClientComposition
+            .terminalBackendTopologyMutationCoordinator {
+            coordinator.reportFailure(for: .createWorkspace)
+            return
+        }
+        let tab = tabManager.addLocalTab()
         let lineCount = 2000
         let base = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore."
         var lines: [String] = []
@@ -9938,7 +10091,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let existing = existingByTitle[title] {
                 targetTab = existing
             } else {
-                targetTab = tabManager.addTab()
+                guard tabManager.terminalClientComposition
+                    .terminalBackendTopologyMutationCoordinator == nil else {
+                    return
+                }
+                targetTab = tabManager.addLocalTab()
             }
             tabManager.setCustomTitle(tabId: targetTab.id, title: title)
             tabManager.setTabColor(tabId: targetTab.id, color: entry.hex)
@@ -9971,7 +10128,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             for index in 0..<self.debugStressWorkspaceCount {
                 let workspaceStart = ProcessInfo.processInfo.systemUptime
-                let workspace = tabManager.addWorkspace(select: false, placementOverride: .end)
+                guard tabManager.terminalClientComposition
+                    .terminalBackendTopologyMutationCoordinator == nil else {
+                    return
+                }
+                let workspace = tabManager.addLocalWorkspace(
+                    select: false,
+                    placementOverride: .end
+                )
                 created.append(workspace)
                 tabManager.setCustomTitle(
                     tabId: workspace.id,
@@ -10514,7 +10678,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 waitForContext { context in
                     let tabManager = context.tabManager
                     let initialIndex = tabManager.tabs.firstIndex(where: { $0.id == tabManager.selectedTabId }) ?? 0
-                    let tab = tabManager.addTab()
+                    guard tabManager.terminalClientComposition
+                        .terminalBackendTopologyMutationCoordinator == nil else {
+                        return
+                    }
+                    let tab = tabManager.addLocalTab()
                     guard let initialPanelId = tab.focusedPanelId else { return }
 
                     _ = tabManager.newSplit(tabId: tab.id, surfaceId: initialPanelId, direction: .right)
@@ -10674,7 +10842,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             guard let tabManager = self.tabManager else { return }
 
-            let tab = tabManager.addTab()
+            guard tabManager.terminalClientComposition
+                .terminalBackendTopologyMutationCoordinator == nil else {
+                return
+            }
+            let tab = tabManager.addLocalTab()
             guard let initialPanelId = tab.focusedPanelId else {
                 self.writeGotoSplitTestData(["setupError": "Missing initial panel id"])
                 return
@@ -15543,7 +15715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .builtIn(let builtIn):
             switch builtIn {
             case .newWorkspace:
-                context.tabManager.addWorkspace()
+                _ = context.tabManager.requestAddWorkspace()
                 onExecuted?()
                 return true
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)

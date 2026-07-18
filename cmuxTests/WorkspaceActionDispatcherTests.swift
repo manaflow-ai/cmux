@@ -35,8 +35,8 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
     func testPinActionPinsMultipleTargetsFromAnchorState() throws {
         let manager = TabManager()
         let first = try XCTUnwrap(manager.tabs.first)
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         let target = WorkspaceActionDispatcher.Target(
             workspaceIds: [second.id, third.id],
             anchorWorkspaceId: second.id
@@ -57,8 +57,8 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
     func testPinActionUnpinsMultipleTargetsWithExistingOrdering() throws {
         let manager = TabManager()
         let first = try XCTUnwrap(manager.tabs.first)
-        let second = manager.addWorkspace()
-        let third = manager.addWorkspace()
+        let second = manager.addLocalWorkspace()
+        let third = manager.addLocalWorkspace()
         manager.setPinned(first, pinned: true)
         manager.setPinned(second, pinned: true)
         manager.setPinned(third, pinned: true)

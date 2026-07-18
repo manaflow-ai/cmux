@@ -162,7 +162,7 @@ struct TerminalClientCompositionTests {
 
         let loadingPanelID = try #require(workspace.focusedPanelId)
         let command = "cmux vm-pty-connect --config /tmp/cmux.json --id vm_external"
-        #expect(workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+        #expect(workspace.replaceCloudVMLoadingSurfaceWithLocalTerminal(
             workspaceId: workspace.id,
             initialCommand: command,
             focus: false
@@ -202,7 +202,7 @@ struct TerminalClientCompositionTests {
 
         let original = try #require(workspace.focusedTerminalPanel)
         await client.waitForEnsureCount(1)
-        #expect(workspace.respawnTerminalSurface(
+        #expect(workspace.respawnLocalTerminalSurface(
             panelId: original.id,
             command: "exec /bin/zsh -l",
             tmuxStartCommand: "exec /bin/zsh -l"

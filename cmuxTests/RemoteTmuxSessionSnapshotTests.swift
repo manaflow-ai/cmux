@@ -31,7 +31,7 @@ import Testing
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let localWorkspace = try #require(manager.selectedWorkspace)
         localWorkspace.setCustomTitle("Local")
-        let remoteWorkspace = manager.addWorkspace(
+        let remoteWorkspace = manager.addLocalWorkspace(
             title: "remote",
             select: true,
             autoWelcomeIfNeeded: false

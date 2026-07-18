@@ -51,7 +51,7 @@ struct TabManagerTitleUpdateStalenessTests {
         #expect(workspace.panelTitles[panelId] != staleTitle)
 
         let replacementPanel = try #require(
-            workspace.respawnTerminalSurface(panelId: panelId, command: "echo replacement")
+            workspace.respawnLocalTerminalSurface(panelId: panelId, command: "echo replacement")
         )
         #expect(replacementPanel.id == panelId)
         #expect(replacementPanel.surface !== originalSurface)
@@ -94,7 +94,7 @@ struct TabManagerTitleUpdateStalenessTests {
         ]
 
         let replacementPanel = try #require(
-            workspace.respawnTerminalSurface(panelId: panelId, command: "echo replacement")
+            workspace.respawnLocalTerminalSurface(panelId: panelId, command: "echo replacement")
         )
         #expect(replacementPanel.id == panelId)
         #expect(replacementPanel.surface !== originalSurface)

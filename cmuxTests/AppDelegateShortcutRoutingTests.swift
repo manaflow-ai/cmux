@@ -1793,8 +1793,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        _ = firstManager.addTab(select: true)
-        _ = secondManager.addTab(select: true)
+        _ = firstManager.addLocalTab(select: true)
+        _ = secondManager.addLocalTab(select: true)
 
         guard let firstSelectedBefore = firstManager.selectedTabId,
               let secondSelectedBefore = secondManager.selectedTabId else {
@@ -2583,8 +2583,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         // Need at least two workspaces so a digit-1 selection is observable.
-        _ = manager.addTab(select: true)
-        _ = manager.addTab(select: true)
+        _ = manager.addLocalTab(select: true)
+        _ = manager.addLocalTab(select: true)
         guard manager.tabs.count >= 2,
               let firstTabId = manager.tabs.first?.id else {
             XCTFail("Expected at least two workspaces")
@@ -5646,8 +5646,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        _ = firstManager.addTab(select: true)
-        _ = secondManager.addTab(select: true)
+        _ = firstManager.addLocalTab(select: true)
+        _ = secondManager.addLocalTab(select: true)
         guard let firstSelectedBefore = firstManager.selectedTabId,
               let secondSelectedBefore = secondManager.selectedTabId else {
             XCTFail("Expected selected tabs in both windows")
@@ -10300,7 +10300,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTabManagerSessionRestoreRestoresTextBoxDraftsAcrossWorkspaces() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let firstWorkspace = try XCTUnwrap(manager.tabs.first)
-        let secondWorkspace = manager.addWorkspace(
+        let secondWorkspace = manager.addLocalWorkspace(
             title: "Second",
             inheritWorkingDirectory: false,
             autoWelcomeIfNeeded: false
@@ -11068,8 +11068,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             closeRegisteredShortcutRoutingWindow(focusedWindow, id: focusedWindowId)
         }
 
-        let originalWorkspace = originalManager.addWorkspace(title: "original target", select: true, autoWelcomeIfNeeded: false)
-        let focusedWorkspace = focusedManager.addWorkspace(title: "focused target", select: true, autoWelcomeIfNeeded: false)
+        let originalWorkspace = originalManager.addLocalWorkspace(title: "original target", select: true, autoWelcomeIfNeeded: false)
+        let focusedWorkspace = focusedManager.addLocalWorkspace(title: "focused target", select: true, autoWelcomeIfNeeded: false)
 
         switch expectedAction {
         case .closeTab:
@@ -11081,8 +11081,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
         case .closeWorkspace:
-            originalManager.addWorkspace(title: "original survivor", select: false, autoWelcomeIfNeeded: false)
-            focusedManager.addWorkspace(title: "focused survivor", select: false, autoWelcomeIfNeeded: false)
+            originalManager.addLocalWorkspace(title: "original survivor", select: false, autoWelcomeIfNeeded: false)
+            focusedManager.addLocalWorkspace(title: "focused survivor", select: false, autoWelcomeIfNeeded: false)
         default:
             XCTFail("Unexpected close shortcut action \(expectedAction)", file: file, line: line)
             return
