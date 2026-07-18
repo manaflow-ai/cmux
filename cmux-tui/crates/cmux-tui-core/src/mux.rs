@@ -1663,9 +1663,9 @@ impl Mux {
             });
         }
 
-        let target = {
+        let (target, empty_workspace) = {
             let state = self.state.lock().unwrap();
-            match pane {
+            let target = match pane {
                 Some(id) => {
                     if !state.panes.contains_key(&id) {
                         anyhow::bail!("unknown pane {id}");
@@ -1673,9 +1673,20 @@ impl Mux {
                     Some(id)
                 }
                 None => state.active_pane(),
-            }
+            };
+            let empty_workspace = target.is_none().then(|| {
+                state
+                    .workspaces
+                    .get(state.active_workspace)
+                    .filter(|workspace| workspace.screens.is_empty())
+                    .map(|workspace| workspace.id)
+            });
+            (target, empty_workspace.flatten())
         };
         let Some(target) = target else {
+            if let Some(workspace) = empty_workspace {
+                return self.create_terminal_in_workspace(workspace, Some(argv), cwd, name, size);
+            }
             return self.run_command_surface(argv, None, true, cwd, name, size);
         };
 
@@ -4710,6 +4721,33 @@ mod tests {
             assert_eq!(state.pane_of(placement.surface), Some(placement.pane));
             assert_eq!(state.workspace_revision, 2);
         });
+    }
+
+    #[test]
+    fn run_materializes_active_empty_workspace() {
+        let mux = test_mux();
+        let placement = mux
+            .create_empty_workspace(Some("gui".into()), Some("gui-stable".into()), None)
+            .unwrap();
+        let run = mux
+            .run_command_surface(
+                vec!["/bin/echo".into(), "ready".into()],
+                None,
+                false,
+                Some("/tmp".into()),
+                Some("runner".into()),
+                Some((80, 24)),
+            )
+            .unwrap();
+
+        assert_eq!(run.workspace, placement.workspace);
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].id, placement.workspace);
+            assert_eq!(state.workspaces[0].screens.len(), 1);
+            assert_eq!(state.workspace_revision, 1);
+        });
+        mux.shutdown();
     }
 
     #[test]
