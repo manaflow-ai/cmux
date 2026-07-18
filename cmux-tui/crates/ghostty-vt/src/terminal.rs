@@ -235,6 +235,7 @@ pub struct Terminal {
     // lifetime.
     callbacks: Box<Callbacks>,
     cursor_override: CursorOverrideTracker,
+    palette_override: Box<PaletteOverrideTracker>,
 }
 
 #[derive(Default)]
@@ -359,6 +360,234 @@ impl CursorOverrideTracker {
     }
 }
 
+struct PaletteOverrideTracker {
+    state: PaletteTrackState,
+    active: [bool; 256],
+}
+
+impl Default for PaletteOverrideTracker {
+    fn default() -> Self {
+        Self { state: PaletteTrackState::Ground, active: [false; 256] }
+    }
+}
+
+#[derive(Default)]
+enum PaletteTrackState {
+    #[default]
+    Ground,
+    Escape,
+    EscapeIntermediate,
+    Osc(PaletteOsc),
+    OscEscape(PaletteOsc),
+    String {
+        bell_terminated: bool,
+    },
+    StringEscape {
+        bell_terminated: bool,
+    },
+}
+
+struct PaletteOsc {
+    mode: PaletteOscMode,
+    token: Vec<u8>,
+    pending: [u8; 256],
+    request_count: usize,
+    stopped: bool,
+}
+
+impl Default for PaletteOsc {
+    fn default() -> Self {
+        Self {
+            mode: PaletteOscMode::Operation,
+            token: Vec::new(),
+            pending: [0; 256],
+            request_count: 0,
+            stopped: false,
+        }
+    }
+}
+
+#[derive(Default)]
+enum PaletteOscMode {
+    #[default]
+    Operation,
+    SetIndex,
+    SetColor(PaletteTarget),
+    Reset,
+    Ignore,
+}
+
+#[derive(Clone, Copy)]
+enum PaletteTarget {
+    Palette(u8),
+    Special,
+    Invalid,
+}
+
+impl PaletteOverrideTracker {
+    fn write(&mut self, data: &[u8]) {
+        for &byte in data {
+            let state = std::mem::take(&mut self.state);
+            self.state = match state {
+                PaletteTrackState::Ground => match byte {
+                    0x1b => PaletteTrackState::Escape,
+                    _ => PaletteTrackState::Ground,
+                },
+                PaletteTrackState::Escape => match byte {
+                    b']' => PaletteTrackState::Osc(PaletteOsc::default()),
+                    b'P' | b'X' | b'^' | b'_' => {
+                        PaletteTrackState::String { bell_terminated: false }
+                    }
+                    b'c' => {
+                        self.active.fill(false);
+                        PaletteTrackState::Ground
+                    }
+                    0x1b => PaletteTrackState::Escape,
+                    0x20..=0x2f => PaletteTrackState::EscapeIntermediate,
+                    _ => PaletteTrackState::Ground,
+                },
+                PaletteTrackState::EscapeIntermediate => match byte {
+                    0x1b => PaletteTrackState::Escape,
+                    0x20..=0x2f => PaletteTrackState::EscapeIntermediate,
+                    _ => PaletteTrackState::Ground,
+                },
+                PaletteTrackState::Osc(mut osc) => match byte {
+                    0x07 | 0x9c => {
+                        osc.commit(&mut self.active);
+                        PaletteTrackState::Ground
+                    }
+                    0x18 | 0x1a => PaletteTrackState::Ground,
+                    0x1b => PaletteTrackState::OscEscape(osc),
+                    _ => {
+                        osc.feed(byte);
+                        PaletteTrackState::Osc(osc)
+                    }
+                },
+                PaletteTrackState::OscEscape(osc) => match byte {
+                    b'\\' | 0x9c => {
+                        osc.commit(&mut self.active);
+                        PaletteTrackState::Ground
+                    }
+                    0x07 => {
+                        osc.commit(&mut self.active);
+                        PaletteTrackState::Ground
+                    }
+                    0x18 | 0x1a => PaletteTrackState::Ground,
+                    0x1b => PaletteTrackState::OscEscape(osc),
+                    _ => PaletteTrackState::Osc(osc),
+                },
+                PaletteTrackState::String { bell_terminated } => match byte {
+                    0x07 if bell_terminated => PaletteTrackState::Ground,
+                    0x9c => PaletteTrackState::Ground,
+                    0x1b => PaletteTrackState::StringEscape { bell_terminated },
+                    _ => PaletteTrackState::String { bell_terminated },
+                },
+                PaletteTrackState::StringEscape { bell_terminated } => match byte {
+                    b'\\' | 0x9c => PaletteTrackState::Ground,
+                    0x1b => PaletteTrackState::StringEscape { bell_terminated },
+                    0x07 if bell_terminated => PaletteTrackState::Ground,
+                    _ => PaletteTrackState::String { bell_terminated },
+                },
+            };
+        }
+    }
+}
+
+impl PaletteOsc {
+    const MAX_TOKEN_BYTES: usize = 4096;
+
+    fn feed(&mut self, byte: u8) {
+        if self.stopped || matches!(self.mode, PaletteOscMode::Ignore) {
+            return;
+        }
+        if byte == b';' {
+            self.finish_token();
+        } else if self.token.len() < Self::MAX_TOKEN_BYTES {
+            self.token.push(byte);
+        } else {
+            self.stopped = true;
+            self.token.clear();
+        }
+    }
+
+    fn finish_token(&mut self) {
+        if self.stopped || matches!(self.mode, PaletteOscMode::Ignore) {
+            self.token.clear();
+            return;
+        }
+        let token = std::mem::take(&mut self.token);
+        self.mode = match std::mem::take(&mut self.mode) {
+            PaletteOscMode::Operation => match token.as_slice() {
+                b"4" => PaletteOscMode::SetIndex,
+                b"104" => PaletteOscMode::Reset,
+                _ => PaletteOscMode::Ignore,
+            },
+            PaletteOscMode::SetIndex => {
+                let target = Self::parse_target(&token);
+                if matches!(target, PaletteTarget::Invalid) {
+                    self.stopped = true;
+                }
+                PaletteOscMode::SetColor(target)
+            }
+            PaletteOscMode::SetColor(target) => {
+                if token.as_slice() != b"?" {
+                    let valid = std::str::from_utf8(&token).ok().and_then(parse_color).is_some();
+                    if valid {
+                        if let PaletteTarget::Palette(index) = target {
+                            self.pending[index as usize] = 1;
+                        }
+                    } else {
+                        self.stopped = true;
+                    }
+                }
+                PaletteOscMode::SetIndex
+            }
+            PaletteOscMode::Reset => {
+                if !token.is_empty() {
+                    match Self::parse_target(&token) {
+                        PaletteTarget::Palette(index) => {
+                            self.pending[index as usize] = 2;
+                            self.request_count += 1;
+                        }
+                        PaletteTarget::Special => self.request_count += 1,
+                        PaletteTarget::Invalid => {}
+                    }
+                }
+                PaletteOscMode::Reset
+            }
+            PaletteOscMode::Ignore => PaletteOscMode::Ignore,
+        };
+    }
+
+    fn parse_target(token: &[u8]) -> PaletteTarget {
+        let Some(value) =
+            std::str::from_utf8(token).ok().and_then(|value| value.parse::<u16>().ok())
+        else {
+            return PaletteTarget::Invalid;
+        };
+        match value {
+            0..=255 => PaletteTarget::Palette(value as u8),
+            256..=259 => PaletteTarget::Special,
+            _ => PaletteTarget::Invalid,
+        }
+    }
+
+    fn commit(mut self, active: &mut [bool; 256]) {
+        self.finish_token();
+        if matches!(self.mode, PaletteOscMode::Reset) && self.request_count == 0 {
+            active.fill(false);
+            return;
+        }
+        for (active, pending) in active.iter_mut().zip(self.pending) {
+            match pending {
+                1 => *active = true,
+                2 => *active = false,
+                _ => {}
+            }
+        }
+    }
+}
+
 // The handle is not thread-safe, but it is movable and we only expose
 // mutation through &mut self, so guarding a Terminal with a Mutex is sound.
 unsafe impl Send for Terminal {}
@@ -407,6 +636,7 @@ impl Terminal {
             mouse_mode_scan: MouseModeScan::default(),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
+            palette_override: Box::default(),
         };
         let userdata = &mut *term.callbacks as *mut Callbacks as *mut c_void;
         unsafe {
@@ -451,6 +681,7 @@ impl Terminal {
             self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
         }
         self.cursor_override.write(data);
+        self.palette_override.write(data);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
     }
 
@@ -458,6 +689,11 @@ impl Terminal {
     /// override rather than the embedder defaults.
     pub fn cursor_overridden(&self) -> bool {
         self.cursor_override.active
+    }
+
+    /// Whether a PTY has an active OSC 4 override for this palette index.
+    pub fn palette_overridden(&self, index: u8) -> bool {
+        self.palette_override.active[index as usize]
     }
 
     /// Set host-provided default foreground, background, and cursor colors.

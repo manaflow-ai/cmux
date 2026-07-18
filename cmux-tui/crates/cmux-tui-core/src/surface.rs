@@ -126,10 +126,9 @@ pub struct TerminalColors {
     pub cursor: Option<Rgb>,
     pub selection_bg: Option<Rgb>,
     pub selection_fg: Option<Rgb>,
-    /// Palette entries changed by the PTY with OSC 4. Entries that still
-    /// match Ghostty's parser defaults stay `None` so an attached renderer
-    /// can preserve its own configured theme instead of adopting the
-    /// headless parser's compiled-in ANSI palette.
+    /// Palette entries actively authored by the PTY with OSC 4. Unauthored
+    /// entries stay `None` so an attached renderer can preserve its own
+    /// configured theme.
     pub palette: [Option<Rgb>; 256],
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
@@ -166,7 +165,7 @@ impl TerminalColors {
         let palette = std::array::from_fn(|index| {
             render_state.as_ref().and_then(|state| {
                 let index = index as u8;
-                state.palette_overridden(index).then(|| state.palette_color(index))
+                term.palette_overridden(index).then(|| state.palette_color(index))
             })
         });
         TerminalColors {
@@ -1382,6 +1381,30 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attach_colors_preserve_same_valued_authored_palette_override() {
+        let color = Rgb { r: 0x44, g: 0x55, b: 0x66 };
+        let mut defaults = DefaultColors::default();
+        defaults.palette[4] = Some(color);
+        let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+        term.set_default_palette(&defaults.palette);
+
+        term.vt_write(b"\x1b]4;4;#445566\x07");
+        let colors = TerminalColors::from_terminal(&mut term, defaults);
+        assert_eq!(colors.palette[4], Some(color));
+        assert!(
+            colors
+                .palette
+                .iter()
+                .enumerate()
+                .all(|(index, entry)| { index == 4 || entry.is_none() })
+        );
+
+        term.vt_write(b"\x1b]104;4\x07");
+        let colors = TerminalColors::from_terminal(&mut term, defaults);
+        assert_eq!(colors.palette[4], None);
+    }
 
     #[test]
     fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {

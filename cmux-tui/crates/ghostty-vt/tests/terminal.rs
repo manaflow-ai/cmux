@@ -365,3 +365,37 @@ fn render_state_reports_palette_overrides() {
     assert_eq!(rs.palette_color(1), Rgb { r: 1, g: 2, b: 3 });
     assert!(!rs.palette_overridden(2));
 }
+
+#[test]
+fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
+    let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    let mut defaults = [None; 256];
+    defaults[1] = Some(Rgb { r: 0x44, g: 0x55, b: 0x66 });
+    term.set_default_palette(&defaults);
+
+    assert!(!term.palette_overridden(1));
+    term.vt_write(b"\x1b]4;1;#445566\x07");
+    assert!(term.palette_overridden(1));
+
+    let mut state = RenderState::new().unwrap();
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(1), Rgb { r: 0x44, g: 0x55, b: 0x66 });
+    assert!(!state.palette_overridden(1), "value equality cannot identify authored state");
+
+    term.vt_write(b"\x1b]4;2;rgb:01/");
+    term.vt_write(b"02/03\x1b\\");
+    assert!(term.palette_overridden(2));
+    term.vt_write(b"\x1b]4;3;?\x07");
+    assert!(!term.palette_overridden(3));
+
+    term.vt_write(b"\x1b]104;1\x1b\\");
+    assert!(!term.palette_overridden(1));
+    assert!(term.palette_overridden(2));
+    term.vt_write(b"\x1b]104\x07");
+    assert!(!term.palette_overridden(2));
+
+    term.vt_write(b"\x1b]4;4;#010203\x07");
+    assert!(term.palette_overridden(4));
+    term.vt_write(b"\x1bc");
+    assert!(!term.palette_overridden(4));
+}
