@@ -335,8 +335,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let resume = try XCTUnwrap(resumeRequests.last, "expected default resume binding, saw \(commands)")
         XCTAssertEqual(resume["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(resume["cwd"] as? String, repo.path)
-        XCTAssertTrue((resume["command"] as? String)?.contains("codex") == true)
-        XCTAssertTrue((resume["command"] as? String)?.contains("resume") == true)
+        let resumeCommand = try XCTUnwrap(resume["command"] as? String)
+        XCTAssertTrue(resumeCommand.contains("codex"))
+        XCTAssertTrue(resumeCommand.contains("resume"))
+        XCTAssertTrue(
+            resumeCommand.contains("CMUX_CODEX_WRAPPER_SHIM"),
+            "default Codex restore must route through cmux's wrapper so restored sessions keep publishing hooks: \(resumeCommand)"
+        )
+        XCTAssertTrue(
+            resumeCommand.hasPrefix("/bin/sh -c "),
+            "the Codex wrapper token must be portable across fish, csh, and POSIX login shells: \(resumeCommand)"
+        )
         let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(
             with: Data(contentsOf: root.appendingPathComponent("codex-hook-sessions.json"))
         ) as? [String: Any])
