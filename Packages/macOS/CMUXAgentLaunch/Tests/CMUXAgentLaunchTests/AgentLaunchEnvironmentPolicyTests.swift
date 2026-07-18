@@ -70,4 +70,41 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
         #expect(selectedOmp["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
     }
+
+    @Test("Hook transport preserves routing and every auto-naming backend")
+    func hookTransportPreservesAutoNamingInputsOnly() {
+        let selected = AgentHookTransportEnvironmentPolicy().selectedEnvironment(from: [
+            "CMUX_SOCKET_PATH": "/tmp/cmux.sock",
+            "CMUX_SURFACE_ID": "surface:1",
+            "CMUX_CUSTOM_CLAUDE_PATH": "/tmp/Claude Code/bin/claude",
+            "CMUX_SOCKET_CAPABILITY": "must-not-persist",
+            "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP": "1",
+            "ANTHROPIC_API_KEY": "anthropic-secret",
+            "CLAUDE_CODE_USE_VERTEX": "1",
+            "AWS_PROFILE": "bedrock-profile",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/gcp.json",
+            "OPENAI_API_KEY": "openai-secret",
+            "HTTPS_PROXY": "http://127.0.0.1:8080",
+            "GROK_HOME": "/tmp/grok",
+            "OPENCODE_CONFIG_DIR": "/tmp/opencode",
+            "PI_CONFIG_DIR": "/tmp/pi",
+            "UNRELATED_SECRET": "must-not-persist",
+        ])
+
+        #expect(selected["CMUX_SOCKET_PATH"] == "/tmp/cmux.sock")
+        #expect(selected["CMUX_SURFACE_ID"] == "surface:1")
+        #expect(selected["CMUX_CUSTOM_CLAUDE_PATH"] == "/tmp/Claude Code/bin/claude")
+        #expect(selected["ANTHROPIC_API_KEY"] == "anthropic-secret")
+        #expect(selected["CLAUDE_CODE_USE_VERTEX"] == "1")
+        #expect(selected["AWS_PROFILE"] == "bedrock-profile")
+        #expect(selected["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/gcp.json")
+        #expect(selected["OPENAI_API_KEY"] == "openai-secret")
+        #expect(selected["HTTPS_PROXY"] == "http://127.0.0.1:8080")
+        #expect(selected["GROK_HOME"] == "/tmp/grok")
+        #expect(selected["OPENCODE_CONFIG_DIR"] == "/tmp/opencode")
+        #expect(selected["PI_CONFIG_DIR"] == "/tmp/pi")
+        #expect(selected["CMUX_SOCKET_CAPABILITY"] == nil)
+        #expect(selected["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] == nil)
+        #expect(selected["UNRELATED_SECRET"] == nil)
+    }
 }
