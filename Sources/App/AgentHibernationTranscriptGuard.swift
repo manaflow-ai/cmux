@@ -298,6 +298,9 @@ enum AgentHibernationTranscriptGuard {
             try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: snapshotURL.path)
             return
         }
+        guard transcriptHasConversationTurns(atPath: snapshotURL.path, fileManager: fileManager) else {
+            return
+        }
         guard let lockDescriptor = acquireRecoveryDirectoryLock(
             in: snapshotURL.deletingLastPathComponent()
         ) else {
@@ -421,7 +424,7 @@ enum AgentHibernationTranscriptGuard {
         }
         guard !candidatesByTranscript.isEmpty else { return 0 }
 
-        for key in candidatesByTranscript.keys {
+        for key in Array(candidatesByTranscript.keys) {
             candidatesByTranscript[key]?.sort(by: recoveryCandidateIsNewer)
         }
         let orderedTranscriptKeys = rotatedRecoveryTranscriptKeys(
@@ -457,10 +460,7 @@ enum AgentHibernationTranscriptGuard {
             guard let newestFirst = selectedByTranscript[transcriptKey] else { continue }
             var newestValidSnapshotWasCommitted = false
             for originalCandidate in newestFirst {
-                guard let candidate = claimRecoveryCandidate(
-                    originalCandidate,
-                    fileManager: fileManager
-                ) else {
+                guard let candidate = claimRecoveryCandidate(originalCandidate) else {
                     continue
                 }
                 let snapshot = TeardownTranscriptSnapshot(
@@ -885,8 +885,7 @@ enum AgentHibernationTranscriptGuard {
     }
 
     private static func claimRecoveryCandidate(
-        _ candidate: PendingRecoverySnapshot,
-        fileManager: FileManager
+        _ candidate: PendingRecoverySnapshot
     ) -> PendingRecoverySnapshot? {
         let claimedURL = candidate.url.deletingLastPathComponent()
             .appendingPathComponent(

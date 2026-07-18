@@ -257,7 +257,10 @@ struct AgentHibernationTranscriptGuardTests {
             ) == 1
         )
         #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: transcript.path))
-        #expect(try String(contentsOf: transcript, encoding: .utf8) == newestContent)
+        #expect(
+            try String(contentsOf: transcript, encoding: .utf8) ==
+                expectedRestoredTranscript(snapshotContent: newestContent)
+        )
         #expect(FileManager.default.fileExists(atPath: snapshot.snapshotPath) == false)
         #expect(FileManager.default.fileExists(atPath: newestSnapshot.snapshotPath) == false)
     }
@@ -351,7 +354,10 @@ struct AgentHibernationTranscriptGuardTests {
                 snapshotDirectory: snapshots
             ) == 1
         )
-        #expect(try String(contentsOf: transcript, encoding: .utf8) == newestContent)
+        #expect(
+            try String(contentsOf: transcript, encoding: .utf8) ==
+                expectedRestoredTranscript(snapshotContent: newestContent)
+        )
         #expect(FileManager.default.fileExists(atPath: newestSnapshot.snapshotPath) == false)
         #expect(FileManager.default.fileExists(atPath: retained.path) == false)
     }
@@ -408,7 +414,10 @@ struct AgentHibernationTranscriptGuardTests {
         try metadataStub.write(to: transcript, atomically: true, encoding: .utf8)
 
         #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 1)
-        #expect(try String(contentsOf: transcript, encoding: .utf8) == populatedTranscript)
+        #expect(
+            try String(contentsOf: transcript, encoding: .utf8) ==
+                expectedRestoredTranscript(snapshotContent: populatedTranscript)
+        )
         #expect(FileManager.default.fileExists(atPath: validSnapshot.snapshotPath) == false)
     }
 
@@ -459,7 +468,10 @@ struct AgentHibernationTranscriptGuardTests {
 
         #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: directory) == 0)
         #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: directory) == 1)
-        #expect(try String(contentsOf: targetLive, encoding: .utf8) == populatedTranscript)
+        #expect(
+            try String(contentsOf: targetLive, encoding: .utf8) ==
+                expectedRestoredTranscript(snapshotContent: populatedTranscript)
+        )
         #expect(FileManager.default.fileExists(atPath: targetSnapshot.path) == false)
     }
 
@@ -544,7 +556,10 @@ struct AgentHibernationTranscriptGuardTests {
         owner.terminate()
         owner.waitUntilExit()
         #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 1)
-        #expect(try String(contentsOf: transcript, encoding: .utf8) == populatedTranscript)
+        #expect(
+            try String(contentsOf: transcript, encoding: .utf8) ==
+                expectedRestoredTranscript(snapshotContent: populatedTranscript)
+        )
     }
 
     @Test
@@ -591,7 +606,10 @@ struct AgentHibernationTranscriptGuardTests {
         agentProcess.terminate()
         agentProcess.waitUntilExit()
         #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 1)
-        #expect(try String(contentsOf: transcript, encoding: .utf8) == populatedTranscript)
+        #expect(
+            try String(contentsOf: transcript, encoding: .utf8) ==
+                expectedRestoredTranscript(snapshotContent: populatedTranscript)
+        )
     }
 
     @Test
@@ -659,7 +677,10 @@ struct AgentHibernationTranscriptGuardTests {
 
         #expect(flock(lockDescriptor, LOCK_UN) == 0)
         #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 1)
-        #expect(try String(contentsOf: transcript, encoding: .utf8) == populatedTranscript)
+        #expect(
+            try String(contentsOf: transcript, encoding: .utf8) ==
+                expectedRestoredTranscript(snapshotContent: populatedTranscript)
+        )
     }
 
     @Test
@@ -698,7 +719,10 @@ struct AgentHibernationTranscriptGuardTests {
         )
 
         #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: directory) == 1)
-        #expect(try String(contentsOf: live, encoding: .utf8) == populatedTranscript)
+        #expect(
+            try String(contentsOf: live, encoding: .utf8) ==
+                expectedRestoredTranscript(snapshotContent: populatedTranscript)
+        )
         #expect(FileManager.default.fileExists(atPath: newest.path) == false)
         #expect(try String(contentsOf: older, encoding: .utf8) == olderBranch)
     }
@@ -982,6 +1006,10 @@ struct AgentHibernationTranscriptGuardTests {
             #"{"type":"user","message":{"role":"user","content":"hello"}}"#,
             #"{"type":"assistant","message":{"role":"assistant","content":"hi"}}"#,
         ].joined(separator: "\n") + "\n"
+    }
+
+    private func expectedRestoredTranscript(snapshotContent: String) -> String {
+        snapshotContent.trimmedTrailingNewlines + "\n" + metadataStub
     }
 
     private func temporaryDirectory() throws -> URL {
