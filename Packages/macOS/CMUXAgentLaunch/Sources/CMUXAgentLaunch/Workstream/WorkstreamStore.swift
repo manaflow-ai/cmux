@@ -150,6 +150,47 @@ public final class WorkstreamStore {
         return item.id
     }
 
+    /// Persists an acknowledged inbound event before exposing it to Feed observers.
+    ///
+    /// The persistence receipt is the source of truth for request idempotency, so a
+    /// retry returns the same UUID even after the in-memory ring evicts the item or
+    /// the process restarts. The stable item is inserted into the ring only after
+    /// ``WorkstreamPersistence/appendAcknowledged(_:for:)`` completes successfully.
+    /// A retried actionable event reopens that same item as pending so its new
+    /// blocking socket can receive a decision. If the caller is cancelled after
+    /// persistence, the durable receipt remains and a later retry materializes it.
+    /// Ordinary one-way callers should continue to use ``ingest(_:)``.
+    ///
+    /// - Parameter event: A request/response Feed event with a non-empty request ID.
+    /// - Returns: The stable item UUID assigned to the event's durable receipt.
+    /// - Throws: ``WorkstreamPersistenceError`` when persistence is unavailable or
+    ///   applies explicit receipt backpressure, plus filesystem and SQLite errors.
+    @discardableResult
+    public func ingestAcknowledged(_ event: WorkstreamEvent) async throws -> UUID {
+        guard let persistence else {
+            throw WorkstreamPersistenceError.persistenceUnavailable
+        }
+        let candidate = makeItem(from: event)
+        let itemID = try await persistence.appendAcknowledged(candidate, for: event)
+        try Task.checkCancellation()
+        if let index = items.firstIndex(where: { $0.id == itemID }) {
+            // A retried blocking request needs a live decision lifecycle even
+            // when the first socket already resolved or timed out. Reopen the
+            // same durable item instead of creating a second UUID/history row.
+            if candidate.kind.isActionable {
+                let item = candidate.replacingID(itemID)
+                items[index] = item
+                updateContextIndex(with: item)
+            }
+            return itemID
+        }
+
+        let item = candidate.replacingID(itemID)
+        insert(item)
+        updateContextIndex(with: item)
+        return itemID
+    }
+
     // MARK: - Actions
 
     /// Sends a user-initiated action through the transport and marks the

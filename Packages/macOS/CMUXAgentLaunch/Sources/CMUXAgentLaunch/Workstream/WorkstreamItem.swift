@@ -85,3 +85,23 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         self.ppid = ppid
     }
 }
+
+extension WorkstreamItem {
+    func replacingID(_ id: UUID) -> WorkstreamItem {
+        WorkstreamItem(
+            id: id,
+            workstreamId: workstreamId,
+            source: source,
+            kind: kind,
+            requestId: requestId,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            cwd: cwd,
+            title: title,
+            status: status,
+            payload: payload,
+            context: context,
+            ppid: ppid
+        )
+    }
+}

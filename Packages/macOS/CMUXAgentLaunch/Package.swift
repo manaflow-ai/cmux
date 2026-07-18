@@ -14,7 +14,10 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "CMUXAgentLaunch"
+            name: "CMUXAgentLaunch",
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
+            ]
         ),
         .testTarget(
             name: "CMUXAgentLaunchTests",
