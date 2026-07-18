@@ -20,6 +20,7 @@ public final class WireCaptureTest {
         printCapture("JAVA attach", attach);
         assertLine("identify", "{\"id\":1,\"cmd\":\"identify\"}\n", identify);
         assertLine("attach", "{\"cmd\":\"attach-surface\",\"surface\":9,\"id\":2}\n", attach);
+        assertProtocolV7RejectsSetSplitRatio();
     }
 
     private static byte[] captureIdentify() throws Exception {
@@ -51,6 +52,27 @@ public final class WireCaptureTest {
             server.close();
         }
         return server.firstLine(1);
+    }
+
+    private static void assertProtocolV7RejectsSetSplitRatio() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":7,\"session\":\"wire\",\"pid\":1}}"
+        });
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.setSplitRatio(1, 0.5);
+                throw new AssertionError("protocol 7 setSplitRatio must fail before sending the command");
+            } catch (CmuxProtocolMismatchException error) {
+                if (!error.getMessage().contains("set-split-ratio requires protocol 8")) {
+                    throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
+        assertLine("set-split-ratio identify", "{\"id\":1,\"cmd\":\"identify\"}\n", server.firstLine(0));
     }
 
     private static Path freshSocketPath() throws IOException {

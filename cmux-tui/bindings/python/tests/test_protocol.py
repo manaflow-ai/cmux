@@ -24,6 +24,13 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "maximum supported is 8"):
             client.attach_surface(1)
 
+    def test_set_split_ratio_rejects_servers_older_than_protocol_eight(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 7
+
+        with self.assertRaisesRegex(ProtocolError, "set-split-ratio requires protocol 8"):
+            client.set_split_ratio(1, 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()

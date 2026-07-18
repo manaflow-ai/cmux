@@ -157,6 +157,21 @@ test("resize response preserves reservation identity", async () => {
   await client.close();
 });
 
+test("setSplitRatio rejects servers older than protocol 8", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.equal(request.cmd, "identify");
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(client.setSplitRatio(1, 0.5), /set-split-ratio requires protocol 8/);
+  await client.close();
+});
+
 test("attachSurface decodes VT colors, output, and resized payloads", async () => {
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");
