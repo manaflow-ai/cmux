@@ -235,7 +235,8 @@ function SurfaceView({
       : <PanelWaiting text={copy.browserWaiting} />;
   }
   if (surface.kind === "textbox") {
-    return document
+    const mode = sharedTextBoxSurfaceMode(!!terminal, !!document);
+    const textBox = document
       ? <CollaborativeTextBox
           document={document}
           selections={selections}
@@ -245,12 +246,48 @@ function SurfaceView({
           onCompositionEnd={onCompositionEnd}
           onSelection={onSelection}
         />
-      : <PanelWaiting text={copy.workspaceWaiting} />;
+      : null;
+    if (mode === "combined" && terminal && document) {
+      return (
+        <div className="share-terminal-textbox-surface">
+          <GhosttyTerminal terminal={terminal} embedded />
+          <CollaborativeTextBox
+            document={document}
+            selections={selections}
+            label={copy.textBoxLabel}
+            compact
+            onTextChange={onTextChange}
+            onCompositionStart={onCompositionStart}
+            onCompositionEnd={onCompositionEnd}
+            onSelection={onSelection}
+          />
+        </div>
+      );
+    }
+    if (mode === "textbox" && textBox) return textBox;
+    if (mode === "terminal" && terminal) return <GhosttyTerminal terminal={terminal} />;
+    return <PanelWaiting text={copy.workspaceWaiting} />;
   }
   return <PanelWaiting text={copy.unsupportedPanel} />;
 }
 
-function GhosttyTerminal({ terminal }: { terminal: RenderedGhosttyTerminal }) {
+export function sharedTextBoxSurfaceMode(
+  hasTerminal: boolean,
+  hasDocument: boolean,
+): "combined" | "textbox" | "terminal" | "waiting" {
+  if (hasTerminal && hasDocument) return "combined";
+  if (hasDocument) return "textbox";
+  if (hasTerminal) return "terminal";
+  return "waiting";
+}
+
+function GhosttyTerminal({
+  terminal,
+  embedded = false,
+}: {
+  terminal: RenderedGhosttyTerminal;
+  embedded?: boolean;
+}) {
   const [scale, setScale] = useState(1);
   const resizeObserver = useRef<ResizeObserver | null>(null);
   const mount = useCallback((node: HTMLDivElement | null) => {
@@ -279,7 +316,7 @@ function GhosttyTerminal({ terminal }: { terminal: RenderedGhosttyTerminal }) {
   return (
     <div
       ref={mount}
-      className="share-terminal"
+      className={embedded ? "share-terminal share-terminal-embedded" : "share-terminal"}
       data-share-target={terminal.surfaceId}
       style={{ background: terminal.background, color: terminal.foreground } as CSSProperties}
     >
@@ -319,6 +356,7 @@ function CollaborativeTextBox({
   onCompositionStart,
   onCompositionEnd,
   onSelection,
+  compact = false,
 }: {
   document: TextDocumentView;
   selections: readonly TextSelectionAwareness[];
@@ -327,6 +365,7 @@ function CollaborativeTextBox({
   onCompositionStart: () => void;
   onCompositionEnd: (text: string) => void;
   onSelection: (anchor: number, head: number) => void;
+  compact?: boolean;
 }) {
   const [composition, setComposition] = useState<string | null>(null);
   const composing = useRef(false);
@@ -338,7 +377,7 @@ function CollaborativeTextBox({
     onCompositionEnd(next);
   };
   return (
-    <div className="share-textbox" data-share-target={document.docId}>
+    <div className={compact ? "share-textbox share-textbox-compact" : "share-textbox"} data-share-target={document.docId}>
       <div className="share-remote-selections" aria-hidden="true">
         {selections.map((selection) => {
           const caret = textCaret(value, selection.headUTF16);
@@ -347,8 +386,8 @@ function CollaborativeTextBox({
               className="share-text-caret"
               key={selection.participant.connectionId}
               style={{
-                left: `calc(16px + ${caret.column}ch)`,
-                top: `calc(14px + ${caret.line} * 1.5em)`,
+                left: `calc(${compact ? 10 : 16}px + ${caret.column}ch)`,
+                top: `calc(${compact ? 8 : 14}px + ${caret.line} * ${compact ? 1.4 : 1.5}em)`,
                 borderColor: color(selection.participant.color),
               }}
             >

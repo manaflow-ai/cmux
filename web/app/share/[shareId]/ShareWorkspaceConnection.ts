@@ -218,8 +218,7 @@ export class ShareWorkspaceConnection {
     if (frame.type === "workspace.snapshot" || frame.type === "workspace.layout") {
       const scene = normalizeWorkspaceScene(payload.scene ?? payload);
       if (scene) {
-        const terminalSurfaceIds = new Set(scene.panes.flatMap((pane) =>
-          pane.surfaces.filter((surface) => surface.kind === "terminal").map((surface) => surface.id)));
+        const terminalSurfaceIds = terminalVtSurfaceIdsForScene(scene);
         this.terminalSurfaceIds = terminalSurfaceIds;
         void this.terminalRenderer.retainSurfaces(terminalSurfaceIds);
         const terminals = new Map(
@@ -405,6 +404,12 @@ export function applyTerminalFrameInScene(
   frame: TerminalVtFrame,
 ): Promise<TerminalApplyResult> | null {
   return terminalSurfaceIds.has(frame.surfaceId) ? renderer.apply(frame) : null;
+}
+
+export function terminalVtSurfaceIdsForScene(scene: WorkspaceScene): ReadonlySet<string> {
+  return new Set(scene.panes.flatMap((pane) => pane.surfaces
+    .filter((surface) => surface.kind === "terminal" || surface.kind === "textbox")
+    .map((surface) => surface.id)));
 }
 
 function normalizeTicket(value: unknown): TicketResponse | null {

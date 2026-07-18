@@ -200,6 +200,20 @@ body {
   user-select: text;
 }
 
+.share-terminal-textbox-surface {
+  height: calc(100% - 27px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--cmux-pane);
+}
+
+.share-terminal-embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
 .share-terminal-scale {
   position: absolute;
   top: 8px;
@@ -272,6 +286,25 @@ body {
   position: relative;
   height: calc(100% - 27px);
   background: var(--cmux-pane);
+}
+
+.share-textbox-compact {
+  flex: 0 0 clamp(44px, 22%, 88px);
+  min-height: 44px;
+  height: auto;
+  border-top: 1px solid var(--cmux-separator);
+  background: var(--cmux-panel);
+}
+
+.share-textbox.share-textbox-compact textarea {
+  padding: 8px 10px;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.share-textbox-compact .share-remote-selections {
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .share-textbox textarea {
