@@ -120,7 +120,7 @@ inspect_cold_artifact() {
 
   uuid_before="$("$root/scripts/ci/macho-uuid-keys.sh" "$binary")"
   dsym_uuid="$("$root/scripts/ci/macho-uuid-keys.sh" "$products/cmux.app.dSYM")"
-  if ! comm -12 <(printf '%s\n' "$uuid_before") <(printf '%s\n' "$dsym_uuid") | grep -q UUID; then
+  if [ -z "$(comm -12 <(printf '%s\n' "$uuid_before") <(printf '%s\n' "$dsym_uuid"))" ]; then
     echo "error: app and dSYM UUIDs do not intersect" >&2
     exit 1
   fi
