@@ -677,6 +677,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(activated.cmuxHibernationResumeAttemptId == nil)
         #expect(activated.restoreAuthority)
         #expect(activeRun.restoreAuthority)
+        #expect(activeRun.cmuxHibernationResumeAttemptId == resumeAttemptID.uuidString)
 
         #expect(try store.upsert(
             sessionId: sessionID,
@@ -690,6 +691,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(afterDuplicateHook.activeRunId == activeRunID)
         #expect(afterDuplicateHook.restoreAuthority)
         #expect(afterDuplicateHook.runs?.first { $0.runId == activeRunID }?.restoreAuthority == true)
+        #expect(
+            afterDuplicateHook.runs?.first { $0.runId == activeRunID }?.cmuxHibernationResumeAttemptId
+                == resumeAttemptID.uuidString
+        )
 
         #expect(!(try store.upsert(
             sessionId: mismatchedSessionID,

@@ -136,6 +136,12 @@ struct AgentSessionRunCanonicalizer: Sendable {
         ) {
             return result
         }
+        if let result = optionalStringPrecedes(
+            candidate.cmuxHibernationResumeAttemptId,
+            current.cmuxHibernationResumeAttemptId
+        ) {
+            return result
+        }
         if candidate.restoreAuthority != current.restoreAuthority { return !candidate.restoreAuthority }
         return false
     }
@@ -157,6 +163,12 @@ struct AgentSessionRunCanonicalizer: Sendable {
         // monotonic, so corrupted ordering cannot promote a child into an owner.
         let processIdentityConflict = conflictingProcessIdentity(candidate, current)
         let runtimeIdentityConflict = conflictingRuntimeIdentity(candidate.cmuxRuntime, current.cmuxRuntime)
+        let resumeProofConflict = if let candidateAttempt = candidate.cmuxHibernationResumeAttemptId,
+                                     let currentAttempt = current.cmuxHibernationResumeAttemptId {
+            candidateAttempt != currentAttempt
+        } else {
+            false
+        }
         let identityConflict = candidate.identityConflict == true
             || current.identityConflict == true
             || processIdentityConflict
@@ -193,6 +205,13 @@ struct AgentSessionRunCanonicalizer: Sendable {
             candidate.authorityEvidence,
             current.authorityEvidence
         )
+        if resumeProofConflict {
+            merged.cmuxHibernationResumeAttemptId = nil
+            merged.restoreAuthority = false
+        } else {
+            merged.cmuxHibernationResumeAttemptId = candidate.cmuxHibernationResumeAttemptId
+                ?? current.cmuxHibernationResumeAttemptId
+        }
         if let candidateEndedAt = candidate.endedAt, let currentEndedAt = current.endedAt {
             merged.endedAt = max(candidateEndedAt, currentEndedAt)
         } else {

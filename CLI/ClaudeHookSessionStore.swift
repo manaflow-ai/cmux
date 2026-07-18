@@ -1195,11 +1195,12 @@ final class ClaudeHookSessionStore {
             pid: pid,
             environment: processEnv
         )
-        guard AgentHookSessionActivationPolicy().canActivate(
+        let activationDecision = AgentHookSessionActivationPolicy().decision(
             record: record,
             lineage: lineage,
             hasIncomingPID: pid != nil
-        ) else {
+        )
+        guard case let .activate(activationProof) = activationDecision else {
             return false
         }
         record.workspaceId = workspaceId
@@ -1260,7 +1261,12 @@ final class ClaudeHookSessionStore {
         record.cmuxHibernationResumeStartedAt = nil
         record.cmuxHibernationResumeFromAttemptId = nil
         record.sessionState = .active
-        recordSessionRun(&record, lineage: lineage, now: now)
+        recordSessionRun(
+            &record,
+            lineage: lineage,
+            activationProof: activationProof,
+            now: now
+        )
         record.updatedAt = now
         return true
     }
@@ -1268,9 +1274,11 @@ final class ClaudeHookSessionStore {
     private func recordSessionRun(
         _ record: inout ClaudeHookSessionRecord,
         lineage: AgentHookSessionLineage,
+        activationProof: AgentHookSessionActivationProof,
         now: TimeInterval
     ) {
         var effectiveLineage = lineage
+        effectiveLineage.hibernationResumeAttemptId = nil
         switch lineage.processLaunchMode {
         case .oneShot, .nonSession:
             // Utility and print/exec processes may publish hooks while they are
@@ -1279,9 +1287,34 @@ final class ClaudeHookSessionStore {
             effectiveLineage.restoreAuthority = false
         case .unknown where lineage.processStartedAt != nil:
             // A live native process with an argv shape we do not understand is
-            // not safe to replay. This catches newly added one-shot provider
-            // flags without breaking legacy hook payloads that carry no PID.
-            effectiveLineage.restoreAuthority = false
+            // not safe to replay unless the protected lifecycle transition
+            // proved its exact cmux resume attempt, or a later duplicate hook
+            // describes that same already-authoritative process generation.
+            // This catches newly added one-shot provider flags without breaking
+            // legacy hook payloads that carry no PID.
+            switch activationProof {
+            case .exactHibernationResumeAttempt(let attemptId)
+                where lineage.hibernationResumeAttemptId == attemptId
+                    && lineage.processDescribesAgent
+                    && lineage.restoreAuthority:
+                effectiveLineage.hibernationResumeAttemptId = attemptId
+                break
+            case .existingVerifiedResumeGeneration(let attemptId, let runId, let pid, let processStartedAt)
+                where lineage.hibernationResumeAttemptId == attemptId
+                    && lineage.runId == runId
+                    && lineage.pid == pid
+                    && lineage.processStartedAt.map {
+                        abs($0 - processStartedAt) <= 0.001
+                    } == true
+                    && lineage.processDescribesAgent
+                    && lineage.restoreAuthority:
+                effectiveLineage.hibernationResumeAttemptId = attemptId
+                break
+            case .ordinary,
+                 .exactHibernationResumeAttempt(_),
+                 .existingVerifiedResumeGeneration(_, _, _, _):
+                effectiveLineage.restoreAuthority = false
+            }
         case .interactive, .unknown:
             break
         }

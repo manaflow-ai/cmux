@@ -39,6 +39,9 @@ struct AgentSessionRunRecord: Codable, Sendable, Equatable {
     var relationship: AgentSessionRelationship?
     var restoreAuthority: Bool
     var authorityEvidence: AgentSessionAuthorityEvidence? = nil
+    /// Exact app-issued proof for an unknown custom CLI generation resumed by
+    /// cmux. Optional so older readers ignore it and older rows fail closed.
+    var cmuxHibernationResumeAttemptId: String? = nil
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
     var endedAt: TimeInterval?
@@ -162,6 +165,8 @@ struct AgentSessionRunReconciler: Sendable {
         }
         run.parentRunId = lineage.parentRunId ?? run.parentRunId
         run.parentSessionId = lineage.parentSessionId ?? run.parentSessionId
+        run.cmuxHibernationResumeAttemptId = lineage.hibernationResumeAttemptId?.uuidString
+            ?? run.cmuxHibernationResumeAttemptId
         if let previousEvidence, previousEvidence.isDurableChild {
             run.relationship = .spawned
             run.restoreAuthority = false
@@ -210,6 +215,7 @@ struct AgentSessionRunReconciler: Sendable {
             relationship: lineage.relationship,
             restoreAuthority: lineage.restoreAuthority,
             authorityEvidence: lineage.authorityEvidence,
+            cmuxHibernationResumeAttemptId: lineage.hibernationResumeAttemptId?.uuidString,
             startedAt: now,
             updatedAt: now,
             endedAt: nil

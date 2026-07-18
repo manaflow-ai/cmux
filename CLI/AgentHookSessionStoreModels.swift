@@ -277,12 +277,43 @@ struct ClaudeHookSessionStoreFile: Codable {
     }
 }
 
+enum AgentHookSessionActivationProof: Sendable, Equatable {
+    case ordinary
+    case exactHibernationResumeAttempt(UUID)
+    case existingVerifiedResumeGeneration(
+        attemptId: UUID,
+        runId: String,
+        pid: Int,
+        processStartedAt: TimeInterval
+    )
+}
+
+enum AgentHookSessionActivationDecision: Sendable, Equatable {
+    case reject
+    case activate(AgentHookSessionActivationProof)
+}
+
 struct AgentHookSessionActivationPolicy: Sendable {
     func canActivate(
         record: ClaudeHookSessionRecord,
         lineage: AgentHookSessionLineage,
         hasIncomingPID: Bool
     ) -> Bool {
+        if case .activate = decision(
+            record: record,
+            lineage: lineage,
+            hasIncomingPID: hasIncomingPID
+        ) {
+            return true
+        }
+        return false
+    }
+
+    func decision(
+        record: ClaudeHookSessionRecord,
+        lineage: AgentHookSessionLineage,
+        hasIncomingPID: Bool
+    ) -> AgentHookSessionActivationDecision {
         if !hasIncomingPID,
            let activeRunId = record.activeRunId,
            record.runs?.contains(where: {
@@ -291,7 +322,7 @@ struct AgentHookSessionActivationPolicy: Sendable {
                    && $0.pid != nil
                    && $0.processStartedAt != nil
            }) == true {
-            return false
+            return .reject
         }
         if let activeRunId = record.activeRunId,
            activeRunId != lineage.runId,
@@ -301,11 +332,11 @@ struct AgentHookSessionActivationPolicy: Sendable {
            let activeStartedAt = activeRun.processStartedAt,
            let incomingStartedAt = lineage.processStartedAt,
            incomingStartedAt + 0.001 < activeStartedAt {
-            return false
+            return .reject
         }
         switch record.sessionState {
         case .hibernated, .restoring:
-            return canActivateProtectedLifecycle(
+            return protectedLifecycleDecision(
                 record: record,
                 lineage: lineage,
                 hasIncomingPID: hasIncomingPID
@@ -313,46 +344,54 @@ struct AgentHookSessionActivationPolicy: Sendable {
         case .active, .ended, nil:
             break
         }
-        guard record.completedAt != nil else { return true }
+        guard record.completedAt != nil else {
+            return .activate(existingGenerationProof(record: record, lineage: lineage) ?? .ordinary)
+        }
         // A completed record is a durable root-exit boundary. Only a hook that
         // supplies a verified, different process generation can reopen it.
-        guard hasIncomingPID, let incomingStartedAt = lineage.processStartedAt else { return false }
+        guard hasIncomingPID, let incomingStartedAt = lineage.processStartedAt else { return .reject }
         let matchingRuns = (record.runs ?? []).filter { $0.runId == lineage.runId }
         guard !matchingRuns.isEmpty else {
-            guard let completedAt = record.completedAt else { return false }
-            return incomingStartedAt > completedAt + 0.001
+            guard let completedAt = record.completedAt,
+                  incomingStartedAt > completedAt + 0.001 else {
+                return .reject
+            }
+            return .activate(.ordinary)
         }
-        return matchingRuns.allSatisfy { run in
+        let isNewGeneration = matchingRuns.allSatisfy { run in
             if let previousStartedAt = run.processStartedAt {
                 return abs(previousStartedAt - incomingStartedAt) > 0.001
             }
             guard let completedAt = record.completedAt else { return false }
             return incomingStartedAt > completedAt + 0.001
         }
+        return isNewGeneration ? .activate(.ordinary) : .reject
     }
 
-    private func canActivateProtectedLifecycle(
+    private func protectedLifecycleDecision(
         record: ClaudeHookSessionRecord,
         lineage: AgentHookSessionLineage,
         hasIncomingPID: Bool
-    ) -> Bool {
+    ) -> AgentHookSessionActivationDecision {
         guard hasIncomingPID,
               lineage.pid != nil,
               lineage.restoreAuthority,
               lineage.processDescribesAgent,
-              let incomingStartedAt = lineage.processStartedAt else { return false }
+              let incomingStartedAt = lineage.processStartedAt else { return .reject }
+        let proof: AgentHookSessionActivationProof
         switch lineage.processLaunchMode {
         case .interactive:
-            break
+            proof = .ordinary
         case .unknown:
             guard let incomingAttemptId = lineage.hibernationResumeAttemptId,
                   let recordedAttemptValue = record.cmuxHibernationResumeAttemptId,
                   let recordedAttemptId = UUID(uuidString: recordedAttemptValue),
                   incomingAttemptId == recordedAttemptId else {
-                return false
+                return .reject
             }
+            proof = .exactHibernationResumeAttempt(incomingAttemptId)
         case .oneShot, .nonSession:
-            return false
+            return .reject
         }
         let relevantRuns = (record.runs ?? []).filter { run in
             run.runId == lineage.runId || run.runId == record.activeRunId
@@ -360,7 +399,40 @@ struct AgentHookSessionActivationPolicy: Sendable {
         let generationBoundary = relevantRuns.compactMap(\.processStartedAt).max()
             .map { max($0, record.updatedAt) }
             ?? record.updatedAt
-        return incomingStartedAt > generationBoundary + 0.001
+        guard incomingStartedAt > generationBoundary + 0.001 else { return .reject }
+        return .activate(proof)
+    }
+
+    private func existingGenerationProof(
+        record: ClaudeHookSessionRecord,
+        lineage: AgentHookSessionLineage
+    ) -> AgentHookSessionActivationProof? {
+        guard lineage.processLaunchMode == .unknown,
+              lineage.processDescribesAgent,
+              lineage.restoreAuthority,
+              let lineagePID = lineage.pid,
+              let lineageStartedAt = lineage.processStartedAt,
+              let incomingAttemptId = lineage.hibernationResumeAttemptId,
+              record.activeRunId == lineage.runId,
+              let activeRun = record.runs?.first(where: {
+                  $0.runId == lineage.runId
+                      && $0.endedAt == nil
+                      && $0.restoreAuthority
+                      && $0.cmuxHibernationResumeAttemptId.flatMap { UUID(uuidString: $0) }
+                          == incomingAttemptId
+                      && $0.pid == lineagePID
+                      && $0.processStartedAt.map {
+                          abs($0 - lineageStartedAt) <= 0.001
+                      } == true
+              }) else {
+            return nil
+        }
+        return .existingVerifiedResumeGeneration(
+            attemptId: incomingAttemptId,
+            runId: activeRun.runId,
+            pid: lineagePID,
+            processStartedAt: lineageStartedAt
+        )
     }
 }
 
