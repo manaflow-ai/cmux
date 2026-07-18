@@ -243,6 +243,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         defer { CATransaction.commit() }
         let palette = palette(model)
         let snapshot = model.snapshot
+        let content = model.content
         let settings = model.settings
 
         // Chrome
@@ -304,22 +305,17 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             mediaCameraView.contentTintColor = .systemGreen
         }
 
-        let titleLineLimit = settings.wrapsWorkspaceTitles ? 8 : 1
-        titleView.maximumNumberOfLines = titleLineLimit
-        titleView.lineBreakMode = titleLineLimit == 1 ? .byTruncatingTail : .byWordWrapping
-        let boundedTitle = snapshot.title.sidebarBoundedDisplayString(
-            maxDisplayedLines: titleLineLimit,
-            maxDisplayedCharacters: 2048
-        )
+        titleView.maximumNumberOfLines = content.titleLineLimit
+        titleView.lineBreakMode = content.titleLineLimit == 1 ? .byTruncatingTail : .byWordWrapping
 #if DEBUG
-        if titleView.stringValue != boundedTitle {
+        if titleView.stringValue != content.title {
             cmuxDebugLog(
                 "sidebar.row.titlePaint workspace=\(model.workspaceId.uuidString.prefix(8)) " +
-                "title=\"\(boundedTitle.prefix(40))\""
+                "title=\"\(content.title.prefix(40))\""
             )
         }
 #endif
-        titleView.stringValue = boundedTitle
+        titleView.stringValue = content.title
         titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
         titleView.textColor = palette.primaryText
 
@@ -359,20 +355,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
 
-        let conversationSubtitle: String? = {
-            guard !settings.hidesAllDetails, settings.iMessageModeEnabled else { return nil }
-            let trimmed = snapshot.latestConversationMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (trimmed?.isEmpty == false) ? trimmed : nil
-        }()
-        let effectiveSubtitle = model.latestNotificationText ?? conversationSubtitle
-        let subtitleLineLimit = model.latestNotificationText == nil ? 2 : settings.notificationMessageLineLimit
-        subtitleView.isHidden = effectiveSubtitle == nil
-        if let effectiveSubtitle {
-            subtitleView.maximumNumberOfLines = subtitleLineLimit
-            subtitleView.stringValue = effectiveSubtitle.sidebarBoundedDisplayString(
-                maxDisplayedLines: subtitleLineLimit,
-                maxDisplayedCharacters: 4096
-            )
+        subtitleView.isHidden = content.subtitle == nil
+        if let subtitle = content.subtitle {
+            subtitleView.maximumNumberOfLines = content.subtitleLineLimit
+            subtitleView.stringValue = subtitle
             subtitleView.font = .systemFont(ofSize: model.scaled(10))
             subtitleView.textColor = palette.secondary(0.8)
         }
@@ -507,10 +493,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     private var showsCloseNow: Bool {
         guard let model else { return false }
-        return isPointerHovering
-            && !contextMenuVisible
-            && model.canCloseWorkspace
-            && !(model.showsShortcutHints || model.settings.alwaysShowShortcutHints)
+        return model.content.showsCloseButton(
+            isPointerHovering: isPointerHovering,
+            contextMenuVisible: contextMenuVisible,
+            canCloseWorkspace: model.canCloseWorkspace,
+            showsModifierShortcutHints: model.showsShortcutHints
+        )
     }
 
     private func updateCloseVisibility() {
@@ -535,21 +523,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
-        let allEntries = model.settings.visibleAuxiliaryDetails.showsMetadata
-            ? model.snapshot.metadataEntries : []
-        let visible = model.isMetadataExpanded ? allEntries : Array(allEntries.prefix(3))
+        let allRows = model.content.statusRows
+        let visible = model.isMetadataExpanded ? allRows : Array(allRows.prefix(3))
         Self.pool(&metadataRows, count: visible.count, parent: self) { SidebarRowIconTextLine() }
-        for (index, entry) in visible.enumerated() {
+        for (index, row) in visible.enumerated() {
             metadataRows[index].configureMetadataEntry(
-                entry, model: model,
-                color: entry.color.flatMap { NSColor(hex: $0) } ?? (model.isActive ? palette.secondary(0.95).withAlphaComponent(0.84) : .secondaryLabelColor)
+                row, model: model,
+                color: row.color.flatMap { NSColor(hex: $0) } ?? (model.isActive ? palette.secondary(0.95).withAlphaComponent(0.84) : .secondaryLabelColor)
             )
         }
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         let toggleColor = model.isActive
             ? palette.secondary(0.9)
             : NSColor.secondaryLabelColor.withAlphaComponent(0.9)
-        metadataToggleButton.isHidden = allEntries.count <= 3
+        metadataToggleButton.isHidden = allRows.count <= 3
         if !metadataToggleButton.isHidden {
             metadataToggleButton.configure(
                 title: model.isMetadataExpanded
@@ -613,38 +600,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func configureBranchDirectory(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
-        let snapshot = model.snapshot
-        let settings = model.settings
-        let showsSection = settings.visibleAuxiliaryDetails.showsBranchDirectory
-        var lines: [SidebarRowIconTextLine.BranchLineContent] = []
-        if showsSection {
-            if settings.usesVerticalBranchLayout {
-                for line in snapshot.branchDirectoryLines {
-                    lines.append(.init(
-                        branch: settings.showsGitBranch ? line.branch : nil,
-                        directoryCandidates: line.directoryCandidates,
-                        stacked: settings.stacksBranchAndDirectory
-                    ))
-                }
-            } else if settings.stacksBranchAndDirectory {
-                if snapshot.compactGitBranchSummaryText != nil || !snapshot.compactDirectoryCandidates.isEmpty {
-                    lines.append(.init(
-                        branch: snapshot.compactGitBranchSummaryText,
-                        directoryCandidates: snapshot.compactDirectoryCandidates,
-                        stacked: true
-                    ))
-                }
-            } else if !snapshot.compactBranchDirectoryCandidates.isEmpty {
-                lines.append(.init(
-                    branch: nil,
-                    directoryCandidates: snapshot.compactBranchDirectoryCandidates,
-                    stacked: false
-                ))
-            }
-        }
-        let showsIcon = showsSection && settings.showsGitBranchIcon
-            && (settings.usesVerticalBranchLayout ? snapshot.branchLinesContainBranch : snapshot.compactGitBranchSummaryText != nil || !snapshot.compactBranchDirectoryCandidates.isEmpty)
-        branchIconView.isHidden = !(showsIcon && !lines.isEmpty)
+        let lines = model.content.branchDirectoryRows
+        branchIconView.isHidden = !model.content.showsBranchIcon
         if !branchIconView.isHidden {
             branchIconView.image = RenderableSystemSymbol.configuredAppKitImage(
                 systemName: "arrow.triangle.branch", pointSize: model.scaled(9), weight: nil
@@ -658,20 +615,17 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func configurePullRequestsAndPorts(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
-        let snapshot = model.snapshot
-        let settings = model.settings
-        let prs = settings.visibleAuxiliaryDetails.showsPullRequests ? snapshot.pullRequestRows : []
+        let prs = model.content.pullRequestRows
         Self.pool(&pullRequestRows, count: prs.count, parent: self) { SidebarRowPullRequestLine() }
         for (index, pr) in prs.enumerated() {
             pullRequestRows[index].configure(
-                pr, model: model, palette: palette,
-                clickable: settings.makesPullRequestsClickable
+                pr, model: model, palette: palette
             ) { [weak self] in
                 self?.actions?.commands.updateSelection()
                 self?.actions?.onOpenPullRequest(pr.url)
             }
         }
-        let ports = settings.visibleAuxiliaryDetails.showsPorts ? snapshot.listeningPorts : []
+        let ports = model.settings.visibleAuxiliaryDetails.showsPorts ? model.snapshot.listeningPorts : []
         Self.pool(&portButtons, count: ports.count, parent: self) { SidebarRowLinkButton() }
         for (index, port) in ports.enumerated() {
             portButtons[index].configure(
