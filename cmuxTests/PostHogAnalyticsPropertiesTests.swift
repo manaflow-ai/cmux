@@ -60,6 +60,34 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("workspace todo controls feature flag follows remote values")
+    func workspaceTodoControlsFeatureFlagFollowsRemoteValues() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "workspace-todo-controls-enabled-release"
+        })
+        let suiteName = "cmux.workspace.todo.controls.flag.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var remoteValues: [String: Any] = [:]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+
+        #expect(!flags.isWorkspaceTodoControlsEnabled)
+
+        remoteValues[flag.key] = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isWorkspaceTodoControlsEnabled)
+
+        remoteValues[flag.key] = true
+        flags.applyLoadedFlags()
+        #expect(flags.isWorkspaceTodoControlsEnabled)
+    }
+
+    @MainActor
     @Test("feature flag overrides persist through UserDefaults")
     func featureFlagOverridePersistenceRoundTrip() throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first { $0.defaultWhenUnavailable })

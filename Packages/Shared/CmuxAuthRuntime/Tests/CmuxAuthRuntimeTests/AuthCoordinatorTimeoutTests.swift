@@ -380,7 +380,7 @@ import Testing
             hasCachedTokens: true
         )
 
-        #expect(coordinator.isRestoringSession == false)
+        #expect(coordinator.isRestoringSession)
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
         coordinator.start()

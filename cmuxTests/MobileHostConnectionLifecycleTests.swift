@@ -42,6 +42,84 @@ extension MobileHostAuthorizationTests {
         #expect(await closeRecorder.recordedIDs() == [connectionID])
     }
 
+    @Test func testNewestAuthorizedIrohConnectionSupersedesOlderOverlap() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+
+        let first = ScriptedMobileHostByteTransport()
+        let second = ScriptedMobileHostByteTransport()
+        let authorization = try irohAdmissionContext()
+        let firstTask = Task {
+            await MobileHostService.acceptTransport(
+                first,
+                authorization: authorization,
+                isCurrent: { true }
+            )
+        }
+        await waitForMobileHostConnectionCount(1)
+        try await first.enqueue(Self.mobileHostStatusFrame(id: "first"))
+        _ = await first.waitForSentBufferCount(1)
+
+        let secondTask = Task {
+            await MobileHostService.acceptTransport(
+                second,
+                authorization: authorization,
+                isCurrent: { true }
+            )
+        }
+        await waitForMobileHostConnectionCount(2)
+        try await first.enqueue(Self.mobileHostStatusFrame(id: "first-delayed"))
+        _ = await first.waitForSentBufferCount(2)
+        #expect(registry.count == 2)
+        #expect(await second.observedCloseCount() == 0)
+
+        try await second.enqueue(Self.mobileHostSubscribeFrame(id: "second"))
+        _ = await second.waitForSentBufferCount(1)
+        await waitForMobileHostConnectionCount(1)
+        await first.waitForCloseCount(1)
+
+        #expect(registry.count == 1)
+        #expect(await first.observedCloseCount() == 1)
+        #expect(await second.observedCloseCount() == 0)
+
+        await first.finishReceiving()
+        await second.finishReceiving()
+        await firstTask.value
+        await secondTask.value
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test cleanup")
+        }
+        service.debugResetMobileLifecycleStateForTesting()
+    }
+
+    private static func mobileHostStatusFrame(id: String) throws -> Data {
+        try MobileSyncFrameCodec.encodeFrame(
+            Data("{\"id\":\"\(id)\",\"method\":\"mobile.host.status\",\"params\":{}}".utf8)
+        )
+    }
+
+    private static func mobileHostSubscribeFrame(id: String) throws -> Data {
+        try MobileSyncFrameCodec.encodeFrame(
+            Data("{\"id\":\"\(id)\",\"method\":\"mobile.events.subscribe\",\"params\":{\"stream_id\":\"events\",\"topics\":[\"terminal.updated\"]}}".utf8)
+        )
+    }
+
+    private func waitForMobileHostConnectionCount(_ expected: Int) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if MobileHostConnectionRegistry.shared.count == expected { return }
+            await Task.yield()
+        }
+        Issue.record(
+            "Timed out waiting for \(expected) mobile host connections; observed \(MobileHostConnectionRegistry.shared.count)"
+        )
+    }
+
     @Test func testIrohEventWriterTimesOutBackpressureWithInjectedClock() async {
         let stream = BlockingMobileHostIrohSendStream()
         let writer = MobileHostIrohServerEventWriter(
@@ -323,5 +401,81 @@ private actor GatedMobileHostByteTransport: CmxByteTransport {
 
     func observedCloseCount() -> Int {
         closeCount
+    }
+}
+
+private actor ScriptedMobileHostByteTransport: CmxByteTransport {
+    private var receiveQueue: [Data?] = []
+    private var receiveWaiter: CheckedContinuation<Data?, Never>?
+    private var sent: [Data] = []
+    private var closeCount = 0
+    private var sentWaiters: [(count: Int, continuation: CheckedContinuation<[Data], Never>)] = []
+    private var closeWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        if !receiveQueue.isEmpty {
+            return receiveQueue.removeFirst()
+        }
+        return await withCheckedContinuation { receiveWaiter = $0 }
+    }
+
+    func send(_ data: Data) async throws {
+        sent.append(data)
+        let ready = sentWaiters.filter { sent.count >= $0.count }
+        sentWaiters.removeAll { sent.count >= $0.count }
+        for waiter in ready {
+            waiter.continuation.resume(returning: sent)
+        }
+    }
+
+    func close() async {
+        closeCount += 1
+        let ready = closeWaiters.filter { closeCount >= $0.count }
+        closeWaiters.removeAll { closeCount >= $0.count }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
+        receiveWaiter?.resume(returning: nil)
+        receiveWaiter = nil
+    }
+
+    func enqueue(_ data: Data) {
+        if let receiveWaiter {
+            self.receiveWaiter = nil
+            receiveWaiter.resume(returning: data)
+        } else {
+            receiveQueue.append(data)
+        }
+    }
+
+    func finishReceiving() {
+        if let receiveWaiter {
+            self.receiveWaiter = nil
+            receiveWaiter.resume(returning: nil)
+        } else {
+            receiveQueue.append(nil)
+        }
+    }
+
+    func waitForSentBufferCount(_ count: Int) async -> [Data] {
+        if sent.count >= count {
+            return sent
+        }
+        return await withCheckedContinuation { continuation in
+            sentWaiters.append((count, continuation))
+        }
+    }
+
+    func observedCloseCount() -> Int { closeCount }
+
+    func waitForCloseCount(_ count: Int) async {
+        if closeCount >= count {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            closeWaiters.append((count, continuation))
+        }
     }
 }

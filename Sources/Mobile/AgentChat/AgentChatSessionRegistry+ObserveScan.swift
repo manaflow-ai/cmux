@@ -20,7 +20,7 @@ extension AgentChatSessionRegistry {
             record.workingDirectory = session.workingDirectory ?? record.workingDirectory
             record.transcriptPath = session.transcriptPath ?? record.transcriptPath
             record.pid = session.pid
-            record.state = .idle
+            record.setProcessObservedIdle()
             record.lastActivityAt = now
         }
         return true
@@ -43,7 +43,7 @@ extension AgentChatSessionRegistry {
             record.workingDirectory = session.workingDirectory ?? record.workingDirectory
             record.transcriptPath = session.transcriptPath ?? record.transcriptPath
             record.pid = session.pid
-            record.state = .idle
+            record.setProcessObservedIdle()
             record.lastActivityAt = now
         }
         return true

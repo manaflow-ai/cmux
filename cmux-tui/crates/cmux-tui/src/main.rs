@@ -64,7 +64,7 @@ OPTIONS:
   --socket <path>    Explicit control socket path.
   --headless         Run only the control socket, no TUI.
   --ws <addr>        Also listen for WebSocket clients (default: off).
-  --ws-token <token> Require an auth preamble on WebSocket connections.
+  --ws-token <token> Allow a static-token bypass for interactive pairing.
   --ws-insecure-bind Allow a non-loopback WebSocket bind (no TLS; use a proxy).
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.
@@ -91,15 +91,15 @@ MOUSE
   screen entries to switch screens (+ for a new screen).
 
 CLI VERBS
-  identify, ping, set-client-info, list-clients, detach-client,
+  identify, ping, set-client-info, list-clients, detach-client, set-client-sizing,
   reload-config, set-window-title, clear-window-title,
   list-workspaces, export-layout, apply-layout, send,
-  read-screen, vt-state, new-tab, new-browser-tab, new-workspace,
+  read-screen, read-scrollback, vt-state, new-tab, new-browser-tab, new-workspace,
   new-screen, split, set-ratio, pane-neighbor, focus-direction,
   swap-pane, zoom-pane, process-info, set-default-colors,
   close-surface, close-pane, close-screen, close-workspace,
   rename-pane, rename-surface, rename-screen, rename-workspace,
-  resize-surface, focus-pane, select-tab, select-screen,
+  resize-surface, release-surface-size, focus-pane, select-tab, select-screen,
   select-workspace, move-tab, move-workspace, scroll-surface,
   subscribe, attach-surface, wait-for, run, send-key, copy, ids,
   notify, list-agents, report-agent
@@ -227,11 +227,9 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
     let mux = Mux::new(args.session.clone(), surface_options);
-    mux.set_default_colors(cmux_tui_core::DefaultColors {
-        cursor_style: config.cursor_style,
-        cursor_blink: config.cursor_blink,
-        ..Default::default()
-    });
+    // Headless sessions have no host terminal to query, so seed the mux from
+    // Ghostty's config before any protocol client can create a surface.
+    mux.set_default_colors(config.terminal_defaults);
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     let websocket_server = match ws_addr {
         Some(addr) => {
@@ -266,9 +264,14 @@ fn run_server(args: Args) -> anyhow::Result<()> {
 fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
     crossterm::terminal::enable_raw_mode()?;
     let config = config::load();
-    let mut colors = host_colors::probe_default_colors();
-    colors.cursor_style = config.cursor_style;
-    colors.cursor_blink = config.cursor_blink;
+    let mut colors = config.terminal_defaults;
+    let host_colors = host_colors::probe_default_colors();
+    if host_colors.fg.is_some() {
+        colors.fg = host_colors.fg;
+    }
+    if host_colors.bg.is_some() {
+        colors.bg = host_colors.bg;
+    }
     let color_result = session.set_default_colors(colors);
     let raw_result = crossterm::terminal::disable_raw_mode();
     if let Err(err) = color_result {

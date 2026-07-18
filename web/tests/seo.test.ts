@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { createTranslator } from "use-intl/core";
 import { comparePages } from "../app/lib/compare-pages";
 import { blogPostsForLocale } from "../app/[locale]/components/blog-posts";
+import robots from "../app/robots";
 import sitemap from "../app/sitemap";
 import { legalMetadata } from "../app/[locale]/(legal)/legal-metadata";
 import middleware from "../proxy";
@@ -38,6 +39,14 @@ import { englishFallbackContentLocales } from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
 
 describe("SEO metadata helpers", () => {
+  test("keeps rendering assets crawlable", () => {
+    const rules = robots().rules;
+    const allRules = Array.isArray(rules) ? rules : [rules];
+    const disallowed = allRules.flatMap((rule) => rule.disallow ?? []);
+
+    expect(disallowed).not.toContain("/_next/");
+  });
+
   test("omits English-only posts from localized blog navigation", () => {
     const englishSlugs = blogPostsForLocale("en").map((post) => post.slug);
     const japaneseSlugs = blogPostsForLocale("ja").map((post) => post.slug);
@@ -1115,6 +1124,13 @@ describe("SEO middleware", () => {
       "https://cmux.com/docs/agent-integrations/oh-my-pi",
       "https://cmux.com/ja/docs/agent-integrations/oh-my-pi",
     ]);
+  });
+
+  test("excludes redirect-only and noindex docs routes from the sitemap", () => {
+    const urls = sitemap().map((entry) => entry.url);
+
+    expect(urls.some((url) => url.endsWith("/docs/base"))).toBe(false);
+    expect(urls.some((url) => url.endsWith("/docs/nightly/base"))).toBe(false);
   });
 
   test("canonicalizes English-only blog posts", () => {

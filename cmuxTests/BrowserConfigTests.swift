@@ -3924,6 +3924,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            designComposer: nil,
             omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
@@ -3967,6 +3968,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            designComposer: nil,
             omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
@@ -4140,6 +4142,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            designComposer: nil,
             omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
@@ -4232,6 +4235,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            designComposer: nil,
             omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )

@@ -7,7 +7,7 @@ public actor CmxIrohClientRuntime {
     public typealias BindingHandler = @Sendable (
         _ registration: CmxIrohRegistrationResponse,
         _ discovery: CmxIrohDiscoveryResponse
-    ) async -> Void
+    ) async -> Bool
 
     /// Runs when connectivity-only startup restores signed, already-known Mac tuples.
     public typealias CachedBindingsHandler = @Sendable (
@@ -85,10 +85,13 @@ public actor CmxIrohClientRuntime {
     var signOutOperation: Task<CmxIrohClientSignOutPreparation, Never>?
     var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     var supervisorEventTask: Task<Void, Never>?
-    var registrationRefreshTask: Task<Void, Never>?
+    var registrationRefreshTask: Task<Void, any Error>?
+    var registrationRefreshTaskID: UUID?
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
+    var liveDiscoveryGeneration: UInt64 = 0
     var localBinding: CmxIrohBrokerBinding?
+    var registryContextProvider: CmxIrohRegistryContextProvider?
     var currentSnapshot = CmxIrohClientRuntimeSnapshot(
         state: .inactive,
         endpointID: nil,
@@ -127,7 +130,7 @@ public actor CmxIrohClientRuntime {
         },
         lanFallback: LANFallbackProvider? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
-        handleBinding: @escaping BindingHandler = { _, _ in },
+        handleBinding: @escaping BindingHandler = { _, _ in true },
         handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
         handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
         handleLocalDeactivation: @escaping LocalDeactivationHandler = {},
@@ -175,6 +178,52 @@ public actor CmxIrohClientRuntime {
     /// Returns the current non-secret lifecycle snapshot.
     public func snapshot() -> CmxIrohClientRuntimeSnapshot {
         currentSnapshot
+    }
+
+    /// Monotonic count of online broker snapshots verified by this runtime.
+    public func liveDiscoverySnapshotGeneration() -> UInt64 {
+        liveDiscoveryGeneration
+    }
+
+    /// Refreshes registration and discovery, returning true only when a new
+    /// online broker snapshot was verified and installed.
+    ///
+    /// Connectivity fallback may preserve an existing verified runtime for
+    /// already-paired Macs, but returns false here so a cached or stale snapshot
+    /// can never authorize a first pairing.
+    public func refreshLiveDiscovery() async -> Bool {
+        do {
+            return try await refreshLiveDiscoveryThrowing()
+        } catch {
+            return false
+        }
+    }
+
+    func refreshLiveDiscoveryThrowing() async throws -> Bool {
+        guard lifecyclePhase == .active else { return false }
+        let priorGeneration = liveDiscoveryGeneration
+        var mayScheduleFreshRequest = registrationRefreshTask != nil
+        if registrationRefreshTask == nil {
+            scheduleRegistrationRefresh(revision: lifecycleRevision)
+        }
+        var lastAwaitedTaskID: UUID?
+        while lifecyclePhase == .active,
+              let refresh = registrationRefreshTask,
+              let refreshID = registrationRefreshTaskID,
+              refreshID != lastAwaitedTaskID {
+            lastAwaitedTaskID = refreshID
+            try await refresh.value
+            guard lifecyclePhase == .active else { return false }
+            if liveDiscoveryGeneration > priorGeneration { return true }
+            if registrationRefreshTaskID != nil {
+                mayScheduleFreshRequest = false
+                continue
+            }
+            guard mayScheduleFreshRequest else { return false }
+            mayScheduleFreshRequest = false
+            scheduleRegistrationRefresh(revision: lifecycleRevision)
+        }
+        return false
     }
 
     /// Returns the selected live path after removing raw transport coordinates.
@@ -248,7 +297,9 @@ public actor CmxIrohClientRuntime {
             )
             if let registration = policy.registration,
                let discovery = policy.discovery {
-                await handleBinding(registration, discovery)
+                let published = await handleBinding(registration, discovery)
+                try requireCurrent(revision)
+                if published { liveDiscoveryGeneration &+= 1 }
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }
@@ -295,27 +346,33 @@ public actor CmxIrohClientRuntime {
     public func didBecomeActive() async throws {
         guard lifecyclePhase == .active else { return }
         let revision = lifecycleRevision
-        let checked = try await supervisor.ensureHealthy()
-        try requireCurrent(revision)
-        await sessionPool.activate(runtimeGeneration: checked.runtimeGeneration)
-        if let registrationRefreshTask {
-            registrationRefreshPending = true
-            await registrationRefreshTask.value
-            try requireCurrent(revision)
-            return
-        }
+        // A registration refresh reads the active endpoint. Keep the preserved
+        // generation installed until any existing refresh finishes, then pause
+        // new refreshes across the brief unbound window used for stale-driver
+        // replacement. Supervisor events become one pending refresh that the
+        // explicit foreground refresh below consumes.
         registrationRefreshEnabled = false
-        defer {
-            if lifecyclePhase == .active,
-               lifecycleRevision == revision {
-                registrationRefreshEnabled = true
-                if registrationRefreshPending {
-                    registrationRefreshPending = false
-                    scheduleRegistrationRefresh(revision: revision)
-                }
+        do {
+            if let refresh = registrationRefreshTask {
+                try await refresh.value
+                try requireCurrent(revision)
             }
+            let checked = try await supervisor.ensureHealthy()
+            try requireCurrent(revision)
+            await sessionPool.activate(runtimeGeneration: checked.runtimeGeneration)
+            try requireCurrent(revision)
+            registrationRefreshPending = false
+            registrationRefreshEnabled = true
+            _ = try await refreshLiveDiscoveryThrowing()
+            try requireCurrent(revision)
+            try await relayCoordinator?.refreshIfNeeded()
+            try requireCurrent(revision)
+        } catch {
+            if lifecyclePhase == .active, lifecycleRevision == revision {
+                registrationRefreshEnabled = true
+            }
+            throw error
         }
-        try await refreshRegistration(revision: revision)
     }
 
     /// Opens a terminal or artifact lane on the admitted pooled peer connection.

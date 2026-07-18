@@ -8,6 +8,71 @@ private let presenceRouteSyncLog = Logger(
     category: "presence-route-sync"
 )
 
+struct MobilePresenceReconnectEvidence: Equatable, Sendable {
+    struct Hint: Equatable, Sendable {
+        let kind: String
+        let value: String
+        let source: String
+        let privacyScope: String
+        let networkProfileSource: String?
+        let networkProfileID: String?
+    }
+
+    enum Endpoint: Equatable, Sendable {
+        case hostPort(host: String, port: Int)
+        case peer(identity: String, hints: [Hint])
+        case url(String)
+    }
+
+    struct Route: Equatable, Sendable {
+        let id: String
+        let kind: String
+        let endpoint: Endpoint
+        let priority: Int
+    }
+
+    let deviceID: String
+    let tag: String
+    let online: Bool
+    let onlineSince: Double?
+    let routes: [Route]?
+
+    init(_ instance: PresenceInstance) {
+        deviceID = instance.deviceId
+        tag = instance.tag
+        online = instance.online
+        onlineSince = instance.onlineSince
+        routes = instance.routes?.map { route in
+            let endpoint: Endpoint = switch route.endpoint {
+            case let .hostPort(host, port):
+                .hostPort(host: host, port: port)
+            case let .peer(identity, hints):
+                .peer(
+                    identity: identity.endpointID,
+                    hints: hints.map { hint in
+                        Hint(
+                            kind: hint.kind.rawValue,
+                            value: hint.value,
+                            source: hint.source.rawValue,
+                            privacyScope: hint.privacyScope.rawValue,
+                            networkProfileSource: hint.networkProfile?.source.rawValue,
+                            networkProfileID: hint.networkProfile?.profileID
+                        )
+                    }
+                )
+            case let .url(url):
+                .url(url)
+            }
+            return Route(
+                id: route.id,
+                kind: route.kind.rawValue,
+                endpoint: endpoint,
+                priority: route.priority
+            )
+        }
+    }
+}
+
 @MainActor
 extension MobileShellComposite {
     /// Writes one presence instance through its paired Mac's route authority.
@@ -52,23 +117,36 @@ extension MobileShellComposite {
                     await self.loadPairedMacs()
                 }
                 guard await self.isScopeCurrent(scope) else { return }
-                let knownMacs = self.pairedMacsForIdentityMatching
-                if self.connectionState != .connected,
-                   let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID {
-                    let activeIDs = Self.macDeviceIDsForLogicalPairedMac(
-                        activeMacID,
-                        in: knownMacs,
-                        supportedKinds: self.runtime?.supportedRouteKinds ?? [],
-                        preferNonLoopback: Self.prefersNonLoopbackRoutes
-                    )
-                    let hasOnlineAuthority = activeIDs.contains { deviceID in
-                        let instanceTag = knownMacs.first { $0.macDeviceID == deviceID }?.instanceTag
-                        return self.presenceMap.reconnectRouteAuthority(
-                            deviceId: deviceID,
-                            pairedMacInstanceTag: instanceTag
-                        ) != nil
+                if self.connectionState != .connected {
+                    let reconnectEvidence = self.presenceMap
+                        .allInstancesForReconnectEvidence()
+                        .filter { $0.platform.lowercased() != "ios" }
+                        .map(MobilePresenceReconnectEvidence.init)
+                    let evidenceChanged = self.lastPresenceReconnectEvidence?.scope != scope
+                        || self.lastPresenceReconnectEvidence?.instances != reconnectEvidence
+                    self.lastPresenceReconnectEvidence = (scope, reconnectEvidence)
+                    var shouldRecover = self.personalIrohDiscovery != nil
+                    if let activeMac = self.pairedMacs.first(where: { $0.isActive }) {
+                        let activeIDs = self.pairedMacAliasIDs(
+                            for: activeMac.macDeviceID,
+                            instanceTag: activeMac.instanceTag
+                        )
+                        shouldRecover = shouldRecover || activeIDs.contains { deviceID in
+                            self.presenceMap.reconnectRouteAuthority(
+                                deviceId: deviceID,
+                                pairedMacInstanceTag: activeMac.instanceTag
+                            ) != nil
+                        }
                     }
-                    if hasOnlineAuthority {
+                    if shouldRecover {
+                        if evidenceChanged {
+                            self.clearTransientAutomaticReconnectBackoff(
+                                accountID: scope.userID
+                            )
+                        }
+                        // Presence is only a wake-up signal. The recovery pass
+                        // still obtains first-pair candidates from the
+                        // authenticated personal broker.
                         self.recoverMobileConnection(trigger: .presencePush)
                     }
                 }
@@ -85,7 +163,11 @@ extension MobileShellComposite {
     ) async -> Bool {
         guard let routes = instance.routes, await isScopeCurrent(scope) else { return false }
         let deviceId = instance.deviceId
-        guard await !isForgottenMacDeviceID(deviceId, scope: scope) else { return false }
+        guard await !isForgottenMacDeviceID(
+            deviceId,
+            instanceTag: instance.tag,
+            scope: scope
+        ) else { return false }
         if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
            let instanceIndex = registryDevices[deviceIndex].instances
                .firstIndex(where: { $0.tag == instance.tag }) {
@@ -117,7 +199,11 @@ extension MobileShellComposite {
             )
             guard wrote else { return false }
             guard await isScopeCurrent(scope) else { return true }
-            _ = await removeStoredPairedMacIfForgotten(mac.macDeviceID, scope: scope)
+            _ = await removeStoredPairedMacIfForgotten(
+                mac.macDeviceID,
+                instanceTag: mac.instanceTag,
+                scope: scope
+            )
             return true
         } catch {
             presenceRouteSyncLog.debug(

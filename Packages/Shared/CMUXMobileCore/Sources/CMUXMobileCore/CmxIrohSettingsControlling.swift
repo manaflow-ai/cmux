@@ -1,3 +1,5 @@
+public import Foundation
+
 /// Cross-platform settings boundary implemented by each app's Iroh composition root.
 @MainActor
 public protocol CmxIrohSettingsControlling: AnyObject {
@@ -24,4 +26,25 @@ public protocol CmxIrohSettingsControlling: AnyObject {
 
     /// Fetches the latest signed fleet and account preference.
     func refreshIrohSettings() async
+
+    /// Returns the bounded, credential-free connection timeline for this app process.
+    func irohDiagnosticReport() async -> DiagnosticReport
+
+    /// Exports the same bounded report without terminal contents or network identities.
+    func exportIrohDiagnosticReport() async -> Data
+
+    /// Erases the in-memory connection timeline and rotates its report session.
+    func clearIrohDiagnosticReport() async
+}
+
+public extension CmxIrohSettingsControlling {
+    func irohDiagnosticReport() async -> DiagnosticReport {
+        .empty
+    }
+
+    func exportIrohDiagnosticReport() async -> Data {
+        Data()
+    }
+
+    func clearIrohDiagnosticReport() async {}
 }

@@ -16,6 +16,8 @@ The spec version tracks the mux protocol version.
 
 Protocol v7 is the implemented baseline. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
 
+Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"bytes"`, and `subscribe.tree_events` defaults to `"coarse"`, so absent v7 selectors retain exact v6 attach and tree-event behavior. A v7 server reports `identify.protocol == 7`; clients must require that value before selecting render mode or using other v7-only fields and commands.
+
 Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
 
 ## Generation Model
@@ -32,6 +34,7 @@ The generator must preserve the wire command names, parameter names, result shap
 | --- | --- |
 | `commands.md` | Command contract, CLI mapping for each command, examples, and compatibility notes |
 | `events.md` | Subscribe and attach event payloads, ordering guarantees, and proposed filters |
+| `render.md` | Protocol-v7 authoritative styled-cell attach, deltas, scrollback, sizing guidance, and draft open questions |
 | `transports.md` | Implemented Unix socket and WebSocket transports plus proposed HTTP and SSE transports |
 | `frontends.md` | Canonical connection, synchronization, terminal streaming, and agent/notification guide for frontend authors |
 | `cli.md` | Generated `cmux-tui <verb>` conventions, exit codes, stdin rules, verb table, and examples |

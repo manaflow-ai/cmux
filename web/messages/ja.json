@@ -1644,6 +1644,8 @@
         "terminal": {
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
+          "sessionContentMaxWidth": "ターミナルと組み込みエージェントチャットのコンテンツ幅の上限をポイント単位で指定します。ペインの全幅を使うには false を設定します。",
+          "sessionContentAlignment": "sessionContentMaxWidth が有効な場合の、ターミナルと組み込みエージェントチャットの水平方向の配置です。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
           "textBoxDefaultSubmitAction": "新しいターミナルセッションで使う既定の TextBox 送信アクション ID です。通常の入力には text-entry、または設定済みアクション ID のいずれかを使います。",
@@ -2326,7 +2328,7 @@
       "whatYouGetDesc": "フック拡張により、ompはライフサイクルとセッション情報をcmuxへ報告できます：",
       "whatYouGet1": "ompのターン境界にもとづくワークスペースの実行中・アイドル状態",
       "whatYouGet2": "cmux内のターン終了通知",
-      "whatYouGet3": "閉じたペインをセッションインデックスからomp --session SESSION_IDで再開でき、フォーク時は--forkを追加できるセッション追跡",
+      "whatYouGet3": "閉じたペインをセッションインデックスからomp --session SESSION_IDで再開でき、omp --fork SESSION_IDでフォークできるセッション追跡",
       "whatYouGet4": "ompを要約モデルとして使えるワークスペース自動命名",
       "whatYouGet5": "ompプロセスのタスクマネージャ識別",
       "directories": "ディレクトリ",

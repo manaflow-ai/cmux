@@ -1721,6 +1721,8 @@
         "terminal": {
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
+          "sessionContentMaxWidth": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width.",
+          "sessionContentAlignment": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
           "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox.",
           "textBoxDefaultSubmitAction": "Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs.",
@@ -2469,7 +2471,7 @@
       "whatYouGetDesc": "The hooks extension lets omp report lifecycle and session information back to cmux:",
       "whatYouGet1": "Workspace busy and idle status from omp turn boundaries",
       "whatYouGet2": "Turn-end notifications in cmux",
-      "whatYouGet3": "Session tracking so closed panes can be resumed or forked from the session index with omp --session SESSION_ID, adding --fork for forks",
+      "whatYouGet3": "Session tracking so closed panes can be resumed from the session index with omp --session SESSION_ID or forked with omp --fork SESSION_ID",
       "whatYouGet4": "Workspace auto-naming, with omp available as the summarizer model",
       "whatYouGet5": "Task Manager process attribution for omp processes",
       "directories": "Directories",

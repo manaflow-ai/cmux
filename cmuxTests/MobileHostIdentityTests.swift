@@ -11,6 +11,45 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostIdentityTests {
+    @Test func appInstanceTagDistinguishesReleaseChannelsAndTaggedDevBuilds() {
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app"
+        ) == "default")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.nightly"
+        ) == "nightly")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.staging"
+        ) == "staging")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: ["CMUX_TAG": "future-one"],
+            bundleIdentifier: "com.cmuxterm.app.debug.future-one"
+        ) == "future-one")
+    }
+
+    @Test func irohRegistrationUsesAuthoritativeAppInstanceTag() {
+        let cases: [([String: String], String)] = [
+            ([:], "com.cmuxterm.app"),
+            ([:], "com.cmuxterm.app.nightly"),
+            ([:], "com.cmuxterm.app.staging"),
+            ([:], "com.cmuxterm.app.debug.future-one"),
+            (["CMUX_TAG": "future-two"], "com.cmuxterm.app.debug.future-two"),
+        ]
+
+        for (environment, bundleIdentifier) in cases {
+            #expect(MobileHostIrohRuntime.currentTag(
+                environment: environment,
+                bundleIdentifier: bundleIdentifier
+            ) == MobileHostIdentity.instanceTag(
+                environment: environment,
+                bundleIdentifier: bundleIdentifier
+            ))
+        }
+    }
+
     @Test func authenticatedStatusIncludesAuthoritativeInstanceTag() {
         let previousTag = ProcessInfo.processInfo.environment["CMUX_TAG"]
         setenv("CMUX_TAG", "future-one", 1)

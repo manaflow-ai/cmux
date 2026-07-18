@@ -11,7 +11,7 @@ extension AgentLaunchCommandSnapshot {
         environment: [String: String]
     ) {
         var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: launcher)
-        if launcher == "opencode",
+        if ["opencode", "pi", "omp"].contains(launcher),
            let path = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !path.isEmpty {
             selectedEnvironment["PATH"] = path
@@ -676,6 +676,7 @@ private extension CmuxVaultAgentSessionIDSource {
             guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
         case .piSessionFile:
+            let carriesForkParentFlag = registration.processArgumentsCarryForkParentFlag(process.arguments)
             if let session = process.piCompatibleSessionID {
                 let sessionId = PiSessionLocator.resolvedSessionPath(
                     session,
@@ -683,7 +684,13 @@ private extension CmuxVaultAgentSessionIDSource {
                     registration: registration,
                     fileManager: fileManager
                 ) ?? session
-                return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
+                return VaultAgentSessionIDResolution(
+                    sessionId: sessionId,
+                    source: carriesForkParentFlag ? .forkParentFallback : .explicit
+                )
+            }
+            if carriesForkParentFlag {
+                return nil
             }
             guard let sessionId = PiSessionLocator.latestSessionPath(
                 for: process,
@@ -727,6 +734,10 @@ private extension Array where Element == String {
             return value.isEmpty ? nil : value
         }
         return nil
+    }
+
+    var piCompatibleForkParentSessionID: String? {
+        nonOptionValue(afterOption: "--fork")
     }
 
     func value(afterOption option: String) -> String? {

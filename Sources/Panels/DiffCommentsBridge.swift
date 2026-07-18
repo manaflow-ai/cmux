@@ -269,3 +269,36 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
         )
     }
 }
+
+extension BrowserPanel {
+    func hasCurrentURL(_ expectedURL: String) -> Bool {
+        (webView.url ?? currentURL)?.absoluteString == expectedURL
+    }
+
+    @discardableResult
+    func navigateFromCLI(_ url: String, expectedURL: String? = nil) -> Bool {
+        guard expectedURL.map(hasCurrentURL) != false else { return false }
+        if let internalURL = URL(string: url),
+           internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
+            guard CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: internalURL) else { return false }
+            navigate(to: internalURL)
+        } else {
+            navigateSmart(url)
+        }
+        return true
+    }
+}
+
+extension CmuxDiffViewerURLSchemeHandler {
+    func allowsNavigation(to url: URL) -> Bool {
+        guard url.scheme == Self.scheme,
+              url.user == nil,
+              url.password == nil,
+              url.port == nil,
+              url.query == nil,
+              url.fragment == nil else {
+            return false
+        }
+        return registeredFile(for: url) != nil
+    }
+}

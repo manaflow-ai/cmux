@@ -87,6 +87,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
+    let onContextMenuAppear: () -> Void
+    let onContextMenuDisappear: () -> Void
 
     @State private var contextMenuVisible = false
 
@@ -226,9 +228,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
                 .onAppear {
                     contextMenuVisible = true
+                    onContextMenuAppear()
                 }
                 .onDisappear {
                     contextMenuVisible = false
+                    onContextMenuDisappear()
                 }
                 if !cwdContextMenuItems.isEmpty {
                     Divider()
@@ -306,9 +310,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             )
             .onAppear {
                 contextMenuVisible = true
+                onContextMenuAppear()
             }
             .onDisappear {
                 contextMenuVisible = false
+                onContextMenuDisappear()
             }
             Divider()
             Button(

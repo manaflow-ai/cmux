@@ -22,6 +22,9 @@ let package = Package(
             dependencies: [
                 .product(name: "Bonsplit", package: "bonsplit"),
             ],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

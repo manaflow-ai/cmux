@@ -1,5 +1,6 @@
-import CmuxRemoteSession
+import AppKit
 import Bonsplit
+import CmuxRemoteSession
 import Foundation
 
 @MainActor
@@ -605,7 +606,7 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     ) -> Bool {
         guard !isApplyingRemoteLayout else { return true }
         if let tmuxPane = paneIdByBonsplitPane[pane] {
-            _ = requestSplit(fromPane: tmuxPane, vertical: orientation == .vertical)
+            _ = requestSplit(fromPane: tmuxPane, vertical: orientation == .vertical, focusIntent: .focusCreatedPane)
         }
         return false
     }
@@ -627,6 +628,10 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     }
 
     func splitTabBarDividerDragDidBegin(_ controller: BonsplitController) {
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+            owner: controller,
+            in: NSApp.currentEvent?.window ?? visibleHostingContext()?.window
+        )
         dividerResizeSentSinceDragBegan = false
         // An imposition that moved a divider parks its baseline at nil,
         // waiting for a post-layout geometry callback to record the clamped
@@ -651,6 +656,7 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     }
 
     func splitTabBarDividerDragDidEnd(_ controller: BonsplitController) {
+        defer { TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: controller) }
         // A drag ending while a remote layout is being applied cannot run the
         // divider sync mid-apply: the apply is rewriting the tree this send
         // would diff against. Skipping the send outright loses the user's final

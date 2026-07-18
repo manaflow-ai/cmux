@@ -272,7 +272,7 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        let clearResult = mobileChatClearPrompt(terminalPanel)
+        let clearResult = clearAgentPrompt(terminalPanel)
         guard clearResult.accepted else {
             return mobileChatInputError(clearResult)
         }
@@ -317,18 +317,6 @@ extension TerminalController {
         var pasteParams = terminalParams
         pasteParams["text"] = text
         return v2MobileTerminalPaste(params: pasteParams)
-    }
-
-    /// Clears any stale text already sitting in the agent's terminal prompt
-    /// before the mobile chat prompt is pasted and submitted.
-    private func mobileChatClearPrompt(_ terminalPanel: TerminalPanel) -> TerminalSurface.NamedKeySendResult {
-        var latestAccepted: TerminalSurface.NamedKeySendResult = .sent
-        for keyName in ["ctrl+a", "ctrl+k", "ctrl+u"] {
-            let result = terminalPanel.sendNamedKeyResult(keyName)
-            guard result.accepted else { return result }
-            latestAccepted = result
-        }
-        return latestAccepted
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
