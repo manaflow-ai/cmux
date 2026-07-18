@@ -486,6 +486,73 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(output["commands"] as? [String], ["session-start", "session-end"])
     }
 
+    func testOpenCodeDisposeCompactsSameSessionBacklogToFinalOutcome() throws {
+        let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
+            "payload=\"$(cat)\"",
+            "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+            "if [ \"$3\" = \"session-start\" ]; then sleep 1; fi",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
+        var environment = fixture.environment
+        environment["TEST_HOOK_CAPTURE"] = capture.path
+        let harness = fixture.root.appendingPathComponent("dispose-compact.mjs", isDirectory: false)
+        try """
+        import fs from "node:fs";
+        import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
+
+        const hooks = await plugin({ directory: process.cwd() });
+        const info = { id: "session-dispose-compact", directory: process.cwd() };
+        const captureLines = () => fs.existsSync(process.env.TEST_HOOK_CAPTURE)
+          ? fs.readFileSync(process.env.TEST_HOOK_CAPTURE, "utf8").trim().split("\\n").filter(Boolean)
+          : [];
+        const waitForFirstHook = new Promise((resolve, reject) => {
+          if (captureLines().length > 0) return resolve();
+          const watcher = fs.watch(\(javaScriptString(fixture.root.path)), () => {
+            if (captureLines().length === 0) return;
+            watcher.close();
+            clearTimeout(timeout);
+            resolve();
+          });
+          const timeout = setTimeout(() => {
+            watcher.close();
+            reject(new Error("first hook did not start"));
+          }, 2000);
+        });
+
+        await hooks.event({ event: { type: "session.created", properties: { info } } });
+        await waitForFirstHook;
+        for (let index = 0; index < 128; index += 1) {
+          await hooks.event({ event: { type: "session.deleted", properties: { info } } });
+          await hooks.event({ event: { type: "session.created", properties: { info } } });
+        }
+        await hooks.event({ event: { type: "session.deleted", properties: { info } } });
+
+        const startedAt = performance.now();
+        await hooks.dispose();
+        const elapsedMilliseconds = performance.now() - startedAt;
+        const commands = captureLines().map((line) => line.split("|", 1)[0]);
+        console.log(JSON.stringify({ elapsedMilliseconds, commands }));
+        """.write(to: harness, atomically: true, encoding: .utf8)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["node", harness.path],
+            environment: environment,
+            timeout: 4
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let output = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let elapsedMilliseconds = try XCTUnwrap(output["elapsedMilliseconds"] as? Double)
+        XCTAssertLessThan(elapsedMilliseconds, 2_500, "dispose serialized the same-session backlog")
+        XCTAssertEqual(output["commands"] as? [String], ["session-start", "session-end"])
+    }
+
     func testOpenCodeNaturalExitDrainsQueuedLifecycleHooks() throws {
         let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
             "payload=\"$(cat)\"",
