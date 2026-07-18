@@ -60,12 +60,19 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
         let suiteName = "SidebarWorkspaceContextMenuWindowTargetsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspace = SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot()
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
         return SidebarWorkspaceRowSnapshot(
             workspaceId: UUID(),
             groupId: nil,
             index: 0,
             workspaceCount: 1,
-            workspace: SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(),
+            workspace: workspace,
+            content: SidebarWorkspaceRowContentModel(
+                workspace: workspace,
+                settings: settings,
+                latestNotificationText: nil
+            ),
             isActive: true,
             isMultiSelected: false,
             hasUserCustomTitle: false,
@@ -85,7 +92,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
             isBonsplitWorkspaceDropActive: false,
-            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            settings: settings,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
             isChecklistPopoverPresented: false,

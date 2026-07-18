@@ -208,12 +208,18 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
         remoteState: WorkspaceRemoteConnectionState,
         settings: SidebarTabItemSettingsSnapshot
     ) -> SidebarWorkspaceRowInput {
-        SidebarWorkspaceRowInput(
+        let workspace = SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot()
+        return SidebarWorkspaceRowInput(
             workspaceId: workspaceId,
             groupId: groupId,
             index: 0,
             workspaceCount: 3,
-            workspace: SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(),
+            workspace: workspace,
+            content: SidebarWorkspaceRowContentModel(
+                workspace: workspace,
+                settings: settings,
+                latestNotificationText: nil
+            ),
             isActive: false,
             isMultiSelected: isMultiSelected,
             hasUserCustomTitle: false,
