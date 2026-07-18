@@ -424,7 +424,8 @@ final class BrowserWebExtensionsManager: NSObject {
         activePanelID: @escaping @MainActor () -> UUID?,
         focusPriority: @escaping @MainActor () -> Int = { 0 },
         focusPanel: @escaping @MainActor (UUID) -> Void,
-        orderedPanelIDs: @escaping @MainActor () -> [UUID] = { [] }
+        orderedPanelIDs: @escaping @MainActor () -> [UUID] = { [] },
+        createTab: @escaping @MainActor (URL?, Int, Bool, Bool) -> BrowserPanel? = { _, _, _, _ in nil }
     ) {
         if tabAdapters[panel.id] != nil { return }
 
@@ -437,7 +438,8 @@ final class BrowserWebExtensionsManager: NSObject {
                 activePanelID: activePanelID,
                 focusPriority: focusPriority,
                 focusPanel: focusPanel,
-                orderedPanelIDs: orderedPanelIDs
+                orderedPanelIDs: orderedPanelIDs,
+                createTab: createTab
             )
             windowAdapters[ownerID] = windowAdapter
             controller.didOpenWindow(windowAdapter)
@@ -477,7 +479,8 @@ final class BrowserWebExtensionsManager: NSObject {
         activePanelID: @MainActor () -> UUID?,
         focusPriority: @MainActor () -> Int,
         focusPanel: @MainActor (UUID) -> Void,
-        orderedPanelIDs: @MainActor () -> [UUID]
+        orderedPanelIDs: @MainActor () -> [UUID],
+        createTab: @MainActor (URL?, Int, Bool, Bool) -> BrowserPanel?
     )? {
         guard let windowAdapter = tabAdapters[panelID]?.windowAdapter else { return nil }
         return (
@@ -485,7 +488,8 @@ final class BrowserWebExtensionsManager: NSObject {
             windowAdapter.activePanelID,
             windowAdapter.focusPriority,
             windowAdapter.focusPanel,
-            windowAdapter.orderedPanelIDs
+            windowAdapter.orderedPanelIDs,
+            windowAdapter.createTab
         )
     }
 
@@ -727,6 +731,28 @@ final class BrowserWebExtensionsManager: NSObject {
                     "loading": webView.isLoading,
                 ]
             }
+        ]
+    }
+
+    func performAction(matching identifier: String, panelID: UUID) throws -> [String: Any] {
+        guard let context = matchingContexts(identifier).first else {
+            throw BrowserWebExtensionDiagnosticsError.extensionNotFound(identifier)
+        }
+        guard let panel = tabAdapters[panelID]?.panel else {
+            throw BrowserWebExtensionDiagnosticsError.tabUnavailable
+        }
+        guard performAction(
+            uniqueIdentifier: context.uniqueIdentifier,
+            in: panel,
+            anchorView: nil
+        ) else {
+            throw BrowserWebExtensionActionError.unavailable
+        }
+        return [
+            "performed": true,
+            "extension_id": context.uniqueIdentifier,
+            "extension_name": context.webExtension.displayName ?? context.uniqueIdentifier,
+            "panel_id": panelID.uuidString,
         ]
     }
 
@@ -987,6 +1013,29 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
 
     func webExtensionController(
         _ controller: WKWebExtensionController,
+        openNewTabUsing configuration: WKWebExtension.TabConfiguration,
+        for extensionContext: WKWebExtensionContext,
+        completionHandler: @escaping ((any WKWebExtensionTab)?, (any Error)?) -> Void
+    ) {
+        let windowAdapter = (configuration.window as? BrowserWebExtensionWindowAdapter)
+            ?? focusedWindowAdapter()
+            ?? orderedWindowAdapters().first
+        guard let windowAdapter,
+              let panel = windowAdapter.createTab(
+                configuration.url,
+                configuration.index,
+                configuration.shouldBeActive,
+                configuration.shouldAddToSelection
+              ),
+              let tabAdapter = tabAdapters[panel.id] else {
+            completionHandler(nil, BrowserWebExtensionNewTabError.creationFailed)
+            return
+        }
+        completionHandler(tabAdapter, nil)
+    }
+
+    func webExtensionController(
+        _ controller: WKWebExtensionController,
         presentActionPopup action: WKWebExtension.Action,
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping ((any Error)?) -> Void
@@ -1132,11 +1181,24 @@ private struct BrowserWebExtensionApprovalValidationError: LocalizedError {
 @available(macOS 15.4, *)
 private enum BrowserWebExtensionActionError: LocalizedError {
     case missingPopupAnchor
+    case unavailable
 
     var errorDescription: String? {
         String(
             localized: "browser.extensions.action.unavailable",
             defaultValue: "The extension action could not be shown."
+        )
+    }
+}
+
+@available(macOS 15.4, *)
+private enum BrowserWebExtensionNewTabError: LocalizedError {
+    case creationFailed
+
+    var errorDescription: String? {
+        String(
+            localized: "browser.extensions.error.openTabFailed",
+            defaultValue: "The extension could not open a browser tab."
         )
     }
 }
@@ -1156,6 +1218,7 @@ private enum BrowserWebExtensionToolbarPinError: LocalizedError {
 @available(macOS 15.4, *)
 private enum BrowserWebExtensionDiagnosticsError: LocalizedError {
     case extensionNotFound(String)
+    case tabUnavailable
     case webViewNotFound(String)
     case popupNotOpen(String)
     case debugBuildRequired
@@ -1169,6 +1232,11 @@ private enum BrowserWebExtensionDiagnosticsError: LocalizedError {
                     defaultValue: "Extension not found: %@"
                 ),
                 identifier
+            )
+        case .tabUnavailable:
+            return String(
+                localized: "browser.extensions.error.tabUnavailable",
+                defaultValue: "The browser tab is no longer available."
             )
         case .webViewNotFound(let identifier):
             return String.localizedStringWithFormat(

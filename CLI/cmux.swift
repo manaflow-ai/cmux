@@ -13699,6 +13699,14 @@ struct CMUXCLI {
                     fileURLWithPath: (rawPath as NSString).expandingTildeInPath
                 ).standardizedFileURL.path
                 method = "browser.extensions.add"
+            case "action", "run":
+                guard let extensionOpt, !extensionOpt.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.extensions.error.actionIdentifierRequired",
+                        defaultValue: "browser extensions action requires --extension <id-or-name>"
+                    ))
+                }
+                method = "browser.extensions.action"
             case "errors":
                 method = "browser.extensions.errors"
             case "webviews":
@@ -13730,12 +13738,12 @@ struct CMUXCLI {
                 throw CLIError(
                     message: String(
                         localized: "cli.browser.extensions.error.unsupportedSubcommand",
-                        defaultValue: "Unsupported browser extensions subcommand: \(verb) (expected: show, list, add, errors, webviews, eval, console)"
+                        defaultValue: "Unsupported browser extensions subcommand: \(verb) (expected: show, list, add, action, errors, webviews, eval, console)"
                     )
                 )
             }
             let payload = try client.sendV2(method: method, params: params)
-            if ["list", "errors", "webviews", "eval", "console"].contains(verb) {
+            if ["list", "action", "run", "errors", "webviews", "eval", "console"].contains(verb) {
                 print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
                 output(payload, fallback: "OK")
@@ -17001,6 +17009,7 @@ struct CMUXCLI {
               \(String(localized: "cli.browser.help.extensionsShow", defaultValue: "extensions show [--surface <id>]"))
               \(String(localized: "cli.browser.help.extensionsList", defaultValue: "extensions list [--surface <id>]"))
               \(String(localized: "cli.browser.help.extensionsAdd", defaultValue: "extensions add <folder-or-zip> [--surface <id>]"))
+              \(String(localized: "cli.browser.help.extensionsAction", defaultValue: "extensions action --extension <id-or-name> [--surface <id>]"))
               \(String(localized: "cli.browser.help.extensionsErrors", defaultValue: "extensions errors [--extension <id-or-name>] [--surface <id>]"))
               \(String(localized: "cli.browser.help.extensionsWebViews", defaultValue: "extensions webviews [--extension <id-or-name>] [--surface <id>]"))
               \(String(localized: "cli.browser.help.extensionsEval", defaultValue: "extensions eval --extension <id-or-name> [--webview <id>] --script <javascript> [--surface <id>]"))
@@ -35428,6 +35437,7 @@ export default CMUXSessionRestore;
           browser \(String(localized: "cli.browser.help.extensionsShow", defaultValue: "extensions show [--surface <id>]"))
           browser \(String(localized: "cli.browser.help.extensionsList", defaultValue: "extensions list [--surface <id>]"))
           browser \(String(localized: "cli.browser.help.extensionsAdd", defaultValue: "extensions add <folder-or-zip> [--surface <id>]"))
+          browser \(String(localized: "cli.browser.help.extensionsAction", defaultValue: "extensions action --extension <id-or-name> [--surface <id>]"))
           browser \(String(localized: "cli.browser.help.extensionsErrors", defaultValue: "extensions errors [--extension <id-or-name>] [--surface <id>]"))
           browser \(String(localized: "cli.browser.help.extensionsWebViews", defaultValue: "extensions webviews [--extension <id-or-name>] [--surface <id>]"))
           browser \(String(localized: "cli.browser.help.extensionsEval", defaultValue: "extensions eval --extension <id-or-name> [--webview <id>] --script <javascript> [--surface <id>]"))

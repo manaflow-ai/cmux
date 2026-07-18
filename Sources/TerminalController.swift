@@ -1209,7 +1209,7 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
-        case "browser.extensions.list", "browser.extensions.add", "browser.extensions.errors",
+        case "browser.extensions.list", "browser.extensions.add", "browser.extensions.action", "browser.extensions.errors",
              "browser.extensions.webviews", "browser.extensions.eval", "browser.extensions.console":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 120) { [weak self] in
                 guard let self else {
@@ -2481,6 +2481,7 @@ class TerminalController {
             "browser.extensions.show",
             "browser.extensions.list",
             "browser.extensions.add",
+            "browser.extensions.action",
             "browser.extensions.errors",
             "browser.extensions.webviews",
             "browser.extensions.eval",
@@ -8273,6 +8274,32 @@ class TerminalController {
                     data: nil
                 )
 #endif
+            case "browser.extensions.action":
+                guard let identifier, !identifier.isEmpty else {
+                    return .err(
+                        code: "invalid_request",
+                        message: String(
+                            localized: "cli.browser.extensions.error.actionIdentifierRequired",
+                            defaultValue: "Missing extension identifier"
+                        ),
+                        data: nil
+                    )
+                }
+                guard let panelID = target.surfaceID else {
+                    return .err(
+                        code: "invalid_request",
+                        message: String(
+                            localized: "cli.browser.extensions.error.actionSurfaceRequired",
+                            defaultValue: "Extension actions require a browser surface"
+                        ),
+                        data: nil
+                    )
+                }
+                return .ok(try await browserServices.performWebExtensionAction(
+                    matching: identifier,
+                    panelID: panelID,
+                    profileID: profileID
+                ))
             case "browser.extensions.errors":
                 return .ok(try await browserServices.webExtensionDiagnostics(
                     profileID: profileID,

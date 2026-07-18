@@ -181,6 +181,25 @@ final class BrowserServices {
         return payload
     }
 
+    func performWebExtensionAction(
+        matching identifier: String,
+        panelID: UUID,
+        profileID: UUID
+    ) async throws -> [String: Any] {
+        guard #available(macOS 15.4, *) else {
+            throw BrowserWebExtensionServiceError.unsupported
+        }
+        let webExtensionsManager = webExtensionsManager(for: profileID)
+        webExtensionsManager.startLoading()
+        await webExtensionsManager.waitUntilPresentationReady()
+        var payload = try webExtensionsManager.performAction(
+            matching: identifier,
+            panelID: panelID
+        )
+        payload["profile_id"] = profileID.uuidString
+        return payload
+    }
+
     func evaluateWebExtensionJavaScript(
         _ script: String,
         matching identifier: String,
@@ -237,7 +256,32 @@ final class BrowserServices {
                 return 2
             },
             focusPanel: { [weak workspace] panelID in workspace?.focusPanel(panelID) },
-            orderedPanelIDs: { [weak workspace] in workspace?.orderedPanelIds ?? [] }
+            orderedPanelIDs: { [weak workspace] in workspace?.orderedPanelIds ?? [] },
+            createTab: { [weak workspace, weak panel] url, index, shouldBeActive, shouldAddToSelection in
+                guard let workspace, let panel else { return nil }
+                let previousFocusedPanelID = workspace.focusedPanelId
+                let anchorPanelID = previousFocusedPanelID ?? panel.id
+                guard let paneID = workspace.paneId(forPanelId: anchorPanelID),
+                      let newPanel = workspace.newBrowserSurface(
+                        inPane: paneID,
+                        url: url,
+                        focus: shouldBeActive,
+                        selectWhenNotFocused: shouldAddToSelection,
+                        insertAtEnd: true,
+                        preferredProfileID: panel.profileID
+                      ) else { return nil }
+                if index != NSNotFound {
+                    _ = workspace.reorderSurface(
+                        panelId: newPanel.id,
+                        toIndex: index,
+                        focus: shouldBeActive
+                    )
+                }
+                if !shouldBeActive, let previousFocusedPanelID {
+                    workspace.focusPanel(previousFocusedPanelID)
+                }
+                return newPanel
+            }
         )
     }
 
@@ -264,6 +308,29 @@ final class BrowserServices {
             orderedPanelIDs: { [weak dock] in
                 guard let dock else { return [] }
                 return dock.bonsplitController.allTabIds.compactMap { dock.panel(for: $0)?.id }
+            },
+            createTab: { [weak dock, weak panel] url, index, shouldBeActive, shouldAddToSelection in
+                guard let dock, let panel else { return nil }
+                let shouldFocus = shouldBeActive || shouldAddToSelection
+                let previousSelection = shouldFocus ? nil : dock.focusedDockPaneSelection()
+                let anchorPanelID = dock.focusedPanelId ?? panel.id
+                guard let paneID = dock.paneId(forPanelId: anchorPanelID),
+                      let newPanelID = dock.newSurface(
+                        kind: .browser,
+                        inPane: paneID,
+                        url: url,
+                        focus: shouldFocus,
+                        preferredProfileID: panel.profileID
+                      ),
+                      let newPanel = dock.browserPanel(for: newPanelID) else { return nil }
+                if index != NSNotFound,
+                   let tabID = dock.surfaceId(forPanelId: newPanelID) {
+                    _ = dock.bonsplitController.reorderTab(tabID, toIndex: index)
+                }
+                if !shouldFocus {
+                    dock.restoreDockPaneSelection(previousSelection)
+                }
+                return newPanel
             }
         )
     }
@@ -294,7 +361,8 @@ final class BrowserServices {
             activePanelID: owner.activePanelID,
             focusPriority: owner.focusPriority,
             focusPanel: owner.focusPanel,
-            orderedPanelIDs: owner.orderedPanelIDs
+            orderedPanelIDs: owner.orderedPanelIDs,
+            createTab: owner.createTab
         )
         manager.startLoading()
     }
@@ -374,7 +442,8 @@ final class BrowserServices {
         activePanelID: @escaping @MainActor () -> UUID?,
         focusPriority: @escaping @MainActor () -> Int,
         focusPanel: @escaping @MainActor (UUID) -> Void,
-        orderedPanelIDs: @escaping @MainActor () -> [UUID]
+        orderedPanelIDs: @escaping @MainActor () -> [UUID],
+        createTab: @escaping @MainActor (URL?, Int, Bool, Bool) -> BrowserPanel?
     ) {
         guard #available(macOS 15.4, *) else { return }
         if let previousProfileID = registeredPanelProfileIDs[panel.id],
@@ -392,7 +461,8 @@ final class BrowserServices {
             activePanelID: activePanelID,
             focusPriority: focusPriority,
             focusPanel: focusPanel,
-            orderedPanelIDs: orderedPanelIDs
+            orderedPanelIDs: orderedPanelIDs,
+            createTab: createTab
         )
         manager.startLoading()
     }
