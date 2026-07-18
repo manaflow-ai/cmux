@@ -176,6 +176,63 @@ import Testing
         #expect(paneCount.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "3")
     }
 
+    /// Live: creating a session anywhere on the server must reach
+    /// `onSessionsChanged` observers on an already-attached control connection —
+    /// the notification the controller's session-set reconcile (auto-mirroring
+    /// of new sessions) is keyed on.
+    @Test func sessionsChangedNotificationReachesObservers() async throws {
+        guard Self.tmuxInstalled() else { return }
+
+        let root = URL(
+            fileURLWithPath: "/tmp/cmux-lt-\(UUID().uuidString.prefix(8))",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let previousTmpdir = getenv("TMUX_TMPDIR").map { String(cString: $0) }
+        setenv("TMUX_TMPDIR", root.path, 1)
+        // LIFO: restore the env AFTER kill-server so the kill targets the
+        // isolated server, never the user's real one.
+        defer {
+            if let previousTmpdir {
+                setenv("TMUX_TMPDIR", previousTmpdir, 1)
+            } else {
+                unsetenv("TMUX_TMPDIR")
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+        defer { Self.runTmuxSynchronously(["kill-server"]) }
+        let session = "cmux-local-sesschange"
+        let transport = RemoteTmuxSSHTransport(host: .local)
+
+        let created = try await transport.runTmux([
+            "new-session", "-d", "-s", session, "-x", "120", "-y", "30",
+        ])
+        try #require(created.succeeded, Comment(rawValue: created.stderr))
+
+        let connection = RemoteTmuxControlConnection(host: .local, sessionName: session)
+        defer { connection.stop() }
+        try connection.start()
+        let connected = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { @MainActor in await connection.waitUntilConnected() }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(20))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        try #require(connected, "local tmux -CC control stream never reached %enter")
+
+        var fired = false
+        let token = connection.addObserver(onSessionsChanged: { fired = true })
+        defer { connection.removeObserver(token) }
+
+        let sibling = try await transport.runTmux(["new-session", "-d", "-s", session + "-b"])
+        try #require(sibling.succeeded, Comment(rawValue: sibling.stderr))
+        try await waitUntil("%sessions-changed reaches observers") { fired }
+    }
+
     /// Synchronous tmux one-shot for `defer` cleanup (a `defer` cannot await,
     /// and an escaped async cleanup would outlive the test's env restoration).
     /// Inherits the live process environment, TMUX_TMPDIR included.

@@ -31,6 +31,19 @@ final class RemoteTmuxController {
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
 
+    /// Debounce for `%sessions-changed`-driven session-set reconciles, keyed by
+    /// host `connectionHash`. Every live control client on a server receives the
+    /// broadcast at once, so N mirrored sessions schedule N reconciles — the
+    /// per-host task collapses them into one discovery pass.
+    var sessionSetReconcileTasks: [String: Task<Void, Never>] = [:]
+
+    /// The session ids (`$N`) last seen by discovery, keyed by host
+    /// `connectionHash`. The `%sessions-changed` reconcile mirrors only sessions
+    /// NEW relative to this set — never sessions the user saw and chose to leave
+    /// unmirrored (e.g. a workspace detached-but-kept-open), which an
+    /// unconditional re-mirror would resurrect as a duplicate workspace.
+    var discoveredSessionIdsByHost: [String: Set<String>] = [:]
+
     init() {}
 
     /// Synchronous read of the `remoteTmux` beta flag for AppKit/socket paths
@@ -168,6 +181,10 @@ final class RemoteTmuxController {
                     oldName: oldName,
                     newName: newName
                 )
+            },
+            onSessionsChanged: { [weak self, weak connection] in
+                guard let self, let connection else { return }
+                self.scheduleSessionSetReconcile(host: connection.host)
             }
         )
     }

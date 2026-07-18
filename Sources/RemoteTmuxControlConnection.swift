@@ -845,6 +845,10 @@ final class RemoteTmuxControlConnection {
             applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
+            // The server-wide session set changed (created/destroyed session,
+            // possibly out-of-band). Consumers (the controller) reconcile the
+            // mirrored-session set against fresh discovery.
+            observers.notifySessionsChanged()
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()

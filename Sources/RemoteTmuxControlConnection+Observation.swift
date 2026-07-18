@@ -45,6 +45,9 @@ extension RemoteTmuxControlConnection {
     ///     (e.g. the active pane's directory) onto the window's tab.
     ///   - onSessionChanged: fires when tmux confirms a session name change via
     ///     `%session-changed` or `%session-renamed`.
+    ///   - onSessionsChanged: fires on `%sessions-changed` — the server-wide
+    ///     session SET changed (a session was created or destroyed anywhere on
+    ///     the server, not necessarily this connection's session).
     ///   - onTopologyChanged: fires when the window/pane topology changes.
     ///   - onReconnectReady: fires after reconnect attach drainage and reseeding,
     ///     when observers may safely schedule commands against fresh topology.
@@ -61,6 +64,7 @@ extension RemoteTmuxControlConnection {
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
+        onSessionsChanged: (() -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
         onReconnectReady: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil,
@@ -72,6 +76,7 @@ extension RemoteTmuxControlConnection {
             onPaneReflow: onPaneReflow,
             onActivePaneChanged: onActivePaneChanged,
             onSessionChanged: onSessionChanged,
+            onSessionsChanged: onSessionsChanged,
             onTopologyChanged: onTopologyChanged,
             onReconnectReady: onReconnectReady,
             onExit: onExit,

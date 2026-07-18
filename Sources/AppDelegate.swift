@@ -7343,6 +7343,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // In a window whose selected workspace mirrors the local tmux server, a
+        // plain New Workspace becomes a real tmux session (mirrored, two-way
+        // synced) — the workspace-level counterpart of in-mirror new-tab →
+        // `new-window` routing. Checked after the configured override (an
+        // explicit user override wins) and only for the plain terminal variant.
+        if initialSurface == .terminal,
+           let manager = context?.tabManager ?? preferredTabManager,
+           remoteTmuxController.routeNewWorkspaceToLocalTmux(in: manager) {
+            return true
+        }
+
         if let context, let workspaceGroupTarget {
             guard let workspace = context.tabManager.createWorkspaceInGroup(
                 groupId: workspaceGroupTarget.groupId,
@@ -15366,7 +15377,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .builtIn(let builtIn):
             switch builtIn {
             case .newWorkspace:
-                context.tabManager.addWorkspace()
+                if !remoteTmuxController.routeNewWorkspaceToLocalTmux(in: context.tabManager) {
+                    context.tabManager.addWorkspace()
+                }
                 onExecuted?()
                 return true
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
