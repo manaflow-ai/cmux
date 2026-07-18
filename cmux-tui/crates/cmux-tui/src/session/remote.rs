@@ -375,6 +375,7 @@ pub struct RemoteSession {
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
     subscription_recovery_in_flight: AtomicBool,
+    subscription_recovery_generation: AtomicU64,
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
@@ -408,6 +409,7 @@ impl RemoteSession {
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_recovery_in_flight: AtomicBool::new(false),
+            subscription_recovery_generation: AtomicU64::new(0),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
@@ -759,6 +761,7 @@ impl RemoteSession {
     }
 
     fn start_subscription_recovery(self: &Arc<Self>) {
+        self.subscription_recovery_generation.fetch_add(1, Ordering::AcqRel);
         if self.subscription_recovery_in_flight.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -766,28 +769,60 @@ impl RemoteSession {
         let session = self.clone();
         let spawn =
             std::thread::Builder::new().name("remote-resubscribe".into()).spawn(move || {
-                let first = session.request(json!({"cmd": "subscribe"}));
-                let result = match first {
-                    Err(error) if Self::subscription_recovery_is_retryable(&error) => {
-                        session.request(json!({"cmd": "subscribe"}))
-                    }
-                    result => result,
-                };
-                session.subscription_recovery_in_flight.store(false, Ordering::Release);
-                match result {
-                    Ok(_) => {
-                        session.emit(MuxEvent::Status(
-                            "event subscription overflowed; resubscribed".to_string(),
-                        ));
-                        session.emit(MuxEvent::TreeChanged);
-                        session.emit(MuxEvent::ClientListInvalidated);
-                    }
-                    Err(error) => {
+                loop {
+                    let recovery_generation =
+                        session.subscription_recovery_generation.load(Ordering::Acquire);
+                    let first = session.request(json!({"cmd": "subscribe"}));
+                    let result = match first {
+                        Err(error) if Self::subscription_recovery_is_retryable(&error) => {
+                            session.request(json!({"cmd": "subscribe"}))
+                        }
+                        result => result,
+                    };
+                    if let Err(error) = result {
+                        if session.subscription_recovery_generation.load(Ordering::Acquire)
+                            != recovery_generation
+                        {
+                            continue;
+                        }
+                        session.subscription_recovery_in_flight.store(false, Ordering::Release);
+                        if session.subscription_recovery_generation.load(Ordering::Acquire)
+                            != recovery_generation
+                        {
+                            if !session.subscription_recovery_in_flight.swap(true, Ordering::AcqRel)
+                            {
+                                continue;
+                            }
+                            return;
+                        }
                         session.emit(MuxEvent::Status(format!(
                             "event subscription overflowed; resubscribe failed: {error}"
                         )));
                         session.emit(MuxEvent::Empty);
+                        return;
                     }
+                    if session.subscription_recovery_generation.load(Ordering::Acquire)
+                        != recovery_generation
+                    {
+                        continue;
+                    }
+
+                    session.subscription_recovery_in_flight.store(false, Ordering::Release);
+                    if session.subscription_recovery_generation.load(Ordering::Acquire)
+                        != recovery_generation
+                    {
+                        if !session.subscription_recovery_in_flight.swap(true, Ordering::AcqRel) {
+                            continue;
+                        }
+                        return;
+                    }
+
+                    session.emit(MuxEvent::Status(
+                        "event subscription overflowed; resubscribed".to_string(),
+                    ));
+                    session.emit(MuxEvent::TreeChanged);
+                    session.emit(MuxEvent::ClientListInvalidated);
+                    return;
                 }
             });
         if let Err(error) = spawn {
@@ -1240,6 +1275,7 @@ mod tests {
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_recovery_in_flight: AtomicBool::new(false),
+            subscription_recovery_generation: AtomicU64::new(0),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
@@ -1754,6 +1790,42 @@ mod tests {
             }
         }
         assert!(saw_status);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn subscription_overflow_during_recovery_forces_another_resubscribe() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        let mut server = BufReader::new(server);
+
+        session.handle_line(json!({"event": "overflow", "error": "first stream overflow"}));
+        let mut line = String::new();
+        server.read_line(&mut line).unwrap();
+        let first: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(first.get("cmd").and_then(Value::as_str), Some("subscribe"));
+
+        session.handle_line(json!({"event": "overflow", "error": "replacement overflow"}));
+        session.handle_line(json!({"id": first["id"], "ok": true, "data": {}}));
+
+        line.clear();
+        server.read_line(&mut line).unwrap();
+        let second: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(second.get("cmd").and_then(Value::as_str), Some("subscribe"));
+        assert_ne!(second["id"], first["id"]);
+        session.handle_line(json!({"id": second["id"], "ok": true, "data": {}}));
+
+        loop {
+            if matches!(
+                events.recv_timeout(Duration::from_secs(1)).unwrap(),
+                MuxEvent::ClientListInvalidated
+            ) {
+                break;
+            }
+        }
+        assert!(!session.subscription_recovery_in_flight.load(Ordering::Acquire));
+        assert_eq!(session.subscription_recovery_generation.load(Ordering::Acquire), 2);
     }
 
     #[cfg(unix)]
