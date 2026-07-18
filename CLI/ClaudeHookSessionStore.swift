@@ -1674,8 +1674,29 @@ final class ClaudeHookSessionStore {
             surfaceID: surfaceID
         ) { state in
             backfillSurfaceActiveSlots(&state)
+            canonicalizeSessionRunsForMutation(&state, sessionID: sessionID)
             return try body(&state)
         }.result
+    }
+
+    private func canonicalizeSessionRunsForMutation(
+        _ state: inout ClaudeHookSessionStoreFile,
+        sessionID: String
+    ) {
+        guard var record = state.sessions[sessionID], record.runs?.isEmpty == false else { return }
+        let canonicalizer = AgentSessionRunCanonicalizer()
+        let runs = canonicalizer.runs(record: record, provider: agentName)
+        let projectedRun = canonicalizer.projectedRun(
+            canonicalRuns: runs,
+            activeRunID: record.activeRunId
+        )
+        record.runs = runs
+        record.runId = projectedRun.runId
+        record.parentRunId = projectedRun.parentRunId
+        record.parentSessionId = projectedRun.parentSessionId
+        record.relationship = projectedRun.relationship
+        record.restoreAuthority = projectedRun.restoreAuthority
+        state.sessions[sessionID] = record
     }
 
     private func withSessionSnapshot<T>(

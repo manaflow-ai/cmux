@@ -454,9 +454,10 @@ extension CMUXCLI {
                        run.identityConflict != true,
                        !activeForWorkspace,
                        !activeForSurface {
-                        legacyRecordRestorable = agentHookRecordIsRestorable(
+                        legacyRecordRestorable = agentHookRunIsRestorable(
                             agent: spec.name,
                             record: record,
+                            run: run,
                             claudeTranscriptLookup: claudeTranscriptLookup
                         )
                     } else {
@@ -575,9 +576,10 @@ extension CMUXCLI {
                    projectedRun.identityConflict != true,
                    !activeForWorkspace,
                    !activeForSurface {
-                    legacyRecordRestorable = agentHookRecordIsRestorable(
+                    legacyRecordRestorable = agentHookRunIsRestorable(
                         agent: spec.name,
                         record: record,
+                        run: projectedRun,
                         claudeTranscriptLookup: claudeTranscriptLookup
                     )
                 } else {

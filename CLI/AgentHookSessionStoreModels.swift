@@ -157,13 +157,14 @@ struct AgentPromptStopLineagePolicy: Sendable {
         }
 
         if let activeRunId = record.activeRunId {
-            let activeRuns = (record.runs ?? []).filter {
-                $0.runId == activeRunId && $0.endedAt == nil
-            }
-            guard activeRuns.count <= 1 else {
+            let matchingRuns = (record.runs ?? []).filter { $0.runId == activeRunId }
+            guard matchingRuns.count <= 1 else {
                 return .completeRecordedGeneration(.inconsistentRecord)
             }
-            if let activeRun = activeRuns.first {
+            if let activeRun = matchingRuns.first {
+                guard activeRun.identityConflict != true, activeRun.endedAt == nil else {
+                    return .rejectStaleGeneration
+                }
                 if let activePID = activeRun.pid, activePID != incomingPID {
                     return .rejectStaleGeneration
                 }
@@ -314,6 +315,20 @@ struct AgentHookSessionActivationPolicy: Sendable {
         lineage: AgentHookSessionLineage,
         hasIncomingPID: Bool
     ) -> AgentHookSessionActivationDecision {
+        if let activeRunId = record.activeRunId,
+           let activeRun = record.runs?.first(where: { $0.runId == activeRunId }) {
+            guard activeRun.identityConflict != true, activeRun.endedAt == nil else {
+                return .reject
+            }
+            if record.sessionState != .hibernated,
+               record.sessionState != .restoring,
+               lineage.processLaunchMode == .unknown,
+               lineage.hibernationResumeAttemptId != nil,
+               activeRunId == lineage.runId,
+               existingGenerationProof(record: record, lineage: lineage) == nil {
+                return .reject
+            }
+        }
         if !hasIncomingPID,
            let activeRunId = record.activeRunId,
            record.runs?.contains(where: {

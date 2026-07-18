@@ -148,12 +148,13 @@ extension CMUXCLI {
     /// One restore-evidence predicate shared by list visibility, tree
     /// visibility, and fork diagnostics. A rejected launch capture is an
     /// explicit trust failure and cannot be rescued by a legacy nil flag.
-    func agentHookRecordIsRestorable(
+    func agentHookRunIsRestorable(
         agent: String,
         record: ClaudeHookSessionRecord,
+        run: AgentSessionRunRecord,
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> Bool {
-        guard record.restoreAuthority != false else { return false }
+        guard run.identityConflict != true, run.restoreAuthority else { return false }
         return agentHookRecordHasDurableResumeEvidence(
             agent: agent,
             record: record,

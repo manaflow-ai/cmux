@@ -366,17 +366,19 @@ extension CMUXCLI {
                     }) else { continue }
                 }
                 if let normalizedSurface, record.surfaceId.lowercased() != normalizedSurface { continue }
-                let legacyRecordVisible = activeSessionIds.contains(record.sessionId)
-                    || agentHookRecordIsRestorable(
-                        agent: specification.name,
-                        record: record,
-                        claudeTranscriptLookup: claudeTranscriptLookup
-                    )
                 for run in runs {
+                    let legacyRunVisible = queryScope == .legacyUnscoped
+                        && (activeSessionIds.contains(record.sessionId)
+                            || agentHookRunIsRestorable(
+                                agent: specification.name,
+                                record: record,
+                                run: run,
+                                claudeTranscriptLookup: claudeTranscriptLookup
+                            ))
                     guard queryScope.includes(
                         recordRuntime: run.identityConflict == true ? nil : record.cmuxRuntime,
                         runRuntime: run.cmuxRuntime,
-                        legacyVisible: run.identityConflict != true && legacyRecordVisible
+                        legacyVisible: run.identityConflict != true && legacyRunVisible
                     ) else { continue }
                     let projection = AgentSessionStateProjection(
                         record: record,
@@ -680,18 +682,15 @@ extension CMUXCLI {
                     continue
                 }
             }
-            let legacyVisible: Bool
-            if queryScope == .legacyUnscoped {
-                legacyVisible = activeSessionIDs.contains(record.sessionId)
-                    || agentHookRecordIsRestorable(
-                        agent: provider,
-                        record: record,
-                        claudeTranscriptLookup: claudeTranscriptLookup
-                    )
-            } else {
-                legacyVisible = false
-            }
             for run in runs {
+                let legacyVisible = queryScope == .legacyUnscoped
+                    && (activeSessionIDs.contains(record.sessionId)
+                        || agentHookRunIsRestorable(
+                            agent: provider,
+                            record: record,
+                            run: run,
+                            claudeTranscriptLookup: claudeTranscriptLookup
+                        ))
                 guard queryScope.includes(
                     recordRuntime: run.identityConflict == true ? nil : record.cmuxRuntime,
                     runRuntime: run.cmuxRuntime,

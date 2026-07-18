@@ -80,7 +80,15 @@ struct AgentSessionRunCanonicalizer: Sendable {
         provider: String
     ) -> AgentSessionRunRecord {
         let canonicalRuns = runs(record: record, provider: provider)
-        if let activeRunID = record.activeRunId,
+        return projectedRun(canonicalRuns: canonicalRuns, activeRunID: record.activeRunId)
+    }
+
+    func projectedRun(
+        canonicalRuns: [AgentSessionRunRecord],
+        activeRunID: String?
+    ) -> AgentSessionRunRecord {
+        precondition(!canonicalRuns.isEmpty)
+        if let activeRunID,
            let active = canonicalRuns.first(where: { $0.runId == activeRunID }) {
             return active
         }
