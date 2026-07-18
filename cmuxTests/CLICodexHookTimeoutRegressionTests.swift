@@ -252,6 +252,60 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(run.status == 0, Comment(rawValue: run.stderr))
     }
 
+    @Test func codexNativeClientClassifiesOnlyExactUnsupportedCodes() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-response-classifier-\(UUID().uuidString)", isDirectory: true)
+        let harness = root.appendingPathComponent("response-classifier-harness.c", isDirectory: false)
+        let executable = root.appendingPathComponent("response-classifier-harness", isDirectory: false)
+        let clientSource = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("HookClient/CodexHookClient.c", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = """
+        #define main cmux_hook_client_main
+        #include "\(clientSource.path)"
+        #undef main
+
+        int main(void) {
+            if (cmux_classify_queued_response("{\\"ok\\" : true, \\"queued\\" : true}")
+                != CMUX_SUBMISSION_QUEUED) return 10;
+            if (cmux_classify_queued_response(
+                    "{\\"ok\\":false,\\"error\\":{\\"code\\" : \\"unrecognized_method\\"}}"
+                ) != CMUX_SUBMISSION_UNSUPPORTED) return 11;
+            if (cmux_classify_queued_response(
+                    "{\\"ok\\":false,\\"error\\":{\\"code\\":\\"method_not_found\\"}}"
+                ) != CMUX_SUBMISSION_UNSUPPORTED) return 12;
+            if (cmux_classify_queued_response(
+                    "{\\"ok\\":false,\\"error\\":{\\"code\\":\\"hook_queue_unavailable\\","
+                    "\\"message\\":\\"method_not_found while busy\\"}}"
+                ) != CMUX_SUBMISSION_RETRYABLE) return 13;
+            if (cmux_classify_queued_response(
+                    "{\\"ok\\":false,\\"error\\":{\\"code\\":\\"invalid_params\\","
+                    "\\"message\\":\\"unrecognized_method is only prose\\"}}"
+                ) != CMUX_SUBMISSION_REJECTED) return 14;
+            return 0;
+        }
+        """
+        try Data(source.utf8).write(to: harness, options: .atomic)
+
+        let compile = runCodexHookProcess(
+            executablePath: "/usr/bin/clang",
+            arguments: ["-std=c11", "-Wall", "-Wextra", "-Werror", harness.path, "-o", executable.path],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 10
+        )
+        #expect(compile.status == 0, Comment(rawValue: compile.stderr))
+        let run = runCodexHookProcess(
+            executablePath: executable.path,
+            arguments: [],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 2
+        )
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+    }
+
     @Test func codexNativeClientTerminatesHungFallbackWithinDeadline() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
