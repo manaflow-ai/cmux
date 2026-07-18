@@ -3605,18 +3605,15 @@ final class BrowserPanel: Panel, ObservableObject {
         baseConfiguration: WKWebViewConfiguration? = nil
     ) -> CmuxWebView {
         let config = baseConfiguration ?? WKWebViewConfiguration()
-        // WebKit's extension-page configurations can be related to the
-        // extension background WebView. Related WebViews must retain the exact
-        // same data-store object, even when it represents this browser profile.
-        let effectiveWebsiteDataStore = baseConfiguration?.websiteDataStore
-            ?? websiteDataStore
-            ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
-        configureWebViewConfiguration(
-            config,
-            profileID: profileID,
-            websiteDataStore: effectiveWebsiteDataStore,
-            browserServices: browserServices
-        )
+        if baseConfiguration == nil {
+            configureWebViewConfiguration(
+                config,
+                profileID: profileID,
+                websiteDataStore: websiteDataStore
+                    ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
+                browserServices: browserServices
+            )
+        }
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
@@ -3687,11 +3684,17 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
-        setupReactGrabMessageHandler(for: webView)
-        designModeController.install(on: webView)
-        setupSSLTrustBypassMessageHandler(for: webView)
-        setupMediaPlaybackMessageHandler(for: webView)
-        webAuthnCoordinator.install(on: webView)
+        // A WebExtension page configuration owns a shared user-content
+        // controller used by the extension background page and its tabs.
+        // Installing panel-scoped handlers there duplicates handler names and
+        // exposes cmux-only bridges to privileged extension pages.
+        if webExtensionPageBaseURL == nil {
+            setupReactGrabMessageHandler(for: webView)
+            designModeController.install(on: webView)
+            setupSSLTrustBypassMessageHandler(for: webView)
+            setupMediaPlaybackMessageHandler(for: webView)
+            webAuthnCoordinator.install(on: webView)
+        }
         applyMuteState(to: webView, reason: "bindWebView")
     }
     private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {

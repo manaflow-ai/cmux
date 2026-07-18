@@ -34,8 +34,10 @@ extension BrowserPanel {
             browserServices: browserServices,
             baseConfiguration: baseConfiguration
         )
-        for userScript in browserAutomationUserScripts {
-            replacement.configuration.userContentController.addUserScript(userScript)
+        if baseConfiguration == nil {
+            for userScript in browserAutomationUserScripts {
+                replacement.configuration.userContentController.addUserScript(userScript)
+            }
         }
         return replacement
     }
