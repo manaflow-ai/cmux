@@ -181,6 +181,11 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
+        #expect(waitForCondition(timeout: 1) {
+            FileManager.default.fileExists(atPath: capturedInput.path)
+                && FileManager.default.fileExists(atPath: capturedID.path)
+                && FileManager.default.fileExists(atPath: capturedArgs.path)
+        })
         #expect(try Data(contentsOf: capturedInput) == payload)
         #expect(try String(contentsOf: capturedID, encoding: .utf8) == deliveryID)
         #expect(
@@ -373,13 +378,18 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
-        #expect(elapsed < .seconds(2))
+        #expect(elapsed < .seconds(0.25))
+        #expect(waitForCondition(timeout: 1) {
+            FileManager.default.fileExists(atPath: leaderPIDFile.path)
+                && FileManager.default.fileExists(atPath: descendantPIDFile.path)
+        })
         for pidFile in [leaderPIDFile, descendantPIDFile] {
             let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
             let pid = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
-            errno = 0
-            #expect(Darwin.kill(pid, 0) == -1)
-            #expect(errno == ESRCH)
+            #expect(waitForCondition(timeout: 2) {
+                errno = 0
+                return Darwin.kill(pid, 0) == -1 && errno == ESRCH
+            })
         }
     }
 

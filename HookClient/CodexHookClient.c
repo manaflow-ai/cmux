@@ -24,11 +24,21 @@ enum {
     CMUX_HOOK_MAX_PAYLOAD_BYTES = 8 * 1024 * 1024,
     CMUX_HOOK_MAX_ENVIRONMENT_BYTES = 256 * 1024,
     CMUX_HOOK_MAX_ENVIRONMENT_VALUE_BYTES = 128 * 1024,
-    CMUX_HOOK_ATTEMPTS = 3,
-    CMUX_HOOK_ATTEMPT_TIMEOUT_MILLISECONDS = 350,
+    CMUX_HOOK_FOREGROUND_TIMEOUT_MILLISECONDS = 60,
+    CMUX_HOOK_WORKER_READY_TIMEOUT_MILLISECONDS = 60,
+    CMUX_HOOK_WORKER_RETRY_ATTEMPTS = 2,
+    CMUX_HOOK_WORKER_ATTEMPT_TIMEOUT_MILLISECONDS = 350,
     CMUX_HOOK_FALLBACK_TIMEOUT_MILLISECONDS = 500,
     CMUX_HOOK_TERMINATION_GRACE_MILLISECONDS = 50,
+    CMUX_HOOK_WORKER_CLOSE_FD_LIMIT = 4096,
 };
+
+typedef enum {
+    CMUX_SUBMISSION_RETRYABLE,
+    CMUX_SUBMISSION_QUEUED,
+    CMUX_SUBMISSION_UNSUPPORTED,
+    CMUX_SUBMISSION_REJECTED,
+} CMUXSubmissionResult;
 
 typedef struct {
     unsigned char *bytes;
@@ -522,7 +532,71 @@ static bool cmux_write_all(int socket_fd, const unsigned char *bytes, size_t cou
     return true;
 }
 
-static bool cmux_read_queued_ack(int socket_fd, int64_t deadline) {
+static const char *cmux_json_value_start(const char *json, const char *key) {
+    char quoted_key[128];
+    const int count = snprintf(quoted_key, sizeof(quoted_key), "\"%s\"", key);
+    if (count <= 0 || (size_t)count >= sizeof(quoted_key)) {
+        return NULL;
+    }
+    const char *cursor = json;
+    while ((cursor = strstr(cursor, quoted_key)) != NULL) {
+        cursor += (size_t)count;
+        while (isspace((unsigned char)*cursor)) {
+            cursor += 1;
+        }
+        if (*cursor != ':') {
+            continue;
+        }
+        cursor += 1;
+        while (isspace((unsigned char)*cursor)) {
+            cursor += 1;
+        }
+        return cursor;
+    }
+    return NULL;
+}
+
+static bool cmux_json_boolean_value_is(const char *json, const char *key, bool expected) {
+    const char *value = cmux_json_value_start(json, key);
+    if (value == NULL) {
+        return false;
+    }
+    const char *literal = expected ? "true" : "false";
+    const size_t count = strlen(literal);
+    return strncmp(value, literal, count) == 0
+        && !isalnum((unsigned char)value[count])
+        && value[count] != '_';
+}
+
+static bool cmux_json_string_value_is(const char *json, const char *key, const char *expected) {
+    const char *value = cmux_json_value_start(json, key);
+    if (value == NULL || *value != '"') {
+        return false;
+    }
+    value += 1;
+    const size_t count = strlen(expected);
+    return strncmp(value, expected, count) == 0 && value[count] == '"';
+}
+
+static CMUXSubmissionResult cmux_classify_queued_response(const char *response) {
+    if (cmux_json_boolean_value_is(response, "ok", true)
+        && cmux_json_boolean_value_is(response, "queued", true)) {
+        return CMUX_SUBMISSION_QUEUED;
+    }
+    if (!cmux_json_boolean_value_is(response, "ok", false)) {
+        return CMUX_SUBMISSION_RETRYABLE;
+    }
+    if (cmux_json_string_value_is(response, "code", "method_not_found")
+        || cmux_json_string_value_is(response, "code", "unrecognized_method")) {
+        return CMUX_SUBMISSION_UNSUPPORTED;
+    }
+    if (cmux_json_string_value_is(response, "code", "hook_queue_unavailable")) {
+        return CMUX_SUBMISSION_RETRYABLE;
+    }
+    return CMUX_SUBMISSION_REJECTED;
+}
+
+static CMUXSubmissionResult cmux_read_queued_ack(int socket_fd, int64_t deadline) {
     char response[16 * 1024];
     size_t count = 0;
     while (count + 1 < sizeof(response)) {
@@ -531,13 +605,12 @@ static bool cmux_read_queued_ack(int socket_fd, int64_t deadline) {
             count += (size_t)read_count;
             response[count] = '\0';
             if (memchr(response, '\n', count) != NULL) {
-                return strstr(response, "\"ok\":true") != NULL
-                    && strstr(response, "\"queued\":true") != NULL;
+                return cmux_classify_queued_response(response);
             }
             continue;
         }
         if (read_count == 0) {
-            return false;
+            return CMUX_SUBMISSION_RETRYABLE;
         }
         if (errno == EINTR) {
             continue;
@@ -546,27 +619,34 @@ static bool cmux_read_queued_ack(int socket_fd, int64_t deadline) {
             && cmux_wait_for_socket(socket_fd, POLLIN, deadline)) {
             continue;
         }
-        return false;
+        return CMUX_SUBMISSION_RETRYABLE;
     }
-    return false;
+    return CMUX_SUBMISSION_RETRYABLE;
 }
 
-static bool cmux_submit_request(const char *socket_path, const CMUXBuffer *request) {
-    for (int attempt = 0; attempt < CMUX_HOOK_ATTEMPTS; attempt += 1) {
+static CMUXSubmissionResult cmux_submit_request(
+    const char *socket_path,
+    const CMUXBuffer *request,
+    int attempts,
+    int attempt_timeout_milliseconds
+) {
+    for (int attempt = 0; attempt < attempts; attempt += 1) {
         const int64_t deadline = cmux_monotonic_milliseconds()
-            + CMUX_HOOK_ATTEMPT_TIMEOUT_MILLISECONDS;
+            + attempt_timeout_milliseconds;
         const int socket_fd = cmux_connect_unix_socket(socket_path, deadline);
         if (socket_fd < 0) {
             continue;
         }
-        const bool succeeded = cmux_write_all(socket_fd, request->bytes, request->count, deadline)
-            && cmux_read_queued_ack(socket_fd, deadline);
+        CMUXSubmissionResult result = CMUX_SUBMISSION_RETRYABLE;
+        if (cmux_write_all(socket_fd, request->bytes, request->count, deadline)) {
+            result = cmux_read_queued_ack(socket_fd, deadline);
+        }
         close(socket_fd);
-        if (succeeded) {
-            return true;
+        if (result != CMUX_SUBMISSION_RETRYABLE) {
+            return result;
         }
     }
-    return false;
+    return CMUX_SUBMISSION_RETRYABLE;
 }
 
 static bool cmux_write_all_fd(int descriptor, const unsigned char *bytes, size_t count) {
@@ -687,7 +767,8 @@ static void cmux_terminate_and_reap_child(pid_t child) {
 static void cmux_run_cli_fallback(
     const char *subcommand,
     const char *socket_path,
-    const CMUXBuffer *payload
+    const CMUXBuffer *payload,
+    bool use_legacy_entrypoint
 ) {
     const char *cli = getenv("CMUX_BUNDLED_CLI_PATH");
     const bool use_path_search = cli == NULL || cli[0] == '\0' || access(cli, X_OK) != 0;
@@ -727,7 +808,11 @@ static void cmux_run_cli_fallback(
         close(input_pipe[1]);
         return;
     }
-    if (posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP) != 0
+    short spawn_flags = POSIX_SPAWN_SETPGROUP;
+#if defined(POSIX_SPAWN_CLOEXEC_DEFAULT)
+    spawn_flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
+#endif
+    if (posix_spawnattr_setflags(&attributes, spawn_flags) != 0
         || posix_spawnattr_setpgroup(&attributes, 0) != 0) {
         posix_spawnattr_destroy(&attributes);
         posix_spawn_file_actions_destroy(&actions);
@@ -761,9 +846,58 @@ static void cmux_run_cli_fallback(
         (char *)subcommand,
         NULL,
     };
-    char **arguments = socket_path != NULL && socket_path[0] != '\0'
-        ? arguments_with_socket
-        : arguments_without_socket;
+    char *legacy_arguments_with_socket[] = {
+        (char *)cli,
+        "--socket",
+        (char *)socket_path,
+        "hooks",
+        "codex",
+        (char *)subcommand,
+        NULL,
+    };
+    char *legacy_arguments_without_socket[] = {
+        (char *)cli,
+        "hooks",
+        "codex",
+        (char *)subcommand,
+        NULL,
+    };
+    const bool is_feed = strncmp(subcommand, "feed:", 5) == 0 && subcommand[5] != '\0';
+    char *legacy_feed_arguments_with_socket[] = {
+        (char *)cli,
+        "--socket",
+        (char *)socket_path,
+        "hooks",
+        "feed",
+        "--source",
+        "codex",
+        "--event",
+        (char *)(subcommand + 5),
+        NULL,
+    };
+    char *legacy_feed_arguments_without_socket[] = {
+        (char *)cli,
+        "hooks",
+        "feed",
+        "--source",
+        "codex",
+        "--event",
+        (char *)(subcommand + 5),
+        NULL,
+    };
+    const bool has_socket = socket_path != NULL && socket_path[0] != '\0';
+    char **arguments;
+    if (use_legacy_entrypoint && is_feed) {
+        arguments = has_socket
+            ? legacy_feed_arguments_with_socket
+            : legacy_feed_arguments_without_socket;
+    } else if (use_legacy_entrypoint) {
+        arguments = has_socket
+            ? legacy_arguments_with_socket
+            : legacy_arguments_without_socket;
+    } else {
+        arguments = has_socket ? arguments_with_socket : arguments_without_socket;
+    }
 
     pid_t child = 0;
     const int spawn_status = use_path_search
@@ -790,6 +924,113 @@ static void cmux_run_cli_fallback(
     if (!wrote_payload || !cmux_reap_child_until(child, deadline)) {
         cmux_terminate_and_reap_child(child);
     }
+}
+
+static void cmux_close_inherited_worker_descriptors(void) {
+    int limit = getdtablesize();
+    if (limit < 0 || limit > CMUX_HOOK_WORKER_CLOSE_FD_LIMIT) {
+        limit = CMUX_HOOK_WORKER_CLOSE_FD_LIMIT;
+    }
+    for (int descriptor = 4; descriptor < limit; descriptor += 1) {
+        close(descriptor);
+    }
+}
+
+static void cmux_run_fallback_worker(
+    CMUXSubmissionResult initial_result,
+    const char *subcommand,
+    const char *socket_path,
+    const CMUXBuffer *request,
+    const CMUXBuffer *payload
+) {
+    CMUXSubmissionResult result = initial_result;
+    if (result == CMUX_SUBMISSION_RETRYABLE
+        && socket_path != NULL
+        && request->count > 0) {
+        result = cmux_submit_request(
+            socket_path,
+            request,
+            CMUX_HOOK_WORKER_RETRY_ATTEMPTS,
+            CMUX_HOOK_WORKER_ATTEMPT_TIMEOUT_MILLISECONDS
+        );
+        if (result == CMUX_SUBMISSION_QUEUED) {
+            return;
+        }
+    }
+    cmux_run_cli_fallback(
+        subcommand,
+        socket_path,
+        payload,
+        result == CMUX_SUBMISSION_UNSUPPORTED
+    );
+}
+
+static bool cmux_start_fallback_worker(
+    CMUXSubmissionResult initial_result,
+    const char *subcommand,
+    const char *socket_path,
+    const CMUXBuffer *request,
+    const CMUXBuffer *payload
+) {
+    int ready_pipe[2] = {-1, -1};
+    if (pipe(ready_pipe) != 0) {
+        return false;
+    }
+    fcntl(ready_pipe[0], F_SETFD, FD_CLOEXEC);
+    fcntl(ready_pipe[1], F_SETFD, FD_CLOEXEC);
+
+    const pid_t worker = fork();
+    if (worker < 0) {
+        close(ready_pipe[0]);
+        close(ready_pipe[1]);
+        return false;
+    }
+    if (worker == 0) {
+        close(ready_pipe[0]);
+        if (ready_pipe[1] != 3) {
+            if (dup2(ready_pipe[1], 3) < 0) {
+                _exit(1);
+            }
+            close(ready_pipe[1]);
+        }
+        const int null_fd = open("/dev/null", O_RDWR);
+        if (null_fd < 0
+            || dup2(null_fd, STDIN_FILENO) < 0
+            || dup2(null_fd, STDOUT_FILENO) < 0
+            || dup2(null_fd, STDERR_FILENO) < 0
+            || setsid() < 0) {
+            _exit(1);
+        }
+        if (null_fd > 3) {
+            close(null_fd);
+        }
+        const unsigned char ready = 1;
+        if (write(3, &ready, 1) != 1) {
+            _exit(1);
+        }
+        close(3);
+        cmux_close_inherited_worker_descriptors();
+        cmux_run_fallback_worker(initial_result, subcommand, socket_path, request, payload);
+        _exit(0);
+    }
+
+    close(ready_pipe[1]);
+    const int64_t deadline = cmux_monotonic_milliseconds()
+        + CMUX_HOOK_WORKER_READY_TIMEOUT_MILLISECONDS;
+    unsigned char ready = 0;
+    const bool started = cmux_wait_for_socket(ready_pipe[0], POLLIN, deadline)
+        && read(ready_pipe[0], &ready, 1) == 1
+        && ready == 1;
+    close(ready_pipe[0]);
+    if (!started) {
+        (void)kill(worker, SIGKILL);
+        int status = 0;
+        while (waitpid(worker, &status, 0) < 0 && errno == EINTR) {}
+        return false;
+    }
+    int status = 0;
+    (void)waitpid(worker, &status, WNOHANG);
+    return true;
 }
 
 static void cmux_print_noop(void) {
@@ -840,7 +1081,7 @@ int main(int argument_count, char **arguments) {
         : NULL;
     const char *socket_path = getenv("CMUX_SOCKET_PATH");
     const char *capability = getenv("CMUX_SOCKET_CAPABILITY");
-    bool delivered = false;
+    CMUXSubmissionResult submission = CMUX_SUBMISSION_RETRYABLE;
     CMUXBuffer request = {0};
     if (payload_base64 != NULL
         && environment_base64 != NULL
@@ -854,11 +1095,22 @@ int main(int argument_count, char **arguments) {
             environment_base64,
             capability
         )) {
-        delivered = cmux_submit_request(socket_path, &request);
+        submission = cmux_submit_request(
+            socket_path,
+            &request,
+            1,
+            CMUX_HOOK_FOREGROUND_TIMEOUT_MILLISECONDS
+        );
     }
 
-    if (!delivered) {
-        cmux_run_cli_fallback(subcommand, socket_path, &payload);
+    if (submission != CMUX_SUBMISSION_QUEUED) {
+        (void)cmux_start_fallback_worker(
+            submission,
+            subcommand,
+            socket_path,
+            &request,
+            &payload
+        );
     }
 
     cmux_buffer_destroy(&request);
