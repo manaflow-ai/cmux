@@ -228,6 +228,8 @@ struct AgentHibernationProcessFreeLease: Sendable, Equatable {
     let processGroupID: Int
     let terminalProcessGroupID: Int
 
+    var guardedProcessIDs: Set<Int> { [shellPID] }
+
     func freezeForFinalTeardown(
         processIdentity: @escaping @Sendable (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
@@ -242,10 +244,9 @@ struct AgentHibernationProcessFreeLease: Sendable, Equatable {
         sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = { pid, signal in
             Darwin.kill(pid, signal)
         },
-        yieldThread: @Sendable () -> Void = {
-            _ = sched_yield()
+        waitForStoppedChild: @escaping @Sendable (pid_t) -> Bool = { pid in
+            Self.waitForStoppedDirectChild(pid: pid)
         },
-        maximumStopStateChecks: Int = 256,
         finalProcessFreeValidation: (@Sendable () -> Bool)? = nil
     ) -> AgentHibernationFrozenShellLease? {
         // Never resume a shell that the user or debugger had already stopped.
@@ -265,16 +266,7 @@ struct AgentHibernationProcessFreeLease: Sendable, Equatable {
             processStatus: processStatus,
             sendSignal: sendSignal
         )
-        var didStopExactGeneration = false
-        for _ in 0..<max(1, maximumStopStateChecks) {
-            guard processIdentity(shellPID) == shellIdentity else { break }
-            if processStatus(shellPID) == UInt32(SSTOP) {
-                didStopExactGeneration = true
-                break
-            }
-            yieldThread()
-        }
-        guard didStopExactGeneration,
+        guard waitForStoppedChild(shellIdentity.pid),
               frozenLease.isStillFrozenAndProcessFree(
                 finalProcessFreeValidation: finalProcessFreeValidation
               ) else {
@@ -282,6 +274,24 @@ struct AgentHibernationProcessFreeLease: Sendable, Equatable {
             return nil
         }
         return frozenLease
+    }
+
+    private static func waitForStoppedDirectChild(pid: pid_t) -> Bool {
+        var information = siginfo_t()
+        while true {
+            let result = waitid(
+                P_PID,
+                id_t(pid),
+                &information,
+                WSTOPPED | WEXITED | WNOWAIT
+            )
+            if result == 0 {
+                return information.si_pid == pid
+                    && information.si_code == CLD_STOPPED
+                    && information.si_status == SIGSTOP
+            }
+            if errno != EINTR { return false }
+        }
     }
 
     func isStillProcessFree(

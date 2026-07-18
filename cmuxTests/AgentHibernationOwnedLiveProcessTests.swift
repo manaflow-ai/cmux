@@ -198,7 +198,7 @@ struct AgentHibernationOwnedLiveProcessTests {
             processStatus: { _ in state.status },
             processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
-            yieldThread: {},
+            waitForStoppedChild: { _ in state.status == UInt32(SSTOP) },
             finalProcessFreeValidation: {
                 state.recordFinalValidation()
                 return state.status == UInt32(SSTOP) && !state.hasChild
@@ -234,7 +234,7 @@ struct AgentHibernationOwnedLiveProcessTests {
             processStatus: { _ in state.status },
             processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
-            yieldThread: {},
+            waitForStoppedChild: { _ in state.status == UInt32(SSTOP) },
             finalProcessFreeValidation: { true }
         ) == nil)
         #expect(state.signals.isEmpty)
@@ -257,7 +257,7 @@ struct AgentHibernationOwnedLiveProcessTests {
             processStatus: { _ in state.status },
             processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
-            yieldThread: {},
+            waitForStoppedChild: { _ in state.status == UInt32(SSTOP) },
             finalProcessFreeValidation: { false }
         ) == nil)
         #expect(state.signals == [SIGSTOP, SIGCONT])
@@ -279,7 +279,7 @@ struct AgentHibernationOwnedLiveProcessTests {
             processStatus: { _ in state.status },
             processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
-            yieldThread: {},
+            waitForStoppedChild: { _ in state.status == UInt32(SSTOP) },
             finalProcessFreeValidation: { true }
         ))
         state.failNextIdentityReads(1)
@@ -308,7 +308,7 @@ struct AgentHibernationOwnedLiveProcessTests {
             processStatus: { _ in state.status },
             processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
-            yieldThread: {},
+            waitForStoppedChild: { _ in state.status == UInt32(SSTOP) },
             finalProcessFreeValidation: { true }
         ))
         state.failNextIdentityReads(.max)
@@ -336,7 +336,7 @@ struct AgentHibernationOwnedLiveProcessTests {
             processStatus: { _ in state.status },
             processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
-            yieldThread: {},
+            waitForStoppedChild: { _ in state.status == UInt32(SSTOP) },
             finalProcessFreeValidation: { true }
         ))
         state.replaceIdentity(processIdentity(pid: shellPID, seconds: 101))
@@ -344,6 +344,77 @@ struct AgentHibernationOwnedLiveProcessTests {
         frozen.resume()
         frozen.resume()
         #expect(state.signals == [SIGSTOP])
+    }
+
+    @Test
+    func realChildStopBoundarySurvivesSchedulerLoad() throws {
+        let childPID = fork()
+        guard childPID >= 0 else {
+            Issue.record("fork failed")
+            return
+        }
+        if childPID == 0 {
+            while true { _ = pause() }
+        }
+
+        var didReapChild = false
+        defer {
+            if !didReapChild {
+                _ = kill(childPID, SIGKILL)
+                _ = waitpid(childPID, nil, 0)
+            }
+        }
+        let identity = try #require(AgentPIDProcessIdentity(pid: childPID))
+        let lease = AgentHibernationProcessFreeLease(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            shellPID: Int(childPID),
+            shellIdentity: identity,
+            shellParentPID: Int(getpid()),
+            shellName: "test-child",
+            executablePath: "/test-child",
+            arguments: [],
+            ttyDevice: 1,
+            sessionID: Int(childPID),
+            processGroupID: Int(childPID),
+            terminalProcessGroupID: Int(childPID)
+        )
+
+        let keepLoading = OSAllocatedUnfairLock(initialState: true)
+        let loadGroup = DispatchGroup()
+        for _ in 0..<8 {
+            loadGroup.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                var value = 0
+                while keepLoading.withLock({ $0 }) {
+                    value &+= 1
+                }
+                _ = value
+                loadGroup.leave()
+            }
+        }
+        let frozen = lease.freezeForFinalTeardown(finalProcessFreeValidation: { true })
+        keepLoading.withLock { $0 = false }
+        loadGroup.wait()
+        let exactFrozen = try #require(frozen)
+        exactFrozen.resume()
+
+        let didExit = DispatchSemaphore(value: 0)
+        let exitSource = DispatchSource.makeProcessSource(
+            identifier: childPID,
+            eventMask: .exit,
+            queue: .global(qos: .utility)
+        )
+        exitSource.setEventHandler { didExit.signal() }
+        exitSource.activate()
+        _ = kill(childPID, SIGTERM)
+        let exitResult = didExit.wait(timeout: .now() + 2)
+        exitSource.cancel()
+        if exitResult != .success { _ = kill(childPID, SIGKILL) }
+        _ = waitpid(childPID, nil, 0)
+        didReapChild = true
+
+        #expect(exitResult == .success)
     }
 
     @MainActor
@@ -379,7 +450,7 @@ struct AgentHibernationOwnedLiveProcessTests {
                     processStatus: { _ in state.status },
                     processGenerationFence: { _ in state.generationFence() },
                     sendSignal: { _, signal in state.send(signal) },
-                    yieldThread: {},
+                    waitForStoppedChild: { _ in state.status == UInt32(SSTOP) },
                     finalProcessFreeValidation: {
                         state.recordFinalValidation()
                         return state.status == UInt32(SSTOP) && !state.hasChild
@@ -445,7 +516,7 @@ struct AgentHibernationOwnedLiveProcessTests {
                     processStatus: { _ in state.status },
                     processGenerationFence: { _ in state.generationFence() },
                     sendSignal: { _, signal in state.send(signal) },
-                    yieldThread: {},
+                    waitForStoppedChild: { _ in state.status == UInt32(SSTOP) },
                     finalProcessFreeValidation: {
                         state.recordFinalValidation()
                         return state.status == UInt32(SSTOP) && !state.hasChild
