@@ -1126,7 +1126,6 @@ struct BackendCanonicalSessionTests {
 
         await transport.enqueue(try encodedJSON([
             "event": "renderer-lifecycle-overflow",
-            "error": "subscriber fell behind; resubscribe to continue receiving events",
         ]))
 
         guard case .disconnected(.topologyStreamFailed(let message))? = await iterator.next()
