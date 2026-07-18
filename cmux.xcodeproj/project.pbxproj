@@ -81,6 +81,8 @@
 		A61E00010000000000000001 /* AgentHookDeliveryEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61E00010000000000000003 /* AgentHookDeliveryEvent.swift */; };
 		A61E00010000000000000002 /* AgentHookDeliveryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61E00010000000000000004 /* AgentHookDeliveryQueue.swift */; };
 		A61E00020000000000000001 /* AgentHookDeliveryQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61E00020000000000000002 /* AgentHookDeliveryQueueTests.swift */; };
+		A6E100000000000000000001 /* AgentHookDeliverySupervisor.c in Sources */ = {isa = PBXBuildFile; fileRef = A6E100000000000000000011 /* AgentHookDeliverySupervisor.c */; };
+		A6E100000000000000000003 /* AgentHookDeliverySupervisorClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E100000000000000000013 /* AgentHookDeliverySupervisorClient.swift */; };
 		A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */; };
@@ -463,6 +465,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00020000000000000002 /* CloudVMActionLauncher.swift */; };
 		C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
+		A6E100000000000000000002 /* cmux-agent-hook-supervisor in Copy CLI */ = {isa = PBXBuildFile; fileRef = A6E100000000000000000012 /* cmux-agent-hook-supervisor */; };
 		C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */; };
 		C0D3C11E0000000000000004 /* cmux-codex-hook-client in Copy CLI */ = {isa = PBXBuildFile; fileRef = C0D3C11E0000000000000003 /* cmux-codex-hook-client */; };
 		C1ADE30002A1B2C3D4E5F719 /* cmux-codex-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE30001A1B2C3D4E5F719 /* cmux-codex-wrapper */; };
@@ -2080,6 +2083,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 			remoteGlobalIDString = C0D3C11E0000000000000007;
 			remoteInfo = "cmux-codex-hook-client";
 		};
+		A6E100000000000000000021 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A5001070 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A6E100000000000000000041;
+			remoteInfo = "cmux-agent-hook-supervisor";
+		};
 		D1320AA0D1320AA0D1320AA3 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A5001070 /* Project object */;
@@ -2114,6 +2124,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 			dstSubfolderSpec = 7;
 			files = (
 				B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */,
+				A6E100000000000000000002 /* cmux-agent-hook-supervisor in Copy CLI */,
 				C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */,
 				C0D3C11E0000000000000004 /* cmux-codex-hook-client in Copy CLI */,
 				C1ADE30002A1B2C3D4E5F719 /* cmux-codex-wrapper in Copy CLI */,
@@ -2212,6 +2223,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A61E00010000000000000003 /* AgentHookDeliveryEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookDeliveryEvent.swift; sourceTree = "<group>"; };
 		A61E00010000000000000004 /* AgentHookDeliveryQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookDeliveryQueue.swift; sourceTree = "<group>"; };
 		A61E00020000000000000002 /* AgentHookDeliveryQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookDeliveryQueueTests.swift; sourceTree = "<group>"; };
+		A6E100000000000000000011 /* AgentHookDeliverySupervisor.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = AgentHookDeliverySupervisor.c; sourceTree = "<group>"; };
+		A6E100000000000000000013 /* AgentHookDeliverySupervisorClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookDeliverySupervisorClient.swift; sourceTree = "<group>"; };
 		A76110010000000000000002 /* AgentHookNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicy.swift; sourceTree = "<group>"; };
 		A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicyTests.swift; sourceTree = "<group>"; };
 		A61E00030000000000000002 /* AgentHookOutboxPOSIX.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = AgentHookOutboxPOSIX.c; sourceTree = "<group>"; };
@@ -2592,6 +2605,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
 		C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMMenuItemMetricsTests.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
+		A6E100000000000000000012 /* cmux-agent-hook-supervisor */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "cmux-agent-hook-supervisor"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-claude-wrapper"; sourceTree = SOURCE_ROOT; };
 		C0D3C11E0000000000000003 /* cmux-codex-hook-client */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "cmux-codex-hook-client"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -4191,6 +4205,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A6E100000000000000000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D1320AA0D1320AA0D1320AA7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -4413,6 +4434,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0D3C11E000000000000000D /* HookClient */ = {
 			isa = PBXGroup;
 			children = (
+				A6E100000000000000000011 /* AgentHookDeliverySupervisor.c */,
 				C0D3C11E0000000000000002 /* CodexHookClient.c */,
 			);
 			path = HookClient;
@@ -4952,6 +4974,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E7E000000000000000000008 /* CmuxEventPublishing.swift */,
 				A61E00010000000000000003 /* AgentHookDeliveryEvent.swift */,
 				A61E00010000000000000004 /* AgentHookDeliveryQueue.swift */,
+				A6E100000000000000000013 /* AgentHookDeliverySupervisorClient.swift */,
 				A61E00030000000000000002 /* AgentHookOutboxPOSIX.c */,
 				A61E00030000000000000003 /* AgentHookOutboxPOSIX.h */,
 				A5001019 /* TerminalController.swift */,
@@ -5669,6 +5692,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001000 /* cmux.app */,
 				B9000004A1B2C3D4E5F60719 /* cmux */,
 				C0D3C11E0000000000000003 /* cmux-codex-hook-client */,
+				A6E100000000000000000012 /* cmux-agent-hook-supervisor */,
 				D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */,
 				7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */,
 				F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */,
@@ -6338,6 +6362,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			dependencies = (
 				B900000EA1B2C3D4E5F60719 /* PBXTargetDependency */,
 				C0D3C11E000000000000000C /* PBXTargetDependency */,
+				A6E100000000000000000051 /* PBXTargetDependency */,
 				D1320AA0D1320AA0D1320AB1 /* PBXTargetDependency */,
 			);
 			name = cmux;
@@ -6430,6 +6455,22 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			name = "cmux-codex-hook-client";
 			productName = "cmux-codex-hook-client";
 			productReference = C0D3C11E0000000000000003 /* cmux-codex-hook-client */;
+			productType = "com.apple.product-type.tool";
+		};
+		A6E100000000000000000041 /* cmux-agent-hook-supervisor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A6E100000000000000000063 /* Build configuration list for PBXNativeTarget "cmux-agent-hook-supervisor" */;
+			buildPhases = (
+				A6E100000000000000000032 /* Sources */,
+				A6E100000000000000000031 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "cmux-agent-hook-supervisor";
+			productName = "cmux-agent-hook-supervisor";
+			productReference = A6E100000000000000000012 /* cmux-agent-hook-supervisor */;
 			productType = "com.apple.product-type.tool";
 		};
 		CB450DF0F0B3839599082C4D /* cmuxUITests */ = {
@@ -6600,6 +6641,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1320AA0D1320AA0D1320AA8 /* CmuxDockTilePlugin */,
 				B9000005A1B2C3D4E5F60719 /* cmux-cli */,
 				C0D3C11E0000000000000007 /* cmux-codex-hook-client */,
+				A6E100000000000000000041 /* cmux-agent-hook-supervisor */,
 				CB450DF0F0B3839599082C4D /* cmuxUITests */,
 				F1000004A1B2C3D4E5F60718 /* cmuxTests */,
 			);
@@ -6844,6 +6886,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760210000000000000001 /* AgentHibernationTranscriptHookStoreRecord.swift in Sources */,
 				A61E00010000000000000001 /* AgentHookDeliveryEvent.swift in Sources */,
 				A61E00010000000000000002 /* AgentHookDeliveryQueue.swift in Sources */,
+				A6E100000000000000000003 /* AgentHookDeliverySupervisorClient.swift in Sources */,
 				A61E00030000000000000001 /* AgentHookOutboxPOSIX.c in Sources */,
 				0A1107110000000000000010 /* AgentNotificationDelivery.swift in Sources */,
 				A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */,
@@ -8178,6 +8221,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A6E100000000000000000032 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A6E100000000000000000001 /* AgentHookDeliverySupervisor.c in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D1320AA0D1320AA0D1320AB0 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -8803,6 +8854,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			target = C0D3C11E0000000000000007 /* cmux-codex-hook-client */;
 			targetProxy = C0D3C11E000000000000000B /* PBXContainerItemProxy */;
 		};
+		A6E100000000000000000051 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A6E100000000000000000041 /* cmux-agent-hook-supervisor */;
+			targetProxy = A6E100000000000000000021 /* PBXContainerItemProxy */;
+		};
 		D1320AA0D1320AA0D1320AB1 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = D1320AA0D1320AA0D1320AA8 /* CmuxDockTilePlugin */;
@@ -9070,6 +9126,47 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			};
 			name = Release;
 		};
+		A6E100000000000000000061 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_C_LANGUAGE_STANDARD = c17;
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "cmux-agent-hook-supervisor";
+				SKIP_INSTALL = YES;
+				WARNING_CFLAGS = (
+					"-Wall",
+					"-Wextra",
+					"-Wpedantic",
+				);
+			};
+			name = Debug;
+		};
+		A6E100000000000000000062 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_C_LANGUAGE_STANDARD = c17;
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = NO;
+				PRODUCT_NAME = "cmux-agent-hook-supervisor";
+				SKIP_INSTALL = YES;
+				STRIP_INSTALLED_PRODUCT = YES;
+				WARNING_CFLAGS = (
+					"-Wall",
+					"-Wextra",
+					"-Wpedantic",
+				);
+			};
+			name = Release;
+		};
 		C117776A77E71D1432F570D7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -9217,6 +9314,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildConfigurations = (
 				C0D3C11E0000000000000009 /* Debug */,
 				C0D3C11E000000000000000A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A6E100000000000000000063 /* Build configuration list for PBXNativeTarget "cmux-agent-hook-supervisor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A6E100000000000000000061 /* Debug */,
+				A6E100000000000000000062 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

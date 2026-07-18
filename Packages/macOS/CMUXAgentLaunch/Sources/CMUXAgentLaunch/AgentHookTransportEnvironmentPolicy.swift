@@ -9,6 +9,16 @@ public struct AgentHookTransportEnvironmentPolicy: Sendable {
     private static let launchArgumentsKey = "CMUX_AGENT_LAUNCH_ARGV_B64"
     private static let maximumLaunchArgumentsBytes = 128 * 1024
 
+    /// Per-attempt capabilities and ownership markers must never cross a retry
+    /// or app-process boundary. The supervisor PID is injected only by the
+    /// live supervisor immediately before it execs the delivery child.
+    private static let transportOnlyKeys: Set<String> = [
+        "CMUX_AGENT_HOOK_DELIVERY_ID",
+        "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP",
+        "CMUX_AGENT_HOOK_DELIVERY_SUPERVISOR_PID",
+        "CMUX_SOCKET_CAPABILITY",
+    ]
+
     private static let coreKeys: Set<String> = [
         "HOME", "PATH", "PWD", "TMPDIR", "TMP", "TEMP",
         "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE",
@@ -214,6 +224,7 @@ public struct AgentHookTransportEnvironmentPolicy: Sendable {
         environment: [String: String],
         hookAgentKind: String
     ) -> String? {
+        if Self.transportOnlyKeys.contains(key) { return nil }
         if key == Self.launchArgumentsKey {
             return Self.sanitizedLaunchArgumentsEncoding(
                 value,

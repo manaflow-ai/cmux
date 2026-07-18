@@ -13,6 +13,7 @@ struct AgentHookTransportEnvironmentPolicyTests {
             "CMUX_AGENT_HOOK_DELIVERY_ID": "transport-only-id",
             "CMUX_SOCKET_CAPABILITY": "must-not-persist",
             "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP": "1",
+            "CMUX_AGENT_HOOK_DELIVERY_SUPERVISOR_PID": "4242",
             "ANTHROPIC_API_KEY": "anthropic-secret",
             "CLAUDE_CODE_USE_VERTEX": "1",
             "AWS_PROFILE": "bedrock-profile",
@@ -59,7 +60,29 @@ struct AgentHookTransportEnvironmentPolicyTests {
         #expect(selected["CMUX_AGENT_HOOK_DELIVERY_ID"] == nil)
         #expect(selected["CMUX_SOCKET_CAPABILITY"] == nil)
         #expect(selected["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] == nil)
+        #expect(selected["CMUX_AGENT_HOOK_DELIVERY_SUPERVISOR_PID"] == nil)
         #expect(selected["UNRELATED_SECRET"] == nil)
+    }
+
+    @Test("Scrubs legacy per-attempt transport ownership")
+    func scrubsLegacyPerAttemptTransportOwnership() {
+        let policy = AgentHookTransportEnvironmentPolicy()
+        let durable = policy.durableEnvironmentForPersistence(
+            from: [
+                "CMUX_AGENT_HOOK_DELIVERY_ID": "legacy-delivery",
+                "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP": "111",
+                "CMUX_AGENT_HOOK_DELIVERY_SUPERVISOR_PID": "222",
+                "CMUX_SOCKET_CAPABILITY": "legacy-capability",
+                "CMUX_FUTURE_ROUTE": "preserved-routing-value",
+            ],
+            hookAgentKind: "codex"
+        )
+
+        #expect(durable["CMUX_AGENT_HOOK_DELIVERY_ID"] == nil)
+        #expect(durable["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] == nil)
+        #expect(durable["CMUX_AGENT_HOOK_DELIVERY_SUPERVISOR_PID"] == nil)
+        #expect(durable["CMUX_SOCKET_CAPABILITY"] == nil)
+        #expect(durable["CMUX_FUTURE_ROUTE"] == "preserved-routing-value")
     }
 
     @Test("Keeps credential values out of durable storage")

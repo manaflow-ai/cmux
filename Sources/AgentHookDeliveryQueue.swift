@@ -1560,27 +1560,22 @@ actor AgentHookDeliveryQueue {
         let delivery: PendingDelivery
         let succeeded: Bool
         let error: String?
-        let lingeringProcessGroup: ProcessGroupPermit?
-    }
-
-    private struct ProcessGroupPermit: Sendable {
-        let processGroupID: pid_t
-        let deadline: TimeInterval
+        let supervisor: AgentHookDeliverySupervisorClient.Handle?
     }
 
     private struct DeliveryAttemptResult: Sendable {
         let succeeded: Bool
         let error: String?
-        let lingeringProcessGroup: ProcessGroupPermit?
+        let supervisor: AgentHookDeliverySupervisorClient.Handle?
 
         static func failure(_ error: String) -> Self {
-            Self(succeeded: false, error: error, lingeringProcessGroup: nil)
+            Self(succeeded: false, error: error, supervisor: nil)
         }
     }
 
     private enum DrainCompletion: Sendable {
         case delivery(DeliveryCompletion)
-        case processGroupReleased(pid_t)
+        case supervisorReleased(UUID)
         case deliveryAvailable
     }
 
@@ -1595,12 +1590,6 @@ actor AgentHookDeliveryQueue {
         }
     }
 
-    private enum DeliveryProcessRace: Sendable {
-        case exited(Int32)
-        case deadline
-        case cancelled
-    }
-
     private let databaseURL: URL
     // SQLite serializes this FULLMUTEX connection. `enqueue` must remain
     // synchronous so the socket cannot acknowledge before the committed insert.
@@ -1609,6 +1598,7 @@ actor AgentHookDeliveryQueue {
     nonisolated private let admissionLock = NSLock()
     nonisolated private let ephemeralEnvironmentStore = AgentHookEphemeralEnvironmentStore()
     private let executableURLProvider: @Sendable () -> URL?
+    private let supervisorExecutableURLProvider: @Sendable () -> URL?
     private let processTimeout: TimeInterval
     private let lingeringProcessGroupTimeout: TimeInterval
     private let terminationGrace: TimeInterval
@@ -1631,6 +1621,12 @@ actor AgentHookDeliveryQueue {
         executableURLProvider: @escaping @Sendable () -> URL? = {
             Bundle.main.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
         },
+        supervisorExecutableURLProvider: @escaping @Sendable () -> URL? = {
+            Bundle.main.resourceURL?.appendingPathComponent(
+                "bin/cmux-agent-hook-supervisor",
+                isDirectory: false
+            )
+        },
         processTimeout: TimeInterval = 15,
         lingeringProcessGroupTimeout: TimeInterval = 75,
         terminationGrace: TimeInterval = 0.5,
@@ -1643,6 +1639,7 @@ actor AgentHookDeliveryQueue {
         let resolvedDatabaseURL = databaseURL ?? Self.defaultDatabaseURL()
         self.databaseURL = resolvedDatabaseURL
         self.executableURLProvider = executableURLProvider
+        self.supervisorExecutableURLProvider = supervisorExecutableURLProvider
         self.processTimeout = max(0.01, processTimeout)
         self.lingeringProcessGroupTimeout = max(0.01, lingeringProcessGroupTimeout)
         self.terminationGrace = max(0.01, terminationGrace)
@@ -1867,9 +1864,9 @@ actor AgentHookDeliveryQueue {
         guard database != nil else { return }
         if drainTask != nil {
             drainRequested = true
-            // A retained descendant can outlive its delivery leader. Wake the
-            // drain immediately when new durable work arrives instead of
-            // waiting for that descendant's process group to exit.
+            // A retained supervisor can outlive its direct delivery child.
+            // Wake the drain when new durable work arrives instead of waiting
+            // for every descendant beneath that supervisor to exit.
             deliveryWakeChannel.continuation.yield(())
             return
         }
@@ -1904,7 +1901,7 @@ actor AgentHookDeliveryQueue {
         return await withTaskGroup(of: DrainCompletion.self) { group in
             var activeSequences: Set<Int64> = []
             var activeOrderingKeys: Set<String> = []
-            var retainedProcessGroups: Set<pid_t> = []
+            var retainedSupervisors: [UUID: AgentHookDeliverySupervisorClient.Handle] = [:]
             let deliveryWakeStream = deliveryWakeChannel.stream
             group.addTask {
                 var iterator = deliveryWakeStream.makeAsyncIterator()
@@ -1914,10 +1911,10 @@ actor AgentHookDeliveryQueue {
 
             while !Task.isCancelled {
                 do {
-                    let occupiedPermits = activeSequences.count + retainedProcessGroups.count
+                    let occupiedPermits = activeSequences.count + retainedSupervisors.count
                     guard occupiedPermits <= maximumConcurrentDeliveries else {
                         throw Self.failure(
-                            "Delivery process-group permit budget was exceeded.",
+                            "Delivery supervisor permit budget was exceeded.",
                             code: 10
                         )
                     }
@@ -1952,20 +1949,20 @@ actor AgentHookDeliveryQueue {
                                     delivery: delivery,
                                     succeeded: result.succeeded,
                                     error: result.error,
-                                    lingeringProcessGroup: result.lingeringProcessGroup
+                                    supervisor: result.supervisor
                                 ))
                             }
                         }
                     }
 
-                    if activeSequences.isEmpty, retainedProcessGroups.isEmpty {
+                    if activeSequences.isEmpty, retainedSupervisors.isEmpty {
                         try deleteExpiredReceipts(database: database)
                         try scheduleNextRetry(database: database)
                         group.cancelAll()
                         return false
                     }
                     if launchedDelivery,
-                       activeSequences.count + retainedProcessGroups.count
+                       activeSequences.count + retainedSupervisors.count
                             < maximumConcurrentDeliveries {
                         continue
                     }
@@ -1975,28 +1972,24 @@ actor AgentHookDeliveryQueue {
                     case .delivery(let deliveryCompletion):
                         activeSequences.remove(deliveryCompletion.delivery.sequence)
                         activeOrderingKeys.remove(deliveryCompletion.delivery.orderingKey)
-                        if let permit = deliveryCompletion.lingeringProcessGroup,
-                           Self.processGroupExists(permit.processGroupID) {
-                            guard retainedProcessGroups.insert(permit.processGroupID).inserted else {
+                        if let supervisor = deliveryCompletion.supervisor {
+                            guard retainedSupervisors[supervisor.id] == nil else {
                                 throw Self.failure(
-                                    "Delivery process-group permit was transferred twice.",
+                                    "Delivery supervisor permit was transferred twice.",
                                     code: 11
                                 )
                             }
-                            let monitorTerminationGrace = self.terminationGrace
+                            retainedSupervisors[supervisor.id] = supervisor
                             group.addTask {
-                                await Self.monitorProcessGroup(
-                                    permit,
-                                    terminationGrace: monitorTerminationGrace
-                                )
-                                return .processGroupReleased(permit.processGroupID)
+                                _ = await supervisor.waitForTermination()
+                                return .supervisorReleased(supervisor.id)
                             }
                         }
                         try record(completion: deliveryCompletion, database: database)
-                    case .processGroupReleased(let processGroupID):
-                        guard retainedProcessGroups.remove(processGroupID) != nil else {
+                    case .supervisorReleased(let supervisorID):
+                        guard retainedSupervisors.removeValue(forKey: supervisorID) != nil else {
                             throw Self.failure(
-                                "Delivery process-group permit was released twice.",
+                                "Delivery supervisor permit was released twice.",
                                 code: 12
                             )
                         }
@@ -2009,11 +2002,14 @@ actor AgentHookDeliveryQueue {
                         }
                     }
                 } catch {
+                    for supervisor in retainedSupervisors.values {
+                        supervisor.requestCancellation()
+                    }
                     group.cancelAll()
                     while let completion = await group.next() {
                         if case .delivery(let deliveryCompletion) = completion,
-                           let permit = deliveryCompletion.lingeringProcessGroup {
-                            Self.forceKillProcessGroup(permit.processGroupID)
+                           let supervisor = deliveryCompletion.supervisor {
+                            supervisor.requestCancellation()
                         }
                     }
                     agentHookDeliveryLogger.fault(
@@ -2022,11 +2018,14 @@ actor AgentHookDeliveryQueue {
                     return true
                 }
             }
+            for supervisor in retainedSupervisors.values {
+                supervisor.requestCancellation()
+            }
             group.cancelAll()
             while let completion = await group.next() {
                 if case .delivery(let deliveryCompletion) = completion,
-                   let permit = deliveryCompletion.lingeringProcessGroup {
-                    Self.forceKillProcessGroup(permit.processGroupID)
+                   let supervisor = deliveryCompletion.supervisor {
+                    supervisor.requestCancellation()
                 }
             }
             return true
@@ -2300,25 +2299,26 @@ actor AgentHookDeliveryQueue {
               FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             return .failure("Bundled cmux CLI is unavailable or not executable.")
         }
+        guard let supervisorURL = supervisorExecutableURLProvider(),
+              FileManager.default.isExecutableFile(atPath: supervisorURL.path) else {
+            return .failure("Bundled hook delivery supervisor is unavailable or not executable.")
+        }
 
-        let input: FileHandle
         let errorOutput: FileHandle
         do {
-            input = try Self.anonymousFile(containing: payload, near: databaseURL)
             errorOutput = try Self.anonymousFile(containing: Data(), near: databaseURL)
         } catch {
             return .failure("Could not create file-backed child I/O: \(error.localizedDescription)")
         }
 
-        let process = Process()
-        process.executableURL = executableURL
+        let childArguments: [String]
         if let feedEvent = Self.codexFeedEvent(from: subcommand) {
-            process.arguments = [
+            childArguments = [
                 "--socket", socketPath,
                 "hooks", "feed", "--source", agent, "--event", feedEvent,
             ]
         } else if Self.isCodexLifecycleSubcommand(subcommand) {
-            process.arguments = [
+            childArguments = [
                 "--socket", socketPath,
                 "hooks", agent, subcommand,
             ]
@@ -2340,68 +2340,72 @@ actor AgentHookDeliveryQueue {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = executableURL.path
         environment["CMUX_AGENT_HOOK_DELIVERY_ID"] = deliveryID
-        environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] = "1"
         environment.removeValue(forKey: "CMUX_SOCKET")
-        process.environment = environment
-        process.standardInput = input
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errorOutput
+        environment.removeValue(forKey: "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP")
+        environment.removeValue(forKey: "CMUX_AGENT_HOOK_DELIVERY_SUPERVISOR_PID")
 
-        let terminations = AsyncStream<Int32> { continuation in
-            process.terminationHandler = { terminatedProcess in
-                continuation.yield(terminatedProcess.terminationStatus)
-                continuation.finish()
-            }
-        }
-        let processGroupDeadline = Date().timeIntervalSinceReferenceDate + lingeringProcessGroupTimeout
+        let launch: AgentHookDeliverySupervisorClient.Launch
         do {
-            try process.run()
-            // The bundled CLI also calls setpgid before dispatch. This parent-
-            // side attempt closes the spawn-to-main race when the kernel still
-            // permits the parent to establish the child's group.
-            _ = Darwin.setpgid(process.processIdentifier, process.processIdentifier)
+            launch = try await AgentHookDeliverySupervisorClient.launch(
+                supervisorURL: supervisorURL,
+                childURL: executableURL,
+                childArguments: childArguments,
+                environment: environment,
+                payload: payload,
+                errorOutput: errorOutput,
+                directTimeout: processTimeout,
+                groupTimeout: lingeringProcessGroupTimeout,
+                terminationGrace: terminationGrace
+            )
         } catch {
-            process.terminationHandler = nil
-            return .failure("Could not launch bundled cmux CLI: \(error.localizedDescription)")
+            return .failure("Could not launch hook delivery supervisor: \(error.localizedDescription)")
         }
 
-        let outcome = await waitForExitOrTimeout(process: process, terminations: terminations)
-        process.terminationHandler = nil
         let stderr = Self.readErrorOutput(errorOutput)
-        let lingeringProcessGroup: ProcessGroupPermit? = {
-            let processGroupID = process.processIdentifier
-            guard Self.processGroupExists(processGroupID) else { return nil }
-            return ProcessGroupPermit(
-                processGroupID: processGroupID,
-                deadline: processGroupDeadline
+        switch launch.directResult {
+        case .exited(0):
+            return DeliveryAttemptResult(
+                succeeded: true,
+                error: nil,
+                supervisor: launch.handle
             )
-        }()
-        if outcome.cancelled {
+        case .exited(let status):
             return DeliveryAttemptResult(
                 succeeded: false,
-                error: "Bundled cmux CLI delivery was cancelled.\(stderr)",
-                lingeringProcessGroup: lingeringProcessGroup
+                error: "Bundled cmux CLI exited with status \(status).\(stderr)",
+                supervisor: launch.handle
             )
-        }
-        if outcome.timedOut {
+        case .signaled(let signal):
+            return DeliveryAttemptResult(
+                succeeded: false,
+                error: "Bundled cmux CLI was terminated by signal \(signal).\(stderr)",
+                supervisor: launch.handle
+            )
+        case .timedOut:
             return DeliveryAttemptResult(
                 succeeded: false,
                 error: "Bundled cmux CLI exceeded \(processTimeout)s.\(stderr)",
-                lingeringProcessGroup: lingeringProcessGroup
+                supervisor: launch.handle
             )
-        }
-        guard outcome.status == 0 else {
+        case .cancelled:
             return DeliveryAttemptResult(
                 succeeded: false,
-                error: "Bundled cmux CLI exited with status \(outcome.status).\(stderr)",
-                lingeringProcessGroup: lingeringProcessGroup
+                error: "Bundled cmux CLI delivery was cancelled.\(stderr)",
+                supervisor: launch.handle
+            )
+        case .launchError(let errorNumber):
+            return DeliveryAttemptResult(
+                succeeded: false,
+                error: "Hook delivery supervisor failed with errno \(errorNumber).\(stderr)",
+                supervisor: launch.handle
+            )
+        case .transportError(let error):
+            return DeliveryAttemptResult(
+                succeeded: false,
+                error: "Hook delivery supervisor protocol failed: \(error)\(stderr)",
+                supervisor: launch.handle
             )
         }
-        return DeliveryAttemptResult(
-            succeeded: true,
-            error: nil,
-            lingeringProcessGroup: lingeringProcessGroup
-        )
     }
 
     private nonisolated static func codexFeedEvent(from subcommand: String) -> String? {
@@ -2415,175 +2419,6 @@ actor AgentHookDeliveryQueue {
 
     private nonisolated static func supportedSubcommand(_ subcommand: String) -> Bool {
         AgentHookDeliveryEvent.supportedSubcommands.contains(subcommand)
-    }
-
-    private func waitForExitOrTimeout(
-        process: Process,
-        terminations: AsyncStream<Int32>
-    ) async -> (status: Int32, timedOut: Bool, cancelled: Bool) {
-        await withTaskGroup(of: DeliveryProcessRace.self) { group in
-            group.addTask {
-                for await status in terminations {
-                    return .exited(status)
-                }
-                return Task.isCancelled ? .cancelled : .exited(-1)
-            }
-            let timeout = processTimeout
-            group.addTask {
-                do {
-                    // This is the child deadline itself, not a polling sleep.
-                    try await ContinuousClock().sleep(for: .milliseconds(Int64(timeout * 1_000)))
-                    return .deadline
-                } catch {
-                    return .cancelled
-                }
-            }
-
-            guard let firstResult = await group.next() else {
-                return (-1, false, Task.isCancelled)
-            }
-            if case .exited(let status) = firstResult {
-                group.cancelAll()
-                return (status, false, false)
-            }
-
-            let wasCancelled: Bool
-            switch firstResult {
-            case .cancelled:
-                wasCancelled = true
-            case .deadline:
-                wasCancelled = false
-            case .exited:
-                wasCancelled = false
-            }
-            let processID = process.processIdentifier
-            let processGroupID = Self.ownedProcessGroupID(processID: processID)
-            if let processGroupID {
-                _ = Darwin.kill(-processGroupID, SIGTERM)
-            } else if process.isRunning {
-                process.terminate()
-            }
-            if !wasCancelled {
-                // A short grace period lets the child clean up before SIGKILL.
-                try? await ContinuousClock().sleep(for: .milliseconds(Int64(terminationGrace * 1_000)))
-            }
-            if let processGroupID {
-                if Self.processGroupExists(processGroupID) {
-                    _ = Darwin.kill(-processGroupID, SIGKILL)
-                }
-            } else if process.isRunning {
-                _ = Darwin.kill(processID, SIGKILL)
-            }
-            process.waitUntilExit()
-            group.cancelAll()
-            if let processGroupID {
-                let groupExitTimeout = max(0.01, terminationGrace)
-                await Task.detached {
-                    Self.waitForProcessGroupExit(
-                        processGroupID,
-                        timeout: groupExitTimeout
-                    )
-                }.value
-            }
-            return (process.terminationStatus, !wasCancelled, wasCancelled)
-        }
-    }
-
-    private nonisolated static func ownedProcessGroupID(processID: pid_t) -> pid_t? {
-        let processGroupID = Darwin.getpgid(processID)
-        return processGroupID == processID ? processGroupID : nil
-    }
-
-    private nonisolated static func processGroupExists(_ processGroupID: pid_t) -> Bool {
-        if Darwin.kill(-processGroupID, 0) == 0 {
-            return true
-        }
-        return errno == EPERM
-    }
-
-    private nonisolated static func monitorProcessGroup(
-        _ permit: ProcessGroupPermit,
-        terminationGrace: TimeInterval
-    ) async {
-        while processGroupExists(permit.processGroupID) {
-            if Task.isCancelled {
-                await terminateProcessGroup(
-                    permit.processGroupID,
-                    terminationGrace: terminationGrace,
-                    allowGrace: false
-                )
-                return
-            }
-
-            let remaining = permit.deadline - Date().timeIntervalSinceReferenceDate
-            if remaining <= 0 {
-                await terminateProcessGroup(
-                    permit.processGroupID,
-                    terminationGrace: terminationGrace,
-                    allowGrace: true
-                )
-                return
-            }
-            let interval = min(0.025, remaining)
-            do {
-                try await ContinuousClock().sleep(
-                    for: .milliseconds(max(1, Int64(interval * 1_000)))
-                )
-            } catch {
-                await terminateProcessGroup(
-                    permit.processGroupID,
-                    terminationGrace: terminationGrace,
-                    allowGrace: false
-                )
-                return
-            }
-        }
-    }
-
-    private nonisolated static func terminateProcessGroup(
-        _ processGroupID: pid_t,
-        terminationGrace: TimeInterval,
-        allowGrace: Bool
-    ) async {
-        guard processGroupID > 1, processGroupID != Darwin.getpgrp() else { return }
-        _ = Darwin.kill(-processGroupID, SIGTERM)
-        if allowGrace, processGroupExists(processGroupID) {
-            await Task.detached {
-                waitForProcessGroupExit(
-                    processGroupID,
-                    timeout: max(0.01, terminationGrace)
-                )
-            }.value
-        }
-        if processGroupExists(processGroupID) {
-            _ = Darwin.kill(-processGroupID, SIGKILL)
-        }
-        await Task.detached {
-            waitForProcessGroupExit(
-                processGroupID,
-                timeout: max(1, terminationGrace * 4)
-            )
-        }.value
-    }
-
-    private nonisolated static func forceKillProcessGroup(_ processGroupID: pid_t) {
-        guard processGroupID > 1, processGroupID != Darwin.getpgrp() else { return }
-        _ = Darwin.kill(-processGroupID, SIGTERM)
-        _ = Darwin.kill(-processGroupID, SIGKILL)
-    }
-
-    private nonisolated static func waitForProcessGroupExit(
-        _ processGroupID: pid_t,
-        timeout: TimeInterval
-    ) {
-        let deadline = Date().timeIntervalSinceReferenceDate + timeout
-        while processGroupExists(processGroupID), Date().timeIntervalSinceReferenceDate < deadline {
-            var interval = timespec(tv_sec: 0, tv_nsec: 5 * 1_000 * 1_000)
-            var remaining = timespec()
-            while Darwin.nanosleep(&interval, &remaining) != 0, errno == EINTR {
-                interval = remaining
-            }
-        }
     }
 
     private nonisolated static func defaultDatabaseURL() -> URL {

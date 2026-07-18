@@ -1444,11 +1444,14 @@ struct AgentHookDeliveryQueueTests {
         let scriptURL = root.appendingPathComponent("deliver.sh")
         let firstForkURL = root.appendingPathComponent("first-fork.sh")
         let lingerURL = root.appendingPathComponent("linger.sh")
+        let supervisorPIDFile = root.appendingPathComponent("first-supervisor.pid")
         let descendantPIDFile = root.appendingPathComponent("descendant.pid")
         defer {
-            if let rawPID = try? String(contentsOf: descendantPIDFile, encoding: .utf8),
-               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                Darwin.kill(pid, SIGKILL)
+            for pidFile in [supervisorPIDFile, descendantPIDFile] {
+                if let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
+                   let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    Darwin.kill(pid, SIGKILL)
+                }
             }
             try? FileManager.default.removeItem(at: root)
         }
@@ -1457,13 +1460,28 @@ struct AgentHookDeliveryQueueTests {
             contents: """
             #!/bin/sh
             if [ "$CMUX_AGENT_HOOK_DELIVERY_ID" = "lane-first" ]; then
+              printf '%s' "$CMUX_AGENT_HOOK_DELIVERY_SUPERVISOR_PID" > "$TMPDIR/first-supervisor.pid"
               /bin/sh "$TMPDIR/first-fork.sh" &
               exit 0
             fi
-            if [ -e "$TMPDIR/first-descendant-active" ]; then
-              : > "$TMPDIR/later-started-before-descendant-exit"
+            if [ "$CMUX_AGENT_HOOK_DELIVERY_ID" = "lane-later" ]; then
+              if [ -e "$TMPDIR/first-descendant-active" ]; then
+                : > "$TMPDIR/later-started-before-descendant-exit"
+              fi
+              : > "$TMPDIR/later-direct-active"
+              attempts=0
+              while [ ! -e "$TMPDIR/release-later-direct" ] && [ "$attempts" -lt 400 ]; do
+                /bin/sleep 0.01
+                attempts=$((attempts + 1))
+              done
+              if [ ! -e "$TMPDIR/release-later-direct" ]; then
+                : > "$TMPDIR/later-release-failsafe"
+              fi
+              /bin/rm -f "$TMPDIR/later-direct-active"
+            elif [ -e "$TMPDIR/first-descendant-active" ]; then
+              : > "$TMPDIR/independent-started-before-descendant-exit"
             fi
-            : > "$TMPDIR/release-first-descendant"
+            : > "$TMPDIR/$CMUX_AGENT_HOOK_DELIVERY_ID-started"
             printf '%s\n' "$CMUX_AGENT_HOOK_DELIVERY_ID" >> "$TMPDIR/leaders-finished"
             """
         )
@@ -1482,7 +1500,7 @@ struct AgentHookDeliveryQueueTests {
             printf '%s' "$$" > "$TMPDIR/descendant.pid"
             : > "$TMPDIR/first-descendant-active"
             attempts=0
-            while [ ! -e "$TMPDIR/release-first-descendant" ] && [ "$attempts" -lt 200 ]; do
+            while [ ! -e "$TMPDIR/release-first-descendant" ] && [ "$attempts" -lt 500 ]; do
               /bin/sleep 0.01
               attempts=$((attempts + 1))
             done
@@ -1495,8 +1513,8 @@ struct AgentHookDeliveryQueueTests {
         let queue = AgentHookDeliveryQueue(
             databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
             executableURLProvider: { scriptURL },
-            processTimeout: 2,
-            lingeringProcessGroupTimeout: 3,
+            processTimeout: 5,
+            lingeringProcessGroupTimeout: 6,
             terminationGrace: 0.05,
             retryBaseDelay: 60,
             retryMaximumDelay: 60,
@@ -1512,6 +1530,11 @@ struct AgentHookDeliveryQueueTests {
             payload: Data(),
             environment: testEnvironment(root: root)
         ))
+        let independent = try #require(makeEvent(
+            deliveryID: "lane-independent",
+            payload: Data(),
+            environment: testEnvironment(root: root, surfaceID: "surface:independent")
+        ))
 
         try queue.enqueue(first)
         let firstLeaderCompleted = await waitUntil(timeout: .seconds(2)) {
@@ -1521,23 +1544,66 @@ struct AgentHookDeliveryQueueTests {
             ) && state == "delivered"
         }
         #expect(firstLeaderCompleted)
+        let supervisorPID = try #require(Int32(
+            String(contentsOf: supervisorPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        #expect(Darwin.kill(supervisorPID, 0) == 0)
+
         try queue.enqueue(later)
-        await queue.waitUntilCurrentDrainFinishes()
+        let sameSurfaceLaneReleased = await waitUntil(timeout: .seconds(2)) {
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("later-direct-active").path
+            )
+        }
+        #expect(sameSurfaceLaneReleased)
 
         #expect(FileManager.default.fileExists(
             atPath: root.appendingPathComponent("later-started-before-descendant-exit").path
         ))
+        #expect(Darwin.kill(supervisorPID, 0) == 0)
+
+        try queue.enqueue(independent)
+        let independentStartedWhileBothPermitsOwned = await waitUntil(timeout: .milliseconds(500)) {
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("lane-independent-started").path
+            )
+        }
+        #expect(!independentStartedWhileBothPermitsOwned)
+
+        try Data().write(to: root.appendingPathComponent("release-later-direct"))
+        let independentStartedAfterPermitRelease = await waitUntil(timeout: .seconds(2)) {
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("lane-independent-started").path
+            )
+        }
+        #expect(independentStartedAfterPermitRelease)
+        #expect(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("independent-started-before-descendant-exit").path
+        ))
+        #expect(Darwin.kill(supervisorPID, 0) == 0)
+
+        try Data().write(to: root.appendingPathComponent("release-first-descendant"))
+        await queue.waitUntilCurrentDrainFinishes()
+
         #expect(!FileManager.default.fileExists(
             atPath: root.appendingPathComponent("descendant-release-failsafe").path
         ))
-        #expect(try lines(at: root.appendingPathComponent("leaders-finished")) == ["lane-later"])
+        #expect(!FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("later-release-failsafe").path
+        ))
+        #expect(try lines(at: root.appendingPathComponent("leaders-finished")) == [
+            "lane-later", "lane-independent",
+        ])
         let descendantPID = try #require(Int32(
             String(contentsOf: descendantPIDFile, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
-        errno = 0
-        #expect(Darwin.kill(descendantPID, 0) == -1)
-        #expect(errno == ESRCH)
+        for pid in [supervisorPID, descendantPID] {
+            errno = 0
+            #expect(Darwin.kill(pid, 0) == -1)
+            #expect(errno == ESRCH)
+        }
     }
 
     @Test func leaderExitDoesNotLetHungDescendantOutliveDeliveryDeadline() async throws {
@@ -1608,23 +1674,50 @@ struct AgentHookDeliveryQueueTests {
         #expect(errno == ESRCH)
     }
 
-    @Test func cancellingDrainKillsTransferredProcessGroupPermit() async throws {
+    @Test func cancellingDrainClosesSupervisorLeaseWithoutTouchingUnrelatedSession() async throws {
         let root = try temporaryDirectory(named: "detached-process-group-cancel")
         let scriptURL = root.appendingPathComponent("deliver.sh")
         let firstForkURL = root.appendingPathComponent("first-fork.sh")
         let lingerURL = root.appendingPathComponent("linger.sh")
+        let supervisorPIDFile = root.appendingPathComponent("supervisor.pid")
         let descendantPIDFile = root.appendingPathComponent("descendant.pid")
+        let unrelatedPIDFile = root.appendingPathComponent("unrelated.pid")
+        let unrelatedProcess = Process()
         defer {
-            if let rawPID = try? String(contentsOf: descendantPIDFile, encoding: .utf8),
-               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                Darwin.kill(pid, SIGKILL)
+            if unrelatedProcess.isRunning {
+                unrelatedProcess.terminate()
+                unrelatedProcess.waitUntilExit()
+            }
+            for pidFile in [supervisorPIDFile, descendantPIDFile] {
+                if let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
+                   let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    Darwin.kill(pid, SIGKILL)
+                }
             }
             try? FileManager.default.removeItem(at: root)
         }
+        unrelatedProcess.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        unrelatedProcess.arguments = [
+            "-c",
+            "import os, pathlib, signal; os.setsid(); "
+                + "pathlib.Path(os.environ['CMUX_TEST_UNRELATED_PID_FILE']).write_text(str(os.getpid())); "
+                + "signal.pause()",
+        ]
+        var unrelatedEnvironment = ProcessInfo.processInfo.environment
+        unrelatedEnvironment["CMUX_TEST_UNRELATED_PID_FILE"] = unrelatedPIDFile.path
+        unrelatedProcess.environment = unrelatedEnvironment
+        unrelatedProcess.standardOutput = FileHandle.nullDevice
+        unrelatedProcess.standardError = FileHandle.nullDevice
+        try unrelatedProcess.run()
+        let unrelatedSessionReady = await waitUntil(timeout: .seconds(2)) {
+            FileManager.default.fileExists(atPath: unrelatedPIDFile.path)
+        }
+        #expect(unrelatedSessionReady)
         try writeExecutable(
             at: scriptURL,
             contents: """
             #!/bin/sh
+            printf '%s' "$CMUX_AGENT_HOOK_DELIVERY_SUPERVISOR_PID" > "$TMPDIR/supervisor.pid"
             /bin/sh "$TMPDIR/first-fork.sh" &
             exit 0
             """
@@ -1669,19 +1762,37 @@ struct AgentHookDeliveryQueueTests {
                 && state == "delivered"
         }
         #expect(permitTransferred)
-        await queue.cancelCurrentDrainForTesting()
 
+        let supervisorPID = try #require(Int32(
+            String(contentsOf: supervisorPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
         let descendantPID = try #require(Int32(
             String(contentsOf: descendantPIDFile, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
-        let descendantExited = await waitUntil(timeout: .seconds(1)) {
-            Darwin.kill(descendantPID, 0) == -1
+        let unrelatedPID = try #require(Int32(
+            String(contentsOf: unrelatedPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        #expect(Darwin.getpgid(supervisorPID) == supervisorPID)
+        #expect(Darwin.getpgid(descendantPID) == supervisorPID)
+        #expect(Darwin.getpgid(unrelatedPID) == unrelatedPID)
+
+        await queue.cancelCurrentDrainForTesting()
+
+        let supervisedSessionExited = await waitUntil(timeout: .seconds(1)) {
+            Darwin.kill(supervisorPID, 0) == -1 && Darwin.kill(descendantPID, 0) == -1
         }
-        #expect(descendantExited)
-        errno = 0
-        #expect(Darwin.kill(descendantPID, 0) == -1)
-        #expect(errno == ESRCH)
+        #expect(supervisedSessionExited)
+        for pid in [supervisorPID, descendantPID] {
+            errno = 0
+            #expect(Darwin.kill(pid, 0) == -1)
+            #expect(errno == ESRCH)
+        }
+        #expect(unrelatedProcess.isRunning)
+        #expect(Darwin.kill(unrelatedPID, 0) == 0)
+        #expect(Darwin.getpgid(unrelatedPID) == unrelatedPID)
     }
 
     @Test func legacyPendingRowsAreBackfilledBeforeNewEventsDrain() async throws {
