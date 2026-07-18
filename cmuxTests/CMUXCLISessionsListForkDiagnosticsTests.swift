@@ -244,7 +244,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     func sessionsListDiagnosticSession(
         agent: String = "codex", launcher: String, executablePath: String, arguments: [String],
         environment: [String: String] = [:], workingDirectory: String = "/tmp/cmux/debug", pid: Int? = nil,
-        transcriptPath: String? = nil
+        transcriptPath: String? = nil, restoreAuthority: Bool? = nil
     ) throws -> [String: Any] {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -271,6 +271,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ]
         if let pid { record["pid"] = pid }
         if let transcriptPath { record["transcriptPath"] = transcriptPath }
+        if let restoreAuthority { record["restoreAuthority"] = restoreAuthority }
         let store: [String: Any] = [
             "version": 1,
             "sessions": [sessionId: record],
@@ -287,6 +288,21 @@ extension CMUXCLIErrorOutputRegressionTests {
         let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
         let sessions = try #require(object["sessions"] as? [[String: Any]])
         return try #require(sessions.first)
+    }
+
+    @Test func testSessionsListNeverForksNestedRunsWithoutRestoreAuthority() throws {
+        let session = try sessionsListDiagnosticSession(
+            launcher: "codexTeams",
+            executablePath: "/usr/local/bin/cmux",
+            arguments: ["/usr/local/bin/cmux", "codex-teams"],
+            restoreAuthority: false
+        )
+
+        #expect(session["restore_authority"] as? Bool == false)
+        #expect(session["hook_record_restorable"] as? Bool == false)
+        #expect(session["fork_command_available"] as? Bool == false)
+        #expect(session["fork_supported"] as? Bool == false)
+        #expect(session["fork_unavailable_reason"] as? String == "record_marked_non_restorable")
     }
 
     @Test func testSessionsListFailsClosedForUnverifiedPiFamilyVersions() throws {

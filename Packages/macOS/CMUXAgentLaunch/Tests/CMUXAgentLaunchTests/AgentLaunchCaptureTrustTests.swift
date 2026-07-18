@@ -292,6 +292,57 @@ struct AgentLaunchCaptureTrustTests {
         )
     }
 
+    @Test func interpreterTrustUsesOnlyTheActualScriptEntrypoint() {
+        let misleadingArguments = [
+            "node",
+            "/tmp/unrelated-tool.js",
+            "/tmp/codex",
+            "--print",
+        ]
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: misleadingArguments,
+                kind: "codex"
+            )
+        )
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "node",
+                arguments: misleadingArguments
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeAgentLaunchArguments(
+                processName: "node",
+                arguments: misleadingArguments,
+                kind: "codex"
+            ) == nil
+        )
+
+        let trustedArguments = [
+            "node",
+            "--use-system-ca",
+            "/Users/alice/.npm/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+            "--print",
+            "fix this",
+        ]
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: trustedArguments,
+                kind: "claude"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeAgentLaunchArguments(
+                processName: "node",
+                arguments: trustedArguments,
+                kind: "claude"
+            ) == ["--print", "fix this"]
+        )
+    }
+
     @Test func liveProcessModeSeparatesOneShotInteractiveAndUnknownLaunches() {
         #expect(
             AgentLaunchModeClassifier.processMode(
@@ -590,6 +641,26 @@ struct AgentLaunchCaptureTrustTests {
                     "--output-format=stream-jsonrpc",
                 ],
                 kind: "factory"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "opencode",
+                arguments: [
+                    "opencode", "run", "fix this",
+                    "--interactive", "--future-launch-mode",
+                ],
+                kind: "opencode"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "claude",
+                arguments: [
+                    "claude", "--input-format", "stream-json",
+                    "--future-protocol-option",
+                ],
+                kind: "claude"
             ) == .interactive
         )
     }
