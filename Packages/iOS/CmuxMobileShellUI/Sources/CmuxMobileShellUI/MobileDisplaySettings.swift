@@ -28,7 +28,9 @@ public final class MobileDisplaySettings {
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
+    #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+    #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
@@ -118,6 +120,7 @@ public final class MobileDisplaySettings {
         }
     }
 
+    #if DEBUG
     /// Persisted selection for the debug-only Shell icon lab.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant {
         didSet {
@@ -127,6 +130,10 @@ public final class MobileDisplaySettings {
             )
         }
     }
+    #else
+    /// Production builds expose only the shipping Shell icon treatment.
+    var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
+    #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
@@ -159,9 +166,11 @@ public final class MobileDisplaySettings {
             storedProfilePictureSize ?? Self.defaultProfilePictureSize,
             to: Self.profilePictureSizeRange
         )
+        #if DEBUG
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        #endif
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.

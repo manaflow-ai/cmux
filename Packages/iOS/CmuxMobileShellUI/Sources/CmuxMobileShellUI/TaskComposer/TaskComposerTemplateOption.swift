@@ -107,7 +107,11 @@ struct TaskComposerTemplateOption: View {
 
     private var resolvedShellIconVariant: TaskComposerShellIconVariant {
         guard template.icon == "terminal" else { return .current }
+        #if DEBUG
         return shellIconVariant ?? displaySettings.taskComposerShellIconVariant
+        #else
+        return .current
+        #endif
     }
 }
 #endif

@@ -5,7 +5,8 @@ import SwiftUI
 ///
 /// Keep each option close to the current treatment so one visual variable can
 /// be judged at a time. The chosen values are applied at render time and never
-/// mutate the user's persisted task templates.
+/// mutate the user's persisted task templates. Release builds collapse every
+/// render parameter to ``current``.
 enum TaskComposerShellIconVariant: String, CaseIterable, Identifiable, Sendable {
     case current
     case regular
@@ -68,7 +69,7 @@ enum TaskComposerShellIconVariant: String, CaseIterable, Identifiable, Sendable 
     }
 
     var glyphScale: CGFloat {
-        switch self {
+        switch renderedVariant {
         case .current, .regular, .medium: 1
         case .semibold92, .medium92, .regular92: 0.92
         case .semibold86, .medium86, .regular86, .soft86: 0.86
@@ -78,7 +79,7 @@ enum TaskComposerShellIconVariant: String, CaseIterable, Identifiable, Sendable 
     }
 
     var glyphWeight: Font.Weight {
-        switch self {
+        switch renderedVariant {
         case .current, .semibold92, .semibold86:
             .semibold
         case .medium, .medium92, .medium86, .soft86, .inset90:
@@ -89,15 +90,23 @@ enum TaskComposerShellIconVariant: String, CaseIterable, Identifiable, Sendable 
     }
 
     var glyphOpacity: Double {
-        self == .soft86 ? 0.82 : 1
+        renderedVariant == .soft86 ? 0.82 : 1
     }
 
     var circleScale: CGFloat {
-        self == .inset90 ? 0.90 : 1
+        renderedVariant == .inset90 ? 0.90 : 1
     }
 
     var circleOpacityScale: Double {
-        self == .soft86 ? 0.80 : 1
+        renderedVariant == .soft86 ? 0.80 : 1
+    }
+
+    private var renderedVariant: TaskComposerShellIconVariant {
+        #if DEBUG
+        self
+        #else
+        .current
+        #endif
     }
 }
 #endif
