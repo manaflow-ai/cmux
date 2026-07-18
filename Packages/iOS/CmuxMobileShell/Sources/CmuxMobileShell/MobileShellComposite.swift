@@ -6893,7 +6893,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "sync.liveness probe_failed awaiting_confirmation failures=\(probeFailures) silentMs=\(silentMs)"
                 )
                 mobileShellLog.info(
-                    "render-grid subscription probe failed once after \(silentMs, privacy: .public)ms of silence; awaiting confirmation"
+                    "render-grid subscription probe failed \(probeFailures, privacy: .public)x after \(silentMs, privacy: .public)ms of silence; awaiting confirmation"
                 )
                 return
             }
