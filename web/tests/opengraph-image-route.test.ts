@@ -48,6 +48,15 @@ describe("Open Graph image discovery", () => {
     expect(response.status).toBe(404);
   });
 
+  test("bypasses locale middleware for both default endpoint forms", () => {
+    for (const path of ["/opengraph-image", "/opengraph-image/"]) {
+      const response = middleware(new NextRequest(`https://cmux.com${path}`));
+
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+      expect(response.headers.get("location")).toBeNull();
+    }
+  });
+
   for (const locale of routing.locales) {
     test(
       `renders the ${locale} image response body`,
