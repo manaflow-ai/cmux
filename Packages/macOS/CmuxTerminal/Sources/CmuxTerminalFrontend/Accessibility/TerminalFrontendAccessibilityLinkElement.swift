@@ -20,7 +20,7 @@ final class TerminalFrontendAccessibilityLinkElement: NSAccessibilityElement {
         setAccessibilityValue(link.target)
         setAccessibilityIdentifier(link.id)
         setAccessibilityParent(parent)
-        accessibilityFrameInParentSpace = frameInParentSpace
+        setAccessibilityFrameInParentSpace(frameInParentSpace)
     }
 
     override func accessibilityPerformPress() -> Bool {

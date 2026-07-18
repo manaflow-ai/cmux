@@ -11,7 +11,7 @@ final class TerminalFrontendAccessibilityLinkActionGate: @unchecked Sendable {
 
     private let action: OSAllocatedUnfairLock<Action?>
 
-    init(action: @escaping Action) {
+    init(action: @escaping @Sendable () -> Void) {
         self.action = OSAllocatedUnfairLock(initialState: action)
     }
 

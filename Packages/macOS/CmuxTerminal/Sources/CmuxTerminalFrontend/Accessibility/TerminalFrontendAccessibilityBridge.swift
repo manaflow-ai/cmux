@@ -153,7 +153,7 @@ final class TerminalFrontendAccessibilityBridge {
         invalidateLinkElements()
         observedSnapshot = snapshot
         let model = TerminalFrontendAccessibilityTextModel(snapshot: snapshot)
-        let nextLinkElements = snapshot.links.compactMap { link in
+        let nextLinkElements: [TerminalFrontendAccessibilityLinkElement] = snapshot.links.compactMap { link in
             let range = NSRange(
                 location: link.utf16Range.location,
                 length: link.utf16Range.length
