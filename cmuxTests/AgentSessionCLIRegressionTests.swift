@@ -1743,7 +1743,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         var published = Data()
 
         #expect(throws: AgentStagedOutputProbeError.self) {
-            try AgentStagedOutput.publish(
+            try AgentStagedOutput(readChunkBytes: 1).publish(
                 build: { handle in
                     try handle.write(contentsOf: Data("partial".utf8))
                     throw AgentStagedOutputProbeError.expected

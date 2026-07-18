@@ -803,7 +803,7 @@ extension CMUXCLI {
         }
 
         if localJSONOutput {
-            try AgentStagedOutput.publish { handle in
+            try AgentStagedOutput().publish { handle in
                 var writer = try AgentPrettyJSONStreamWriter(handle: handle)
                 try writer.writeValueField(name: "default_codex_home", value: defaultCodexHome)
                 try writer.writeValueField(

@@ -3,9 +3,14 @@ import Darwin
 import Foundation
 
 struct AgentStagedOutput {
-    private static let readChunkBytes = 64 * 1_024
+    private let readChunkBytes: Int
 
-    static func publish(
+    init(readChunkBytes: Int = 64 * 1_024) {
+        precondition(readChunkBytes > 0)
+        self.readChunkBytes = readChunkBytes
+    }
+
+    func publish(
         build: (FileHandle) throws -> Void,
         publishChunk: (Data) -> Void = cliWriteStdout
     ) throws {
@@ -48,7 +53,7 @@ struct AgentStagedOutput {
         }
     }
 
-    private static func posixError() -> POSIXError {
+    private func posixError() -> POSIXError {
         POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
 }

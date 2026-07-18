@@ -537,7 +537,7 @@ extension CMUXCLI {
         if localJSONOutput {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-            try AgentStagedOutput.publish { handle in
+            try AgentStagedOutput().publish { handle in
                 var writer = try AgentPrettyJSONStreamWriter(handle: handle)
                 try writer.beginArrayField(name: "edges")
                 for start in stride(from: 0, to: snapshot.edges.count, by: 512) {
