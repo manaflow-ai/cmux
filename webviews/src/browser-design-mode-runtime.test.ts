@@ -9,17 +9,27 @@ const runtimeSource = readFileSync(
 
 const doms: JSDOM[] = [];
 
-function fixture(html: string) {
+function fixture(html: string, options: { stallAnimationFrames?: boolean } = {}) {
   const messages: unknown[] = [];
   const dom = new JSDOM(html, { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost:3000" });
   doms.push(dom);
+  let overlayShadowRoot: ShadowRoot | null = null;
+  const attachShadow = dom.window.Element.prototype.attachShadow;
+  dom.window.Element.prototype.attachShadow = function(init: ShadowRootInit) {
+    const root = attachShadow.call(this, init);
+    if (this.getAttribute("data-cmux-design-mode") === "overlay") overlayShadowRoot = root;
+    return root;
+  };
+  if (options.stallAnimationFrames) {
+    Object.defineProperty(dom.window, "requestAnimationFrame", { value: () => 1 });
+  }
   Object.defineProperty(dom.window, "webkit", {
     value: { messageHandlers: { cmuxDesignMode: { postMessage: (value: unknown) => messages.push(value) } } },
   });
   dom.window.eval(runtimeSource);
   const runtime = (dom.window as unknown as { __cmuxDesignMode: DesignRuntime }).__cmuxDesignMode;
   runtime.enable();
-  return { dom, messages, runtime };
+  return { dom, messages, overlayShadowRoot: () => overlayShadowRoot, runtime };
 }
 
 type SnapshotSelection = {
@@ -780,6 +790,48 @@ describe("browser design-mode runtime", () => {
     // Escape clears regions before exiting design mode.
     doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(runtime.composerState().selection_count).toBe(0);
+  });
+
+  test("native annotation completion presents the card when an earlier animation frame is stalled", () => {
+    const { dom, messages, overlayShadowRoot, runtime } = fixture(
+      `<main><button id="b">B</button></main>`,
+      { stallAnimationFrames: true },
+    );
+    const doc = dom.window.document;
+    const at = (name: string, x: number, y: number) => doc.dispatchEvent(
+      new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
+    );
+
+    runtime.setMode("draw");
+    at("pointerdown", 50, 60);
+    at("pointermove", 150, 160);
+    at("pointerup", 150, 160);
+    const request = messages.findLast(
+      (message) => (message as { type?: string }).type === "annotation_capture_requested",
+    ) as { request: { id: string } } | undefined;
+    const descriptor = runtime.prepareAnnotationCapture(request?.request.id ?? "");
+    runtime.completeAnnotationCapture(
+      request?.request.id ?? "",
+      2,
+      12,
+      196,
+      196,
+      "data:image/png;base64,Y2FyZA==",
+      descriptor?.scroll_x ?? 0,
+      descriptor?.scroll_y ?? 0,
+      descriptor?.viewport.width ?? 0,
+      descriptor?.viewport.height ?? 0,
+    );
+
+    const card = Array.from(overlayShadowRoot()?.querySelectorAll("div") ?? []).find(
+      (element) => element.style.backgroundImage.includes("Y2FyZA=="),
+    );
+    expect(card).toBeDefined();
+    expect(card?.style.display).toBe("block");
+    expect(card?.style.left).toBe("2px");
+    expect(card?.style.top).toBe("12px");
+    expect(card?.style.width).toBe("196px");
+    expect(card?.style.height).toBe("196px");
   });
 
   test("modes are exclusive: no marquee in select mode, no element picks in draw mode", () => {
