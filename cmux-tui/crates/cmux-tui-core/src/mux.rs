@@ -4841,6 +4841,7 @@ impl Mux {
         )?;
         let surface = prepared.surface.clone();
         let notifications = self.surface_notifications();
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
             if state
@@ -4977,6 +4978,7 @@ impl Mux {
             }
         };
         self.complete_committed_terminal_launch(prepared);
+        drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(placement)
@@ -5116,6 +5118,7 @@ impl Mux {
             before_publish();
         }
 
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let transaction = (|| -> anyhow::Result<()> {
             let mut state = self.state.lock().unwrap();
             if state.topology.revision() != expected_topology_revision {
@@ -5321,15 +5324,20 @@ impl Mux {
         })();
 
         if let Err(error) = transaction {
+            drop(terminal_control);
             for terminal in &spawned {
                 terminal.prepared.surface.kill();
             }
             return Err(error);
         }
 
+        let surfaces =
+            spawned.iter().map(|terminal| terminal.prepared.surface.clone()).collect::<Vec<_>>();
         for terminal in spawned {
-            let surface = terminal.prepared.surface.clone();
             self.complete_committed_terminal_launch(terminal.prepared);
+        }
+        drop(terminal_control);
+        for surface in surfaces {
             self.reap_if_dead(&surface);
         }
         self.emit(MuxEvent::TreeChanged);
@@ -5559,6 +5567,7 @@ impl Mux {
         let mut prepared =
             self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
         let surface = prepared.surface.clone();
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
             let mut state = self.state.lock().unwrap();
             match self.canonical_mutation_start(
@@ -5637,6 +5646,7 @@ impl Mux {
             }
         };
         self.complete_committed_terminal_launch(prepared);
+        drop(terminal_control);
         self.emit(MuxEvent::TreeChanged);
         self.reap_if_dead(&surface);
         Ok(placement)
@@ -5711,6 +5721,7 @@ impl Mux {
         let mut prepared =
             self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
         let surface = prepared.surface.clone();
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
             let mut state = self.state.lock().unwrap();
             match self.canonical_mutation_start(
@@ -5775,6 +5786,7 @@ impl Mux {
             }
         };
         self.complete_committed_terminal_launch(prepared);
+        drop(terminal_control);
         self.emit(MuxEvent::TreeChanged);
         self.reap_if_dead(&surface);
         Ok(placement)
@@ -7000,6 +7012,7 @@ impl Mux {
         let mut prepared =
             self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
         let surface = prepared.surface.clone();
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
             let mut state = self.state.lock().unwrap();
             match self.canonical_mutation_start(&state, expectation, "new-tab", &payload_digest)? {
@@ -7047,6 +7060,7 @@ impl Mux {
             }
         };
         self.complete_committed_terminal_launch(prepared);
+        drop(terminal_control);
         self.emit(MuxEvent::TreeChanged);
         self.reap_if_dead(&surface);
         Ok(placement)
@@ -7118,6 +7132,7 @@ impl Mux {
         let mut prepared =
             self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
         let surface = prepared.surface.clone();
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let transaction = (|| -> anyhow::Result<(CanonicalSurfacePlacement, ScreenId)> {
             let mut state = self.state.lock().unwrap();
             match self.canonical_mutation_start(
@@ -7189,6 +7204,7 @@ impl Mux {
             }
         };
         self.complete_committed_terminal_launch(prepared);
+        drop(terminal_control);
         self.emit(MuxEvent::TreeChanged);
         self.emit(MuxEvent::LayoutChanged(screen));
         self.reap_if_dead(&surface);
@@ -8011,6 +8027,7 @@ impl Mux {
         let (screen_id, screen_uuid) = self.entity_ids.screen();
         let (ws_id, workspace_uuid) = self.entity_ids.workspace();
         let notifications = self.surface_notifications();
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let delta = {
             let mut state = self.state.lock().unwrap();
             state.launch_recipes.insert(
@@ -8062,6 +8079,7 @@ impl Mux {
             }
         };
         self.complete_committed_terminal_launch(prepared);
+        drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
@@ -8090,6 +8108,7 @@ impl Mux {
             let (screen_id, screen_uuid) = self.entity_ids.screen();
             let (ws_id, workspace_uuid) = self.entity_ids.workspace();
             let notifications = self.surface_notifications();
+            let terminal_control = self.terminal_control_lifecycle.write().unwrap();
             let delta = {
                 let mut state = self.state.lock().unwrap();
                 state.launch_recipes.insert(
@@ -8142,6 +8161,7 @@ impl Mux {
                 }
             };
             self.complete_committed_terminal_launch(prepared);
+            drop(terminal_control);
             self.emit(MuxEvent::TreeDelta(delta));
             self.reap_if_dead(&surface);
             return Ok(RunPlacement {
@@ -8180,6 +8200,7 @@ impl Mux {
         }
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
             let Some((wi, si)) = state.screen_of(target) else {
@@ -8231,6 +8252,7 @@ impl Mux {
             (placement, delta)
         };
         self.complete_committed_terminal_launch(prepared);
+        drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(placement)
@@ -8268,6 +8290,7 @@ impl Mux {
         let (pane_id, pane) = self.make_pane(surface.id);
         let (screen_id, screen_uuid) = self.entity_ids.screen();
         let notifications = self.surface_notifications();
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let attached = {
             let mut state = self.state.lock().unwrap();
             let workspace_index = match workspace {
@@ -8330,6 +8353,7 @@ impl Mux {
             anyhow::bail!("workspace disappeared while creating screen");
         };
         self.complete_committed_terminal_launch(prepared);
+        drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
@@ -8381,6 +8405,7 @@ impl Mux {
         let surface = prepared.surface.clone();
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let attached = {
             let mut state = self.state.lock().unwrap();
             if state.panes.contains_key(&target) {
@@ -8435,6 +8460,7 @@ impl Mux {
             anyhow::bail!("pane disappeared while creating tab");
         };
         self.complete_committed_terminal_launch(prepared);
+        drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
@@ -8719,6 +8745,7 @@ impl Mux {
         let mut changed_workspace = None;
         let notifications = self.surface_notifications();
         let mut delta = None;
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         {
             let mut state = self.state.lock().unwrap();
             'outer: for ws in state.workspaces.iter_mut() {
@@ -8780,6 +8807,7 @@ impl Mux {
             anyhow::bail!("pane {target} not found");
         }
         self.complete_committed_terminal_launch(prepared);
+        drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta.expect("successful split has a tree delta")));
         if let Some(screen) = changed_screen {
             self.emit(MuxEvent::LayoutChanged(screen));
@@ -9543,6 +9571,7 @@ impl Mux {
         };
         let (screen_id, screen_uuid) = self.entity_ids.screen();
         let notifications = self.surface_notifications();
+        let terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let delta = {
             let mut state = self.state.lock().unwrap();
             if let Some(id) = workspace
@@ -9665,6 +9694,7 @@ impl Mux {
         for terminal in prepared {
             self.complete_committed_terminal_launch(terminal);
         }
+        drop(terminal_control);
         self.emit(MuxEvent::TreeDelta(delta));
         self.emit(MuxEvent::LayoutChanged(screen_id));
         for surface in spawned {
@@ -10419,6 +10449,128 @@ mod tests {
     }
 
     #[test]
+    fn terminal_close_waits_for_single_durable_launch_completion() {
+        let directory = PersistenceTestDirectory::new("terminal-launch-close-fence");
+        let store = StateStore::new(&directory.0);
+        let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+            .unwrap();
+        let workspace_uuid = WorkspaceUuid::new();
+        let surface_uuid = SurfaceUuid::new();
+        let (before_release_tx, before_release_rx) = std::sync::mpsc::sync_channel(1);
+        let (resume_tx, resume_rx) = std::sync::mpsc::sync_channel(1);
+        let resume_rx = Arc::new(Mutex::new(resume_rx));
+        mux.state.lock().unwrap().terminal_launch_atomicity_probe = Some(Arc::new(move |phase| {
+            if phase == TerminalLaunchAtomicityPhase::BeforeRelease {
+                before_release_tx.send(()).unwrap();
+                resume_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+
+        let launch_mux = mux.clone();
+        let launch = std::thread::spawn(move || {
+            launch_mux.canonical_new_workspace(
+                canonical_expectation(&launch_mux, uuid::Uuid::new_v4(), 0),
+                workspace_uuid,
+                surface_uuid,
+                None,
+                None,
+                TerminalLaunchRequest::default(),
+            )
+        });
+        before_release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let surface = mux.surface_by_uuid(surface_uuid).unwrap();
+        assert_eq!(mux.canonical_topology_revision(), 1);
+
+        let close_mux = mux.clone();
+        let (close_attempt_tx, close_attempt_rx) = std::sync::mpsc::sync_channel(1);
+        let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
+        let close = std::thread::spawn(move || {
+            let launch_is_fenced = close_mux.terminal_control_lifecycle.try_write().is_err();
+            close_attempt_tx.send(launch_is_fenced).unwrap();
+            close_mux.close_surface(surface.id);
+            close_done_tx.send(()).unwrap();
+        });
+        assert!(close_attempt_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        assert_eq!(close_done_rx.try_recv(), Err(TryRecvError::Empty));
+        assert_eq!(mux.canonical_topology_revision(), 1);
+        assert!(mux.surface_by_uuid(surface_uuid).is_ok());
+
+        resume_tx.send(()).unwrap();
+        let placement = launch.join().unwrap().unwrap();
+        assert_eq!(placement.receipt.revision, 1);
+        close_done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        close.join().unwrap();
+        assert_eq!(mux.canonical_topology_revision(), 2);
+        assert!(mux.surface_by_uuid(surface_uuid).is_err());
+    }
+
+    #[test]
+    fn terminal_close_waits_for_every_launch_in_a_durable_batch() {
+        let directory = PersistenceTestDirectory::new("terminal-launch-batch-close-fence");
+        let store = StateStore::new(&directory.0);
+        let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+            .unwrap();
+        let first_workspace_uuid = WorkspaceUuid::new();
+        let first_surface_uuid = SurfaceUuid::new();
+        let second_workspace_uuid = WorkspaceUuid::new();
+        let second_surface_uuid = SurfaceUuid::new();
+        let (before_release_tx, before_release_rx) = std::sync::mpsc::sync_channel(2);
+        let (resume_tx, resume_rx) = std::sync::mpsc::sync_channel(2);
+        let resume_rx = Arc::new(Mutex::new(resume_rx));
+        let release_index = Arc::new(AtomicU64::new(0));
+        mux.state.lock().unwrap().terminal_launch_atomicity_probe = Some(Arc::new({
+            let release_index = release_index.clone();
+            move |phase| {
+                if phase == TerminalLaunchAtomicityPhase::BeforeRelease {
+                    let index = release_index.fetch_add(1, Ordering::Relaxed) + 1;
+                    before_release_tx.send(index).unwrap();
+                    resume_rx.lock().unwrap().recv().unwrap();
+                }
+            }
+        }));
+
+        let launch_mux = mux.clone();
+        let launch = std::thread::spawn(move || {
+            launch_mux.ensure_terminals(vec![
+                ensure_request(first_workspace_uuid, first_surface_uuid, ""),
+                ensure_request(second_workspace_uuid, second_surface_uuid, ""),
+            ])
+        });
+        assert_eq!(before_release_rx.recv_timeout(Duration::from_secs(2)).unwrap(), 1);
+        let second_surface = mux.surface_by_uuid(second_surface_uuid).unwrap();
+        assert_eq!(mux.canonical_topology_revision(), 1);
+
+        let close_mux = mux.clone();
+        let (close_attempt_tx, close_attempt_rx) = std::sync::mpsc::sync_channel(1);
+        let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
+        let close = std::thread::spawn(move || {
+            let batch_is_fenced = close_mux.terminal_control_lifecycle.try_write().is_err();
+            close_attempt_tx.send(batch_is_fenced).unwrap();
+            close_mux.close_surface(second_surface.id);
+            close_done_tx.send(()).unwrap();
+        });
+        assert!(close_attempt_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        assert_eq!(close_done_rx.try_recv(), Err(TryRecvError::Empty));
+        assert_eq!(mux.canonical_topology_revision(), 1);
+
+        resume_tx.send(()).unwrap();
+        assert_eq!(before_release_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+        assert_eq!(close_done_rx.try_recv(), Err(TryRecvError::Empty));
+        assert_eq!(mux.canonical_topology_revision(), 1);
+        assert!(mux.surface_by_uuid(second_surface_uuid).is_ok());
+
+        resume_tx.send(()).unwrap();
+        let placements = launch.join().unwrap().unwrap();
+        assert_eq!(placements.len(), 2);
+        close_done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        close.join().unwrap();
+        assert_eq!(mux.canonical_topology_revision(), 2);
+        assert!(mux.surface_by_uuid(first_surface_uuid).is_ok());
+        assert!(mux.surface_by_uuid(second_surface_uuid).is_err());
+        assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
     fn every_durable_terminal_creation_route_uses_the_launch_gate() {
         let directory = PersistenceTestDirectory::new("terminal-launch-route-census");
         let store = StateStore::new(&directory.0);
@@ -10900,6 +11052,53 @@ mod tests {
         assert!(!output.status.success(), "disappearing-executable child returned success");
         assert!(gate_exit_marker.is_file());
         assert!(!directory.0.join("user-command-ran").exists());
+        let reopened = StateStore::new(directory.0.join("store")).open_session("main").unwrap();
+        assert_eq!(reopened.snapshot.topology_revision, 1);
+        assert_eq!(reopened.snapshot.surfaces.len(), 1);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn post_release_helper_death_child_must_abort_before_acknowledgement() {
+        let Some(root) = std::env::var_os("CMUX_TEST_POST_RELEASE_HELPER_DEATH_ROOT") else {
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        let store = StateStore::new(root.join("store"));
+        let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        mux.canonical_new_workspace(
+            canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+            WorkspaceUuid::new(),
+            SurfaceUuid::new(),
+            None,
+            None,
+            TerminalLaunchRequest {
+                argv: Some(vec!["/usr/bin/true".to_string()]),
+                env: vec![(
+                    crate::launch_gate::test_support::DIE_AFTER_RELEASE_ENV.to_string(),
+                    "1".to_string(),
+                )],
+                ..TerminalLaunchRequest::default()
+            },
+        )
+        .unwrap();
+        std::fs::write(root.join("acknowledged"), b"acknowledged").unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn post_release_helper_death_is_fail_stop_with_durable_topology() {
+        let directory = PersistenceTestDirectory::new("post-release-helper-death");
+        std::fs::create_dir_all(&directory.0).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("mux::tests::post_release_helper_death_child_must_abort_before_acknowledgement")
+            .arg("--nocapture")
+            .env("CMUX_TEST_POST_RELEASE_HELPER_DEATH_ROOT", &directory.0)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "post-release helper death was acknowledged");
+        assert!(!directory.0.join("acknowledged").exists());
         let reopened = StateStore::new(directory.0.join("store")).open_session("main").unwrap();
         assert_eq!(reopened.snapshot.topology_revision, 1);
         assert_eq!(reopened.snapshot.surfaces.len(), 1);

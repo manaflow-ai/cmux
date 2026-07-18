@@ -778,7 +778,7 @@ fn terminate_unready_launch_helper(
 
     let mut killer = child.clone_killer();
     let _ = killer.kill();
-    if !wait_for_launch_helper_exit(queue.0, HUP_GRACE)? {
+    if !wait_for_launch_helper_exit(queue.0, process_id, HUP_GRACE)? {
         let status = unsafe { libc::kill(process_id as libc::pid_t, libc::SIGKILL) };
         if status != 0 {
             let error = std::io::Error::last_os_error();
@@ -786,7 +786,7 @@ fn terminate_unready_launch_helper(
                 return Err(error).context("kill unready launch helper");
             }
         }
-        if !wait_for_launch_helper_exit(queue.0, KILL_GRACE)? {
+        if !wait_for_launch_helper_exit(queue.0, process_id, KILL_GRACE)? {
             anyhow::bail!("unready launch helper {process_id} did not exit after SIGKILL");
         }
     }
@@ -797,25 +797,49 @@ fn terminate_unready_launch_helper(
 }
 
 #[cfg(target_os = "macos")]
-fn wait_for_launch_helper_exit(queue: libc::c_int, timeout: Duration) -> std::io::Result<bool> {
-    let timeout = libc::timespec {
-        tv_sec: timeout.as_secs().try_into().unwrap_or(libc::time_t::MAX),
-        tv_nsec: timeout.subsec_nanos().into(),
-    };
-    let mut event = std::mem::MaybeUninit::<libc::kevent>::zeroed();
-    let count =
-        unsafe { libc::kevent(queue, std::ptr::null(), 0, event.as_mut_ptr(), 1, &timeout) };
-    if count < 0 {
-        return Err(std::io::Error::last_os_error());
+fn wait_for_launch_helper_exit(
+    queue: libc::c_int,
+    process_id: u32,
+    timeout: Duration,
+) -> std::io::Result<bool> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let timeout = libc::timespec {
+            tv_sec: remaining.as_secs().try_into().unwrap_or(libc::time_t::MAX),
+            tv_nsec: remaining.subsec_nanos().into(),
+        };
+        let mut event = std::mem::MaybeUninit::<libc::kevent>::zeroed();
+        let count =
+            unsafe { libc::kevent(queue, std::ptr::null(), 0, event.as_mut_ptr(), 1, &timeout) };
+        if count < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        if count == 0 {
+            return Ok(false);
+        }
+        let event = unsafe { event.assume_init() };
+        if event.ident != process_id as libc::uintptr_t || event.filter != libc::EVFILT_PROC {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "launch-helper watcher received an event for another process",
+            ));
+        }
+        if event.flags & libc::EV_ERROR != 0 && event.data != 0 {
+            return Err(std::io::Error::from_raw_os_error(event.data as i32));
+        }
+        if event.fflags & libc::NOTE_EXIT == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "launch-helper watcher received a non-exit process event",
+            ));
+        }
+        return Ok(true);
     }
-    if count == 0 {
-        return Ok(false);
-    }
-    let event = unsafe { event.assume_init() };
-    if event.flags & libc::EV_ERROR != 0 && event.data != 0 {
-        return Err(std::io::Error::from_raw_os_error(event.data as i32));
-    }
-    Ok(true)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -845,6 +869,32 @@ fn terminate_unready_launch_helper(
         }
         Err(RecvTimeoutError::Disconnected) => {
             anyhow::bail!("unready launch helper reaper disconnected")
+        }
+    }
+}
+
+type SurfaceChild = Box<dyn Child + Send + Sync>;
+
+/// Transfer the child into its exact-owner wait thread before any later
+/// surface setup can fail. If the OS cannot create the thread, return the
+/// still-owned child so the caller can terminate and reap it synchronously.
+fn install_child_reaper(
+    surface_id: SurfaceId,
+    child: SurfaceChild,
+) -> Result<(), (std::io::Error, SurfaceChild)> {
+    let child = Arc::new(Mutex::new(Some(child)));
+    let reaper_child = child.clone();
+    match std::thread::Builder::new().name(format!("surface-{surface_id}-wait")).spawn(move || {
+        let child = reaper_child.lock().unwrap().take();
+        if let Some(mut child) = child {
+            let _ = child.wait();
+        }
+    }) {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            let child =
+                child.lock().unwrap().take().expect("failed reaper spawn retains child ownership");
+            Err((error, child))
         }
     }
 }
@@ -962,6 +1012,21 @@ impl Surface {
         };
         drop(pty.slave);
         let killer = child.clone_killer();
+        if let Err((error, mut child)) = install_child_reaper(id, child) {
+            // Closing the gate first guarantees that a gated helper cannot
+            // execute user code while its fallback cleanup runs.
+            drop(gate);
+            #[cfg(target_os = "macos")]
+            let cleanup = terminate_unready_launch_helper(child.as_mut(), pid);
+            #[cfg(not(target_os = "macos"))]
+            let cleanup = terminate_unready_launch_helper(child, pid);
+            if let Err(cleanup) = cleanup {
+                return Err(error).context(format!(
+                    "install child reaper failed and helper cleanup also failed: {cleanup:#}"
+                ));
+            }
+            return Err(error).context("install terminal child reaper");
+        }
         #[cfg(unix)]
         let tty_name = pty.master.tty_name();
         #[cfg(not(unix))]
@@ -1118,11 +1183,6 @@ impl Surface {
                     mux.surface_runtime_exited(&surface);
                 }
             }
-        })?;
-
-        // Child reaper: avoid zombies; the reader thread handles EOF.
-        std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn(move || {
-            let _ = child.wait();
         })?;
 
         Ok((surface, gate))
