@@ -39,9 +39,20 @@ struct WorkspaceListRefreshCoordinatorTests {
             refreshControl.endCount == 0,
             "Refresh completion must wait for the authoritative post-refresh snapshot."
         )
+
+        let completedConfiguration = makeConfiguration(
+            refreshCompletionGeneration: 1,
+            refresh: {}
+        )
+        coordinator.update(configuration: completedConfiguration, in: tableView)
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+        #expect(refreshControl.endCount == 1)
     }
 
     private func makeConfiguration(
+        refreshCompletionGeneration: UInt64 = 0,
         refresh: @escaping @Sendable () async -> Void
     ) -> WorkspaceListTable {
         WorkspaceListTable(
@@ -86,7 +97,9 @@ struct WorkspaceListRefreshCoordinatorTests {
             retryInitialConnection: nil,
             showAddDevice: nil,
             reconnect: nil,
-            refresh: refresh
+            refresh: refresh,
+            refreshCompletionGeneration: refreshCompletionGeneration,
+            refreshDidComplete: {}
         )
     }
 }

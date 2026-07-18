@@ -50,6 +50,8 @@ struct WorkspaceListTable: UIViewRepresentable {
     let showAddDevice: (() -> Void)?
     let reconnect: (() -> Void)?
     let refresh: (@Sendable () async -> Void)?
+    let refreshCompletionGeneration: UInt64
+    let refreshDidComplete: @MainActor () -> Void
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
         WorkspaceListTableCoordinator(configuration: self)

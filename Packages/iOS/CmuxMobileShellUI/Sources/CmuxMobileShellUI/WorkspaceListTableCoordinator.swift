@@ -36,6 +36,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
     private var dropJustCompleted = false
+    private var refreshLifecycle = WorkspaceListRefreshLifecycle()
+    private weak var activeRefreshControl: UIRefreshControl?
+    private weak var tableView: WorkspaceListUITableView?
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -43,6 +46,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     func attach(to tableView: WorkspaceListUITableView) {
+        self.tableView = tableView
         tableView.delegate = self
         tableView.dragDelegate = self
         tableView.dropDelegate = self
@@ -95,9 +99,17 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             snapshot.reconfigureItems(changed)
         }
         previousConfiguration = next
-        let animatesSnapshot = tableView.window != nil && !dropJustCompleted
+        let refreshApplyID = refreshLifecycle.snapshotApplyStarted(
+            refreshCompletionGeneration: next.refreshCompletionGeneration
+        )
+        let animatesSnapshot = tableView.window != nil
+            && !dropJustCompleted
+            && !refreshLifecycle.suppressesSnapshotAnimations
         dropJustCompleted = false
-        dataSource?.apply(snapshot, animatingDifferences: animatesSnapshot)
+        dataSource?.apply(snapshot, animatingDifferences: animatesSnapshot) { [weak self] in
+            guard let refreshApplyID else { return }
+            self?.refreshSnapshotApplyCompleted(refreshApplyID)
+        }
     }
 
     func tableView(
@@ -308,9 +320,23 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             refreshControl.endRefreshing()
             return
         }
-        Task { @MainActor in
+        guard let refreshID = refreshLifecycle.begin(
+            currentGeneration: configuration.refreshCompletionGeneration
+        ) else { return }
+        activeRefreshControl = refreshControl
+        let refreshDidComplete = configuration.refreshDidComplete
+        Task { @MainActor [weak self, weak refreshControl] in
             await refresh()
-            refreshControl.endRefreshing()
+            guard let self else { return }
+            guard let refreshControl, refreshControl === self.activeRefreshControl else {
+                self.refreshLifecycle.reset()
+                self.activeRefreshControl = nil
+                return
+            }
+            guard self.refreshLifecycle.refreshActionCompleted(refreshID) else {
+                return
+            }
+            refreshDidComplete()
         }
     }
 
@@ -325,7 +351,41 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             )
             tableView.refreshControl = refreshControl
         } else {
+            activeRefreshControl?.endRefreshing()
+            activeRefreshControl = nil
+            refreshLifecycle.reset()
             tableView.refreshControl = nil
+        }
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        settleRefreshCollapse(in: scrollView)
+    }
+
+    private func refreshSnapshotApplyCompleted(
+        _ applyID: WorkspaceListRefreshLifecycle.SnapshotApplyID
+    ) {
+        guard refreshLifecycle.snapshotApplyCompleted(applyID) else { return }
+        guard let activeRefreshControl else {
+            refreshLifecycle.reset()
+            return
+        }
+        activeRefreshControl.endRefreshing()
+        if let tableView {
+            settleRefreshCollapse(in: tableView)
+        }
+    }
+
+    private func settleRefreshCollapse(in scrollView: UIScrollView) {
+        guard refreshLifecycle.suppressesSnapshotAnimations else { return }
+        refreshLifecycle.observeCollapse(
+            refreshControlIsRefreshing: activeRefreshControl?.isRefreshing ?? false,
+            scrollViewIsTracking: scrollView.isTracking,
+            contentOffsetY: scrollView.contentOffset.y,
+            restingTopY: -scrollView.adjustedContentInset.top
+        )
+        if !refreshLifecycle.suppressesSnapshotAnimations {
+            activeRefreshControl = nil
         }
     }
 
