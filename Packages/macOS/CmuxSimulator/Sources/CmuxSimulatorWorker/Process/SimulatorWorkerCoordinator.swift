@@ -45,6 +45,8 @@ final class SimulatorWorkerCoordinator {
     var accessibilitySnapshotDeviceIdentifier: String?
     var accessibilitySnapshotDisplay: SimulatorDisplayMetadata?
     var cachedAccessibilitySnapshot: SimulatorAccessibilitySnapshot?
+    var capabilityHydrationTask: Task<Void, Never>?
+    var capabilityHydrationGeneration: UUID?
     var toolOperationQueues: [SimulatorToolOperationLane: [SimulatorQueuedToolOperation]] = [:]
     var toolOperationTasks: [SimulatorToolOperationLane: Task<Void, Never>] = [:]
     var toolOperationDeadlineTasks: [SimulatorToolOperationLane: Task<Void, Never>] = [:]

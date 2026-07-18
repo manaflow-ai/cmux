@@ -12,6 +12,7 @@ extension SimulatorWorkerCoordinator {
     }
 
     func prepareForProcessExit() {
+        cancelCapabilityHydration()
         hidCapture.stop()
         cancelForegroundApplicationRequests()
         cancelAccessibilitySnapshotRequests()
@@ -36,6 +37,7 @@ extension SimulatorWorkerCoordinator {
     }
 
     func shutdown() async {
+        cancelCapabilityHydration()
         hidCapture.stop()
         cancelForegroundApplicationRequests()
         cancelAccessibilitySnapshotRequests()
@@ -116,40 +118,36 @@ extension SimulatorWorkerCoordinator {
                 self.hid = nil
                 scrollWheel = nil
             }
-            let accessibilityAvailable = await accessibilityExecutor.attach(
-                device: SimulatorAccessibilityDevice(device)
-            )
             camera.attach(deviceIdentifier: udid)
-            let webInspectorAvailable = await webInspector.isAvailable(deviceIdentifier: udid)
 
             self.framebuffer = framebuffer
             attachedDevice = device
             currentDeviceIdentifier = udid
             try startDeviceStateMonitoring(device: device, deviceIdentifier: udid)
-            var probe: SimulatorWorkerCapabilityProbe
+            var baselineProbe: SimulatorWorkerCapabilityProbe
             if self.hid != nil {
-                probe = hid.capabilities(
+                baselineProbe = hid.capabilities(
                     framebufferAvailable: true,
-                    accessibilityAvailable: accessibilityAvailable,
+                    accessibilityAvailable: false,
                     cameraAvailable: camera.isAvailable
                 )
             } else {
-                probe = SimulatorWorkerCapabilityProbe(
+                baselineProbe = SimulatorWorkerCapabilityProbe(
                     hasFramebuffer: true,
-                    hasAccessibility: accessibilityAvailable,
-                    hasForegroundApplication: accessibilityAvailable,
                     hasCameraInjection: camera.isAvailable,
                     hasExtendedPermissions: privacy.isAvailable
                 )
             }
-            probe.hasExtendedPermissions = privacy.isAvailable
-            probe.hasWebInspector = webInspectorAvailable
-            probe.hasHostInputCapture = hidCapture.isAvailable
-            send(.capabilities(probe.capabilities))
+            baselineProbe.hasExtendedPermissions = privacy.isAvailable
+            baselineProbe.hasHostInputCapture = hidCapture.isAvailable
             if let hidFailure {
                 report(hidFailure)
             }
-            send(.status(.streaming))
+            beginCapabilityHydration(
+                device: device,
+                deviceIdentifier: udid,
+                baselineCapabilities: baselineProbe.capabilities
+            )
             coordinatorLogger.info("Attached Simulator worker to device \(udid, privacy: .public)")
         } catch let error as SimulatorWorkerFailure {
             await shutdown()
@@ -175,6 +173,67 @@ extension SimulatorWorkerCoordinator {
             coordinatorLogger.error(
                 "Simulator worker attach failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func beginCapabilityHydration(
+        device: NSObject,
+        deviceIdentifier: String,
+        baselineCapabilities: Set<SimulatorCapability>
+    ) {
+        cancelCapabilityHydration()
+        let generation = UUID()
+        capabilityHydrationGeneration = generation
+        capabilityHydrationTask = SimulatorAttachmentReadiness.begin(
+            baselineCapabilities: baselineCapabilities,
+            send: { [weak self] message in self?.send(message) },
+            hydrate: { [weak self, weak device] in
+                guard let self, let device,
+                      self.capabilityHydrationGeneration == generation,
+                      self.attachedDevice === device,
+                      self.currentDeviceIdentifier == deviceIdentifier
+                else {
+                    return baselineCapabilities
+                }
+                let accessibilityAvailable = await self.accessibilityExecutor.attach(
+                    device: SimulatorAccessibilityDevice(device)
+                )
+                guard !Task.isCancelled,
+                      self.capabilityHydrationGeneration == generation,
+                      self.attachedDevice === device,
+                      self.currentDeviceIdentifier == deviceIdentifier
+                else {
+                    return baselineCapabilities
+                }
+                let webInspectorAvailable = await self.webInspector.isAvailable(
+                    deviceIdentifier: deviceIdentifier
+                )
+                var capabilities = baselineCapabilities
+                if accessibilityAvailable {
+                    capabilities.insert(.accessibility)
+                    capabilities.insert(.foregroundApplication)
+                }
+                if webInspectorAvailable {
+                    capabilities.insert(.webInspector)
+                }
+                return capabilities
+            },
+            applyHydratedCapabilities: { [weak self, weak device] capabilities in
+                guard let self, let device,
+                      self.capabilityHydrationGeneration == generation,
+                      self.attachedDevice === device,
+                      self.currentDeviceIdentifier == deviceIdentifier
+                else { return }
+                self.capabilityHydrationTask = nil
+                self.capabilityHydrationGeneration = nil
+                self.send(.capabilities(capabilities))
+            }
+        )
+    }
+
+    private func cancelCapabilityHydration() {
+        capabilityHydrationTask?.cancel()
+        capabilityHydrationTask = nil
+        capabilityHydrationGeneration = nil
     }
 
     private func startDeviceStateMonitoring(
