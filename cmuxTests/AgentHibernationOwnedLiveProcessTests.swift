@@ -349,10 +349,40 @@ struct AgentHibernationOwnedLiveProcessTests {
 
     @Test
     func realChildStopBoundarySurvivesSchedulerLoad() throws {
+        var attributes: posix_spawnattr_t?
+        let attributeStatus = posix_spawnattr_init(&attributes)
+        guard attributeStatus == 0 else {
+            Issue.record(
+                "posix_spawnattr_init failed: \(String(cString: strerror(attributeStatus)))"
+            )
+            return
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+        var defaultSignals = sigset_t()
+        var signalMask = sigset_t()
+        guard sigemptyset(&defaultSignals) == 0,
+              sigaddset(&defaultSignals, SIGTERM) == 0,
+              sigemptyset(&signalMask) == 0,
+              posix_spawnattr_setsigdefault(&attributes, &defaultSignals) == 0,
+              posix_spawnattr_setsigmask(&attributes, &signalMask) == 0,
+              posix_spawnattr_setflags(
+                &attributes,
+                Int16(POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK)
+              ) == 0 else {
+            Issue.record("failed to configure child signal defaults")
+            return
+        }
         var childPID: pid_t = 0
         let spawnStatus = withPOSIXCStringArray(["/bin/sleep", "30"]) { arguments in
             "/bin/sleep".withCString { executablePath in
-                posix_spawn(&childPID, executablePath, nil, nil, arguments, environ)
+                posix_spawn(
+                    &childPID,
+                    executablePath,
+                    nil,
+                    &attributes,
+                    arguments,
+                    environ
+                )
             }
         }
         guard spawnStatus == 0 else {
