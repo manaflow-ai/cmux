@@ -129,6 +129,92 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(!result.restoreAuthority)
     }
 
+    @Test func duplicateTerminalObservationsUseNewestPublishedStateOnce() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let stale = makeTerminalObservation(
+            state: .idle,
+            lifecycleAuthoritative: false,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            revision: 99,
+            publishedAt: 100
+        )
+        let newest = makeTerminalObservation(
+            state: .blocked,
+            lifecycleAuthoritative: false,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            revision: 1,
+            publishedAt: 200
+        )
+
+        for observations in [[stale, newest], [newest, stale]] {
+            let merged = AgentTerminalObservationJoiner().merge(
+                nodes: [], observations: observations, activeSessionBySurface: [:]
+            )
+
+            #expect(merged.count == 1)
+            #expect(merged.first?.effectiveState == .needsInput)
+            #expect(merged.first?.terminalObservation?.publishedAt == 200)
+        }
+    }
+
+    @Test func terminalObservationCanonicalizationUsesRevisionAsPublishedAtTieBreak() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let lowerRevision = makeTerminalObservation(
+            state: .idle,
+            lifecycleAuthoritative: false,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            revision: 4,
+            publishedAt: 200
+        )
+        let higherRevision = makeTerminalObservation(
+            state: .working,
+            lifecycleAuthoritative: false,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            revision: 5,
+            publishedAt: 200
+        )
+
+        for observations in [[lowerRevision, higherRevision], [higherRevision, lowerRevision]] {
+            let canonical = AgentTerminalObservationJoiner().merge(
+                nodes: [], observations: observations, activeSessionBySurface: [:]
+            )
+
+            #expect(canonical.count == 1)
+            #expect(canonical.first?.terminalObservation == higherRevision)
+        }
+    }
+
+    @Test func terminalObservationCanonicalizationPreservesDistinctProcessGenerations() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let first = makeTerminalObservation(
+            state: .idle,
+            lifecycleAuthoritative: false,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            surfaceGeneration: 9,
+            publishedAt: 100
+        )
+        let second = makeTerminalObservation(
+            state: .working,
+            lifecycleAuthoritative: false,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            surfaceGeneration: 10,
+            publishedAt: 200
+        )
+
+        #expect(AgentTerminalObservationJoiner().merge(
+            nodes: [], observations: [first, second], activeSessionBySurface: [:]
+        ).count == 2)
+    }
+
     @Test func olderCompatibilityWriterCannotHideCurrentCodexRunFromAgentsTree() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -1289,14 +1375,19 @@ private func shellQuoteAgentTreeArgument(_ value: String) -> String {
 
 private func makeTerminalObservation(
     state: CmuxAgentObservedState,
-    lifecycleAuthoritative: Bool
+    lifecycleAuthoritative: Bool,
+    workspaceID: UUID = UUID(),
+    surfaceID: UUID = UUID(),
+    surfaceGeneration: UInt64 = 9,
+    revision: UInt64 = 4,
+    publishedAt: TimeInterval = 200
 ) -> CmuxAgentTerminalObservation {
     CmuxAgentTerminalObservation(
         runtimeID: "runtime-test",
-        workspaceID: UUID(),
-        surfaceID: UUID(),
-        surfaceGeneration: 9,
-        revision: 4,
+        workspaceID: workspaceID,
+        surfaceID: surfaceID,
+        surfaceGeneration: surfaceGeneration,
+        revision: revision,
         familyID: "codex",
         sessionProviderID: lifecycleAuthoritative ? "claude" : "codex",
         lifecycleAuthoritative: lifecycleAuthoritative,
@@ -1305,7 +1396,7 @@ private func makeTerminalObservation(
         processStartSeconds: 100,
         processStartMicroseconds: 123,
         cwd: "/tmp/project",
-        publishedAt: 200
+        publishedAt: publishedAt
     )
 }
 
