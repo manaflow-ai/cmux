@@ -2020,6 +2020,58 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func threeWayRuntimeFieldConflictsFailClosedInEveryOrder() throws {
+        let first = AgentSessionRunRecord(
+            runId: "shared-run",
+            pid: 42,
+            processStartedAt: 100,
+            cmuxRuntime: AgentCmuxRuntimeIdentity(
+                id: "shared-runtime",
+                socketPath: "/tmp/runtime-a.sock",
+                bundleIdentifier: "com.cmux.runtime"
+            ),
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true,
+            startedAt: 100,
+            updatedAt: 200,
+            endedAt: nil
+        )
+        var conflicting = first
+        conflicting.cmuxRuntime = AgentCmuxRuntimeIdentity(
+            id: "shared-runtime",
+            socketPath: "/tmp/runtime-b.sock",
+            bundleIdentifier: "com.cmux.runtime"
+        )
+
+        for (index, runs) in [
+            [first, conflicting, first],
+            [first, first, conflicting],
+            [conflicting, first, first],
+        ].enumerated() {
+            let canonical = try #require(AgentSessionRunCanonicalizer().runs(
+                record: ClaudeHookSessionRecord(
+                    sessionId: "session",
+                    workspaceId: "workspace",
+                    surfaceId: "surface",
+                    startedAt: 100,
+                    updatedAt: 200,
+                    runs: runs,
+                    cmuxRuntime: first.cmuxRuntime
+                ),
+                provider: "codex"
+            ).first)
+            #expect(canonical.identityConflict == true, Comment(rawValue: "order \(index)"))
+            #expect(!canonical.restoreAuthority, Comment(rawValue: "order \(index)"))
+            #expect(canonical.cmuxRuntime == nil, Comment(rawValue: "order \(index)"))
+            #expect(
+                canonical.cmuxRuntime(fallingBackTo: first.cmuxRuntime) == nil,
+                Comment(rawValue: "order \(index)")
+            )
+        }
+    }
+
     @Test func agentsTreeTextPreservesDepthFirstOrderingAndGuideBytes() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

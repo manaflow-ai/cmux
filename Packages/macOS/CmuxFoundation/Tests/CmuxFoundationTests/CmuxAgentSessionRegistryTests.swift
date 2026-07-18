@@ -378,6 +378,52 @@ struct CmuxAgentSessionRegistryTests {
         }
     }
 
+    @Test("three-way runtime identity conflicts fail closed in every order")
+    func threeWayRuntimeIdentityConflictsFailClosedInEveryOrder() throws {
+        let first = CmuxAgentSessionRunAuthorityProjection.Run(
+            runId: "shared-run",
+            pid: 42,
+            processStartedAt: 100,
+            cmuxRuntime: .init(
+                id: "shared-runtime",
+                socketPath: "/tmp/runtime-a.sock",
+                bundleIdentifier: "com.cmux.runtime",
+                processId: 101,
+                processStartSeconds: 10,
+                processStartMicroseconds: 20
+            ),
+            restoreAuthority: true,
+            startedAt: 100,
+            updatedAt: 200
+        )
+        var conflicting = first
+        conflicting.cmuxRuntime = .init(
+            id: "shared-runtime",
+            socketPath: "/tmp/runtime-b.sock",
+            bundleIdentifier: "com.cmux.runtime",
+            processId: 202,
+            processStartSeconds: 30,
+            processStartMicroseconds: 40
+        )
+        let permutations = [
+            [first, conflicting, first],
+            [first, first, conflicting],
+            [conflicting, first, first],
+        ]
+
+        for (index, runs) in permutations.enumerated() {
+            let projection = CmuxAgentSessionRunAuthorityProjection().projection(
+                recordRestoreAuthority: true,
+                runs: runs,
+                activeRunId: "shared-run"
+            )
+            let run = try #require(projection.run)
+            #expect(!projection.restoreAuthority, Comment(rawValue: "order \(index)"))
+            #expect(run.identityConflict == true, Comment(rawValue: "order \(index)"))
+            #expect(run.cmuxRuntime == nil, Comment(rawValue: "order \(index)"))
+        }
+    }
+
     @Test("restore preflight imports ten thousand legacy rows within a bounded interval")
     func restorePreflightPerformance() throws {
         let fixture = try Fixture()
