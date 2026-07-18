@@ -197,6 +197,32 @@ import Testing
         #expect(harness.appDelegate.recoverableMainWindowRoute(windowId: harness.windowId) == nil)
     }
 
+    /// A remote session ending removes its dead mirror but preserves the owning
+    /// window with a fresh local workspace. Only explicit detach closes a
+    /// dedicated final-mirror window.
+    @Test func remoteSessionEndOfDedicatedLastMirrorKeepsOwningWindowUsable() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let host = RemoteTmuxHost(destination: "remote-end-\(UUID().uuidString)@example.test")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        let controller = harness.controller
+        controller.cacheConnection(connection)
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
+        let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
+        let owningWindow = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
+
+        controller.handleSessionEndedRemotely(host: host, sessionName: "dev", workspaceId: mirrorWorkspace.id)
+
+        #expect(connection.exited)
+        #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
+        #expect(harness.appDelegate.mainWindow(for: harness.windowId) === owningWindow)
+        #expect(owningWindow.isVisible)
+        #expect(harness.manager.tabs.count == 1)
+        #expect(harness.manager.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
+        #expect(!harness.manager.tabs.contains { $0.id == mirrorWorkspace.id })
+    }
+
     /// The ordinary non-last tab-close route shares the same detach contract as
     /// socket/window close: removing the mirror from a mixed local window must
     /// stop its control client without issuing `tmux kill-session`.
