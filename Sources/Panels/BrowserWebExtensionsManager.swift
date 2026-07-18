@@ -17,6 +17,72 @@ import WebKit
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionsManager: NSObject {
+    /// System WebKit advertises the `notifications` manifest permission but
+    /// omits the JavaScript namespace outside its private test mode. Extensions
+    /// such as 1Password register notification listeners during startup without
+    /// feature detection, so the missing namespace aborts their background page.
+    /// Keep an in-memory implementation until WebKit ships the public API.
+    static let notificationsCompatibilityScriptSource = #"""
+    (() => {
+      const notifications = new Map();
+      const makeEvent = () => {
+        const listeners = new Set();
+        return {
+          addListener(listener) { if (typeof listener === 'function') listeners.add(listener); },
+          removeListener(listener) { listeners.delete(listener); },
+          hasListener(listener) { return listeners.has(listener); },
+          hasListeners() { return listeners.size > 0; }
+        };
+      };
+      const complete = (value, callback) => {
+        if (typeof callback === 'function') queueMicrotask(() => callback(value));
+        return Promise.resolve(value);
+      };
+      const api = {
+        onClicked: makeEvent(),
+        onButtonClicked: makeEvent(),
+        onClosed: makeEvent(),
+        create(identifier, options, callback) {
+          if (typeof identifier !== 'string') {
+            callback = options;
+            options = identifier;
+            identifier = crypto.randomUUID();
+          }
+          notifications.set(identifier, options || {});
+          return complete(identifier, callback);
+        },
+        update(identifier, options, callback) {
+          const exists = notifications.has(identifier);
+          if (exists) notifications.set(identifier, { ...notifications.get(identifier), ...options });
+          return complete(exists, callback);
+        },
+        clear(identifier, callback) {
+          return complete(notifications.delete(identifier), callback);
+        },
+        getAll(callback) {
+          return complete(Object.fromEntries(notifications), callback);
+        },
+        getPermissionLevel(callback) {
+          return complete('granted', callback);
+        }
+      };
+      const install = () => {
+        for (const namespace of [globalThis.chrome, globalThis.browser]) {
+          if (!namespace || namespace.notifications) continue;
+          try {
+            Object.defineProperty(namespace, 'notifications', {
+              configurable: true,
+              enumerable: true,
+              value: api
+            });
+          } catch (_) {}
+        }
+      };
+      install();
+      queueMicrotask(install);
+    })();
+    """#
+
     typealias AppExtensionLoader = @MainActor (Bundle) async throws -> WKWebExtension
 
     private final class PendingActionInvocation {
@@ -110,6 +176,13 @@ final class BrowserWebExtensionsManager: NSObject {
             configuration.defaultWebsiteDataStore = websiteDataStore
         }
         configuration.webViewConfiguration.applicationNameForUserAgent = "Version/18.4 Safari/605.1.15 cmux"
+        configuration.webViewConfiguration.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.notificationsCompatibilityScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
 #if DEBUG
         configuration.webViewConfiguration.userContentController.addUserScript(
             WKUserScript(
