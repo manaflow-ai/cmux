@@ -237,12 +237,24 @@ protocol TerminalBackendSessionServing: Sendable {
         zoom: BackendPresentationZoom,
         scroll: BackendPresentationScroll
     ) async throws -> BackendPresentation
+    func activateTerminalPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64
+    ) async throws -> BackendTerminalPresentationActivation
     func closePresentation(id: PresentationID) async throws
     func configureRendererPresentation(
         id: PresentationID,
         expectedGeneration: UInt64,
         configuration: BackendRendererPresentationConfiguration
     ) async throws -> BackendRendererPresentationReceipt
+    func activateRendererPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64,
+        rendererGeneration: UInt64,
+        rendererEpoch: UInt64,
+        workerProcessID: UInt32,
+        workerProcessInstanceToken: BackendRendererProcessInstanceToken
+    ) async throws
     func detachRendererPresentation(
         id: PresentationID,
         expectedGeneration: UInt64
@@ -304,6 +316,20 @@ protocol TerminalBackendSessionServing: Sendable {
         surfaceID: SurfaceID,
         presentationID: PresentationID,
         presentationGeneration: UInt64
+    ) async throws
+    func grantTerminalInputDelegation(
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64,
+        delegateClientUUID: UUID,
+        ttlMilliseconds: UInt64,
+        scopes: Set<BackendTerminalAutomationInputScope>
+    ) async throws -> BackendTerminalInputDelegation
+    func revokeTerminalInputDelegation(
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64,
+        delegation: BackendTerminalInputDelegation
     ) async throws
     func sendTerminalInput(
         surfaceID: SurfaceID,
@@ -396,6 +422,32 @@ protocol TerminalBackendSessionServing: Sendable {
 }
 
 extension TerminalBackendSessionServing {
+    func activateTerminalPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64
+    ) async throws -> BackendTerminalPresentationActivation {
+        _ = id
+        _ = expectedGeneration
+        throw BackendProtocolError.notConnected
+    }
+
+    func activateRendererPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64,
+        rendererGeneration: UInt64,
+        rendererEpoch: UInt64,
+        workerProcessID: UInt32,
+        workerProcessInstanceToken: BackendRendererProcessInstanceToken
+    ) async throws {
+        _ = id
+        _ = expectedGeneration
+        _ = rendererGeneration
+        _ = rendererEpoch
+        _ = workerProcessID
+        _ = workerProcessInstanceToken
+        throw BackendProtocolError.notConnected
+    }
+
     func makeTopologyMutationExpectation(
         requestID: UUID,
         authority: BackendAuthority,
@@ -864,6 +916,36 @@ extension TerminalBackendSessionServing {
         _ = surfaceID
         _ = presentationID
         _ = presentationGeneration
+        throw BackendProtocolError.notConnected
+    }
+
+    func grantTerminalInputDelegation(
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64,
+        delegateClientUUID: UUID,
+        ttlMilliseconds: UInt64,
+        scopes: Set<BackendTerminalAutomationInputScope>
+    ) async throws -> BackendTerminalInputDelegation {
+        _ = surfaceID
+        _ = presentationID
+        _ = presentationGeneration
+        _ = delegateClientUUID
+        _ = ttlMilliseconds
+        _ = scopes
+        throw BackendProtocolError.notConnected
+    }
+
+    func revokeTerminalInputDelegation(
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64,
+        delegation: BackendTerminalInputDelegation
+    ) async throws {
+        _ = surfaceID
+        _ = presentationID
+        _ = presentationGeneration
+        _ = delegation
         throw BackendProtocolError.notConnected
     }
 

@@ -36,7 +36,8 @@ struct TerminalRenderFrameTransportTests {
 
         let childWorker = try TerminalRenderWorkerIdentity(
             processID: process.processIdentifier,
-            effectiveUserID: geteuid()
+            effectiveUserID: geteuid(),
+            processInstanceToken: testProcessInstanceToken
         )
         #expect(childWorker.processID != getpid())
         try await receiver.authorize(worker: childWorker)
@@ -87,10 +88,7 @@ struct TerminalRenderFrameTransportTests {
         #expect(process.terminationStatus == 0)
         #expect(await receiver.authorizedWorker() == nil)
         let releases = try await receiver.drainQuiescedFrames()
-        #expect(releases.count == 1)
-        let release = try #require(releases.first)
-        #expect(release.metadata == metadata)
-        #expect(release.surfaceID != 0)
+        #expect(releases.isEmpty)
         #expect(await receiver.authorizedWorker() == nil)
         await #expect(throws: TerminalRenderFrameTransportError.workerNotAuthorized) {
             try await receiver.receive(timeoutMilliseconds: 0)
@@ -98,7 +96,36 @@ struct TerminalRenderFrameTransportTests {
     }
 
     @Test
-    func quiescedDrainRejectsForgedCapabilityAndValidatesSurfaceDescriptor() async throws {
+    func preReadyFrameCannotFabricateReleaseForLaterAuthorizedWorker() async throws {
+        let metadata = try fixture.makeMetadata(frameSequence: 3)
+        let receiver = try TerminalRenderFrameReceiver(
+            initialFence: fixture.makeFence()
+        )
+        let executable = try #require(
+            fixture.executableCandidates(named: "cmux-terminal-render-test-sender").first
+        )
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = [
+            receiver.endpoint.serviceName,
+            receiver.endpoint.capability.base64EncodedString(),
+            TerminalRenderFrameMetadataCodec().encode(metadata).base64EncodedString(),
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        let authorizedWorker = try currentWorker()
+        try await receiver.authorize(worker: authorizedWorker)
+        let releases = try await receiver.drainQuiescedFrames()
+        #expect(releases.isEmpty)
+        #expect(await receiver.authorizedWorker() == authorizedWorker)
+    }
+
+    @Test
+    func quiescedDrainRejectsForgedCapabilityAndUnauthenticatedDescriptorMismatch() async throws {
         let receiver = try TerminalRenderFrameReceiver(
             initialFence: fixture.makeFence(),
             queueLimit: 3
@@ -112,11 +139,11 @@ struct TerminalRenderFrameTransportTests {
         let forgedSender = try TerminalRenderFrameSender(endpoint: wrongEndpoint)
         #expect(try await forgedSender.send(
             surface: fixture.makeSurface(),
-            metadata: fixture.makeMetadata(frameSequence: 3)
+            metadata: fixture.makeMetadata(frameSequence: 4)
         ) == .sent)
 
         let descriptorMismatchSurface = fixture.makeSurface(width: 31, height: 24)
-        let descriptorMismatchMetadata = try fixture.makeMetadata(frameSequence: 4)
+        let descriptorMismatchMetadata = try fixture.makeMetadata(frameSequence: 5)
         let authenticatedSender = try TerminalRenderFrameSender(endpoint: receiver.endpoint)
         #expect(try await authenticatedSender.send(
             surface: descriptorMismatchSurface,
@@ -124,11 +151,7 @@ struct TerminalRenderFrameTransportTests {
         ) == .sent)
 
         let releases = try await receiver.drainQuiescedFrames()
-        #expect(releases.count == 1)
-        let release = try #require(releases.first)
-        #expect(release.metadata == descriptorMismatchMetadata)
-        #expect(release.surfaceID == descriptorMismatchSurface.identifier)
-        #expect(releases.allSatisfy { $0.metadata.frameSequence != 3 })
+        #expect(releases.isEmpty)
     }
 
     @Test
@@ -190,7 +213,8 @@ struct TerminalRenderFrameTransportTests {
     func rejectsWrongAuditProcessID() async throws {
         let wrongWorker = try TerminalRenderWorkerIdentity(
             processID: getpid() + 1,
-            effectiveUserID: geteuid()
+            effectiveUserID: geteuid(),
+            processInstanceToken: testProcessInstanceToken
         )
         let receiver = try TerminalRenderFrameReceiver(
             expectedWorker: wrongWorker,
@@ -215,7 +239,8 @@ struct TerminalRenderFrameTransportTests {
     func rejectsWrongAuditEffectiveUserID() async throws {
         let wrongWorker = try TerminalRenderWorkerIdentity(
             processID: getpid(),
-            effectiveUserID: geteuid() &+ 1
+            effectiveUserID: geteuid() &+ 1,
+            processInstanceToken: testProcessInstanceToken
         )
         let receiver = try TerminalRenderFrameReceiver(
             expectedWorker: wrongWorker,
@@ -550,7 +575,11 @@ struct TerminalRenderFrameTransportTests {
         try await receiver.authorize(worker: worker)
         let differentWorker = try TerminalRenderWorkerIdentity(
             processID: worker.processID + 1,
-            effectiveUserID: worker.effectiveUserID
+            effectiveUserID: worker.effectiveUserID,
+            processInstanceToken: TerminalRenderProcessInstanceToken(
+                startTimeSeconds: worker.processInstanceToken.startTimeSeconds &+ 1,
+                startTimeMicroseconds: worker.processInstanceToken.startTimeMicroseconds
+            )
         )
         await #expect(throws: TerminalRenderFrameTransportError.workerAlreadyAuthorized) {
             try await receiver.authorize(worker: differentWorker)
@@ -579,7 +608,12 @@ struct TerminalRenderFrameTransportTests {
     private func currentWorker() throws -> TerminalRenderWorkerIdentity {
         try TerminalRenderWorkerIdentity(
             processID: getpid(),
-            effectiveUserID: geteuid()
+            effectiveUserID: geteuid(),
+            processInstanceToken: testProcessInstanceToken
         )
+    }
+
+    private var testProcessInstanceToken: TerminalRenderProcessInstanceToken {
+        TerminalRenderProcessInstanceToken(startTimeSeconds: 1, startTimeMicroseconds: 2)
     }
 }

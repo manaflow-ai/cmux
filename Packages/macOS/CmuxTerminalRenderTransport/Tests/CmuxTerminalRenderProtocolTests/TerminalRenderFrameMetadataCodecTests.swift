@@ -162,7 +162,14 @@ struct TerminalRenderFrameMetadataCodecTests {
             try TerminalRenderFrameEndpoint(serviceName: "valid", capability: Data(repeating: 1, count: 31))
         }
         #expect(throws: TerminalRenderFrameProtocolError.invalidWorkerIdentity) {
-            try TerminalRenderWorkerIdentity(processID: 0, effectiveUserID: 0)
+            try TerminalRenderWorkerIdentity(
+                processID: 0,
+                effectiveUserID: 0,
+                processInstanceToken: TerminalRenderProcessInstanceToken(
+                    startTimeSeconds: 1,
+                    startTimeMicroseconds: 2
+                )
+            )
         }
     }
 

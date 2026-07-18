@@ -22,14 +22,12 @@ public actor BackendTerminalCompatibilitySession {
         requiredCapabilities: Set([
             capability,
             "canonical-topology-snapshot-v1",
-            "presentation-registry-v1",
             "stable-entity-uuid-v1",
         ]).union(BackendHandshakePolicy.terminalControlV9Capabilities)
     )
 
     private struct ResolvedSurface: Sendable {
         let handle: UInt64
-        let workspaceID: WorkspaceID
         let surfaceID: SurfaceID
     }
 
@@ -37,6 +35,7 @@ public actor BackendTerminalCompatibilitySession {
     private let client: BackendProtocolClient
     private let expectation: BackendCanonicalSessionExpectation
     private let registrationIdentity: BackendClientRegistrationIdentity
+    private let inputAuthority: any BackendTerminalCompatibilityInputAuthority
     private let eventCapacity: Int
     private let eventStream: AsyncThrowingStream<BackendTerminalCompatibilityEvent, any Error>
     private let eventContinuation:
@@ -49,22 +48,34 @@ public actor BackendTerminalCompatibilitySession {
     private var initialSnapshotValue: BackendTerminalCompatibilitySnapshot?
     private var resolvedSurface: ResolvedSurface?
     private var registration: BackendClientRegistration?
-    private var presentation: BackendPresentation?
-    private var inputLease: BackendTerminalLease?
+    private var inputDelegation: BackendTerminalInputDelegation?
+    private var nextInputSequence: UInt64?
+    private var inputOperationActive = false
+    private var inputOperationWaiters: [CheckedContinuation<Void, Never>] = []
     private var attached = false
     private var eventsClaimed = false
     private var finished = false
 
+    /// Creates one fail-closed compatibility connection for a single mobile lane.
+    ///
+    /// - Parameters:
+    ///   - transport: A transport that exposes the authenticated daemon peer identity.
+    ///   - expectation: The exact session, authority, process, and peer expected after connect.
+    ///   - registrationIdentity: The unique logical client identity for this mobile lane.
+    ///   - inputAuthority: The canonical frontend that grants text-only delegated input.
+    ///   - eventCapacity: The bounded number of decoded compatibility events retained locally.
     public init(
         transport: any BackendPeerIdentityTransport,
         expectation: BackendCanonicalSessionExpectation,
         registrationIdentity: BackendClientRegistrationIdentity,
+        inputAuthority: any BackendTerminalCompatibilityInputAuthority,
         eventCapacity: Int = BackendTerminalCompatibilitySession.defaultEventCapacity
     ) {
         precondition(eventCapacity > 0)
         self.transport = transport
         self.expectation = expectation
         self.registrationIdentity = registrationIdentity
+        self.inputAuthority = inputAuthority
         self.eventCapacity = eventCapacity
         client = BackendProtocolClient(transport: transport, eventCapacity: eventCapacity)
         let pair = AsyncThrowingStream<BackendTerminalCompatibilityEvent, any Error>.makeStream(
@@ -116,13 +127,15 @@ public actor BackendTerminalCompatibilitySession {
 
             let registration = try await client.registerClient(
                 supportedRange: 9 ... 9,
-                identity: registrationIdentity
+                identity: registrationIdentity,
+                kind: .mobileCompatibility
             )
             guard registration.protocolVersion == 9,
                   registration.clientUUID == registrationIdentity.clientUUID,
                   registration.processInstanceUUID == registrationIdentity.processInstanceUUID,
-                  registration.clientKind == .swiftShell,
-                  registration.role == .trustedFrontend else {
+                  registration.clientKind == .mobileCompatibility,
+                  registration.role == .trustedInputDelegate,
+                  registration.topologyMutationLease == nil else {
                 throw BackendTerminalControlError.registrationIdentityMismatch
             }
             self.registration = registration
@@ -172,15 +185,16 @@ public actor BackendTerminalCompatibilitySession {
         return eventStream
     }
 
-    /// Sends mobile text through a presentation-bound protocol-v9 input lease.
-    ///
-    /// The daemon rejects acquisition while another presentation owns input.
-    /// Legacy migration is possible only when no v9 input lease exists, and
-    /// cannot transfer or revoke another presentation's lease. The lease is
-    /// renewed before each frame. Any authority or receipt failure closes this
-    /// dedicated lane instead of retrying ambiguously.
+    /// Sends mobile text through a text-only delegation from the canonical
+    /// Swift input owner. Authorization is refreshed before every frame, so an
+    /// implementation can replace an authority near its monotonic deadline
+    /// without a timer. Any authority or receipt failure closes this dedicated
+    /// lane instead of retrying an input with ambiguous PTY effects.
     public func sendInput(_ text: String) async throws {
-        guard attached, !finished, let resolvedSurface, let registration else {
+        await beginInputOperation()
+        defer { endInputOperation() }
+        try Task.checkCancellation()
+        guard attached, !finished, let resolvedSurface, registration != nil else {
             throw BackendTerminalCompatibilityError.notAttached
         }
         guard let data = text.data(using: .utf8), data.count <= Self.maximumInputBytes else {
@@ -191,57 +205,55 @@ public actor BackendTerminalCompatibilitySession {
         guard !data.isEmpty else { return }
 
         do {
-            let presentation = try await ensurePresentation(for: resolvedSurface)
-            let response: BackendTerminalLeaseResponse
-            if let inputLease {
-                response = try await client.renewTerminalLease(
-                    inputLease,
-                    ttlMilliseconds: 30_000
+            let previous = inputDelegation
+            let authorized = try await inputAuthority.authorizeTerminalCompatibilityInput(
+                surfaceID: resolvedSurface.surfaceID,
+                delegateIdentity: registrationIdentity,
+                replacing: previous
+            )
+            guard !finished, attached else {
+                try? await inputAuthority.revokeTerminalCompatibilityInput(
+                    surfaceID: resolvedSurface.surfaceID,
+                    delegateIdentity: registrationIdentity,
+                    delegation: authorized
                 )
-                guard response.kind == .input,
-                      response.surfaceID == resolvedSurface.surfaceID,
-                      response.presentationID == presentation.id,
-                      response.presentationGeneration == presentation.generation,
-                      response.leaseID == inputLease.leaseID,
-                      response.leaseGeneration == inputLease.leaseGeneration else {
+                throw BackendProtocolError.connectionClosed
+            }
+            // Retain the exact returned authority before validation so a
+            // malformed replacement is still revoked by the fail path.
+            inputDelegation = authorized
+            try validateInputDelegation(
+                authorized,
+                surfaceID: resolvedSurface.surfaceID
+            )
+            let sameAuthority = previous.map {
+                $0.delegationID == authorized.delegationID
+                    && $0.delegationGeneration == authorized.delegationGeneration
+            } ?? false
+            if sameAuthority {
+                guard previous == authorized, nextInputSequence != nil else {
                     throw BackendProtocolError.malformedMessage
                 }
             } else {
-                response = try await client.acquireTerminalLease(
-                    kind: .input,
-                    surfaceID: resolvedSurface.surfaceID,
-                    presentationID: presentation.id,
-                    presentationGeneration: presentation.generation,
-                    ttlMilliseconds: 30_000
-                )
+                nextInputSequence = authorized.nextSequence
             }
-            guard response.kind == .input,
-                  response.surfaceID == resolvedSurface.surfaceID,
-                  response.presentationID == presentation.id,
-                  response.presentationGeneration == presentation.generation,
-                  response.leaseGeneration > 0,
-                  response.nextSequence > 0,
-                  response.nextGlobalInputSequence != nil else {
+            guard let sequence = nextInputSequence else {
                 throw BackendProtocolError.malformedMessage
             }
-            let lease = BackendTerminalLease(
-                connectionID: registration.connectionID,
-                response: response
-            )
-            inputLease = lease
 
             let requestID = UUID()
-            let receipt = try await client.sendTerminalInput(
-                lease: lease,
-                sequence: response.nextSequence,
+            let receipt = try await client.sendDelegatedTerminalInput(
+                delegation: authorized,
+                sequence: sequence,
                 requestID: requestID,
                 input: .text(text, paste: false)
             )
             try validateInputReceipt(
                 receipt,
                 requestID: requestID,
-                sequence: response.nextSequence,
-                leaseGeneration: response.leaseGeneration
+                sequence: sequence,
+                leaseGeneration: authorized.ownerLeaseGeneration,
+                encodedBytes: UInt64(data.count)
             )
             guard try await client.acknowledgeTerminalRequest(
                 surfaceID: resolvedSurface.surfaceID,
@@ -249,24 +261,23 @@ public actor BackendTerminalCompatibilitySession {
             ) else {
                 throw BackendProtocolError.malformedMessage
             }
+            guard sequence < UInt64.max else {
+                throw BackendProtocolError.malformedMessage
+            }
+            nextInputSequence = sequence + 1
         } catch {
             await fail(error)
             throw error
         }
     }
 
-    /// Releases connection-private input and presentation state, then closes.
+    /// Revokes this connection's exact delegation, then closes the transport.
     public func close() async {
         guard !finished else { return }
         finished = true
         eventTask?.cancel()
         eventTask = nil
-        let lease = inputLease
-        inputLease = nil
-        let presentationID = presentation?.id
-        presentation = nil
-        if let lease { try? await client.releaseTerminalLease(lease) }
-        if let presentationID { try? await client.closePresentation(id: presentationID) }
+        await revokeInputDelegationIfNeeded()
         await client.close()
         finishWaiters(throwing: CancellationError())
         eventContinuation.finish()
@@ -396,22 +407,6 @@ public actor BackendTerminalCompatibilitySession {
         }
     }
 
-    private func ensurePresentation(
-        for resolved: ResolvedSurface
-    ) async throws -> BackendPresentation {
-        if let presentation { return presentation }
-        let opened = try await client.openPresentation(view: BackendPresentationView(
-            workspaceID: resolved.workspaceID,
-            surfaceID: resolved.surfaceID
-        ))
-        guard opened.view.workspaceID == resolved.workspaceID,
-              opened.view.surfaceID == resolved.surfaceID else {
-            throw BackendProtocolError.malformedMessage
-        }
-        presentation = opened
-        return opened
-    }
-
     private func decodeSnapshot(
         _ event: BackendServerEvent,
         resolvedSurface: ResolvedSurface,
@@ -484,11 +479,43 @@ public actor BackendTerminalCompatibilitySession {
         finished = true
         eventTask?.cancel()
         eventTask = nil
-        inputLease = nil
-        presentation = nil
+        await revokeInputDelegationIfNeeded()
         await client.close()
         finishWaiters(throwing: error)
         eventContinuation.finish(throwing: error)
+    }
+
+    private func revokeInputDelegationIfNeeded() async {
+        guard let delegation = inputDelegation,
+              let resolvedSurface else {
+            inputDelegation = nil
+            nextInputSequence = nil
+            return
+        }
+        inputDelegation = nil
+        nextInputSequence = nil
+        try? await inputAuthority.revokeTerminalCompatibilityInput(
+            surfaceID: resolvedSurface.surfaceID,
+            delegateIdentity: registrationIdentity,
+            delegation: delegation
+        )
+    }
+
+    private func beginInputOperation() async {
+        if !inputOperationActive {
+            inputOperationActive = true
+            return
+        }
+        await withCheckedContinuation { inputOperationWaiters.append($0) }
+    }
+
+    private func endInputOperation() {
+        guard inputOperationActive else { return }
+        if inputOperationWaiters.isEmpty {
+            inputOperationActive = false
+        } else {
+            inputOperationWaiters.removeFirst().resume()
+        }
     }
 
     private func resolve(
@@ -504,7 +531,6 @@ public actor BackendTerminalCompatibilitySession {
                         }
                         return ResolvedSurface(
                             handle: surface.id,
-                            workspaceID: workspace.uuid,
                             surfaceID: surfaceID
                         )
                     }
@@ -539,20 +565,43 @@ public actor BackendTerminalCompatibilitySession {
         _ receipt: BackendTerminalOperationReceipt,
         requestID: UUID,
         sequence: UInt64,
-        leaseGeneration: UInt64
+        leaseGeneration: UInt64,
+        encodedBytes: UInt64
     ) throws {
         guard receipt.requestID == requestID,
               receipt.status == .applied,
               receipt.kind == .input,
               receipt.sequence == sequence,
               receipt.leaseGeneration == leaseGeneration,
-              receipt.replayed != nil,
-              receipt.encodedBytes != nil,
-              receipt.orderedInputSequence != nil,
+              receipt.replayed == false,
+              receipt.encodedBytes == encodedBytes,
+              receipt.orderedInputSequence.map({ $0 > 0 }) == true,
               receipt.leaseRevoked == false else {
             throw BackendProtocolError.malformedMessage
         }
     }
+
+    private func validateInputDelegation(
+        _ delegation: BackendTerminalInputDelegation,
+        surfaceID: SurfaceID
+    ) throws {
+        guard delegation.surfaceID == surfaceID,
+              delegation.delegationID != Self.nilUUID,
+              delegation.delegateClientUUID == registrationIdentity.clientUUID,
+              delegation.delegateProcessInstanceUUID
+                == registrationIdentity.processInstanceUUID,
+              delegation.delegationGeneration > 0,
+              delegation.ownerLeaseGeneration > 0,
+              delegation.expiresAtMilliseconds > 0,
+              delegation.nextSequence > 0,
+              delegation.scopes == [.text] else {
+            throw BackendProtocolError.malformedMessage
+        }
+    }
+
+    private static let nilUUID = UUID(
+        uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    )
 
     private func unsigned(_ value: BackendJSONValue?) throws -> UInt64 {
         switch value {

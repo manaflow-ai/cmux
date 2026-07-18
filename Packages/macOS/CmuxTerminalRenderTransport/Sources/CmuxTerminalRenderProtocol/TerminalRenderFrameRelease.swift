@@ -11,9 +11,17 @@ public struct TerminalRenderFrameRelease: Equatable, Sendable {
     /// Kernel IOSurface identifier imported for that exact frame.
     public let surfaceID: UInt32
 
+    /// Exact daemon-learned worker lifetime that produced this surface.
+    public let workerIdentity: TerminalRenderWorkerIdentity
+
     /// Creates an immutable pool-release acknowledgement.
-    public init(metadata: TerminalRenderFrameMetadata, surfaceID: UInt32) {
+    public init(
+        metadata: TerminalRenderFrameMetadata,
+        surfaceID: UInt32,
+        workerIdentity: TerminalRenderWorkerIdentity
+    ) {
         self.metadata = metadata
         self.surfaceID = surfaceID
+        self.workerIdentity = workerIdentity
     }
 }

@@ -6,7 +6,8 @@ public extension TerminalRenderFrameRelease {
     init(frame: TerminalRenderFrame) {
         self.init(
             metadata: frame.metadata,
-            surfaceID: frame.surface.identifier
+            surfaceID: frame.surface.identifier,
+            workerIdentity: frame.workerIdentity
         )
     }
 }

@@ -3,7 +3,273 @@ import CmuxTerminalBackend
 import CmuxTerminalBackendService
 import CmuxTerminalRenderProtocol
 import Darwin
+import Dispatch
 import Foundation
+
+struct TerminalBackendRendererWorkerEpoch: Hashable, Sendable {
+    let daemonInstanceID: UUID
+    let rendererEpoch: UInt64
+}
+
+struct TerminalBackendRendererWorkerProcessIdentity: Hashable, Sendable {
+    let epoch: TerminalBackendRendererWorkerEpoch
+    let processID: pid_t
+    let processInstanceToken: BackendRendererProcessInstanceToken
+}
+
+final class TerminalBackendRendererWorkerExitFence: @unchecked Sendable {
+    let completion: Task<Void, Never>
+    private let continuation: AsyncStream<Void>.Continuation
+    private let lock = NSLock()
+    private var finished = false
+
+    init() {
+        let pair = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        continuation = pair.continuation
+        completion = Task {
+            for await _ in pair.stream { return }
+        }
+    }
+
+    var isFinished: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return finished
+    }
+
+    func finish() {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        lock.unlock()
+        continuation.yield(())
+        continuation.finish()
+    }
+}
+
+struct TerminalBackendRendererWorkerExitLedger: Sendable {
+    enum Registration: Equatable, Sendable {
+        case installed
+        case existing
+        case conflict(TerminalBackendRendererWorkerProcessIdentity)
+    }
+
+    private struct Entry: Sendable {
+        let identity: TerminalBackendRendererWorkerProcessIdentity
+        var exited: Bool
+        let fence: TerminalBackendRendererWorkerExitFence
+    }
+
+    static let maximumRetainedExitedEntries = 4_096
+    private var entries: [TerminalBackendRendererWorkerEpoch: Entry] = [:]
+    private var exitedOrder: [TerminalBackendRendererWorkerEpoch] = []
+    private var exitedOrderHead = 0
+
+    mutating func register(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) -> Registration {
+        if let entry = entries[identity.epoch] {
+            return entry.identity == identity ? .existing : .conflict(entry.identity)
+        }
+        entries[identity.epoch] = Entry(
+            identity: identity,
+            exited: false,
+            fence: TerminalBackendRendererWorkerExitFence()
+        )
+        return .installed
+    }
+
+    mutating func markExited(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) -> Bool {
+        guard var entry = entries[identity.epoch],
+              entry.identity == identity,
+              !entry.exited else { return false }
+        entry.exited = true
+        entries[identity.epoch] = entry
+        entry.fence.finish()
+        exitedOrder.append(identity.epoch)
+        trimExitedEntries()
+        return true
+    }
+
+    func identity(
+        for epoch: TerminalBackendRendererWorkerEpoch
+    ) -> TerminalBackendRendererWorkerProcessIdentity? {
+        entries[epoch]?.identity
+    }
+
+    func hasExited(_ epoch: TerminalBackendRendererWorkerEpoch) -> Bool? {
+        entries[epoch]?.exited
+    }
+
+    func fence(
+        for epoch: TerminalBackendRendererWorkerEpoch
+    ) -> TerminalBackendRendererWorkerExitFence? {
+        entries[epoch]?.fence
+    }
+
+    mutating func remove(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) {
+        guard entries[identity.epoch]?.identity == identity else { return }
+        entries.removeValue(forKey: identity.epoch)
+    }
+
+    var entryCount: Int { entries.count }
+    var activeFenceCount: Int { entries.values.lazy.filter { !$0.exited }.count }
+
+    private mutating func trimExitedEntries() {
+        while exitedOrder.count - exitedOrderHead > Self.maximumRetainedExitedEntries {
+            let epoch = exitedOrder[exitedOrderHead]
+            exitedOrderHead += 1
+            if entries[epoch]?.exited == true {
+                entries.removeValue(forKey: epoch)
+            }
+        }
+        if exitedOrderHead >= Self.maximumRetainedExitedEntries {
+            exitedOrder.removeFirst(exitedOrderHead)
+            exitedOrderHead = 0
+        }
+    }
+}
+
+enum TerminalBackendRendererWorkerExitRegistration: Equatable, Sendable {
+    case watching
+    case alreadyExited
+    case unverifiable
+}
+
+protocol TerminalBackendRendererWorkerExitMonitoring: Sendable {
+    func register(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity,
+        onExit: @escaping @Sendable (TerminalBackendRendererWorkerProcessIdentity) -> Void
+    ) -> TerminalBackendRendererWorkerExitRegistration
+}
+
+/// Activates NOTE_EXIT first, then verifies the PID still names the exact
+/// public-kernel process start tuple supplied by cmuxd.
+final class TerminalBackendRendererWorkerExitMonitor:
+    TerminalBackendRendererWorkerExitMonitoring,
+    @unchecked Sendable
+{
+    typealias ExitHandler = @Sendable (
+        TerminalBackendRendererWorkerProcessIdentity
+    ) -> Void
+
+    private struct Registration {
+        let source: DispatchSourceProcess
+        let handler: ExitHandler
+    }
+
+    private let lock = NSLock()
+    private let queue = DispatchQueue(
+        label: "com.cmux.renderer-worker-exit-monitor",
+        qos: .userInitiated
+    )
+    private var registrations: [
+        TerminalBackendRendererWorkerProcessIdentity: Registration
+    ] = [:]
+
+    func register(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity,
+        onExit: @escaping ExitHandler
+    ) -> TerminalBackendRendererWorkerExitRegistration {
+        lock.lock()
+        guard registrations[identity] == nil else {
+            lock.unlock()
+            return .watching
+        }
+        let source = DispatchSource.makeProcessSource(
+            identifier: identity.processID,
+            eventMask: .exit,
+            queue: queue
+        )
+        registrations[identity] = Registration(source: source, handler: onExit)
+        source.setEventHandler { [weak self] in
+            self?.processExited(identity)
+        }
+        source.activate()
+        lock.unlock()
+
+        switch Self.currentProcessInstanceToken(processID: identity.processID) {
+        case .exact(let token) where token == identity.processInstanceToken:
+            return .watching
+        case .exact, .missing:
+            cancel(identity)
+            return .alreadyExited
+        case .unverifiable:
+            cancel(identity)
+            return .unverifiable
+        }
+    }
+
+    private enum ProcessLookup {
+        case exact(BackendRendererProcessInstanceToken)
+        case missing
+        case unverifiable
+    }
+
+    private static func currentProcessInstanceToken(processID: pid_t) -> ProcessLookup {
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        errno = 0
+        let size = proc_pidinfo(
+            processID,
+            PROC_PIDTBSDINFO,
+            0,
+            &info,
+            Int32(expectedSize)
+        )
+        if size == expectedSize, info.pbi_pid == UInt32(processID) {
+            return .exact(BackendRendererProcessInstanceToken(
+                startTimeSeconds: info.pbi_start_tvsec,
+                startTimeMicroseconds: info.pbi_start_tvusec
+            ))
+        }
+        if size <= 0, errno == ESRCH {
+            return .missing
+        }
+        if size <= 0 {
+            errno = 0
+            if Darwin.kill(processID, 0) != 0, errno == ESRCH {
+                return .missing
+            }
+        }
+        return .unverifiable
+    }
+
+    private func cancel(_ identity: TerminalBackendRendererWorkerProcessIdentity) {
+        lock.lock()
+        let registration = registrations.removeValue(forKey: identity)
+        lock.unlock()
+        registration?.source.cancel()
+    }
+
+    private func processExited(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) {
+        lock.lock()
+        let registration = registrations.removeValue(forKey: identity)
+        lock.unlock()
+        guard let registration else { return }
+        registration.source.cancel()
+        registration.handler(identity)
+    }
+
+    deinit {
+        lock.lock()
+        let sources = registrations.values.map(\.source)
+        registrations.removeAll()
+        lock.unlock()
+        for source in sources {
+            source.cancel()
+        }
+    }
+}
 
 /// Process-wide owner of trusted backend connection replacement and terminal commands.
 actor TerminalBackendClientCoordinator:
@@ -13,7 +279,8 @@ actor TerminalBackendClientCoordinator:
     TerminalBackendExternalTerminalServing,
     TerminalBackendRemoteTmuxProducerSourceServing,
     TerminalBackendFrontendNativeBrowserServing,
-    TerminalBackendFrontendConnectionRecovering
+    TerminalBackendFrontendConnectionRecovering,
+    BackendTerminalCompatibilityInputAuthority
 {
     typealias ReadinessProvider = @Sendable () async throws -> BackendServiceBootstrapResult
     typealias SessionFactory = @Sendable (BackendServiceReadiness) -> any TerminalBackendSessionServing
@@ -37,7 +304,51 @@ actor TerminalBackendClientCoordinator:
         var descriptor: TerminalBackendPresentationDescriptor
         var receipt: BackendRendererPresentationReceipt?
         var ready: BackendRendererPresentationReady?
+        var workerIdentity: TerminalBackendRendererWorkerProcessIdentity?
         var removalPending: Bool
+    }
+
+    private struct RendererConfigurationResult: Sendable {
+        let attachment: TerminalBackendRendererAttachment?
+        let activation: TerminalBackendRendererActivation?
+    }
+
+    /// Exact canonical placement for a non-rendering terminal input owner.
+    /// Numeric handles are included so a delete/recreate cannot masquerade as
+    /// the same authority merely by reusing stable UUIDs.
+    private struct TerminalInputTopologyLocation: Equatable, Sendable {
+        let workspaceHandle: UInt64
+        let workspaceID: WorkspaceID
+        let screenHandle: UInt64
+        let screenID: ScreenID
+        let paneHandle: UInt64
+        let paneID: PaneID
+        let surfaceHandle: UInt64
+        let surfaceID: SurfaceID
+
+        var presentationView: BackendPresentationView {
+            BackendPresentationView(
+                workspaceID: workspaceID,
+                screenID: screenID,
+                paneID: paneID,
+                surfaceID: surfaceID
+            )
+        }
+    }
+
+    private struct TerminalInputOwnerRecord: Equatable, Sendable {
+        let connectionAttemptID: UUID
+        let authority: BackendAuthority
+        let location: TerminalInputTopologyLocation
+        let presentationID: PresentationID
+        let presentationGeneration: UInt64
+        var inputLeaseGeneration: UInt64
+    }
+
+    private struct TerminalCompatibilityGrantRecord: Equatable, Sendable {
+        let delegateIdentity: BackendClientRegistrationIdentity
+        let delegation: BackendTerminalInputDelegation
+        let localDeadlineNanoseconds: UInt64
     }
 
     private struct PendingTerminalEnsure {
@@ -59,6 +370,14 @@ actor TerminalBackendClientCoordinator:
     private var connectionTask: Task<TerminalBackendConnectedSession, any Error>?
     private var connectionAttemptID = UUID()
     private var eventTask: Task<Void, Never>?
+    private var terminalInputOwners: [SurfaceID: TerminalInputOwnerRecord] = [:]
+    private var terminalCompatibilityGrants: [
+        SurfaceID: [UUID: TerminalCompatibilityGrantRecord]
+    ] = [:]
+    private var activeTerminalInputOperations: Set<SurfaceID> = []
+    private var terminalInputOperationWaiters: [
+        SurfaceID: [CheckedContinuation<Void, Never>]
+    ] = [:]
     private var rendererPresentations: [UUID: RendererPresentationRecord] = [:]
     private var rendererRemovalRequests: Set<UUID> = []
     private var activeRendererPresentationOperations: Set<UUID> = []
@@ -85,12 +404,21 @@ actor TerminalBackendClientCoordinator:
     private var topologyRevisionWaiters: [UUID: TopologyRevisionWaiter] = [:]
     private var frontendRecoveryGeneration: UUID?
     private var frontendRecoveryStartCount = 0
+    private let rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring
+    private var rendererWorkerExitLedger = TerminalBackendRendererWorkerExitLedger()
+    private let monotonicNowNanoseconds: @Sendable () -> UInt64
+
+    private static let terminalInputOwnerTTLMilliseconds: UInt64 = 30_000
+    private static let terminalCompatibilityGrantTTLMilliseconds: UInt64 = 10_000
+    private static let terminalCompatibilityRefreshMarginMilliseconds: UInt64 = 2_000
 
     init(
         bootstrapCoordinator: BackendServiceBootstrapCoordinator,
         runtimePaths: BackendServiceRuntimePaths,
         registrationIdentity: BackendClientRegistrationIdentity,
         reconnectPolicy: TerminalBackendReconnectPolicy = .appStartup,
+        rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring =
+            TerminalBackendRendererWorkerExitMonitor(),
         compatibilityReporter: @escaping CompatibilityReporter = { _ in }
     ) {
         readinessProvider = {
@@ -109,18 +437,27 @@ actor TerminalBackendClientCoordinator:
             )
         }
         self.reconnectPolicy = reconnectPolicy
+        self.rendererWorkerExitMonitor = rendererWorkerExitMonitor
         self.compatibilityReporter = compatibilityReporter
+        monotonicNowNanoseconds = { DispatchTime.now().uptimeNanoseconds }
     }
 
     init(
         readinessProvider: @escaping ReadinessProvider,
         sessionFactory: @escaping SessionFactory,
         reconnectPolicy: TerminalBackendReconnectPolicy = .immediate,
+        rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring =
+            TerminalBackendRendererWorkerExitMonitor(),
+        monotonicNowNanoseconds: @escaping @Sendable () -> UInt64 = {
+            DispatchTime.now().uptimeNanoseconds
+        },
         compatibilityReporter: @escaping CompatibilityReporter = { _ in }
     ) {
         self.readinessProvider = readinessProvider
         self.sessionFactory = sessionFactory
         self.reconnectPolicy = reconnectPolicy
+        self.rendererWorkerExitMonitor = rendererWorkerExitMonitor
+        self.monotonicNowNanoseconds = monotonicNowNanoseconds
         self.compatibilityReporter = compatibilityReporter
     }
 
@@ -132,6 +469,178 @@ actor TerminalBackendClientCoordinator:
 
     func start() async {
         ensureConnectionSupervisor()
+    }
+
+    func authorizeTerminalCompatibilityInput(
+        surfaceID: SurfaceID,
+        delegateIdentity: BackendClientRegistrationIdentity,
+        replacing: BackendTerminalInputDelegation?
+    ) async throws -> BackendTerminalInputDelegation {
+        await acquireTerminalInputOperation(surfaceID)
+        defer { releaseTerminalInputOperation(surfaceID) }
+
+        let connection = try await connectedSession()
+        let attemptID = connectionAttemptID
+        try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+        var owner = try await stableTerminalInputOwner(
+            surfaceID: surfaceID,
+            binding: nil,
+            connection: connection,
+            attemptID: attemptID
+        )
+        let now = monotonicNowNanoseconds()
+        let refreshThreshold = now.addingClamped(
+            Self.terminalCompatibilityRefreshMarginMilliseconds
+                .multipliedClamped(by: 1_000_000)
+        )
+
+        if let current = terminalCompatibilityGrants[surfaceID]?[delegateIdentity.clientUUID] {
+            guard current.delegateIdentity == delegateIdentity else {
+                throw BackendTerminalControlError.staleConnection
+            }
+            if let replacing, replacing != current.delegation {
+                throw BackendTerminalControlError.staleLease
+            }
+            if current.localDeadlineNanoseconds > refreshThreshold {
+                return current.delegation
+            }
+
+            terminalCompatibilityGrants[surfaceID]?.removeValue(
+                forKey: delegateIdentity.clientUUID
+            )
+            if terminalCompatibilityGrants[surfaceID]?.isEmpty == true {
+                terminalCompatibilityGrants.removeValue(forKey: surfaceID)
+            }
+            if now < current.localDeadlineNanoseconds {
+                do {
+                    try await connection.session.revokeTerminalInputDelegation(
+                        surfaceID: surfaceID,
+                        presentationID: owner.presentationID,
+                        presentationGeneration: owner.presentationGeneration,
+                        delegation: current.delegation
+                    )
+                } catch {
+                    if connectionAttemptID == attemptID,
+                       connected?.readiness == connection.readiness {
+                        await invalidate(connection)
+                    }
+                    throw error
+                }
+            }
+            try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+            owner = try await stableTerminalInputOwner(
+                surfaceID: surfaceID,
+                binding: nil,
+                connection: connection,
+                attemptID: attemptID
+            )
+        }
+
+        let grantStartedAt = monotonicNowNanoseconds()
+        let delegation = try await connection.session.grantTerminalInputDelegation(
+            surfaceID: surfaceID,
+            presentationID: owner.presentationID,
+            presentationGeneration: owner.presentationGeneration,
+            delegateClientUUID: delegateIdentity.clientUUID,
+            ttlMilliseconds: Self.terminalCompatibilityGrantTTLMilliseconds,
+            scopes: [.text]
+        )
+        do {
+            try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+            if delegation.ownerLeaseGeneration != owner.inputLeaseGeneration {
+                guard delegation.ownerLeaseGeneration > owner.inputLeaseGeneration,
+                      terminalInputOwners[surfaceID] == owner else {
+                    throw BackendProtocolError.peerIdentityMismatch
+                }
+                // The canonical session may renew the owner lease to ensure it
+                // outlives this delegation. cmuxd atomically revokes every
+                // grant from the previous lease generation; mirror that before
+                // publishing the new grant.
+                terminalCompatibilityGrants.removeValue(forKey: surfaceID)
+                owner.inputLeaseGeneration = delegation.ownerLeaseGeneration
+                terminalInputOwners[surfaceID] = owner
+            }
+            let currentLocation = try terminalInputLocation(
+                surfaceID: surfaceID,
+                binding: nil,
+                connection: connection
+            )
+            guard terminalInputOwners[surfaceID] == owner,
+                  currentLocation == owner.location,
+                  delegation.surfaceID == surfaceID,
+                  delegation.delegateClientUUID == delegateIdentity.clientUUID,
+                  delegation.delegateProcessInstanceUUID == delegateIdentity.processInstanceUUID,
+                  delegation.ownerLeaseGeneration == owner.inputLeaseGeneration,
+                  delegation.delegationID != .nilUUID,
+                  delegation.delegationGeneration > 0,
+                  delegation.expiresAtMilliseconds > 0,
+                  delegation.nextSequence > 0,
+                  delegation.scopes == [.text] else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+        } catch {
+            try? await connection.session.revokeTerminalInputDelegation(
+                surfaceID: surfaceID,
+                presentationID: owner.presentationID,
+                presentationGeneration: owner.presentationGeneration,
+                delegation: delegation
+            )
+            throw error
+        }
+        let record = TerminalCompatibilityGrantRecord(
+            delegateIdentity: delegateIdentity,
+            delegation: delegation,
+            localDeadlineNanoseconds: grantStartedAt.addingClamped(
+                Self.terminalCompatibilityGrantTTLMilliseconds
+                    .multipliedClamped(by: 1_000_000)
+            )
+        )
+        terminalCompatibilityGrants[surfaceID, default: [:]][delegateIdentity.clientUUID] = record
+        return delegation
+    }
+
+    func revokeTerminalCompatibilityInput(
+        surfaceID: SurfaceID,
+        delegateIdentity: BackendClientRegistrationIdentity,
+        delegation: BackendTerminalInputDelegation
+    ) async throws {
+        await acquireTerminalInputOperation(surfaceID)
+        defer { releaseTerminalInputOperation(surfaceID) }
+        guard let current = terminalCompatibilityGrants[surfaceID]?[delegateIdentity.clientUUID]
+        else {
+            // Owner disconnect, topology retirement, and local expiry already
+            // revoke the daemon authority represented by a stale callback.
+            return
+        }
+        guard current.delegateIdentity == delegateIdentity,
+              current.delegation == delegation else {
+            throw BackendTerminalControlError.staleLease
+        }
+        terminalCompatibilityGrants[surfaceID]?.removeValue(forKey: delegateIdentity.clientUUID)
+        if terminalCompatibilityGrants[surfaceID]?.isEmpty == true {
+            terminalCompatibilityGrants.removeValue(forKey: surfaceID)
+        }
+        guard monotonicNowNanoseconds() < current.localDeadlineNanoseconds,
+              let owner = terminalInputOwners[surfaceID],
+              let connection = connected,
+              owner.connectionAttemptID == connectionAttemptID,
+              owner.authority == connection.readiness.authority else {
+            return
+        }
+        do {
+            try await connection.session.revokeTerminalInputDelegation(
+                surfaceID: surfaceID,
+                presentationID: owner.presentationID,
+                presentationGeneration: owner.presentationGeneration,
+                delegation: current.delegation
+            )
+        } catch {
+            if connectionAttemptID == owner.connectionAttemptID,
+               connected?.readiness == connection.readiness {
+                await invalidate(connection)
+            }
+            throw error
+        }
     }
 
     func rendererEvents() -> AsyncStream<TerminalBackendRendererEvent> {
@@ -216,6 +725,7 @@ actor TerminalBackendClientCoordinator:
         connectionSupervisorID = UUID()
         connectionSupervisorTask?.cancel()
         connectionSupervisorTask = nil
+        discardTerminalInputAuthorityState()
         connectionAttemptID = UUID()
         connectionTask?.cancel()
         connectionTask = nil
@@ -1003,6 +1513,7 @@ actor TerminalBackendClientCoordinator:
         presentation: TerminalBackendPresentationDescriptor?
     ) async throws -> TerminalBackendMutationOutcome {
         let connection = try await connectedSession(for: binding)
+        let inputConnectionAttemptID = connectionAttemptID
         var outcome = TerminalBackendMutationOutcome()
         switch mutation {
         case .input(.text(let input)):
@@ -1017,9 +1528,9 @@ actor TerminalBackendClientCoordinator:
                 _ = try await sendLeasedTerminalInput(
                     requestID: requestID,
                     input: .text(input.text, paste: input.kind == .paste),
-                    presentation: presentation,
                     binding: binding,
-                    connection: connection
+                    connection: connection,
+                    attemptID: inputConnectionAttemptID
                 )
             }
         case .input(.key(let key)):
@@ -1041,9 +1552,9 @@ actor TerminalBackendClientCoordinator:
                 _ = try await sendLeasedTerminalInput(
                     requestID: requestID,
                     input: .key(event),
-                    presentation: presentation,
                     binding: binding,
-                    connection: connection
+                    connection: connection,
+                    attemptID: inputConnectionAttemptID
                 )
             }
         case .input(.namedKey(let key)):
@@ -1057,9 +1568,9 @@ actor TerminalBackendClientCoordinator:
                 _ = try await sendLeasedTerminalInput(
                     requestID: requestID,
                     input: .namedKey(key),
-                    presentation: presentation,
                     binding: binding,
-                    connection: connection
+                    connection: connection,
+                    attemptID: inputConnectionAttemptID
                 )
             }
         case .mouse(let mouse):
@@ -1110,9 +1621,9 @@ actor TerminalBackendClientCoordinator:
                 _ = try await sendLeasedTerminalInput(
                     requestID: requestID,
                     input: .mouse(cellEvent),
-                    presentation: presentation,
                     binding: binding,
-                    connection: connection
+                    connection: connection,
+                    attemptID: inputConnectionAttemptID
                 )
             }
             if mouse.action == .release {
@@ -1142,11 +1653,13 @@ actor TerminalBackendClientCoordinator:
             if let presentation,
                rendererPresentations[presentation.presentationID] != nil,
                presentation.visible {
-                outcome.rendererAttachment = try await configureRenderer(
+                let renderer = try await configureRenderer(
                     presentation,
                     binding: binding,
                     connection: connection
                 )
+                outcome.rendererAttachment = renderer.attachment
+                outcome.rendererActivation = renderer.activation
                 if focused {
                     try await markLatestTerminalActivitySeen(
                         binding: binding,
@@ -1163,11 +1676,13 @@ actor TerminalBackendClientCoordinator:
                 throw TerminalBackendClientError.presentationUnavailable
             }
             if visible {
-                outcome.rendererAttachment = try await configureRenderer(
+                let renderer = try await configureRenderer(
                     presentation,
                     binding: binding,
                     connection: connection
                 )
+                outcome.rendererAttachment = renderer.attachment
+                outcome.rendererActivation = renderer.activation
             } else {
                 try await removeRendererPresentation(
                     presentationID: presentation.presentationID,
@@ -1181,11 +1696,13 @@ actor TerminalBackendClientCoordinator:
         case .resize(let viewport):
             let controlProtocol = try await connection.session.terminalControlProtocol()
             if let presentation, presentation.visible {
-                outcome.rendererAttachment = try await configureRenderer(
+                let renderer = try await configureRenderer(
                     presentation,
                     binding: binding,
                     connection: connection
                 )
+                outcome.rendererAttachment = renderer.attachment
+                outcome.rendererActivation = renderer.activation
                 if controlProtocol == .leasedV9,
                    let columns = viewport.proposedColumns.flatMap(UInt16.init(exactly:)),
                    let rows = viewport.proposedRows.flatMap(UInt16.init(exactly:)) {
@@ -1275,11 +1792,13 @@ actor TerminalBackendClientCoordinator:
             )
             outcome.binding = updatedBinding
             if let presentation, presentation.visible {
-                outcome.rendererAttachment = try await configureRenderer(
+                let renderer = try await configureRenderer(
                     presentation,
                     binding: updatedBinding,
                     connection: connection
                 )
+                outcome.rendererAttachment = renderer.attachment
+                outcome.rendererActivation = renderer.activation
             }
         case .closeCanonicalTerminal:
             let presentationIDs = rendererPresentations.compactMap { identifier, record in
@@ -1487,12 +2006,59 @@ actor TerminalBackendClientCoordinator:
         )
     }
 
+    func activateRenderer(_ activation: TerminalBackendRendererActivation) async throws {
+        guard let record = rendererPresentations[activation.presentationID],
+              !record.removalPending,
+              let receipt = record.receipt,
+              let workerIdentity = record.workerIdentity,
+              let workerEffectiveUserID = receipt.workerEffectiveUserID,
+              receipt.workerState == .ready,
+              activation.fence.daemonInstanceID == receipt.daemonInstanceID.rawValue,
+              activation.fence.rendererEpoch == receipt.rendererEpoch,
+              activation.fence.presentationID == receipt.presentationID.rawValue,
+              activation.fence.presentationGeneration == receipt.rendererGeneration,
+              activation.worker.processID == workerIdentity.processID,
+              activation.worker.effectiveUserID == workerEffectiveUserID,
+              activation.worker.processInstanceToken.startTimeSeconds
+                == workerIdentity.processInstanceToken.startTimeSeconds,
+              activation.worker.processInstanceToken.startTimeMicroseconds
+                == workerIdentity.processInstanceToken.startTimeMicroseconds,
+              let workerProcessID = UInt32(exactly: workerIdentity.processID) else {
+            throw TerminalBackendClientError.rendererNotReady
+        }
+        try validateRendererWorkerForActivation(workerIdentity)
+        let connection = try await connectedSession()
+        guard connection.readiness.authority.daemonInstanceID == receipt.daemonInstanceID else {
+            throw TerminalBackendClientError.rendererNotReady
+        }
+        try await connection.session.activateRendererPresentation(
+            id: record.backendID,
+            expectedGeneration: record.canonicalGeneration,
+            rendererGeneration: receipt.rendererGeneration,
+            rendererEpoch: receipt.rendererEpoch,
+            workerProcessID: workerProcessID,
+            workerProcessInstanceToken: workerIdentity.processInstanceToken
+        )
+    }
+
     func releaseFrame(_ release: TerminalRenderFrameRelease) async throws {
         let connection = try await connectedSession()
-        // A replacement daemon proves that the old renderer worker and every
-        // lease it owned are gone, so an old-daemon receipt is already settled.
         guard connection.readiness.authority.daemonInstanceID.rawValue
-                == release.metadata.daemonInstanceID else { return }
+                == release.metadata.daemonInstanceID else {
+            let identity = try rendererWorkerIdentity(
+                daemonInstanceID: release.metadata.daemonInstanceID,
+                rendererEpoch: release.metadata.rendererEpoch,
+                processID: UInt32(exactly: release.workerIdentity.processID),
+                processInstanceToken: BackendRendererProcessInstanceToken(
+                    startTimeSeconds: release.workerIdentity
+                        .processInstanceToken.startTimeSeconds,
+                    startTimeMicroseconds: release.workerIdentity
+                        .processInstanceToken.startTimeMicroseconds
+                )
+            )
+            try await awaitRendererWorkerExit(identity)
+            return
+        }
         _ = try await connection.session.releaseRendererFrame(
             BackendRendererFrameRelease(
                 daemonInstanceID: DaemonInstanceID(
@@ -1516,7 +2082,7 @@ actor TerminalBackendClientCoordinator:
         _ descriptor: TerminalBackendPresentationDescriptor,
         binding: TerminalBackendTerminalBinding,
         connection: TerminalBackendConnectedSession
-    ) async throws -> TerminalBackendRendererAttachment? {
+    ) async throws -> RendererConfigurationResult {
         guard !rendererRemovalRequests.contains(descriptor.presentationID) else {
             throw TerminalBackendClientError.presentationUnavailable
         }
@@ -1546,10 +2112,13 @@ actor TerminalBackendClientCoordinator:
             record = existing
             openedNewPresentation = false
         } else {
-            // A daemon replacement proves an older record's worker dead. It
-            // cannot be reused because canonical presentation IDs are scoped
-            // to that immutable daemon authority.
-            rendererPresentations.removeValue(forKey: descriptor.presentationID)
+            if let existing = rendererPresentations[descriptor.presentationID] {
+                try await awaitRendererWorkerExit(for: existing)
+                removeRendererPresentationRecordIfCurrent(
+                    presentationID: descriptor.presentationID,
+                    record: existing
+                )
+            }
             let opened = try await connection.session.openPresentation(
                 view: BackendPresentationView(
                     workspaceID: binding.workspaceID,
@@ -1565,6 +2134,7 @@ actor TerminalBackendClientCoordinator:
                 descriptor: descriptor,
                 receipt: nil,
                 ready: nil,
+                workerIdentity: nil,
                 removalPending: false
             )
             openedNewPresentation = true
@@ -1611,14 +2181,34 @@ actor TerminalBackendClientCoordinator:
             }
             throw error
         }
+        let workerIdentity: TerminalBackendRendererWorkerProcessIdentity?
+        do {
+            workerIdentity = try registerRendererWorker(
+                daemonInstanceID: receipt.daemonInstanceID.rawValue,
+                rendererEpoch: receipt.rendererEpoch,
+                processID: receipt.workerProcessID,
+                processInstanceToken: receipt.workerProcessInstanceToken
+            )
+        } catch {
+            if openedNewPresentation {
+                try? await connection.session.closePresentation(id: record.backendID)
+            }
+            throw error
+        }
         record.canonicalGeneration = receipt.canonicalGeneration
         record.descriptor = descriptor
         record.receipt = receipt
         record.ready = nil
+        record.workerIdentity = workerIdentity
         record.removalPending = rendererRemovalRequests.contains(descriptor.presentationID)
         rendererPresentations[descriptor.presentationID] = record
-        guard !record.removalPending else { return nil }
-        return try rendererAttachment(record)
+        guard !record.removalPending else {
+            return RendererConfigurationResult(attachment: nil, activation: nil)
+        }
+        return try RendererConfigurationResult(
+            attachment: rendererAttachment(record),
+            activation: rendererActivation(record)
+        )
     }
 
     private func removeRendererPresentation(
@@ -1638,10 +2228,9 @@ actor TerminalBackendClientCoordinator:
             rendererRemovalRequests.remove(presentationID)
             return
         }
-        // A different daemon lifetime is synchronous worker-death proof. The
-        // old process and every IOSurface lease it owned can no longer exist.
         guard connection.readiness.authority.daemonInstanceID
                 == record.binding.authority.daemonInstanceID else {
+            try await awaitRendererWorkerExit(for: record)
             removeRendererPresentationRecordIfCurrent(
                 presentationID: presentationID,
                 record: record
@@ -1662,7 +2251,10 @@ actor TerminalBackendClientCoordinator:
         record.removalPending = true
         rendererPresentations[presentationID] = record
         if (try? await connection.session.terminalControlProtocol()) == .leasedV9 {
-            try? await connection.session.releaseTerminalControl(
+            // Renderer presentations own geometry only. Input stays on the
+            // surface's non-rendering stable owner across workspace switches.
+            try? await connection.session.releaseTerminalLease(
+                kind: .geometry,
                 surfaceID: record.binding.surfaceID,
                 presentationID: record.backendID,
                 presentationGeneration: record.canonicalGeneration
@@ -1706,6 +2298,192 @@ actor TerminalBackendClientCoordinator:
             return
         }
         activeRendererPresentationOperations.remove(presentationID)
+    }
+
+    private func registerRendererWorker(
+        daemonInstanceID: UUID,
+        rendererEpoch: UInt64,
+        processID: UInt32?,
+        processInstanceToken: BackendRendererProcessInstanceToken?
+    ) throws -> TerminalBackendRendererWorkerProcessIdentity? {
+        guard let processID else {
+            guard processInstanceToken == nil else {
+                throw BackendProtocolError.malformedMessage
+            }
+            return nil
+        }
+        guard let processInstanceToken else {
+            throw BackendProtocolError.malformedMessage
+        }
+        let identity = try rendererWorkerIdentity(
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: rendererEpoch,
+            processID: processID,
+            processInstanceToken: processInstanceToken
+        )
+        switch rendererWorkerExitLedger.register(identity) {
+        case .installed:
+            guard let exitFence = rendererWorkerExitLedger.fence(for: identity.epoch) else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            let registration = rendererWorkerExitMonitor.register(identity) {
+                [weak self, exitFence] exited in
+                // Settle the process-shared fence synchronously. The actor callback
+                // may not run until after configure returns, but no activation may
+                // escape once NOTE_EXIT has fired.
+                exitFence.finish()
+                Task { await self?.rendererWorkerDidExit(exited) }
+            }
+            switch registration {
+            case .watching:
+                guard !exitFence.isFinished else {
+                    rendererWorkerDidExit(identity)
+                    return nil
+                }
+            case .alreadyExited:
+                exitFence.finish()
+                rendererWorkerDidExit(identity)
+                return nil
+            case .unverifiable:
+                rendererWorkerExitLedger.remove(identity)
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+        case .existing:
+            guard rendererWorkerIsLive(identity) else { return nil }
+        case .conflict:
+            throw BackendProtocolError.peerIdentityMismatch
+        }
+        return rendererWorkerIsLive(identity) ? identity : nil
+    }
+
+    private func registerRendererWorkers(
+        _ response: BackendRendererWorkersResponse,
+        for connection: TerminalBackendConnectedSession
+    ) throws {
+        guard response.daemonInstanceID == connection.readiness.authority.daemonInstanceID else {
+            throw BackendProtocolError.peerIdentityMismatch
+        }
+        for worker in response.workers {
+            _ = try registerRendererWorker(
+                daemonInstanceID: response.daemonInstanceID.rawValue,
+                rendererEpoch: worker.rendererEpoch,
+                processID: worker.processID,
+                processInstanceToken: worker.processInstanceToken
+            )
+        }
+    }
+
+    private func rendererWorkerIdentity(
+        daemonInstanceID: UUID,
+        rendererEpoch: UInt64,
+        processID: UInt32?,
+        processInstanceToken: BackendRendererProcessInstanceToken
+    ) throws -> TerminalBackendRendererWorkerProcessIdentity {
+        guard let processID,
+              rendererEpoch > 0 else {
+            throw BackendProtocolError.malformedMessage
+        }
+        guard let signedProcessID = pid_t(exactly: processID), signedProcessID > 0 else {
+            throw BackendProtocolError.malformedMessage
+        }
+        return TerminalBackendRendererWorkerProcessIdentity(
+            epoch: TerminalBackendRendererWorkerEpoch(
+                daemonInstanceID: daemonInstanceID,
+                rendererEpoch: rendererEpoch
+            ),
+            processID: signedProcessID,
+            processInstanceToken: processInstanceToken
+        )
+    }
+
+    private func awaitRendererWorkerExit(
+        for record: RendererPresentationRecord
+    ) async throws {
+        if let workerIdentity = record.workerIdentity {
+            try await awaitRendererWorkerExit(workerIdentity)
+            return
+        }
+        guard let receipt = record.receipt else { return }
+        // Backoff has no live child. Starting and Ready must carry a PID so
+        // daemon replacement cannot turn an unknown process into false proof.
+        guard receipt.workerState == .backoff else {
+            throw TerminalBackendClientError.rendererNotReady
+        }
+    }
+
+    private func awaitRendererWorkerExit(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) async throws {
+        if rendererWorkerExitLedger.identity(for: identity.epoch) == nil {
+            _ = try registerRendererWorker(
+                daemonInstanceID: identity.epoch.daemonInstanceID,
+                rendererEpoch: identity.epoch.rendererEpoch,
+                processID: UInt32(exactly: identity.processID),
+                processInstanceToken: identity.processInstanceToken
+            )
+        }
+        guard rendererWorkerExitLedger.identity(for: identity.epoch) == identity,
+              let exited = rendererWorkerExitLedger.hasExited(identity.epoch),
+              let fence = rendererWorkerExitLedger.fence(for: identity.epoch) else {
+            throw BackendProtocolError.peerIdentityMismatch
+        }
+        guard !exited else { return }
+        await fence.completion.value
+    }
+
+    private func rendererWorkerDidExit(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) {
+        _ = rendererWorkerExitLedger.markExited(identity)
+    }
+
+    private func rendererWorkerIsLive(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) -> Bool {
+        rendererWorkerExitLedger.identity(for: identity.epoch) == identity
+            && rendererWorkerExitLedger.hasExited(identity.epoch) == false
+            && rendererWorkerExitLedger.fence(for: identity.epoch)?.isFinished == false
+    }
+
+    private func validateRendererWorkerForActivation(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) throws {
+        guard rendererWorkerIsLive(identity) else {
+            throw TerminalBackendClientError.rendererNotReady
+        }
+    }
+
+    var debugRendererWorkerExitWaiterCount: Int {
+        rendererWorkerExitLedger.activeFenceCount
+    }
+
+    func debugRegisterRendererWorker(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) throws -> Bool {
+        try registerRendererWorker(
+            daemonInstanceID: identity.epoch.daemonInstanceID,
+            rendererEpoch: identity.epoch.rendererEpoch,
+            processID: UInt32(exactly: identity.processID),
+            processInstanceToken: identity.processInstanceToken
+        ) != nil
+    }
+
+    func debugRendererWorkerCanActivate(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) -> Bool {
+        rendererWorkerIsLive(identity)
+    }
+
+    func debugValidateRendererWorkerForActivation(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) throws {
+        try validateRendererWorkerForActivation(identity)
+    }
+
+    func debugAwaitRendererWorkerExit(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity
+    ) async throws {
+        try await awaitRendererWorkerExit(identity)
     }
 
     private func removeRendererPresentationRecordIfCurrent(
@@ -1756,12 +2534,19 @@ actor TerminalBackendClientCoordinator:
         } else {
             return nil
         }
-        guard let signedProcessID = Int32(exactly: processID) else {
+        guard let signedProcessID = Int32(exactly: processID),
+              let workerIdentity = record.workerIdentity,
+              workerIdentity.processID == signedProcessID,
+              rendererWorkerIsLive(workerIdentity) else {
             throw TerminalBackendClientError.rendererNotReady
         }
         let worker = try TerminalRenderWorkerIdentity(
             processID: signedProcessID,
-            effectiveUserID: effectiveUserID
+            effectiveUserID: effectiveUserID,
+            processInstanceToken: TerminalRenderProcessInstanceToken(
+                startTimeSeconds: workerIdentity.processInstanceToken.startTimeSeconds,
+                startTimeMicroseconds: workerIdentity.processInstanceToken.startTimeMicroseconds
+            )
         )
         let fence = try TerminalRenderPresentationFence(
             daemonInstanceID: receipt.daemonInstanceID.rawValue,
@@ -1795,6 +2580,46 @@ actor TerminalBackendClientCoordinator:
         )
     }
 
+    private func rendererActivation(
+        _ record: RendererPresentationRecord
+    ) throws -> TerminalBackendRendererActivation? {
+        guard let receipt = record.receipt,
+              receipt.workerState == .ready,
+              let processID = receipt.workerProcessID,
+              let effectiveUserID = receipt.workerEffectiveUserID,
+              let signedProcessID = Int32(exactly: processID),
+              let workerIdentity = record.workerIdentity,
+              workerIdentity.processID == signedProcessID,
+              rendererWorkerIsLive(workerIdentity) else { return nil }
+        let worker = try TerminalRenderWorkerIdentity(
+            processID: signedProcessID,
+            effectiveUserID: effectiveUserID,
+            processInstanceToken: TerminalRenderProcessInstanceToken(
+                startTimeSeconds: workerIdentity.processInstanceToken.startTimeSeconds,
+                startTimeMicroseconds: workerIdentity.processInstanceToken.startTimeMicroseconds
+            )
+        )
+        let fence = try TerminalRenderPresentationFence(
+            daemonInstanceID: receipt.daemonInstanceID.rawValue,
+            rendererEpoch: receipt.rendererEpoch,
+            terminalID: receipt.terminalID.rawValue,
+            terminalEpoch: receipt.terminalEpoch,
+            minimumTerminalSequence: receipt.minimumContentSequence,
+            presentationID: receipt.presentationID.rawValue,
+            presentationGeneration: receipt.rendererGeneration,
+            width: receipt.width,
+            height: receipt.height,
+            pixelFormat: receipt.pixelFormat.terminalPixelFormat,
+            colorSpace: receipt.colorSpace.terminalColorSpace,
+            completionRequirement: .producerCompleted
+        )
+        return TerminalBackendRendererActivation(
+            presentationID: record.descriptor.presentationID,
+            fence: fence,
+            worker: worker
+        )
+    }
+
     private func rendererGeometry(
         _ record: RendererPresentationRecord
     ) -> (
@@ -1823,40 +2648,381 @@ actor TerminalBackendClientCoordinator:
         )
     }
 
+    private func stableTerminalInputOwner(
+        surfaceID: SurfaceID,
+        binding: TerminalBackendTerminalBinding?,
+        connection: TerminalBackendConnectedSession,
+        attemptID: UUID
+    ) async throws -> TerminalInputOwnerRecord {
+        try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+        var location = try terminalInputLocation(
+            surfaceID: surfaceID,
+            binding: binding,
+            connection: connection
+        )
+
+        if var existing = terminalInputOwners[surfaceID],
+           existing.connectionAttemptID == attemptID,
+           existing.authority == connection.readiness.authority,
+           existing.location == location {
+            let lease = try await connection.session.acquireTerminalLease(
+                kind: .input,
+                surfaceID: surfaceID,
+                presentationID: existing.presentationID,
+                presentationGeneration: existing.presentationGeneration,
+                ttlMilliseconds: Self.terminalInputOwnerTTLMilliseconds
+            )
+            try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+            location = try terminalInputLocation(
+                surfaceID: surfaceID,
+                binding: binding,
+                connection: connection
+            )
+            guard location == existing.location,
+                  terminalInputOwners[surfaceID] == existing else {
+                throw BackendTerminalControlError.staleLease
+            }
+            try validateTerminalInputLease(lease, owner: existing)
+            guard lease.leaseGeneration >= existing.inputLeaseGeneration else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            if lease.leaseGeneration != existing.inputLeaseGeneration {
+                // A new owner-lease generation revokes every old delegation
+                // in cmuxd. Mirror that revocation before publishing it.
+                terminalCompatibilityGrants.removeValue(forKey: surfaceID)
+                existing.inputLeaseGeneration = lease.leaseGeneration
+                terminalInputOwners[surfaceID] = existing
+            }
+            return existing
+        }
+
+        if let existing = terminalInputOwners[surfaceID] {
+            try await retireTerminalInputOwner(
+                existing,
+                connection: connection,
+                requireRemoteRevocation: existing.connectionAttemptID == attemptID
+                    && existing.authority == connection.readiness.authority
+            )
+            try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+            location = try terminalInputLocation(
+                surfaceID: surfaceID,
+                binding: binding,
+                connection: connection
+            )
+        }
+
+        var opened: BackendPresentation?
+        var acquiredLease = false
+        do {
+            let presentation = try await connection.session.openPresentation(
+                view: location.presentationView,
+                zoom: BackendPresentationZoom(),
+                scroll: BackendPresentationScroll(surfaceID: surfaceID)
+            )
+            opened = presentation
+            try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+            let currentLocation = try terminalInputLocation(
+                surfaceID: surfaceID,
+                binding: binding,
+                connection: connection
+            )
+            guard currentLocation == location,
+                  presentation.generation > 0,
+                  presentation.view == location.presentationView else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+
+            let activation = try await connection.session.activateTerminalPresentation(
+                id: presentation.id,
+                expectedGeneration: presentation.generation
+            )
+            try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+            let activatedLocation = try terminalInputLocation(
+                surfaceID: surfaceID,
+                binding: binding,
+                connection: connection
+            )
+            guard activation.presentationID == presentation.id,
+                  activation.presentationGeneration == presentation.generation,
+                  activation.surfaceID == surfaceID,
+                  activatedLocation == location else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+
+            let lease = try await connection.session.acquireTerminalLease(
+                kind: .input,
+                surfaceID: surfaceID,
+                presentationID: presentation.id,
+                presentationGeneration: presentation.generation,
+                ttlMilliseconds: Self.terminalInputOwnerTTLMilliseconds
+            )
+            acquiredLease = true
+            try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+            let leasedLocation = try terminalInputLocation(
+                surfaceID: surfaceID,
+                binding: binding,
+                connection: connection
+            )
+            guard leasedLocation == location else {
+                throw BackendTerminalControlError.staleLease
+            }
+            let owner = TerminalInputOwnerRecord(
+                connectionAttemptID: attemptID,
+                authority: connection.readiness.authority,
+                location: location,
+                presentationID: presentation.id,
+                presentationGeneration: presentation.generation,
+                inputLeaseGeneration: lease.leaseGeneration
+            )
+            try validateTerminalInputLease(lease, owner: owner)
+            guard terminalInputOwners[surfaceID] == nil else {
+                throw BackendTerminalControlError.staleLease
+            }
+            terminalInputOwners[surfaceID] = owner
+            return owner
+        } catch {
+            if let opened {
+                if acquiredLease {
+                    try? await connection.session.releaseTerminalLease(
+                        kind: .input,
+                        surfaceID: surfaceID,
+                        presentationID: opened.id,
+                        presentationGeneration: opened.generation
+                    )
+                }
+                try? await connection.session.closePresentation(id: opened.id)
+            }
+            throw error
+        }
+    }
+
+    private func validateTerminalInputLease(
+        _ lease: BackendTerminalLease,
+        owner: TerminalInputOwnerRecord
+    ) throws {
+        guard lease.kind == .input,
+              lease.surfaceID == owner.location.surfaceID,
+              lease.presentationID == owner.presentationID,
+              lease.presentationGeneration == owner.presentationGeneration,
+              lease.leaseGeneration > 0,
+              lease.nextSequence > 0,
+              lease.nextGlobalInputSequence != nil else {
+            throw BackendProtocolError.peerIdentityMismatch
+        }
+    }
+
+    private func terminalInputLocation(
+        surfaceID: SurfaceID,
+        binding: TerminalBackendTerminalBinding?,
+        connection: TerminalBackendConnectedSession
+    ) throws -> TerminalInputTopologyLocation {
+        guard let snapshot = latestSnapshot,
+              snapshot.authority == connection.readiness.authority else {
+            throw TerminalBackendTopologyMutationError.canonicalSnapshotUnavailable
+        }
+        return try terminalInputLocation(
+            surfaceID: surfaceID,
+            binding: binding,
+            snapshot: snapshot
+        )
+    }
+
+    private func terminalInputLocation(
+        surfaceID: SurfaceID,
+        binding: TerminalBackendTerminalBinding?,
+        snapshot: TopologySnapshot
+    ) throws -> TerminalInputTopologyLocation {
+        for workspace in snapshot.topology.workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    guard let surface = pane.tabs.first(where: { $0.uuid == surfaceID }) else {
+                        continue
+                    }
+                    guard surface.kind == "pty" else {
+                        throw TerminalBackendClientError.presentationUnavailable
+                    }
+                    let location = TerminalInputTopologyLocation(
+                        workspaceHandle: workspace.id,
+                        workspaceID: workspace.uuid,
+                        screenHandle: screen.id,
+                        screenID: screen.uuid,
+                        paneHandle: pane.id,
+                        paneID: pane.uuid,
+                        surfaceHandle: surface.id,
+                        surfaceID: surface.uuid
+                    )
+                    if let binding {
+                        guard binding.authority == snapshot.authority,
+                              binding.workspaceHandle == location.workspaceHandle,
+                              binding.workspaceID == location.workspaceID,
+                              binding.surfaceHandle == location.surfaceHandle,
+                              binding.surfaceID == location.surfaceID else {
+                            throw BackendTerminalControlError.staleLease
+                        }
+                    }
+                    return location
+                }
+            }
+        }
+        throw TerminalBackendTopologyMutationError.surfaceNotFound(surfaceID)
+    }
+
+    private func requireCurrentTerminalInputConnection(
+        _ connection: TerminalBackendConnectedSession,
+        attemptID: UUID
+    ) throws {
+        guard connectionAttemptID == attemptID,
+              connected?.readiness == connection.readiness else {
+            throw BackendProtocolError.notConnected
+        }
+    }
+
+    private func acquireTerminalInputOperation(_ surfaceID: SurfaceID) async {
+        if activeTerminalInputOperations.insert(surfaceID).inserted { return }
+        await withCheckedContinuation { continuation in
+            terminalInputOperationWaiters[surfaceID, default: []].append(continuation)
+        }
+    }
+
+    private func releaseTerminalInputOperation(_ surfaceID: SurfaceID) {
+        if var waiters = terminalInputOperationWaiters[surfaceID], !waiters.isEmpty {
+            let next = waiters.removeFirst()
+            if waiters.isEmpty {
+                terminalInputOperationWaiters.removeValue(forKey: surfaceID)
+            } else {
+                terminalInputOperationWaiters[surfaceID] = waiters
+            }
+            next.resume()
+        } else {
+            activeTerminalInputOperations.remove(surfaceID)
+        }
+    }
+
+    private func retireTerminalInputOwner(
+        _ owner: TerminalInputOwnerRecord,
+        connection: TerminalBackendConnectedSession,
+        requireRemoteRevocation: Bool
+    ) async throws {
+        guard terminalInputOwners[owner.location.surfaceID] == owner else { return }
+        let grants = terminalCompatibilityGrants
+            .removeValue(forKey: owner.location.surfaceID)
+            .map { Array($0.values) } ?? []
+        terminalInputOwners.removeValue(forKey: owner.location.surfaceID)
+        guard requireRemoteRevocation else { return }
+
+        do {
+            for grant in grants {
+                if monotonicNowNanoseconds() < grant.localDeadlineNanoseconds {
+                    try await connection.session.revokeTerminalInputDelegation(
+                        surfaceID: owner.location.surfaceID,
+                        presentationID: owner.presentationID,
+                        presentationGeneration: owner.presentationGeneration,
+                        delegation: grant.delegation
+                    )
+                }
+            }
+            try await connection.session.releaseTerminalLease(
+                kind: .input,
+                surfaceID: owner.location.surfaceID,
+                presentationID: owner.presentationID,
+                presentationGeneration: owner.presentationGeneration
+            )
+            try await connection.session.closePresentation(id: owner.presentationID)
+        } catch {
+            // Closing this exact primary connection is the fail-closed fallback:
+            // cmuxd revokes its owner lease and every derived delegation.
+            if connected?.readiness == connection.readiness,
+               connectionAttemptID == owner.connectionAttemptID {
+                await invalidate(connection)
+            }
+            throw error
+        }
+    }
+
+    private func discardTerminalInputAuthorityState() {
+        terminalInputOwners.removeAll()
+        terminalCompatibilityGrants.removeAll()
+    }
+
+    private func reconcileTerminalInputOwners(
+        with snapshot: TopologySnapshot,
+        connection: TerminalBackendConnectedSession,
+        attemptID: UUID
+    ) async throws {
+        try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+        guard snapshot.authority == connection.readiness.authority else {
+            throw BackendProtocolError.peerIdentityMismatch
+        }
+        for surfaceID in Array(terminalInputOwners.keys) {
+            await acquireTerminalInputOperation(surfaceID)
+            do {
+                guard let owner = terminalInputOwners[surfaceID] else {
+                    releaseTerminalInputOperation(surfaceID)
+                    continue
+                }
+                guard owner.connectionAttemptID == attemptID,
+                      owner.authority == snapshot.authority else {
+                    terminalInputOwners.removeValue(forKey: surfaceID)
+                    terminalCompatibilityGrants.removeValue(forKey: surfaceID)
+                    releaseTerminalInputOperation(surfaceID)
+                    continue
+                }
+                let nextLocation = try? terminalInputLocation(
+                    surfaceID: surfaceID,
+                    binding: nil,
+                    snapshot: snapshot
+                )
+                if nextLocation == nil {
+                    // Canonical deletion retires the PTY, presentation, lease,
+                    // and delegations atomically in cmuxd before this snapshot.
+                    terminalInputOwners.removeValue(forKey: surfaceID)
+                    terminalCompatibilityGrants.removeValue(forKey: surfaceID)
+                } else if nextLocation != owner.location {
+                    try await retireTerminalInputOwner(
+                        owner,
+                        connection: connection,
+                        requireRemoteRevocation: true
+                    )
+                }
+                releaseTerminalInputOperation(surfaceID)
+                try requireCurrentTerminalInputConnection(connection, attemptID: attemptID)
+            } catch {
+                releaseTerminalInputOperation(surfaceID)
+                throw error
+            }
+        }
+    }
+
     private func sendLeasedTerminalInput(
         requestID: UUID,
         input: BackendTerminalControlInput,
-        presentation: TerminalBackendPresentationDescriptor?,
         binding: TerminalBackendTerminalBinding,
-        connection: TerminalBackendConnectedSession
+        connection: TerminalBackendConnectedSession,
+        attemptID: UUID
     ) async throws -> BackendTerminalOperationReceipt {
+        await acquireTerminalInputOperation(binding.surfaceID)
+        defer { releaseTerminalInputOperation(binding.surfaceID) }
         if terminalRequestsAwaitingRecovery.contains(requestID) {
             return try await recoverLeasedTerminalInput(
                 requestID: requestID,
                 input: input,
-                presentation: presentation,
                 binding: binding,
-                startingWith: connection
+                startingWith: connection,
+                attemptID: attemptID
             )
         }
         terminalRequestsAwaitingRecovery.insert(requestID)
         do {
-            let record = try await rendererControlRecordEnsuringConfigured(
-                presentation: presentation,
-                binding: binding,
-                connection: connection
-            )
-            _ = try await connection.session.acquireTerminalLease(
-                kind: .input,
+            let owner = try await stableTerminalInputOwner(
                 surfaceID: binding.surfaceID,
-                presentationID: record.backendID,
-                presentationGeneration: record.canonicalGeneration,
-                ttlMilliseconds: 5_000
+                binding: binding,
+                connection: connection,
+                attemptID: attemptID
             )
             let receipt = try await connection.session.sendTerminalInput(
                 surfaceID: binding.surfaceID,
-                presentationID: record.backendID,
-                presentationGeneration: record.canonicalGeneration,
+                presentationID: owner.presentationID,
+                presentationGeneration: owner.presentationGeneration,
                 requestID: requestID,
                 input: input
             )
@@ -1873,23 +3039,27 @@ actor TerminalBackendClientCoordinator:
                 return try await recoverLeasedTerminalInput(
                     requestID: requestID,
                     input: input,
-                    presentation: presentation,
                     binding: binding,
-                    startingWith: connection
+                    startingWith: connection,
+                    attemptID: attemptID
                 )
             }
             guard Self.shouldRetry(error) else {
                 terminalRequestsAwaitingRecovery.remove(requestID)
                 throw error
             }
-            await invalidate(connection)
+            if connectionAttemptID == attemptID,
+               connected?.readiness == connection.readiness {
+                await invalidate(connection)
+            }
             let replacement = try await connectedSession(for: binding)
+            let replacementAttemptID = connectionAttemptID
             return try await recoverLeasedTerminalInput(
                 requestID: requestID,
                 input: input,
-                presentation: presentation,
                 binding: binding,
-                startingWith: replacement
+                startingWith: replacement,
+                attemptID: replacementAttemptID
             )
         }
     }
@@ -1897,11 +3067,12 @@ actor TerminalBackendClientCoordinator:
     private func recoverLeasedTerminalInput(
         requestID: UUID,
         input: BackendTerminalControlInput,
-        presentation: TerminalBackendPresentationDescriptor?,
         binding: TerminalBackendTerminalBinding,
-        startingWith initialConnection: TerminalBackendConnectedSession
+        startingWith initialConnection: TerminalBackendConnectedSession,
+        attemptID initialAttemptID: UUID
     ) async throws -> BackendTerminalOperationReceipt {
         var connection = initialConnection
+        var attemptID = initialAttemptID
         var lastError: (any Error)?
         for attempt in 0 ..< 2 {
             do {
@@ -1919,22 +3090,16 @@ actor TerminalBackendClientCoordinator:
                     )
                 }
 
-                let record = try await rendererControlRecordEnsuringConfigured(
-                    presentation: presentation,
-                    binding: binding,
-                    connection: connection
-                )
-                _ = try await connection.session.acquireTerminalLease(
-                    kind: .input,
+                let owner = try await stableTerminalInputOwner(
                     surfaceID: binding.surfaceID,
-                    presentationID: record.backendID,
-                    presentationGeneration: record.canonicalGeneration,
-                    ttlMilliseconds: 5_000
+                    binding: binding,
+                    connection: connection,
+                    attemptID: attemptID
                 )
                 let receipt = try await connection.session.sendTerminalInput(
                     surfaceID: binding.surfaceID,
-                    presentationID: record.backendID,
-                    presentationGeneration: record.canonicalGeneration,
+                    presentationID: owner.presentationID,
+                    presentationGeneration: owner.presentationGeneration,
                     requestID: requestID,
                     input: input
                 )
@@ -1957,8 +3122,12 @@ actor TerminalBackendClientCoordinator:
                 }
                 lastError = error
                 guard attempt == 0 else { break }
-                await invalidate(connection)
+                if connectionAttemptID == attemptID,
+                   connected?.readiness == connection.readiness {
+                    await invalidate(connection)
+                }
                 connection = try await connectedSession(for: binding)
+                attemptID = connectionAttemptID
             }
         }
         throw lastError ?? TerminalBackendClientError.unavailable
@@ -2543,6 +3712,12 @@ actor TerminalBackendClientCoordinator:
                 await flushTerminalReceiptAcknowledgements(on: result)
                 if let workers = try? await result.session.rendererWorkers(),
                    connected?.readiness == result.readiness {
+                    do {
+                        try registerRendererWorkers(workers, for: result)
+                    } catch {
+                        await invalidate(result)
+                        throw error
+                    }
                     publishRenderer(.reconnected(workers))
                 }
             }
@@ -2569,9 +3744,17 @@ actor TerminalBackendClientCoordinator:
                 guard let self else { return }
                 switch event {
                 case .snapshot(let snapshot):
-                    await self.receivedSnapshot(snapshot, from: connection)
+                    await self.receivedSnapshot(
+                        snapshot,
+                        from: connection,
+                        attemptID: attemptID
+                    )
                 case .delta(let delta):
-                    await self.receivedDelta(delta, from: connection)
+                    await self.receivedDelta(
+                        delta,
+                        from: connection,
+                        attemptID: attemptID
+                    )
                 case .terminalActivitySnapshot(let snapshot):
                     await self.receivedActivitySnapshot(snapshot, from: connection)
                 case .terminalActivity, .terminalActivityReceipt:
@@ -2593,9 +3776,26 @@ actor TerminalBackendClientCoordinator:
 
     private func receivedSnapshot(
         _ snapshot: TopologySnapshot,
-        from connection: TerminalBackendConnectedSession
-    ) {
-        guard connected?.readiness == connection.readiness else { return }
+        from connection: TerminalBackendConnectedSession,
+        attemptID: UUID
+    ) async {
+        guard connectionAttemptID == attemptID,
+              connected?.readiness == connection.readiness else { return }
+        do {
+            try await reconcileTerminalInputOwners(
+                with: snapshot,
+                connection: connection,
+                attemptID: attemptID
+            )
+        } catch {
+            if connectionAttemptID == attemptID,
+               connected?.readiness == connection.readiness {
+                await invalidate(connection)
+            }
+            return
+        }
+        guard connectionAttemptID == attemptID,
+              connected?.readiness == connection.readiness else { return }
         latestSnapshot = snapshot
         resumeTopologyRevisionWaiters(with: snapshot)
         publishSnapshot(snapshot)
@@ -2604,14 +3804,31 @@ actor TerminalBackendClientCoordinator:
 
     private func receivedDelta(
         _ delta: TopologyDelta,
-        from connection: TerminalBackendConnectedSession
-    ) {
-        guard connected?.readiness == connection.readiness else { return }
+        from connection: TerminalBackendConnectedSession,
+        attemptID: UUID
+    ) async {
+        guard connectionAttemptID == attemptID,
+              connected?.readiness == connection.readiness else { return }
         let snapshot = TopologySnapshot(
             authority: delta.authority,
             revision: delta.revision,
             topology: delta.replacement
         )
+        do {
+            try await reconcileTerminalInputOwners(
+                with: snapshot,
+                connection: connection,
+                attemptID: attemptID
+            )
+        } catch {
+            if connectionAttemptID == attemptID,
+               connected?.readiness == connection.readiness {
+                await invalidate(connection)
+            }
+            return
+        }
+        guard connectionAttemptID == attemptID,
+              connected?.readiness == connection.readiness else { return }
         latestSnapshot = snapshot
         resumeTopologyRevisionWaiters(with: snapshot)
         publishSnapshot(snapshot)
@@ -2621,7 +3838,7 @@ actor TerminalBackendClientCoordinator:
     private func receivedPresentationReady(
         _ ready: BackendRendererPresentationReady,
         from connection: TerminalBackendConnectedSession
-    ) {
+    ) async {
         guard connected?.readiness == connection.readiness else { return }
         guard let entry = rendererPresentations.first(where: { _, record in
             guard !record.removalPending else { return false }
@@ -2634,6 +3851,17 @@ actor TerminalBackendClientCoordinator:
                 && receipt.rendererGeneration == ready.presentationGeneration
         }) else { return }
         var record = entry.value
+        do {
+            record.workerIdentity = try registerRendererWorker(
+                daemonInstanceID: record.binding.authority.daemonInstanceID.rawValue,
+                rendererEpoch: ready.rendererEpoch,
+                processID: ready.workerProcessID,
+                processInstanceToken: ready.workerProcessInstanceToken
+            )
+        } catch {
+            await invalidate(connection)
+            return
+        }
         record.ready = ready
         rendererPresentations[entry.key] = record
         guard let attachment = try? rendererAttachment(record) else { return }
@@ -2657,8 +3885,19 @@ actor TerminalBackendClientCoordinator:
     private func receivedWorkerChanged(
         _ changed: BackendRendererWorkerChanged,
         from connection: TerminalBackendConnectedSession
-    ) {
+    ) async {
         guard connected?.readiness == connection.readiness else { return }
+        do {
+            _ = try registerRendererWorker(
+                daemonInstanceID: connection.readiness.authority.daemonInstanceID.rawValue,
+                rendererEpoch: changed.rendererEpoch ?? 0,
+                processID: changed.processID,
+                processInstanceToken: changed.processInstanceToken
+            )
+        } catch {
+            await invalidate(connection)
+            return
+        }
         for (identifier, var record) in rendererPresentations
             where record.binding.workspaceID == changed.workspaceID {
             guard let receipt = record.receipt else { continue }
@@ -2680,6 +3919,7 @@ actor TerminalBackendClientCoordinator:
     ) async {
         guard connectionAttemptID == attemptID,
               connected?.readiness == connection.readiness else { return }
+        discardTerminalInputAuthorityState()
         connected = nil
         latestSnapshot = nil
         failTopologyRevisionWaiters(BackendCanonicalSessionError.notConnected)
@@ -2702,6 +3942,7 @@ actor TerminalBackendClientCoordinator:
         connectionSupervisorID = UUID()
         connectionSupervisorTask?.cancel()
         connectionSupervisorTask = nil
+        discardTerminalInputAuthorityState()
         connected = nil
         latestSnapshot = nil
         failTopologyRevisionWaiters(BackendCanonicalSessionError.notConnected)
@@ -3255,5 +4496,23 @@ private extension BackendTerminalAccessibilityRange {
             throw BackendProtocolError.malformedMessage
         }
         return TerminalAccessibilityRange(location: location, length: length)
+    }
+}
+
+private extension UUID {
+    static let nilUUID = UUID(
+        uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    )
+}
+
+private extension UInt64 {
+    func addingClamped(_ other: UInt64) -> UInt64 {
+        let (result, overflow) = addingReportingOverflow(other)
+        return overflow ? .max : result
+    }
+
+    func multipliedClamped(by other: UInt64) -> UInt64 {
+        let (result, overflow) = multipliedReportingOverflow(by: other)
+        return overflow ? .max : result
     }
 }

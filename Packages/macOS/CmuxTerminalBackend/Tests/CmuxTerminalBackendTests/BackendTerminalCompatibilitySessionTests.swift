@@ -158,71 +158,165 @@ struct BackendTerminalCompatibilitySessionTests {
         await independentClient.close()
     }
 
-    @Test("input uses a presentation-bound v9 lease and acknowledges its receipt")
-    func input() async throws {
+    @Test("input uses the canonical owner's text-only delegation and acknowledges its receipt")
+    func delegatedInput() async throws {
         let fixture = try await attachedFixture()
-        let presentationID = PresentationID(rawValue: UUID())
-        let leaseID = UUID()
-        let inputTask = Task { try await fixture.session.sendInput("hello") }
+        let input = try await sendAndAcknowledgeInput(
+            "hello",
+            orderedInputSequence: 71,
+            fixture: fixture
+        )
 
-        let open = try requestObject(await fixture.transport.nextSent())
-        #expect(open["cmd"] as? String == "open-presentation")
-        let view = try #require(open["view"] as? [String: Any])
-        #expect(view["workspace_uuid"] as? String == fixture.workspaceID.description)
-        #expect(view["surface_uuid"] as? String == fixture.surfaceID.description)
-        await fixture.transport.enqueue(try response(to: open, data: [
-            "presentation_id": presentationID.description,
-            "generation": 1,
-            "client": 7,
-            "view": view,
-            "zoom": ["pane_uuid": NSNull()],
-            "scroll": ["surface_uuid": NSNull(), "offset": 0],
-        ]))
-
-        let acquire = try requestObject(await fixture.transport.nextSent())
-        #expect(acquire["cmd"] as? String == "acquire-terminal-lease")
-        #expect(acquire["kind"] as? String == "input")
-        await fixture.transport.enqueue(try response(to: acquire, data: [
-            "kind": "input",
-            "surface_uuid": fixture.surfaceID.description,
-            "presentation_id": presentationID.description,
-            "presentation_generation": 1,
-            "lease_id": leaseID.uuidString.lowercased(),
-            "lease_generation": 1,
-            "revocation_sequence": 0,
-            "expires_at_ms": 99_999,
-            "next_sequence": 1,
-            "next_global_input_sequence": 1,
-            "migrated_from_legacy": false,
-        ]))
-
-        let input = try requestObject(await fixture.transport.nextSent())
-        #expect(input["cmd"] as? String == "terminal-input")
+        #expect(input["cmd"] as? String == "terminal-delegated-input")
         let inputValue = try #require(input["input"] as? [String: Any])
         #expect(inputValue["type"] as? String == "text")
         #expect(inputValue["text"] as? String == "hello")
         #expect(inputValue["paste"] as? Bool == false)
-        let requestID = try #require(input["request_id"] as? String)
-        await fixture.transport.enqueue(try response(to: input, data: [
-            "request_id": requestID,
-            "status": "applied",
-            "kind": "input",
-            "sequence": 1,
-            "ordered_input_sequence": 1,
-            "lease_generation": 1,
-            "replayed": false,
-            "encoded_bytes": 5,
-            "lease_revoked": false,
-        ]))
+        #expect(try uint64(input, "sequence") == 1)
+        #expect(input["presentation_id"] == nil)
+        #expect(input["lease_id"] == nil)
 
-        let acknowledge = try requestObject(await fixture.transport.nextSent())
-        #expect(acknowledge["cmd"] as? String == "acknowledge-terminal-request")
-        #expect(acknowledge["request_id"] as? String == requestID)
-        await fixture.transport.enqueue(try response(to: acknowledge, data: [
-            "request_id": requestID,
-            "acknowledged": true,
-        ]))
-        try await inputTask.value
+        let calls = await fixture.inputAuthority.authorizationCalls()
+        #expect(calls.count == 1)
+        let call = try #require(calls.first)
+        #expect(call.surfaceID == fixture.surfaceID)
+        #expect(call.delegateIdentity == fixture.registrationIdentity)
+        #expect(call.replacing == nil)
+
+        await fixture.session.close()
+        let revocations = await fixture.inputAuthority.revokedDelegations()
+        #expect(revocations.count == 1)
+        let revoked = try #require(revocations.first)
+        #expect(
+            revoked.delegateClientUUID
+                == fixture.registrationIdentity.clientUUID
+        )
+    }
+
+    @Test("one delegation advances its lane sequence across inputs")
+    func delegatedInputSequence() async throws {
+        let fixture = try await attachedFixture()
+        let first = try await sendAndAcknowledgeInput(
+            "one",
+            orderedInputSequence: 1,
+            fixture: fixture
+        )
+        let second = try await sendAndAcknowledgeInput(
+            "two",
+            orderedInputSequence: 2,
+            fixture: fixture
+        )
+
+        #expect(try uint64(first, "sequence") == 1)
+        #expect(try uint64(second, "sequence") == 2)
+        #expect(first["delegation_id"] as? String == second["delegation_id"] as? String)
+        let calls = await fixture.inputAuthority.authorizationCalls()
+        #expect(calls.count == 2)
+        #expect(calls.last?.replacing != nil)
+        await fixture.session.close()
+    }
+
+    @Test("concurrent phone input is serialized into one delegate-local sequence")
+    func concurrentDelegatedInputSequence() async throws {
+        let fixture = try await attachedFixture()
+        let firstTask = Task { try await fixture.session.sendInput("one") }
+        let first = try requestObject(await fixture.transport.nextSent())
+        #expect(try uint64(first, "sequence") == 1)
+
+        let secondTask = Task { try await fixture.session.sendInput("two") }
+        for _ in 0 ..< 20 { await Task.yield() }
+        #expect(await fixture.transport.sentCount() == 0)
+
+        try await respondToInput(
+            first,
+            orderedInputSequence: 11,
+            textByteCount: 3,
+            fixture: fixture
+        )
+        let second = try requestObject(await fixture.transport.nextSent())
+        #expect(try uint64(second, "sequence") == 2)
+        #expect(first["delegation_id"] as? String == second["delegation_id"] as? String)
+        try await respondToInput(
+            second,
+            orderedInputSequence: 12,
+            textByteCount: 3,
+            fixture: fixture
+        )
+        try await firstTask.value
+        try await secondTask.value
+        await fixture.session.close()
+    }
+
+    @Test("a deadline refresh replaces the delegation before sending")
+    func delegatedInputRefresh() async throws {
+        let fixture = try await attachedFixture()
+        let first = try await sendAndAcknowledgeInput(
+            "before",
+            orderedInputSequence: 8,
+            fixture: fixture
+        )
+        await fixture.inputAuthority.replaceOnNextAuthorization(nextSequence: 7)
+        let second = try await sendAndAcknowledgeInput(
+            "after",
+            orderedInputSequence: 9,
+            fixture: fixture
+        )
+
+        #expect(first["delegation_id"] as? String != second["delegation_id"] as? String)
+        #expect(try uint64(first, "sequence") == 1)
+        #expect(try uint64(second, "sequence") == 7)
+        let calls = await fixture.inputAuthority.authorizationCalls()
+        let old = try #require(calls.last?.replacing)
+        let refreshRevocations = await fixture.inputAuthority.revokedDelegations()
+        #expect(refreshRevocations == [old])
+
+        await fixture.session.close()
+        let finalRevocations = await fixture.inputAuthority.revokedDelegations()
+        #expect(finalRevocations.count == 2)
+        let firstRevocation = try #require(finalRevocations.first)
+        let lastRevocation = try #require(finalRevocations.last)
+        #expect(firstRevocation != lastRevocation)
+    }
+
+    @Test("an in-place same-generation authority mutation fails closed")
+    func rejectsMutatedSameGenerationDelegation() async throws {
+        let fixture = try await attachedFixture()
+        _ = try await sendAndAcknowledgeInput(
+            "before",
+            orderedInputSequence: 8,
+            fixture: fixture
+        )
+        let old = try #require((await fixture.inputAuthority.issuedDelegations()).first)
+        await fixture.inputAuthority.mutateSameGenerationOnNextAuthorization()
+
+        await #expect(throws: BackendProtocolError.malformedMessage) {
+            try await fixture.session.sendInput("blocked")
+        }
+        await fixture.transport.waitUntilClosed()
+
+        let calls = await fixture.inputAuthority.authorizationCalls()
+        let replacing = try #require(calls.last?.replacing)
+        #expect(replacing == old)
+        let revoked = try #require(
+            (await fixture.inputAuthority.revokedDelegations()).last
+        )
+        #expect(revoked.delegationID == old.delegationID)
+        #expect(revoked.delegationGeneration == old.delegationGeneration)
+        #expect(revoked != old)
+    }
+
+    @Test("a delegation broader than text fails closed and is revoked")
+    func rejectsBroadInputDelegation() async throws {
+        let fixture = try await attachedFixture()
+        await fixture.inputAuthority.useScopesOnNextAuthorization(["text", "key"])
+
+        await #expect(throws: BackendProtocolError.malformedMessage) {
+            try await fixture.session.sendInput("blocked")
+        }
+        await fixture.transport.waitUntilClosed()
+        let revoked = await fixture.inputAuthority.revokedDelegations()
+        #expect(revoked.count == 1)
+        #expect(revoked.first?.scopes == [.text, .key])
     }
 
     private struct Fixture {
@@ -231,7 +325,7 @@ struct BackendTerminalCompatibilitySessionTests {
         let snapshot: BackendTerminalCompatibilitySnapshot
         let authority: BackendAuthority
         let registrationIdentity: BackendClientRegistrationIdentity
-        let workspaceID: WorkspaceID
+        let inputAuthority: RecordingCompatibilityInputAuthority
         let surfaceID: SurfaceID
         let surfaceHandle: UInt64
         let processID: UInt32
@@ -252,6 +346,7 @@ struct BackendTerminalCompatibilitySessionTests {
             clientUUID: UUID(),
             processInstanceUUID: UUID()
         ))
+        let inputAuthority = RecordingCompatibilityInputAuthority()
         let workspaceID = WorkspaceID(rawValue: UUID())
         let screenID = ScreenID(rawValue: UUID())
         let paneID = PaneID(rawValue: UUID())
@@ -275,6 +370,7 @@ struct BackendTerminalCompatibilitySessionTests {
                 peerIdentity: peerIdentity
             ),
             registrationIdentity: registrationIdentity,
+            inputAuthority: inputAuthority,
             eventCapacity: eventCapacity
         )
         let attachTask = Task { try await session.attach(surfaceID: surfaceID) }
@@ -291,15 +387,14 @@ struct BackendTerminalCompatibilitySessionTests {
         #expect(registration["cmd"] as? String == "register-client")
         #expect(registration["protocol_min"] as? NSNumber == 9)
         #expect(registration["protocol_max"] as? NSNumber == 9)
+        #expect(registration["client_kind"] as? String == "mobile-compatibility")
         await transport.enqueue(try response(to: registration, data: [
             "protocol": 9,
             "connection_id": UUID().uuidString.lowercased(),
             "client_uuid": registrationIdentity.clientUUID.uuidString.lowercased(),
             "process_instance_uuid": registrationIdentity.processInstanceUUID.uuidString.lowercased(),
-            "client_kind": "swift-shell",
-            "role": "trusted-frontend",
-            "topology_lease_id": UUID().uuidString.lowercased(),
-            "topology_lease_generation": 1,
+            "client_kind": "mobile-compatibility",
+            "role": "trusted-input-delegate",
         ]))
 
         let topology = try requestObject(await transport.nextSent())
@@ -367,11 +462,58 @@ struct BackendTerminalCompatibilitySessionTests {
             snapshot: snapshot,
             authority: authority,
             registrationIdentity: registrationIdentity,
-            workspaceID: workspaceID,
+            inputAuthority: inputAuthority,
             surfaceID: surfaceID,
             surfaceHandle: surfaceHandle,
             processID: processID
         )
+    }
+
+    private func sendAndAcknowledgeInput(
+        _ text: String,
+        orderedInputSequence: UInt64,
+        fixture: Fixture
+    ) async throws -> [String: Any] {
+        let inputTask = Task { try await fixture.session.sendInput(text) }
+        let input = try requestObject(await fixture.transport.nextSent())
+        #expect(input["cmd"] as? String == "terminal-delegated-input")
+        try await respondToInput(
+            input,
+            orderedInputSequence: orderedInputSequence,
+            textByteCount: text.utf8.count,
+            fixture: fixture
+        )
+        try await inputTask.value
+        return input
+    }
+
+    private func respondToInput(
+        _ input: [String: Any],
+        orderedInputSequence: UInt64,
+        textByteCount: Int,
+        fixture: Fixture
+    ) async throws {
+        let requestID = try #require(input["request_id"] as? String)
+        let sequence = try uint64(input, "sequence")
+        await fixture.transport.enqueue(try response(to: input, data: [
+            "request_id": requestID,
+            "status": "applied",
+            "kind": "input",
+            "sequence": sequence,
+            "ordered_input_sequence": orderedInputSequence,
+            "lease_generation": 41,
+            "replayed": false,
+            "encoded_bytes": textByteCount,
+            "lease_revoked": false,
+        ]))
+
+        let acknowledge = try requestObject(await fixture.transport.nextSent())
+        #expect(acknowledge["cmd"] as? String == "acknowledge-terminal-request")
+        #expect(acknowledge["request_id"] as? String == requestID)
+        await fixture.transport.enqueue(try response(to: acknowledge, data: [
+            "request_id": requestID,
+            "acknowledged": true,
+        ]))
     }
 
     private func identifyResponse(
@@ -450,5 +592,117 @@ struct BackendTerminalCompatibilitySessionTests {
 
     private func uint64(_ object: [String: Any], _ key: String) throws -> UInt64 {
         try #require(object[key] as? NSNumber).uint64Value
+    }
+}
+
+private actor RecordingCompatibilityInputAuthority:
+    BackendTerminalCompatibilityInputAuthority {
+    struct AuthorizationCall: Equatable, Sendable {
+        let surfaceID: SurfaceID
+        let delegateIdentity: BackendClientRegistrationIdentity
+        let replacing: BackendTerminalInputDelegation?
+    }
+
+    private var calls: [AuthorizationCall] = []
+    private var revocations: [BackendTerminalInputDelegation] = []
+    private var replaceNext = false
+    private var mutateSameGenerationNext = false
+    private var nextGeneration: UInt64 = 1
+    private var nextScopes = ["text"]
+    private var nextDelegationSequence: UInt64 = 1
+    private var issued: [BackendTerminalInputDelegation] = []
+
+    func authorizeTerminalCompatibilityInput(
+        surfaceID: SurfaceID,
+        delegateIdentity: BackendClientRegistrationIdentity,
+        replacing: BackendTerminalInputDelegation?
+    ) async throws -> BackendTerminalInputDelegation {
+        calls.append(AuthorizationCall(
+            surfaceID: surfaceID,
+            delegateIdentity: delegateIdentity,
+            replacing: replacing
+        ))
+        if let replacing, mutateSameGenerationNext {
+            mutateSameGenerationNext = false
+            return try mutatedSameGeneration(replacing)
+        }
+        if let replacing, !replaceNext { return replacing }
+        if let replacing { revocations.append(replacing) }
+        replaceNext = false
+        let scopes = nextScopes
+        nextScopes = ["text"]
+        let sequence = nextDelegationSequence
+        nextDelegationSequence = 1
+        defer { nextGeneration += 1 }
+        let delegation = try JSONDecoder().decode(
+            BackendTerminalInputDelegation.self,
+            from: JSONSerialization.data(withJSONObject: [
+                "surface_uuid": surfaceID.description,
+                "delegation_id": UUID().uuidString.lowercased(),
+                "delegation_generation": nextGeneration,
+                "owner_lease_generation": 41,
+                "delegate_client_uuid": delegateIdentity.clientUUID.uuidString.lowercased(),
+                "delegate_process_instance_uuid": delegateIdentity.processInstanceUUID
+                    .uuidString.lowercased(),
+                "expires_at_ms": 90_000 + nextGeneration,
+                "scopes": scopes,
+                "next_sequence": sequence,
+            ])
+        )
+        issued.append(delegation)
+        return delegation
+    }
+
+    func revokeTerminalCompatibilityInput(
+        surfaceID: SurfaceID,
+        delegateIdentity: BackendClientRegistrationIdentity,
+        delegation: BackendTerminalInputDelegation
+    ) async throws {
+        guard delegation.surfaceID == surfaceID,
+              delegation.delegateClientUUID == delegateIdentity.clientUUID,
+              delegation.delegateProcessInstanceUUID
+                == delegateIdentity.processInstanceUUID else {
+            throw BackendProtocolError.malformedMessage
+        }
+        revocations.append(delegation)
+    }
+
+    func replaceOnNextAuthorization(nextSequence: UInt64 = 1) {
+        replaceNext = true
+        nextDelegationSequence = nextSequence
+    }
+
+    func mutateSameGenerationOnNextAuthorization() {
+        mutateSameGenerationNext = true
+    }
+
+    func useScopesOnNextAuthorization(_ scopes: [String]) {
+        nextScopes = scopes
+    }
+
+    func authorizationCalls() -> [AuthorizationCall] { calls }
+
+    func revokedDelegations() -> [BackendTerminalInputDelegation] { revocations }
+
+    func issuedDelegations() -> [BackendTerminalInputDelegation] { issued }
+
+    private func mutatedSameGeneration(
+        _ delegation: BackendTerminalInputDelegation
+    ) throws -> BackendTerminalInputDelegation {
+        try JSONDecoder().decode(
+            BackendTerminalInputDelegation.self,
+            from: JSONSerialization.data(withJSONObject: [
+                "surface_uuid": delegation.surfaceID.description,
+                "delegation_id": delegation.delegationID.uuidString.lowercased(),
+                "delegation_generation": delegation.delegationGeneration,
+                "owner_lease_generation": delegation.ownerLeaseGeneration,
+                "delegate_client_uuid": delegation.delegateClientUUID.uuidString.lowercased(),
+                "delegate_process_instance_uuid": delegation.delegateProcessInstanceUUID
+                    .uuidString.lowercased(),
+                "expires_at_ms": delegation.expiresAtMilliseconds + 1,
+                "scopes": delegation.scopes.map(\.rawValue),
+                "next_sequence": delegation.nextSequence + 1,
+            ])
+        )
     }
 }

@@ -5,6 +5,7 @@ import CmuxTerminalBackendService
 import CmuxTerminalRenderCompositor
 import CmuxTerminalRenderProtocol
 import CmuxTerminalRenderTransport
+import Darwin
 import Foundation
 import IOSurface
 import QuartzCore
@@ -108,6 +109,129 @@ struct TerminalClientCompositionTests {
         #expect(await client.releaseAttemptCount() == 2)
     }
 
+    @Test
+    func rendererExitLedgerFencesPIDReuseAndRejectsStaleIdentity() {
+        let daemonInstanceID = UUID()
+        let oldEpoch = TerminalBackendRendererWorkerEpoch(
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: 9
+        )
+        let currentEpoch = TerminalBackendRendererWorkerEpoch(
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: 10
+        )
+        let old = TerminalBackendRendererWorkerProcessIdentity(
+            epoch: oldEpoch,
+            processID: 7_001,
+            processInstanceToken: BackendRendererProcessInstanceToken(
+                startTimeSeconds: 10,
+                startTimeMicroseconds: 1
+            )
+        )
+        let current = TerminalBackendRendererWorkerProcessIdentity(
+            epoch: currentEpoch,
+            processID: 7_001,
+            processInstanceToken: BackendRendererProcessInstanceToken(
+                startTimeSeconds: 11,
+                startTimeMicroseconds: 2
+            )
+        )
+        let stale = TerminalBackendRendererWorkerProcessIdentity(
+            epoch: currentEpoch,
+            processID: 7_002,
+            processInstanceToken: BackendRendererProcessInstanceToken(
+                startTimeSeconds: 12,
+                startTimeMicroseconds: 3
+            )
+        )
+        var ledger = TerminalBackendRendererWorkerExitLedger()
+
+        #expect(ledger.register(old) == .installed)
+        #expect(ledger.register(current) == .installed)
+        #expect(ledger.register(current) == .existing)
+        #expect(ledger.register(stale) == .conflict(current))
+        #expect(!ledger.markExited(stale))
+        #expect(ledger.markExited(old))
+        #expect(ledger.hasExited(oldEpoch) == true)
+        #expect(ledger.hasExited(currentEpoch) == false)
+    }
+
+    @Test
+    func rendererExitLedgerBoundsExitedTombstones() {
+        let daemonInstanceID = UUID()
+        var ledger = TerminalBackendRendererWorkerExitLedger()
+        for rendererEpoch in 1...5_000 {
+            let identity = TerminalBackendRendererWorkerProcessIdentity(
+                epoch: TerminalBackendRendererWorkerEpoch(
+                    daemonInstanceID: daemonInstanceID,
+                    rendererEpoch: UInt64(rendererEpoch)
+                ),
+                processID: pid_t(10_000 + rendererEpoch),
+                processInstanceToken: BackendRendererProcessInstanceToken(
+                    startTimeSeconds: UInt64(rendererEpoch),
+                    startTimeMicroseconds: 1
+                )
+            )
+            #expect(ledger.register(identity) == .installed)
+            #expect(ledger.markExited(identity))
+        }
+        #expect(ledger.entryCount <= TerminalBackendRendererWorkerExitLedger
+            .maximumRetainedExitedEntries)
+    }
+
+    @Test
+    func rendererExitCallbackBeforeMonitorReturnCannotEscapeAsActivation() async throws {
+        let monitor = ControllableRendererWorkerExitMonitor(callbackBeforeReturn: true)
+        let coordinator = TerminalBackendClientCoordinator(
+            readinessProvider: { .backendUnavailable },
+            sessionFactory: { _ in fatalError("unused test session") },
+            rendererWorkerExitMonitor: monitor
+        )
+        let identity = Self.rendererWorkerIdentity(rendererEpoch: 41)
+
+        #expect(try await coordinator.debugRegisterRendererWorker(identity) == false)
+        #expect(await coordinator.debugRendererWorkerCanActivate(identity) == false)
+        await #expect(throws: TerminalBackendClientError.rendererNotReady) {
+            try await coordinator.debugValidateRendererWorkerForActivation(identity)
+        }
+        #expect(await coordinator.debugRendererWorkerExitWaiterCount == 0)
+    }
+
+    @Test
+    func rendererActivationValidationRejectsAnIdentityWhoseExitFenceSettled() async throws {
+        let monitor = ControllableRendererWorkerExitMonitor(callbackBeforeReturn: false)
+        let coordinator = TerminalBackendClientCoordinator(
+            readinessProvider: { .backendUnavailable },
+            sessionFactory: { _ in fatalError("unused test session") },
+            rendererWorkerExitMonitor: monitor
+        )
+        let identity = Self.rendererWorkerIdentity(rendererEpoch: 42)
+
+        #expect(try await coordinator.debugRegisterRendererWorker(identity))
+        #expect(await coordinator.debugRendererWorkerCanActivate(identity))
+        monitor.exit(identity)
+        #expect(await coordinator.debugRendererWorkerCanActivate(identity) == false)
+        await #expect(throws: TerminalBackendClientError.rendererNotReady) {
+            try await coordinator.debugValidateRendererWorkerForActivation(identity)
+        }
+    }
+
+    private static func rendererWorkerIdentity(
+        rendererEpoch: UInt64
+    ) -> TerminalBackendRendererWorkerProcessIdentity {
+        TerminalBackendRendererWorkerProcessIdentity(
+            epoch: TerminalBackendRendererWorkerEpoch(
+                daemonInstanceID: UUID(),
+                rendererEpoch: rendererEpoch
+            ),
+            processID: 42_000 + pid_t(rendererEpoch),
+            processInstanceToken: BackendRendererProcessInstanceToken(
+                startTimeSeconds: rendererEpoch,
+                startTimeMicroseconds: 17
+            )
+        )
+    }
+
     private static func rendererReconnectEvent() throws -> BackendRendererWorkersResponse {
         let daemonInstanceID = UUID()
         return try JSONDecoder().decode(
@@ -137,6 +261,8 @@ struct TerminalClientCompositionTests {
                   "prior_renderer_epoch":\(priorRendererEpoch),
                   "renderer_epoch":\(rendererEpochJSON),
                   "pid":42,
+                  "process_start_time_seconds":100,
+                  "process_start_time_microseconds":200,
                   "effective_user_id":501,
                   "scene_capabilities":1,
                   "state":\(stateJSON),
@@ -1029,7 +1155,11 @@ struct TerminalClientCompositionTests {
         )
         let worker = try TerminalRenderWorkerIdentity(
             processID: 42,
-            effectiveUserID: 501
+            effectiveUserID: 501,
+            processInstanceToken: TerminalRenderProcessInstanceToken(
+                startTimeSeconds: 1,
+                startTimeMicroseconds: 2
+            )
         )
         let staleAttachment = TerminalBackendRendererAttachment(
             fence: try TerminalRenderPresentationFence(
@@ -1283,7 +1413,11 @@ struct TerminalClientCompositionTests {
             ),
             worker: try TerminalRenderWorkerIdentity(
                 processID: 42,
-                effectiveUserID: 501
+                effectiveUserID: 501,
+                processInstanceToken: TerminalRenderProcessInstanceToken(
+                    startTimeSeconds: 1,
+                    startTimeMicroseconds: 2
+                )
             ),
             cellMetrics: TerminalExternalCellMetrics(
                 columns: 160,
@@ -1435,6 +1569,115 @@ struct TerminalClientCompositionTests {
         #expect(poppedFirst == first)
         #expect(poppedSecond == second)
         #expect(poppedEmpty == nil)
+    }
+
+    @Test
+    func persistentIngressQueueCoalescesOnlyWithinStrictBarrierSegments() {
+        func queued(
+            _ sequence: UInt64,
+            _ mutation: TerminalExternalRuntimeMutation
+        ) -> TerminalBackendQueuedMutation {
+            TerminalBackendQueuedMutation(
+                sequence: sequence,
+                requestID: UUID(),
+                mutation: mutation
+            )
+        }
+        let firstViewport = TerminalExternalViewport(
+            widthPoints: 400,
+            heightPoints: 300,
+            widthPixels: 800,
+            heightPixels: 600,
+            xScale: 2,
+            yScale: 2,
+            proposedColumns: 100,
+            proposedRows: 30
+        )
+        let finalViewport = TerminalExternalViewport(
+            widthPoints: 500,
+            heightPoints: 350,
+            widthPixels: 1_000,
+            heightPixels: 700,
+            xScale: 2,
+            yScale: 2,
+            proposedColumns: 125,
+            proposedRows: 35
+        )
+        var queue = TerminalBackendMutationQueue(capacity: 5)
+
+        #expect(queue.append(queued(1, .focus(true))))
+        #expect(queue.append(queued(2, .resize(firstViewport))))
+        #expect(queue.append(queued(3, .focus(false))))
+        #expect(queue.append(queued(4, .input(.namedKey("Enter")))))
+        #expect(queue.append(queued(5, .focus(true))))
+        #expect(queue.append(queued(6, .focus(false))))
+        #expect(queue.append(queued(7, .resize(finalViewport))))
+
+        var drained: [TerminalBackendQueuedMutation] = []
+        while let mutation = queue.removeFirst() {
+            drained.append(mutation)
+        }
+        #expect(drained.map(\.sequence) == [2, 3, 4, 6, 7])
+        #expect(drained.map(\.mutation) == [
+            .resize(firstViewport),
+            .focus(false),
+            .input(.namedKey("Enter")),
+            .focus(false),
+            .resize(finalViewport),
+        ])
+    }
+
+    @Test
+    func persistentIngressStateStormStaysBoundedAndConvergesAtCapacity() {
+        func queued(
+            _ sequence: UInt64,
+            _ mutation: TerminalExternalRuntimeMutation
+        ) -> TerminalBackendQueuedMutation {
+            TerminalBackendQueuedMutation(
+                sequence: sequence,
+                requestID: UUID(),
+                mutation: mutation
+            )
+        }
+        var queue = TerminalBackendMutationQueue(capacity: 4)
+        var finalViewport: TerminalExternalViewport?
+        for sequence in 0..<10_000 {
+            let viewport = TerminalExternalViewport(
+                widthPoints: Double(sequence + 1),
+                heightPoints: 300,
+                widthPixels: sequence + 1,
+                heightPixels: 600,
+                xScale: 1,
+                yScale: 2,
+                proposedColumns: sequence + 1,
+                proposedRows: 30
+            )
+            finalViewport = viewport
+            let admitted = [
+                queue.append(queued(UInt64(sequence * 4), .focus(sequence.isMultiple(of: 2)))),
+                queue.append(queued(UInt64(sequence * 4 + 1), .visibility(sequence > 0))),
+                queue.append(queued(UInt64(sequence * 4 + 2), .resize(viewport))),
+                queue.append(queued(
+                    UInt64(sequence * 4 + 3),
+                    .preedit(.collapsedAtEnd("\(sequence)"))
+                )),
+            ]
+            #expect(admitted.allSatisfy { $0 })
+            #expect(queue.count == 4)
+        }
+
+        #expect(!queue.append(queued(50_000, .input(.namedKey("Enter")))))
+        #expect(queue.append(queued(50_001, .focus(true))))
+        var mutations: [TerminalExternalRuntimeMutation] = []
+        while let queued = queue.removeFirst() {
+            mutations.append(queued.mutation)
+        }
+        #expect(mutations == [
+            .visibility(true),
+            .resize(finalViewport!),
+            .preedit(.collapsedAtEnd("9999")),
+            .focus(true),
+        ])
     }
 
     @Test @MainActor
@@ -1661,6 +1904,225 @@ struct TerminalClientCompositionTests {
             "configure-finish",
             "detach",
         ])
+
+        await receiver.stop()
+        await coordinator.disconnectFrontend()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func stoppedRendererSurvivingDaemonSIGKILLKeepsDetachAndReleasePendingUntilExit() async throws {
+        func sleepingProcess() throws -> Process {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+            process.arguments = ["30"]
+            try process.run()
+            return process
+        }
+
+        let rendererProcess = try sleepingProcess()
+        let firstDaemonProcess = try sleepingProcess()
+        let secondDaemonProcess = try sleepingProcess()
+        let rendererPID = rendererProcess.processIdentifier
+        let firstDaemonPID = firstDaemonProcess.processIdentifier
+        let secondDaemonPID = secondDaemonProcess.processIdentifier
+        let rendererProcessIdentity = try #require(AgentPIDProcessIdentity(pid: rendererPID))
+        let rendererProcessToken = BackendRendererProcessInstanceToken(
+            startTimeSeconds: try #require(UInt64(exactly: rendererProcessIdentity.startSeconds)),
+            startTimeMicroseconds: try #require(
+                UInt64(exactly: rendererProcessIdentity.startMicroseconds)
+            )
+        )
+        defer {
+            for (process, processID) in [
+                (rendererProcess, rendererPID),
+                (firstDaemonProcess, firstDaemonPID),
+                (secondDaemonProcess, secondDaemonPID),
+            ] {
+                _ = Darwin.kill(processID, SIGCONT)
+                if process.isRunning {
+                    _ = Darwin.kill(processID, SIGKILL)
+                }
+                process.waitUntilExit()
+            }
+        }
+
+        let sessionID = SessionID(rawValue: UUID())
+        let firstAuthority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: sessionID
+        )
+        let secondAuthority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: sessionID
+        )
+        let workspaceID = WorkspaceID(rawValue: UUID())
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let lifecycle = BackendSessionLifecycleRecorder()
+        let renderer = RendererSerializationSessionHarness(
+            authority: firstAuthority,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            workerProcessID: UInt32(rendererPID),
+            workerProcessInstanceToken: rendererProcessToken
+        )
+        let firstSession = OverflowingBackendSession(
+            identifier: "first-daemon",
+            snapshot: nil,
+            initialEvents: nil,
+            lifecycle: lifecycle,
+            rendererSerialization: renderer
+        )
+        let secondSession = OverflowingBackendSession(
+            identifier: "second-daemon",
+            snapshot: nil,
+            initialEvents: nil,
+            lifecycle: lifecycle
+        )
+        let readiness = ScriptedBackendReadiness(results: [
+            .ready(makeBackendReadiness(
+                authority: firstAuthority,
+                processID: UInt32(firstDaemonPID),
+                revision: 1
+            )),
+            .ready(makeBackendReadiness(
+                authority: secondAuthority,
+                processID: UInt32(secondDaemonPID),
+                revision: 1
+            )),
+        ])
+        let coordinator = TerminalBackendClientCoordinator(
+            readinessProvider: { await readiness.next() },
+            sessionFactory: { proof in
+                proof.processID == UInt32(firstDaemonPID) ? firstSession : secondSession
+            },
+            reconnectPolicy: .immediate
+        )
+        let binding = TerminalBackendTerminalBinding(
+            authority: firstAuthority,
+            appWorkspaceID: workspaceID.rawValue,
+            appSurfaceID: surfaceID.rawValue,
+            workspaceHandle: 1,
+            workspaceID: workspaceID,
+            surfaceHandle: 2,
+            surfaceID: surfaceID,
+            columns: 80,
+            rows: 24,
+            created: false
+        )
+        let appPresentationID = UUID()
+        let initialFence = try TerminalRenderPresentationFence(
+            daemonInstanceID: firstAuthority.daemonInstanceID.rawValue,
+            rendererEpoch: 1,
+            terminalID: surfaceID.rawValue,
+            terminalEpoch: 1,
+            minimumTerminalSequence: 0,
+            presentationID: appPresentationID,
+            presentationGeneration: 1,
+            width: 1_280,
+            height: 960,
+            pixelFormat: .bgra8Unorm,
+            colorSpace: .sRGB,
+            completionRequirement: .producerCompleted
+        )
+        let receiver = try TerminalRenderFrameReceiver(initialFence: initialFence)
+        let descriptor = TerminalBackendPresentationDescriptor(
+            presentationID: appPresentationID,
+            endpoint: receiver.endpoint,
+            viewport: TerminalExternalViewport(
+                widthPoints: 640,
+                heightPoints: 480,
+                widthPixels: 1_280,
+                heightPixels: 960,
+                xScale: 2,
+                yScale: 2,
+                proposedColumns: 160,
+                proposedRows: 48
+            ),
+            focused: true,
+            visible: true,
+            preedit: nil,
+            pixelFormat: .bgra8Unorm,
+            colorSpace: .sRGB,
+            resolvedConfigRevision: 1,
+            resolvedConfig: Data("font-family = Menlo\n".utf8)
+        )
+
+        let configuration = Task {
+            try await coordinator.apply(
+                .visibility(true),
+                requestID: UUID(),
+                to: binding,
+                presentation: descriptor
+            )
+        }
+        await renderer.waitForConfiguration()
+        await renderer.resumeConfiguration()
+        _ = try await configuration.value
+
+        #expect(Darwin.kill(rendererPID, SIGSTOP) == 0)
+        #expect(Darwin.kill(firstDaemonPID, SIGKILL) == 0)
+        firstDaemonProcess.waitUntilExit()
+        await firstSession.disconnectEventStream()
+        try await waitForEventSubscriptionCount(1, session: secondSession)
+
+        let staleMetadata = try TerminalRenderFrameMetadata(
+            daemonInstanceID: firstAuthority.daemonInstanceID.rawValue,
+            rendererEpoch: 1,
+            terminalID: surfaceID.rawValue,
+            terminalEpoch: 1,
+            terminalSequence: 1,
+            presentationID: appPresentationID,
+            presentationGeneration: 1,
+            frameSequence: 1,
+            width: 1_280,
+            height: 960,
+            pixelFormat: .bgra8Unorm,
+            colorSpace: .sRGB,
+            completionFence: .producerCompleted,
+            damageBounds: nil
+        )
+        let releaseTask = Task {
+            try await coordinator.releaseFrame(TerminalRenderFrameRelease(
+                metadata: staleMetadata,
+                surfaceID: 77,
+                workerIdentity: try TerminalRenderWorkerIdentity(
+                    processID: rendererPID,
+                    effectiveUserID: geteuid(),
+                    processInstanceToken: TerminalRenderProcessInstanceToken(
+                        startTimeSeconds: rendererProcessToken.startTimeSeconds,
+                        startTimeMicroseconds: rendererProcessToken.startTimeMicroseconds
+                    )
+                )
+            ))
+        }
+        let detachTask = Task {
+            try await coordinator.detachPresentation(
+                presentationID: appPresentationID,
+                from: binding
+            )
+        }
+        try await withReconnectTestTimeout(.seconds(5)) {
+            while await coordinator.debugRendererWorkerExitWaiterCount < 1 {
+                try Task.checkCancellation()
+                await Task.yield()
+            }
+        }
+        #expect(rendererProcess.isRunning)
+        #expect(await coordinator.debugRendererWorkerExitWaiterCount == 1)
+
+        #expect(Darwin.kill(rendererPID, SIGCONT) == 0)
+        #expect(Darwin.kill(rendererPID, SIGTERM) == 0)
+        try await withReconnectTestTimeout(.seconds(5)) {
+            while await coordinator.debugRendererWorkerExitWaiterCount != 0 {
+                try Task.checkCancellation()
+                await Task.yield()
+            }
+        }
+        try await releaseTask.value
+        try await detachTask.value
+        rendererProcess.waitUntilExit()
+        #expect(await coordinator.debugRendererWorkerExitWaiterCount == 0)
+        #expect(await renderer.detachCount() == 0)
 
         await receiver.stop()
         await coordinator.disconnectFrontend()
@@ -2033,6 +2495,8 @@ struct TerminalClientCompositionTests {
                   "prior_renderer_epoch": 1,
                   "renderer_epoch": 2,
                   "pid": 88,
+                  "process_start_time_seconds": 100,
+                  "process_start_time_microseconds": 200,
                   "effective_user_id": 501,
                   "scene_capabilities": 1,
                   "state": "ready",
@@ -2700,7 +3164,11 @@ struct TerminalClientCompositionTests {
             surface: TerminalRenderSurfaceHandle(surface: surface),
             workerIdentity: try TerminalRenderWorkerIdentity(
                 processID: 42,
-                effectiveUserID: 501
+                effectiveUserID: 501,
+                processInstanceToken: TerminalRenderProcessInstanceToken(
+                    startTimeSeconds: 1,
+                    startTimeMicroseconds: 2
+                )
             )
         )
     }
@@ -2742,6 +3210,43 @@ struct TerminalClientCompositionTests {
         return ownLayerCount + view.subviews.reduce(into: 0) { count, subview in
             count += ghosttyMetalLayerCount(in: subview)
         }
+    }
+}
+
+private final class ControllableRendererWorkerExitMonitor:
+    TerminalBackendRendererWorkerExitMonitoring,
+    @unchecked Sendable
+{
+    typealias ExitHandler = @Sendable (
+        TerminalBackendRendererWorkerProcessIdentity
+    ) -> Void
+
+    private let lock = NSLock()
+    private let callbackBeforeReturn: Bool
+    private var handlers: [TerminalBackendRendererWorkerProcessIdentity: ExitHandler] = [:]
+
+    init(callbackBeforeReturn: Bool) {
+        self.callbackBeforeReturn = callbackBeforeReturn
+    }
+
+    func register(
+        _ identity: TerminalBackendRendererWorkerProcessIdentity,
+        onExit: @escaping ExitHandler
+    ) -> TerminalBackendRendererWorkerExitRegistration {
+        lock.lock()
+        handlers[identity] = onExit
+        lock.unlock()
+        if callbackBeforeReturn {
+            onExit(identity)
+        }
+        return .watching
+    }
+
+    func exit(_ identity: TerminalBackendRendererWorkerProcessIdentity) {
+        lock.lock()
+        let handler = handlers.removeValue(forKey: identity)
+        lock.unlock()
+        handler?(identity)
     }
 }
 
@@ -3061,6 +3566,9 @@ private actor RendererSerializationSessionHarness {
     private let authority: BackendAuthority
     private let workspaceID: WorkspaceID
     private let surfaceID: SurfaceID
+    private let workerProcessID: UInt32?
+    private let workerProcessInstanceToken: BackendRendererProcessInstanceToken?
+    private let workerReady: Bool
     private let presentationID = PresentationID(rawValue: UUID())
     private var configurationContinuation:
         CheckedContinuation<BackendRendererPresentationReceipt, Never>?
@@ -3072,11 +3580,17 @@ private actor RendererSerializationSessionHarness {
     init(
         authority: BackendAuthority,
         workspaceID: WorkspaceID,
-        surfaceID: SurfaceID
+        surfaceID: SurfaceID,
+        workerProcessID: UInt32? = nil,
+        workerProcessInstanceToken: BackendRendererProcessInstanceToken? = nil,
+        workerReady: Bool = false
     ) {
         self.authority = authority
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.workerProcessID = workerProcessID
+        self.workerProcessInstanceToken = workerProcessInstanceToken
+        self.workerReady = workerReady
     }
 
     func openPresentation(
@@ -3175,7 +3689,26 @@ private actor RendererSerializationSessionHarness {
     private func rendererReceipt(
         configuration: BackendRendererPresentationConfiguration
     ) throws -> BackendRendererPresentationReceipt {
-        try JSONDecoder().decode(
+        let workerState = workerReady ? "ready" : "starting"
+        let workerPID = workerProcessID.map(String.init) ?? "null"
+        let workerProcessStartTimeSeconds = workerProcessInstanceToken
+            .map { String($0.startTimeSeconds) } ?? "null"
+        let workerProcessStartTimeMicroseconds = workerProcessInstanceToken
+            .map { String($0.startTimeMicroseconds) } ?? "null"
+        let workerEffectiveUserID = workerReady ? "501" : "null"
+        let sceneCapabilities = workerReady ? "1" : "null"
+        let metrics = workerReady
+            ? """
+              {
+                "columns": \(configuration.columns),
+                "rows": \(configuration.rows),
+                "cell_width": 8,
+                "cell_height": 16,
+                "padding": {"top":0,"right":0,"bottom":0,"left":0}
+              }
+              """
+            : "null"
+        return try JSONDecoder().decode(
             BackendRendererPresentationReceipt.self,
             from: Data(
                 """
@@ -3183,10 +3716,12 @@ private actor RendererSerializationSessionHarness {
                   "daemon_instance_id":"\(authority.daemonInstanceID.description)",
                   "workspace_uuid":"\(workspaceID.description)",
                   "renderer_epoch":1,
-                  "worker_state":"starting",
-                  "worker_pid":null,
-                  "worker_effective_user_id":null,
-                  "scene_capabilities":null,
+                  "worker_state":"\(workerState)",
+                  "worker_pid":\(workerPID),
+                  "worker_process_start_time_seconds":\(workerProcessStartTimeSeconds),
+                  "worker_process_start_time_microseconds":\(workerProcessStartTimeMicroseconds),
+                  "worker_effective_user_id":\(workerEffectiveUserID),
+                  "scene_capabilities":\(sceneCapabilities),
                   "terminal_id":"\(surfaceID.description)",
                   "terminal_epoch":1,
                   "presentation_id":"\(presentationID.description)",
@@ -3198,7 +3733,7 @@ private actor RendererSerializationSessionHarness {
                   "backing_scale_factor":\(configuration.backingScaleFactor),
                   "columns":\(configuration.columns),
                   "rows":\(configuration.rows),
-                  "metrics":null,
+                  "metrics":\(metrics),
                   "pixel_format":"bgra8-unorm",
                   "color_space":"srgb"
                 }

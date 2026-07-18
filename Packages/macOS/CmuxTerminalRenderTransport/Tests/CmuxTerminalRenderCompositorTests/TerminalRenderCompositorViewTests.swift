@@ -244,7 +244,11 @@ struct TerminalRenderCompositorViewTests {
             surface: surface,
             workerIdentity: try TerminalRenderWorkerIdentity(
                 processID: 42,
-                effectiveUserID: 501
+                effectiveUserID: 501,
+                processInstanceToken: TerminalRenderProcessInstanceToken(
+                    startTimeSeconds: 1,
+                    startTimeMicroseconds: 2
+                )
             )
         )
     }

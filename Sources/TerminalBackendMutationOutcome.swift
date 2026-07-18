@@ -18,5 +18,6 @@ struct TerminalBackendMutationOutcome: Equatable, Sendable {
     var clipboardText: String?
     var actionHandled: Bool?
     var rendererAttachment: TerminalBackendRendererAttachment?
+    var rendererActivation: TerminalBackendRendererActivation?
     var binding: TerminalBackendTerminalBinding?
 }

@@ -314,8 +314,8 @@ extension MobileHostAuthorizationTests {
         )
         let sleeper = ManualMobileCompatibilitySleep()
         let plane = PersistentMobileTerminalDataPlane(
-            sessionFactory: { surfaceID in
-                await factory.make(surfaceID: surfaceID)
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
             },
             maximumPendingReplayCount: 2,
             pendingReplayTTL: .seconds(30),
@@ -348,8 +348,8 @@ extension MobileHostAuthorizationTests {
         )
         let sleeper = ManualMobileCompatibilitySleep()
         let plane = PersistentMobileTerminalDataPlane(
-            sessionFactory: { surfaceID in
-                await factory.make(surfaceID: surfaceID)
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
             },
             maximumPendingReplayCount: 4,
             maximumPendingReplayBytes: 12,
@@ -379,8 +379,8 @@ extension MobileHostAuthorizationTests {
         )
         let sleeper = ManualMobileCompatibilitySleep()
         let plane = PersistentMobileTerminalDataPlane(
-            sessionFactory: { surfaceID in
-                await factory.make(surfaceID: surfaceID)
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
             },
             maximumPendingReplayCount: 4,
             pendingReplayTTL: .seconds(30),
@@ -422,8 +422,8 @@ extension MobileHostAuthorizationTests {
             replayByteCounts: [300 * 1_024, 8]
         )
         let plane = PersistentMobileTerminalDataPlane(
-            sessionFactory: { surfaceID in
-                await factory.make(surfaceID: surfaceID)
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
             },
             maximumPendingReplayCount: 1,
             pendingReplayTTL: .seconds(30),
@@ -469,8 +469,8 @@ extension MobileHostAuthorizationTests {
             replayByteCounts: [8]
         )
         let plane = PersistentMobileTerminalDataPlane(
-            sessionFactory: { surfaceID in
-                await factory.make(surfaceID: surfaceID)
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
             },
             maximumPendingReplayCount: 1,
             pendingReplayTTL: .seconds(30),
@@ -496,6 +496,115 @@ extension MobileHostAuthorizationTests {
         await lane.close()
     }
 
+    @Test func persistentPhoneLanesKeepUniqueStableClientUUIDsAcrossHandoffAndReconnect()
+        async throws {
+        let surfaceID = UUID()
+        let firstClient = UUID()
+        let secondClient = UUID()
+        let thirdClient = UUID()
+        let clientUUIDs = LockedMobileClientUUIDSequence([
+            firstClient,
+            secondClient,
+            thirdClient,
+        ])
+        let factory = RecordingMobileCompatibilitySessionFactory(
+            sequences: [10, 20, 30]
+        )
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
+            },
+            maximumPendingReplayCount: 2,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { _ in },
+            clientUUIDProvider: { clientUUIDs.next() }
+        )
+
+        let replay = try await plane.replay(surfaceID: surfaceID)
+        let handedOff = try await plane.openLane(
+            surfaceID: surfaceID,
+            cursor: replay.sequence
+        )
+        #expect(await factory.allClientUUIDs() == [firstClient])
+        #expect(await plane.liveClientUUIDsForTesting() == [firstClient])
+        await handedOff.close()
+        #expect(await plane.liveClientUUIDsForTesting().isEmpty)
+
+        let reconnected = try await plane.openLane(surfaceID: surfaceID, cursor: nil)
+        let secondPhone = try await plane.openLane(surfaceID: surfaceID, cursor: nil)
+        #expect(
+            await factory.allClientUUIDs()
+                == [firstClient, secondClient, thirdClient]
+        )
+        #expect(
+            await plane.liveClientUUIDsForTesting()
+                == Set([secondClient, thirdClient])
+        )
+        await reconnected.close()
+        await secondPhone.close()
+        #expect(await plane.liveClientUUIDsForTesting().isEmpty)
+    }
+
+    @Test func persistentPhoneLaneAllocationSkipsALiveClientUUIDCollision() async throws {
+        let surfaceID = UUID()
+        let firstClient = UUID()
+        let secondClient = UUID()
+        let clientUUIDs = LockedMobileClientUUIDSequence([
+            firstClient,
+            firstClient,
+            secondClient,
+        ])
+        let factory = RecordingMobileCompatibilitySessionFactory(sequences: [1, 2])
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
+            },
+            maximumPendingReplayCount: 1,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { _ in },
+            clientUUIDProvider: { clientUUIDs.next() }
+        )
+
+        let first = try await plane.openLane(surfaceID: surfaceID, cursor: nil)
+        let second = try await plane.openLane(surfaceID: surfaceID, cursor: nil)
+        #expect(await factory.allClientUUIDs() == [firstClient, secondClient])
+        #expect(clientUUIDs.callCount() == 3)
+        await first.close()
+        await second.close()
+    }
+
+    @Test func staleDoubleCloseCannotReleaseAReusedPhoneClientUUID() async throws {
+        let surfaceID = UUID()
+        let reusedClient = UUID()
+        let clientUUIDs = LockedMobileClientUUIDSequence([
+            reusedClient,
+            reusedClient,
+        ])
+        let factory = RecordingMobileCompatibilitySessionFactory(sequences: [1, 2])
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
+            },
+            maximumPendingReplayCount: 1,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { _ in },
+            clientUUIDProvider: { clientUUIDs.next() }
+        )
+
+        let oldLane = try await plane.openLane(surfaceID: surfaceID, cursor: nil)
+        await oldLane.close()
+        #expect(await plane.liveClientUUIDsForTesting().isEmpty)
+
+        let newLane = try await plane.openLane(surfaceID: surfaceID, cursor: nil)
+        #expect(await plane.liveClientUUIDsForTesting() == [reusedClient])
+        await oldLane.close()
+        for _ in 0 ..< 20 { await Task.yield() }
+        #expect(await plane.liveClientUUIDsForTesting() == [reusedClient])
+
+        await newLane.close()
+        #expect(await plane.liveClientUUIDsForTesting().isEmpty)
+    }
+
     @Test func persistentDirectLaneCursorOffsetOverflowFailsClosed() async throws {
         let offset = PersistentMobileTerminalDataPlane.virtualReplayCursorOffset
         let factory = RecordingMobileCompatibilitySessionFactory(
@@ -503,8 +612,8 @@ extension MobileHostAuthorizationTests {
             replayByteCounts: [1]
         )
         let plane = PersistentMobileTerminalDataPlane(
-            sessionFactory: { surfaceID in
-                await factory.make(surfaceID: surfaceID)
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
             },
             maximumPendingReplayCount: 1,
             pendingReplayTTL: .seconds(30),
@@ -562,8 +671,8 @@ extension MobileHostAuthorizationTests {
         let factory = RecordingMobileCompatibilitySessionFactory(sequences: [7])
         let sleeper = ManualMobileCompatibilitySleep()
         let plane = PersistentMobileTerminalDataPlane(
-            sessionFactory: { surfaceID in
-                await factory.make(surfaceID: surfaceID)
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
             },
             maximumPendingReplayCount: 1,
             pendingReplayTTL: .seconds(30),
@@ -597,8 +706,8 @@ extension MobileHostAuthorizationTests {
         let surfaceID = UUID()
         let factory = RecordingMobileCompatibilitySessionFactory(sequences: [7])
         let plane = PersistentMobileTerminalDataPlane(
-            sessionFactory: { surfaceID in
-                await factory.make(surfaceID: surfaceID)
+            sessionFactory: { surfaceID, clientUUID in
+                await factory.make(surfaceID: surfaceID, clientUUID: clientUUID)
             },
             maximumPendingReplayCount: 1,
             pendingReplayTTL: .seconds(30),
@@ -692,13 +801,17 @@ private actor RecordingMobileCompatibilitySessionFactory {
     private var sequences: [UInt64]
     private var replayByteCounts: [Int]
     private var sessions: [RecordingMobileCompatibilitySession] = []
+    private var clientUUIDs: [UUID] = []
 
     init(sequences: [UInt64], replayByteCounts: [Int] = []) {
         self.sequences = sequences
         self.replayByteCounts = replayByteCounts
     }
 
-    func make(surfaceID: UUID) -> MobileBackendTerminalCompatibilityAttachment {
+    func make(
+        surfaceID: UUID,
+        clientUUID: UUID
+    ) -> MobileBackendTerminalCompatibilityAttachment {
         let sequence = sequences.isEmpty ? 0 : sequences.removeFirst()
         let requestedReplayBytes = replayByteCounts.isEmpty ? 4 : replayByteCounts.removeFirst()
         let replayBytes = max(0, requestedReplayBytes)
@@ -713,7 +826,9 @@ private actor RecordingMobileCompatibilitySessionFactory {
         )
         let session = RecordingMobileCompatibilitySession(snapshot: snapshot)
         sessions.append(session)
+        clientUUIDs.append(clientUUID)
         return MobileBackendTerminalCompatibilityAttachment(
+            clientUUID: clientUUID,
             session: session,
             snapshot: snapshot
         )
@@ -721,6 +836,37 @@ private actor RecordingMobileCompatibilitySessionFactory {
 
     func allSessions() -> [RecordingMobileCompatibilitySession] {
         sessions
+    }
+
+    func allClientUUIDs() -> [UUID] {
+        clientUUIDs
+    }
+}
+
+// The synchronous Sendable UUID-provider seam cannot await an actor; the lock
+// protects only this test helper's bounded sequence and call counter.
+private final class LockedMobileClientUUIDSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [UUID]
+    private var calls = 0
+
+    init(_ values: [UUID]) {
+        precondition(!values.isEmpty)
+        self.values = values
+    }
+
+    func next() -> UUID {
+        lock.lock()
+        defer { lock.unlock() }
+        calls += 1
+        if values.count > 1 { return values.removeFirst() }
+        return values[0]
+    }
+
+    func callCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
     }
 }
 

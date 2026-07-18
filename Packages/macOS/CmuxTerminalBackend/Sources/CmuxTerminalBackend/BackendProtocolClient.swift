@@ -173,6 +173,29 @@ public actor BackendProtocolClient {
         )
     }
 
+    /// Activates one terminal presentation for leased input and geometry.
+    ///
+    /// This command does not configure or start a renderer worker.
+    ///
+    /// - Parameters:
+    ///   - id: The connection-owned presentation to activate.
+    ///   - expectedGeneration: The exact generation returned when it opened.
+    /// - Returns: The daemon's exact presentation and PTY surface proof.
+    /// - Throws: A transport, decoding, identity, or backend protocol error.
+    public func activateTerminalPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64
+    ) async throws -> BackendTerminalPresentationActivation {
+        try await call(
+            command: "activate-terminal-presentation",
+            parameters: [
+                "presentation_id": .string(id.description),
+                "expected_generation": .unsignedInteger(expectedGeneration),
+            ],
+            as: BackendTerminalPresentationActivation.self
+        )
+    }
+
     /// Atomically updates a presentation when its generation still matches.
     ///
     /// - Parameters:

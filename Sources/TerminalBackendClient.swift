@@ -58,6 +58,8 @@ protocol TerminalBackendClient: Sendable {
         from binding: TerminalBackendTerminalBinding?
     ) async throws
 
+    func activateRenderer(_ activation: TerminalBackendRendererActivation) async throws
+
     func releaseFrame(_ release: TerminalRenderFrameRelease) async throws
 }
 
@@ -71,6 +73,11 @@ enum TerminalBackendTopologyStreamEvent: Equatable, Sendable {
 }
 
 extension TerminalBackendClient {
+    func activateRenderer(_ activation: TerminalBackendRendererActivation) async throws {
+        _ = activation
+        throw TerminalBackendClientError.rendererNotReady
+    }
+
     func terminalActivitySnapshots() async -> AsyncStream<BackendTerminalActivitySnapshot> {
         AsyncStream { continuation in
             continuation.finish()

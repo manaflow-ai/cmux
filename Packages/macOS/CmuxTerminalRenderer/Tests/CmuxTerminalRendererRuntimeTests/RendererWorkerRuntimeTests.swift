@@ -176,7 +176,11 @@ struct RendererWorkerRuntimeTests {
         let receiver = try TerminalRenderFrameReceiver(
             expectedWorker: TerminalRenderWorkerIdentity(
                 processID: getpid(),
-                effectiveUserID: geteuid()
+                effectiveUserID: geteuid(),
+                processInstanceToken: TerminalRenderProcessInstanceToken(
+                    startTimeSeconds: 1,
+                    startTimeMicroseconds: 2
+                )
             ),
             initialFence: fence,
             queueLimit: 3

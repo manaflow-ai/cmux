@@ -1,17 +1,25 @@
 public import Foundation
 
 public extension BackendProtocolClient {
-    /// Registers the stable logical client on this exact transport connection.
+    /// Registers the stable logical client and its least-privilege purpose on this connection.
+    ///
+    /// - Parameters:
+    ///   - supportedRange: The terminal-control protocol versions accepted by the caller.
+    ///   - identity: The logical client and process-launch identity bound to this connection.
+    ///   - kind: The server-recognized purpose used to issue a connection role.
+    /// - Returns: The server-selected protocol, echoed identity, and issued role.
+    /// - Throws: A transport, protocol, or registration validation error.
     func registerClient(
         supportedRange: ClosedRange<UInt32>,
-        identity: BackendClientRegistrationIdentity
+        identity: BackendClientRegistrationIdentity,
+        kind: BackendRegisteredClientKind = .swiftShell
     ) async throws -> BackendClientRegistration {
         try await call(
             command: "register-client",
             parameters: [
                 "protocol_min": .unsignedInteger(UInt64(supportedRange.lowerBound)),
                 "protocol_max": .unsignedInteger(UInt64(supportedRange.upperBound)),
-                "client_kind": .string("swift-shell"),
+                "client_kind": .string(kind.rawValue),
                 "client_uuid": .string(identity.clientUUID.uuidString.lowercased()),
                 "process_instance_uuid": .string(
                     identity.processInstanceUUID.uuidString.lowercased()

@@ -39,6 +39,26 @@ struct BackendCanonicalSessionTests {
 
         let surfaceID = SurfaceID(rawValue: UUID())
         let presentationID = PresentationID(rawValue: UUID())
+        let activationTask = Task {
+            try await session.activateTerminalPresentation(
+                id: presentationID,
+                expectedGeneration: 7
+            )
+        }
+        let activation = try requestObject(await transport.nextSent())
+        #expect(activation["cmd"] as? String == "activate-terminal-presentation")
+        #expect(activation["presentation_id"] as? String == presentationID.description)
+        #expect(try uint64(activation, "expected_generation") == 7)
+        await transport.enqueue(try response(to: activation, data: [
+            "presentation_id": presentationID.description,
+            "presentation_generation": 7,
+            "surface_uuid": surfaceID.description,
+        ]))
+        let activated = try await activationTask.value
+        #expect(activated.presentationID == presentationID)
+        #expect(activated.presentationGeneration == 7)
+        #expect(activated.surfaceID == surfaceID)
+
         let inputLeaseID = UUID()
         let geometryLeaseID = UUID()
         let acquireTask = Task {
@@ -452,6 +472,231 @@ struct BackendCanonicalSessionTests {
         await session.close()
     }
 
+    @Test("lease deadlines start before the acquire RPC and elapsed claims reacquire")
+    func terminalLeaseDeadlineIsConservative() async throws {
+        let transport = ScriptedBackendTransport()
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let identity = fixedRegistrationIdentity()
+        let connectionID = UUID()
+        let clock = LockedMonotonicNanoseconds(1_000)
+        let session = BackendCanonicalSession(
+            transport: transport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "app-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity,
+            monotonicNowNanoseconds: { clock.now() }
+        )
+
+        let connectTask = Task { try await session.connect() }
+        try await completeV9Handshake(
+            transport: transport,
+            authority: authority,
+            session: "app-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: connectionID
+        )
+        _ = try await connectTask.value
+
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let presentationID = PresentationID(rawValue: UUID())
+        let leaseID = UUID()
+        let acquireTask = Task {
+            try await session.acquireTerminalLease(
+                kind: .input,
+                surfaceID: surfaceID,
+                presentationID: presentationID,
+                presentationGeneration: 3,
+                ttlMilliseconds: 30_000
+            )
+        }
+        let acquire = try requestObject(await transport.nextSent())
+        #expect(acquire["cmd"] as? String == "acquire-terminal-lease")
+        // The response arrives twenty seconds after the request began. The
+        // local deadline must remain request-start + TTL, not response + TTL.
+        clock.set(20_000_000_000)
+        await transport.enqueue(try response(
+            to: acquire,
+            data: leaseResponse(
+                kind: .input,
+                surfaceID: surfaceID,
+                presentationID: presentationID,
+                presentationGeneration: 3,
+                leaseID: leaseID,
+                leaseGeneration: 5,
+                nextSequence: 8
+            )
+        ))
+        _ = try await acquireTask.value
+
+        let inputRequestID = UUID()
+        let inputTask = Task {
+            try await session.sendTerminalInput(
+                surfaceID: surfaceID,
+                presentationID: presentationID,
+                presentationGeneration: 3,
+                requestID: inputRequestID,
+                input: .text("still does not renew", paste: false)
+            )
+        }
+        let input = try requestObject(await transport.nextSent())
+        #expect(input["cmd"] as? String == "terminal-input")
+        await transport.enqueue(try response(
+            to: input,
+            data: inputReceipt(
+                requestID: inputRequestID,
+                sequence: 8,
+                leaseGeneration: 5,
+                encodedBytes: 20
+            )
+        ))
+        _ = try await inputTask.value
+
+        clock.set(31_000_001_000)
+        let reacquireTask = Task {
+            try await session.acquireTerminalLease(
+                kind: .input,
+                surfaceID: surfaceID,
+                presentationID: presentationID,
+                presentationGeneration: 3,
+                ttlMilliseconds: 30_000
+            )
+        }
+        let reacquire = try requestObject(await transport.nextSent())
+        #expect(reacquire["cmd"] as? String == "acquire-terminal-lease")
+        #expect(reacquire["lease_id"] == nil)
+        await transport.enqueue(try response(
+            to: reacquire,
+            data: leaseResponse(
+                kind: .input,
+                surfaceID: surfaceID,
+                presentationID: presentationID,
+                presentationGeneration: 3,
+                leaseID: UUID(),
+                leaseGeneration: 6,
+                nextSequence: 1
+            )
+        ))
+        #expect(try await reacquireTask.value.leaseGeneration == 6)
+        await session.close()
+    }
+
+    @Test("a phone delegation renews its owner for the full requested lifetime")
+    func delegationRenewsOwnerLeaseForRequestedTTL() async throws {
+        let transport = ScriptedBackendTransport()
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let identity = fixedRegistrationIdentity()
+        let connectionID = UUID()
+        let clock = LockedMonotonicNanoseconds(1_000)
+        let session = BackendCanonicalSession(
+            transport: transport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "app-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity,
+            monotonicNowNanoseconds: { clock.now() }
+        )
+
+        let connectTask = Task { try await session.connect() }
+        try await completeV9Handshake(
+            transport: transport,
+            authority: authority,
+            session: "app-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: connectionID
+        )
+        _ = try await connectTask.value
+
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let presentationID = PresentationID(rawValue: UUID())
+        let leaseID = UUID()
+        let acquireTask = Task {
+            try await session.acquireTerminalLease(
+                kind: .input,
+                surfaceID: surfaceID,
+                presentationID: presentationID,
+                presentationGeneration: 4,
+                ttlMilliseconds: 30_000
+            )
+        }
+        let acquire = try requestObject(await transport.nextSent())
+        await transport.enqueue(try response(
+            to: acquire,
+            data: leaseResponse(
+                kind: .input,
+                surfaceID: surfaceID,
+                presentationID: presentationID,
+                presentationGeneration: 4,
+                leaseID: leaseID,
+                leaseGeneration: 9,
+                nextSequence: 3
+            )
+        ))
+        _ = try await acquireTask.value
+
+        // Ten seconds remain locally. A ten-second delegation would be
+        // truncated by cmuxd unless the owner renews first.
+        clock.set(20_000_001_000)
+        let delegateClientUUID = UUID()
+        let delegateProcessInstanceUUID = UUID()
+        let grantTask = Task {
+            try await session.grantTerminalInputDelegation(
+                surfaceID: surfaceID,
+                presentationID: presentationID,
+                presentationGeneration: 4,
+                delegateClientUUID: delegateClientUUID,
+                ttlMilliseconds: 10_000,
+                scopes: [.text]
+            )
+        }
+        let renew = try requestObject(await transport.nextSent())
+        #expect(renew["cmd"] as? String == "renew-terminal-lease")
+        #expect(try uint64(renew, "ttl_ms") == 30_000)
+        await transport.enqueue(try response(
+            to: renew,
+            data: leaseResponse(
+                kind: .input,
+                surfaceID: surfaceID,
+                presentationID: presentationID,
+                presentationGeneration: 4,
+                leaseID: leaseID,
+                leaseGeneration: 9,
+                nextSequence: 3
+            )
+        ))
+
+        let grant = try requestObject(await transport.nextSent())
+        #expect(grant["cmd"] as? String == "grant-terminal-input-delegation")
+        #expect(try uint64(grant, "ttl_ms") == 10_000)
+        await transport.enqueue(try response(to: grant, data: [
+            "surface_uuid": surfaceID.description,
+            "delegation_id": UUID().uuidString,
+            "delegation_generation": 1,
+            "owner_lease_generation": 9,
+            "delegate_client_uuid": delegateClientUUID.uuidString,
+            "delegate_process_instance_uuid": delegateProcessInstanceUUID.uuidString,
+            "expires_at_ms": 90_000,
+            "scopes": ["text"],
+            "next_sequence": 1,
+        ]))
+        let delegation = try await grantTask.value
+        #expect(delegation.delegateClientUUID == delegateClientUUID)
+        #expect(delegation.ownerLeaseGeneration == 9)
+        await session.close()
+    }
+
     @Test("input and geometry overlap while rollover and drag input remain legal")
     func splitLeaseLanesAndAutomaticInputGroups() async throws {
         let transport = ScriptedBackendTransport()
@@ -733,8 +978,12 @@ struct BackendCanonicalSessionTests {
             "workspace_uuid": workspaceID.description,
             "prior_renderer_epoch": 4,
             "prior_process_id": 4000,
+            "prior_process_start_time_seconds": 90,
+            "prior_process_start_time_microseconds": 190,
             "renderer_epoch": 5,
             "pid": 4321,
+            "process_start_time_seconds": 100,
+            "process_start_time_microseconds": 200,
             "effective_user_id": 501,
             "scene_capabilities": 3,
             "state": "ready",
@@ -759,6 +1008,8 @@ struct BackendCanonicalSessionTests {
             "workspace_uuid": workspaceID.description,
             "renderer_epoch": 5,
             "worker_pid": 4321,
+            "worker_process_start_time_seconds": 100,
+            "worker_process_start_time_microseconds": 200,
             "worker_effective_user_id": 501,
             "terminal_id": terminalID.description,
             "terminal_epoch": 2,
@@ -1434,4 +1685,25 @@ private func fixedRegistrationIdentity() -> BackendClientRegistrationIdentity {
         clientUUID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
         processInstanceUUID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
     )!
+}
+
+private final class LockedMonotonicNanoseconds: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: UInt64
+
+    init(_ value: UInt64) {
+        self.value = value
+    }
+
+    func now() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func set(_ value: UInt64) {
+        lock.lock()
+        self.value = value
+        lock.unlock()
+    }
 }

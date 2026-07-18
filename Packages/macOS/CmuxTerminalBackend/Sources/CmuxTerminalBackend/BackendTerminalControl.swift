@@ -25,6 +25,8 @@ public enum BackendRegisteredClientKind: String, Decodable, Equatable, Sendable 
     case swiftShell = "swift-shell"
     case tui
     case automation
+    /// A compatibility byte-stream connection that may submit delegated terminal input only.
+    case mobileCompatibility = "mobile-compatibility"
     case rendererWorker = "renderer-worker"
     case web
 }
@@ -35,6 +37,8 @@ public enum BackendConnectionRole: String, Decodable, Equatable, Sendable {
     case remoteReadOnly = "remote-read-only"
     case trustedFrontend = "trusted-frontend"
     case trustedAutomation = "trusted-automation"
+    /// A same-user connection restricted to server-issued delegated terminal input.
+    case trustedInputDelegate = "trusted-input-delegate"
     case trustedRenderer = "trusted-renderer"
 }
 

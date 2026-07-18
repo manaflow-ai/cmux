@@ -165,6 +165,8 @@ public struct BackendRendererPresentationReceipt: Decodable, Equatable, Sendable
     public let rendererEpoch: UInt64
     public let workerState: BackendRendererWorkerState
     public let workerProcessID: UInt32?
+    public let workerProcessStartTimeSeconds: UInt64?
+    public let workerProcessStartTimeMicroseconds: UInt64?
     public let workerEffectiveUserID: UInt32?
     public let sceneCapabilities: UInt64?
     public let terminalID: SurfaceID
@@ -189,6 +191,8 @@ public struct BackendRendererPresentationReceipt: Decodable, Equatable, Sendable
         case rendererEpoch = "renderer_epoch"
         case workerState = "worker_state"
         case workerProcessID = "worker_pid"
+        case workerProcessStartTimeSeconds = "worker_process_start_time_seconds"
+        case workerProcessStartTimeMicroseconds = "worker_process_start_time_microseconds"
         case workerEffectiveUserID = "worker_effective_user_id"
         case sceneCapabilities = "scene_capabilities"
         case terminalID = "terminal_id"
@@ -205,6 +209,15 @@ public struct BackendRendererPresentationReceipt: Decodable, Equatable, Sendable
         case metrics
         case pixelFormat = "pixel_format"
         case colorSpace = "color_space"
+    }
+
+    public var workerProcessInstanceToken: BackendRendererProcessInstanceToken? {
+        guard let workerProcessStartTimeSeconds,
+              let workerProcessStartTimeMicroseconds else { return nil }
+        return BackendRendererProcessInstanceToken(
+            startTimeSeconds: workerProcessStartTimeSeconds,
+            startTimeMicroseconds: workerProcessStartTimeMicroseconds
+        )
     }
 }
 

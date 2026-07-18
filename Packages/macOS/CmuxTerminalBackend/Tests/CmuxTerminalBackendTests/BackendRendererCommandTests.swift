@@ -66,6 +66,8 @@ struct BackendRendererCommandTests {
             "renderer_epoch": 5,
             "worker_state": "ready",
             "worker_pid": 4321,
+            "worker_process_start_time_seconds": 100,
+            "worker_process_start_time_microseconds": 200,
             "worker_effective_user_id": 501,
             "scene_capabilities": 3,
             "terminal_id": terminalUUID,
@@ -88,11 +90,38 @@ struct BackendRendererCommandTests {
         #expect(receipt.daemonInstanceID.description == daemonUUID)
         #expect(receipt.workerState == .ready)
         #expect(receipt.workerProcessID == 4321)
+        #expect(receipt.workerProcessInstanceToken == BackendRendererProcessInstanceToken(
+            startTimeSeconds: 100,
+            startTimeMicroseconds: 200
+        ))
         #expect(receipt.workerEffectiveUserID == 501)
         #expect(receipt.terminalID.description == terminalUUID)
         #expect(receipt.rendererGeneration == 8)
         #expect(receipt.minimumContentSequence == 21)
         #expect(receipt.metrics == nil)
+
+        let activation = Task {
+            try await client.activateRendererPresentation(
+                id: presentationID,
+                expectedGeneration: 7,
+                rendererGeneration: 8,
+                rendererEpoch: 5,
+                workerProcessID: 4321,
+                workerProcessInstanceToken: BackendRendererProcessInstanceToken(
+                    startTimeSeconds: 100,
+                    startTimeMicroseconds: 200
+                )
+            )
+        }
+        let activationRequest = try requestObject(await transport.nextSent())
+        #expect(activationRequest["cmd"] as? String == "activate-renderer-presentation")
+        #expect(try uint64(activationRequest, "renderer_generation") == 8)
+        #expect(try uint64(activationRequest, "renderer_epoch") == 5)
+        #expect(try uint64(activationRequest, "worker_pid") == 4321)
+        #expect(try uint64(activationRequest, "worker_process_start_time_seconds") == 100)
+        #expect(try uint64(activationRequest, "worker_process_start_time_microseconds") == 200)
+        await transport.enqueue(try response(to: activationRequest, data: [:]))
+        try await activation.value
         await client.close()
     }
 
@@ -158,6 +187,8 @@ struct BackendRendererCommandTests {
                 "workspace_uuid": workspaceUUID,
                 "renderer_epoch": 5,
                 "pid": 4321,
+                "process_start_time_seconds": 100,
+                "process_start_time_microseconds": 200,
                 "effective_user_id": 501,
                 "scene_capabilities": 3,
                 "restart_count": 1,
@@ -170,6 +201,10 @@ struct BackendRendererCommandTests {
         let census = try await workersTask.value
         #expect(census.workers.count == 1)
         #expect(census.workers[0].processID == 4321)
+        #expect(census.workers[0].processInstanceToken == BackendRendererProcessInstanceToken(
+            startTimeSeconds: 100,
+            startTimeMicroseconds: 200
+        ))
         #expect(census.workers[0].visiblePresentationCount == 2)
 
         let mouseTask = Task {

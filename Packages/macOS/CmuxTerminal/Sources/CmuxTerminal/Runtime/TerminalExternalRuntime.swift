@@ -564,7 +564,9 @@ public struct TerminalExternalPreedit: Equatable, Sendable {
     }
 }
 
-/// Every state-changing operation crosses one FIFO ingress.
+/// Every state-changing operation crosses one bounded ordered ingress.
+/// Input and actions retain FIFO order. Consecutive presentation-state
+/// mutations may converge to their newest value before the next strict action.
 public enum TerminalExternalRuntimeMutation: Equatable, Sendable {
     case input(TerminalExternalInput)
     /// Visual-only IME marked text. `nil` clears it and never writes to the PTY.
@@ -648,7 +650,9 @@ public enum TerminalExternalScreenTextRequest: Equatable, Sendable {
 /// owned outside the Swift app process.
 ///
 /// `enqueue` must only perform bounded queue admission. It must not block on
-/// IPC, and accepted calls must execute in ascending sequence order.
+/// IPC. Strict mutations execute in ascending sequence order; focus,
+/// visibility, resize, and preedit may be superseded before the next strict
+/// mutation while their final state remains ordered around that barrier.
 @MainActor
 public protocol TerminalExternalRuntime: AnyObject {
     var snapshot: TerminalExternalRuntimeSnapshot { get }

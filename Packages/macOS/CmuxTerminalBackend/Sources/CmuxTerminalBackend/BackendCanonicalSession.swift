@@ -1,3 +1,4 @@
+private import Dispatch
 public import Foundation
 
 /// One fail-closed connection to the daemon-owned topology and terminal authority.
@@ -26,7 +27,7 @@ public actor BackendCanonicalSession {
         var value: BackendTerminalLease
         var nextSequence: UInt64
         let ttlMilliseconds: UInt64
-        var localDeadline: ContinuousClock.Instant
+        var localDeadlineNanoseconds: UInt64
     }
 
     private let client: BackendProtocolClient
@@ -34,7 +35,7 @@ public actor BackendCanonicalSession {
     private let expectation: BackendCanonicalSessionExpectation
     private let handshakePolicy: BackendHandshakePolicy
     private let registrationIdentity: BackendClientRegistrationIdentity
-    private let clock = ContinuousClock()
+    private let monotonicNowNanoseconds: @Sendable () -> UInt64
     private var projection = TopologyProjection<CanonicalTopology>()
     private var activityProjection = BackendTerminalActivityProjection()
     private var eventTask: Task<Void, Never>?
@@ -59,13 +60,17 @@ public actor BackendCanonicalSession {
         expectation: BackendCanonicalSessionExpectation,
         registrationIdentity: BackendClientRegistrationIdentity,
         handshakePolicy: BackendHandshakePolicy = .terminalAuthorityV1,
-        eventCapacity: Int = BackendProtocolClient.defaultEventCapacity
+        eventCapacity: Int = BackendProtocolClient.defaultEventCapacity,
+        monotonicNowNanoseconds: (@Sendable () -> UInt64)? = nil
     ) {
         self.transport = transport
         client = BackendProtocolClient(transport: transport, eventCapacity: eventCapacity)
         self.expectation = expectation
         self.registrationIdentity = registrationIdentity
         self.handshakePolicy = handshakePolicy
+        self.monotonicNowNanoseconds = monotonicNowNanoseconds ?? {
+            DispatchTime.now().uptimeNanoseconds
+        }
     }
 
     /// Returns a newest-state stream, seeded immediately when already connected.
@@ -430,6 +435,26 @@ public actor BackendCanonicalSession {
         )
     }
 
+    public func activateRendererPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64,
+        rendererGeneration: UInt64,
+        rendererEpoch: UInt64,
+        workerProcessID: UInt32,
+        workerProcessInstanceToken: BackendRendererProcessInstanceToken
+    ) async throws {
+        try requireConnected()
+        try requireMutationAccess(command: "activate-renderer-presentation")
+        try await client.activateRendererPresentation(
+            id: id,
+            expectedGeneration: expectedGeneration,
+            rendererGeneration: rendererGeneration,
+            rendererEpoch: rendererEpoch,
+            workerProcessID: workerProcessID,
+            workerProcessInstanceToken: workerProcessInstanceToken
+        )
+    }
+
     public func detachRendererPresentation(
         id: PresentationID,
         expectedGeneration: UInt64
@@ -737,15 +762,20 @@ public actor BackendCanonicalSession {
         try requireConnected()
         try requireNonNil(delegateClientUUID)
         guard !scopes.isEmpty else { throw BackendProtocolError.malformedMessage }
+        let ttl = min(
+            max(ttlMilliseconds, 1),
+            Self.maximumAutomationDelegationTTLMilliseconds
+        )
+        let refreshMargin = ttl.addingClamped(
+            Self.terminalLeaseRefreshMarginMilliseconds
+        )
         let managed = try await refreshedTerminalLeaseIfNeeded(
             kind: .input,
             surfaceID: surfaceID,
             presentationID: presentationID,
-            presentationGeneration: presentationGeneration
-        )
-        let ttl = min(
-            max(ttlMilliseconds, 1),
-            Self.maximumAutomationDelegationTTLMilliseconds
+            presentationGeneration: presentationGeneration,
+            refreshMarginMilliseconds: refreshMargin,
+            minimumTTLMilliseconds: refreshMargin
         )
         let delegation = try await client.grantTerminalInputDelegation(
             lease: managed.value,
@@ -883,7 +913,6 @@ public actor BackendCanonicalSession {
             leaseGeneration: managed.value.leaseGeneration
         )
         managed.nextSequence = sequence + 1
-        managed.localDeadline = leaseDeadline(ttlMilliseconds: managed.ttlMilliseconds)
         if receipt.status == .indeterminate {
             terminalLeases.removeValue(forKey: key)
             throw BackendTerminalControlError.indeterminate(
@@ -938,7 +967,6 @@ public actor BackendCanonicalSession {
             leaseGeneration: managed.value.leaseGeneration
         )
         managed.nextSequence = sequence + 1
-        managed.localDeadline = leaseDeadline(ttlMilliseconds: managed.ttlMilliseconds)
         terminalLeases[key] = managed
         return receipt
     }
@@ -1466,6 +1494,20 @@ public actor BackendCanonicalSession {
         return try await client.openPresentation(view: view, zoom: zoom, scroll: scroll)
     }
 
+    /// Activates a presentation for leased terminal authority without attaching
+    /// it to a renderer worker.
+    public func activateTerminalPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64
+    ) async throws -> BackendTerminalPresentationActivation {
+        try requireConnected()
+        try requireMutationAccess(command: "activate-terminal-presentation")
+        return try await client.activateTerminalPresentation(
+            id: id,
+            expectedGeneration: expectedGeneration
+        )
+    }
+
     /// Removes one connection-owned presentation without closing its PTY.
     public func closePresentation(id: PresentationID) async throws {
         try requireConnected()
@@ -1711,6 +1753,10 @@ public actor BackendCanonicalSession {
             max(ttlMilliseconds, 1),
             Self.maximumTerminalLeaseTTLMilliseconds
         )
+        // Anchor before the RPC. The daemon starts its TTL while handling the
+        // request, so an after-response deadline could outlive server authority
+        // by one full request round trip.
+        let requestStartedAt = monotonicNowNanoseconds()
         let response = try await client.acquireTerminalLease(
             kind: kind,
             surfaceID: surfaceID,
@@ -1753,7 +1799,10 @@ public actor BackendCanonicalSession {
             value: lease,
             nextSequence: lease.nextSequence,
             ttlMilliseconds: effectiveTTL,
-            localDeadline: leaseDeadline(ttlMilliseconds: effectiveTTL)
+            localDeadlineNanoseconds: leaseDeadline(
+                startingAt: requestStartedAt,
+                ttlMilliseconds: effectiveTTL
+            )
         )
         return lease
     }
@@ -1763,6 +1812,24 @@ public actor BackendCanonicalSession {
         surfaceID: SurfaceID,
         presentationID: PresentationID,
         presentationGeneration: UInt64
+    ) async throws -> ManagedTerminalLease {
+        try await refreshedTerminalLeaseIfNeeded(
+            kind: kind,
+            surfaceID: surfaceID,
+            presentationID: presentationID,
+            presentationGeneration: presentationGeneration,
+            refreshMarginMilliseconds: Self.terminalLeaseRefreshMarginMilliseconds,
+            minimumTTLMilliseconds: nil
+        )
+    }
+
+    private func refreshedTerminalLeaseIfNeeded(
+        kind: BackendTerminalLeaseKind,
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64,
+        refreshMarginMilliseconds: UInt64,
+        minimumTTLMilliseconds: UInt64?
     ) async throws -> ManagedTerminalLease {
         try requireLeasedProtocol()
         let key = TerminalLeaseKey(surfaceID: surfaceID, kind: kind)
@@ -1775,13 +1842,48 @@ public actor BackendCanonicalSession {
             presentationID: presentationID,
             presentationGeneration: presentationGeneration
         )
-        let refreshMargin = min(
-            Self.terminalLeaseRefreshMarginMilliseconds,
-            managed.ttlMilliseconds
+        if let minimumTTLMilliseconds {
+            let minimumTTL = min(
+                max(minimumTTLMilliseconds, 1),
+                Self.maximumTerminalLeaseTTLMilliseconds
+            )
+            if managed.ttlMilliseconds < minimumTTL {
+                _ = try await acquireTerminalLeaseWithoutSerialization(
+                    kind: kind,
+                    surfaceID: surfaceID,
+                    presentationID: presentationID,
+                    presentationGeneration: presentationGeneration,
+                    ttlMilliseconds: minimumTTL
+                )
+                guard let upgraded = terminalLeases[key] else {
+                    throw BackendTerminalControlError.leaseUnavailable
+                }
+                managed = upgraded
+            }
+        }
+        let now = monotonicNowNanoseconds()
+        if managed.localDeadlineNanoseconds <= now {
+            // A locally elapsed claim is never renewed by stale ID. Reacquire
+            // under the same presentation: cmuxd extends the same live claim,
+            // or creates a new generation after expiring it.
+            _ = try await acquireTerminalLeaseWithoutSerialization(
+                kind: kind,
+                surfaceID: surfaceID,
+                presentationID: presentationID,
+                presentationGeneration: presentationGeneration,
+                ttlMilliseconds: managed.ttlMilliseconds
+            )
+            guard let reacquired = terminalLeases[key] else {
+                throw BackendTerminalControlError.leaseUnavailable
+            }
+            return reacquired
+        }
+        let refreshMargin = min(refreshMarginMilliseconds, managed.ttlMilliseconds)
+        let refreshThreshold = now.addingClamped(
+            refreshMargin.multipliedClamped(by: 1_000_000)
         )
-        if managed.localDeadline <= clock.now.advanced(
-            by: .milliseconds(Int64(refreshMargin))
-        ) {
+        if managed.localDeadlineNanoseconds <= refreshThreshold {
+            let requestStartedAt = monotonicNowNanoseconds()
             let response = try await client.renewTerminalLease(
                 managed.value,
                 ttlMilliseconds: managed.ttlMilliseconds
@@ -1800,7 +1902,10 @@ public actor BackendCanonicalSession {
                 connectionID: managed.value.connectionID,
                 response: response
             )
-            managed.localDeadline = leaseDeadline(ttlMilliseconds: managed.ttlMilliseconds)
+            managed.localDeadlineNanoseconds = leaseDeadline(
+                startingAt: requestStartedAt,
+                ttlMilliseconds: managed.ttlMilliseconds
+            )
             terminalLeases[key] = managed
         }
         return managed
@@ -1883,8 +1988,11 @@ public actor BackendCanonicalSession {
         identifier == UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
     }
 
-    private func leaseDeadline(ttlMilliseconds: UInt64) -> ContinuousClock.Instant {
-        clock.now.advanced(by: .milliseconds(Int64(ttlMilliseconds)))
+    private func leaseDeadline(
+        startingAt start: UInt64,
+        ttlMilliseconds: UInt64
+    ) -> UInt64 {
+        start.addingClamped(ttlMilliseconds.multipliedClamped(by: 1_000_000))
     }
 
     private func inputGroupPlan(
@@ -2155,5 +2263,17 @@ private extension CanonicalTopology {
             }
         }
         return nil
+    }
+}
+
+private extension UInt64 {
+    func addingClamped(_ other: UInt64) -> UInt64 {
+        let (result, overflow) = addingReportingOverflow(other)
+        return overflow ? .max : result
+    }
+
+    func multipliedClamped(by other: UInt64) -> UInt64 {
+        let (result, overflow) = multipliedReportingOverflow(by: other)
+        return overflow ? .max : result
     }
 }

@@ -862,6 +862,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             clipboardWriter(clipboardText)
         }
 
+        if let activation = outcome.rendererActivation {
+            try await installRendererActivation(activation)
+        }
         if let attachment = outcome.rendererAttachment {
             try await installRendererAttachment(attachment)
         }
@@ -1016,6 +1019,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             processMetadata: outcome.processMetadata,
             needsCloseConfirmation: outcome.needsCloseConfirmation
         )
+        if let activation = outcome.rendererActivation {
+            try await installRendererActivation(activation)
+        }
         if let attachment = outcome.rendererAttachment {
             try await installRendererAttachment(attachment)
         }
@@ -1259,6 +1265,17 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         await rotateReceiverAfterQuiescenceProof()
         rendererReconfigureNeeded = true
         scheduleDrain()
+    }
+
+    private func installRendererActivation(
+        _ activation: TerminalBackendRendererActivation
+    ) async throws {
+        guard visible,
+              activation.presentationID == presentationID,
+              let receiver else { return }
+        try await receiver.authorize(worker: activation.worker)
+        await receiver.updateFence(activation.fence)
+        try await client.activateRenderer(activation)
     }
 
     private func handleRendererEvent(_ event: TerminalBackendRendererEvent) async {

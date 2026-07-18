@@ -84,6 +84,23 @@ struct UnavailablePersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
     }
 }
 
+private struct UnavailableMobileTerminalInputAuthority:
+    BackendTerminalCompatibilityInputAuthority {
+    func authorizeTerminalCompatibilityInput(
+        surfaceID _: SurfaceID,
+        delegateIdentity _: BackendClientRegistrationIdentity,
+        replacing _: BackendTerminalInputDelegation?
+    ) async throws -> BackendTerminalInputDelegation {
+        throw MobileTerminalDataPlaneError.unavailable
+    }
+
+    func revokeTerminalCompatibilityInput(
+        surfaceID _: SurfaceID,
+        delegateIdentity _: BackendClientRegistrationIdentity,
+        delegation _: BackendTerminalInputDelegation
+    ) async throws {}
+}
+
 /// Embedded-mode adapter over the existing libghostty PTY tee.
 actor EmbeddedMobileTerminalDataPlane: MobileTerminalDataPlane {
     nonisolated let profile = MobileTerminalDataPlaneProfile.embeddedGhostty
@@ -259,6 +276,7 @@ protocol MobileBackendTerminalCompatibilitySession: Sendable {
 extension BackendTerminalCompatibilitySession: MobileBackendTerminalCompatibilitySession {}
 
 struct MobileBackendTerminalCompatibilityAttachment: Sendable {
+    let clientUUID: UUID
     let session: any MobileBackendTerminalCompatibilitySession
     let snapshot: BackendTerminalCompatibilitySnapshot
 }
@@ -274,13 +292,15 @@ struct MobileBackendTerminalCompatibilityAttachment: Sendable {
 /// entry expires, so an abandoned RPC cannot retain a daemon connection.
 actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
     typealias ReadinessProvider = @Sendable () async throws -> BackendServiceBootstrapResult
-    typealias SessionFactory = @Sendable (UUID) async throws ->
+    typealias SessionFactory = @Sendable (_ surfaceID: UUID, _ clientUUID: UUID) async throws ->
         MobileBackendTerminalCompatibilityAttachment
+    typealias ClientUUIDProvider = @Sendable () -> UUID
     typealias PendingSleep = @Sendable (Duration) async throws -> Void
 
     static let defaultMaximumPendingReplayCount = 16
     static let defaultMaximumPendingReplayBytes = 16 * 1_024 * 1_024
     static let defaultPendingReplayTTL = Duration.seconds(15)
+    static let maximumClientUUIDAllocationAttempts = 8
     /// Cursorless compatibility lanes use a fixed wire-space offset so a
     /// synthesized VT snapshot can be represented without pretending its byte
     /// length is part of cmuxd's canonical raw-output history. The offset is
@@ -294,10 +314,15 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
     static let maximumBufferedEventsPerCompatibilityStage = 2
     static let maximumBufferedFramesPerLane = 2
 
+    private struct ReservedAttachment: Sendable {
+        let attachment: MobileBackendTerminalCompatibilityAttachment
+        let reservationToken: UUID
+    }
+
     private struct PendingReplay {
         let id: UUID
         let surfaceID: UUID
-        let attachment: MobileBackendTerminalCompatibilityAttachment
+        let reservedAttachment: ReservedAttachment
     }
 
     nonisolated let profile = MobileTerminalDataPlaneProfile.backendCompatibility
@@ -306,16 +331,21 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
     private let maximumPendingReplayBytes: Int
     private let pendingReplayTTL: Duration
     private let pendingSleep: PendingSleep
+    private let clientUUIDProvider: ClientUUIDProvider
     private var pendingByID: [UUID: PendingReplay] = [:]
     private var pendingIDsBySurfaceID: [UUID: [UUID]] = [:]
     private var pendingOrder: [UUID] = []
     private var pendingReplayBytes = 0
     private var expirationTasksByID: [UUID: Task<Void, Never>] = [:]
+    private var clientUUIDReservationTokens: [UUID: UUID] = [:]
 
     init(
         readinessProvider: @escaping ReadinessProvider,
         socketPath: String,
         processInstanceUUID: UUID,
+        inputAuthority: any BackendTerminalCompatibilityInputAuthority =
+            UnavailableMobileTerminalInputAuthority(),
+        clientUUIDProvider: @escaping ClientUUIDProvider = { UUID() },
         maximumPendingReplayCount: Int = defaultMaximumPendingReplayCount,
         maximumPendingReplayBytes: Int = defaultMaximumPendingReplayBytes,
         pendingReplayTTL: Duration = defaultPendingReplayTTL,
@@ -324,7 +354,7 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         }
     ) {
         self.init(
-            sessionFactory: { surfaceID in
+            sessionFactory: { surfaceID, clientUUID in
                 let readiness: BackendServiceReadiness
                 switch try await readinessProvider() {
                 case .ready(let value):
@@ -334,9 +364,7 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
                     throw MobileTerminalDataPlaneError.unavailable
                 }
                 guard let registrationIdentity = BackendClientRegistrationIdentity(
-                    // A lane must not duplicate the canonical frontend UUID,
-                    // because daemon delegation rejects duplicate live claims.
-                    clientUUID: UUID(),
+                    clientUUID: clientUUID,
                     processInstanceUUID: processInstanceUUID
                 ) else {
                     throw MobileTerminalDataPlaneError.unavailable
@@ -350,6 +378,7 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
                         peerIdentity: readiness.peerIdentity
                     ),
                     registrationIdentity: registrationIdentity,
+                    inputAuthority: inputAuthority,
                     eventCapacity:
                         PersistentMobileTerminalDataPlane
                             .maximumBufferedEventsPerCompatibilityStage
@@ -359,6 +388,7 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
                         surfaceID: SurfaceID(rawValue: surfaceID)
                     )
                     return MobileBackendTerminalCompatibilityAttachment(
+                        clientUUID: clientUUID,
                         session: session,
                         snapshot: snapshot
                     )
@@ -370,7 +400,8 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
             maximumPendingReplayCount: maximumPendingReplayCount,
             maximumPendingReplayBytes: maximumPendingReplayBytes,
             pendingReplayTTL: pendingReplayTTL,
-            pendingSleep: pendingSleep
+            pendingSleep: pendingSleep,
+            clientUUIDProvider: clientUUIDProvider
         )
     }
 
@@ -379,7 +410,8 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         maximumPendingReplayCount: Int,
         maximumPendingReplayBytes: Int = defaultMaximumPendingReplayBytes,
         pendingReplayTTL: Duration,
-        pendingSleep: @escaping PendingSleep
+        pendingSleep: @escaping PendingSleep,
+        clientUUIDProvider: @escaping ClientUUIDProvider = { UUID() }
     ) {
         precondition(maximumPendingReplayCount > 0)
         precondition(maximumPendingReplayBytes > 0)
@@ -388,37 +420,48 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         self.maximumPendingReplayBytes = maximumPendingReplayBytes
         self.pendingReplayTTL = pendingReplayTTL
         self.pendingSleep = pendingSleep
+        self.clientUUIDProvider = clientUUIDProvider
     }
 
     func replay(surfaceID: UUID) async throws -> MobileTerminalDataPlaneReplay {
-        let attachment = try await sessionFactory(surfaceID)
-        try await storePending(surfaceID: surfaceID, attachment: attachment)
-        return Self.replayValue(attachment.snapshot)
+        let reserved = try await makeAttachment(surfaceID: surfaceID)
+        try await storePending(surfaceID: surfaceID, reservedAttachment: reserved)
+        return Self.replayValue(reserved.attachment.snapshot)
     }
 
     func openLane(
         surfaceID: UUID,
         cursor: UInt64?
     ) async throws -> any MobileTerminalDataPlaneLane {
-        let attachment: MobileBackendTerminalCompatibilityAttachment
+        let reserved: ReservedAttachment
         let cursorSpace: PersistentMobileTerminalDataPlaneLane.CursorSpace
         if let cursor,
            let pending = takeOldestPending(surfaceID: surfaceID, cursor: cursor) {
-            attachment = pending.attachment
+            reserved = pending.reservedAttachment
             cursorSpace = .canonicalHandoff
         } else {
-            attachment = try await sessionFactory(surfaceID)
+            reserved = try await makeAttachment(surfaceID: surfaceID)
             cursorSpace = .virtualReplay
         }
         do {
             return try await PersistentMobileTerminalDataPlaneLane(
-                session: attachment.session,
-                snapshot: attachment.snapshot,
+                session: reserved.attachment.session,
+                snapshot: reserved.attachment.snapshot,
                 requestedCursor: cursor,
-                cursorSpace: cursorSpace
+                cursorSpace: cursorSpace,
+                onClose: { [weak self] in
+                    await self?.releaseClientUUID(
+                        reserved.attachment.clientUUID,
+                        reservationToken: reserved.reservationToken
+                    )
+                }
             )
         } catch {
-            await attachment.session.close()
+            await reserved.attachment.session.close()
+            releaseClientUUID(
+                reserved.attachment.clientUUID,
+                reservationToken: reserved.reservationToken
+            )
             throw error
         }
     }
@@ -426,7 +469,7 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
     func closePendingReplays() async {
         let ids = pendingOrder
         let pending = ids.compactMap { removePending(id: $0) }
-        for replay in pending { await replay.attachment.session.close() }
+        for replay in pending { await retire(replay.reservedAttachment) }
     }
 
     func pendingReplayCountForTesting() -> Int {
@@ -437,27 +480,67 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         pendingReplayBytes
     }
 
+    func liveClientUUIDsForTesting() -> Set<UUID> {
+        Set(clientUUIDReservationTokens.keys)
+    }
+
+    private func makeAttachment(
+        surfaceID: UUID
+    ) async throws -> ReservedAttachment {
+        for _ in 0 ..< Self.maximumClientUUIDAllocationAttempts {
+            let clientUUID = clientUUIDProvider()
+            guard !clientUUID.isNil,
+                  clientUUIDReservationTokens[clientUUID] == nil else {
+                continue
+            }
+            let reservationToken = UUID()
+            clientUUIDReservationTokens[clientUUID] = reservationToken
+            do {
+                let attachment = try await sessionFactory(surfaceID, clientUUID)
+                guard attachment.clientUUID == clientUUID else {
+                    await attachment.session.close()
+                    releaseClientUUID(
+                        clientUUID,
+                        reservationToken: reservationToken
+                    )
+                    throw MobileTerminalDataPlaneError.unavailable
+                }
+                return ReservedAttachment(
+                    attachment: attachment,
+                    reservationToken: reservationToken
+                )
+            } catch {
+                releaseClientUUID(
+                    clientUUID,
+                    reservationToken: reservationToken
+                )
+                throw error
+            }
+        }
+        throw MobileTerminalDataPlaneError.unavailable
+    }
+
     private func storePending(
         surfaceID: UUID,
-        attachment: MobileBackendTerminalCompatibilityAttachment
+        reservedAttachment: ReservedAttachment
     ) async throws {
-        let replayBytes = attachment.snapshot.replay.count
+        let replayBytes = reservedAttachment.attachment.snapshot.replay.count
         guard replayBytes <= maximumPendingReplayBytes else {
-            await attachment.session.close()
+            await retire(reservedAttachment)
             throw MobileTerminalDataPlaneError.streamOverflow
         }
-        var evictedSessions: [any MobileBackendTerminalCompatibilitySession] = []
+        var evictedAttachments: [ReservedAttachment] = []
         while pendingOrder.count >= maximumPendingReplayCount
                 || pendingReplayBytes > maximumPendingReplayBytes - replayBytes,
-              let oldestID = pendingOrder.first,
-              let evicted = removePending(id: oldestID) {
-            evictedSessions.append(evicted.attachment.session)
+               let oldestID = pendingOrder.first,
+               let evicted = removePending(id: oldestID) {
+            evictedAttachments.append(evicted.reservedAttachment)
         }
         let id = UUID()
         let pending = PendingReplay(
             id: id,
             surfaceID: surfaceID,
-            attachment: attachment
+            reservedAttachment: reservedAttachment
         )
         pendingByID[id] = pending
         pendingIDsBySurfaceID[surfaceID, default: []].append(id)
@@ -474,7 +557,7 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
             }
             await self?.expirePending(id: id)
         }
-        for session in evictedSessions { await session.close() }
+        for attachment in evictedAttachments { await retire(attachment) }
     }
 
     private func takeOldestPending(
@@ -482,7 +565,7 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         cursor: UInt64
     ) -> PendingReplay? {
         guard let id = pendingIDsBySurfaceID[surfaceID]?.first(where: {
-            pendingByID[$0]?.attachment.snapshot.sequence == cursor
+            pendingByID[$0]?.reservedAttachment.attachment.snapshot.sequence == cursor
         }) else { return nil }
         return removePending(id: id)
     }
@@ -491,7 +574,7 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         guard let expired = removePending(id: id, cancelExpiration: false) else {
             return
         }
-        await expired.attachment.session.close()
+        await retire(expired.reservedAttachment)
     }
 
     private func removePending(
@@ -499,7 +582,7 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         cancelExpiration: Bool = true
     ) -> PendingReplay? {
         guard let pending = pendingByID.removeValue(forKey: id) else { return nil }
-        pendingReplayBytes -= pending.attachment.snapshot.replay.count
+        pendingReplayBytes -= pending.reservedAttachment.attachment.snapshot.replay.count
         if let expiration = expirationTasksByID.removeValue(forKey: id),
            cancelExpiration {
             expiration.cancel()
@@ -510,6 +593,24 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
             pendingIDsBySurfaceID[pending.surfaceID] = nil
         }
         return pending
+    }
+
+    private func retire(_ reserved: ReservedAttachment) async {
+        await reserved.attachment.session.close()
+        releaseClientUUID(
+            reserved.attachment.clientUUID,
+            reservationToken: reserved.reservationToken
+        )
+    }
+
+    private func releaseClientUUID(
+        _ clientUUID: UUID,
+        reservationToken: UUID
+    ) {
+        guard clientUUIDReservationTokens[clientUUID] == reservationToken else {
+            return
+        }
+        clientUUIDReservationTokens.removeValue(forKey: clientUUID)
     }
 
     private nonisolated static func replayValue(
@@ -538,6 +639,7 @@ private actor PersistentMobileTerminalDataPlaneLane: MobileTerminalDataPlaneLane
 
     private let session: any MobileBackendTerminalCompatibilitySession
     private let stream: AsyncThrowingStream<MobileTerminalDataPlaneFrame, any Error>
+    private let onClose: @Sendable () async -> Void
     private var producer: Task<Void, Never>?
     private var framesClaimed = false
 
@@ -545,7 +647,8 @@ private actor PersistentMobileTerminalDataPlaneLane: MobileTerminalDataPlaneLane
         session: any MobileBackendTerminalCompatibilitySession,
         snapshot: BackendTerminalCompatibilitySnapshot,
         requestedCursor: UInt64?,
-        cursorSpace: CursorSpace
+        cursorSpace: CursorSpace,
+        onClose: @escaping @Sendable () async -> Void
     ) async throws {
         guard snapshot.replay.count <= BackendTerminalCompatibilitySession.maximumReplayBytes else {
             await session.close()
@@ -574,6 +677,7 @@ private actor PersistentMobileTerminalDataPlaneLane: MobileTerminalDataPlaneLane
             }
         }
         self.session = session
+        self.onClose = onClose
         let source = try await session.events()
         let pair = AsyncThrowingStream<MobileTerminalDataPlaneFrame, any Error>.makeStream(
             bufferingPolicy: .bufferingOldest(
@@ -644,10 +748,11 @@ private actor PersistentMobileTerminalDataPlaneLane: MobileTerminalDataPlaneLane
                 pair.continuation.finish()
             } catch {
                 pair.continuation.finish(throwing: error)
-                // Overflow or source failure retires only this phone's
-                // dedicated daemon connection.
-                await session.close()
             }
+            // Normal EOF, overflow, cancellation, and source failure all retire
+            // only this phone's dedicated daemon connection and client UUID.
+            await session.close()
+            await onClose()
         }
     }
 
@@ -669,6 +774,7 @@ private actor PersistentMobileTerminalDataPlaneLane: MobileTerminalDataPlaneLane
         producer?.cancel()
         producer = nil
         await session.close()
+        await onClose()
     }
 
     private nonisolated static func yield(
@@ -685,6 +791,16 @@ private actor PersistentMobileTerminalDataPlaneLane: MobileTerminalDataPlaneLane
         @unknown default:
             throw MobileTerminalDataPlaneError.unavailable
         }
+    }
+}
+
+private extension UUID {
+    static let nilUUID = UUID(
+        uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    )
+
+    var isNil: Bool {
+        self == Self.nilUUID
     }
 }
 

@@ -95,6 +95,34 @@ public extension BackendProtocolClient {
         )
     }
 
+    /// Releases one exact renderer epoch to receive its endpoint and scenes.
+    func activateRendererPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64,
+        rendererGeneration: UInt64,
+        rendererEpoch: UInt64,
+        workerProcessID: UInt32,
+        workerProcessInstanceToken: BackendRendererProcessInstanceToken
+    ) async throws {
+        let _: BackendEmptyResponse = try await call(
+            command: "activate-renderer-presentation",
+            parameters: [
+                "presentation_id": .string(id.description),
+                "expected_generation": .unsignedInteger(expectedGeneration),
+                "renderer_generation": .unsignedInteger(rendererGeneration),
+                "renderer_epoch": .unsignedInteger(rendererEpoch),
+                "worker_pid": .unsignedInteger(UInt64(workerProcessID)),
+                "worker_process_start_time_seconds": .unsignedInteger(
+                    workerProcessInstanceToken.startTimeSeconds
+                ),
+                "worker_process_start_time_microseconds": .unsignedInteger(
+                    workerProcessInstanceToken.startTimeMicroseconds
+                ),
+            ],
+            as: BackendEmptyResponse.self
+        )
+    }
+
     /// Detaches renderer state without closing the presentation or canonical PTY.
     func detachRendererPresentation(
         id: PresentationID,

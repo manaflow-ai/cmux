@@ -246,26 +246,36 @@ public actor TerminalRenderFrameReceiver {
         guard surfaceDescriptorMatches(surface, metadata: metadata) else {
             return .dropped(
                 .surfaceDescriptorMismatch,
-                release: TerminalRenderFrameRelease(
-                    metadata: metadata,
-                    surfaceID: surface.identifier
-                )
+                release: expectedWorker.map {
+                    TerminalRenderFrameRelease(
+                        metadata: metadata,
+                        surfaceID: surface.identifier,
+                        workerIdentity: $0
+                    )
+                }
             )
         }
         if let rejection {
             return .dropped(
                 .stale(rejection),
-                release: TerminalRenderFrameRelease(
-                    metadata: metadata,
-                    surfaceID: surface.identifier
-                )
+                release: expectedWorker.map {
+                    TerminalRenderFrameRelease(
+                        metadata: metadata,
+                        surfaceID: surface.identifier,
+                        workerIdentity: $0
+                    )
+                }
             )
         }
 
+        guard let expectedWorker else {
+            return .dropped(.peerIdentityMismatch, release: nil)
+        }
         acceptance = tentativeAcceptance
         let authenticatedWorker = try TerminalRenderWorkerIdentity(
             processID: rawResult.senderProcessID,
-            effectiveUserID: rawResult.senderEffectiveUserID
+            effectiveUserID: rawResult.senderEffectiveUserID,
+            processInstanceToken: expectedWorker.processInstanceToken
         )
         return .frame(TerminalRenderFrame(
             metadata: metadata,
@@ -294,7 +304,8 @@ public actor TerminalRenderFrameReceiver {
             case .frame(let frame):
                 releases.append(TerminalRenderFrameRelease(
                     metadata: frame.metadata,
-                    surfaceID: frame.surface.identifier
+                    surfaceID: frame.surface.identifier,
+                    workerIdentity: frame.workerIdentity
                 ))
             case .dropped(_, let release):
                 if let release {

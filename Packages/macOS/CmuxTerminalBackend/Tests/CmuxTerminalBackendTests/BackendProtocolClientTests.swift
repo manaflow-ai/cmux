@@ -172,6 +172,36 @@ struct BackendProtocolClientTests {
         ))
         #expect(try await openTask.value.generation == 1)
 
+        let activationTask = Task {
+            try await client.activateTerminalPresentation(
+                id: presentationID,
+                expectedGeneration: 1
+            )
+        }
+        let activationData = await transport.nextSent()
+        let activationRequest = try #require(
+            try JSONSerialization.jsonObject(with: activationData) as? [String: Any]
+        )
+        #expect(activationRequest["cmd"] as? String == "activate-terminal-presentation")
+        #expect(activationRequest["presentation_id"] as? String == presentationID.description)
+        #expect(
+            try #require(activationRequest["expected_generation"] as? NSNumber).uint64Value
+                == 1
+        )
+        await transport.enqueue(try encodedJSON([
+            "id": try #require(activationRequest["id"] as? NSNumber).uint64Value,
+            "ok": true,
+            "data": [
+                "presentation_id": presentationID.description,
+                "presentation_generation": 1,
+                "surface_uuid": surface.description,
+            ],
+        ]))
+        let activation = try await activationTask.value
+        #expect(activation.presentationID == presentationID)
+        #expect(activation.presentationGeneration == 1)
+        #expect(activation.surfaceID == surface)
+
         let updateTask = Task {
             try await client.updatePresentation(
                 id: presentationID,
