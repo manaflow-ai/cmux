@@ -46,6 +46,7 @@ public actor BackendCanonicalSession {
     private var advertisedCapabilities: Set<String> = []
     private var negotiatedTerminalControl: BackendTerminalControlProtocol?
     private var clientRegistration: BackendClientRegistration?
+    private var topologyMutationLease: BackendTopologyMutationLease?
     private var terminalLeases: [TerminalLeaseKey: ManagedTerminalLease] = [:]
     private var terminalOperationsInFlight: Set<TerminalLeaseKey> = []
     private var terminalOperationWaiters: [
@@ -216,6 +217,35 @@ public actor BackendCanonicalSession {
         activityProjection.snapshot(liveSurfaceIDs: projection.value?.liveSurfaceIDs)
     }
 
+    /// Binds one snapshot expectation to the server-issued lease for this live connection.
+    public func makeTopologyMutationExpectation(
+        requestID: UUID,
+        authority: BackendAuthority,
+        revision: UInt64
+    ) async throws -> BackendTopologyMutationExpectation {
+        try requireCanonicalTopologyMutation(command: "canonical-topology-mutation")
+        try requireNonNil(requestID)
+        guard projection.authority == authority,
+              projection.revision == revision
+        else {
+            throw BackendProtocolError.invalidTopology(
+                "canonical topology mutation expectation is not the current installed snapshot"
+            )
+        }
+        guard let registration = clientRegistration,
+              let topologyMutationLease,
+              topologyMutationLease.connectionID == registration.connectionID
+        else {
+            throw BackendTerminalControlError.protocolNotNegotiated
+        }
+        return BackendTopologyMutationExpectation(
+            requestID: requestID,
+            authority: authority,
+            revision: revision,
+            topologyLease: topologyMutationLease
+        )
+    }
+
     /// Durably marks one activity sequence as observed by this stable frontend reader.
     @discardableResult
     public func markTerminalSeen(
@@ -301,7 +331,7 @@ public actor BackendCanonicalSession {
         columns: UInt16? = nil,
         rows: UInt16? = nil
     ) async throws -> BackendSurfacePlacement {
-        try requireCanonicalTopologyMutation(command: "canonical-new-workspace")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-new-workspace")
         return try await client.canonicalNewWorkspace(
             expectation: expectation,
             workspaceID: workspaceID,
@@ -955,7 +985,7 @@ public actor BackendCanonicalSession {
         columns: UInt16? = nil,
         rows: UInt16? = nil
     ) async throws -> BackendSurfacePlacement {
-        try requireCanonicalTopologyMutation(command: "canonical-new-tab")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-new-tab")
         return try await client.canonicalNewTerminalTab(
             expectation: expectation,
             paneID: paneID,
@@ -976,7 +1006,7 @@ public actor BackendCanonicalSession {
         columns: UInt16? = nil,
         rows: UInt16? = nil
     ) async throws -> BackendSurfacePlacement {
-        try requireCanonicalTopologyMutation(command: "canonical-new-browser-workspace")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-new-browser-workspace")
         return try await client.canonicalNewBrowserWorkspace(
             expectation: expectation,
             workspaceID: workspaceID,
@@ -997,7 +1027,7 @@ public actor BackendCanonicalSession {
         columns: UInt16? = nil,
         rows: UInt16? = nil
     ) async throws -> BackendSurfacePlacement {
-        try requireCanonicalTopologyMutation(command: "canonical-new-browser-tab")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-new-browser-tab")
         return try await client.canonicalNewBrowserTab(
             expectation: expectation,
             paneID: paneID,
@@ -1019,7 +1049,7 @@ public actor BackendCanonicalSession {
         columns: UInt16? = nil,
         rows: UInt16? = nil
     ) async throws -> BackendSurfacePlacement {
-        try requireCanonicalTopologyMutation(command: "canonical-split-browser-pane")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-split-browser-pane")
         guard initialRatio.isFinite, initialRatio > 0, initialRatio < 1 else {
             throw BackendProtocolError.malformedMessage
         }
@@ -1045,7 +1075,7 @@ public actor BackendCanonicalSession {
         columns: UInt16? = nil,
         rows: UInt16? = nil
     ) async throws -> BackendSurfacePlacement {
-        try requireCanonicalTopologyMutation(command: "canonical-split-pane")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-split-pane")
         guard initialRatio.isFinite, initialRatio > 0, initialRatio < 1 else {
             throw BackendProtocolError.malformedMessage
         }
@@ -1068,7 +1098,7 @@ public actor BackendCanonicalSession {
         direction: BackendSplitDirection,
         initialRatio: Float
     ) async throws -> BackendSurfacePlacement {
-        try requireCanonicalTopologyMutation(command: "canonical-split-tab")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-split-tab")
         guard initialRatio.isFinite, initialRatio > 0, initialRatio < 1 else {
             throw BackendProtocolError.malformedMessage
         }
@@ -1085,7 +1115,7 @@ public actor BackendCanonicalSession {
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID
     ) async throws -> BackendTopologyMutationReceipt {
-        try requireCanonicalTopologyMutation(command: "canonical-close-pane")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-close-pane")
         return try await client.canonicalClosePane(expectation: expectation, paneID: paneID)
     }
 
@@ -1093,7 +1123,7 @@ public actor BackendCanonicalSession {
         expectation: BackendTopologyMutationExpectation,
         workspaceID: WorkspaceID
     ) async throws -> BackendTopologyMutationReceipt {
-        try requireCanonicalTopologyMutation(command: "canonical-close-workspace")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-close-workspace")
         return try await client.canonicalCloseWorkspace(
             expectation: expectation,
             workspaceID: workspaceID
@@ -1105,7 +1135,7 @@ public actor BackendCanonicalSession {
         workspaceID: WorkspaceID,
         name: String
     ) async throws -> BackendTopologyMutationReceipt {
-        try requireCanonicalTopologyMutation(command: "canonical-rename-workspace")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-rename-workspace")
         return try await client.canonicalRenameWorkspace(
             expectation: expectation,
             workspaceID: workspaceID,
@@ -1118,7 +1148,7 @@ public actor BackendCanonicalSession {
         surfaceID: SurfaceID,
         name: String
     ) async throws -> BackendTopologyMutationReceipt {
-        try requireCanonicalTopologyMutation(command: "canonical-rename-surface")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-rename-surface")
         return try await client.canonicalRenameSurface(
             expectation: expectation,
             surfaceID: surfaceID,
@@ -1132,7 +1162,7 @@ public actor BackendCanonicalSession {
         paneID: PaneID,
         index: UInt64
     ) async throws -> BackendTopologyMutationReceipt {
-        try requireCanonicalTopologyMutation(command: "canonical-move-tab")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-move-tab")
         return try await client.canonicalMoveTab(
             expectation: expectation,
             surfaceID: surfaceID,
@@ -1146,7 +1176,7 @@ public actor BackendCanonicalSession {
         paneID: PaneID,
         surfaceIDs: [SurfaceID]
     ) async throws -> BackendTopologyMutationReceipt {
-        try requireCanonicalTopologyMutation(command: "canonical-reorder-tabs")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-reorder-tabs")
         return try await client.canonicalReorderTabs(
             expectation: expectation,
             paneID: paneID,
@@ -1158,7 +1188,7 @@ public actor BackendCanonicalSession {
         expectation: BackendTopologyMutationExpectation,
         workspaceIDs: [WorkspaceID]
     ) async throws -> BackendTopologyMutationReceipt {
-        try requireCanonicalTopologyMutation(command: "canonical-reorder-workspaces")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-reorder-workspaces")
         return try await client.canonicalReorderWorkspaces(
             expectation: expectation,
             workspaceIDs: workspaceIDs
@@ -1172,7 +1202,7 @@ public actor BackendCanonicalSession {
         name: String? = nil,
         index: UInt64? = nil
     ) async throws -> BackendSurfacePlacement {
-        try requireCanonicalTopologyMutation(command: "canonical-move-tab-to-new-workspace")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-move-tab-to-new-workspace")
         return try await client.canonicalMoveTabToNewWorkspace(
             expectation: expectation,
             surfaceID: surfaceID,
@@ -1188,7 +1218,7 @@ public actor BackendCanonicalSession {
         direction: BackendSplitDirection,
         ratio: Float
     ) async throws -> BackendTopologyMutationReceipt {
-        try requireCanonicalTopologyMutation(command: "canonical-set-split-ratio")
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-set-split-ratio")
         guard ratio.isFinite, ratio > 0, ratio < 1 else {
             throw BackendProtocolError.malformedMessage
         }
@@ -1414,6 +1444,7 @@ public actor BackendCanonicalSession {
         case .legacyV8:
             negotiatedTerminalControl = .legacyV8
             clientRegistration = nil
+            topologyMutationLease = nil
         case .leasedV9:
             let missing = BackendHandshakePolicy.terminalControlV9Capabilities
                 .subtracting(identify.capabilities)
@@ -1427,12 +1458,16 @@ public actor BackendCanonicalSession {
             guard registration.protocolVersion == protocolVersion,
                   registration.clientUUID == registrationIdentity.clientUUID,
                   registration.processInstanceUUID == registrationIdentity.processInstanceUUID,
-                  !isNil(registration.connectionID)
+                  !isNil(registration.connectionID),
+                  registration.clientKind == .swiftShell,
+                  registration.role == .trustedFrontend,
+                  let topologyMutationLease = registration.topologyMutationLease
             else {
                 throw BackendTerminalControlError.registrationIdentityMismatch
             }
             negotiatedTerminalControl = .leasedV9
             clientRegistration = registration
+            self.topologyMutationLease = topologyMutationLease
         }
     }
 
@@ -1673,6 +1708,7 @@ public actor BackendCanonicalSession {
     private func resetTerminalControlState() {
         negotiatedTerminalControl = nil
         clientRegistration = nil
+        topologyMutationLease = nil
         terminalLeases.removeAll()
     }
 
@@ -1800,6 +1836,27 @@ public actor BackendCanonicalSession {
         try requireConnected()
         try requireMutationAccess(command: command)
         try requireCapability(Self.canonicalTopologyMutationsCapability)
+    }
+
+    private func requireCanonicalTopologyMutation(
+        _ expectation: BackendTopologyMutationExpectation,
+        command: String
+    ) throws {
+        try requireCanonicalTopologyMutation(command: command)
+        guard expectation.authority == projection.authority,
+              expectation.revision == projection.revision
+        else {
+            throw BackendProtocolError.invalidTopology(
+                "canonical topology mutation expectation is not the current installed snapshot"
+            )
+        }
+        guard let registration = clientRegistration,
+              let topologyMutationLease,
+              topologyMutationLease.connectionID == registration.connectionID,
+              expectation.topologyLease == topologyMutationLease
+        else {
+            throw BackendTerminalControlError.staleConnection
+        }
     }
 
     private func requireCapability(_ capability: String) throws {

@@ -18,6 +18,9 @@ struct BackendTerminalControlCommandTests {
         let connectionID = try #require(
             UUID(uuidString: "33333333-3333-4333-8333-333333333333")
         )
+        let topologyLeaseID = try #require(
+            UUID(uuidString: "34343434-3434-4434-8434-343434343434")
+        )
         let identity = try #require(
             BackendClientRegistrationIdentity(
                 clientUUID: clientUUID,
@@ -45,9 +48,21 @@ struct BackendTerminalControlCommandTests {
                 "connection_id": connectionID.uuidString,
                 "client_uuid": clientUUID.uuidString,
                 "process_instance_uuid": processUUID.uuidString,
+                "client_kind": "swift-shell",
+                "role": "trusted-frontend",
+                "topology_lease_id": topologyLeaseID.uuidString,
+                "topology_lease_generation": 2,
             ]
         ))
-        #expect(try await registrationTask.value.connectionID == connectionID)
+        let registration = try await registrationTask.value
+        #expect(registration.connectionID == connectionID)
+        #expect(registration.clientKind == .swiftShell)
+        #expect(registration.role == .trustedFrontend)
+        #expect(registration.topologyMutationLease == BackendTopologyMutationLease(
+            connectionID: connectionID,
+            leaseID: topologyLeaseID,
+            generation: 2
+        ))
 
         let surfaceID = SurfaceID(
             rawValue: try #require(

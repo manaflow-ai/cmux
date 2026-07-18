@@ -20,18 +20,53 @@ public enum BackendTerminalControlProtocol: UInt32, Equatable, Sendable {
     case leasedV9 = 9
 }
 
+/// Server-recognized purpose registered for one protocol-v9 connection.
+public enum BackendRegisteredClientKind: String, Decodable, Equatable, Sendable {
+    case swiftShell = "swift-shell"
+    case tui
+    case automation
+    case rendererWorker = "renderer-worker"
+    case web
+}
+
+/// Least-privilege role issued by the server after peer and kind validation.
+public enum BackendConnectionRole: String, Decodable, Equatable, Sendable {
+    case unaffiliated
+    case remoteReadOnly = "remote-read-only"
+    case trustedFrontend = "trusted-frontend"
+    case trustedAutomation = "trusted-automation"
+    case trustedRenderer = "trusted-renderer"
+}
+
 /// The server-echoed registration fence for one transport connection.
 public struct BackendClientRegistration: Decodable, Equatable, Sendable {
     public let protocolVersion: UInt32
     public let connectionID: UUID
     public let clientUUID: UUID
     public let processInstanceUUID: UUID
+    public let clientKind: BackendRegisteredClientKind?
+    public let role: BackendConnectionRole
+    public let topologyLeaseID: UUID?
+    public let topologyLeaseGeneration: UInt64?
+
+    public var topologyMutationLease: BackendTopologyMutationLease? {
+        guard let topologyLeaseID, let topologyLeaseGeneration else { return nil }
+        return BackendTopologyMutationLease(
+            connectionID: connectionID,
+            leaseID: topologyLeaseID,
+            generation: topologyLeaseGeneration
+        )
+    }
 
     private enum CodingKeys: String, CodingKey {
         case protocolVersion = "protocol"
         case connectionID = "connection_id"
         case clientUUID = "client_uuid"
         case processInstanceUUID = "process_instance_uuid"
+        case clientKind = "client_kind"
+        case role
+        case topologyLeaseID = "topology_lease_id"
+        case topologyLeaseGeneration = "topology_lease_generation"
     }
 }
 

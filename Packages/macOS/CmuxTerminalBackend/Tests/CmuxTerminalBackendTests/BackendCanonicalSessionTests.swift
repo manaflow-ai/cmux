@@ -214,6 +214,129 @@ struct BackendCanonicalSessionTests {
         await session.close()
     }
 
+    @Test("topology lease is connection-bound, generation-fenced, and cleared on close")
+    func topologyMutationLeaseLifecycle() async throws {
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let identity = fixedRegistrationIdentity()
+        let firstConnectionID = UUID()
+        let firstLeaseID = UUID()
+        let firstTransport = ScriptedBackendTransport()
+        let firstSession = BackendCanonicalSession(
+            transport: firstTransport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "lease-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity
+        )
+        let firstConnect = Task { try await firstSession.connect() }
+        try await completeV9Handshake(
+            transport: firstTransport,
+            authority: authority,
+            session: "lease-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: firstConnectionID,
+            topologyLeaseID: firstLeaseID
+        )
+        _ = try await firstConnect.value
+
+        let live = try await firstSession.makeTopologyMutationExpectation(
+            requestID: UUID(),
+            authority: authority,
+            revision: 0
+        )
+        #expect(live.topologyLease == BackendTopologyMutationLease(
+            connectionID: firstConnectionID,
+            leaseID: firstLeaseID,
+            generation: 1
+        ))
+        let sentBeforeDenials = await firstTransport.sentCount()
+        let stale = BackendTopologyMutationExpectation(
+            requestID: UUID(),
+            authority: authority,
+            revision: 0,
+            topologyLease: BackendTopologyMutationLease(
+                connectionID: firstConnectionID,
+                leaseID: firstLeaseID,
+                generation: 2
+            )!
+        )
+        await #expect(throws: BackendTerminalControlError.staleConnection) {
+            _ = try await firstSession.newWorkspace(
+                expectation: stale,
+                workspaceID: WorkspaceID(rawValue: UUID()),
+                surfaceID: SurfaceID(rawValue: UUID()),
+                name: "stale"
+            )
+        }
+        let crossConnection = BackendTopologyMutationExpectation(
+            requestID: UUID(),
+            authority: authority,
+            revision: 0,
+            topologyLease: BackendTopologyMutationLease(
+                connectionID: UUID(),
+                leaseID: UUID(),
+                generation: 1
+            )!
+        )
+        await #expect(throws: BackendTerminalControlError.staleConnection) {
+            _ = try await firstSession.newWorkspace(
+                expectation: crossConnection,
+                workspaceID: WorkspaceID(rawValue: UUID()),
+                surfaceID: SurfaceID(rawValue: UUID()),
+                name: "cross-connection"
+            )
+        }
+        #expect(await firstTransport.sentCount() == sentBeforeDenials)
+
+        await firstSession.close()
+        await #expect(throws: BackendCanonicalSessionError.notConnected) {
+            _ = try await firstSession.makeTopologyMutationExpectation(
+                requestID: UUID(),
+                authority: authority,
+                revision: 0
+            )
+        }
+
+        let secondConnectionID = UUID()
+        let secondLeaseID = UUID()
+        let secondTransport = ScriptedBackendTransport()
+        let secondSession = BackendCanonicalSession(
+            transport: secondTransport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "lease-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity
+        )
+        let secondConnect = Task { try await secondSession.connect() }
+        try await completeV9Handshake(
+            transport: secondTransport,
+            authority: authority,
+            session: "lease-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: secondConnectionID,
+            topologyLeaseID: secondLeaseID
+        )
+        _ = try await secondConnect.value
+        let rotated = try await secondSession.makeTopologyMutationExpectation(
+            requestID: UUID(),
+            authority: authority,
+            revision: 0
+        )
+        #expect(rotated.topologyLease.connectionID == secondConnectionID)
+        #expect(rotated.topologyLease.leaseID == secondLeaseID)
+        #expect(rotated.topologyLease != live.topologyLease)
+        await secondSession.close()
+    }
+
     @Test("v9 refreshes an expiring lease before ordered input")
     func refreshesTerminalControlLeaseBeforeInput() async throws {
         let transport = ScriptedBackendTransport()
@@ -952,6 +1075,7 @@ struct BackendCanonicalSessionTests {
         processID: UInt32,
         identity: BackendClientRegistrationIdentity,
         connectionID: UUID,
+        topologyLeaseID: UUID = UUID(),
         topology: [String: Any] = ["workspaces": []],
         activity: [String: Any]? = nil
     ) async throws {
@@ -1016,6 +1140,10 @@ struct BackendCanonicalSessionTests {
                 "connection_id": connectionID.uuidString,
                 "client_uuid": identity.clientUUID.uuidString,
                 "process_instance_uuid": identity.processInstanceUUID.uuidString,
+                "client_kind": "swift-shell",
+                "role": "trusted-frontend",
+                "topology_lease_id": topologyLeaseID.uuidString,
+                "topology_lease_generation": 1,
             ]
         ))
 

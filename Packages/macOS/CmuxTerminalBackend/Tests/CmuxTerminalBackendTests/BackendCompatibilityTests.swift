@@ -113,7 +113,12 @@ struct BackendCompatibilityTests {
                         expectation: BackendTopologyMutationExpectation(
                             requestID: UUID(),
                             authority: authority,
-                            revision: 0
+                            revision: 0,
+                            topologyLease: BackendTopologyMutationLease(
+                                connectionID: UUID(),
+                                leaseID: UUID(),
+                                generation: 1
+                            )!
                         ),
                         workspaceID: WorkspaceID(rawValue: UUID()),
                         surfaceID: SurfaceID(rawValue: UUID()),
@@ -264,11 +269,16 @@ struct BackendCompatibilityTests {
         if scenario.isReadWrite {
             let register = try requestObject(await transport.nextSent())
             #expect(register["cmd"] as? String == "register-client")
+            let connectionID = UUID()
             await transport.enqueue(try response(to: register, data: [
                 "protocol": 9,
-                "connection_id": UUID().uuidString,
+                "connection_id": connectionID.uuidString,
                 "client_uuid": identity.clientUUID.uuidString,
                 "process_instance_uuid": identity.processInstanceUUID.uuidString,
+                "client_kind": "swift-shell",
+                "role": "trusted-frontend",
+                "topology_lease_id": UUID().uuidString,
+                "topology_lease_generation": 1,
             ]))
         }
 

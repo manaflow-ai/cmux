@@ -201,10 +201,18 @@ struct BackendTerminalCommandTests {
             uuidString: "40404040-4040-4040-8040-404040404040"
         )))
         let requestID = try #require(UUID(uuidString: "50505050-5050-4050-8050-505050505050"))
+        let topologyLeaseID = try #require(
+            UUID(uuidString: "60606060-6060-4060-8060-606060606060")
+        )
         let expectation = BackendTopologyMutationExpectation(
             requestID: requestID,
             authority: BackendAuthority(daemonInstanceID: daemonID, sessionID: sessionID),
-            revision: 7
+            revision: 7,
+            topologyLease: BackendTopologyMutationLease(
+                connectionID: UUID(),
+                leaseID: topologyLeaseID,
+                generation: 3
+            )!
         )
         let task = Task {
             try await client.canonicalNewWorkspace(
@@ -222,6 +230,8 @@ struct BackendTerminalCommandTests {
         #expect(request["daemon_instance_id"] as? String == daemonID.description)
         #expect(request["session_id"] as? String == sessionID.description)
         #expect(try uint64(request, "expected_revision") == 7)
+        #expect(request["topology_lease_id"] as? String == topologyLeaseID.uuidString.lowercased())
+        #expect(try uint64(request, "topology_lease_generation") == 3)
         #expect(request["workspace_uuid"] as? String == workspaceID.description)
         #expect(request["surface_uuid"] as? String == surfaceID.description)
         #expect(request["name"] as? String == "agents")
@@ -306,10 +316,16 @@ struct BackendTerminalCommandTests {
         let sessionID = SessionID(rawValue: UUID())
         let paneID = PaneID(rawValue: UUID())
         let surfaceID = SurfaceID(rawValue: UUID())
+        let topologyLeaseID = UUID()
         let expectation = BackendTopologyMutationExpectation(
             requestID: UUID(),
             authority: BackendAuthority(daemonInstanceID: daemonID, sessionID: sessionID),
-            revision: 2
+            revision: 2,
+            topologyLease: BackendTopologyMutationLease(
+                connectionID: UUID(),
+                leaseID: topologyLeaseID,
+                generation: 4
+            )!
         )
         let tabTask = Task {
             try await client.canonicalNewTerminalTab(
@@ -325,6 +341,8 @@ struct BackendTerminalCommandTests {
         #expect(tab["cmd"] as? String == "canonical-new-tab")
         #expect(tab["pane_uuid"] as? String == paneID.description)
         #expect(tab["cwd"] as? String == "/tmp/project")
+        #expect(tab["topology_lease_id"] as? String == topologyLeaseID.uuidString.lowercased())
+        #expect(try uint64(tab, "topology_lease_generation") == 4)
         await transport.enqueue(try response(
             to: tab,
             data: [

@@ -2021,7 +2021,7 @@ actor TerminalBackendClientCoordinator:
         defer { releaseTopologyMutationPermit() }
         try Task.checkCancellation()
         let context = try await canonicalMutationContext(command: command)
-        let expectation = BackendTopologyMutationExpectation(
+        let expectation = try await context.connection.session.makeTopologyMutationExpectation(
             requestID: requestID,
             authority: context.snapshot.authority,
             revision: context.snapshot.revision

@@ -8,6 +8,11 @@ protocol TerminalBackendSessionServing: Sendable {
     func connect() async throws -> TopologySnapshot?
     func close() async
     func currentTerminalActivitySnapshot() async -> BackendTerminalActivitySnapshot?
+    func makeTopologyMutationExpectation(
+        requestID: UUID,
+        authority: BackendAuthority,
+        revision: UInt64
+    ) async throws -> BackendTopologyMutationExpectation
     func markTerminalSeen(
         surfaceID: SurfaceID,
         activitySequence: UInt64
@@ -320,6 +325,17 @@ protocol TerminalBackendSessionServing: Sendable {
 }
 
 extension TerminalBackendSessionServing {
+    func makeTopologyMutationExpectation(
+        requestID: UUID,
+        authority: BackendAuthority,
+        revision: UInt64
+    ) async throws -> BackendTopologyMutationExpectation {
+        _ = requestID
+        _ = authority
+        _ = revision
+        throw BackendProtocolError.notConnected
+    }
+
     func newWorkspace(
         expectation: BackendTopologyMutationExpectation,
         workspaceID: WorkspaceID,
