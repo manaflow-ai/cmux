@@ -168,12 +168,14 @@ struct ViewerNavigationTests {
         await #expect(throws: CancellationError.self) {
             try await cancelled.value
         }
-        #expect(await counter.value == 1)
+        let countAfterCancellation = await counter.value
+        #expect(countAfterCancellation == 1)
 
         try await pool.withPermit {
             await counter.increment()
         }
-        #expect(await counter.value == 2)
+        let countAfterReuse = await counter.value
+        #expect(countAfterReuse == 2)
     }
 
     @Test

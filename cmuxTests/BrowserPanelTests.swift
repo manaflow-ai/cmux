@@ -911,9 +911,10 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let delivered = expectation(description: "callback delivered on main actor")
 
         Task.detached {
-            XCTAssertTrue(await lifecycle.deliver(registration) {
+            let didDeliver = await lifecycle.deliver(registration) {
                 XCTAssertTrue(Thread.isMainThread)
-            })
+            }
+            XCTAssertTrue(didDeliver)
             delivered.fulfill()
         }
 
@@ -975,9 +976,12 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         releaseFirst.continuation.yield()
         releaseFirst.continuation.finish()
 
-        XCTAssertTrue(await first.value)
-        XCTAssertFalse(await cancelled.value)
-        XCTAssertTrue(await final.value)
+        let firstResult = await first.value
+        let cancelledResult = await cancelled.value
+        let finalResult = await final.value
+        XCTAssertTrue(firstResult)
+        XCTAssertFalse(cancelledResult)
+        XCTAssertTrue(finalResult)
         XCTAssertEqual(order.withLock { $0 }, ["first", "final"])
     }
 
@@ -1001,8 +1005,10 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         releaseFirst.continuation.finish()
 
         XCTAssertFalse(rejected)
-        XCTAssertTrue(await first.value)
-        XCTAssertTrue(await queued.value)
+        let firstResult = await first.value
+        let queuedResult = await queued.value
+        XCTAssertTrue(firstResult)
+        XCTAssertTrue(queuedResult)
     }
 
     func testDiffViewerLoadingOwnershipIncludesDeferredOpeningPage() throws {
