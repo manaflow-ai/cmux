@@ -2461,7 +2461,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: [
                 "agents", "tree", "--agent", "opencode", "--session", "session-00001",
-                "--all", "--json", "--max-nodes", "3", "--state-dir", root.path,
+                "--all", "--json", "--max-nodes", "1", "--state-dir", root.path,
             ],
             environment: environment,
             timeout: 5
