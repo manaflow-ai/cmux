@@ -9327,24 +9327,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func routeFeedFocus(workspaceId: String, surfaceId: String) -> Bool {
         guard let claimedWorkspaceID = UUID(uuidString: workspaceId),
               let claimedSurfaceID = UUID(uuidString: surfaceId),
-              let located = locateBonsplitSurface(tabId: claimedSurfaceID),
-              located.workspaceId == claimedWorkspaceID
+              let located = locateBonsplitSurface(tabId: claimedSurfaceID)
         else {
             return false
         }
+        // Workspace IDs can change when a persisted terminal surface is
+        // restored. The stable surface ID is authoritative only when the
+        // claimed workspace no longer exists; if both workspaces are live,
+        // retain the mismatch rejection so stale routing cannot redirect a
+        // Feed card into another active workspace.
+        if located.workspaceId != claimedWorkspaceID,
+           tabManagerFor(tabId: claimedWorkspaceID) != nil {
+            return false
+        }
+        let targetWorkspaceID = located.workspaceId
         guard let workspace = located.tabManager.tabs.first(where: {
-            $0.id == claimedWorkspaceID
+            $0.id == targetWorkspaceID
         }) else { return false }
 
         _ = focusMainWindow(windowId: located.windowId)
         TerminalController.shared.setActiveTabManager(located.tabManager)
         located.tabManager.focusTab(
-            claimedWorkspaceID,
+            targetWorkspaceID,
             surfaceId: located.panelId,
             suppressFlash: true
         )
         workspace.triggerFocusFlash(panelId: located.panelId)
-        return located.tabManager.selectedTabId == claimedWorkspaceID
+        return located.tabManager.selectedTabId == targetWorkspaceID
             && workspace.focusedPanelId == located.panelId
     }
 
