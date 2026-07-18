@@ -235,6 +235,16 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         nameField.textColor = .labelColor
     }
 
+    /// Inverse of the press treatment: previewing a different row must peel a
+    /// pending header's optimistic anchor-active visuals. The authoritative
+    /// apply reconfigures only rows whose model changed, and a replaced
+    /// preview never changes this header's model — without an explicit clear
+    /// the painted treatment would linger indefinitely.
+    func clearOptimisticAnchorActive() {
+        guard let model, !model.isAnchorActive else { return }
+        applyModel(model)
+    }
+
     /// True when a press at this view should not repaint selection (chevron
     /// toggles collapse, plus creates a workspace — neither selects).
     func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {

@@ -389,8 +389,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let visibleRows = table.rows(in: table.visibleRect)
             for visibleRow in visibleRows.lowerBound..<(visibleRows.lowerBound + visibleRows.length)
             where visibleRow != row {
-                (table.view(atColumn: 0, row: visibleRow, makeIfNecessary: false)
-                    as? SidebarWorkspaceRowTableCellView)?.showOptimisticDeselection()
+                let cellView = table.view(atColumn: 0, row: visibleRow, makeIfNecessary: false)
+                (cellView as? SidebarWorkspaceRowTableCellView)?.showOptimisticDeselection()
+                // Headers preview anchor-active the same way workspace rows
+                // preview selection; a replaced header preview must peel too.
+                (cellView as? SidebarGroupHeaderTableCellView)?.clearOptimisticAnchorActive()
             }
         }
         workspaceCell?.showOptimisticSelectionHighlight()

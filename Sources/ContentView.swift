@@ -3106,14 +3106,16 @@ struct ContentView: View {
 
         // onReceive, not onChange: ContentView deliberately does not track
         // sidebar width in its body anymore (see sidebarLayout), so onChange
-        // would never fire. Delivery hops to the runloop (Combine otherwise
+        // would never fire. Delivery hops to the main queue (Combine otherwise
         // runs this synchronously INSIDE each width write — measured as a
-        // 7.6ms/event write-phase regression during drags), and the settle
-        // work skips mid-drag entirely: the tracking loop plus portal anchor
-        // callbacks own live geometry, and the drag-end handler below runs
-        // the full settle once.
+        // 7.6ms/event write-phase regression during drags; DispatchQueue.main
+        // rather than RunLoop.main so delivery survives modal panels and
+        // menu tracking, same rule as the sidebar observation pipeline), and
+        // the settle work skips mid-drag entirely: the tracking loop plus
+        // portal anchor callbacks own live geometry, and the drag-end handler
+        // below runs the full settle once.
         view = AnyView(view.onReceive(
-            sidebarLayout.$width.removeDuplicates().receive(on: RunLoop.main)
+            sidebarLayout.$width.removeDuplicates().receive(on: DispatchQueue.main)
         ) { _ in
             guard !isResizerDragging else { return }
             settleSidebarWidth()
