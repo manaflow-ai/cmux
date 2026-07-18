@@ -7,6 +7,10 @@ private let simulatorDroppedMediaExtensions = Set([
     "bmp", "mov", "mp4", "m4v", "hevc", "vcf",
 ])
 
+private enum SimulatorControlActionTaskContext {
+    @TaskLocal static var token: UUID?
+}
+
 extension SimulatorPaneCoordinator {
     /// Starts one pane-owned UI action. Repeated actions with the same key are
     /// coalesced, and ``close()`` cancels and joins every admitted task.
@@ -30,7 +34,9 @@ extension SimulatorPaneCoordinator {
         controlActionTaskTokens[key] = token
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            if !Task.isCancelled { await operation(self) }
+            await SimulatorControlActionTaskContext.$token.withValue(token) {
+                if !Task.isCancelled { await operation(self) }
+            }
             guard self.controlActionTaskTokens[key] == token else { return }
             self.controlActionTaskTokens.removeValue(forKey: key)
             self.controlActionTasks.removeValue(forKey: key)
@@ -40,9 +46,14 @@ extension SimulatorPaneCoordinator {
     }
 
     func cancelControlActions() -> [Task<Void, Never>] {
-        let tasks = Array(controlActionTasks.values)
-        controlActionTasks.removeAll()
-        controlActionTaskTokens.removeAll()
+        let currentToken = SimulatorControlActionTaskContext.token
+        let cancelledKeys = controlActionTaskTokens.compactMap { key, token in
+            token == currentToken ? nil : key
+        }
+        let tasks = cancelledKeys.compactMap { controlActionTasks.removeValue(forKey: $0) }
+        for key in cancelledKeys {
+            controlActionTaskTokens.removeValue(forKey: key)
+        }
         tasks.forEach { $0.cancel() }
         return tasks
     }
