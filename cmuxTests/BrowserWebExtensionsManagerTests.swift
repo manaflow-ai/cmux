@@ -267,6 +267,33 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func extensionPageConfigurationIsScopedToItsOrigin() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try Self.writeExtension(
+            named: "page-configuration",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let extensionPage = context.baseURL.appendingPathComponent("options.html")
+
+        #expect(manager.pageConfiguration(for: extensionPage) != nil)
+        #expect(manager.pageConfiguration(for: URL(string: "https://example.com")!) == nil)
+    }
+
+    @available(macOS 15.4, *)
     @Test func approvalLedgerRemainsReadableAcrossAppRestarts() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
