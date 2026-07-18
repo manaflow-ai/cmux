@@ -3539,6 +3539,354 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func startupReconciliationNormalizesProvablyDeadRestoringAttempt() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-startup-restoring-dead-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "startup-dead-new-runtime",
+        ]
+        let previousEnvironment = environment.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in environment { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "startup-restoring-dead"
+        )
+        var savedActive = fixture.snapshot
+        let panelIndex = try #require(
+            savedActive.panels.firstIndex { $0.id == fixture.sourcePanelID }
+        )
+        var terminal = try #require(savedActive.panels[panelIndex].terminal)
+        terminal.hibernation = nil
+        terminal.wasAgentRunning = true
+        if var binding = terminal.resumeBinding {
+            binding.autoResume = true
+            terminal.resumeBinding = binding
+        }
+        savedActive.panels[panelIndex].terminal = terminal
+        let attemptID = UUID()
+        let deadRuntime: [String: Any] = [
+            "id": "dead-foreign-runtime",
+            "processId": Int(Int32.max),
+            "processStartSeconds": 1,
+            "processStartMicroseconds": 1,
+        ]
+        let registry = try installStartupCanonicalOwner(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID,
+            lifecycle: "restoring",
+            hibernatedAt: 30,
+            resumeAttemptId: attemptID,
+            runtime: deadRuntime
+        )
+        var appSnapshot = appSessionSnapshot(containing: savedActive)
+
+        let failedKinds = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+            &appSnapshot,
+            homeDirectory: root.path,
+            environment: environment
+        )
+
+        #expect(failedKinds.isEmpty)
+        let reconciledWorkspace = appSnapshot.windows[0].tabManager.workspaces[0]
+        let reconciledTerminal = try #require(
+            reconciledWorkspace.panels.first { $0.id == fixture.sourcePanelID }?.terminal
+        )
+        #expect(reconciledTerminal.hibernation != nil)
+        #expect(reconciledTerminal.wasAgentRunning == false)
+        let normalizedRecord = try #require(
+            registry.snapshot(provider: "codex").records.first
+        )
+        let normalized = try #require(
+            JSONSerialization.jsonObject(with: normalizedRecord.json) as? [String: Any]
+        )
+        #expect(normalized["sessionState"] as? String == "hibernated")
+        #expect(normalized["cmuxHibernationResumeAttemptId"] == nil)
+        #expect(normalized["cmuxHibernationResumeStartedAt"] == nil)
+        #expect(normalized["cmuxHibernationResumeFromAttemptId"] == nil)
+
+        let restored = Workspace()
+        let mapping = restored.restoreSessionSnapshot(reconciledWorkspace)
+        let restoredPanelID = try #require(mapping[fixture.sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(restoredPanel.isAgentHibernated)
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
+    }
+
+    @MainActor
+    @Test func startupReconciliationKeepsProvablyLiveRestoringAttemptPending() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-startup-restoring-live-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "startup-live-new-runtime",
+        ]
+        let previousEnvironment = environment.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in environment { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "startup-restoring-live"
+        )
+        var savedActive = fixture.snapshot
+        let panelIndex = try #require(
+            savedActive.panels.firstIndex { $0.id == fixture.sourcePanelID }
+        )
+        var terminal = try #require(savedActive.panels[panelIndex].terminal)
+        terminal.hibernation = nil
+        terminal.wasAgentRunning = true
+        if var binding = terminal.resumeBinding {
+            binding.autoResume = true
+            terminal.resumeBinding = binding
+        }
+        savedActive.panels[panelIndex].terminal = terminal
+        let processIdentity = try #require(AgentPIDProcessIdentity(pid: getpid()))
+        let attemptID = UUID()
+        let liveRuntime: [String: Any] = [
+            "id": "live-foreign-runtime",
+            "processId": Int(processIdentity.pid),
+            "processStartSeconds": processIdentity.startSeconds,
+            "processStartMicroseconds": processIdentity.startMicroseconds,
+        ]
+        let registry = try installStartupCanonicalOwner(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID,
+            lifecycle: "restoring",
+            hibernatedAt: 30,
+            resumeAttemptId: attemptID,
+            runtime: liveRuntime
+        )
+        var appSnapshot = appSessionSnapshot(containing: savedActive)
+
+        let failedKinds = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+            &appSnapshot,
+            homeDirectory: root.path,
+            environment: environment
+        )
+
+        #expect(failedKinds.isEmpty)
+        let reconciledWorkspace = appSnapshot.windows[0].tabManager.workspaces[0]
+        let reconciledTerminal = try #require(
+            reconciledWorkspace.panels.first { $0.id == fixture.sourcePanelID }?.terminal
+        )
+        #expect(reconciledTerminal.hibernation != nil)
+        #expect(reconciledTerminal.wasAgentRunning == false)
+        let unchangedRecord = try #require(
+            registry.snapshot(provider: "codex").records.first
+        )
+        let unchanged = try #require(
+            JSONSerialization.jsonObject(with: unchangedRecord.json) as? [String: Any]
+        )
+        #expect(unchanged["sessionState"] as? String == "restoring")
+        #expect(unchanged["cmuxHibernationResumeAttemptId"] as? String == attemptID.uuidString)
+
+        let restored = Workspace()
+        let mapping = restored.restoreSessionSnapshot(reconciledWorkspace)
+        let restoredPanelID = try #require(mapping[fixture.sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(restoredPanel.isAgentHibernated)
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
+        let stillCanonical = try #require(
+            registry.snapshot(provider: "codex").records.first
+        )
+        let stillRestoring = try #require(
+            JSONSerialization.jsonObject(with: stillCanonical.json) as? [String: Any]
+        )
+        #expect(stillRestoring["sessionState"] as? String == "restoring")
+        #expect(stillRestoring["cmuxHibernationResumeAttemptId"] as? String == attemptID.uuidString)
+    }
+
+    @MainActor
+    @Test func startupReconciliationFailsClosedBeforeOpeningAnOversizedProjection() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-startup-reconcile-cap-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+        ]
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "startup-cap-session"
+        )
+        let panelTemplate = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.sourcePanelID }
+        )
+        var workspaces: [SessionWorkspaceSnapshot] = []
+        var remaining = RestorableAgentSessionIndex.maximumHibernationPanelContexts + 1
+        while remaining > 0 {
+            var workspace = fixture.snapshot
+            workspace.workspaceId = UUID()
+            let count = min(SessionPersistencePolicy.maxPanelsPerWorkspace, remaining)
+            workspace.panels = (0..<count).map { _ in
+                var panel = panelTemplate
+                panel.id = UUID()
+                if var terminal = panel.terminal {
+                    terminal.hibernation = nil
+                    terminal.wasAgentRunning = true
+                    panel.terminal = terminal
+                }
+                return panel
+            }
+            workspaces.append(workspace)
+            remaining -= count
+        }
+        var appSnapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 40,
+            windows: [SessionWindowSnapshot(
+                windowId: UUID(),
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(
+                    selectedWorkspaceIndex: 0,
+                    workspaces: workspaces
+                ),
+                sidebar: SessionSidebarSnapshot(
+                    isVisible: true,
+                    selection: .tabs,
+                    width: nil
+                )
+            )]
+        )
+
+        let elapsed = ContinuousClock().measure {
+            _ = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+                &appSnapshot,
+                homeDirectory: root.path,
+                environment: environment
+            )
+        }
+
+        #expect(elapsed < .seconds(1))
+        #expect(!FileManager.default.fileExists(atPath: registryURL.path))
+        let terminals = appSnapshot.windows[0].tabManager.workspaces
+            .flatMap(\.panels)
+            .compactMap(\.terminal)
+        #expect(terminals.count == RestorableAgentSessionIndex.maximumHibernationPanelContexts + 1)
+        #expect(terminals.allSatisfy { $0.hibernation == nil && $0.wasAgentRunning == false })
+    }
+
+    @MainActor
+    @Test func recentlyClosedWorkspaceReconcilesSavedActiveCanonicalHibernation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-recently-closed-active-to-hibernated-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "recently-closed-reconcile-runtime",
+        ]
+        let previousEnvironment = environment.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in environment { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "recently-closed-canonical-hibernated"
+        )
+        var savedActive = fixture.snapshot
+        let panelIndex = try #require(
+            savedActive.panels.firstIndex { $0.id == fixture.sourcePanelID }
+        )
+        var terminal = try #require(savedActive.panels[panelIndex].terminal)
+        terminal.hibernation = nil
+        terminal.wasAgentRunning = true
+        if var binding = terminal.resumeBinding {
+            binding.autoResume = true
+            terminal.resumeBinding = binding
+        }
+        savedActive.panels[panelIndex].terminal = terminal
+        try installStartupCanonicalOwner(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID,
+            lifecycle: "hibernated",
+            hibernatedAt: 30
+        )
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let entry = ClosedWorkspaceHistoryEntry(
+            workspaceId: fixture.source.id,
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: savedActive
+        )
+
+        #expect(manager.restoreClosedWorkspace(entry))
+
+        let restored = try #require(manager.tabs.first)
+        let restoredPanelSnapshot = try #require(
+            restored.sessionSnapshot(includeScrollback: false).panels.first {
+                $0.terminal?.agent?.sessionId == fixture.agent.sessionId
+            }
+        )
+        let restoredPanel = try #require(
+            restored.terminalPanel(for: restoredPanelSnapshot.id)
+        )
+        #expect(restoredPanel.isAgentHibernated)
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
+    }
+
+    @MainActor
     @Test func startupReconciliationRequiresTheExactCanonicalSurfaceOwner() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -4548,6 +4896,8 @@ extension CMUXCLIErrorOutputRegressionTests {
         ]
         if let resumeAttemptId {
             record["cmuxHibernationResumeAttemptId"] = resumeAttemptId.uuidString
+            record["cmuxHibernationResumeStartedAt"] = updatedAt
+            record["cmuxHibernationResumeFromAttemptId"] = UUID().uuidString
         }
         if let runtime {
             record["activeRunId"] = "startup-owner-run"
