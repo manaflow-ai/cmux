@@ -309,19 +309,6 @@ struct BrowserExtensionsManagerPage: View {
                     sourceURL: sourceURL,
                     installedIdentifierPrefix: "cmux-browser-extension-com.bitwarden.desktop.safari-"
                 )
-            },
-            installedApplication(named: "uBlock Origin Lite.app").map { sourceURL in
-                BrowserExtensionLocalAppItem(
-                    id: "ublock-origin-lite-safari-app",
-                    name: "uBlock Origin Lite",
-                    detail: String(
-                        localized: "browser.extensions.localApp.ublockOriginLite.detail",
-                        defaultValue: "Block ads and trackers with the Safari extension"
-                    ),
-                    icon: "shield.lefthalf.filled",
-                    sourceURL: sourceURL,
-                    installedIdentifierPrefix: "cmux-browser-extension-net.raymondhill.uBlock-Origin-Lite.Extension-"
-                )
             }
         ].compactMap { $0 }
     }
