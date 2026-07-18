@@ -177,7 +177,7 @@ import Testing
         ])
     }
 
-    @Test func preciseScrollCarriesRemainderIntoMomentumAndClearsItOnCancellation() throws {
+    @Test func preciseScrollHandlesGestureMomentumAndCancellationPhases() throws {
         let runtime = FakeTerminalExternalRuntime()
         runtime.snapshot = runtimeSnapshot(cellHeightPixels: 20, backingScale: 2)
         let view = TerminalFrontendInteractionView(runtime: runtime)
@@ -188,10 +188,14 @@ import Testing
             phase: .began
         ))
         view.scrollWheel(with: try scrollEvent(
+            deltaY: 7,
+            units: .pixel,
+            phase: .changed
+        ))
+        view.scrollWheel(with: try scrollEvent(
             deltaY: 0,
             units: .pixel,
-            phase: .ended,
-            momentumPhase: .mayBegin
+            phase: .ended
         ))
         view.scrollWheel(with: try scrollEvent(
             deltaY: 4,
@@ -199,7 +203,7 @@ import Testing
             momentumPhase: .began
         ))
         view.scrollWheel(with: try scrollEvent(
-            deltaY: 3,
+            deltaY: 7,
             units: .pixel,
             momentumPhase: .changed
         ))
@@ -231,6 +235,8 @@ import Testing
         ))
 
         #expect(runtime.mutations == [
+            .scroll(operation: .lines, amount: -1),
+            .scroll(operation: .lines, amount: -1),
             .scroll(operation: .lines, amount: -1),
             .scroll(operation: .lines, amount: -1),
             .scroll(operation: .lines, amount: -1),
@@ -510,7 +516,7 @@ import Testing
         )
         event.setIntegerValueField(
             .scrollWheelEventMomentumPhase,
-            value: cgScrollPhaseValue(momentumPhase)
+            value: cgMomentumPhaseValue(momentumPhase)
         )
         return try #require(NSEvent(cgEvent: event))
     }
@@ -522,6 +528,13 @@ import Testing
         if phase.contains(.ended) { return 4 }
         if phase.contains(.cancelled) { return 8 }
         if phase.contains(.mayBegin) { return 128 }
+        return 0
+    }
+
+    private func cgMomentumPhaseValue(_ phase: NSEvent.Phase) -> Int64 {
+        if phase.contains(.began) { return 1 }
+        if phase.contains(.stationary) || phase.contains(.changed) { return 2 }
+        if phase.contains(.ended) || phase.contains(.cancelled) { return 3 }
         return 0
     }
 }
