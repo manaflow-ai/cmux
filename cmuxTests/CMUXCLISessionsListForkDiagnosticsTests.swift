@@ -318,11 +318,13 @@ extension CMUXCLIErrorOutputRegressionTests {
             "019ef275-74e3-7777-9773-9dcb118ed5a1",
             "019ef275-74e3-7777-9773-9dcb118ed5a2",
             "019ef275-74e3-7777-9773-9dcb118ed5a3",
+            "019ef275-74e3-7777-9773-9dcb118ed5a4",
         ]
-        let activeRunIDs: [Any] = ["child-run-1", "missing-run", NSNull()]
+        let activeRunIDs: [Any] = ["child-run-1", "missing-run", NSNull(), "root-run-4"]
         var sessions: [String: Any] = [:]
         for (index, sessionID) in sessionIDs.enumerated() {
             let childRunID = "child-run-\(index + 1)"
+            let canonicalRunIsRoot = index == 3
             var record: [String: Any] = [
                 "sessionId": sessionID,
                 "workspaceId": workspaceID,
@@ -332,7 +334,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "updatedAt": 1_781_996_900.0 + Double(index),
                 // Simulate a stale compatibility field that still describes the
                 // previous root while run history says the projected run is a child.
-                "restoreAuthority": true,
+                "restoreAuthority": !canonicalRunIsRoot,
                 "launchCommand": [
                     "launcher": "codex",
                     "executablePath": "/usr/local/bin/codex",
@@ -347,7 +349,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                         "restoreAuthority": true,
                         "startedAt": 1_781_996_800.0,
                         "updatedAt": 1_781_996_850.0,
-                        "endedAt": 1_781_996_850.0,
+                        "endedAt": canonicalRunIsRoot ? NSNull() : 1_781_996_850.0,
                     ],
                     [
                         "runId": childRunID,
@@ -356,6 +358,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                         "restoreAuthority": false,
                         "startedAt": 1_781_996_900.0 + Double(index),
                         "updatedAt": 1_781_996_900.0 + Double(index),
+                        "endedAt": canonicalRunIsRoot ? 1_781_996_901.0 + Double(index) : NSNull(),
                     ],
                 ],
             ]
@@ -389,11 +392,20 @@ extension CMUXCLIErrorOutputRegressionTests {
         let outputSessions = try #require(object["sessions"] as? [[String: Any]])
         #expect(Set(outputSessions.compactMap { $0["session_id"] as? String }) == Set(sessionIDs))
         for session in outputSessions {
-            #expect(session["restore_authority"] as? Bool == false)
-            #expect(session["hook_record_restorable"] as? Bool == false)
-            #expect(session["fork_command_available"] as? Bool == false)
-            #expect(session["fork_supported"] as? Bool == false)
-            #expect(session["fork_unavailable_reason"] as? String == "run_marked_non_restorable")
+            if session["session_id"] as? String == sessionIDs[3] {
+                #expect(session["run_id"] as? String == "root-run-4")
+                #expect(session["restore_authority"] as? Bool == true)
+                #expect(session["hook_record_restorable"] as? Bool == true)
+                #expect(session["fork_command_available"] as? Bool == true)
+                #expect(session["fork_supported"] as? Bool == true)
+                #expect(session["fork_unavailable_reason"] as? String == "available")
+            } else {
+                #expect(session["restore_authority"] as? Bool == false)
+                #expect(session["hook_record_restorable"] as? Bool == false)
+                #expect(session["fork_command_available"] as? Bool == false)
+                #expect(session["fork_supported"] as? Bool == false)
+                #expect(session["fork_unavailable_reason"] as? String == "run_marked_non_restorable")
+            }
         }
     }
 
