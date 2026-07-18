@@ -675,7 +675,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let activeRun = try #require(activated.runs?.first { $0.runId == activeRunID })
         #expect(activated.sessionState == .active)
         #expect(activated.cmuxHibernationResumeAttemptId == nil)
-        #expect(activated.restoreAuthority)
+        #expect(activated.restoreAuthority == true)
         #expect(activeRun.restoreAuthority)
         #expect(activeRun.cmuxHibernationResumeAttemptId == resumeAttemptID.uuidString)
 
@@ -689,7 +689,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ))
         let afterDuplicateHook = try #require(try store.lookup(sessionId: sessionID))
         #expect(afterDuplicateHook.activeRunId == activeRunID)
-        #expect(afterDuplicateHook.restoreAuthority)
+        #expect(afterDuplicateHook.restoreAuthority == true)
         #expect(afterDuplicateHook.runs?.first { $0.runId == activeRunID }?.restoreAuthority == true)
         #expect(
             afterDuplicateHook.runs?.first { $0.runId == activeRunID }?.cmuxHibernationResumeAttemptId
@@ -707,7 +707,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let rejected = try #require(try store.lookup(sessionId: mismatchedSessionID))
         #expect(rejected.sessionState == .restoring)
         #expect(rejected.cmuxHibernationResumeAttemptId == mismatchedAttemptID.uuidString)
-        #expect(rejected.restoreAuthority)
+        #expect(rejected.restoreAuthority == true)
         #expect(rejected.activeRunId == nil)
         #expect((rejected.runs ?? []).isEmpty)
         #expect(store.snapshot().activeSessionsByWorkspace["mismatch-workspace-after"] == nil)
@@ -789,7 +789,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                 ))
                 let record = try #require(try store.lookup(sessionId: sessionID))
                 let activeRunID = try #require(record.activeRunId)
-                #expect(record.restoreAuthority, Comment(rawValue: provider.kind))
+                #expect(record.restoreAuthority == true, Comment(rawValue: provider.kind))
                 #expect(
                     record.runs?.first { $0.runId == activeRunID }?.restoreAuthority == true,
                     Comment(rawValue: provider.kind)
@@ -852,7 +852,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             ))
             let record = try #require(try store.lookup(sessionId: "pi-collapsed-one-shot"))
             let activeRunID = try #require(record.activeRunId)
-            #expect(!record.restoreAuthority)
+            #expect(record.restoreAuthority == false)
             #expect(record.runs?.first { $0.runId == activeRunID }?.restoreAuthority == false)
         }
     }
