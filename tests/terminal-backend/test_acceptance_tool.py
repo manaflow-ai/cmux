@@ -580,6 +580,144 @@ class AcceptanceToolTests(unittest.TestCase):
                     app_bundle=app,
                 )
 
+    def test_restart_transcript_proves_a_host_absent_continuity_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            collector = root / "restart-collector"
+            collector.write_bytes(b"external restart collector")
+            collector_hash = acceptance.sha256_file(collector)
+            common = {
+                "backend_pid": 202,
+                "backend_started_at": "2026-07-17T11:00:00Z",
+                "backend_executable_sha256": "b" * 64,
+                "daemon_instance_id": "daemon-1",
+                "shell_pid": 303,
+                "shell_started_at": "2026-07-17T11:01:00Z",
+                "shell_executable_sha256": "c" * 64,
+                "tty": "/dev/ttys001",
+                "session_id": "session-1",
+                "terminal_id": "terminal-1",
+                "terminal_epoch": 7,
+                "cwd": "/tmp/workspace",
+                "topology_sha256": "d" * 64,
+                "reader_uuid": "reader-1",
+                "scrollback_sentinel_present": True,
+            }
+            records = [
+                common
+                | {
+                    "phase": "before",
+                    "observed_at": "2026-07-17T12:00:00Z",
+                    "swift_pid": 101,
+                    "swift_started_at": "2026-07-17T11:59:00Z",
+                    "swift_executable_sha256": "a" * 64,
+                    "reader_sequence": 10,
+                    "unread_count": 0,
+                },
+                common
+                | {
+                    "phase": "host-absent",
+                    "observed_at": "2026-07-17T12:00:01Z",
+                    "swift_pid": None,
+                    "swift_started_at": None,
+                    "swift_executable_sha256": None,
+                    "reader_sequence": 20,
+                    "unread_count": 5,
+                },
+                common
+                | {
+                    "phase": "after",
+                    "observed_at": "2026-07-17T12:00:02Z",
+                    "swift_pid": 104,
+                    "swift_started_at": "2026-07-17T12:00:01Z",
+                    "swift_executable_sha256": "a" * 64,
+                    "reader_sequence": 21,
+                    "unread_count": 5,
+                },
+            ]
+            raw = root / "restart.json"
+            raw.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "artifact_kind": "restart-transcript",
+                        "context": {
+                            "collector": {
+                                "name": "cmux-restart-collector",
+                                "version": "1",
+                                "file": {
+                                    "path": collector.name,
+                                    "sha256": collector_hash,
+                                },
+                                "source_commit": "e" * 40,
+                                "pid": 900,
+                                "started_at": "2026-07-17T11:58:00Z",
+                                "command": ["collector", "--kill-host"],
+                            }
+                        },
+                        "records": records,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            metrics = acceptance.derive_payload_metrics(
+                "LIFE-1", "restart-transcript", raw, "restart transcript"
+            )
+            assert metrics is not None
+            acceptance.validate_metric_invariants(
+                "LIFE-1", "restart-transcript", metrics, "restart transcript"
+            )
+            self.assertTrue(metrics["host_absent_proven"])
+            self.assertTrue(metrics["backend_identity_equal"])
+            self.assertTrue(metrics["output_advanced_while_host_absent"])
+            self.assertEqual(metrics["phase_count"], 3)
+
+            pids = [101, 104, 202, 303, 900]
+            bound_processes = {
+                101: {
+                    "started_at": records[0]["swift_started_at"],
+                    "executable_sha256": "a" * 64,
+                    "build_role": "swift-host",
+                },
+                104: {
+                    "started_at": records[2]["swift_started_at"],
+                    "executable_sha256": "a" * 64,
+                    "build_role": "swift-host",
+                },
+                202: {
+                    "started_at": common["backend_started_at"],
+                    "executable_sha256": "b" * 64,
+                    "build_role": "terminal-backend",
+                },
+                303: {
+                    "started_at": common["shell_started_at"],
+                    "executable_sha256": "c" * 64,
+                    "build_role": None,
+                },
+                900: {
+                    "started_at": "2026-07-17T11:58:00Z",
+                    "executable_sha256": collector_hash,
+                    "build_role": None,
+                },
+            }
+            acceptance.validate_restart_transcript_binding(
+                primary_payload=raw,
+                metrics=metrics,
+                source_commit="e" * 40,
+                command=["collector", "--kill-host"],
+                artifact_pids=pids,
+                bound_processes=bound_processes,
+                label="restart transcript",
+            )
+
+            edited = json.loads(raw.read_text(encoding="utf-8"))
+            edited["records"][1]["swift_pid"] = 101
+            raw.write_text(json.dumps(edited), encoding="utf-8")
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "still has a Swift host"):
+                acceptance.derive_payload_metrics(
+                    "LIFE-1", "restart-transcript", raw, "invalid restart transcript"
+                )
+
     def test_raw_json_rejects_embedded_self_authored_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = pathlib.Path(temporary) / "raw.json"

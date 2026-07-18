@@ -122,6 +122,8 @@ The Metal System Trace extractor reads `/trace-toc/run/data/table[@schema='metal
 
 PROC-1 combines a build-time host audit with a live kernel census. The host audit prevents dormant or dynamically loaded Ghostty and PTY code from hiding behind a runtime feature flag. The process census independently requires zero PTY masters in Swift and renderer workers and at least one PTY master in cmuxd.
 
+LIFE-1 accepts a restart transcript only from a hashed, commit-bound external collector whose PID and start identity are manifest-bound. The transcript has chronological `before`, `host-absent`, and `after` phases. The middle phase must contain no Swift PID while the exact cmuxd, daemon instance, shell PID/start/TTY, session, terminal epoch, cwd, topology digest, reader UUID, and scrollback sentinel remain unchanged and the reader sequence and unread count advance. The final phase must use a different Swift PID with the same packaged executable hash. Every process identity in all three phases is cross-checked against the manifest.
+
 Final verification rejects missing required artifact kinds, failed P0 checks, reused role identities, unbound PIDs, changed hashes, a dirty worktree, or a manifest from a different commit.
 
 ```bash

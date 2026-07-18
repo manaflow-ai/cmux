@@ -356,13 +356,36 @@ ARTIFACT_REQUIRED_METRICS: dict[str, set[str]] = {
         "blocked_parser_count",
     },
     "restart-transcript": {
+        "collector_pid",
+        "collector_source_commit",
+        "collector_executable_sha256",
+        "collector_command_sha256",
+        "phase_count",
+        "phase_provenance_count",
+        "observed_pid_set_sha256",
+        "swift_pid_before",
+        "swift_pid_after",
+        "backend_pid_before",
+        "backend_pid_host_absent",
+        "backend_pid_after",
         "shell_pid_before",
+        "shell_pid_host_absent",
         "shell_pid_after",
+        "swift_pid_changed",
+        "swift_executable_equal",
+        "host_absent_proven",
+        "backend_identity_equal",
+        "daemon_instance_equal",
+        "shell_identity_equal",
+        "session_id_equal",
         "terminal_id_equal",
+        "terminal_epoch_equal",
         "tty_equal",
         "cwd_equal",
         "topology_equal",
         "reader_uuid_equal",
+        "output_advanced_while_host_absent",
+        "reader_sequence_monotonic",
         "scrollback_sentinel_preserved",
         "unread_preserved",
     },
@@ -625,6 +648,15 @@ POSITIVE_ON_PASS_METRICS = {
     "collector_pid",
     "collector_sample_count",
     "phase_provenance_count",
+    "phase_count",
+    "swift_pid_before",
+    "swift_pid_after",
+    "backend_pid_before",
+    "backend_pid_host_absent",
+    "backend_pid_after",
+    "shell_pid_before",
+    "shell_pid_host_absent",
+    "shell_pid_after",
 }
 
 
@@ -1022,16 +1054,39 @@ def validate_metric_invariants(
         ):
             raise AcceptanceError(f"{label} did not reject every negative case")
     elif artifact_kind == "restart-transcript":
-        if numeric_metric(metrics, "shell_pid_before", label) != numeric_metric(
-            metrics, "shell_pid_after", label
+        if numeric_metric(metrics, "phase_count", label) != 3:
+            raise AcceptanceError(f"{label} must contain three restart phases")
+        if numeric_metric(metrics, "phase_provenance_count", label) != 3:
+            raise AcceptanceError(f"{label} lacks per-phase collector timestamps")
+        for prefix in ("backend_pid", "shell_pid"):
+            values = {
+                numeric_metric(metrics, f"{prefix}_{suffix}", label)
+                for suffix in ("before", "host_absent", "after")
+            }
+            if len(values) != 1:
+                raise AcceptanceError(
+                    f"{label} {prefix.removesuffix('_pid')} PID changed across Swift restart"
+                )
+        if numeric_metric(metrics, "swift_pid_before", label) == numeric_metric(
+            metrics, "swift_pid_after", label
         ):
-            raise AcceptanceError(f"{label} shell PID changed across Swift restart")
+            raise AcceptanceError(f"{label} Swift PID did not change across forced restart")
         for name in (
+            "swift_pid_changed",
+            "swift_executable_equal",
+            "host_absent_proven",
+            "backend_identity_equal",
+            "daemon_instance_equal",
+            "shell_identity_equal",
+            "session_id_equal",
             "terminal_id_equal",
+            "terminal_epoch_equal",
             "tty_equal",
             "cwd_equal",
             "topology_equal",
             "reader_uuid_equal",
+            "output_advanced_while_host_absent",
+            "reader_sequence_monotonic",
             "scrollback_sentinel_preserved",
             "unread_preserved",
         ):
@@ -3260,34 +3315,259 @@ def derive_structured_metrics(
             ),
         }
     if kind == "restart-transcript":
+        expected_context_keys = {"collector"}
+        if set(context) != expected_context_keys:
+            raise AcceptanceError(f"{label} restart context keys differ from schema")
+        collector = _raw_dict(context.get("collector"), f"{label} collector")
+        if set(collector) != {
+            "name",
+            "version",
+            "file",
+            "source_commit",
+            "pid",
+            "started_at",
+            "command",
+        }:
+            raise AcceptanceError(f"{label} collector provenance keys differ from schema")
+        _raw_string(collector.get("name"), f"{label} collector name")
+        _raw_string(collector.get("version"), f"{label} collector version")
+        _, collector_executable_sha256 = _verified_raw_file(
+            path, collector.get("file"), f"{label} collector executable"
+        )
+        collector_source_commit = _raw_string(
+            collector.get("source_commit"), f"{label} collector source commit"
+        )
+        expect_commit(collector_source_commit, f"{label} collector source commit")
+        collector_pid = _raw_int(
+            collector.get("pid"), f"{label} collector PID", minimum=1
+        )
+        collector_started_at = _raw_string(
+            collector.get("started_at"), f"{label} collector start identity"
+        )
+        parse_timestamp(collector_started_at, f"{label} collector start identity")
+        collector_command = collector.get("command")
+        if (
+            not isinstance(collector_command, list)
+            or not collector_command
+            or any(not isinstance(item, str) or not item for item in collector_command)
+        ):
+            raise AcceptanceError(f"{label} collector command must be a string array")
+
         phases: dict[str, dict[str, Any]] = {}
+        observed_at: dict[str, dt.datetime] = {}
+        expected_record_keys = {
+            "phase",
+            "observed_at",
+            "swift_pid",
+            "swift_started_at",
+            "swift_executable_sha256",
+            "backend_pid",
+            "backend_started_at",
+            "backend_executable_sha256",
+            "daemon_instance_id",
+            "shell_pid",
+            "shell_started_at",
+            "shell_executable_sha256",
+            "tty",
+            "session_id",
+            "terminal_id",
+            "terminal_epoch",
+            "cwd",
+            "topology_sha256",
+            "reader_uuid",
+            "reader_sequence",
+            "unread_count",
+            "scrollback_sentinel_present",
+        }
         for index, raw_record in enumerate(records):
             record = _raw_dict(raw_record, f"{label} restart phase {index}")
+            if set(record) != expected_record_keys:
+                raise AcceptanceError(
+                    f"{label} restart phase {index} keys differ from schema"
+                )
             phase = _raw_string(record.get("phase"), f"{label} restart phase")
-            if phase in phases or phase not in {"before", "after"}:
+            if phase in phases or phase not in {"before", "host-absent", "after"}:
                 raise AcceptanceError(f"{label} has duplicate or unknown restart phase")
+            timestamp = _raw_string(
+                record.get("observed_at"), f"{label} {phase} observed_at"
+            )
+            observed_at[phase] = parse_timestamp(timestamp, f"{label} {phase} observed_at")
+            for process in ("backend", "shell"):
+                _raw_int(
+                    record.get(f"{process}_pid"),
+                    f"{label} {phase} {process} PID",
+                    minimum=1,
+                )
+                started = _raw_string(
+                    record.get(f"{process}_started_at"),
+                    f"{label} {phase} {process} start identity",
+                )
+                parse_timestamp(started, f"{label} {phase} {process} start identity")
+                executable_sha256 = _raw_string(
+                    record.get(f"{process}_executable_sha256"),
+                    f"{label} {phase} {process} executable hash",
+                )
+                expect_sha256(
+                    executable_sha256,
+                    f"{label} {phase} {process} executable hash",
+                )
+            if phase == "host-absent":
+                if any(
+                    record.get(name) is not None
+                    for name in (
+                        "swift_pid",
+                        "swift_started_at",
+                        "swift_executable_sha256",
+                    )
+                ):
+                    raise AcceptanceError(f"{label} host-absent phase still has a Swift host")
+            else:
+                _raw_int(record.get("swift_pid"), f"{label} {phase} Swift PID", minimum=1)
+                swift_started = _raw_string(
+                    record.get("swift_started_at"), f"{label} {phase} Swift start identity"
+                )
+                parse_timestamp(swift_started, f"{label} {phase} Swift start identity")
+                swift_executable_sha256 = _raw_string(
+                    record.get("swift_executable_sha256"),
+                    f"{label} {phase} Swift executable hash",
+                )
+                expect_sha256(
+                    swift_executable_sha256,
+                    f"{label} {phase} Swift executable hash",
+                )
+            for name in (
+                "daemon_instance_id",
+                "tty",
+                "session_id",
+                "terminal_id",
+                "cwd",
+                "reader_uuid",
+            ):
+                _raw_string(record.get(name), f"{label} {phase} {name}")
+            topology_sha256 = _raw_string(
+                record.get("topology_sha256"), f"{label} {phase} topology hash"
+            )
+            expect_sha256(topology_sha256, f"{label} {phase} topology hash")
+            _raw_int(
+                record.get("terminal_epoch"), f"{label} {phase} terminal epoch", minimum=1
+            )
+            _raw_int(
+                record.get("reader_sequence"), f"{label} {phase} reader sequence"
+            )
+            _raw_int(record.get("unread_count"), f"{label} {phase} unread count")
+            _raw_bool(
+                record.get("scrollback_sentinel_present"),
+                f"{label} {phase} scrollback sentinel",
+            )
             phases[phase] = record
-        if set(phases) != {"before", "after"}:
-            raise AcceptanceError(f"{label} needs before and after restart phases")
-        before, after = phases["before"], phases["after"]
-        for name in ("shell_pid",):
-            _raw_int(before.get(name), f"{label} before {name}", minimum=1)
-            _raw_int(after.get(name), f"{label} after {name}", minimum=1)
-        for name in ("terminal_id", "tty", "cwd", "topology_sha256", "reader_uuid"):
-            _raw_string(before.get(name), f"{label} before {name}")
-            _raw_string(after.get(name), f"{label} after {name}")
+        if set(phases) != {"before", "host-absent", "after"}:
+            raise AcceptanceError(
+                f"{label} needs before, host-absent, and after restart phases"
+            )
+        if not (
+            observed_at["before"]
+            < observed_at["host-absent"]
+            < observed_at["after"]
+        ):
+            raise AcceptanceError(f"{label} restart phases are not chronological")
+        before = phases["before"]
+        host_absent = phases["host-absent"]
+        after = phases["after"]
+
+        backend_identities = {
+            (
+                phase["backend_pid"],
+                phase["backend_started_at"],
+                phase["backend_executable_sha256"],
+            )
+            for phase in phases.values()
+        }
+        shell_identities = {
+            (
+                phase["shell_pid"],
+                phase["shell_started_at"],
+                phase["shell_executable_sha256"],
+                phase["tty"],
+            )
+            for phase in phases.values()
+        }
+        reader_sequences = [
+            before["reader_sequence"],
+            host_absent["reader_sequence"],
+            after["reader_sequence"],
+        ]
+        unread_counts = [
+            before["unread_count"],
+            host_absent["unread_count"],
+            after["unread_count"],
+        ]
+        observed_pids = sorted(
+            {
+                collector_pid,
+                before["swift_pid"],
+                after["swift_pid"],
+                before["backend_pid"],
+                before["shell_pid"],
+            }
+        )
         return {
+            "collector_pid": collector_pid,
+            "collector_source_commit": collector_source_commit,
+            "collector_executable_sha256": collector_executable_sha256,
+            "collector_command_sha256": sha256_json(collector_command),
+            "phase_count": len(phases),
+            "phase_provenance_count": len(observed_at),
+            "observed_pid_set_sha256": sha256_json(observed_pids),
+            "swift_pid_before": before["swift_pid"],
+            "swift_pid_after": after["swift_pid"],
+            "backend_pid_before": before["backend_pid"],
+            "backend_pid_host_absent": host_absent["backend_pid"],
+            "backend_pid_after": after["backend_pid"],
             "shell_pid_before": before["shell_pid"],
+            "shell_pid_host_absent": host_absent["shell_pid"],
             "shell_pid_after": after["shell_pid"],
-            "terminal_id_equal": before["terminal_id"] == after["terminal_id"],
-            "tty_equal": before["tty"] == after["tty"],
-            "cwd_equal": before["cwd"] == after["cwd"],
-            "topology_equal": before["topology_sha256"] == after["topology_sha256"],
-            "reader_uuid_equal": before["reader_uuid"] == after["reader_uuid"],
-            "scrollback_sentinel_preserved": _raw_bool(
-                after.get("scrollback_sentinel_preserved"), f"{label} scrollback sentinel"
+            "swift_pid_changed": before["swift_pid"] != after["swift_pid"],
+            "swift_executable_equal": (
+                before["swift_executable_sha256"] == after["swift_executable_sha256"]
             ),
-            "unread_preserved": _raw_bool(after.get("unread_preserved"), f"{label} unread"),
+            "host_absent_proven": all(
+                host_absent[name] is None
+                for name in (
+                    "swift_pid",
+                    "swift_started_at",
+                    "swift_executable_sha256",
+                )
+            ),
+            "backend_identity_equal": len(backend_identities) == 1,
+            "daemon_instance_equal": len(
+                {phase["daemon_instance_id"] for phase in phases.values()}
+            ) == 1,
+            "shell_identity_equal": len(shell_identities) == 1,
+            "session_id_equal": len(
+                {phase["session_id"] for phase in phases.values()}
+            ) == 1,
+            "terminal_id_equal": before["terminal_id"] == after["terminal_id"],
+            "terminal_epoch_equal": len(
+                {phase["terminal_epoch"] for phase in phases.values()}
+            ) == 1,
+            "tty_equal": len({phase["tty"] for phase in phases.values()}) == 1,
+            "cwd_equal": len({phase["cwd"] for phase in phases.values()}) == 1,
+            "topology_equal": len(
+                {phase["topology_sha256"] for phase in phases.values()}
+            ) == 1,
+            "reader_uuid_equal": len(
+                {phase["reader_uuid"] for phase in phases.values()}
+            ) == 1,
+            "output_advanced_while_host_absent": reader_sequences[1] > reader_sequences[0],
+            "reader_sequence_monotonic": (
+                reader_sequences[0] < reader_sequences[1] <= reader_sequences[2]
+            ),
+            "scrollback_sentinel_preserved": all(
+                phase["scrollback_sentinel_present"] for phase in phases.values()
+            ),
+            "unread_preserved": (
+                unread_counts[0] < unread_counts[1] <= unread_counts[2]
+            ),
         }
     if kind == "runtime-assertion":
         passed = [
@@ -3414,6 +3694,83 @@ def validate_payload_format(kind: str, path: pathlib.Path, label: str) -> None:
         validate_video(path, label)
     else:
         load_raw_artifact(path, kind, label)
+
+
+def validate_restart_transcript_binding(
+    *,
+    primary_payload: pathlib.Path,
+    metrics: dict[str, Any],
+    source_commit: str,
+    command: list[str],
+    artifact_pids: list[int],
+    bound_processes: dict[int, dict[str, Any]] | None,
+    label: str,
+) -> None:
+    if metrics["collector_source_commit"] != source_commit:
+        raise AcceptanceError(f"{label} collector belongs to a different commit")
+    if metrics["collector_command_sha256"] != sha256_json(command):
+        raise AcceptanceError(f"{label} collector command differs from the receipt")
+    if metrics["observed_pid_set_sha256"] != sha256_json(artifact_pids):
+        raise AcceptanceError(f"{label} PIDs differ from the observed restart process set")
+    if bound_processes is None:
+        raise AcceptanceError(f"{label} process identities are not manifest-bound")
+
+    context, records = load_raw_artifact(
+        primary_payload,
+        "restart-transcript",
+        f"{label} raw transcript",
+    )
+    collector = _raw_dict(context.get("collector"), f"{label} collector")
+
+    def require_bound(
+        pid: int,
+        started_at: str,
+        executable_sha256: str,
+        expected_build_role: str | None,
+        identity_label: str,
+    ) -> None:
+        bound = bound_processes.get(pid)
+        if bound is None or (
+            bound.get("started_at") != started_at
+            or bound.get("executable_sha256") != executable_sha256
+            or bound.get("build_role") != expected_build_role
+        ):
+            raise AcceptanceError(
+                f"{label} {identity_label} PID {pid} differs from its manifest binding"
+            )
+
+    require_bound(
+        collector["pid"],
+        collector["started_at"],
+        metrics["collector_executable_sha256"],
+        None,
+        "collector",
+    )
+    for index, raw_record in enumerate(records):
+        record = _raw_dict(raw_record, f"{label} phase {index}")
+        phase = record["phase"]
+        require_bound(
+            record["backend_pid"],
+            record["backend_started_at"],
+            record["backend_executable_sha256"],
+            "terminal-backend",
+            f"{phase} backend",
+        )
+        require_bound(
+            record["shell_pid"],
+            record["shell_started_at"],
+            record["shell_executable_sha256"],
+            None,
+            f"{phase} shell",
+        )
+        if phase != "host-absent":
+            require_bound(
+                record["swift_pid"],
+                record["swift_started_at"],
+                record["swift_executable_sha256"],
+                "swift-host",
+                f"{phase} Swift host",
+            )
 
 
 def parse_timestamp(value: Any, label: str) -> dt.datetime:
@@ -4047,6 +4404,16 @@ def validate_evidence_receipt(
                     raise AcceptanceError(
                         f"PERF-2 process PID {pid} differs from its manifest-bound identity"
                     )
+        if criterion_id == "LIFE-1" and artifact_kind == "restart-transcript":
+            validate_restart_transcript_binding(
+                primary_payload=primary_payload,
+                metrics=metrics,
+                source_commit=source_commit,
+                command=command,
+                artifact_pids=artifact_pids,
+                bound_processes=bound_processes,
+                label="LIFE-1 restart transcript",
+            )
     if expected_pass:
         validate_metric_invariants(
             criterion_id,
@@ -4345,6 +4712,18 @@ def derive_receipt(arguments: argparse.Namespace) -> pathlib.Path:
                 raise AcceptanceError(
                     f"PERF-2 process PID {process['pid']} differs from the manifest"
                 )
+    if arguments.id == "LIFE-1" and arguments.kind == "restart-transcript":
+        validate_restart_transcript_binding(
+            primary_payload=primary,
+            metrics=metrics,
+            source_commit=expected_commit,
+            command=commands[0],
+            artifact_pids=pids,
+            bound_processes={
+                process["pid"]: process for process in manifest["processes"]
+            },
+            label="LIFE-1 restart transcript",
+        )
     if arguments.status == "pass":
         validate_metric_invariants(arguments.id, arguments.kind, metrics, "derived receipt")
 

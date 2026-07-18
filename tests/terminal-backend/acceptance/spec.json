@@ -26,7 +26,7 @@
       "id": "LIFE-1",
       "priority": "P0",
       "observable": "GUI restart persistence",
-      "pass_condition": "Force-killing and relaunching Swift preserves shell PID, TTY, cwd, terminal ID, topology, scrollback sentinel, and daemon-derived unread activity for the same stable reader UUID.",
+      "pass_condition": "An external commit-bound collector force-kills only Swift, proves a chronological host-absent phase in which cmuxd, the shell, terminal epoch, topology, scrollback sentinel, stable reader, unread activity, and output sequence remain live, then proves a new Swift PID reconnects to those exact identities.",
       "required_artifact_kinds": ["protocol", "process-census", "restart-transcript"]
     },
     {
