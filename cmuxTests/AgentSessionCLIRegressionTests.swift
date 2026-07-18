@@ -3054,6 +3054,66 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func agentAndSessionJSONExplicitSocketFailuresUseCompleteStructuredOutput() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-json-socket-error-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let socketPath = root.appendingPathComponent("missing.sock").path
+
+        let cases: [(command: String, subcommand: String)] = [
+            ("agents", "list"),
+            ("sessions", "list"),
+            ("agents", "tree"),
+            ("sessions", "tree"),
+        ]
+
+        for (index, testCase) in cases.enumerated() {
+            let expectedPrefix = "\(testCase.command) \(testCase.subcommand):"
+            let stderrURL = root.appendingPathComponent("socket-error-\(index).stderr")
+            let command = ([
+                cliPath,
+                "--socket",
+                socketPath,
+                testCase.command,
+                testCase.subcommand,
+                "--json",
+                "--state-dir",
+                root.path,
+            ]).map(shellQuoteAgentTreeArgument).joined(separator: " ")
+            let result = runProcess(
+                executablePath: "/bin/sh",
+                arguments: [
+                    "-c", "\(command) 2>\(shellQuoteAgentTreeArgument(stderrURL.path))",
+                ],
+                environment: isolatedAgentTreeEnvironment(home: root),
+                timeout: 5
+            )
+            let context = "\(testCase.command) \(testCase.subcommand): \(result.stdout)"
+
+            #expect(!result.timedOut, Comment(rawValue: context))
+            #expect(result.status != 0, Comment(rawValue: context))
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                Comment(rawValue: context)
+            )
+            let error = try #require(payload["error"] as? [String: Any])
+            #expect(payload["schema_version"] as? Int == 2)
+            #expect(error["code"] as? String == "agent_runtime_unavailable")
+            #expect((error["message"] as? String)?.hasPrefix(expectedPrefix) == true)
+            #expect(error["path"] as? String == socketPath)
+            if testCase.subcommand == "tree" {
+                #expect((payload["nodes"] as? [Any])?.isEmpty == true)
+                #expect((payload["edges"] as? [Any])?.isEmpty == true)
+            } else {
+                #expect((payload["sessions"] as? [Any])?.isEmpty == true)
+            }
+            let stderr = try String(contentsOf: stderrURL, encoding: .utf8)
+            #expect(stderr.contains(expectedPrefix), Comment(rawValue: stderr))
+        }
+    }
+
     @Test func agentsEqualsOptionsPreserveDashLeadingValues() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
