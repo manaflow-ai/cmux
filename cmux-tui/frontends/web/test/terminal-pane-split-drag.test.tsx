@@ -54,6 +54,7 @@ function screenView(ratio: number, zoomedPane: number | null = null): ScreenView
     panes: [],
     layout: {
       type: "split",
+      split: 42,
       dir: "right",
       ratio,
       a: { type: "leaf", pane: 1 },
@@ -148,7 +149,7 @@ describe("TerminalPane split dividers", () => {
     fireEvent.pointerUp(divider, { pointerId: 7, pointerType: "touch", clientX: 400, clientY: 100 });
 
     await waitFor(() => expect(onSetRatio).toHaveBeenCalledTimes(1));
-    expect(onSetRatio).toHaveBeenCalledWith(1, "right", 0.75);
+    expect(onSetRatio).toHaveBeenCalledWith(42, 0.75);
 
     rerender(<TerminalPane {...props} screen={screenView(0.75)} />);
     rerender(<TerminalPane {...props} screen={screenView(0.6)} />);

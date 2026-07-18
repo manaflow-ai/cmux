@@ -12,11 +12,13 @@ describe("layoutToViewModel", () => {
   it("maps nested split directions and ratios to flex percentages", () => {
     const layout: Layout = {
       type: "split",
+      split: 10,
       dir: "right",
       ratio: 0.6,
       a: { type: "leaf", pane: 1 },
       b: {
         type: "split",
+        split: 11,
         dir: "down",
         ratio: 0.25,
         a: { type: "leaf", pane: 2 },
@@ -26,12 +28,14 @@ describe("layoutToViewModel", () => {
 
     expect(layoutToViewModel(layout)).toEqual({
       type: "group",
+      split: 10,
       direction: "row",
       firstPercent: 60,
       secondPercent: 40,
       first: { type: "pane", pane: 1 },
       second: {
         type: "group",
+        split: 11,
         direction: "column",
         firstPercent: 25,
         secondPercent: 75,
@@ -102,10 +106,12 @@ describe("split drag", () => {
   it("maps nested dividers to a pane whose deepest matching split is the group", () => {
     const view = layoutToViewModel({
       type: "split",
+      split: 20,
       dir: "right",
       ratio: 0.5,
       a: {
         type: "split",
+        split: 21,
         dir: "right",
         ratio: 0.25,
         a: { type: "leaf", pane: 1 },
@@ -113,6 +119,7 @@ describe("split drag", () => {
       },
       b: {
         type: "split",
+        split: 22,
         dir: "down",
         ratio: 0.5,
         a: { type: "leaf", pane: 3 },
@@ -121,10 +128,10 @@ describe("split drag", () => {
     });
     expect(view.type).toBe("group");
     if (view.type !== "group") throw new Error("expected group");
-    expect(splitDividerTarget(view)).toEqual({ pane: 3, dir: "right" });
+    expect(splitDividerTarget(view)).toEqual({ split: 20 });
     expect(view.second.type).toBe("group");
     if (view.second.type !== "group") throw new Error("expected nested group");
-    expect(splitDividerTarget(view.second)).toEqual({ pane: 3, dir: "down" });
+    expect(splitDividerTarget(view.second)).toEqual({ split: 22 });
   });
 
   it("does not map an outer split when both sides cross a same-direction split", () => {
