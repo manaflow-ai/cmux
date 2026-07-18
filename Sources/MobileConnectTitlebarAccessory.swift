@@ -26,7 +26,14 @@ final class MobileConnectTitlebarAccessoryViewController: NSTitlebarAccessoryVie
 /// Trailing titlebar cluster. Mobile Connect now lives in the sidebar footer.
 private struct TitlebarTrailingControls: View {
     var body: some View {
-        ProBadgeView()
-            .padding(.trailing, 8)
+        HStack(spacing: 0) {
+            ProBadgeView()
+        }
+        // The accessory controller sizes its AppKit slot from this root view.
+        // Without a fixed horizontal size, the conditional Pro badge can first
+        // report an empty width and later render its capsule outside the slot,
+        // leaving only a clipped circular rim at the window's trailing edge.
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.trailing, 8)
     }
 }
