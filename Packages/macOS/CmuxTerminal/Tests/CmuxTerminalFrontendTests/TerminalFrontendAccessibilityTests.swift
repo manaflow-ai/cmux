@@ -276,6 +276,7 @@ import Testing
         }
 
         #expect(weakBridge == nil)
+        #expect(retainedChild.accessibilityParent() == nil)
         #expect(!retainedChild.accessibilityPerformPress())
         #expect(runtime.accessibilityLinkActivations.isEmpty)
     }

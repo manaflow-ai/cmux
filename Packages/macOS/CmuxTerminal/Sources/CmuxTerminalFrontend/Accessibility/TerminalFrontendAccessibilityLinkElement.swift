@@ -26,4 +26,15 @@ final class TerminalFrontendAccessibilityLinkElement: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool {
         actionGate.perform()
     }
+
+    /// Severs the AppKit ownership edge before a stale cached child is released.
+    ///
+    /// `NSAccessibilityElement` retains its accessibility parent. A caller may
+    /// also retain this child after the terminal view leaves its window, so
+    /// invalidation must remove the parent independently of either lifetime.
+    @MainActor
+    func invalidate() {
+        actionGate.invalidate()
+        setAccessibilityParent(nil)
+    }
 }

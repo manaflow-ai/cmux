@@ -220,8 +220,8 @@ final class TerminalFrontendAccessibilityBridge {
     }
 
     private func invalidateLinkElements() {
-        for gate in linkActionGates {
-            gate.invalidate()
+        for element in linkElements {
+            element.invalidate()
         }
         linkActionGates.removeAll(keepingCapacity: false)
         linkElements.removeAll(keepingCapacity: false)
