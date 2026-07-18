@@ -189,51 +189,6 @@ struct ComputerUseUXTests {
         ))
     }
 
-    @Test func legacyHelperCleanupStopsEmbeddedDaemonAndRemovesArtifacts() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-computer-use-legacy-cleanup-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let computerUseDirectory = root.appendingPathComponent("computer-use", isDirectory: true)
-        let legacyApplication = computerUseDirectory
-            .appendingPathComponent("helper", isDirectory: true)
-            .appendingPathComponent("cmux Computer Use.app", isDirectory: true)
-        let legacyExecutable = legacyApplication
-            .appendingPathComponent("Contents/MacOS", isDirectory: true)
-            .appendingPathComponent("cmux-cua-driver")
-        let daemonSocket = computerUseDirectory.appendingPathComponent("cua-daemon.sock")
-        try FileManager.default.createDirectory(
-            at: legacyExecutable.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data().write(to: legacyExecutable)
-        try Data().write(to: daemonSocket)
-
-        let commandRunner = ComputerUseCleanupCommandRunner()
-        let cleanup = ComputerUseLegacyHelperCleanupService(
-            computerUseDirectoryURL: computerUseDirectory,
-            fileManager: .default,
-            commandRunner: commandRunner,
-            processSnapshotProvider: {
-                [
-                    101: legacyExecutable.path,
-                    202: "/Applications/Unrelated.app/Contents/MacOS/unrelated",
-                ]
-            }
-        )
-
-        await cleanup.cleanup()
-
-        #expect(!FileManager.default.fileExists(atPath: legacyApplication.path))
-        #expect(!FileManager.default.fileExists(atPath: daemonSocket.path))
-        #expect(await commandRunner.snapshot() == [
-            ComputerUseCleanupCommandInvocation(
-                executable: "/bin/kill",
-                arguments: ["-TERM", "101"]
-            )
-        ])
-    }
-
     @Test @MainActor func onboardingCreatesFreshWindowAndRootForEveryRun() {
         let controller = ComputerUseOnboardingWindowController(
             permissionService: ComputerUsePermissionService()
@@ -249,14 +204,67 @@ struct ComputerUseUXTests {
         #expect(first.contentViewController !== second.contentViewController)
     }
 
-    @Test @MainActor func onboardingWindowCanMoveByDraggingItsBackground() {
+    @Test @MainActor func firstUseOnboardingStartsAtOverview() {
+        #expect(ComputerUseOnboardingView.initialStep == 0)
+    }
+
+    @Test @MainActor func onboardingWindowUsesOnlyExplicitHeaderDragRegion() {
         let controller = ComputerUseOnboardingWindowController(
             permissionService: ComputerUsePermissionService()
         )
         let window = controller.makeWindow()
         defer { window.close() }
 
-        #expect(window.isMovableByWindowBackground)
+        #expect(!window.isMovableByWindowBackground)
+    }
+
+    @Test @MainActor func helperCardExportsFinderCompatibleAppPayload() throws {
+        let helperURL = URL(fileURLWithPath: "/System/Applications/Calculator.app")
+        let item = ComputerUseAppDragSourceView.pasteboardItem(for: helperURL)
+        let filenames = try #require(
+            item.propertyList(
+                forType: ComputerUseAppDragSourceView.legacyFilenamesPasteboardType
+            ) as? [String]
+        )
+
+        #expect(item.string(forType: .fileURL) == helperURL.absoluteString)
+        #expect(filenames == [helperURL.path])
+    }
+
+    @Test func taggedRuntimeKeepsHelperSocketAndStateIsolated() {
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            environment: ["CMUX_TAG": "permission-owner-v2"]
+        )
+
+        #expect(paths.daemonSocketURL.path.hasSuffix(
+            "/Library/Application Support/cmux/computer-use/runtime/permission-owner-v2/cua-daemon.sock"
+        ))
+        #expect(paths.stateDirectoryURL.path.hasSuffix(
+            "/Library/Application Support/cmux/computer-use/runtime/permission-owner-v2/state"
+        ))
+        #expect(paths.installedHelperAppURL.path.hasSuffix(
+            "/Library/Application Support/cmux/computer-use/helper/permission-owner-v2/cmux Computer Use.app"
+        ))
+    }
+
+    @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() {
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            environment: [:]
+        )
+        let configuration = ComputerUseHelperLaunchConfiguration(paths: paths)
+
+        #expect(configuration.arguments == [
+            "serve",
+            "--socket",
+            paths.daemonSocketURL.path,
+            "--no-permissions-gate",
+        ])
+        #expect(configuration.environment["CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW"] == "1")
+        #expect(configuration.environment["CUA_DRIVER_RS_PERMISSIONS_GATE"] == "0")
+        #expect(configuration.environment["CUA_DRIVER_RS_TELEMETRY_ENABLED"] == "false")
+        #expect(configuration.environment["CUA_DRIVER_RS_UPDATE_CHECK"] == "false")
     }
 
     @Test func menuRefreshPolicyDebouncesAndSkipsFullyInactiveFeature() throws {
@@ -575,37 +583,5 @@ struct ComputerUseUXTests {
         try process.run()
         process.waitUntilExit()
         #expect(process.terminationStatus == 0)
-    }
-}
-
-private struct ComputerUseCleanupCommandInvocation: Equatable, Sendable {
-    let executable: String
-    let arguments: [String]
-}
-
-private actor ComputerUseCleanupCommandRunner: CommandRunning {
-    private var invocations: [ComputerUseCleanupCommandInvocation] = []
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        invocations.append(ComputerUseCleanupCommandInvocation(
-            executable: executable,
-            arguments: arguments
-        ))
-        return CommandResult(
-            stdout: "",
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        )
-    }
-
-    func snapshot() -> [ComputerUseCleanupCommandInvocation] {
-        invocations
     }
 }

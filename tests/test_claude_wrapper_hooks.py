@@ -1086,11 +1086,21 @@ def expect_computer_use_env_scrubbed(
     )
     if helper_owned:
         expect("CUA_DRIVER_EMBEDDED" not in env, f"{context}: helper path must not be embedded: {env}", failures)
+        expect(
+            env.get("CUA_DRIVER_RS_PERMISSIONS_GATE") == "0",
+            f"{context}: helper path must disable the independent permission gate: {env}",
+            failures,
+        )
         helper_app = Path(env.get("CUA_DRIVER_DAEMON_APP", ""))
         expect(helper_app.name == "cmux Computer Use.app", f"{context}: unexpected helper {helper_app}", failures)
         expect("CuaDriver" not in str(helper_app), f"{context}: must not expose CuaDriver: {helper_app}", failures)
     else:
         expect(env.get("CUA_DRIVER_EMBEDDED") == "1", f"{context}: expected embedded bare override: {env}", failures)
+        expect(
+            "CUA_DRIVER_RS_PERMISSIONS_GATE" not in env,
+            f"{context}: bare override must retain its own permission policy: {env}",
+            failures,
+        )
         expect("CUA_DRIVER_DAEMON_APP" not in env, f"{context}: bare override must not name a helper: {env}", failures)
 
 
@@ -1162,6 +1172,25 @@ def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> 
     expect(
         injected_mcp_config_index(captured) is None and "--mcp-config" not in captured,
         f"computer use inject: captured launch argv must not include the injected flag, got {captured}",
+        failures,
+    )
+
+
+def test_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None:
+    source = SOURCE_WRAPPER.read_text(encoding="utf-8")
+    expect(
+        "cmux_computer_use_standalone_helper" not in source,
+        "computer use wrapper must not install or replace the standalone helper",
+        failures,
+    )
+    expect(
+        "CUA_DRIVER_DAEMON_APP" not in source,
+        "computer use wrapper must not own helper daemon launch",
+        failures,
+    )
+    expect(
+        "CUA_DRIVER_RS_MCP_FORCE_PROXY" in source,
+        "computer use wrapper must force the shared daemon proxy path",
         failures,
     )
 
@@ -2387,6 +2416,7 @@ def main() -> int:
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cua_driver_when_available(failures)
+    test_computer_use_wrapper_is_a_pure_proxy(failures)
     test_stale_standalone_helper_identity_is_replaced(failures)
     test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_driver_does_not_require_external_runtime_auth(failures)

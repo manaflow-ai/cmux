@@ -64,6 +64,7 @@ def expect_scrubbed_mcp_env(
     embedded = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED=")
     daemon_app = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DAEMON_APP=")
     default_session = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=")
+    permissions_gate = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_PERMISSIONS_GATE=")
     telemetry = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=")
     update_check = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_UPDATE_CHECK=")
     cursor_gradient = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_GRADIENT=")
@@ -75,6 +76,7 @@ def expect_scrubbed_mcp_env(
     if helper_owned:
         expect(embedded is None, f"{context}: helper-owned computer use must not be embedded: {args}", failures)
         expect(daemon_app is not None, f"{context}: missing helper daemon app config in {args}", failures)
+        expect(permissions_gate is not None, f"{context}: missing permission-gate opt-out in {args}", failures)
         if daemon_app is not None:
             daemon_path = Path(json.loads(daemon_app))
             expect(
@@ -86,6 +88,7 @@ def expect_scrubbed_mcp_env(
     else:
         expect(embedded is not None, f"{context}: missing CUA_DRIVER_EMBEDDED config in {args}", failures)
         expect(daemon_app is None, f"{context}: bare override must not name a helper daemon: {args}", failures)
+        expect(permissions_gate is None, f"{context}: bare override must not override its permission gate: {args}", failures)
     expect(default_session is not None, f"{context}: missing CUA_DRIVER_DEFAULT_SESSION config in {args}", failures)
     expect(telemetry is not None, f"{context}: missing telemetry opt-out config in {args}", failures)
     expect(update_check is not None, f"{context}: missing update-check opt-out config in {args}", failures)
@@ -99,6 +102,8 @@ def expect_scrubbed_mcp_env(
         expect(json.loads(embedded) == "1", f"{context}: expected embedded env, got {embedded}", failures)
     if default_session is not None:
         expect(json.loads(default_session).startswith("cmux-"), f"{context}: expected cmux- default session, got {default_session}", failures)
+    if permissions_gate is not None:
+        expect(json.loads(permissions_gate) == "0", f"{context}: expected permission gate disabled, got {permissions_gate}", failures)
     if telemetry is not None:
         expect(json.loads(telemetry) == "false", f"{context}: expected telemetry disabled, got {telemetry}", failures)
     if update_check is not None:
@@ -336,6 +341,25 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
     )
 
 
+def test_codex_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None:
+    source = SOURCE_WRAPPER.read_text(encoding="utf-8")
+    expect(
+        "cmux_computer_use_standalone_helper" not in source,
+        "codex wrapper must not install or replace the standalone helper",
+        failures,
+    )
+    expect(
+        "CUA_DRIVER_DAEMON_APP" not in source,
+        "codex wrapper must not own helper daemon launch",
+        failures,
+    )
+    expect(
+        "CUA_DRIVER_RS_MCP_FORCE_PROXY" in source,
+        "codex wrapper must force the shared daemon proxy path",
+        failures,
+    )
+
+
 def test_codex_replaces_stale_standalone_helper_identity(failures: list[str]) -> None:
     code, _, stderr, _ = run_wrapper(
         ["hello"],
@@ -505,6 +529,7 @@ def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_codex_gets_cmux_cua_driver(failures)
+    test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_replaces_stale_standalone_helper_identity(failures)
     test_codex_uses_trusted_cua_driver_override(failures)
     test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures)
