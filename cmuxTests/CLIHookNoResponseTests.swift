@@ -31,6 +31,24 @@ struct CLIHookNoResponseTests {
         }
     }
 
+    final class NativeAdmissionResults: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [(duration: Duration, result: CodexHookProcessRunResult)] = []
+
+        func append(duration: Duration, result: CodexHookProcessRunResult) {
+            lock.lock()
+            values.append((duration, result))
+            lock.unlock()
+        }
+
+        func snapshot() -> [(duration: Duration, result: CodexHookProcessRunResult)] {
+            lock.lock()
+            let snapshot = values
+            lock.unlock()
+            return snapshot
+        }
+    }
+
     struct MockSocketServer {
         let handled: DispatchSemaphore
 
@@ -401,6 +419,81 @@ struct CLIHookNoResponseTests {
             try String(contentsOf: capturedArgs, encoding: .utf8)
                 == "--socket /tmp/cmux-native-forced-fork-failure.sock hooks codex enqueue session-start"
         )
+    }
+
+    @Test func nativeCodexAdmissionStaysInstantAcrossSixtyFourUnacknowledgedHooks() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-native-admission-burst-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        let socketPath = Self.makeSocketPath("native-burst")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 256)
+        let state = MockSocketServerState()
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let hookPath = try #require(
+            FileManager.default
+                .contentsOfDirectory(at: hooksDirectory, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
+        )
+        let server = Self.startMultiConnectionMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            connectionLimit: 64,
+            fulfillWhen: { line in
+                codexHookJSONObject(line)?["method"] as? String == "agent.hook.enqueue"
+            }
+        ) { line in
+            codexHookJSONObject(line)?["method"] as? String == "agent.hook.enqueue" ? nil : "OK"
+        }
+
+        let results = NativeAdmissionResults()
+        DispatchQueue.concurrentPerform(iterations: 64) { index in
+            let started = ContinuousClock().now
+            let result = runCodexHookProcess(
+                executablePath: hookPath.path,
+                arguments: [],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "CMUX_SURFACE_ID": "surface-\(index)",
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_SOCKET_CAPABILITY": "test-capability",
+                    "CMUX_BUNDLED_CLI_PATH": "/usr/bin/false",
+                    "CMUX_CODEX_PID": "\(50_000 + index)",
+                    "CMUX_AGENT_HOOK_DELIVERY_ID": "native-burst-\(index)",
+                ],
+                standardInput: #"{"session_id":"burst-\#(index)","hook_event_name":"SessionStart"}"#,
+                timeout: 0.5
+            )
+            results.append(duration: started.duration(to: .now), result: result)
+        }
+
+        #expect(server.wait(timeout: 5), "Burst server did not receive native admission")
+        let snapshot = results.snapshot()
+        #expect(snapshot.count == 64)
+        #expect(snapshot.allSatisfy { !$0.result.timedOut && $0.result.status == 0 })
+        #expect(snapshot.allSatisfy { $0.result.stdout == "{}\n" })
+        let maximum = try #require(snapshot.map(\.duration).max())
+        #expect(maximum < .seconds(0.15), "64-way native admission max was \(maximum)")
+        #expect(waitForCondition(timeout: 2) {
+            state.snapshot().filter {
+                codexHookJSONObject($0)?["method"] as? String == "agent.hook.enqueue"
+            }.count == 64
+        })
     }
 
     @Test func nativeCodexAdmissionFallsBackToLegacyCommandForOlderApp() throws {
