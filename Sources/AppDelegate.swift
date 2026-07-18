@@ -3429,6 +3429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
+        terminalBackendTopologyProjectionRegistry?.startupRestoreDidFinish()
         terminalBackendTopologyCoordinator?.startupRestoreDidFinish()
         if isScreenChangeCaptureSuppressed {
             // A display change arrived mid-restore and its reconcile pass was
@@ -3444,6 +3445,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = saveSessionSnapshot(includeScrollback: false)
         }
     }
+
+#if DEBUG
+    /// Exercises the production restore-completion seam without constructing
+    /// AppKit windows in topology projection tests.
+    func debugCompleteTerminalBackendSessionRestoreForTesting(
+        projectionRegistry: TerminalBackendTopologyProjectionRegistry
+    ) {
+        terminalBackendTopologyProjectionRegistry = projectionRegistry
+        isApplyingSessionRestore = true
+        completeSessionRestoreOperation(isManualReopen: true)
+    }
+#endif
 
     @discardableResult
     func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {

@@ -2096,7 +2096,7 @@ struct TerminalBackendTopologyCoordinatorTests {
     }
 
     @Test @MainActor
-    func durableProjectionHydratesBeforeFirstCanonicalWindowAssignment() async throws {
+    func appRestoreCompletionHydratesTwoWindowsBeforeFirstCanonicalAssignment() async throws {
         let firstWindowID = UUID()
         let secondWindowID = UUID()
         let firstWorkspaceID = UUID()
@@ -2144,7 +2144,11 @@ struct TerminalBackendTopologyCoordinatorTests {
         )
         registry.register(first, presentationID: firstWindowID, isPrimary: true)
         registry.register(second, presentationID: secondWindowID, isPrimary: false)
-        registry.startupRestoreDidFinish()
+        let appDelegate = AppDelegate()
+        appDelegate.debugCompleteTerminalBackendSessionRestoreForTesting(
+            projectionRegistry: registry
+        )
+        #expect(!appDelegate.isApplyingSessionRestore)
         let snapshot = try makeSnapshot(
             authority: makeAuthority(),
             revision: 1,
