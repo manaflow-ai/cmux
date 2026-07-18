@@ -98,13 +98,24 @@ struct AgentHookSessionLineageResolver: Sendable {
                 kind: agentName
             )
         } ?? false
-        let processLaunchMode = identity.map {
+        let pidProcessLaunchMode = identity.map {
             launchModeClassifier.processMode(
                 processName: $0.executableName,
                 arguments: $0.arguments,
                 kind: agentName
             )
         } ?? .unknown
+        let processLaunchMode: AgentProcessLaunchMode
+        if pidProcessLaunchMode == .unknown,
+           identity != nil,
+           let capturedMode = exactEnvironmentProcessLaunchMode(
+               agentName: agentName,
+               environment: environment
+           ) {
+            processLaunchMode = capturedMode
+        } else {
+            processLaunchMode = pidProcessLaunchMode
+        }
         let hibernationResumeAttemptId = Self.normalized(
             environment[AgentHibernationResumeEvidence.environmentKey]
         ).flatMap { UUID(uuidString: $0) }
@@ -229,6 +240,37 @@ struct AgentHookSessionLineageResolver: Sendable {
         )
     }
 
+    /// Some interpreter-hosted CLIs overwrite the kernel-visible argv after
+    /// startup (`pi` via Node and `omp` via Bun). Recover their launch mode only
+    /// from an exact-kind capture after the live PID classifier failed. The
+    /// capture is inherited by descendants, so wrapper aliases and captures
+    /// belonging to another provider are intentionally rejected here.
+    private func exactEnvironmentProcessLaunchMode(
+        agentName: String,
+        environment: [String: String]
+    ) -> AgentProcessLaunchMode? {
+        guard let normalizedAgentName = Self.normalized(agentName)?.lowercased(),
+              Self.normalized(environment["CMUX_AGENT_LAUNCH_KIND"])?.lowercased()
+                  == normalizedAgentName,
+              let arguments = Self.decodeNULSeparatedBase64(
+                  environment["CMUX_AGENT_LAUNCH_ARGV_B64"]
+              ),
+              AgentLaunchCaptureTrust.capturedArgumentsDescribeKind(
+                  launcher: normalizedAgentName,
+                  executablePath: environment["CMUX_AGENT_LAUNCH_EXECUTABLE"],
+                  arguments: arguments,
+                  kind: normalizedAgentName
+              ) else {
+            return nil
+        }
+        let mode = launchModeClassifier.processMode(
+            processName: environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] ?? arguments.first,
+            arguments: arguments,
+            kind: normalizedAgentName
+        )
+        return mode == .unknown ? nil : mode
+    }
+
     private func kernelProcessInfo(_ pid: Int) -> kinfo_proc? {
         guard pid > 1, pid <= Int(Int32.max) else { return nil }
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
@@ -295,6 +337,23 @@ struct AgentHookSessionLineageResolver: Sendable {
 
     private static func skipNulls(_ bytes: [UInt8], index: inout Int) {
         while index < bytes.count, bytes[index] == 0 { index += 1 }
+    }
+
+    private static func decodeNULSeparatedBase64(_ value: String?) -> [String]? {
+        guard let value = normalized(value),
+              let data = Data(base64Encoded: value),
+              !data.isEmpty,
+              data.last == 0 else {
+            return nil
+        }
+        let fields = data.split(separator: 0, omittingEmptySubsequences: false).dropLast()
+        var arguments: [String] = []
+        arguments.reserveCapacity(fields.count)
+        for field in fields {
+            guard let argument = String(data: field, encoding: .utf8) else { return nil }
+            arguments.append(argument)
+        }
+        return arguments.isEmpty ? nil : arguments
     }
 
     private static func normalized(_ value: String?) -> String? {
