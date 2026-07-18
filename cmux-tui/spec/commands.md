@@ -100,21 +100,23 @@ The `dead` pane variant is serialized only if the tree references a pane missing
 
 Every surface has one authoritative cell grid. Byte and render attach modes observe the same grid; attaching by itself never resizes it.
 
-Each attached client reports the cell grid available for a surface with `resize-surface`. The authoritative grid uses the smallest reported `cols` and the smallest reported `rows`, matching tmux's `window-size smallest` policy. Input does not claim or change sizing ownership. When a client detaches from a surface or disconnects, its report is removed and the surface expands to the minimum of the remaining reports.
+Each client reports the cell grid available for every surface it currently displays with `resize-surface`. The authoritative grid uses the smallest reported `cols` and the smallest reported `rows`, matching tmux's `window-size smallest` policy. Input does not claim or change sizing ownership. When a tab becomes hidden, the client sends `release-surface-size`; detaching or disconnecting also removes its reports. The surface expands to the minimum of the remaining visible clients.
 
-The final effective grid stores the session's latest client size for later unsized creation. Internal server-only resizes, including sidebar plugin tracking, do not update this session default.
+The final effective grid is retained while at least one client still reports a visible surface. Once the final report is released or disconnected, existing surfaces keep their last grids and later unsized headless creation uses the configured default, normally `80x24`. Internal server-only resizes, including sidebar plugin tracking, do not update the client-size cache.
 
 Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `split`, and `run`. Their rules are:
 
 | Input | Behavior |
 | --- | --- |
-| both `cols` and `rows` supplied | Clamp each to at least `1`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
-| neither supplied | Use the latest client size, or the configured legacy server default if no client size has been observed |
+| both `cols` and `rows` supplied | Clamp each to `1..10000`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
+| neither supplied | Use the latest active client size, or the configured server default when no client reports remain |
 | only one supplied | Preserve protocol-v6 behavior: the incomplete pair is ignored; clients must always send both |
 
-The JSON type `uint16` supplies the upper bound. `resize-surface` requires both fields and clamps each to at least `1`. Attached clients update their own persistent report. Unattached control clients resize directly and update the session default without joining the viewer set.
+`resize-surface` requires both fields and clamps each to `1..10000`, matching tmux's window bounds. Every live control connection enters the same shared reducer. Attached clients retain the report until release; an unattached one-shot report is removed when its connection closes. A disconnected client id is rejected.
 
-Frontends report their grid after attach and whenever their viewport changes. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
+`set-client-sizing` controls tmux-style `ignore-size` participation. A normal request supplies `client` and `enabled`. Supplying `exclusive:true` with an enabled client atomically includes only that client. Omitting `client` with `enabled:true` atomically includes all clients. Ignored clients keep reporting; if every attached client is ignored, all ignored reports participate as tmux's global fallback.
+
+Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
 ## Implemented Commands
 
@@ -1569,6 +1571,34 @@ Example:
 {"id":21,"cmd":"resize-surface","surface":1,"cols":120,"rows":40}
 {"id":21,"ok":true,"data":{"accepted":true,"reservation_id":7}}
 ```
+
+### release-surface-size
+
+| Field | Value |
+| --- | --- |
+| name | `release-surface-size` |
+| status | implemented |
+| since | protocol 7 |
+
+Removes the requesting client's sizing lease for a surface without closing its attach stream. Frontends use this when a pane switches tabs or otherwise stops displaying the surface.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | An attached surface; an absent lease is a successful no-op |
+
+Result: empty object.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `release-surface-size` |
+| Flags | `--surface <id>` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
 
 ### focus-pane
 

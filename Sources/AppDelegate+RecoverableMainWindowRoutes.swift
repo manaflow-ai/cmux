@@ -8,32 +8,13 @@ final class RecoverableMainWindowRoute {
     let windowId: UUID
     weak var tabManager: TabManager?
     weak var window: NSWindow?
-    weak var browserWebExtensionHost: (any BrowserWebExtensionHosting)?
-    var browserPanelIDs: Set<UUID>
     let order: UInt64
 
     init(windowId: UUID, tabManager: TabManager, window: NSWindow?, order: UInt64) {
         self.windowId = windowId
         self.tabManager = tabManager
         self.window = window
-        self.browserWebExtensionHost = tabManager.browserWebExtensionHost
-        self.browserPanelIDs = Set(tabManager.browserWebExtensionPanelIDs())
         self.order = order
-    }
-
-    func discardBrowserWebExtensionWindowOwnership() {
-        if let tabManager {
-            tabManager.discardBrowserWebExtensionWindowOwnership()
-        } else {
-            let orphanedPanelIDs = browserPanelIDs.filter { panelID in
-                guard let appDelegate = AppDelegate.shared else { return true }
-                if appDelegate.workspaceContainingPanel(panelId: panelID) != nil {
-                    return false
-                }
-                return !DockSplitStore.liveStores.contains(where: { $0.containsPanel(panelID) })
-            }
-            browserWebExtensionHost?.discardWindowOwnership(panelIDs: Array(orphanedPanelIDs))
-        }
     }
 }
 
@@ -130,20 +111,10 @@ extension AppDelegate {
     func retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: String) {
         let before = mainWindowRouteLedger.routesByWindowId.count
         mainWindowRouteLedger.routesByWindowId = mainWindowRouteLedger.routesByWindowId.filter { _, route in
-            guard let manager = route.tabManager else {
-                route.discardBrowserWebExtensionWindowOwnership()
-                return false
-            }
-            guard let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else {
-                route.discardBrowserWebExtensionWindowOwnership()
-                return false
-            }
+            guard let manager = route.tabManager else { return false }
+            guard let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else { return false }
             route.window = window
-            guard tabManagerHasRegisteredTerminalSurface(manager) else {
-                route.discardBrowserWebExtensionWindowOwnership()
-                return false
-            }
-            return true
+            return tabManagerHasRegisteredTerminalSurface(manager)
         }
         let after = mainWindowRouteLedger.routesByWindowId.count
 #if DEBUG
@@ -173,41 +144,6 @@ extension AppDelegate {
 #if DEBUG
         cmuxDebugLog("recoverableRoute.remember windowId=\(String(windowId.uuidString.prefix(8)))")
 #endif
-    }
-
-    func prepareBrowserWebExtensionOwnershipForOrphanedMainWindowContext(
-        _ context: MainWindowContext
-    ) {
-        rememberRecoverableMainWindowRoute(
-            windowId: context.windowId,
-            tabManager: context.tabManager,
-            window: context.window
-        )
-        if recoverableMainWindowRoute(windowId: context.windowId) != nil {
-            _ = context.tabManager.setOwningWindow(nil)
-        } else {
-            context.tabManager.discardBrowserWebExtensionWindowOwnership()
-        }
-    }
-
-    func noteRecoverableBrowserWebExtensionPanelRegistered(
-        panelID: UUID,
-        workspaceID: UUID
-    ) {
-        for route in mainWindowRouteLedger.routesByWindowId.values {
-            if let manager = route.tabManager,
-               manager.tabs.contains(where: { $0.id == workspaceID }) {
-                route.browserPanelIDs.insert(panelID)
-            } else {
-                route.browserPanelIDs.remove(panelID)
-            }
-        }
-    }
-
-    func noteRecoverableBrowserWebExtensionPanelUnregistered(panelID: UUID) {
-        for route in mainWindowRouteLedger.routesByWindowId.values {
-            route.browserPanelIDs.remove(panelID)
-        }
     }
 
     func recoverableMainWindowRoute(windowId: UUID) -> RecoverableMainWindowRoute? {

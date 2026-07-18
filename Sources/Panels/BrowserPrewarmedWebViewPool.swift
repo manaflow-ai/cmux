@@ -4,12 +4,12 @@ import WebKit
 
 /// Single-slot pool of a hidden, pre-navigated browser webview.
 ///
-/// Upgrade entrypoints call ``prewarm(url:profileID:browserWebExtensionHost:)`` on hover so the
+/// Upgrade entrypoints call ``prewarm(url:profileID:)`` on hover so the
 /// pricing page is already loaded by the time the user clicks. The
 /// ``BrowserPanel`` initializer claims a matching entry via
-/// ``claim(url:profileID:websiteDataStore:browserWebExtensionHost:)`` and adopts the webview
-/// instead of starting a cold WebKit process launch plus network load, so the
-/// panel shows the finished page immediately.
+/// ``claim(url:profileID:websiteDataStore:)`` and adopts the webview instead
+/// of starting a cold WebKit process launch plus network load, so the panel
+/// shows the finished page immediately.
 ///
 /// The pool never renders on screen: the webview lives in an offscreen,
 /// non-activating borderless window (the same hosting recipe as
@@ -31,7 +31,6 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         let webView: CmuxWebView
         let url: URL
         let profileID: UUID
-        let browserWebExtensionHostID: ObjectIdentifier?
         let hostWindow: NSWindow
         var loadState: LoadState
     }
@@ -39,14 +38,14 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     private var entry: Entry?
     private var expiryTask: Task<Void, Never>?
     private let timeToLive: Duration
-    private let makeWebView: @MainActor (UUID, (any BrowserWebExtensionHosting)?) -> CmuxWebView
+    private let makeWebView: @MainActor (UUID) -> CmuxWebView
     private let startLoad: @MainActor (CmuxWebView, URLRequest) -> Void
     private let expirySleep: @Sendable (Duration) async throws -> Void
 
     init(
         timeToLive: Duration = .seconds(180),
-        makeWebView: @escaping @MainActor (UUID, (any BrowserWebExtensionHosting)?) -> CmuxWebView = { profileID, browserWebExtensionHost in
-            BrowserPanel.makeWebView(profileID: profileID, browserWebExtensionHost: browserWebExtensionHost)
+        makeWebView: @escaping @MainActor (UUID) -> CmuxWebView = { profileID in
+            BrowserPanel.makeWebView(profileID: profileID)
         },
         startLoad: @escaping @MainActor (CmuxWebView, URLRequest) -> Void = { webView, request in
             webView.load(request)
@@ -63,15 +62,9 @@ final class BrowserPrewarmedWebViewPool: NSObject {
 
     /// Whether a live entry exists for the URL + profile, regardless of load
     /// state. Used to make repeat hovers cheap no-ops.
-    func hasEntry(
-        url: URL,
-        profileID: UUID,
-        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
-    ) -> Bool {
+    func hasEntry(url: URL, profileID: UUID) -> Bool {
         guard let entry else { return false }
-        return entry.url.absoluteString == url.absoluteString
-            && entry.profileID == profileID
-            && entry.browserWebExtensionHostID == Self.hostID(browserWebExtensionHost)
+        return entry.url.absoluteString == url.absoluteString && entry.profileID == profileID
     }
 
     /// Starts (or keeps) a hidden webview loading `url`. Replaces any entry
@@ -81,30 +74,25 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     /// would intercept: the hidden load runs without the panel's navigation
     /// delegate, so no prompt could be shown here. Sharing the panel's
     /// allowlist policy keeps http://localhost dev origins prewarmable.
-    func prewarm(
-        url: URL,
-        profileID: UUID,
-        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
-    ) {
+    func prewarm(url: URL, profileID: UUID) {
         guard let scheme = url.scheme?.lowercased(),
               scheme == "https" || scheme == "http",
               !browserShouldBlockInsecureHTTPURL(url) else {
             return
         }
-        if hasEntry(url: url, profileID: profileID, browserWebExtensionHost: browserWebExtensionHost) {
+        if hasEntry(url: url, profileID: profileID) {
             scheduleExpiry()
             return
         }
         discard(reason: "replaced")
 
-        let webView = makeWebView(profileID, browserWebExtensionHost)
+        let webView = makeWebView(profileID)
         webView.navigationDelegate = self
         let hostWindow = Self.makeHiddenHostWindow(for: webView)
         entry = Entry(
             webView: webView,
             url: url,
             profileID: profileID,
-            browserWebExtensionHostID: Self.hostID(browserWebExtensionHost),
             hostWindow: hostWindow,
             loadState: .loading
         )
@@ -119,16 +107,10 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     /// navigation, or returns nil for a normal cold load. The entry is
     /// consumed either way: once a matching panel is being created, a
     /// still-loading or failed entry is useless and would otherwise linger.
-    func claim(
-        url: URL,
-        profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore,
-        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
-    ) -> CmuxWebView? {
+    func claim(url: URL, profileID: UUID, websiteDataStore: WKWebsiteDataStore) -> CmuxWebView? {
         guard let entry,
               entry.url.absoluteString == url.absoluteString,
-              entry.profileID == profileID,
-              entry.browserWebExtensionHostID == Self.hostID(browserWebExtensionHost) else {
+              entry.profileID == profileID else {
             return nil
         }
         guard entry.loadState == .finished,
@@ -217,11 +199,6 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         guard var entry, entry.webView === webView else { return }
         entry.loadState = state
         self.entry = entry
-    }
-
-    private static func hostID(_ host: (any BrowserWebExtensionHosting)?) -> ObjectIdentifier? {
-        guard let host else { return nil }
-        return ObjectIdentifier(host as AnyObject)
     }
 }
 

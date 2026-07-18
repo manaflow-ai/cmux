@@ -133,6 +133,9 @@ extension CmuxSettingsFileStore {
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
                     "beta": [
                         "workspaceTodos": [
+                            "controls": [
+                                "enabled": SettingCatalog().betaFeatures.workspaceTodoControls.defaultValue,
+                            ],
                             "checklistStyle": SettingCatalog().betaFeatures.workspaceTodosChecklistStyle.defaultValue.rawValue,
                         ],
                     ],
@@ -208,6 +211,11 @@ extension CmuxSettingsFileStore {
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
+                ],
+            ],
+            [
+                "mobile": [
+                    "artifactFolderAccess": SettingCatalog().mobile.artifactFolderAccess.defaultValue.rawValue,
                 ],
             ],
             [
