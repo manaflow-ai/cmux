@@ -609,7 +609,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
     func testOpenCodeDisposedFactoryCanBeReusedFromSameModule() throws {
         let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
             "payload=\"$(cat)\"",
-            "case \"$payload\" in *session-after-reuse*) sleep 0.35 ;; esac",
+            "case \"$payload\" in *session-before-reuse*|*session-after-reuse*) sleep 0.35 ;; esac",
             "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
         ])
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -624,15 +624,22 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         const firstHooks = await plugin({ directory: process.cwd() });
         const firstInfo = { id: "session-before-reuse", directory: process.cwd() };
         await firstHooks.event({ event: { type: "session.created", properties: { info: firstInfo } } });
-        await firstHooks.dispose();
+        const firstDisposal = firstHooks.dispose();
+        await Promise.resolve();
+        const lateInfo = { id: "session-after-dispose", directory: process.cwd() };
+        await firstHooks.event({ event: { type: "session.created", properties: { info: lateInfo } } });
+        await firstDisposal;
 
         const secondHooks = await plugin({ directory: process.cwd() });
         const secondInfo = { id: "session-after-reuse", directory: process.cwd() };
         await secondHooks.event({ event: { type: "session.created", properties: { info: secondInfo } } });
+        const staleDisposeStartedAt = performance.now();
+        await firstHooks.dispose();
+        const staleDisposeElapsedMilliseconds = performance.now() - staleDisposeStartedAt;
         const startedAt = performance.now();
         await secondHooks.dispose();
         const elapsedMilliseconds = performance.now() - startedAt;
-        console.log(String(elapsedMilliseconds));
+        console.log(JSON.stringify({ elapsedMilliseconds, staleDisposeElapsedMilliseconds }));
         """.write(to: harness, atomically: true, encoding: .utf8)
 
         let result = runProcess(
@@ -644,7 +651,12 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        let elapsedMilliseconds = try XCTUnwrap(Double(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)))
+        let output = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Double]
+        )
+        let elapsedMilliseconds = try XCTUnwrap(output["elapsedMilliseconds"])
+        let staleDisposeElapsedMilliseconds = try XCTUnwrap(output["staleDisposeElapsedMilliseconds"])
+        XCTAssertLessThan(staleDisposeElapsedMilliseconds, 100, "stale owner drained the replacement generation")
         XCTAssertGreaterThanOrEqual(elapsedMilliseconds, 250, "reused factory returned the first shutdown promise")
         let sessionIDs = try String(contentsOf: capture, encoding: .utf8)
             .split(separator: "\n")
