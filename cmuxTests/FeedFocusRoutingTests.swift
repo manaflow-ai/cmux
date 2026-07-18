@@ -119,7 +119,7 @@ import Testing
         #expect(!appDelegate.routeFeedText(surfaceId: "not-a-surface-id", text: "retry this"))
     }
 
-    @Test func feedFocusRejectsMismatchedWorkspaceWithoutChangingSelection() throws {
+    @Test func feedFocusUsesStableSurfaceWhenWorkspaceIdentityIsStale() throws {
         let appDelegate = AppDelegate()
         let manager = TabManager()
         let origin = try #require(manager.selectedWorkspace)
@@ -128,13 +128,16 @@ import Testing
         let other = manager.addWorkspace()
         let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
-        let selectedBeforeRoute = manager.selectedTabId
+        GhosttySurfaceScrollView.resetFlashCounts()
 
-        #expect(!appDelegate.routeFeedFocus(
+        #expect(manager.selectedTabId == other.id)
+        #expect(appDelegate.routeFeedFocus(
             workspaceId: other.id.uuidString,
             surfaceId: surfaceID.uuidString
         ))
-        #expect(manager.selectedTabId == selectedBeforeRoute)
+        #expect(manager.selectedTabId == origin.id)
+        #expect(origin.focusedPanelId == panel.id)
+        #expect(GhosttySurfaceScrollView.flashCount(for: panel.id) == 1)
     }
 
     @Test func feedFocusSelectsAndFlashesTheOriginatingTerminal() throws {
