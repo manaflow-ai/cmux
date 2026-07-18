@@ -26,6 +26,97 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(emailCodeButton.isEnabled)
     }
 
+    /// Exercises the complete first-run activation path without Stack auth,
+    /// a Mac, camera hardware, or network access. The first launch forces the
+    /// durable progress key to `welcome`; advancing to Connect writes the real
+    /// `.connect` milestone. Relaunching without that argument must resume at
+    /// Connect, then the final action must hand off directly to the production
+    /// scanner sheet while its capture body uses the deterministic UI-test
+    /// preview.
+    @MainActor
+    func testOnboardingScenesReplyResumeAndScannerHandoff() throws {
+        let app = XCUIApplication()
+        let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        let progressOverride = [
+            "-dev.cmux.mobile.onboarding.progress.v2",
+            "welcome",
+        ]
+        app.launchArguments = baseArguments + progressOverride
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+            "CMUX_UITEST_SCANNER_PREVIEW": "1",
+        ]
+        app.launch()
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let agentsScene = element("MobileOnboardingAgentsScene")
+        XCTAssertTrue(agentsScene.waitForExistence(timeout: 8))
+        capture("onboarding-01-agents")
+
+        let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        primaryButton.tap()
+
+        let handoffScene = element("MobileOnboardingHandoffScene")
+        XCTAssertTrue(handoffScene.waitForExistence(timeout: 4))
+        XCTAssertTrue(agentsScene.waitForNonExistence(timeout: 2))
+        capture("onboarding-02-handoff")
+
+        let replyButton = app.buttons["MobileOnboardingDemoReplyButton"]
+        XCTAssertTrue(replyButton.waitForExistence(timeout: 4))
+        replyButton.tap()
+
+        let sentReply = element("MobileOnboardingDemoReplySent")
+        XCTAssertTrue(sentReply.waitForExistence(timeout: 4))
+        XCTAssertTrue(replyButton.waitForNonExistence(timeout: 2))
+        capture("onboarding-03-reply-sent")
+
+        primaryButton.tap()
+
+        let connectScene = element("MobileOnboardingConnectScene")
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
+        XCTAssertTrue(handoffScene.waitForNonExistence(timeout: 2))
+        capture("onboarding-04-connect")
+
+        // Drop only the launch-domain override. The application-domain value
+        // written while entering Connect must now be the source of truth.
+        app.terminate()
+        app.launchArguments = baseArguments
+        app.launch()
+
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 8))
+        XCTAssertFalse(element("MobileOnboardingAgentsScene").exists)
+        XCTAssertFalse(element("MobileOnboardingHandoffScene").exists)
+        capture("onboarding-05-resumed-connect")
+
+        let resumedPrimaryButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(resumedPrimaryButton.waitForExistence(timeout: 4))
+        resumedPrimaryButton.tap()
+
+        let scannerPreview = element("MobilePairingScannerPreview")
+        let scannerCancel = app.buttons["MobileScannerCancelButton"]
+        XCTAssertTrue(scannerPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
+        capture("onboarding-06-scanner-handoff")
+
+        scannerCancel.tap()
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
+        XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
+        capture("onboarding-07-scanner-cancelled")
+    }
+
     @MainActor
     func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
         let invalidHostApp = launchAddDeviceApp(environment: [

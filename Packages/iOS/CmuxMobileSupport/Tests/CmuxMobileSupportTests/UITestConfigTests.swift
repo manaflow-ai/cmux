@@ -161,4 +161,36 @@ import Testing
             environment: ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "0"]
         ).agentChatInlinePreviewEnabled == false)
     }
+
+    @Test func pairingScannerPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_SCANNER_PREVIEW": "1"]
+        #if DEBUG
+        #expect(UITestConfig.pairingScannerPreviewEnabled(from: env) == true)
+        #else
+        #expect(UITestConfig.pairingScannerPreviewEnabled(from: env) == false)
+        #endif
+    }
+
+    @Test func onboardingPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_ONBOARDING_PREVIEW": "1"]
+        #if DEBUG
+        #expect(UITestConfig.onboardingPreviewEnabled(from: env) == true)
+        #else
+        #expect(UITestConfig.onboardingPreviewEnabled(from: env) == false)
+        #endif
+    }
+
+    @Test func onboardingPreviewFlagRequiresOne() {
+        #expect(UITestConfig.onboardingPreviewEnabled(from: [:]) == false)
+        #expect(UITestConfig.onboardingPreviewEnabled(
+            from: ["CMUX_UITEST_ONBOARDING_PREVIEW": "0"]
+        ) == false)
+    }
+
+    @Test func pairingScannerPreviewFlagRequiresOne() {
+        #expect(UITestConfig.pairingScannerPreviewEnabled(from: [:]) == false)
+        #expect(UITestConfig.pairingScannerPreviewEnabled(
+            from: ["CMUX_UITEST_SCANNER_PREVIEW": "0"]
+        ) == false)
+    }
 }

@@ -1860,13 +1860,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connected"
+            "value": "3 agents active"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続済み"
+            "value": "3つのエージェントが稼働中"
           }
         }
       }
@@ -2823,189 +2823,563 @@
         }
       }
     },
-    "mobile.onboarding.connectBody": {
+    "mobile.onboarding.agents.body": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux uses Iroh by default. It connects directly to your Mac when possible and uses a cmux relay when needed. Your Mac's identity and cmux account are verified end to end, so the relay cannot read terminal traffic."
+            "value": "See every workspace and its latest activity, wherever you are."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxはデフォルトでIrohを使用します。可能な場合はMacへ直接接続し、必要な場合のみcmuxリレーを使用します。MacのIDとcmuxアカウントはエンドツーエンドで検証されるため、リレーはターミナル通信を読み取れません。"
+            "value": "どこにいても、すべてのワークスペースと最新の作業状況を確認できます。"
           }
         }
       }
     },
-    "mobile.onboarding.connectTitle": {
+    "mobile.onboarding.agents.primary": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Encrypted wherever you connect"
+            "value": "Continue"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どこからでも暗号化接続"
+            "value": "続ける"
           }
         }
       }
     },
-    "mobile.onboarding.getStarted": {
+    "mobile.onboarding.agents.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Get started"
+            "value": "Your agents keep working on your Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "始める"
+            "value": "エージェントはMacで作業を続けます"
           }
         }
       }
     },
-    "mobile.onboarding.next": {
+    "mobile.onboarding.back": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Next"
+            "value": "Back"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次へ"
+            "value": "戻る"
           }
         }
       }
     },
-    "mobile.onboarding.pairBody": {
+    "mobile.onboarding.connect.body": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Tailscale, another VPN, or the same LAN may speed up the authenticated Iroh connection."
+            "value": "On your Mac, open cmux and choose Pair iPhone. Then scan the code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macのcmuxで「iPhoneをペアリング」を開き、Irohコードをスキャンします。cmuxは検証済みのMac IDを保存して自動的に再接続します。Tailscale、別のVPN、または同じLANにより、認証済みのIroh接続が高速になる場合があります。"
+            "value": "Macでcmuxを開き、「iPhoneをペアリング」を選んで、表示されたコードをスキャンします。"
           }
         }
       }
     },
-    "mobile.onboarding.pairTitle": {
+    "mobile.onboarding.connect.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair your Mac"
+            "value": "Having trouble connecting?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macとペアリング"
+            "value": "接続できないときは"
           }
         }
       }
     },
-    "mobile.onboarding.privateNetworkBody": {
+    "mobile.onboarding.connect.primary": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "After cmux admits both devices over Iroh, Tailscale, WireGuard, another VPN, or the same LAN may become a faster direct path. They are optional, and Iroh keeps its encryption and identity checks."
+            "value": "Scan Mac QR"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxがIroh上で両方の端末を認証した後、Tailscale、WireGuard、別のVPN、または同じLANが、より高速な直接経路になる場合があります。これらは任意で、Irohの暗号化とID検証は維持されます。"
+            "value": "MacのQRコードをスキャン"
           }
         }
       }
     },
-    "mobile.onboarding.privateNetworkStep1": {
+    "mobile.onboarding.connect.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign this phone and the Mac in to the same cmux account."
+            "value": "Connect your Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このiPhoneとMacを同じcmuxアカウントでサインインします。"
+            "value": "Macを接続"
           }
         }
       }
     },
-    "mobile.onboarding.privateNetworkStep2": {
+    "mobile.onboarding.connect.trust": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Leave cmux running on the Mac so Iroh can reconnect."
+            "value": "End-to-end encrypted. Relays cannot read your terminal traffic."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Irohが再接続できるよう、Macでcmuxを起動したままにします。"
+            "value": "エンドツーエンドで暗号化。リレーはターミナル通信を読み取れません。"
           }
         }
       }
     },
-    "mobile.onboarding.privateNetworkStep3": {
+    "mobile.onboarding.handoff.agent": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Optional: connect both devices to the same private network so an admitted Iroh session can migrate to it."
+            "value": "Agent needs your input"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "任意：認証済みのIrohセッションが移行できるよう、両方の端末を同じプライベートネットワークに接続します。"
+            "value": "エージェントが返答を待っています"
           }
         }
       }
     },
-    "mobile.onboarding.privateNetworkTitle": {
+    "mobile.onboarding.handoff.body": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Private networks stay available"
+            "value": "Answer a question, approve a command, or send a message from your phone."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プライベートネットワークも利用可能"
+            "value": "iPhoneから質問に答え、コマンドを承認し、メッセージを送れます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.handoff.continuing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuing on your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macで作業を続けています"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.handoff.primaryConnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect my Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macを接続"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.handoff.primaryContinue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続ける"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.handoff.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The integration suite is flaky. How should I handle it?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "統合テストが不安定です。どう対応すればよいですか？"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.handoff.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separate PR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のPRで対応"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.handoff.replyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends this reply in the preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプレビュー内で返答を送信します"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.handoff.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step in when they need you"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントに呼ばれたら、すぐに対応"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.handoff.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix reconnect test · now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続テストを修正 · 今"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.preview.activeAgents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.preview.computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacBook Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacBook Pro"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.preview.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.preview.workspace.cmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix reconnect test"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続テストを修正"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.preview.workspace.docs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドキュメント"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.preview.workspace.finished": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running 7 focused tests…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "関連テストを7件実行中…"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.preview.workspace.ios": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS avatar tuning"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSのアバター調整"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.preview.workspace.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drafting release notes…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リリースノートを作成中…"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.preview.workspace.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent needs your input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが返答を待っています"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.progressFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %1$d of %2$d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全%2$dステップ中%1$d"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.progressLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduction progress"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はじめのガイドの進行状況"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.ready.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a workspace to see the latest activity and respond when an agent needs you."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを開いて最新の作業状況を確認し、エージェントに呼ばれたらすぐに応答できます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.ready.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを開く"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.ready.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac is connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macは接続済みです"
           }
         }
       }
@@ -3023,176 +3397,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "スキップ"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleAppStoreLink": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Optional: Tailscale for iPhone"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意：iPhone版Tailscale"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale is a free app that gives your devices a private network. Do this once, on both the phone and the Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscaleは、端末同士をプライベートなネットワークでつなぐ無料アプリです。iPhoneとMacの両方で一度だけ設定してください。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleLink": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Optional: Tailscale for Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意：Mac版Tailscale"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleStep1": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Install Tailscale on this phone and on your Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この端末とMacの両方にTailscaleをインストールします。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleStep2": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign both in to the same Tailscale account so they share one tailnet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "両方を同じTailscaleアカウントでサインインし、同じtailnetを共有させます。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleStep3": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keep both signed in to the same cmux account too. Pairing checks that they match."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "両方を同じcmuxアカウントでもサインインしておきます。ペアリング時に一致を確認します。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Put both devices on Tailscale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "両方の端末をTailscaleに入れる"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.troubleConnecting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trouble connecting?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続できないときは"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.whatBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux runs your terminals and AI coding agents on your Mac. This app lets you watch them, type, and get notified when an agent needs you, right from your phone."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmuxはMac上でターミナルとAIコーディングエージェントを動かします。このアプリを使えば、iPhoneからその様子を見たり、入力したり、エージェントから呼ばれたときに通知を受け取れます。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.whatTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your Mac's terminals, on your phone"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macのターミナルを、iPhoneで"
           }
         }
       }
@@ -3312,6 +3516,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "カメラへのアクセスが必要です"
+          }
+        }
+      }
+    },
+    "mobile.pairing.cameraDeniedDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow camera access in Settings to scan the QR code shown on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに表示されたQRコードをスキャンするには、設定でカメラへのアクセスを許可してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.cameraRestrictedDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera access is restricted on this device. Use a pairing link or the manual form instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスではカメラの使用が制限されています。ペアリングリンクまたは手動入力を使用してください。"
           }
         }
       }
@@ -3826,6 +4064,23 @@
         }
       }
     },
+    "mobile.pairing.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を開く"
+          }
+        }
+      }
+    },
     "mobile.pairing.requestTimedOut": {
       "extractionState": "manual",
       "localizations": {
@@ -3890,6 +4145,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "mobile.pairing.scannerInstruction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position the Mac's QR code in the frame."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacのQRコードが枠内に収まるようにしてください。"
           }
         }
       }
@@ -4880,23 +5152,6 @@
         }
       }
     },
-    "mobile.settings.howPairingWorks": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "How Pairing Works"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペアリングの仕組み"
-          }
-        }
-      }
-    },
     "mobile.settings.legalSupport": {
       "extractionState": "manual",
       "localizations": {
@@ -5335,6 +5590,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "バージョン"
+          }
+        }
+      }
+    },
+    "mobile.settings.viewIntroductionAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Introduction Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はじめのガイドをもう一度見る"
           }
         }
       }

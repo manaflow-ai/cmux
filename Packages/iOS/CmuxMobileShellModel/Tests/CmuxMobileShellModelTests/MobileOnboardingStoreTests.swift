@@ -3,8 +3,7 @@ import Testing
 
 @testable import CmuxMobileShellModel
 
-/// Behavior tests for ``MobileOnboardingStore`` using a suite-scoped
-/// `UserDefaults` so they never touch `UserDefaults.standard`.
+/// Behavior tests for ``MobileOnboardingStore`` using isolated defaults suites.
 @Suite struct MobileOnboardingStoreTests {
     private func makeDefaults() -> UserDefaults {
         let suite = "MobileOnboardingStoreTests.\(UUID().uuidString)"
@@ -13,32 +12,50 @@ import Testing
         return defaults
     }
 
-    @Test func startsUnseenAndPersistsSeen() {
+    @Test func startsAtWelcomeAndResumesConnectionSetup() {
         let defaults = makeDefaults()
         let store = MobileOnboardingStore(defaults: defaults)
-        #expect(!store.hasSeenOnboarding)
+        #expect(store.progress == .welcome)
 
-        store.markSeen()
-        #expect(store.hasSeenOnboarding)
-        #expect(defaults.bool(forKey: MobileOnboardingStore.defaultsKey))
+        store.markReadyToConnect()
+
+        #expect(store.progress == .connect)
+        #expect(MobileOnboardingStore(defaults: defaults).progress == .connect)
     }
 
-    @Test func readsAPreviouslyPersistedSeenFlag() {
+    @Test func completionPersistsAcrossStoreInstances() {
         let defaults = makeDefaults()
-        defaults.set(true, forKey: MobileOnboardingStore.defaultsKey)
-        let store = MobileOnboardingStore(defaults: defaults)
-        #expect(store.hasSeenOnboarding)
+        MobileOnboardingStore(defaults: defaults).markComplete()
+
+        #expect(MobileOnboardingStore(defaults: defaults).progress == .complete)
     }
 
-    /// `forceSeen` reports seen without reading or writing the backing defaults,
-    /// so the UI-test / dogfood bypass never wedges behind onboarding and never
-    /// pollutes the real install's persisted flag.
-    @Test func forceSeenReportsSeenWithoutPersisting() {
+    @Test func completedLegacyTourDoesNotResurfaceRedesign() {
         let defaults = makeDefaults()
-        let store = MobileOnboardingStore(defaults: defaults, forceSeen: true)
-        #expect(store.hasSeenOnboarding)
+        defaults.set(true, forKey: MobileOnboardingStore.legacySeenKey)
 
-        store.markSeen()
-        #expect(!defaults.bool(forKey: MobileOnboardingStore.defaultsKey))
+        #expect(MobileOnboardingStore(defaults: defaults).progress == .complete)
+    }
+
+    @Test func currentProgressWinsOverLegacyFlag() {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: MobileOnboardingStore.legacySeenKey)
+        defaults.set(
+            MobileOnboardingProgress.connect.rawValue,
+            forKey: MobileOnboardingStore.progressKey
+        )
+
+        #expect(MobileOnboardingStore(defaults: defaults).progress == .connect)
+    }
+
+    @Test func forceCompleteBypassesWithoutPersisting() {
+        let defaults = makeDefaults()
+        let store = MobileOnboardingStore(defaults: defaults, forceComplete: true)
+        #expect(store.progress == .complete)
+
+        store.markReadyToConnect()
+        store.markComplete()
+
+        #expect(defaults.string(forKey: MobileOnboardingStore.progressKey) == nil)
     }
 }

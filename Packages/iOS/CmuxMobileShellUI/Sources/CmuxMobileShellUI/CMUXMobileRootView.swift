@@ -20,19 +20,16 @@ struct CMUXMobileRootView: View {
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
-    /// The persisted first-run onboarding "seen" flag store. The one-time
-    /// onboarding screen gates ahead of the never-paired add-device state.
+    /// Persists the last durable milestone in first-run onboarding.
     private let onboardingStore: MobileOnboardingStore
-    /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
-    /// onboarding (which calls `markSeen()` in the button action) re-renders the
-    /// root and falls through to the pairing flow. Seeded synchronously from the
-    /// store so the very first frame already reflects a prior install's state and
-    /// never flashes onboarding for a returning user.
-    @State private var hasSeenOnboarding: Bool
+    /// Mirrors ``MobileOnboardingStore/progress`` so every explicit transition
+    /// re-renders immediately and relaunch resumes at the unfinished prerequisite.
+    @State private var onboardingProgress: MobileOnboardingProgress
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
+    @State private var pairingPresentation: PairingPresentation = .manual
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -55,7 +52,7 @@ struct CMUXMobileRootView: View {
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
         self.startupConnectionCoordinator = startupConnectionCoordinator
-        _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
+        _onboardingProgress = State(initialValue: onboardingStore.progress)
     }
     #else
     init(
@@ -88,6 +85,14 @@ struct CMUXMobileRootView: View {
     private var shouldShowStreamingChatPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.streamingChatPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    private var shouldShowOnboardingPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.onboardingPreviewEnabled
         #else
         return false
         #endif
@@ -200,7 +205,13 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
+                #if os(iOS)
+                if !shouldShowOnboardingPreview, onboardingProgress != .complete {
+                    completeOnboarding()
+                }
+                #endif
                 isShowingAddDeviceSheet = false
+                pairingPresentation = .manual
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
             }
@@ -224,6 +235,10 @@ struct CMUXMobileRootView: View {
             workspaceListLayoutPreview
         } else if shouldShowStreamingChatPreview {
             streamingChatPreview
+        } else if shouldShowOnboardingPreview {
+            onboardingPreview
+        } else if shouldShowOnboarding {
+            onboardingFlow
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
@@ -233,11 +248,6 @@ struct CMUXMobileRootView: View {
                 showAddDevice: showAddDevice,
                 reconnectStoredMac: reconnectStoredMacIfNeeded
             )
-        } else if shouldShowOnboarding {
-            // Show the one-time explainer before the add-device flow. This is
-            // keyed only by onboarding completion so auto-pairing cannot defer
-            // onboarding until the user later removes every computer.
-            onboardingFlow
         } else if store.connectionState != .connected && !store.hasKnownPairedMac {
             // ONLY when there are no saved Macs at all: the add-device flow (it
             // auto-presents the pairing sheet since there is nothing to list).
@@ -276,6 +286,7 @@ struct CMUXMobileRootView: View {
     private var pairingSheet: some View {
         PairingView(
             pairingCode: $store.pairingCode,
+            initialPresentation: pairingPresentation,
             connectionError: store.connectionError,
             connectionErrorGuidance: store.connectionErrorGuidance,
             versionWarning: store.pairingVersionWarning,
@@ -317,12 +328,11 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Whether the one-time first-run onboarding should be presented. Always
-    /// `false` off iOS (onboarding is iOS-only).
+    /// Whether first-run onboarding has an unfinished durable milestone.
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
         return MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: hasSeenOnboarding
+            progress: onboardingProgress
         )
         #else
         return false
@@ -332,19 +342,52 @@ struct CMUXMobileRootView: View {
     @ViewBuilder
     private var onboardingFlow: some View {
         #if os(iOS)
-        OnboardingFlowView(onComplete: completeOnboarding)
+        OnboardingFlowView(
+            initialStage: initialOnboardingStage,
+            context: .firstRun,
+            isAuthenticated: isAuthenticated,
+            isMacReady: store.connectionState == .connected,
+            onReachedConnection: markOnboardingReadyToConnect,
+            onSkip: completeOnboarding,
+            onStartPairing: showPairingScanner,
+            onComplete: completeOnboarding
+        )
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder
+    private var onboardingPreview: some View {
+        #if os(iOS) && DEBUG
+        OnboardingFlowView(
+            initialStage: initialOnboardingStage,
+            context: .preview,
+            isAuthenticated: true,
+            isMacReady: false,
+            onReachedConnection: markOnboardingReadyToConnect,
+            onSkip: completeOnboarding,
+            onStartPairing: showPairingScanner,
+            onComplete: completeOnboarding
+        )
         #else
         EmptyView()
         #endif
     }
 
     #if os(iOS)
-    /// Persists the onboarding "seen" flag and re-renders so the root falls
-    /// through to the pairing flow. Called from the onboarding button actions
-    /// (Skip / Get started), not a view-lifecycle callback.
+    private var initialOnboardingStage: OnboardingStage {
+        onboardingProgress == .connect ? .connect : .agents
+    }
+
+    private func markOnboardingReadyToConnect() {
+        onboardingStore.markReadyToConnect()
+        onboardingProgress = .connect
+    }
+
     private func completeOnboarding() {
-        onboardingStore.markSeen()
-        hasSeenOnboarding = true
+        onboardingStore.markComplete()
+        onboardingProgress = .complete
     }
     #endif
 
@@ -405,6 +448,17 @@ struct CMUXMobileRootView: View {
     }
 
     private func showAddDevice() {
+        presentAddDevice(.manual)
+    }
+
+    private func showPairingScanner() {
+        presentAddDevice(.scanner)
+    }
+
+    private func presentAddDevice(_ presentation: PairingPresentation) {
+        if !isShowingAddDeviceSheet {
+            pairingPresentation = presentation
+        }
         #if os(iOS)
         addDeviceSheetDetent = .large
         #endif
@@ -421,7 +475,7 @@ struct CMUXMobileRootView: View {
         Task {
             let result = await store.connectPairingURLResult(rawURL)
             if result == .needsUserApproval {
-                isShowingAddDeviceSheet = true
+                showAddDevice()
             }
             clearAttachTicketAuthentication(after: result)
         }
@@ -456,6 +510,7 @@ struct CMUXMobileRootView: View {
 
     private func dismissAddDeviceSheet() {
         isShowingAddDeviceSheet = false
+        pairingPresentation = .manual
         if store.pairingVersionWarning != nil {
             cancelPairing()
         } else {

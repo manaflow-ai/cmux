@@ -20,6 +20,7 @@ struct MobileSettingsView: View {
     @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
     let rescanQR: (() -> Void)?
+    let startPairing: (() -> Void)?
     let signOut: (() -> Void)?
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
     /// where the "Switch Mac" entry is hidden.
@@ -126,8 +127,11 @@ struct MobileSettingsView: View {
                         showingOnboarding = true
                     } label: {
                         Label(
-                            L10n.string("mobile.settings.howPairingWorks", defaultValue: "How Pairing Works"),
-                            systemImage: "questionmark.circle"
+                            L10n.string(
+                                "mobile.settings.viewIntroductionAgain",
+                                defaultValue: "View Introduction Again"
+                            ),
+                            systemImage: "sparkles"
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
@@ -343,11 +347,20 @@ struct MobileSettingsView: View {
                 }
             }
             .sheet(isPresented: $showingOnboarding) {
-                // Re-entry from Settings: walk the explainer again. `onComplete`
-                // only dismisses; it never touches the persisted seen flag. No
-                // current blocker is highlighted, since reaching Settings means the
-                // user got past every setup gate.
+                // Re-entry never writes first-run progress. The final scene reads
+                // live connection state and can reopen pairing from offline Settings.
                 OnboardingFlowView(
+                    initialStage: .agents,
+                    context: .replay,
+                    isAuthenticated: true,
+                    isMacReady: store?.connectionState == .connected,
+                    onReachedConnection: {},
+                    onSkip: { showingOnboarding = false },
+                    onStartPairing: {
+                        showingOnboarding = false
+                        (startPairing ?? rescanQR)?()
+                        dismiss()
+                    },
                     onComplete: { showingOnboarding = false },
                     setupHelpHighlight: setupHelpHighlight
                 )

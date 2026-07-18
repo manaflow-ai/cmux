@@ -108,6 +108,7 @@ struct DisconnectedWorkspaceShellView: View {
             MobileSettingsView(
                 connectedHostName: "",
                 rescanQR: nil,
+                startPairing: showAddDevice,
                 signOut: signOut,
                 store: store
             )

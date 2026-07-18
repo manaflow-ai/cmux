@@ -25,8 +25,8 @@ final class AppCompositionRoot {
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
-    /// First-run onboarding "seen" flag, persisted to `UserDefaults.standard`.
-    /// Built with `forceSeen` set when a UI-test mock harness or a dogfood
+    /// First-run onboarding progress, persisted to `UserDefaults.standard`.
+    /// Built with `forceComplete` set when a UI-test mock harness or a dogfood
     /// auto-pair attach URL is active, so neither path is wedged behind the
     /// one-time onboarding screen.
     let onboardingStore: MobileOnboardingStore
@@ -102,17 +102,18 @@ final class AppCompositionRoot {
             }
         }
         self.displaySettings = MobileDisplaySettings()
-        // Skip the one-time onboarding when a UI-test mock harness
+        // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
         // active: those launches expect to land on sign-in / add-device / a live
-        // workspace, not behind a manual tap-through. `forceSeen` never writes the
-        // real install's persisted flag.
-        let bypassOnboarding = UITestConfig.mockDataEnabled
+        // workspace, not behind a manual tap-through. The dedicated onboarding
+        // preview remains active so its relaunch test exercises real persistence.
+        // `forceComplete` never writes the real install's persisted progress.
+        let bypassOnboarding = (UITestConfig.mockDataEnabled && !UITestConfig.onboardingPreviewEnabled)
             || UITestConfig.dogfoodAttachURL != nil
             || UITestConfig.attachURL != nil
         self.onboardingStore = MobileOnboardingStore(
             defaults: .standard,
-            forceSeen: bypassOnboarding
+            forceComplete: bypassOnboarding
         )
         self.tailscaleStatusMonitor = TailscaleStatusMonitorAdapter(monitor: TailscaleStatusMonitor())
     }
