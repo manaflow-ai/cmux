@@ -172,7 +172,7 @@ Resize reflow is owned by Ghostty. A resize may rewrap retained content, change 
 
 Render mode uses the same single authoritative surface grid and smallest-client sizing rules as byte mode. See [`commands.md`](commands.md#sizing) for creation defaults, clamps, and the exact mutation rule.
 
-Attaching does not resize a surface. A frontend sends `resize-surface` after attach and after an actual local cell-grid change. The server independently takes the minimum reported columns and rows across attached viewers. Larger frontends render the smaller authoritative grid with unused surrounding space. A render-size event from another client does not invalidate the frontend's last local report, so input and passive rendering cannot cause a resize feedback loop.
+Attaching does not resize a surface. A frontend sends `resize-surface` while the surface is visible and after an actual local cell-grid change. It sends `release-surface-size` when the surface becomes hidden, while retaining the attach stream if it wants a warm cache. The server independently takes the minimum reported columns and rows across visible viewers. Larger frontends render the smaller authoritative grid with unused surrounding space. A render-size event from another client does not invalidate the frontend's last local report, so input and passive rendering cannot cause a resize feedback loop.
 
 ## Input
 

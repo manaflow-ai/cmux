@@ -57,12 +57,9 @@ public struct CMUXMobileRootScene: View {
     /// separately and replaces this at the composition root without touching the
     /// shell.
     private let draftStore: any TerminalDraftStoring
-    #if DEBUG
-    /// The structured diagnostic log injected into the shell store so the DEV
-    /// dogfood feedback round-trip can export it. DEBUG-only; `nil` when the app
-    /// composition root did not build one.
+    /// The bounded structured diagnostic log injected into the shell store.
+    /// Release builds retain only fixed categories and numeric magnitudes.
     private let diagnosticLog: DiagnosticLog?
-    #endif
 
     #if os(iOS)
     /// Creates the root scene.
@@ -85,8 +82,7 @@ public struct CMUXMobileRootScene: View {
     ///   - personalIrohDiscovery: Live same-account Mac discovery used before
     ///     presenting QR pairing.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
-    ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
-    ///     injected into the shell store for the DEV feedback round-trip.
+    ///   - diagnosticLog: The privacy-safe structured connection log.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
@@ -114,9 +110,7 @@ public struct CMUXMobileRootScene: View {
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
-        #if DEBUG
         self.diagnosticLog = diagnosticLog
-        #endif
     }
     #else
     /// Creates the root scene (non-iOS: no push).
@@ -137,9 +131,7 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
-        #if DEBUG
         self.diagnosticLog = nil
-        #endif
     }
     #endif
 
