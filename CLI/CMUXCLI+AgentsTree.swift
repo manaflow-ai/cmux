@@ -322,7 +322,7 @@ extension CMUXCLI {
         var lines: [String] = []
         var visited: Set<String> = []
 
-        func append(_ node: AgentSessionGraphNode, prefix: String, depth: Int) {
+        func append(_ node: AgentSessionGraphNode, prefix: String, connector: String, depth: Int) {
             guard depth <= maximumDepth, visited.insert(node.nodeId).inserted else { return }
             let authority: String
             if node.identitySource == "terminal_process" {
@@ -335,14 +335,22 @@ extension CMUXCLI {
             let identity = node.sessionId ?? "pid \(node.pid.map(String.init) ?? "unknown")"
             let location = "workspace:\(node.workspaceId) surface:\(node.surfaceId)"
             let workingDirectory = node.cwd.map { " cwd:\($0)" } ?? ""
-            lines.append("\(prefix)\(node.provider) \(identity) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(location)\(workingDirectory)")
+            lines.append("\(prefix)\(connector)\(node.provider) \(identity) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(location)\(workingDirectory)")
             let children = (childrenByRunId[node.nodeId] ?? []).compactMap { nodeById[$0.toNodeId] }
+            let childPrefix = prefix + (connector == "├── " ? "│   " : connector == "└── " ? "    " : "")
             for (index, child) in children.enumerated() {
-                append(child, prefix: prefix + (index == children.count - 1 ? "└── " : "├── "), depth: depth + 1)
+                append(
+                    child,
+                    prefix: childPrefix,
+                    connector: index == children.count - 1 ? "└── " : "├── ",
+                    depth: depth + 1
+                )
             }
         }
-        for root in roots { append(root, prefix: "", depth: 0) }
-        for node in snapshot.nodes where !visited.contains(node.nodeId) { append(node, prefix: "", depth: 0) }
+        for root in roots { append(root, prefix: "", connector: "", depth: 0) }
+        for node in snapshot.nodes where !visited.contains(node.nodeId) {
+            append(node, prefix: "", connector: "", depth: 0)
+        }
         return lines.joined(separator: "\n")
     }
 
