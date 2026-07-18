@@ -5,7 +5,7 @@ export type Layout =
   | { type: "leaf"; pane: Id }
   | {
       type: "split";
-      /** Stable split id. Absent only when connected to a pre-v7 server. */
+      /** Stable split id. Absent only when connected to a pre-v8 server. */
       split?: Id;
       dir: SplitDirection;
       ratio: number;

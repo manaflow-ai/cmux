@@ -69,7 +69,7 @@ object{type:"leaf",pane:Id}
 
 Stack `panes` must be non-empty, and `expanded` must identify one of those panes.
 
-`split` is stable for the lifetime of that split node. Ratio changes, pane focus, tab changes, and leaf swaps preserve it. Collapsing the split removes the id. A later split receives a new id. Protocol v6 and older canonical layouts omit this field.
+`split` is stable for the lifetime of that split node. Ratio changes, pane focus, tab changes, and leaf swaps preserve it. Collapsing the split removes the id. A later split receives a new id. Protocol v7 and older canonical layouts omit this field.
 
 `DeclarativeLayout`:
 
