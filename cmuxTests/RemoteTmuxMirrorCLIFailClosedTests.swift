@@ -353,9 +353,10 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
                 )
             )
 
-            // tmux panes cannot host surface tabs; the projected pane handle is
-            // tombstoned rather than silently redirected.
-            #expect(result == .paneNotFound)
+            // A projected pane is a valid target. `new-surface` maps to a tmux
+            // window in a mirror, so the disconnected transport fails only
+            // after the handle has resolved and routing has been attempted.
+            #expect(result == .createFailed)
         }
 
         do {

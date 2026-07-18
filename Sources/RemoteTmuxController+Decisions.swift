@@ -69,6 +69,35 @@ extension RemoteTmuxController {
             workingDirectory: commandWorkingDirectory,
             focus: focus
         )
+        return sendMirrorNewWindow(command, through: mirror, focus: focus)
+    }
+
+    /// Routes a projected control-pane target to a new tmux window immediately
+    /// after the window containing that pane. The target pane's authoritative
+    /// remote cwd is inherited when available.
+    func handleMirrorNewTabRequested(
+        workspaceId: UUID,
+        targetPaneId: Int,
+        focus: Bool
+    ) -> Bool {
+        guard let mirror = sessionMirror(workspaceId: workspaceId),
+              mirror.connection.connectionState == .connected,
+              let afterWindowId = mirror.windowIdByPane[targetPaneId] else {
+            return false
+        }
+        let command = Self.newWindowCommand(
+            afterWindowId: afterWindowId,
+            workingDirectory: mirror.cwdByPane[targetPaneId],
+            focus: focus
+        )
+        return sendMirrorNewWindow(command, through: mirror, focus: focus)
+    }
+
+    private func sendMirrorNewWindow(
+        _ command: String,
+        through mirror: RemoteTmuxSessionMirror,
+        focus: Bool
+    ) -> Bool {
         guard focus else { return mirror.connection.send(command) }
         return mirror.connection.sendNewWindow(command) { [weak mirror] windowId in
             guard let windowId else { return }
