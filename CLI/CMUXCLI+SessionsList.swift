@@ -871,7 +871,7 @@ extension CMUXCLI {
         }
 
         if localJSONOutput {
-            try AgentStagedOutput().publish { handle in
+            try AgentStagedOutput().publish(build: { handle in
                 var writer = try AgentPrettyJSONStreamWriter(handle: handle)
                 try writer.writeValueField(name: "schema_version", value: 2)
                 try writer.writeValueField(name: "default_codex_home", value: defaultCodexHome)
@@ -903,7 +903,7 @@ extension CMUXCLI {
                 try writer.writeValueField(name: "stores", value: stores)
                 try writer.writeValueField(name: "total_matches", value: entries.totalCount)
                 try writer.finish()
-            }
+            }, publishChunk: cliWriteStdout)
             return
         }
 

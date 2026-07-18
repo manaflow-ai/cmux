@@ -177,6 +177,8 @@
 		A78670160000000000000001 /* AgentSessionWorkloadReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670160000000000000002 /* AgentSessionWorkloadReconciler.swift */; };
 		A78670690000000000000001 /* AgentSessionWorkloadReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670160000000000000002 /* AgentSessionWorkloadReconciler.swift */; };
 		A79701050000000000000001 /* AgentSessionWriterGenerationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79701050000000000000002 /* AgentSessionWriterGenerationRegressionTests.swift */; };
+		A71860010000000000000001 /* AgentStagedOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71860010000000000000002 /* AgentStagedOutput.swift */; };
+		A71860010000000000000003 /* AgentStagedOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71860010000000000000002 /* AgentStagedOutput.swift */; };
 		A78670210000000000000001 /* AgentStopStateAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670210000000000000002 /* AgentStopStateAdapter.swift */; };
 		A786706A0000000000000001 /* AgentStopStateAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670210000000000000002 /* AgentStopStateAdapter.swift */; };
 		A78670200000000000000001 /* AgentSubtreeActivitySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670200000000000000002 /* AgentSubtreeActivitySnapshot.swift */; };
@@ -2381,6 +2383,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
 		A78670160000000000000002 /* AgentSessionWorkloadReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionWorkloadReconciler.swift; sourceTree = "<group>"; };
 		A79701050000000000000002 /* AgentSessionWriterGenerationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionWriterGenerationRegressionTests.swift; sourceTree = "<group>"; };
+		A71860010000000000000002 /* AgentStagedOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStagedOutput.swift; sourceTree = "<group>"; };
 		A78670210000000000000002 /* AgentStopStateAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStopStateAdapter.swift; sourceTree = "<group>"; };
 		A78670200000000000000002 /* AgentSubtreeActivitySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSubtreeActivitySnapshot.swift; sourceTree = "<group>"; };
 		FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalClassificationWorker.swift; sourceTree = "<group>"; };
@@ -5893,6 +5896,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A79700070000000000000002 /* CMUXCLI+AgentHookRuntimeIdentity.swift */,
 				C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */,
 				A78670010000000000000002 /* AgentProcessIdentity.swift */,
+				A71860010000000000000002 /* AgentStagedOutput.swift */,
 				A79700040000000000000002 /* AgentSessionAuthorityEvidence.swift */,
 				A78670020000000000000002 /* AgentSessionRelationship.swift */,
 				A78670030000000000000002 /* AgentSessionRunRecord.swift */,
@@ -8313,6 +8317,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A78670130000000000000001 /* AgentSessionState.swift in Sources */,
 				A78670150000000000000001 /* AgentSessionStateProjection.swift in Sources */,
 				A78670160000000000000001 /* AgentSessionWorkloadReconciler.swift in Sources */,
+				A71860010000000000000001 /* AgentStagedOutput.swift in Sources */,
 				A78670210000000000000001 /* AgentStopStateAdapter.swift in Sources */,
 				A78670200000000000000001 /* AgentSubtreeActivitySnapshot.swift in Sources */,
 				A83100010000000000000001 /* AgentTerminalObservationJoiner.swift in Sources */,
@@ -8543,6 +8548,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
 				A78670690000000000000001 /* AgentSessionWorkloadReconciler.swift in Sources */,
 				A79701050000000000000001 /* AgentSessionWriterGenerationRegressionTests.swift in Sources */,
+				A71860010000000000000003 /* AgentStagedOutput.swift in Sources */,
 				A786706A0000000000000001 /* AgentStopStateAdapter.swift in Sources */,
 				A78671800000000000000003 /* AgentSubtreeActivitySnapshot.swift in Sources */,
 				A78671600000000000000003 /* AgentTerminalObservationJoiner.swift in Sources */,
