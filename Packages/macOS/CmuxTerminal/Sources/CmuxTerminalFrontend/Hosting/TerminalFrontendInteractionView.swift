@@ -9,8 +9,13 @@ public import CmuxTerminalDomain
 /// drag, selection, search, copy-mode, and accessibility adapters can share
 /// ``enqueueInteraction(_:)`` and ``interactionSnapshot`` without adding a
 /// terminal engine to this target.
+///
+/// AppKit's Objective-C protocol is imported without actor isolation even
+/// though an `NSView` text client is invoked on the main thread. The
+/// `@preconcurrency` conformance keeps that framework boundary explicit and
+/// traps a future off-main callback instead of making mutable UI state unsafe.
 @MainActor
-public final class TerminalFrontendInteractionView: NSView, NSTextInputClient {
+public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTextInputClient {
     /// Fixed ceiling for the only retained text-input buffer.
     ///
     /// Normal IME preedit values are tiny. The ceiling prevents a malformed
