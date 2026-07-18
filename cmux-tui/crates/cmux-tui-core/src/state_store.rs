@@ -11,8 +11,10 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::remote_tmux_producer::ExternalTerminalProvenance;
@@ -25,7 +27,7 @@ use crate::{
     TerminalActivityReadReceipt, WorkspaceUuid, platform,
 };
 
-pub const STATE_STORE_VERSION: u32 = 3;
+pub const STATE_STORE_VERSION: u32 = 4;
 
 pub(crate) const MAX_PERSISTED_TOMBSTONES: usize = 1_024;
 pub(crate) const MAX_PERSISTED_IDEMPOTENCY_RESULTS: usize = 1_024;
@@ -47,6 +49,8 @@ const MAX_ARGV_BYTES: usize = 256 * 1024;
 const MAX_CWD_BYTES: usize = 16 * 1024;
 const MAX_ENV_ITEMS: usize = 128;
 const MAX_ENV_BYTES: usize = 256 * 1024;
+const MAX_PERSISTED_LAUNCH_ATTEMPTS: usize = MAX_PERSISTED_SURFACES;
+const LAUNCH_ATTEMPT_NAMESPACE: Uuid = Uuid::from_u128(0x30fc_a621_77c7_4df4_abe3_f09f_555b_80e6);
 
 #[derive(Debug)]
 pub enum StateStoreError {
@@ -88,6 +92,199 @@ impl std::error::Error for StateStoreError {
     }
 }
 
+/// The exact filesystem phase reached by a durable mutation.
+///
+/// Callers use this value to distinguish a mutation rejected before it could
+/// change durable bytes from a mutation whose commit status needs recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DurableIoPhase {
+    Validation,
+    CircuitOpen,
+    JournalOpen,
+    JournalWrite,
+    JournalSync,
+    JournalResync,
+    JournalRollbackTruncate,
+    JournalRollbackSync,
+    AtomicTempOpen,
+    AtomicTempWrite,
+    AtomicTempSync,
+    AtomicRename,
+    AtomicDirectorySync,
+}
+
+impl DurableIoPhase {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Validation => "validation",
+            Self::CircuitOpen => "circuit-open",
+            Self::JournalOpen => "journal-open",
+            Self::JournalWrite => "journal-write",
+            Self::JournalSync => "journal-sync",
+            Self::JournalResync => "journal-resync",
+            Self::JournalRollbackTruncate => "journal-rollback-truncate",
+            Self::JournalRollbackSync => "journal-rollback-sync",
+            Self::AtomicTempOpen => "atomic-temp-open",
+            Self::AtomicTempWrite => "atomic-temp-write",
+            Self::AtomicTempSync => "atomic-temp-sync",
+            Self::AtomicRename => "atomic-rename",
+            Self::AtomicDirectorySync => "atomic-directory-sync",
+        }
+    }
+}
+
+/// Whether a failed operation is known not to have committed or must be
+/// reconciled before another durable mutation is allowed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DurableFailureResolution {
+    Rejected,
+    CommitIndeterminate,
+}
+
+#[derive(Debug)]
+pub(crate) struct DurableWriteFailure {
+    pub phase: DurableIoPhase,
+    pub resolution: DurableFailureResolution,
+    pub error: StateStoreError,
+}
+
+impl DurableWriteFailure {
+    fn io(
+        phase: DurableIoPhase,
+        resolution: DurableFailureResolution,
+        path: impl Into<PathBuf>,
+        source: std::io::Error,
+    ) -> Self {
+        Self { phase, resolution, error: StateStoreError::io(path, source) }
+    }
+
+    fn rejected(error: StateStoreError) -> Self {
+        Self {
+            phase: DurableIoPhase::Validation,
+            resolution: DurableFailureResolution::Rejected,
+            error,
+        }
+    }
+}
+
+/// A successful append receipt or a failure whose commit certainty is
+/// explicit. `CommitIndeterminate` must open the storage circuit and retain
+/// the exact logical mutation for reconciliation; it must never be retried as
+/// a new request.
+#[derive(Debug)]
+pub(crate) enum DurableAppendOutcome {
+    Committed { epoch: u64, sequence: u64 },
+    Rejected(DurableWriteFailure),
+    CommitIndeterminate(DurableWriteFailure),
+}
+
+#[derive(Debug)]
+enum DurableIoOutcome {
+    Committed,
+    Rejected(DurableWriteFailure),
+    CommitIndeterminate(DurableWriteFailure),
+}
+
+impl DurableAppendOutcome {
+    fn into_legacy_result(self) -> Result<(), StateStoreError> {
+        match self {
+            Self::Committed { .. } => Ok(()),
+            Self::Rejected(failure) | Self::CommitIndeterminate(failure) => Err(failure.error),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StorageCircuitIncident {
+    pub id: Uuid,
+    pub phase: DurableIoPhase,
+    pub resolution: DurableFailureResolution,
+    pub path: PathBuf,
+    pub message: String,
+}
+
+/// Session-local storage health. The daemon keeps this value and the session
+/// lock alive while degraded so existing PTYs can continue serving reads and
+/// input while new durable mutations are rejected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum StorageCircuit {
+    Healthy,
+    Degraded(StorageCircuitIncident),
+}
+
+impl StorageCircuit {
+    fn incident(failure: &DurableWriteFailure) -> StorageCircuitIncident {
+        let (path, message) = match &failure.error {
+            StateStoreError::Io { path, source } => (path.clone(), source.to_string()),
+            StateStoreError::Corrupt { path, reason } => (path.clone(), reason.clone()),
+            StateStoreError::Unavailable { reason } => (PathBuf::new(), reason.clone()),
+        };
+        StorageCircuitIncident {
+            id: Uuid::new_v4(),
+            phase: failure.phase,
+            resolution: failure.resolution,
+            path,
+            message,
+        }
+    }
+}
+
+/// Injected durable filesystem boundary. Tests provide a deterministic fault
+/// script; production uses direct owner-only file operations. No process-wide
+/// environment switches participate in storage behavior.
+pub(crate) trait DurableIo: fmt::Debug + Send + Sync {
+    fn open_append(&self, phase: DurableIoPhase, path: &Path) -> std::io::Result<File>;
+    fn open_temp(&self, phase: DurableIoPhase, path: &Path) -> std::io::Result<File>;
+    fn write(&self, phase: DurableIoPhase, file: &mut File, bytes: &[u8])
+    -> std::io::Result<usize>;
+    fn sync_file(&self, phase: DurableIoPhase, file: &File) -> std::io::Result<()>;
+    fn set_len(&self, phase: DurableIoPhase, file: &File, length: u64) -> std::io::Result<()>;
+    fn rename(&self, phase: DurableIoPhase, from: &Path, to: &Path) -> std::io::Result<()>;
+    fn sync_directory(&self, phase: DurableIoPhase, path: &Path) -> std::io::Result<()>;
+}
+
+#[derive(Debug, Default)]
+struct SystemDurableIo;
+
+impl DurableIo for SystemDurableIo {
+    fn open_append(&self, _phase: DurableIoPhase, path: &Path) -> std::io::Result<File> {
+        open_private_state_file(path, |options| {
+            options.create(true).append(true);
+        })
+    }
+
+    fn open_temp(&self, _phase: DurableIoPhase, path: &Path) -> std::io::Result<File> {
+        open_private_state_file(path, |options| {
+            options.create_new(true).write(true);
+        })
+    }
+
+    fn write(
+        &self,
+        _phase: DurableIoPhase,
+        file: &mut File,
+        bytes: &[u8],
+    ) -> std::io::Result<usize> {
+        file.write(bytes)
+    }
+
+    fn sync_file(&self, _phase: DurableIoPhase, file: &File) -> std::io::Result<()> {
+        file.sync_all()
+    }
+
+    fn set_len(&self, _phase: DurableIoPhase, file: &File, length: u64) -> std::io::Result<()> {
+        file.set_len(length)
+    }
+
+    fn rename(&self, _phase: DurableIoPhase, from: &Path, to: &Path) -> std::io::Result<()> {
+        fs::rename(from, to)
+    }
+
+    fn sync_directory(&self, _phase: DurableIoPhase, path: &Path) -> std::io::Result<()> {
+        sync_directory_io(path)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateRecovery {
     pub session_id: SessionId,
@@ -117,6 +314,7 @@ impl Default for StateStoreLimits {
 pub struct StateStore {
     root: PathBuf,
     limits: StateStoreLimits,
+    io: Arc<dyn DurableIo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,6 +494,39 @@ pub(crate) struct PersistedLaunchRecipe {
     pub wait_after_command: bool,
 }
 
+/// Durable activation state for one terminal recipe. Pending and quarantined
+/// attempts are deliberately stored outside canonical topology, so daemon
+/// recovery cannot discover them through `PersistedSurfaceKind::Terminal` and
+/// execute them automatically.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum PersistedLaunchAttemptPhase {
+    PendingActivation,
+    Active,
+    Quarantined,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedLaunchAttempt {
+    pub attempt_id: Uuid,
+    pub request_id: String,
+    pub payload_digest: String,
+    pub surface_uuid: SurfaceUuid,
+    pub launch: PersistedLaunchRecipe,
+    pub phase: PersistedLaunchAttemptPhase,
+}
+
+impl PersistedLaunchAttempt {
+    /// Startup never promotes a pending launch. It becomes quarantined in the
+    /// recovered in-memory image and remains absent from visible topology.
+    fn quarantine_for_recovery(&mut self) {
+        if self.phase == PersistedLaunchAttemptPhase::PendingActivation {
+            self.phase = PersistedLaunchAttemptPhase::Quarantined;
+        }
+    }
+}
+
 impl PersistedLaunchRecipe {
     pub(crate) fn sanitized(
         argv: Vec<String>,
@@ -397,12 +628,31 @@ struct CheckpointBody {
     epoch: u64,
     sequence: u64,
     state: PersistedSessionState,
+    launch_attempts: Vec<PersistedLaunchAttempt>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CheckpointEnvelope {
     body: CheckpointBody,
+    checksum: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckpointBodyV3 {
+    version: u32,
+    format: String,
+    session: String,
+    epoch: u64,
+    sequence: u64,
+    state: PersistedSessionState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckpointEnvelopeV3 {
+    body: CheckpointBodyV3,
     checksum: String,
 }
 
@@ -435,12 +685,33 @@ struct JournalBody {
     idempotency_key: String,
     result: Option<PersistedIdempotencyResult>,
     state: PersistedSessionState,
+    launch_attempts: Vec<PersistedLaunchAttempt>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct JournalEnvelope {
     body: JournalBody,
+    checksum: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JournalBodyV3 {
+    version: u32,
+    format: String,
+    session_id: SessionId,
+    epoch: u64,
+    sequence: u64,
+    idempotency_key: String,
+    result: Option<PersistedIdempotencyResult>,
+    state: PersistedSessionState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JournalEnvelopeV3 {
+    body: JournalBodyV3,
     checksum: String,
 }
 
@@ -493,6 +764,7 @@ impl Drop for SessionLock {
 
 pub(crate) struct OpenedSession {
     pub snapshot: PersistedSessionState,
+    pub launch_attempts: Vec<PersistedLaunchAttempt>,
     pub durable: DurableSession,
     #[cfg_attr(not(test), allow(dead_code))]
     pub quarantined_tail: Option<PathBuf>,
@@ -509,46 +781,111 @@ pub(crate) struct DurableSession {
     journal_records: usize,
     journal_bytes: usize,
     latest: PersistedSessionState,
+    latest_launch_attempts: Vec<PersistedLaunchAttempt>,
     limits: StateStoreLimits,
+    io: Arc<dyn DurableIo>,
+    storage_circuit: StorageCircuit,
     _lock: SessionLock,
 }
 
 impl DurableSession {
+    /// Compatibility entry point used by the current mux integration. Terminal
+    /// surfaces are represented as active attempts deterministically; pending
+    /// and quarantined attempts already owned by v4 are preserved.
     pub(crate) fn append(
         &mut self,
         state: PersistedSessionState,
         idempotency_key: String,
         result: Option<PersistedIdempotencyResult>,
     ) -> Result<(), StateStoreError> {
-        validate_snapshot(&self.checkpoint_path, &state)?;
+        let launch_attempts = match reconcile_legacy_launch_attempts(
+            &self.checkpoint_path,
+            &state,
+            &self.latest_launch_attempts,
+        ) {
+            Ok(attempts) => attempts,
+            Err(error) => return Err(error),
+        };
+        self.append_resolved(state, launch_attempts, idempotency_key, result).into_legacy_result()
+    }
+
+    /// Append one complete v4 durable image and return explicit commit
+    /// certainty. Mux integration must retain the logical mutation whenever
+    /// this returns `CommitIndeterminate` and must not issue it again under a
+    /// new idempotency key.
+    pub(crate) fn append_resolved(
+        &mut self,
+        state: PersistedSessionState,
+        launch_attempts: Vec<PersistedLaunchAttempt>,
+        idempotency_key: String,
+        result: Option<PersistedIdempotencyResult>,
+    ) -> DurableAppendOutcome {
+        if let StorageCircuit::Degraded(incident) = &self.storage_circuit {
+            return DurableAppendOutcome::Rejected(DurableWriteFailure {
+                phase: DurableIoPhase::CircuitOpen,
+                resolution: DurableFailureResolution::Rejected,
+                error: StateStoreError::Unavailable {
+                    reason: format!(
+                        "durable storage circuit {} remains degraded at {}",
+                        incident.id,
+                        incident.phase.as_str()
+                    ),
+                },
+            });
+        }
+        if let Err(error) = validate_snapshot(&self.checkpoint_path, &state) {
+            return DurableAppendOutcome::Rejected(DurableWriteFailure::rejected(error));
+        }
         if state.session_id != self.session_id {
-            return Err(StateStoreError::corrupt(
-                &self.checkpoint_path,
-                "mutation changed the durable session identity",
+            return DurableAppendOutcome::Rejected(DurableWriteFailure::rejected(
+                StateStoreError::corrupt(
+                    &self.checkpoint_path,
+                    "mutation changed the durable session identity",
+                ),
             ));
         }
-        validate_idempotency_key(&self.journal_path, &idempotency_key)?;
+        if let Err(error) =
+            validate_launch_attempts(&self.checkpoint_path, &state, &launch_attempts)
+        {
+            return DurableAppendOutcome::Rejected(DurableWriteFailure::rejected(error));
+        }
+        if let Err(error) = validate_idempotency_key(&self.journal_path, &idempotency_key) {
+            return DurableAppendOutcome::Rejected(DurableWriteFailure::rejected(error));
+        }
 
         let mut body = JournalBody {
             version: STATE_STORE_VERSION,
             format: JOURNAL_FORMAT.to_string(),
             session_id: self.session_id,
             epoch: self.epoch,
-            sequence: self.sequence.checked_add(1).ok_or_else(|| {
-                StateStoreError::corrupt(&self.journal_path, "journal sequence exhausted")
-            })?,
+            sequence: match self.sequence.checked_add(1) {
+                Some(sequence) => sequence,
+                None => {
+                    return DurableAppendOutcome::Rejected(DurableWriteFailure::rejected(
+                        StateStoreError::corrupt(&self.journal_path, "journal sequence exhausted"),
+                    ));
+                }
+            },
             idempotency_key,
             result,
             state,
+            launch_attempts,
         };
-        let mut bytes = encode_journal(&self.journal_path, &body)?;
+        let mut bytes = match encode_journal(&self.journal_path, &body) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return DurableAppendOutcome::Rejected(DurableWriteFailure::rejected(error));
+            }
+        };
         if bytes.len() > self.limits.max_journal_record_bytes {
-            return Err(StateStoreError::corrupt(
-                &self.journal_path,
-                format!(
-                    "journal record is {} bytes; limit is {}",
-                    bytes.len(),
-                    self.limits.max_journal_record_bytes
+            return DurableAppendOutcome::Rejected(DurableWriteFailure::rejected(
+                StateStoreError::corrupt(
+                    &self.journal_path,
+                    format!(
+                        "journal record is {} bytes; limit is {}",
+                        bytes.len(),
+                        self.limits.max_journal_record_bytes
+                    ),
                 ),
             ));
         }
@@ -556,49 +893,93 @@ impl DurableSession {
         if self.journal_records >= self.limits.max_journal_records
             || self.journal_bytes.saturating_add(bytes.len()) > self.limits.max_journal_bytes
         {
-            self.compact_latest()?;
+            if let Err(failure) = self.compact_latest_resolved() {
+                return self.fail_append(failure);
+            }
             body.epoch = self.epoch;
             body.sequence = 1;
-            bytes = encode_journal(&self.journal_path, &body)?;
+            bytes = match encode_journal(&self.journal_path, &body) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    return DurableAppendOutcome::Rejected(DurableWriteFailure::rejected(error));
+                }
+            };
             if bytes.len() > self.limits.max_journal_record_bytes
                 || bytes.len() > self.limits.max_journal_bytes
             {
-                return Err(StateStoreError::corrupt(
-                    &self.journal_path,
-                    "one mutation cannot fit within the bounded journal",
+                return DurableAppendOutcome::Rejected(DurableWriteFailure::rejected(
+                    StateStoreError::corrupt(
+                        &self.journal_path,
+                        "one mutation cannot fit within the bounded journal",
+                    ),
                 ));
             }
         }
 
-        #[cfg(test)]
-        if std::env::var("CMUX_TEST_FAIL_DURABLE_APPEND").ok().as_deref() == Some("1") {
-            return Err(StateStoreError::io(
-                &self.journal_path,
-                std::io::Error::other("injected durable append failure"),
-            ));
+        match append_record_resolved(self.io.as_ref(), &self.journal_path, &bytes) {
+            DurableIoOutcome::Committed => {
+                self.sequence = body.sequence;
+                self.journal_records += 1;
+                self.journal_bytes += bytes.len();
+                self.latest = body.state;
+                self.latest_launch_attempts = body.launch_attempts;
+                DurableAppendOutcome::Committed { epoch: self.epoch, sequence: self.sequence }
+            }
+            DurableIoOutcome::Rejected(failure)
+            | DurableIoOutcome::CommitIndeterminate(failure) => self.fail_append(failure),
         }
-
-        append_synced(&self.journal_path, &bytes)?;
-        self.sequence = body.sequence;
-        self.journal_records += 1;
-        self.journal_bytes += bytes.len();
-        self.latest = body.state;
-        Ok(())
     }
 
-    fn compact_latest(&mut self) -> Result<(), StateStoreError> {
+    pub(crate) fn storage_circuit(&self) -> &StorageCircuit {
+        &self.storage_circuit
+    }
+
+    pub(crate) fn launch_attempts(&self) -> &[PersistedLaunchAttempt] {
+        &self.latest_launch_attempts
+    }
+
+    fn fail_append(&mut self, failure: DurableWriteFailure) -> DurableAppendOutcome {
+        self.storage_circuit = StorageCircuit::Degraded(StorageCircuit::incident(&failure));
+        match failure.resolution {
+            DurableFailureResolution::Rejected => DurableAppendOutcome::Rejected(failure),
+            DurableFailureResolution::CommitIndeterminate => {
+                DurableAppendOutcome::CommitIndeterminate(failure)
+            }
+        }
+    }
+
+    fn compact_latest_resolved(&mut self) -> Result<(), DurableWriteFailure> {
         let next_epoch = self.epoch.checked_add(1).ok_or_else(|| {
-            StateStoreError::corrupt(&self.checkpoint_path, "checkpoint epoch exhausted")
+            DurableWriteFailure::rejected(StateStoreError::corrupt(
+                &self.checkpoint_path,
+                "checkpoint epoch exhausted",
+            ))
         })?;
-        write_checkpoint_atomic(
+        match write_checkpoint_atomic_resolved(
+            self.io.as_ref(),
             &self.checkpoint_path,
             &self.session,
             next_epoch,
             0,
             &self.latest,
+            &self.latest_launch_attempts,
             self.limits,
-        )?;
-        replace_file_atomically(&self.journal_path, &[])?;
+        ) {
+            DurableIoOutcome::Committed => {}
+            DurableIoOutcome::Rejected(failure)
+            | DurableIoOutcome::CommitIndeterminate(failure) => return Err(failure),
+        }
+        match replace_file_atomically_resolved(self.io.as_ref(), &self.journal_path, &[]) {
+            DurableIoOutcome::Committed => {}
+            DurableIoOutcome::Rejected(mut failure) => {
+                // The later-epoch checkpoint is already visible. Keeping the
+                // old journal is replay-safe, but the two-file compaction has
+                // not reached one stable outcome, so block subsequent writes.
+                failure.resolution = DurableFailureResolution::CommitIndeterminate;
+                return Err(failure);
+            }
+            DurableIoOutcome::CommitIndeterminate(failure) => return Err(failure),
+        }
         self.epoch = next_epoch;
         self.sequence = 0;
         self.journal_records = 0;
@@ -610,7 +991,11 @@ impl DurableSession {
 impl StateStore {
     /// Create a store rooted at an explicit directory.
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into(), limits: StateStoreLimits::default() }
+        Self {
+            root: root.into(),
+            limits: StateStoreLimits::default(),
+            io: Arc::new(SystemDurableIo),
+        }
     }
 
     #[cfg(test)]
@@ -621,7 +1006,28 @@ impl StateStore {
             max_journal_record_bytes: max_bytes,
             ..StateStoreLimits::default()
         };
-        Self { root: root.into(), limits }
+        Self { root: root.into(), limits, io: Arc::new(SystemDurableIo) }
+    }
+
+    #[cfg(test)]
+    fn with_io(root: impl Into<PathBuf>, io: Arc<dyn DurableIo>) -> Self {
+        Self { root: root.into(), limits: StateStoreLimits::default(), io }
+    }
+
+    #[cfg(test)]
+    fn with_limits_and_io(
+        root: impl Into<PathBuf>,
+        max_records: usize,
+        max_bytes: usize,
+        io: Arc<dyn DurableIo>,
+    ) -> Self {
+        let limits = StateStoreLimits {
+            max_journal_records: max_records,
+            max_journal_bytes: max_bytes,
+            max_journal_record_bytes: max_bytes,
+            ..StateStoreLimits::default()
+        };
+        Self { root: root.into(), limits, io }
     }
 
     pub fn platform_default() -> Result<Self, StateStoreError> {
@@ -655,6 +1061,15 @@ impl StateStore {
         (
             migration_backup_path(&self.session_path(session), 2),
             migration_backup_path(&self.journal_path(session), 2),
+        )
+    }
+
+    /// Immutable checkpoint and journal retained before a version-3 to
+    /// version-4 migration.
+    pub fn version_three_backup_paths(&self, session: &str) -> (PathBuf, PathBuf) {
+        (
+            migration_backup_path(&self.session_path(session), 3),
+            migration_backup_path(&self.journal_path(session), 3),
         )
     }
 
@@ -711,9 +1126,58 @@ impl StateStore {
         )?;
 
         // Restore journal first. If the process exits between replacements,
-        // the still-version-3 checkpoint rejects the old journal rather than
+        // the still-version-4 checkpoint rejects the old journal rather than
         // opening silently mixed state. The final checkpoint rename makes the
         // pair readable by the previous daemon after it acquires this lock.
+        replace_file_atomically(&journal_path, &journal_bytes)?;
+        replace_file_atomically(&checkpoint_path, &checkpoint_bytes)
+    }
+
+    /// Restore the exact version-3 checkpoint and journal retained before
+    /// migration. Validation is read-only and backups remain immutable so an
+    /// interrupted rollback can be retried.
+    pub fn restore_version_three_backup(&self, session: &str) -> Result<(), StateStoreError> {
+        let _lock = self.lock_session(session)?;
+        let checkpoint_path = self.session_path(session);
+        let journal_path = self.journal_path(session);
+        let (checkpoint_backup, journal_backup) = self.version_three_backup_paths(session);
+        let checkpoint_bytes = read_bounded(&checkpoint_backup, self.limits.max_checkpoint_bytes)?
+            .ok_or_else(|| {
+                StateStoreError::corrupt(
+                    &checkpoint_backup,
+                    "version-3 migration checkpoint backup is missing",
+                )
+            })?;
+        let journal_bytes = read_bounded(
+            &journal_backup,
+            self.limits.max_journal_bytes.saturating_add(self.limits.max_journal_record_bytes),
+        )?
+        .ok_or_else(|| {
+            StateStoreError::corrupt(
+                &journal_backup,
+                "version-3 migration journal backup is missing",
+            )
+        })?;
+        let envelope =
+            serde_json::from_slice::<CheckpointEnvelopeV3>(&checkpoint_bytes).map_err(|error| {
+                StateStoreError::corrupt(
+                    &checkpoint_backup,
+                    format!("invalid version-3 backup checkpoint: {error}"),
+                )
+            })?;
+        validate_checkpoint_v3(&checkpoint_backup, session, &envelope)?;
+        replay_journal_v3_bytes(
+            &journal_backup,
+            &journal_bytes,
+            envelope.body.epoch,
+            envelope.body.sequence,
+            envelope.body.state,
+            self.limits,
+            false,
+        )?;
+
+        // Journal first leaves a v4 checkpoint that rejects mixed v3 records
+        // if rollback stops before the final checkpoint rename.
         replace_file_atomically(&journal_path, &journal_bytes)?;
         replace_file_atomically(&checkpoint_path, &checkpoint_bytes)
     }
@@ -743,6 +1207,7 @@ impl StateStore {
             checkpoint.body.epoch,
             checkpoint.body.sequence,
             checkpoint.body.state,
+            checkpoint.body.launch_attempts,
             self.limits,
         )?;
         Ok(LoadedSession { checkpoint_path, journal_path, replay })
@@ -755,8 +1220,11 @@ impl StateStore {
         lock: SessionLock,
     ) -> OpenedSession {
         let LoadedSession { checkpoint_path, journal_path, replay } = loaded;
+        let mut launch_attempts = replay.launch_attempts;
+        launch_attempts.iter_mut().for_each(PersistedLaunchAttempt::quarantine_for_recovery);
         OpenedSession {
             snapshot: replay.state.clone(),
+            launch_attempts: launch_attempts.clone(),
             durable: DurableSession {
                 checkpoint_path,
                 journal_path,
@@ -767,7 +1235,10 @@ impl StateStore {
                 journal_records: replay.record_count,
                 journal_bytes: replay.valid_bytes,
                 latest: replay.state,
+                latest_launch_attempts: launch_attempts,
                 limits: self.limits,
+                io: self.io.clone(),
+                storage_circuit: StorageCircuit::Healthy,
                 _lock: lock,
             },
             quarantined_tail: replay.quarantined_tail,
@@ -897,10 +1368,66 @@ impl StateStore {
             preserve_migration_backup(journal_path, 2, &journal_bytes)?;
             write_checkpoint_atomic(path, session, epoch, 0, &replay.state, self.limits)?;
             // The new checkpoint uses a later epoch. If the process exits
-            // before this atomic reset, the v3 loader recognizes the older
+            // before this atomic reset, the v4 loader recognizes the older
             // v2 journal records as already compacted.
             replace_file_atomically(journal_path, &[])?;
             return Ok((checkpoint_envelope(session, epoch, 0, &replay.state)?, true));
+        }
+        if version == 3 {
+            let envelope =
+                serde_json::from_value::<CheckpointEnvelopeV3>(value).map_err(|error| {
+                    StateStoreError::corrupt(
+                        path,
+                        format!("invalid version-3 checkpoint envelope: {error}"),
+                    )
+                })?;
+            validate_checkpoint_v3(path, session, &envelope)?;
+            let replay = replay_journal_v3(
+                journal_path,
+                envelope.body.epoch,
+                envelope.body.sequence,
+                envelope.body.state,
+                self.limits,
+            )?;
+            let epoch = replay
+                .epoch
+                .checked_add(1)
+                .ok_or_else(|| StateStoreError::corrupt(path, "checkpoint epoch exhausted"))?;
+            let journal_bytes = read_bounded(
+                journal_path,
+                self.limits.max_journal_bytes.saturating_add(self.limits.max_journal_record_bytes),
+            )?
+            .unwrap_or_default();
+            preserve_migration_backup(path, 3, &bytes)?;
+            preserve_migration_backup(journal_path, 3, &journal_bytes)?;
+            let launch_attempts = reconcile_legacy_launch_attempts(path, &replay.state, &[])?;
+            match write_checkpoint_atomic_resolved(
+                self.io.as_ref(),
+                path,
+                session,
+                epoch,
+                0,
+                &replay.state,
+                &launch_attempts,
+                self.limits,
+            ) {
+                DurableIoOutcome::Committed => {}
+                DurableIoOutcome::Rejected(failure)
+                | DurableIoOutcome::CommitIndeterminate(failure) => return Err(failure.error),
+            }
+            // The later v4 epoch makes an older v3 journal replay-safe if the
+            // process exits before the atomic reset.
+            replace_file_atomically(journal_path, &[])?;
+            return Ok((
+                checkpoint_envelope_with_attempts(
+                    session,
+                    epoch,
+                    0,
+                    &replay.state,
+                    &launch_attempts,
+                )?,
+                true,
+            ));
         }
         if version != u64::from(STATE_STORE_VERSION) {
             return Err(StateStoreError::corrupt(
@@ -930,6 +1457,7 @@ impl StateStore {
 
 struct JournalReplay {
     state: PersistedSessionState,
+    launch_attempts: Vec<PersistedLaunchAttempt>,
     epoch: u64,
     sequence: u64,
     record_count: usize,
@@ -948,6 +1476,7 @@ fn replay_journal(
     checkpoint_epoch: u64,
     checkpoint_sequence: u64,
     mut state: PersistedSessionState,
+    mut launch_attempts: Vec<PersistedLaunchAttempt>,
     limits: StateStoreLimits,
 ) -> Result<JournalReplay, StateStoreError> {
     let Some(bytes) = read_bounded(
@@ -958,6 +1487,7 @@ fn replay_journal(
         replace_file_atomically(path, &[])?;
         return Ok(JournalReplay {
             state,
+            launch_attempts,
             epoch: checkpoint_epoch,
             sequence: checkpoint_sequence,
             record_count: 0,
@@ -1021,7 +1551,30 @@ fn replay_journal(
             }
             return Err(StateStoreError::corrupt(
                 path,
-                "version-2 journal record is newer than the version-3 checkpoint",
+                "version-2 journal record is newer than the version-4 checkpoint",
+            ));
+        }
+        let stale_v3 = match stale_v3_journal_record(path, line) {
+            Ok(record) => record,
+            Err(error) if line_end == bytes.len() => {
+                let _ = error;
+                invalid_tail = Some(cursor);
+                break;
+            }
+            Err(error) => return Err(error),
+        };
+        if let Some(record) = stale_v3 {
+            if record.body.epoch < checkpoint_epoch
+                || (record.body.epoch == checkpoint_epoch
+                    && record.body.sequence <= checkpoint_sequence)
+            {
+                cursor = line_end;
+                valid_bytes = line_end;
+                continue;
+            }
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-3 journal record is newer than the version-4 checkpoint",
             ));
         }
         let envelope = match decode_journal(path, line) {
@@ -1064,6 +1617,7 @@ fn replay_journal(
             ));
         }
         validate_snapshot(path, &body.state)?;
+        validate_launch_attempts(path, &body.state, &body.launch_attempts)?;
         if body.state.session_id != state.session_id {
             return Err(StateStoreError::corrupt(path, "journal state changed session identity"));
         }
@@ -1074,7 +1628,10 @@ fn replay_journal(
             return Err(StateStoreError::corrupt(path, "journal activity sequence moved backward"));
         }
         if let Some(existing) = seen.get(&body.idempotency_key) {
-            if body.result.as_ref() != Some(existing) || body.state != state {
+            if body.result.as_ref() != Some(existing)
+                || body.state != state
+                || body.launch_attempts != launch_attempts
+            {
                 return Err(StateStoreError::corrupt(
                     path,
                     "duplicate idempotency key changed its result or state",
@@ -1091,6 +1648,7 @@ fn replay_journal(
                 seen.insert(result.key.clone(), result.clone());
             }
             state = body.state;
+            launch_attempts = body.launch_attempts;
         }
         epoch = body.epoch;
         sequence = body.sequence;
@@ -1104,7 +1662,15 @@ fn replay_journal(
     } else {
         None
     };
-    Ok(JournalReplay { state, epoch, sequence, record_count, valid_bytes, quarantined_tail })
+    Ok(JournalReplay {
+        state,
+        launch_attempts,
+        epoch,
+        sequence,
+        record_count,
+        valid_bytes,
+        quarantined_tail,
+    })
 }
 
 fn replay_journal_v2(
@@ -1121,6 +1687,7 @@ fn replay_journal_v2(
     else {
         return Ok(JournalReplay {
             state,
+            launch_attempts: Vec::new(),
             epoch: checkpoint_epoch,
             sequence: checkpoint_sequence,
             record_count: 0,
@@ -1137,6 +1704,194 @@ fn replay_journal_v2(
         limits,
         true,
     )
+}
+
+fn replay_journal_v3(
+    path: &Path,
+    checkpoint_epoch: u64,
+    checkpoint_sequence: u64,
+    state: PersistedSessionState,
+    limits: StateStoreLimits,
+) -> Result<JournalReplay, StateStoreError> {
+    let Some(bytes) = read_bounded(
+        path,
+        limits.max_journal_bytes.saturating_add(limits.max_journal_record_bytes),
+    )?
+    else {
+        return Ok(JournalReplay {
+            state,
+            launch_attempts: Vec::new(),
+            epoch: checkpoint_epoch,
+            sequence: checkpoint_sequence,
+            record_count: 0,
+            valid_bytes: 0,
+            quarantined_tail: None,
+        });
+    };
+    replay_journal_v3_bytes(
+        path,
+        &bytes,
+        checkpoint_epoch,
+        checkpoint_sequence,
+        state,
+        limits,
+        true,
+    )
+}
+
+fn replay_journal_v3_bytes(
+    path: &Path,
+    bytes: &[u8],
+    checkpoint_epoch: u64,
+    checkpoint_sequence: u64,
+    mut state: PersistedSessionState,
+    limits: StateStoreLimits,
+    quarantine_invalid_tail: bool,
+) -> Result<JournalReplay, StateStoreError> {
+    let mut epoch = checkpoint_epoch;
+    let mut sequence = checkpoint_sequence;
+    let mut record_count = 0usize;
+    let mut valid_bytes = 0usize;
+    let mut seen = state
+        .idempotency_results
+        .iter()
+        .map(|result| (result.key.clone(), result.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut cursor = 0usize;
+    let mut invalid_tail = None;
+
+    while cursor < bytes.len() {
+        let line_end = bytes[cursor..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|offset| cursor + offset + 1);
+        let Some(line_end) = line_end else {
+            invalid_tail = Some(cursor);
+            break;
+        };
+        let line = &bytes[cursor..line_end - 1];
+        if line.is_empty() {
+            if bytes[line_end..].iter().all(u8::is_ascii_whitespace) {
+                invalid_tail = Some(cursor);
+                break;
+            }
+            return Err(StateStoreError::corrupt(path, "empty interior version-3 journal record"));
+        }
+        if line.len().saturating_add(1) > limits.max_journal_record_bytes {
+            if line_end == bytes.len() {
+                invalid_tail = Some(cursor);
+                break;
+            }
+            return Err(StateStoreError::corrupt(
+                path,
+                "oversized interior version-3 journal record",
+            ));
+        }
+        let envelope = match decode_journal_v3(path, line) {
+            Ok(envelope) => envelope,
+            Err(error) if line_end == bytes.len() => {
+                let _ = error;
+                invalid_tail = Some(cursor);
+                break;
+            }
+            Err(error) => return Err(error),
+        };
+        let body = envelope.body;
+        if body.session_id != state.session_id {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-3 journal session identity mismatch",
+            ));
+        }
+        if body.epoch < checkpoint_epoch
+            || (body.epoch == checkpoint_epoch && body.sequence <= checkpoint_sequence)
+        {
+            cursor = line_end;
+            valid_bytes = line_end;
+            continue;
+        }
+        if body.epoch != epoch || body.sequence != sequence.saturating_add(1) {
+            return Err(StateStoreError::corrupt(
+                path,
+                format!(
+                    "version-3 journal sequence gap: expected {epoch}/{}, found {}/{}",
+                    sequence.saturating_add(1),
+                    body.epoch,
+                    body.sequence
+                ),
+            ));
+        }
+        if record_count >= limits.max_journal_records {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-3 journal record count exceeds the compaction bound",
+            ));
+        }
+        validate_snapshot(path, &body.state)?;
+        if body.state.session_id != state.session_id {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-3 journal state changed session identity",
+            ));
+        }
+        if body.state.topology_revision < state.topology_revision {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-3 journal topology revision moved backward",
+            ));
+        }
+        if body.state.activity_sequence < state.activity_sequence {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-3 journal activity sequence moved backward",
+            ));
+        }
+        if let Some(existing) = seen.get(&body.idempotency_key) {
+            if body.result.as_ref() != Some(existing) || body.state != state {
+                return Err(StateStoreError::corrupt(
+                    path,
+                    "duplicate version-3 idempotency key changed its result or state",
+                ));
+            }
+        } else {
+            if let Some(result) = body.result.as_ref() {
+                if result.key != body.idempotency_key {
+                    return Err(StateStoreError::corrupt(
+                        path,
+                        "version-3 journal idempotency result key mismatch",
+                    ));
+                }
+                seen.insert(result.key.clone(), result.clone());
+            }
+            state = body.state;
+        }
+        epoch = body.epoch;
+        sequence = body.sequence;
+        record_count += 1;
+        cursor = line_end;
+        valid_bytes = line_end;
+    }
+
+    let quarantined_tail = if let Some(start) = invalid_tail {
+        if !quarantine_invalid_tail {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-3 backup journal has a truncated or invalid tail",
+            ));
+        }
+        Some(quarantine_tail(path, bytes, start)?)
+    } else {
+        None
+    };
+    Ok(JournalReplay {
+        state,
+        launch_attempts: Vec::new(),
+        epoch,
+        sequence,
+        record_count,
+        valid_bytes,
+        quarantined_tail,
+    })
 }
 
 fn replay_journal_v2_bytes(
@@ -1278,7 +2033,15 @@ fn replay_journal_v2_bytes(
     } else {
         None
     };
-    Ok(JournalReplay { state, epoch, sequence, record_count, valid_bytes, quarantined_tail })
+    Ok(JournalReplay {
+        state,
+        launch_attempts: Vec::new(),
+        epoch,
+        sequence,
+        record_count,
+        valid_bytes,
+        quarantined_tail,
+    })
 }
 
 fn validate_checkpoint(
@@ -1299,6 +2062,28 @@ fn validate_checkpoint(
         ));
     }
     verify_checksum(path, &envelope.body, &envelope.checksum, "checkpoint")?;
+    validate_snapshot(path, &envelope.body.state)?;
+    validate_launch_attempts(path, &envelope.body.state, &envelope.body.launch_attempts)
+}
+
+fn validate_checkpoint_v3(
+    path: &Path,
+    session: &str,
+    envelope: &CheckpointEnvelopeV3,
+) -> Result<(), StateStoreError> {
+    if envelope.body.version != 3 || envelope.body.format != CHECKPOINT_FORMAT {
+        return Err(StateStoreError::corrupt(path, "version-3 checkpoint format mismatch"));
+    }
+    if envelope.body.session != session {
+        return Err(StateStoreError::corrupt(
+            path,
+            format!(
+                "session key collision: expected {session:?}, found {:?}",
+                envelope.body.session
+            ),
+        ));
+    }
+    verify_checksum(path, &envelope.body, &envelope.checksum, "version-3 checkpoint")?;
     validate_snapshot(path, &envelope.body.state)
 }
 
@@ -1575,6 +2360,139 @@ fn persisted_entity_kind_tag(kind: PersistedEntityKind) -> u8 {
     }
 }
 
+fn reconcile_legacy_launch_attempts(
+    path: &Path,
+    state: &PersistedSessionState,
+    previous: &[PersistedLaunchAttempt],
+) -> Result<Vec<PersistedLaunchAttempt>, StateStoreError> {
+    let mut attempts = previous
+        .iter()
+        .filter(|attempt| attempt.phase != PersistedLaunchAttemptPhase::Active)
+        .cloned()
+        .collect::<Vec<_>>();
+    let reserved = attempts.iter().map(|attempt| attempt.surface_uuid).collect::<BTreeSet<_>>();
+    for surface in &state.surfaces {
+        let PersistedSurfaceKind::Terminal { launch } = &surface.kind else {
+            continue;
+        };
+        if reserved.contains(&surface.uuid) {
+            return Err(StateStoreError::corrupt(
+                path,
+                "legacy topology made a pending or quarantined launch visible",
+            ));
+        }
+        attempts.push(active_launch_attempt(state.session_id, surface.uuid, launch)?);
+    }
+    attempts.sort_by_key(|attempt| attempt.attempt_id);
+    validate_launch_attempts(path, state, &attempts)?;
+    Ok(attempts)
+}
+
+fn active_launch_attempt(
+    session_id: SessionId,
+    surface_uuid: SurfaceUuid,
+    launch: &PersistedLaunchRecipe,
+) -> Result<PersistedLaunchAttempt, StateStoreError> {
+    let encoded = serde_json::to_vec(&(session_id, surface_uuid, launch)).map_err(|error| {
+        StateStoreError::corrupt(
+            "launch-attempt",
+            format!("could not encode active launch identity: {error}"),
+        )
+    })?;
+    let payload_digest = format!("{:x}", Sha256::digest(&encoded));
+    let mut identity = Vec::with_capacity(32 + payload_digest.len());
+    identity.extend_from_slice(session_id.as_uuid().as_bytes());
+    identity.extend_from_slice(surface_uuid.as_uuid().as_bytes());
+    identity.extend_from_slice(payload_digest.as_bytes());
+    Ok(PersistedLaunchAttempt {
+        attempt_id: Uuid::new_v5(&LAUNCH_ATTEMPT_NAMESPACE, &identity),
+        request_id: format!("legacy-active:{surface_uuid}:{payload_digest}"),
+        payload_digest,
+        surface_uuid,
+        launch: launch.clone(),
+        phase: PersistedLaunchAttemptPhase::Active,
+    })
+}
+
+fn validate_launch_attempts(
+    path: &Path,
+    state: &PersistedSessionState,
+    attempts: &[PersistedLaunchAttempt],
+) -> Result<(), StateStoreError> {
+    if attempts.len() > MAX_PERSISTED_LAUNCH_ATTEMPTS {
+        return Err(StateStoreError::corrupt(path, "persisted launch attempt capacity exceeded"));
+    }
+    let terminal_surfaces = state
+        .surfaces
+        .iter()
+        .filter_map(|surface| match &surface.kind {
+            PersistedSurfaceKind::Terminal { launch } => Some((surface.uuid, launch)),
+            PersistedSurfaceKind::ExternalTerminal { .. }
+            | PersistedSurfaceKind::Browser { .. } => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut attempt_ids = BTreeSet::new();
+    let mut request_ids = BTreeSet::new();
+    let mut attempted_surfaces = BTreeSet::new();
+    let mut active_surfaces = BTreeSet::new();
+    for attempt in attempts {
+        validate_uuid(path, attempt.attempt_id, "launch attempt")?;
+        validate_uuid(path, attempt.surface_uuid.as_uuid(), "launch attempt surface")?;
+        validate_idempotency_key(path, &attempt.request_id)?;
+        validate_payload_digest(path, &attempt.payload_digest, "launch attempt")?;
+        validate_launch_recipe(path, &attempt.launch)?;
+        if !attempt_ids.insert(attempt.attempt_id)
+            || !request_ids.insert(attempt.request_id.as_str())
+            || !attempted_surfaces.insert(attempt.surface_uuid)
+        {
+            return Err(StateStoreError::corrupt(path, "duplicate persisted launch attempt"));
+        }
+        match attempt.phase {
+            PersistedLaunchAttemptPhase::Active => {
+                let Some(launch) = terminal_surfaces.get(&attempt.surface_uuid) else {
+                    return Err(StateStoreError::corrupt(
+                        path,
+                        "active launch attempt has no visible terminal surface",
+                    ));
+                };
+                if *launch != &attempt.launch || !active_surfaces.insert(attempt.surface_uuid) {
+                    return Err(StateStoreError::corrupt(
+                        path,
+                        "active launch attempt recipe differs from visible terminal",
+                    ));
+                }
+            }
+            PersistedLaunchAttemptPhase::PendingActivation
+            | PersistedLaunchAttemptPhase::Quarantined => {
+                if state.surfaces.iter().any(|surface| surface.uuid == attempt.surface_uuid) {
+                    return Err(StateStoreError::corrupt(
+                        path,
+                        "unactivated launch attempt appears in visible topology",
+                    ));
+                }
+            }
+        }
+    }
+    let expected_active = terminal_surfaces.keys().copied().collect::<BTreeSet<_>>();
+    if active_surfaces != expected_active {
+        return Err(StateStoreError::corrupt(
+            path,
+            "visible terminal surfaces and active launch attempts differ",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_payload_digest(path: &Path, digest: &str, kind: &str) -> Result<(), StateStoreError> {
+    if digest.len() != 64
+        || !digest.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        Err(StateStoreError::corrupt(path, format!("invalid {kind} payload digest")))
+    } else {
+        Ok(())
+    }
+}
+
 fn validate_launch_recipe(
     path: &Path,
     launch: &PersistedLaunchRecipe,
@@ -1696,6 +2614,17 @@ fn checkpoint_envelope(
     sequence: u64,
     state: &PersistedSessionState,
 ) -> Result<CheckpointEnvelope, StateStoreError> {
+    let launch_attempts = reconcile_legacy_launch_attempts(Path::new("checkpoint"), state, &[])?;
+    checkpoint_envelope_with_attempts(session, epoch, sequence, state, &launch_attempts)
+}
+
+fn checkpoint_envelope_with_attempts(
+    session: &str,
+    epoch: u64,
+    sequence: u64,
+    state: &PersistedSessionState,
+    launch_attempts: &[PersistedLaunchAttempt],
+) -> Result<CheckpointEnvelope, StateStoreError> {
     let body = CheckpointBody {
         version: STATE_STORE_VERSION,
         format: CHECKPOINT_FORMAT.to_string(),
@@ -1703,6 +2632,7 @@ fn checkpoint_envelope(
         epoch,
         sequence,
         state: state.clone(),
+        launch_attempts: launch_attempts.to_vec(),
     };
     let checksum = checksum_json(&body).map_err(|error| {
         StateStoreError::corrupt("checkpoint", format!("could not checksum checkpoint: {error}"))
@@ -1718,23 +2648,66 @@ fn write_checkpoint_atomic(
     state: &PersistedSessionState,
     limits: StateStoreLimits,
 ) -> Result<(), StateStoreError> {
-    validate_snapshot(path, state)?;
-    let envelope = checkpoint_envelope(session, epoch, sequence, state)?;
-    let mut bytes = serde_json::to_vec_pretty(&envelope).map_err(|error| {
+    let launch_attempts = reconcile_legacy_launch_attempts(path, state, &[])?;
+    match write_checkpoint_atomic_resolved(
+        &SystemDurableIo,
+        path,
+        session,
+        epoch,
+        sequence,
+        state,
+        &launch_attempts,
+        limits,
+    ) {
+        DurableIoOutcome::Committed => Ok(()),
+        DurableIoOutcome::Rejected(failure) | DurableIoOutcome::CommitIndeterminate(failure) => {
+            Err(failure.error)
+        }
+    }
+}
+
+fn write_checkpoint_atomic_resolved(
+    io: &dyn DurableIo,
+    path: &Path,
+    session: &str,
+    epoch: u64,
+    sequence: u64,
+    state: &PersistedSessionState,
+    launch_attempts: &[PersistedLaunchAttempt],
+    limits: StateStoreLimits,
+) -> DurableIoOutcome {
+    if let Err(error) = validate_snapshot(path, state) {
+        return DurableIoOutcome::Rejected(DurableWriteFailure::rejected(error));
+    }
+    if let Err(error) = validate_launch_attempts(path, state, launch_attempts) {
+        return DurableIoOutcome::Rejected(DurableWriteFailure::rejected(error));
+    }
+    let envelope =
+        match checkpoint_envelope_with_attempts(session, epoch, sequence, state, launch_attempts) {
+            Ok(envelope) => envelope,
+            Err(error) => return DurableIoOutcome::Rejected(DurableWriteFailure::rejected(error)),
+        };
+    let bytes = serde_json::to_vec_pretty(&envelope).map_err(|error| {
         StateStoreError::corrupt(path, format!("could not encode checkpoint: {error}"))
-    })?;
+    });
+    let mut bytes = match bytes {
+        Ok(bytes) => bytes,
+        Err(error) => return DurableIoOutcome::Rejected(DurableWriteFailure::rejected(error)),
+    };
     bytes.push(b'\n');
     if bytes.len() > limits.max_checkpoint_bytes {
-        return Err(StateStoreError::corrupt(
-            path,
-            format!(
-                "checkpoint is {} bytes; limit is {}",
-                bytes.len(),
-                limits.max_checkpoint_bytes
+        return DurableIoOutcome::Rejected(DurableWriteFailure::rejected(
+            StateStoreError::corrupt(
+                path,
+                format!(
+                    "checkpoint is {} bytes; limit is {}",
+                    bytes.len(),
+                    limits.max_checkpoint_bytes
+                ),
             ),
         ));
     }
-    replace_file_atomically(path, &bytes)
+    replace_file_atomically_resolved(io, path, &bytes)
 }
 
 fn encode_journal(path: &Path, body: &JournalBody) -> Result<Vec<u8>, StateStoreError> {
@@ -1758,6 +2731,18 @@ fn decode_journal(path: &Path, line: &[u8]) -> Result<JournalEnvelope, StateStor
     }
     validate_idempotency_key(path, &envelope.body.idempotency_key)?;
     verify_checksum(path, &envelope.body, &envelope.checksum, "journal")?;
+    Ok(envelope)
+}
+
+fn decode_journal_v3(path: &Path, line: &[u8]) -> Result<JournalEnvelopeV3, StateStoreError> {
+    let envelope = serde_json::from_slice::<JournalEnvelopeV3>(line).map_err(|error| {
+        StateStoreError::corrupt(path, format!("invalid version-3 journal JSON: {error}"))
+    })?;
+    if envelope.body.version != 3 || envelope.body.format != JOURNAL_FORMAT {
+        return Err(StateStoreError::corrupt(path, "version-3 journal format mismatch"));
+    }
+    validate_idempotency_key(path, &envelope.body.idempotency_key)?;
+    verify_checksum(path, &envelope.body, &envelope.checksum, "version-3 journal")?;
     Ok(envelope)
 }
 
@@ -1787,6 +2772,22 @@ fn stale_v2_journal_record(
         return Ok(None);
     }
     decode_journal_v2(path, line).map(Some)
+}
+
+fn stale_v3_journal_record(
+    path: &Path,
+    line: &[u8],
+) -> Result<Option<JournalEnvelopeV3>, StateStoreError> {
+    let value = match serde_json::from_slice::<serde_json::Value>(line) {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    if value.get("body").and_then(|body| body.get("version")).and_then(serde_json::Value::as_u64)
+        != Some(3)
+    {
+        return Ok(None);
+    }
+    decode_journal_v3(path, line).map(Some)
 }
 
 fn checksum_json(value: &impl Serialize) -> Result<String, serde_json::Error> {
@@ -1825,15 +2826,110 @@ fn crc32(bytes: &[u8]) -> u32 {
     !crc
 }
 
+fn append_record_resolved(io: &dyn DurableIo, path: &Path, bytes: &[u8]) -> DurableIoOutcome {
+    if let Err(error) = ensure_private_parent(path) {
+        return DurableIoOutcome::Rejected(DurableWriteFailure::rejected(error));
+    }
+    let mut file = match io.open_append(DurableIoPhase::JournalOpen, path) {
+        Ok(file) => file,
+        Err(error) => {
+            return DurableIoOutcome::Rejected(DurableWriteFailure::io(
+                DurableIoPhase::JournalOpen,
+                DurableFailureResolution::Rejected,
+                path,
+                error,
+            ));
+        }
+    };
+    let original_len = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(error) => {
+            return DurableIoOutcome::Rejected(DurableWriteFailure::io(
+                DurableIoPhase::JournalOpen,
+                DurableFailureResolution::Rejected,
+                path,
+                error,
+            ));
+        }
+    };
+    if let Err(error) = write_all_with_io(io, DurableIoPhase::JournalWrite, &mut file, bytes) {
+        if let Err(rollback_error) =
+            io.set_len(DurableIoPhase::JournalRollbackTruncate, &file, original_len)
+        {
+            return DurableIoOutcome::CommitIndeterminate(DurableWriteFailure::io(
+                DurableIoPhase::JournalRollbackTruncate,
+                DurableFailureResolution::CommitIndeterminate,
+                path,
+                rollback_error,
+            ));
+        }
+        if let Err(rollback_error) = io.sync_file(DurableIoPhase::JournalRollbackSync, &file) {
+            return DurableIoOutcome::CommitIndeterminate(DurableWriteFailure::io(
+                DurableIoPhase::JournalRollbackSync,
+                DurableFailureResolution::CommitIndeterminate,
+                path,
+                rollback_error,
+            ));
+        }
+        return DurableIoOutcome::Rejected(DurableWriteFailure::io(
+            DurableIoPhase::JournalWrite,
+            DurableFailureResolution::Rejected,
+            path,
+            error,
+        ));
+    }
+    if let Err(first_error) = io.sync_file(DurableIoPhase::JournalSync, &file) {
+        if let Err(resync_error) = io.sync_file(DurableIoPhase::JournalResync, &file) {
+            return DurableIoOutcome::CommitIndeterminate(DurableWriteFailure::io(
+                DurableIoPhase::JournalResync,
+                DurableFailureResolution::CommitIndeterminate,
+                path,
+                std::io::Error::new(
+                    resync_error.kind(),
+                    format!(
+                        "initial sync failed ({first_error}); exact-record resync failed ({resync_error})"
+                    ),
+                ),
+            ));
+        }
+    }
+    DurableIoOutcome::Committed
+}
+
+fn write_all_with_io(
+    io: &dyn DurableIo,
+    phase: DurableIoPhase,
+    file: &mut File,
+    mut bytes: &[u8],
+) -> std::io::Result<()> {
+    while !bytes.is_empty() {
+        match io.write(phase, file, bytes) {
+            Ok(0) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "durable write returned zero bytes",
+                ));
+            }
+            Ok(written) if written <= bytes.len() => bytes = &bytes[written..],
+            Ok(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "durable writer reported more bytes than provided",
+                ));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
 fn append_synced(path: &Path, bytes: &[u8]) -> Result<(), StateStoreError> {
-    ensure_private_parent(path)?;
-    let mut file = open_private_state_file(path, |options| {
-        options.create(true).append(true);
-    })
-    .map_err(|error| StateStoreError::io(path, error))?;
-    file.write_all(bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|error| StateStoreError::io(path, error))
+    match append_record_resolved(&SystemDurableIo, path, bytes) {
+        DurableIoOutcome::Committed => Ok(()),
+        DurableIoOutcome::Rejected(failure) | DurableIoOutcome::CommitIndeterminate(failure) => {
+            Err(failure.error)
+        }
+    }
 }
 
 fn migration_backup_path(path: &Path, version: u32) -> PathBuf {
@@ -1859,22 +2955,74 @@ fn preserve_migration_backup(
     replace_file_atomically(&backup, bytes)
 }
 
-fn replace_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), StateStoreError> {
-    ensure_private_parent(path)?;
-    validate_existing_private_file(path)?;
+fn replace_file_atomically_resolved(
+    io: &dyn DurableIo,
+    path: &Path,
+    bytes: &[u8],
+) -> DurableIoOutcome {
+    if let Err(error) = ensure_private_parent(path) {
+        return DurableIoOutcome::Rejected(DurableWriteFailure::rejected(error));
+    }
+    if let Err(error) = validate_existing_private_file(path) {
+        return DurableIoOutcome::Rejected(DurableWriteFailure::rejected(error));
+    }
     let directory = path.parent().expect("state file has a parent");
     let temp_path = directory.join(format!(".state-{}.tmp", Uuid::new_v4()));
-    let mut file = open_private_state_file(&temp_path, |options| {
-        options.create_new(true).write(true);
-    })
-    .map_err(|error| StateStoreError::io(&temp_path, error))?;
+    let mut file = match io.open_temp(DurableIoPhase::AtomicTempOpen, &temp_path) {
+        Ok(file) => file,
+        Err(error) => {
+            return DurableIoOutcome::Rejected(DurableWriteFailure::io(
+                DurableIoPhase::AtomicTempOpen,
+                DurableFailureResolution::Rejected,
+                &temp_path,
+                error,
+            ));
+        }
+    };
     let mut temp = TempStateFile { path: temp_path.clone(), armed: true };
-    file.write_all(bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|error| StateStoreError::io(&temp_path, error))?;
-    fs::rename(&temp_path, path).map_err(|error| StateStoreError::io(path, error))?;
+    if let Err(error) = write_all_with_io(io, DurableIoPhase::AtomicTempWrite, &mut file, bytes) {
+        return DurableIoOutcome::Rejected(DurableWriteFailure::io(
+            DurableIoPhase::AtomicTempWrite,
+            DurableFailureResolution::Rejected,
+            &temp_path,
+            error,
+        ));
+    }
+    if let Err(error) = io.sync_file(DurableIoPhase::AtomicTempSync, &file) {
+        return DurableIoOutcome::Rejected(DurableWriteFailure::io(
+            DurableIoPhase::AtomicTempSync,
+            DurableFailureResolution::Rejected,
+            &temp_path,
+            error,
+        ));
+    }
+    if let Err(error) = io.rename(DurableIoPhase::AtomicRename, &temp_path, path) {
+        return DurableIoOutcome::Rejected(DurableWriteFailure::io(
+            DurableIoPhase::AtomicRename,
+            DurableFailureResolution::Rejected,
+            path,
+            error,
+        ));
+    }
     temp.disarm();
-    sync_directory(directory)
+    if let Err(error) = io.sync_directory(DurableIoPhase::AtomicDirectorySync, directory) {
+        return DurableIoOutcome::CommitIndeterminate(DurableWriteFailure::io(
+            DurableIoPhase::AtomicDirectorySync,
+            DurableFailureResolution::CommitIndeterminate,
+            directory,
+            error,
+        ));
+    }
+    DurableIoOutcome::Committed
+}
+
+fn replace_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), StateStoreError> {
+    match replace_file_atomically_resolved(&SystemDurableIo, path, bytes) {
+        DurableIoOutcome::Committed => Ok(()),
+        DurableIoOutcome::Rejected(failure) | DurableIoOutcome::CommitIndeterminate(failure) => {
+            Err(failure.error)
+        }
+    }
 }
 
 fn ensure_private_parent(path: &Path) -> Result<(), StateStoreError> {
@@ -1971,11 +3119,13 @@ fn session_key(session: &str) -> Uuid {
 }
 
 fn sync_directory(path: &Path) -> Result<(), StateStoreError> {
+    sync_directory_io(path).map_err(|error| StateStoreError::io(path, error))
+}
+
+fn sync_directory_io(path: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
-        File::open(path)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| StateStoreError::io(path, error))?;
+        File::open(path).and_then(|directory| directory.sync_all())?;
     }
     #[cfg(not(unix))]
     let _ = path;
@@ -1984,9 +3134,128 @@ fn sync_directory(path: &Path) -> Result<(), StateStoreError> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+
     use super::*;
 
     struct TestDirectory(PathBuf);
+
+    #[derive(Debug, Clone)]
+    enum FaultAction {
+        Fail,
+        ShortWrite(usize),
+    }
+
+    #[derive(Debug, Clone)]
+    struct FaultStep {
+        phase: DurableIoPhase,
+        action: FaultAction,
+    }
+
+    #[derive(Debug)]
+    struct ScriptedDurableIo {
+        steps: Mutex<VecDeque<FaultStep>>,
+        system: SystemDurableIo,
+    }
+
+    impl ScriptedDurableIo {
+        fn new(steps: impl IntoIterator<Item = FaultStep>) -> Arc<Self> {
+            Arc::new(Self {
+                steps: Mutex::new(steps.into_iter().collect()),
+                system: SystemDurableIo,
+            })
+        }
+
+        fn take(&self, phase: DurableIoPhase) -> Option<FaultAction> {
+            let mut steps = self.steps.lock().unwrap();
+            (steps.front().is_some_and(|step| step.phase == phase))
+                .then(|| steps.pop_front().unwrap().action)
+        }
+
+        fn fail(phase: DurableIoPhase) -> std::io::Error {
+            std::io::Error::other(format!("injected {} failure", phase.as_str()))
+        }
+
+        fn assert_consumed(&self) {
+            assert!(self.steps.lock().unwrap().is_empty(), "unconsumed durable I/O fault steps");
+        }
+    }
+
+    impl DurableIo for ScriptedDurableIo {
+        fn open_append(&self, phase: DurableIoPhase, path: &Path) -> std::io::Result<File> {
+            match self.take(phase) {
+                Some(FaultAction::Fail) => Err(Self::fail(phase)),
+                Some(FaultAction::ShortWrite(_)) => panic!("short write cannot target open"),
+                None => self.system.open_append(phase, path),
+            }
+        }
+
+        fn open_temp(&self, phase: DurableIoPhase, path: &Path) -> std::io::Result<File> {
+            match self.take(phase) {
+                Some(FaultAction::Fail) => Err(Self::fail(phase)),
+                Some(FaultAction::ShortWrite(_)) => panic!("short write cannot target open"),
+                None => self.system.open_temp(phase, path),
+            }
+        }
+
+        fn write(
+            &self,
+            phase: DurableIoPhase,
+            file: &mut File,
+            bytes: &[u8],
+        ) -> std::io::Result<usize> {
+            match self.take(phase) {
+                Some(FaultAction::Fail) => Err(Self::fail(phase)),
+                Some(FaultAction::ShortWrite(limit)) => {
+                    self.system.write(phase, file, &bytes[..bytes.len().min(limit)])
+                }
+                None => self.system.write(phase, file, bytes),
+            }
+        }
+
+        fn sync_file(&self, phase: DurableIoPhase, file: &File) -> std::io::Result<()> {
+            match self.take(phase) {
+                Some(FaultAction::Fail) => Err(Self::fail(phase)),
+                Some(FaultAction::ShortWrite(_)) => panic!("short write cannot target sync"),
+                None => self.system.sync_file(phase, file),
+            }
+        }
+
+        fn set_len(&self, phase: DurableIoPhase, file: &File, length: u64) -> std::io::Result<()> {
+            match self.take(phase) {
+                Some(FaultAction::Fail) => Err(Self::fail(phase)),
+                Some(FaultAction::ShortWrite(_)) => panic!("short write cannot target truncate"),
+                None => self.system.set_len(phase, file, length),
+            }
+        }
+
+        fn rename(&self, phase: DurableIoPhase, from: &Path, to: &Path) -> std::io::Result<()> {
+            match self.take(phase) {
+                Some(FaultAction::Fail) => Err(Self::fail(phase)),
+                Some(FaultAction::ShortWrite(_)) => panic!("short write cannot target rename"),
+                None => self.system.rename(phase, from, to),
+            }
+        }
+
+        fn sync_directory(&self, phase: DurableIoPhase, path: &Path) -> std::io::Result<()> {
+            match self.take(phase) {
+                Some(FaultAction::Fail) => Err(Self::fail(phase)),
+                Some(FaultAction::ShortWrite(_)) => {
+                    panic!("short write cannot target directory sync")
+                }
+                None => self.system.sync_directory(phase, path),
+            }
+        }
+    }
+
+    fn fail(phase: DurableIoPhase) -> FaultStep {
+        FaultStep { phase, action: FaultAction::Fail }
+    }
+
+    fn short_write(phase: DurableIoPhase, bytes: usize) -> FaultStep {
+        FaultStep { phase, action: FaultAction::ShortWrite(bytes) }
+    }
 
     impl TestDirectory {
         fn new(name: &str) -> Self {
@@ -2101,6 +3370,39 @@ mod tests {
         state.idempotency_results.push(outcome.clone());
         durable.append(state.clone(), key.to_string(), Some(outcome)).unwrap();
         state
+    }
+
+    fn revision(
+        mut state: PersistedSessionState,
+        key: &str,
+        topology_revision: u64,
+    ) -> (PersistedSessionState, PersistedIdempotencyResult) {
+        state.topology_revision = topology_revision;
+        let outcome = result(key, topology_revision);
+        state.idempotency_results.push(outcome.clone());
+        (state, outcome)
+    }
+
+    fn launch_attempt(
+        surface_uuid: SurfaceUuid,
+        phase: PersistedLaunchAttemptPhase,
+    ) -> PersistedLaunchAttempt {
+        PersistedLaunchAttempt {
+            attempt_id: Uuid::new_v4(),
+            request_id: format!("attempt-{surface_uuid}"),
+            payload_digest: "a".repeat(64),
+            surface_uuid,
+            launch: PersistedLaunchRecipe::sanitized(
+                vec!["/bin/sh".to_string()],
+                Some("/tmp".to_string()),
+                Vec::new(),
+                80,
+                24,
+                10_000,
+                false,
+            ),
+            phase,
+        }
     }
 
     #[test]
@@ -2293,6 +3595,162 @@ mod tests {
     }
 
     #[test]
+    fn injected_partial_append_rolls_back_and_opens_rejected_storage_circuit() {
+        let directory = TestDirectory::new("partial-append-rollback");
+        let io = ScriptedDurableIo::new([
+            short_write(DurableIoPhase::JournalWrite, 17),
+            fail(DurableIoPhase::JournalWrite),
+        ]);
+        let store = StateStore::with_io(&directory.0, io.clone());
+        let mut opened = store.open_session("main").unwrap();
+        let original = fs::read(store.journal_path("main")).unwrap();
+        let (state, outcome) = revision(opened.snapshot.clone(), "partial", 1);
+        let append =
+            opened.durable.append_resolved(state, Vec::new(), "partial".to_string(), Some(outcome));
+
+        let DurableAppendOutcome::Rejected(failure) = append else {
+            panic!("partial append must be a known rejection after rollback");
+        };
+        assert_eq!(failure.phase, DurableIoPhase::JournalWrite);
+        assert_eq!(failure.resolution, DurableFailureResolution::Rejected);
+        assert_eq!(opened.durable.sequence, 0);
+        assert_eq!(fs::read(store.journal_path("main")).unwrap(), original);
+        assert!(matches!(
+            opened.durable.storage_circuit(),
+            StorageCircuit::Degraded(StorageCircuitIncident {
+                resolution: DurableFailureResolution::Rejected,
+                ..
+            })
+        ));
+        io.assert_consumed();
+    }
+
+    #[test]
+    fn rollback_sync_failure_preserves_commit_uncertainty() {
+        let directory = TestDirectory::new("partial-append-rollback-sync");
+        let io = ScriptedDurableIo::new([
+            short_write(DurableIoPhase::JournalWrite, 17),
+            fail(DurableIoPhase::JournalWrite),
+            fail(DurableIoPhase::JournalRollbackSync),
+        ]);
+        let store = StateStore::with_io(&directory.0, io.clone());
+        let mut opened = store.open_session("main").unwrap();
+        let (state, outcome) = revision(opened.snapshot.clone(), "rollback-sync", 1);
+        let append = opened.durable.append_resolved(
+            state,
+            Vec::new(),
+            "rollback-sync".to_string(),
+            Some(outcome),
+        );
+
+        let DurableAppendOutcome::CommitIndeterminate(failure) = append else {
+            panic!("an unsynced rollback cannot be reported as rejected");
+        };
+        assert_eq!(failure.phase, DurableIoPhase::JournalRollbackSync);
+        assert_eq!(failure.resolution, DurableFailureResolution::CommitIndeterminate);
+        assert_eq!(opened.durable.sequence, 0);
+        io.assert_consumed();
+    }
+
+    #[test]
+    fn injected_sync_failure_resyncs_the_exact_record_and_commits_once() {
+        let directory = TestDirectory::new("append-resync");
+        let io = ScriptedDurableIo::new([fail(DurableIoPhase::JournalSync)]);
+        let store = StateStore::with_io(&directory.0, io.clone());
+        let mut opened = store.open_session("main").unwrap();
+        let (state, outcome) = revision(opened.snapshot.clone(), "resync", 1);
+        let append = opened.durable.append_resolved(
+            state.clone(),
+            Vec::new(),
+            "resync".to_string(),
+            Some(outcome),
+        );
+
+        assert!(matches!(append, DurableAppendOutcome::Committed { sequence: 1, .. }));
+        assert_eq!(opened.durable.sequence, 1);
+        assert_eq!(opened.durable.storage_circuit(), &StorageCircuit::Healthy);
+        io.assert_consumed();
+        drop(opened.durable);
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot, state);
+        assert_eq!(reopened.durable.sequence, 1);
+        assert_eq!(fs::read_to_string(store.journal_path("main")).unwrap().lines().count(), 1);
+    }
+
+    #[test]
+    fn double_sync_failure_is_commit_indeterminate_and_blocks_new_mutations() {
+        let directory = TestDirectory::new("append-indeterminate");
+        let io = ScriptedDurableIo::new([
+            fail(DurableIoPhase::JournalSync),
+            fail(DurableIoPhase::JournalResync),
+        ]);
+        let store = StateStore::with_io(&directory.0, io.clone());
+        let mut opened = store.open_session("main").unwrap();
+        let (state, outcome) = revision(opened.snapshot.clone(), "uncertain", 1);
+        let append = opened.durable.append_resolved(
+            state.clone(),
+            Vec::new(),
+            "uncertain".to_string(),
+            Some(outcome.clone()),
+        );
+
+        let DurableAppendOutcome::CommitIndeterminate(failure) = append else {
+            panic!("double sync failure must preserve commit uncertainty");
+        };
+        assert_eq!(failure.phase, DurableIoPhase::JournalResync);
+        assert_eq!(opened.durable.sequence, 0);
+        let blocked = opened.durable.append_resolved(
+            state.clone(),
+            Vec::new(),
+            "uncertain".to_string(),
+            Some(outcome),
+        );
+        assert!(matches!(
+            blocked,
+            DurableAppendOutcome::Rejected(DurableWriteFailure {
+                phase: DurableIoPhase::CircuitOpen,
+                ..
+            })
+        ));
+        io.assert_consumed();
+        drop(opened.durable);
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot, state);
+        assert_eq!(reopened.durable.sequence, 1);
+    }
+
+    #[test]
+    fn atomic_rename_failure_is_rejected_but_post_rename_sync_is_indeterminate() {
+        for (phase, expected) in [
+            (DurableIoPhase::AtomicRename, DurableFailureResolution::Rejected),
+            (DurableIoPhase::AtomicDirectorySync, DurableFailureResolution::CommitIndeterminate),
+        ] {
+            let directory = TestDirectory::new(phase.as_str());
+            let io = ScriptedDurableIo::new([fail(phase)]);
+            let store = StateStore::with_limits_and_io(&directory.0, 0, 1024 * 1024, io.clone());
+            let mut opened = store.open_session("main").unwrap();
+            let (state, outcome) = revision(opened.snapshot.clone(), "compact", 1);
+            let append = opened.durable.append_resolved(
+                state,
+                Vec::new(),
+                "compact".to_string(),
+                Some(outcome),
+            );
+            match (expected, append) {
+                (DurableFailureResolution::Rejected, DurableAppendOutcome::Rejected(failure)) => {
+                    assert_eq!(failure.phase, phase);
+                }
+                (
+                    DurableFailureResolution::CommitIndeterminate,
+                    DurableAppendOutcome::CommitIndeterminate(failure),
+                ) => assert_eq!(failure.phase, phase),
+                (_, other) => panic!("unexpected compaction result: {other:?}"),
+            }
+            io.assert_consumed();
+        }
+    }
+
+    #[test]
     fn torn_tail_is_quarantined_and_only_valid_prefix_is_replayed() {
         let directory = TestDirectory::new("torn-tail");
         let store = StateStore::new(&directory.0);
@@ -2365,6 +3823,7 @@ mod tests {
             idempotency_key: "same".to_string(),
             result: Some(result("same", 1)),
             state: state.clone(),
+            launch_attempts: Vec::new(),
         };
         append_synced(
             &store.journal_path("main"),
@@ -2489,6 +3948,44 @@ mod tests {
     }
 
     #[test]
+    fn recovery_quarantines_pending_launches_without_making_them_visible() {
+        let directory = TestDirectory::new("pending-launch-recovery");
+        let store = StateStore::new(&directory.0);
+        let mut opened = store.open_session("main").unwrap();
+        let pending_surface = SurfaceUuid::new();
+        let quarantined_surface = SurfaceUuid::new();
+        let attempts = vec![
+            launch_attempt(pending_surface, PersistedLaunchAttemptPhase::PendingActivation),
+            launch_attempt(quarantined_surface, PersistedLaunchAttemptPhase::Quarantined),
+        ];
+        let state = opened.snapshot.clone();
+
+        let append = opened.durable.append_resolved(
+            state.clone(),
+            attempts,
+            "launch-attempts".to_string(),
+            None,
+        );
+        assert!(matches!(append, DurableAppendOutcome::Committed { .. }));
+        drop(opened.durable);
+
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot, state);
+        assert!(reopened.snapshot.surfaces.is_empty());
+        assert_eq!(reopened.launch_attempts.len(), 2);
+        assert!(
+            reopened
+                .launch_attempts
+                .iter()
+                .all(|attempt| attempt.phase == PersistedLaunchAttemptPhase::Quarantined)
+        );
+        assert!(reopened.launch_attempts.iter().any(|attempt| {
+            attempt.surface_uuid == pending_surface
+                && attempt.phase == PersistedLaunchAttemptPhase::Quarantined
+        }));
+    }
+
+    #[test]
     fn terminal_activity_validation_rejects_bad_references_order_and_reader_bounds() {
         let path = PathBuf::from("activity-validation");
         let (mut state, surface_uuid) = state_with_terminal(SessionId::new());
@@ -2575,7 +4072,7 @@ mod tests {
         let corrupt = b"{ concurrently-corrupt";
         write_private_fixture(&path, corrupt);
 
-        let start = std::sync::Arc::new(Barrier::new(16));
+        let start = Arc::new(Barrier::new(16));
         let workers = (0..16)
             .map(|_| {
                 let store = store.clone();
@@ -2620,6 +4117,117 @@ mod tests {
         assert_eq!(store.load_or_create_session("main").unwrap(), session_id);
         let value: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
         assert_eq!(value["body"]["version"], STATE_STORE_VERSION);
+    }
+
+    #[test]
+    fn version_three_migration_preserves_active_launches_and_exact_rollback_bytes() {
+        let directory = TestDirectory::new("v3-migration");
+        let store = StateStore::new(&directory.0);
+        let checkpoint_path = store.session_path("main");
+        let journal_path = store.journal_path("main");
+        let session_id = SessionId::new();
+        let (checkpoint_state, surface_uuid) = state_with_terminal(session_id);
+        let checkpoint_body = CheckpointBodyV3 {
+            version: 3,
+            format: CHECKPOINT_FORMAT.to_string(),
+            session: "main".to_string(),
+            epoch: 7,
+            sequence: 0,
+            state: checkpoint_state.clone(),
+        };
+        let checkpoint = CheckpointEnvelopeV3 {
+            checksum: checksum_json(&checkpoint_body).unwrap(),
+            body: checkpoint_body,
+        };
+        let checkpoint_bytes = serde_json::to_vec_pretty(&checkpoint).unwrap();
+        write_private_fixture(&checkpoint_path, &checkpoint_bytes);
+
+        let mut journal_state = checkpoint_state;
+        journal_state.topology_revision = 1;
+        let journal_body = JournalBodyV3 {
+            version: 3,
+            format: JOURNAL_FORMAT.to_string(),
+            session_id,
+            epoch: 7,
+            sequence: 1,
+            idempotency_key: "v3-synced".to_string(),
+            result: None,
+            state: journal_state.clone(),
+        };
+        let journal = JournalEnvelopeV3 {
+            checksum: checksum_json(&journal_body).unwrap(),
+            body: journal_body,
+        };
+        let mut journal_bytes = serde_json::to_vec(&journal).unwrap();
+        journal_bytes.push(b'\n');
+        write_private_fixture(&journal_path, &journal_bytes);
+
+        let opened = store.open_session("main").unwrap();
+        assert_eq!(opened.snapshot, journal_state);
+        assert_eq!(opened.launch_attempts.len(), 1);
+        assert_eq!(opened.launch_attempts[0].surface_uuid, surface_uuid);
+        assert_eq!(opened.launch_attempts[0].phase, PersistedLaunchAttemptPhase::Active);
+        drop(opened.durable);
+        assert!(fs::read(&journal_path).unwrap().is_empty());
+        let migrated: CheckpointEnvelope =
+            serde_json::from_slice(&fs::read(&checkpoint_path).unwrap()).unwrap();
+        assert_eq!(migrated.body.version, STATE_STORE_VERSION);
+        assert_eq!(migrated.body.epoch, 8);
+        assert_eq!(migrated.body.launch_attempts.len(), 1);
+
+        let (checkpoint_backup, journal_backup) = store.version_three_backup_paths("main");
+        assert_eq!(fs::read(&checkpoint_backup).unwrap(), checkpoint_bytes);
+        assert_eq!(fs::read(&journal_backup).unwrap(), journal_bytes);
+        store.restore_version_three_backup("main").unwrap();
+        assert_eq!(fs::read(&checkpoint_path).unwrap(), checkpoint_bytes);
+        assert_eq!(fs::read(&journal_path).unwrap(), journal_bytes);
+
+        // Retrying the migration consumes but never overwrites the same
+        // immutable rollback point.
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot, journal_state);
+        drop(reopened.durable);
+        assert_eq!(fs::read(&checkpoint_backup).unwrap(), checkpoint_bytes);
+        assert_eq!(fs::read(&journal_backup).unwrap(), journal_bytes);
+
+        let active_checkpoint = fs::read(&checkpoint_path).unwrap();
+        let active_journal = fs::read(&journal_path).unwrap();
+        let mut tampered = journal_bytes.clone();
+        tampered.extend_from_slice(b"truncated");
+        fs::write(&journal_backup, &tampered).unwrap();
+        let error = store.restore_version_three_backup("main").unwrap_err();
+        assert!(error.to_string().contains("truncated or invalid tail"));
+        assert_eq!(fs::read(&checkpoint_path).unwrap(), active_checkpoint);
+        assert_eq!(fs::read(&journal_path).unwrap(), active_journal);
+        assert_eq!(fs::read(&journal_backup).unwrap(), tampered);
+    }
+
+    #[test]
+    fn version_three_migration_refuses_to_overwrite_a_different_backup() {
+        let directory = TestDirectory::new("v3-migration-backup-mismatch");
+        let store = StateStore::new(&directory.0);
+        let checkpoint_path = store.session_path("main");
+        let journal_path = store.journal_path("main");
+        let body = CheckpointBodyV3 {
+            version: 3,
+            format: CHECKPOINT_FORMAT.to_string(),
+            session: "main".to_string(),
+            epoch: 1,
+            sequence: 0,
+            state: PersistedSessionState::empty(SessionId::new()),
+        };
+        let checkpoint = CheckpointEnvelopeV3 { checksum: checksum_json(&body).unwrap(), body };
+        let checkpoint_bytes = serde_json::to_vec_pretty(&checkpoint).unwrap();
+        write_private_fixture(&checkpoint_path, &checkpoint_bytes);
+        write_private_fixture(&journal_path, &[]);
+        let (checkpoint_backup, _) = store.version_three_backup_paths("main");
+        write_private_fixture(&checkpoint_backup, b"different rollback point");
+
+        let error = store.open_session("main").err().expect("migration must fail closed");
+        assert!(error.to_string().contains("immutable migration backup differs"));
+        assert_eq!(fs::read(&checkpoint_path).unwrap(), checkpoint_bytes);
+        assert!(fs::read(&journal_path).unwrap().is_empty());
+        assert_eq!(fs::read(&checkpoint_backup).unwrap(), b"different rollback point");
     }
 
     #[test]

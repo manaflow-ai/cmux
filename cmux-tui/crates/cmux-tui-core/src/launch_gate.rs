@@ -32,8 +32,9 @@
 //! This is a pre-exec durability guarantee, not exactly-once command execution
 //! across every daemon crash. A crash after release can leave the command
 //! running or terminate it with the PTY, and recovery may start the durable
-//! recipe again. Any post-commit release or input-delivery uncertainty is
-//! fail-stop so the live daemon never acknowledges an ambiguous launch.
+//! recipe again. Release uncertainty is returned as a typed quarantine
+//! outcome. The session owner must retain that attempt and must never retry
+//! its initial input as a new launch.
 
 #[cfg(not(unix))]
 use portable_pty::CommandBuilder;
@@ -41,6 +42,26 @@ use portable_pty::CommandBuilder;
 const HIDDEN_GATE_ARGUMENT: &str = "__cmux-internal-terminal-launch-gate-v1";
 const GATE_SOCKET_ENV: &str = "CMUX_INTERNAL_LAUNCH_GATE_SOCKET";
 const GATE_TOKEN_ENV: &str = "CMUX_INTERNAL_LAUNCH_GATE_TOKEN";
+
+#[derive(Debug)]
+pub(crate) struct TerminalLaunchReleaseFailure {
+    pub message: String,
+}
+
+#[derive(Debug)]
+pub(crate) enum TerminalLaunchReleaseOutcome {
+    Activated,
+    Quarantined(TerminalLaunchReleaseFailure),
+}
+
+impl TerminalLaunchReleaseOutcome {
+    fn into_result(self) -> anyhow::Result<()> {
+        match self {
+            Self::Activated => Ok(()),
+            Self::Quarantined(failure) => anyhow::bail!(failure.message),
+        }
+    }
+}
 
 pub(crate) fn is_reserved_environment_name(name: &str) -> bool {
     matches!(name, GATE_SOCKET_ENV | GATE_TOKEN_ENV)
@@ -241,7 +262,20 @@ mod unix {
     }
 
     impl TerminalLaunchGate {
-        pub(crate) fn release(mut self) -> anyhow::Result<()> {
+        pub(crate) fn release(self) -> anyhow::Result<()> {
+            self.release_resolved().into_result()
+        }
+
+        pub(crate) fn release_resolved(self) -> super::TerminalLaunchReleaseOutcome {
+            match self.release_inner() {
+                Ok(()) => super::TerminalLaunchReleaseOutcome::Activated,
+                Err(error) => super::TerminalLaunchReleaseOutcome::Quarantined(
+                    super::TerminalLaunchReleaseFailure { message: format!("{error:#}") },
+                ),
+            }
+        }
+
+        fn release_inner(mut self) -> anyhow::Result<()> {
             #[cfg(target_os = "macos")]
             let exec_deadline = Instant::now() + RELEASE_ACK_DEADLINE;
             #[cfg(target_os = "macos")]
@@ -733,8 +767,12 @@ mod unix {
             let gate = pending.finish(child.process_id()).unwrap();
             drop(pty.slave);
 
-            let error = gate.release().unwrap_err();
-            assert!(format!("{error:#}").contains("exited before exec"), "{error:#}");
+            let super::super::TerminalLaunchReleaseOutcome::Quarantined(failure) =
+                gate.release_resolved()
+            else {
+                panic!("helper death must quarantine the launch");
+            };
+            assert!(failure.message.contains("exited before exec"), "{}", failure.message);
             child.wait().unwrap();
         }
 
@@ -865,7 +903,13 @@ impl PendingTerminalLaunchGate {
 #[cfg(not(unix))]
 impl TerminalLaunchGate {
     pub(crate) fn release(self) -> anyhow::Result<()> {
-        unreachable!("unsupported launch gate cannot release")
+        self.release_resolved().into_result()
+    }
+
+    pub(crate) fn release_resolved(self) -> TerminalLaunchReleaseOutcome {
+        TerminalLaunchReleaseOutcome::Quarantined(TerminalLaunchReleaseFailure {
+            message: "durable terminal launch gates require Unix-domain sockets".to_string(),
+        })
     }
 }
 
