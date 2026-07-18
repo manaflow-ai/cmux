@@ -2,6 +2,12 @@ name: Nightly macOS performance benchmark
 
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner label for capacity experiments
+        required: false
+        default: blacksmith-12vcpu-macos-26
+        type: string
   pull_request:
     paths:
       - .github/workflows/nightly-perf-benchmark.yml
@@ -18,7 +24,7 @@ concurrency:
 jobs:
   benchmark:
     name: ${{ matrix.scenario }}
-    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ inputs.runner || vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 55
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
