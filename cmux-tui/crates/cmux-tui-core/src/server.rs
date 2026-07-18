@@ -77,6 +77,13 @@ enum Command {
         kind: Option<String>,
     },
     ListClients,
+    /// Canonical non-tombstoned terminal placement/lifecycle snapshot.
+    ListTerminals,
+    /// Durable ordered terminal mutations after `terminal_revision`.
+    TerminalEvents {
+        #[serde(default)]
+        after_revision: u64,
+    },
     SetClientSizing {
         #[serde(default)]
         client: Option<u64>,
@@ -229,7 +236,10 @@ enum Command {
     /// generations; the incarnation guard prevents a stale close request.
     CloseTerminal {
         terminal_id: String,
-        terminal_incarnation: String,
+        #[serde(default)]
+        terminal_incarnation: Option<String>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     /// New tab in a pane (default: the active pane).
     NewTab {
@@ -349,6 +359,12 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        /// Optional frontend-reserved canonical UUID. Supplying it with a
+        /// mutation id makes a lost-response retry exactly once.
+        #[serde(default)]
+        terminal_id: Option<String>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     /// New screen in a workspace (default: the active one).
     NewScreen {
@@ -398,6 +414,14 @@ enum Command {
     },
     ProcessInfo {
         surface: SurfaceId,
+    },
+    MoveTerminal {
+        terminal_id: String,
+        workspace_key: String,
+        #[serde(default)]
+        terminal_incarnation: Option<String>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     MoveTab {
         surface: SurfaceId,
@@ -530,7 +554,7 @@ struct MutationRequest {
     mutation_id: Option<String>,
     #[serde(default)]
     expected_generation: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "expected_terminal_revision")]
     expected_revision: Option<u64>,
 }
 
@@ -2479,6 +2503,7 @@ fn handle_command(
                 "registry_id": registry_id,
                 "generation": generation,
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),
+                "terminal_revision": mux.terminal_registry_snapshot()?.revision,
             });
             if let Some(commit) =
                 option_env!("CMUX_TUI_BUILD_COMMIT").or(option_env!("CMUX_MUX_BUILD_COMMIT"))
@@ -2501,6 +2526,53 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
+        Command::ListTerminals => {
+            let snapshot = mux.terminal_registry_snapshot()?;
+            let terminals = snapshot
+                .terminals
+                .into_iter()
+                .map(|terminal| {
+                    json!({
+                        "terminal_id":terminal.terminal_id,
+                        "workspace_key":terminal.workspace_key,
+                        "terminal_incarnation":terminal.incarnation,
+                        "lifecycle":terminal.lifecycle,
+                        "launch_spec":terminal.launch_spec,
+                        "exit":terminal.exit,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({
+                "registry_id":snapshot.registry_id,
+                "generation":snapshot.generation,
+                "terminal_revision":snapshot.revision,
+                "terminals":terminals,
+            }))
+        }
+        Command::TerminalEvents { after_revision } => {
+            let snapshot = mux.terminal_registry_snapshot()?;
+            let events = mux
+                .terminal_registry_events_after(after_revision)?
+                .into_iter()
+                .map(|event| {
+                    json!({
+                        "terminal_revision":event.revision,
+                        "kind":event.kind,
+                        "terminal_id":event.terminal_id,
+                        "workspace_key":event.workspace_key,
+                        "origin":event.origin,
+                        "mutation_id":event.mutation_id,
+                        "result":event.result,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({
+                "registry_id":snapshot.registry_id,
+                "generation":snapshot.generation,
+                "terminal_revision":snapshot.revision,
+                "events":events,
+            }))
+        }
         Command::SetClientSizing { client: target, enabled, exclusive } => {
             if exclusive && !enabled {
                 anyhow::bail!("exclusive client sizing must be enabled");
@@ -2560,6 +2632,7 @@ fn handle_command(
             let (registry_id, generation) = mux.registry_identity();
             workspaces["registry_id"] = json!(registry_id);
             workspaces["generation"] = json!(generation);
+            workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
             Ok(workspaces)
         }
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
@@ -2850,23 +2923,42 @@ fn handle_command(
             }))
         }
         Command::ResolveTerminal { terminal_id } => {
-            let Some((surface, identity)) = mux.resolve_terminal(&terminal_id)? else {
+            let Some(resolution) = mux.resolve_terminal(&terminal_id)? else {
                 anyhow::bail!("terminal_not_found");
             };
+            let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
-                "surface": surface,
-                "terminal_id": identity.terminal_id,
-                "terminal_incarnation": identity.incarnation,
+                "surface": resolution.surface,
+                "terminal_id": resolution.terminal.terminal_id,
+                "terminal_incarnation": resolution.terminal.incarnation,
+                "workspace_key": resolution.terminal.workspace_key,
+                "lifecycle": resolution.terminal.lifecycle,
+                "launch_spec": resolution.terminal.launch_spec,
+                "exit": resolution.terminal.exit,
+                "terminal_revision": resolution.terminal_revision,
+                "registry_id": registry_id,
+                "generation": generation,
             }))
         }
-        Command::CloseTerminal { terminal_id, terminal_incarnation } => {
-            let Some(surface) = mux.close_terminal(&terminal_id, &terminal_incarnation)? else {
-                anyhow::bail!("terminal_not_found");
-            };
+        Command::CloseTerminal { terminal_id, terminal_incarnation, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.close_terminal_with_mutation(
+                &terminal_id,
+                terminal_incarnation.as_deref(),
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
-                "surface": surface,
-                "terminal_id": terminal_id,
-                "terminal_incarnation": terminal_incarnation,
+                "surface": result.surface,
+                "terminal_id": result.terminal_id,
+                "terminal_incarnation": result.terminal_incarnation,
+                "already_closed": result.already_closed,
+                "closed": true,
+                "terminal_revision": result.terminal_revision,
+                "registry_id": registry_id,
+                "generation": generation,
             }))
         }
         Command::NewTab { pane, cwd, cols, rows } => {
@@ -3014,7 +3106,18 @@ fn handle_command(
                 "generation": generation,
             }))
         }
-        Command::CreateTerminal { workspace, key, argv, command, cwd, name, cols, rows } => {
+        Command::CreateTerminal {
+            workspace,
+            key,
+            argv,
+            command,
+            cwd,
+            name,
+            cols,
+            rows,
+            terminal_id,
+            mutation,
+        } => {
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
@@ -3027,26 +3130,62 @@ fn handle_command(
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            let placement = mux.create_terminal_in_workspace(
-                workspace,
-                argv,
-                cwd,
-                name,
-                optional_surface_size(cols, rows),
-            )?;
-            let terminal_identity =
-                mux.surface(placement.surface).and_then(|surface| surface.terminal_host_identity());
-            Ok(json!({
-                "surface": placement.surface,
-                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
-                "terminal_incarnation": terminal_identity
-                    .as_ref()
-                    .map(|identity| &identity.incarnation),
-                "pane": placement.pane,
-                "screen": placement.screen,
-                "workspace": placement.workspace,
-                "key": key,
-            }))
+            let (registry_id, generation) = mux.registry_identity();
+            if terminal_id.is_some() || mutation.mutation_id.is_some() {
+                let workspace_mutation = workspace_mutation(&mutation)?;
+                let result = mux.create_terminal_in_workspace_with_mutation(
+                    workspace,
+                    argv,
+                    cwd,
+                    name,
+                    optional_surface_size(cols, rows),
+                    terminal_id.as_deref(),
+                    mutation.expected_generation.as_deref(),
+                    mutation.expected_revision,
+                    &workspace_mutation,
+                )?;
+                let placement = result.placement;
+                Ok(json!({
+                    "surface": placement.surface,
+                    "terminal_id": result.terminal_id,
+                    "terminal_incarnation": result.terminal_incarnation,
+                    "pane": placement.pane,
+                    "screen": placement.screen,
+                    "workspace": placement.workspace,
+                    "key": key,
+                    "lifecycle": "running",
+                    "terminal_revision": result.terminal_revision,
+                    "replayed": result.replayed,
+                    "registry_id": registry_id,
+                    "generation": generation,
+                }))
+            } else {
+                let placement = mux.create_terminal_in_workspace(
+                    workspace,
+                    argv,
+                    cwd,
+                    name,
+                    optional_surface_size(cols, rows),
+                )?;
+                let identity = mux
+                    .surface(placement.surface)
+                    .and_then(|surface| surface.terminal_host_identity());
+                let terminal_revision = mux.terminal_registry_snapshot()?.revision;
+                Ok(json!({
+                    "surface": placement.surface,
+                    "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
+                    "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
+                    "pane": placement.pane,
+                    "screen": placement.screen,
+                    "workspace": placement.workspace,
+                    "key": key,
+                    "lifecycle": identity.as_ref().map(|_| "running"),
+                    "terminal_revision": terminal_revision,
+                    "replayed": false,
+                    "registry_id": registry_id,
+                    "generation": generation,
+                }))
+            }
         }
         Command::NewScreen { workspace, cols, rows } => {
             let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
@@ -3105,6 +3244,33 @@ fn handle_command(
                 "pid": surface.process_id(),
                 "command": surface.spawn_command(),
                 "cwd": surface.pwd().or_else(|| surface.spawn_cwd()),
+            }))
+        }
+        Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.move_terminal_with_mutation(
+                &terminal_id,
+                &workspace_key,
+                terminal_incarnation.as_deref(),
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "surface":result.placement.as_ref().map(|placement| placement.surface),
+                "pane":result.placement.as_ref().map(|placement| placement.pane),
+                "screen":result.placement.as_ref().map(|placement| placement.screen),
+                "workspace":result.placement.as_ref().map(|placement| placement.workspace),
+                "terminal_id":result.terminal.terminal_id,
+                "terminal_incarnation":result.terminal.incarnation,
+                "workspace_key":result.terminal.workspace_key,
+                "lifecycle":result.terminal.lifecycle,
+                "changed":result.changed,
+                "replayed":result.replayed,
+                "terminal_revision":result.terminal_revision,
+                "registry_id":registry_id,
+                "generation":generation,
             }))
         }
         Command::MoveTab { surface, pane, index } => {
@@ -3744,6 +3910,13 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "projection_revision": projection_revision,
             "origin": origin,
             "mutation_id": mutation_id,
+        }),
+        MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
+            "event":"terminal-registry-changed",
+            "registry_id":registry_id,
+            "generation":generation,
+            "terminal_revision":terminal_revision,
+            "refetch":"terminal-events-or-list-terminals",
         }),
         MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({

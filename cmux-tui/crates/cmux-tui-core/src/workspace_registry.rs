@@ -372,7 +372,7 @@ impl WorkspaceRegistry {
     /// Includes tombstones and is intended for reconciliation and idempotent
     /// close handling, not frontend materialization.
     pub fn terminal_record(&self, terminal_id: &str) -> anyhow::Result<Option<RegistryTerminal>> {
-        validate_identifier("terminal id", terminal_id)?;
+        validate_terminal_identity("terminal id", terminal_id)?;
         read_terminal(&self.connection, terminal_id)
     }
 
@@ -509,9 +509,9 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<TerminalRegistryCommit> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
-        validate_identifier("terminal id", terminal_id)?;
+        validate_terminal_identity("terminal id", terminal_id)?;
         if let Some(incarnation) = expected_incarnation {
-            validate_identifier("terminal incarnation", incarnation)?;
+            validate_terminal_identity("terminal incarnation", incarnation)?;
         }
         let fingerprint_value = serde_json::json!({
             "op": "close-terminal",
@@ -545,10 +545,7 @@ impl WorkspaceRegistry {
         if let Some(expected) = expected_incarnation
             && terminal.incarnation.as_deref() != Some(expected)
         {
-            anyhow::bail!(
-                "terminal incarnation conflict for {terminal_id}: expected {expected}, current {:?}",
-                terminal.incarnation
-            );
+            anyhow::bail!("terminal_incarnation_mismatch");
         }
 
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
@@ -1208,10 +1205,10 @@ fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
 }
 
 fn validate_terminal(terminal: &RegistryTerminal) -> anyhow::Result<()> {
-    validate_identifier("terminal id", &terminal.terminal_id)?;
+    validate_terminal_identity("terminal id", &terminal.terminal_id)?;
     validate_identifier("workspace key", &terminal.workspace_key)?;
     if let Some(incarnation) = &terminal.incarnation {
-        validate_identifier("terminal incarnation", incarnation)?;
+        validate_terminal_identity("terminal incarnation", incarnation)?;
     }
     match terminal.lifecycle {
         TerminalLifecycle::Launching if terminal.incarnation.is_some() => {
@@ -1226,6 +1223,17 @@ fn validate_terminal(terminal: &RegistryTerminal) -> anyhow::Result<()> {
     }
     if terminal.lifecycle != TerminalLifecycle::Exited && terminal.exit.is_some() {
         anyhow::bail!("only an exited terminal can carry exit metadata");
+    }
+    Ok(())
+}
+
+fn validate_terminal_identity(label: &str, value: &str) -> anyhow::Result<()> {
+    if value.len() != 32
+        || !value.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        || value.as_bytes()[12] != b'4'
+        || !matches!(value.as_bytes()[16], b'8'..=b'b')
+    {
+        anyhow::bail!("{label} must be a 32-character lowercase UUIDv4 hex value");
     }
     Ok(())
 }
@@ -1254,6 +1262,7 @@ fn validate_terminal_transition(
             | (TerminalLifecycle::Adopting, TerminalLifecycle::Running)
             | (TerminalLifecycle::Adopting, TerminalLifecycle::Exited)
             | (TerminalLifecycle::Adopting, TerminalLifecycle::Tombstoned)
+            | (TerminalLifecycle::Running, TerminalLifecycle::Adopting)
             | (TerminalLifecycle::Running, TerminalLifecycle::Running)
             | (TerminalLifecycle::Running, TerminalLifecycle::Exited)
             | (TerminalLifecycle::Running, TerminalLifecycle::Tombstoned)
@@ -1268,11 +1277,11 @@ fn validate_terminal_transition(
             desired.lifecycle
         );
     }
-    if existing.lifecycle == TerminalLifecycle::Running
-        && desired.lifecycle == TerminalLifecycle::Running
+    if matches!(existing.lifecycle, TerminalLifecycle::Adopting | TerminalLifecycle::Running)
+        && matches!(desired.lifecycle, TerminalLifecycle::Adopting | TerminalLifecycle::Running)
         && existing.incarnation != desired.incarnation
     {
-        anyhow::bail!("running terminal incarnation cannot change without an exit transition");
+        anyhow::bail!("live terminal incarnation cannot change without an exit transition");
     }
     if existing.lifecycle != TerminalLifecycle::Exited
         && existing.launch_spec != desired.launch_spec
@@ -1515,6 +1524,10 @@ impl Drop for SessionLease {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TERMINAL_ONE: &str = "00000000000040008000000000000001";
+    const TERMINAL_TWO: &str = "00000000000040008000000000000002";
+    const INCARNATION_ONE: &str = "10000000000040008000000000000001";
     use serde_json::json;
 
     fn temp_root(label: &str) -> PathBuf {
@@ -1762,10 +1775,10 @@ mod tests {
         assert_eq!(registry.snapshot().unwrap().revision, 1);
         assert_eq!(registry.terminal_snapshot().unwrap().revision, 0);
 
-        let terminal = terminal("terminal-1", "one");
+        let terminal = terminal(TERMINAL_ONE, "one");
         let reserve = WorkspaceMutation::new("reserve-1", "browser").unwrap();
-        let fingerprint = json!({"op":"reserve-terminal","terminal_id":"terminal-1"});
-        let result = json!({"terminal_id":"terminal-1","state":"launching"});
+        let fingerprint = json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE});
+        let result = json!({"terminal_id":TERMINAL_ONE,"state":"launching"});
         let first = registry
             .commit_terminal(
                 &reserve,
@@ -1795,16 +1808,16 @@ mod tests {
 
         let mut adopting = terminal.clone();
         adopting.lifecycle = TerminalLifecycle::Adopting;
-        adopting.incarnation = Some("incarnation-1".into());
+        adopting.incarnation = Some(INCARNATION_ONE.into());
         registry
             .commit_terminal(
                 &WorkspaceMutation::new("adopt-1", "daemon").unwrap(),
-                &json!({"op":"adopt-terminal","terminal_id":"terminal-1"}),
+                &json!({"op":"adopt-terminal","terminal_id":TERMINAL_ONE}),
                 None,
                 Some(1),
                 "terminal-adopting",
                 &adopting,
-                &json!({"terminal_id":"terminal-1","state":"adopting"}),
+                &json!({"terminal_id":TERMINAL_ONE,"state":"adopting"}),
             )
             .unwrap();
         let mut running = adopting;
@@ -1812,12 +1825,12 @@ mod tests {
         registry
             .commit_terminal(
                 &WorkspaceMutation::new("ready-1", "daemon").unwrap(),
-                &json!({"op":"terminal-ready","terminal_id":"terminal-1"}),
+                &json!({"op":"terminal-ready","terminal_id":TERMINAL_ONE}),
                 None,
                 Some(2),
                 "terminal-ready",
                 &running,
-                &json!({"terminal_id":"terminal-1","state":"running"}),
+                &json!({"terminal_id":TERMINAL_ONE,"state":"running"}),
             )
             .unwrap();
 
@@ -1832,31 +1845,31 @@ mod tests {
     fn terminal_close_tombstones_before_kill_and_retries_safely() {
         let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
         seed_workspace(&mut registry, "one");
-        let terminal = terminal("terminal-1", "one");
+        let terminal = terminal(TERMINAL_ONE, "one");
         registry
             .commit_terminal(
                 &WorkspaceMutation::new("reserve-1", "browser").unwrap(),
-                &json!({"op":"reserve-terminal","terminal_id":"terminal-1"}),
+                &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
                 None,
                 Some(0),
                 "terminal-added",
                 &terminal,
-                &json!({"terminal_id":"terminal-1"}),
+                &json!({"terminal_id":TERMINAL_ONE}),
             )
             .unwrap();
 
         let close = WorkspaceMutation::new("close-1", "browser").unwrap();
-        let first = registry.close_terminal(&close, None, Some(1), "terminal-1", None).unwrap();
+        let first = registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
         assert_eq!(first.revision, 2);
         assert_eq!(first.result["already_closed"], false);
         assert_eq!(
-            registry.terminal_record("terminal-1").unwrap().unwrap().lifecycle,
+            registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().lifecycle,
             TerminalLifecycle::Tombstoned
         );
         assert!(registry.terminal_snapshot().unwrap().terminals.is_empty());
 
         let lost_reply_retry =
-            registry.close_terminal(&close, None, Some(1), "terminal-1", None).unwrap();
+            registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
         assert!(lost_reply_retry.replayed);
         assert_eq!(lost_reply_retry.revision, 2);
 
@@ -1865,7 +1878,7 @@ mod tests {
                 &WorkspaceMutation::new("close-2", "tui").unwrap(),
                 None,
                 Some(2),
-                "terminal-1",
+                TERMINAL_ONE,
                 None,
             )
             .unwrap();
@@ -1877,12 +1890,12 @@ mod tests {
             registry
                 .commit_terminal(
                     &WorkspaceMutation::new("reuse", "browser").unwrap(),
-                    &json!({"op":"reserve-terminal","terminal_id":"terminal-1"}),
+                    &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
                     None,
                     Some(2),
                     "terminal-added",
                     &terminal,
-                    &json!({"terminal_id":"terminal-1"}),
+                    &json!({"terminal_id":TERMINAL_ONE}),
                 )
                 .unwrap_err()
                 .to_string()
@@ -1894,16 +1907,16 @@ mod tests {
     fn closing_workspace_atomically_tombstones_all_child_terminals() {
         let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
         seed_workspace(&mut registry, "one");
-        for index in 1..=2 {
-            let id = format!("terminal-{index}");
+        for (index, id) in [TERMINAL_ONE, TERMINAL_TWO].into_iter().enumerate() {
+            let revision = u64::try_from(index).unwrap();
             registry
                 .commit_terminal(
-                    &WorkspaceMutation::new(format!("reserve-{index}"), "browser").unwrap(),
+                    &WorkspaceMutation::new(format!("reserve-{}", index + 1), "browser").unwrap(),
                     &json!({"op":"reserve-terminal","terminal_id":id}),
                     None,
-                    Some(index - 1),
+                    Some(revision),
                     "terminal-added",
-                    &terminal(&id, "one"),
+                    &terminal(id, "one"),
                     &json!({"terminal_id":id}),
                 )
                 .unwrap();
@@ -1925,15 +1938,47 @@ mod tests {
         let terminals = registry.terminal_snapshot().unwrap();
         assert_eq!(terminals.revision, 4);
         assert!(terminals.terminals.is_empty());
-        for index in 1..=2 {
+        for id in [TERMINAL_ONE, TERMINAL_TWO] {
             assert_eq!(
-                registry.terminal_record(&format!("terminal-{index}")).unwrap().unwrap().lifecycle,
+                registry.terminal_record(id).unwrap().unwrap().lifecycle,
                 TerminalLifecycle::Tombstoned
             );
         }
         let events = registry.terminal_events_after(2).unwrap();
         assert_eq!(events.len(), 2);
         assert!(events.iter().all(|event| event.result["reason"] == "workspace-closed"));
+    }
+
+    #[test]
+    fn terminal_reserve_after_workspace_close_fails_referentially() {
+        let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+        seed_workspace(&mut registry, "one");
+        registry
+            .commit(
+                &WorkspaceMutation::new("close", "browser").unwrap(),
+                &json!({"op":"close-workspace"}),
+                None,
+                Some(1),
+                "workspace-closed",
+                "one",
+                &[],
+                &json!({"key":"one"}),
+            )
+            .unwrap();
+        let error = registry
+            .commit_terminal(
+                &WorkspaceMutation::new("late-reserve", "browser").unwrap(),
+                &json!({"op":"create-terminal","terminal_id":TERMINAL_ONE}),
+                None,
+                Some(0),
+                "terminal-reserved",
+                &terminal(TERMINAL_ONE, "one"),
+                &json!({"terminal_id":TERMINAL_ONE}),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("workspace is missing or closed"));
+        assert!(registry.terminal_record(TERMINAL_ONE).unwrap().is_none());
+        assert_eq!(registry.terminal_snapshot().unwrap().revision, 0);
     }
 
     #[test]

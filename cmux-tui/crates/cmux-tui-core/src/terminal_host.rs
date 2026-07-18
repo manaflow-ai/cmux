@@ -37,6 +37,42 @@ impl TerminalId {
     pub const fn as_bytes(&self) -> &[u8; TERMINAL_ID_LEN] {
         &self.0
     }
+
+    /// Parse the canonical registry representation: lowercase UUIDv4 bytes
+    /// without dashes. Keeping this strict prevents one terminal from being
+    /// addressable by multiple spellings across process boundaries.
+    pub fn from_hex(value: &str) -> Option<Self> {
+        if value.len() != TERMINAL_ID_LEN * 2
+            || !value.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+            || value.as_bytes()[12] != b'4'
+            || !matches!(value.as_bytes()[16], b'8'..=b'b')
+        {
+            return None;
+        }
+        let mut bytes = [0u8; TERMINAL_ID_LEN];
+        for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+            bytes[index] = (hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?;
+        }
+        Some(Self(bytes))
+    }
+
+    pub fn to_hex(self) -> String {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut output = String::with_capacity(TERMINAL_ID_LEN * 2);
+        for byte in self.0 {
+            output.push(HEX[(byte >> 4) as usize] as char);
+            output.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+        output
+    }
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
 }
 
 impl fmt::Debug for TerminalId {
@@ -656,6 +692,16 @@ mod tests {
 
     fn terminal(byte: u8) -> TerminalId {
         TerminalId::from_bytes([byte; TERMINAL_ID_LEN])
+    }
+
+    #[test]
+    fn canonical_terminal_hex_requires_lowercase_uuid_v4() {
+        let canonical = "00000000000040008000000000000001";
+        assert_eq!(TerminalId::from_hex(canonical).unwrap().to_hex(), canonical);
+        assert!(TerminalId::from_hex("00000000000030008000000000000001").is_none());
+        assert!(TerminalId::from_hex("00000000000040007000000000000001").is_none());
+        assert!(TerminalId::from_hex("0000000000004000800000000000000A").is_none());
+        assert!(TerminalId::from_hex("short").is_none());
     }
 
     fn token(byte: u8) -> CapabilityToken {

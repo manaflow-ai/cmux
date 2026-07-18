@@ -860,23 +860,36 @@ mod unix {
 
         fn remove_client(&self, client: u64) {
             self.taps.lock().unwrap().remove(&client);
-            self.viewer_sizes.lock().unwrap().remove(&client);
-            self.apply_viewer_minimum();
+            mutate_viewer_sizes(
+                &self.viewer_sizes,
+                |viewer_sizes| {
+                    viewer_sizes.remove(&client);
+                },
+                |desired| self.apply_viewer_minimum(desired),
+            );
         }
 
         fn set_viewer_size(&self, client: u64, cols: u16, rows: u16) {
-            self.viewer_sizes.lock().unwrap().insert(client, (cols.max(1), rows.max(1)));
-            self.apply_viewer_minimum();
+            mutate_viewer_sizes(
+                &self.viewer_sizes,
+                |viewer_sizes| {
+                    viewer_sizes.insert(client, (cols.max(1), rows.max(1)));
+                },
+                |desired| self.apply_viewer_minimum(desired),
+            );
         }
 
-        fn apply_viewer_minimum(&self) {
-            let desired = self
-                .viewer_sizes
-                .lock()
-                .unwrap()
-                .values()
-                .copied()
-                .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1)));
+        fn remove_viewer_size(&self, client: u64) {
+            mutate_viewer_sizes(
+                &self.viewer_sizes,
+                |viewer_sizes| {
+                    viewer_sizes.remove(&client);
+                },
+                |desired| self.apply_viewer_minimum(desired),
+            );
+        }
+
+        fn apply_viewer_minimum(&self, desired: Option<(u16, u16)>) {
             let Some((cols, rows)) = desired else { return };
             {
                 let mut size = self.size.lock().unwrap();
@@ -905,6 +918,24 @@ mod unix {
                 encode_terminal_color_overrides(&colors),
             );
         }
+    }
+
+    /// Keep viewer mutation, minimum reduction, and the resulting PTY resize
+    /// in one critical section. If the guard were released after reduction,
+    /// an older large resize could run after a newer small resize and leave
+    /// the host at a size that no longer matches its viewer set.
+    fn mutate_viewer_sizes(
+        viewer_sizes: &Mutex<HashMap<u64, (u16, u16)>>,
+        mutation: impl FnOnce(&mut HashMap<u64, (u16, u16)>),
+        apply: impl FnOnce(Option<(u16, u16)>),
+    ) {
+        let mut viewer_sizes = viewer_sizes.lock().unwrap();
+        mutation(&mut viewer_sizes);
+        let desired = viewer_sizes
+            .values()
+            .copied()
+            .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1)));
+        apply(desired);
     }
 
     pub fn serve_terminal_host_stdio(
@@ -1148,6 +1179,10 @@ mod unix {
         };
         let command_sender = tap.clone();
         let (snapshot, colors, snapshot_sequence) = {
+            // Viewer registration follows the same viewer -> parser ->
+            // broadcast lock order as resize application. This makes the
+            // initial snapshot an atomic member of size arbitration too.
+            let mut viewer_sizes = host.viewer_sizes.lock().unwrap();
             let mut term = host.term.lock().unwrap();
             let replay =
                 term.vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES)?;
@@ -1157,7 +1192,7 @@ mod unix {
             if host.dead.load(Ordering::Acquire) {
                 anyhow::bail!("terminal host exited before snapshot");
             }
-            host.viewer_sizes.lock().unwrap().insert(client, (cols, rows));
+            viewer_sizes.insert(client, (cols, rows));
             host.taps.lock().unwrap().insert(client, tap.clone());
             (
                 HostSnapshot {
@@ -1233,8 +1268,7 @@ mod unix {
                         if !granted_rights.contains(CapabilityRights::RESIZE) {
                             break;
                         }
-                        command_host.viewer_sizes.lock().unwrap().remove(&client);
-                        command_host.apply_viewer_minimum();
+                        command_host.remove_viewer_size(client);
                     }
                     MessageKind::Terminate => {
                         if !granted_rights.contains(CapabilityRights::TERMINATE) {
@@ -1614,6 +1648,67 @@ mod unix {
             assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2])));
             let mut byte = [0u8; 1];
             assert_eq!(client_socket.read(&mut byte).unwrap(), 0);
+        }
+
+        #[test]
+        fn viewer_resize_apply_order_cannot_invert_reduced_sizes() {
+            let viewer_sizes = Arc::new(Mutex::new(HashMap::new()));
+            let applied = Arc::new(Mutex::new(Vec::new()));
+            let (first_applying_tx, first_applying_rx) = std::sync::mpsc::channel();
+            let (release_first_tx, release_first_rx) = std::sync::mpsc::channel();
+
+            let first = {
+                let viewer_sizes = viewer_sizes.clone();
+                let applied = applied.clone();
+                thread::spawn(move || {
+                    mutate_viewer_sizes(
+                        &viewer_sizes,
+                        |sizes| {
+                            sizes.insert(1, (120, 40));
+                        },
+                        |desired| {
+                            first_applying_tx.send(()).unwrap();
+                            release_first_rx.recv().unwrap();
+                            applied.lock().unwrap().push(desired.unwrap());
+                        },
+                    );
+                })
+            };
+            first_applying_rx.recv().unwrap();
+
+            let (second_attempting_tx, second_attempting_rx) = std::sync::mpsc::channel();
+            let (second_mutating_tx, second_mutating_rx) = std::sync::mpsc::channel();
+            let second = {
+                let viewer_sizes = viewer_sizes.clone();
+                let applied = applied.clone();
+                thread::spawn(move || {
+                    second_attempting_tx.send(()).unwrap();
+                    mutate_viewer_sizes(
+                        &viewer_sizes,
+                        |sizes| {
+                            second_mutating_tx.send(()).unwrap();
+                            sizes.insert(2, (80, 24));
+                        },
+                        |desired| applied.lock().unwrap().push(desired.unwrap()),
+                    );
+                })
+            };
+            second_attempting_rx.recv().unwrap();
+            assert!(second_mutating_rx.try_recv().is_err());
+            release_first_tx.send(()).unwrap();
+            first.join().unwrap();
+            second.join().unwrap();
+
+            assert_eq!(*applied.lock().unwrap(), vec![(120, 40), (80, 24)]);
+            assert_eq!(
+                viewer_sizes
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .copied()
+                    .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1))),
+                Some((80, 24))
+            );
         }
 
         #[test]
