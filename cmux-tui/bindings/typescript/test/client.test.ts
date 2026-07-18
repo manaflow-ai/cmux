@@ -176,6 +176,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
         cursor: "#f0f0f0",
         selection_bg: null,
         selection_fg: null,
+        palette: { "4": "#ff4f8b" },
         cursor_style: "underline",
         cursor_blink: true,
       },
@@ -203,6 +204,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
       cursor: "#f0f0f0",
       selection_bg: null,
       selection_fg: null,
+      palette: { "4": "#ff4f8b" },
       cursor_style: "underline",
       cursor_blink: true,
     });
@@ -275,6 +277,7 @@ test("attachSurface routes colors-changed events without a surface field", async
       cursor: null,
       selection_bg: "#334455",
       selection_fg: "#ffffff",
+      palette: { "4": "#ff4f8b" },
       cursor_style: "bar",
       cursor_blink: false,
     });
@@ -290,6 +293,7 @@ test("attachSurface routes colors-changed events without a surface field", async
     cursor: null,
     selection_bg: "#334455",
     selection_fg: "#ffffff",
+    palette: { "4": "#ff4f8b" },
     cursor_style: "bar",
     cursor_blink: false,
   });

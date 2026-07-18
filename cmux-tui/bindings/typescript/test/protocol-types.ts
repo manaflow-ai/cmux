@@ -114,6 +114,7 @@ const colorsChanged: KnownCmuxEvent = {
   cursor: null,
   selection_bg: null,
   selection_fg: null,
+  palette: { "4": "#ff4f8b" },
   cursor_style: "bar",
   cursor_blink: false,
 };
