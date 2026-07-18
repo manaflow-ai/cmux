@@ -613,6 +613,14 @@ struct cmuxApp: App {
                     }
                     Button(
                         String(
+                            localized: "debug.menu.appKitSignalLab",
+                            defaultValue: "AppKit Signals Lab…"
+                        )
+                    ) {
+                        AppDelegate.shared?.debugWindowsCoordinator.showAppKitSignalLabWindow()
+                    }
+                    Button(
+                        String(
                             localized: "debug.menu.titlebarLayoutDebug",
                             defaultValue: "Titlebar Layout Debug..."
                         )

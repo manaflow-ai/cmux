@@ -11,6 +11,7 @@ extension TerminalController {
         "debug.textbox.inline_fixture",
         "debug.textbox.interact",
         "debug.app.activate",
+        "debug.appkit_signal_lab.show",
         "debug.workspace_todo.checklist_add_field",
         "debug.pro_welcome_checklist.show",
         "debug.command_palette.toggle",

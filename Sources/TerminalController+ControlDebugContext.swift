@@ -84,6 +84,12 @@ extension TerminalController: ControlDebugContext {
         ProWelcomeChecklistPresenter.present()
     }
 
+    func controlDebugShowAppKitSignalLab() -> Bool {
+        guard let coordinator = AppDelegate.shared?.debugWindowsCoordinator else { return false }
+        coordinator.showAppKitSignalLabWindow()
+        return true
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }
@@ -120,7 +126,9 @@ extension TerminalController: ControlDebugContext {
         panelSnapshotReset(surfaceArgument)
     }
 
-    func controlDebugCaptureScreenshot(label: String) -> String { captureScreenshot(label) }
+    func controlDebugCaptureScreenshot(label: String, windowIdentifier: String?) -> String {
+        captureScreenshot(label: label, windowIdentifier: windowIdentifier)
+    }
 
     func controlDebugShowCanvasCommandScrollHint(
         routing: ControlRoutingSelectors
