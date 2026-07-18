@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
 import { GET } from "../app/[locale]/opengraph-image/route";
-import { openGraphImageResponse } from "../app/lib/open-graph-image";
+import {
+  openGraphImageResponse,
+  renderOpenGraphImage,
+} from "../app/lib/open-graph-image";
 import { articleSchema } from "../app/[locale]/components/json-ld";
 import { openGraphImage } from "../i18n/seo";
 import { routing } from "../i18n/routing";
@@ -43,6 +46,15 @@ describe("Open Graph image discovery", () => {
     );
 
     expect(response.status).toBe(404);
+  });
+
+  test("renders the Arabic image response body", async () => {
+    const response = await renderOpenGraphImage("ar");
+    const body = new Uint8Array(await response.arrayBuffer());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect([...body.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
   });
 
   test("uses the crawlable localized image in Article structured data", () => {
