@@ -337,7 +337,7 @@ fi
 if [[ -n "$cmux_codex_resume_sid" ]]; then
     cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\"}"
     cmux_codex_resume_delivery_id="codex-resume-${CMUX_CODEX_PID:-unknown}-$$-${RANDOM:-0}-${RANDOM:-0}"
-    cmux_codex_resume_hook="${HOME:-$PWD}/.cmux/hooks/cmux-codex-hook-session-start.sh"
+    cmux_codex_resume_hook="${HOME:-$PWD}/.cmux/hooks/cmux-codex-native-hook-session-start"
     if [[ -x "$cmux_codex_resume_hook" ]]; then
         printf '%s' "$cmux_codex_resume_payload" \
             | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \

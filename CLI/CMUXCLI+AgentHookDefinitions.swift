@@ -446,17 +446,19 @@ extension CMUXCLI {
 
         let name = url.lastPathComponent
         let subcommands = codexWrapperInjectionEvents.map { $0.cmuxSubcommand }
-        for subcommand in subcommands {
-            if name == "cmux-codex-native-hook-\(subcommand)"
-                || name == "cmux-codex-portable-hook-\(subcommand).sh"
-                || name == "cmux-codex-hook-\(subcommand).sh"
-                || name == "cmux-codex-hook-persistent-\(subcommand).sh"
+        let generatedTags = subcommands
+            + subcommands.map { "persistent-\($0)" }
+            + def.feedHookEvents.map { "persistent-feed-\($0)" }
+        for tag in generatedTags {
+            if name == "cmux-codex-native-hook-\(tag)"
+                || name == "cmux-codex-portable-hook-\(tag).sh"
+                || name == "cmux-codex-hook-\(tag).sh"
             {
                 return true
             }
             for prefix in [
-                "cmux-codex-hook-\(subcommand)-",
-                "cmux-codex-hook-persistent-\(subcommand)-",
+                "cmux-codex-portable-hook-\(tag)-",
+                "cmux-codex-hook-\(tag)-",
             ] where name.hasPrefix(prefix) && name.hasSuffix(".sh") {
                 let hash = name.dropFirst(prefix.count).dropLast(".sh".count)
                 if hash.count >= 8, hash.allSatisfy(\.isHexDigit) {
