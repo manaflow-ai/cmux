@@ -39,7 +39,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       allowProposedApi: true,
       convertEol: false,
       disableStdin: true,
-      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      fontFamily: 'Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       lineHeight: 1.15,
       theme: baseTheme,
@@ -117,6 +117,9 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
           // Cleanup may have raced the attach round-trip; close the stream we
           // just opened or its buffered events leak for the surface's lifetime.
           if (cancelled) return;
+          // Closing the previous attachment removes this client's report on
+          // the server. Re-publish even when the viewport did not change.
+          reportedFit = null;
           let overflowed = false;
           for (;;) {
             let event;
@@ -130,7 +133,9 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               throw error;
             }
             if (cancelled) return;
-            if (event.event === "vt-state") {
+            if (event.event === "detached") {
+              return;
+            } else if (event.event === "vt-state") {
               const replay = event as DecodedVtStateEvent;
               terminal.reset();
               applyColors(replay.colors);
@@ -181,6 +186,14 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
       } finally {
         stream?.close();
+        if (!cancelled) {
+          reportedFit = null;
+          try {
+            await client.releaseSurfaceSize(surface);
+          } catch (error) {
+            onError(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
       }
     })();
 
@@ -198,6 +211,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       if (stableTimer !== undefined) clearTimeout(stableTimer);
       wakeRetry?.();
       stream?.close();
+      reportedFit = null;
+      void client.releaseSurfaceSize(surface).catch(onError);
       webgl?.dispose();
       terminal.dispose();
       stage?.style.removeProperty("--surface-background");
