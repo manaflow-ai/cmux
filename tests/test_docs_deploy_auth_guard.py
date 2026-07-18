@@ -22,7 +22,11 @@ class DocsDeployAuthGuardTests(unittest.TestCase):
         workflow = DEPLOY_WORKFLOW.read_text()
         config = json.loads(DOCS_VERCEL_CONFIG.read_text())
 
-        self.assertIn("--local-config web/vercel.docs-channel.json", workflow)
+        self.assertIn(
+            "cp web/vercel.docs-channel.json web/vercel.json",
+            workflow,
+        )
+        self.assertNotIn("--local-config", workflow)
         self.assertNotIn("crons", config)
         self.assertEqual(config["regions"], ["pdx1"])
 
