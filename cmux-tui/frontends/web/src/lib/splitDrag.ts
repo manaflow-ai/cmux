@@ -19,8 +19,7 @@ export interface SplitBounds {
 }
 
 export interface SplitDividerTarget {
-  pane: Id;
-  dir: "right" | "down";
+  split: Id;
 }
 
 export function clampSplitRatio(ratio: number): number {
@@ -45,23 +44,6 @@ export function splitRatioToCommit(currentRatio: number, previewRatio: number): 
   return Math.abs(nextRatio - currentRatio) <= 1e-6 ? null : nextRatio;
 }
 
-function paneWithoutCrossingDirection(
-  node: PaneLayoutView,
-  direction: PaneLayoutGroup["direction"],
-): Id | null {
-  if (node.type === "pane") return node.pane;
-  if (node.direction === direction) return null;
-  return paneWithoutCrossingDirection(node.first, direction)
-    ?? paneWithoutCrossingDirection(node.second, direction);
-}
-
-/**
- * Pick a pane whose deepest matching ancestor is this group. A descendant
- * behind a same-direction split would make set-ratio resize that inner split.
- */
-export function splitDividerTarget(node: PaneLayoutGroup): SplitDividerTarget | null {
-  const pane = paneWithoutCrossingDirection(node.first, node.direction)
-    ?? paneWithoutCrossingDirection(node.second, node.direction);
-  if (pane === null) return null;
-  return { pane, dir: node.direction === "row" ? "right" : "down" };
+export function splitDividerTarget(node: PaneLayoutGroup): SplitDividerTarget {
+  return { split: node.split };
 }

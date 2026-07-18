@@ -26,7 +26,7 @@ interface TerminalPaneProps {
   onSelectTab(pane: Id, index: number, surface: Id): void;
   onNewTab(pane: Id): void;
   onSplit(pane: Id, dir: "right" | "down"): void;
-  onSetRatio(pane: Id, dir: "right" | "down", ratio: number): Promise<boolean>;
+  onSetSplitRatio(split: Id, ratio: number): Promise<boolean>;
   onSelectPane(pane: Id): void;
   onZoomPane(pane: Id): void;
   onClosePane(pane: Id): void;
@@ -91,7 +91,7 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
   );
 }
 
-interface PaneLeafProps extends Omit<TerminalPaneProps, "screen" | "onSetRatio"> {
+interface PaneLeafProps extends Omit<TerminalPaneProps, "screen" | "onSetSplitRatio"> {
   pane: LivePane | null;
   paneId: Id;
   active: boolean;
@@ -287,8 +287,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     requestId: number;
     previousRatio: number;
     ratio: number;
-    pane: Id;
-    dir: "right" | "down";
+    split: Id;
   } | null>(null);
   const nextRequestId = useRef(0);
   const activeRequestId = useRef<number | null>(null);
@@ -305,9 +304,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   // lands (confirm or foreign change), validity flips and the authoritative
   // ratio renders; the stale record is cleared lazily on the next pointerdown.
   const pendingValid = pendingRatio !== null
-    && target !== null
-    && target.pane === pendingRatio.pane
-    && target.dir === pendingRatio.dir
+    && target.split === pendingRatio.split
     && Math.abs(authoritativeRatio - pendingRatio.previousRatio) <= 1e-6;
 
   const firstRatio = previewRatio ?? (pendingValid && pendingRatio !== null ? pendingRatio.ratio : authoritativeRatio);
@@ -320,8 +317,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   return (
     <div className={`pane-group ${node.direction}`} style={style}>
       <LayoutNode {...actions} node={node.first} screen={screen} basis={firstPercent} />
-      {target && (
-        <div
+      <div
           aria-orientation={node.direction === "row" ? "vertical" : "horizontal"}
           className="split-divider"
           role="separator"
@@ -376,10 +372,9 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
               requestId,
               previousRatio: currentDrag.initialRatio,
               ratio,
-              pane: target.pane,
-              dir: target.dir,
+              split: target.split,
             });
-            void actions.onSetRatio(target.pane, target.dir, ratio).then((succeeded) => {
+            void actions.onSetSplitRatio(target.split, ratio).then((succeeded) => {
               if (succeeded || activeRequestId.current !== requestId) return;
               activeRequestId.current = null;
               setPendingRatio(null);
@@ -392,7 +387,6 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
             setPreviewRatio(null);
           }}
         />
-      )}
       <LayoutNode {...actions} node={node.second} screen={screen} basis={secondPercent} />
     </div>
   );
