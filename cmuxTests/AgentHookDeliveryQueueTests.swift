@@ -613,6 +613,126 @@ struct AgentHookDeliveryQueueTests {
         ) == nil)
     }
 
+    @Test func pendingQueueHasFixedRowAndByteAdmissionBounds() async throws {
+        let rowRoot = try temporaryDirectory(named: "pending-row-budget")
+        defer { try? FileManager.default.removeItem(at: rowRoot) }
+        let rowDatabaseURL = rowRoot.appendingPathComponent("deliveries.sqlite3")
+        let rowQueue = AgentHookDeliveryQueue(
+            databaseURL: rowDatabaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        var acceptedRows = 0
+        var rowRejection: Error?
+        for index in 0...4_096 {
+            let event = try #require(makeEvent(
+                deliveryID: "row-budget-\(index)",
+                payload: Data([UInt8(truncatingIfNeeded: index)]),
+                environment: testEnvironment(root: rowRoot, surfaceID: "row-\(index)")
+            ))
+            do {
+                try rowQueue.enqueue(event)
+                acceptedRows += 1
+            } catch {
+                rowRejection = error
+                break
+            }
+        }
+        #expect(acceptedRows == 4_096)
+        #expect(rowRejection != nil)
+        #expect(try storedDeliveryIDs(databaseURL: rowDatabaseURL).count == 4_096)
+
+        let byteRoot = try temporaryDirectory(named: "pending-byte-budget")
+        defer { try? FileManager.default.removeItem(at: byteRoot) }
+        let byteDatabaseURL = byteRoot.appendingPathComponent("deliveries.sqlite3")
+        let byteQueue = AgentHookDeliveryQueue(
+            databaseURL: byteDatabaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let payload = Data(repeating: 0x5a, count: 4 * 1024 * 1024)
+        var acceptedBytes = 0
+        var byteRejection: Error?
+        for index in 0..<17 {
+            let event = try #require(makeEvent(
+                deliveryID: "byte-budget-\(index)",
+                payload: payload,
+                environment: testEnvironment(root: byteRoot, surfaceID: "byte-\(index)")
+            ))
+            do {
+                try byteQueue.enqueue(event)
+                acceptedBytes += 1
+            } catch {
+                byteRejection = error
+                break
+            }
+        }
+        #expect((15...16).contains(acceptedBytes))
+        #expect(byteRejection != nil)
+        #expect(try storedDeliveryIDs(databaseURL: byteDatabaseURL).count == acceptedBytes)
+    }
+
+    @Test func pendingCredentialOverlayHasFixedMemoryBound() async throws {
+        let root = try temporaryDirectory(named: "ephemeral-budget")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let secret = String(repeating: "s", count: 128 * 1024)
+        var accepted = 0
+        var rejection: Error?
+        for index in 0..<129 {
+            let event = try #require(makeEvent(
+                deliveryID: "ephemeral-budget-\(index)",
+                payload: Data("credential-\(index)".utf8),
+                environment: testEnvironment(root: root, surfaceID: "credential-\(index)")
+                    .merging(["OPENAI_API_KEY": secret], uniquingKeysWith: { _, new in new })
+            ))
+            do {
+                try queue.enqueue(event)
+                accepted += 1
+            } catch {
+                rejection = error
+                break
+            }
+        }
+        #expect((127...128).contains(accepted))
+        #expect(rejection != nil)
+        #expect(try storedDeliveryIDs(databaseURL: databaseURL).count == accepted)
+        for file in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            where file.lastPathComponent.hasPrefix("deliveries.sqlite3") {
+            let bytes = (try? Data(contentsOf: file)) ?? Data()
+            #expect(bytes.range(of: Data(secret.prefix(128).utf8)) == nil)
+        }
+    }
+
+    @Test func startupPrunesOldestDeliveredReceiptsToFixedDedupeWindow() throws {
+        let root = try temporaryDirectory(named: "receipt-budget")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        try createDeliveredReceiptDatabase(at: databaseURL, count: 4_097)
+
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        _ = queue
+
+        let retained = try storedDeliveryIDs(databaseURL: databaseURL)
+        #expect(retained.count == 4_096)
+        #expect(retained.first == "receipt-0001")
+        #expect(retained.last == "receipt-4096")
+        #expect(!retained.contains("receipt-0000"))
+    }
+
     @Test func deliveryIdentityIgnoresTransportOnlyDeliveryIDEnvironment() async throws {
         let root = try temporaryDirectory(named: "delivery-id-parity")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1959,6 +2079,88 @@ struct AgentHookDeliveryQueueTests {
                 code: Int(status),
                 userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(database))]
             )
+        }
+    }
+
+    private func createDeliveredReceiptDatabase(at url: URL, count: Int) throws {
+        var database: OpaquePointer?
+        let openStatus = sqlite3_open(url.path, &database)
+        guard openStatus == SQLITE_OK, let database else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(openStatus))
+        }
+        defer { sqlite3_close(database) }
+        let schema = """
+        CREATE TABLE agent_hook_deliveries (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            delivery_id TEXT NOT NULL UNIQUE,
+            ordering_key TEXT NOT NULL,
+            content_digest BLOB NOT NULL,
+            agent TEXT NOT NULL,
+            subcommand TEXT NOT NULL,
+            payload BLOB NOT NULL,
+            socket_path TEXT NOT NULL,
+            environment_json BLOB NOT NULL,
+            accepted_at REAL NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_attempt_at REAL,
+            next_attempt_at REAL NOT NULL,
+            delivered_at REAL,
+            last_error TEXT
+        );
+        """
+        var status = sqlite3_exec(database, schema, nil, nil, nil)
+        guard status == SQLITE_OK else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(status))
+        }
+
+        var statement: OpaquePointer?
+        status = sqlite3_prepare_v2(
+            database,
+            """
+            INSERT INTO agent_hook_deliveries (
+                delivery_id, ordering_key, content_digest, agent, subcommand,
+                payload, socket_path, environment_json, accepted_at,
+                next_attempt_at, delivered_at
+            ) VALUES (?, ?, zeroblob(32), 'codex', 'session-start', X'', '', X'7B7D', ?, 0, ?);
+            """,
+            -1,
+            &statement,
+            nil
+        )
+        guard status == SQLITE_OK, let statement else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(status))
+        }
+        defer { sqlite3_finalize(statement) }
+        for index in 0..<count {
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+            let deliveryID = String(format: "receipt-%04d", index)
+            status = sqlite3_bind_text(
+                statement,
+                1,
+                deliveryID,
+                -1,
+                unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+            )
+            guard status == SQLITE_OK else {
+                throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(status))
+            }
+            status = sqlite3_bind_text(
+                statement,
+                2,
+                "receipt-order",
+                -1,
+                unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+            )
+            guard status == SQLITE_OK else {
+                throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(status))
+            }
+            sqlite3_bind_double(statement, 3, TimeInterval(index))
+            sqlite3_bind_double(statement, 4, TimeInterval(index))
+            status = sqlite3_step(statement)
+            guard status == SQLITE_DONE else {
+                throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(status))
+            }
         }
     }
 
