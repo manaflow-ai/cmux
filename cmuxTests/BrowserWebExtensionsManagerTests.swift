@@ -261,6 +261,8 @@ struct BrowserWebExtensionsManagerTests {
         #expect(manager.loadedContexts.count == 1)
         let context = try #require(manager.loadedContexts.first)
         #expect(context.uniqueIdentifier == "cmux-browser-extension-sample")
+        #expect(context.unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
+        #expect(context.unsupportedAPIs.contains("browser.runtime.connectNative"))
         #expect(context.currentPermissions.contains(.storage))
         #expect(!context.grantedPermissionMatchPatterns.isEmpty)
         #expect(manager.controller.extensionContexts.contains(context))
@@ -585,6 +587,10 @@ struct BrowserWebExtensionsManagerTests {
         )])
         #expect(manager.loadedContexts.first?.uniqueIdentifier
             == "cmux-browser-extension-com.example.password-manager.safari")
+        #expect(manager.loadedContexts.first?.unsupportedAPIs
+            .contains("browser.runtime.sendNativeMessage") == false)
+        #expect(manager.loadedContexts.first?.unsupportedAPIs
+            .contains("browser.runtime.connectNative") == false)
 
         manager.shutdown()
         let relaunchedManager = BrowserWebExtensionsManager(
