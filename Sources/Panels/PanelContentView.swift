@@ -168,7 +168,10 @@ struct PanelContentView: View {
             }
         case .mobilePairing:
             if panel is MobilePairingPanel {
-                MobilePairingPanelView(onRequestPanelFocus: onRequestPanelFocus)
+                MobilePairingPanelView(
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
             }
         }
     }

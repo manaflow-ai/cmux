@@ -88,12 +88,14 @@ final class MobilePairingPanel: Panel, ObservableObject {
 }
 
 struct MobilePairingPanelView: View {
+    let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
         MobilePairingView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(Color(nsColor: appearance.contentBackgroundColor))
+            .environment(\.colorScheme, appearance.backgroundColor.isLightColor ? .light : .dark)
             .contentShape(Rectangle())
             .onTapGesture { onRequestPanelFocus() }
             .accessibilityIdentifier("MobilePairingPanel")
