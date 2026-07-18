@@ -409,6 +409,9 @@ final class BrowserDesignModeController {
         guard phase.isEnabled, mode != interactionMode, let webView else { return }
         interactionMode = mode
         if mode == .select {
+            // Cancellation releases suspension points, while the revision
+            // prevents any already-returning capture from committing a card.
+            operationRevision &+= 1
             if annotationCaptureTask != nil {
                 annotationCaptureTask?.cancel()
                 annotationCaptureTask = nil
