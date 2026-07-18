@@ -302,10 +302,12 @@ extension SimulatorWorkerClientTests {
             .hidButton(.init(button: button, phase: .up)),
         ]
         var messages: [SimulatorWorkerInbound] = []
-        for _ in 0..<10_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
             messages = second.inboundMessages()
             if expected.allSatisfy(messages.contains) { break }
-            await Task.yield()
+            try await clock.sleep(for: .milliseconds(1))
         }
         #expect(expected.allSatisfy(messages.contains))
         await client.stop()
