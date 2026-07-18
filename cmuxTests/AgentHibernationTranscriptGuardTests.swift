@@ -548,6 +548,88 @@ struct AgentHibernationTranscriptGuardTests {
     }
 
     @Test
+    func restartRecoveryDefersWhileCapturedAgentProcessIsAlive() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/restart-live-agent"
+        let sessionId = "session-restart-live-agent"
+        let transcript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(populatedTranscript, to: transcript)
+        let snapshot = try #require(snapshotOutcomeValue(
+            from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        ))
+
+        let agentProcess = Process()
+        agentProcess.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        agentProcess.arguments = ["30"]
+        try agentProcess.run()
+        defer {
+            if agentProcess.isRunning {
+                agentProcess.terminate()
+                agentProcess.waitUntilExit()
+            }
+        }
+        let processIdentity = try #require(AgentPIDProcessIdentity(pid: agentProcess.processIdentifier))
+        var metadata = try recoveryMetadataJSON(atPath: snapshot.snapshotPath)
+        metadata["guardedProcesses"] = [[
+            "processId": Int(processIdentity.pid),
+            "processStartSeconds": processIdentity.startSeconds,
+            "processStartMicroseconds": processIdentity.startMicroseconds,
+        ]]
+        try setRecoveryMetadata(try JSONSerialization.data(withJSONObject: metadata), atPath: snapshot.snapshotPath)
+        try metadataStub.write(to: transcript, atomically: true, encoding: .utf8)
+
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 0)
+        #expect(FileManager.default.fileExists(atPath: snapshot.snapshotPath))
+
+        agentProcess.terminate()
+        agentProcess.waitUntilExit()
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 1)
+        #expect(try String(contentsOf: transcript, encoding: .utf8) == populatedTranscript)
+    }
+
+    @Test
+    func restartRecoveryDoesNotTrustSpoofableFileVersionMetadata() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/restart-version-spoof"
+        let sessionId = "session-restart-version-spoof"
+        let transcript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(populatedTranscript, to: transcript)
+        let snapshot = try #require(snapshotOutcomeValue(
+            from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        ))
+        let originalVersion = try #require(snapshot.liveFileVersion)
+        let divergentSameSize = populatedTranscript.replacingOccurrences(of: "hello", with: "jello")
+        #expect(divergentSameSize.utf8.count == populatedTranscript.utf8.count)
+        let handle = try FileHandle(forWritingTo: transcript)
+        try handle.seek(toOffset: 0)
+        try handle.write(contentsOf: Data(divergentSameSize.utf8))
+        try handle.truncate(atOffset: UInt64(divergentSameSize.utf8.count))
+        try handle.close()
+        try FileManager.default.setAttributes(
+            [.modificationDate: originalVersion.modificationDate],
+            ofItemAtPath: transcript.path
+        )
+
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 0)
+        #expect(try String(contentsOf: transcript, encoding: .utf8) == divergentSameSize)
+        #expect(try String(contentsOfFile: snapshot.snapshotPath, encoding: .utf8) == populatedTranscript)
+    }
+
+    @Test
     func restartRecoveryUsesAnInterprocessDirectoryLock() throws {
         let home = try temporaryDirectory()
         let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
