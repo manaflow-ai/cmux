@@ -48,7 +48,12 @@ final class CmuxFeatureFlags {
   private static let sidebarWorkspaceAgentSpinnerDefault = false
   private static let workspaceTodoControlsDefault = false
   private static let appKitSidebarListDefault = false
-  private static let feedUIDefault = true
+
+  #if DEBUG
+    private static let feedUIDefault = true
+  #else
+    private static let feedUIDefault = false
+  #endif
 
   private static let overrideKeyPrefix = "cmux.flags.override."
 
@@ -172,10 +177,10 @@ final class CmuxFeatureFlags {
   )
 
   // FLAG(key: feed-ui-enabled-release, owner: lawrencecchen,
-  //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+  //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
   // Shows Feed in the right sidebar, new-workspace menu, and command
-  // palette. The default ships Feed to everyone while retaining a
-  // remote kill switch for operational regressions.
+  // palette. Release builds hide it until PostHog enables the rollout;
+  // DEBUG keeps it visible for dogfood when remote flags are unavailable.
   private static let feedDefinition = CmuxFeatureFlagDefinition(
     key: "feed-ui-enabled-release",
     title: String(localized: "featureFlags.feed.title", defaultValue: "Feed UI"),

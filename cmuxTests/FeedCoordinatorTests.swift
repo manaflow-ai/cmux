@@ -195,6 +195,20 @@ struct FeedCoordinatorTests {
     }
 
     @MainActor
+    @Test func disabledFeedOpeningCoordinatorCannotCreateEntryPoints() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+        let workspaceCount = manager.tabs.count
+        let panelCount = workspace.panels.count
+        let coordinator = FeedOpeningCoordinator(isEnabled: { false })
+
+        #expect(coordinator.openPinnedWorkspace(in: manager) == nil)
+        #expect(coordinator.openPane(in: workspace) == nil)
+        #expect(manager.tabs.count == workspaceCount)
+        #expect(workspace.panels.count == panelCount)
+    }
+
+    @MainActor
     @Test func disabledFeedCannotRestoreOrCreatePaneSurface() throws {
         let flags = CmuxFeatureFlags.shared
         let definition = try #require(
