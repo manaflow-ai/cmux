@@ -128,4 +128,34 @@ struct SidebarSelectionCoalescerTests {
         await drain()
         #expect(applied == ["a"])
     }
+
+    @Test
+    func flushAppliesPendingSynchronously() async {
+        let clock = SidebarTestManualClock()
+        let coalescer = SidebarSelectionCoalescer(window: .milliseconds(100), clock: clock)
+        var applied: [String] = []
+        coalescer.request { applied.append("a") }
+        clock.advance(by: .milliseconds(10))
+        // Plain click still inside the window: pending, not yet applied.
+        coalescer.request { applied.append("b") }
+        #expect(applied == ["a"])
+        // A modifier click flushes the pending selection before extending
+        // it ("click A, cmd-click B" must select both, not drop A).
+        coalescer.flushNow()
+        #expect(applied == ["a", "b"])
+        // The cancelled trailing task must not double-apply.
+        clock.advance(by: .milliseconds(500))
+        await drain()
+        #expect(applied == ["a", "b"])
+    }
+
+    @Test
+    func flushWithNothingPendingIsANoOp() async {
+        let clock = SidebarTestManualClock()
+        let coalescer = SidebarSelectionCoalescer(window: .milliseconds(100), clock: clock)
+        var applied: [String] = []
+        coalescer.request { applied.append("a") }
+        coalescer.flushNow()
+        #expect(applied == ["a"])
+    }
 }

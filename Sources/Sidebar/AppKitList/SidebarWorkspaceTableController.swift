@@ -37,6 +37,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if let resizeDidEndObserver {
             NotificationCenter.default.removeObserver(resizeDidEndObserver)
         }
+        previewBailoutTask?.cancel()
     }
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
@@ -131,6 +132,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         selectedScrollTargetWorkspaceId: UUID?
     ) {
         guard let containerView else { return }
+        // Authoritative render: reconciles any optimistic preview, so the
+        // preview bailout stands down.
+        applyGeneration &+= 1
+        previewBailoutTask?.cancel()
+        previewBailoutTask = nil
         self.actions = actions
         actions.attachScrollView(containerView.scrollView)
         configureDropViews(in: containerView, actions: actions)
@@ -162,6 +168,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // live) and re-measure once the width settles.
             scheduleWidthRemeasure()
         }
+        // Releasing a pump override changes what heightOfRow answers, so the
+        // released rows must be re-noted like any other height change.
+        // Clearing silently left the table on the override height while the
+        // cache served the measured one — the row clipping/overlap reports
+        // (probe: served=48 actual=50 on every streaming row).
+        if !pumpHeightOverrides.isEmpty {
+            for (index, row) in nextRows.enumerated() where pumpHeightOverrides[row.id] != nil {
+                heightChanges.insert(index)
+            }
+        }
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         rows = nextRows
 
@@ -174,13 +190,80 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
 #endif
         if hasStructuralChanges {
-            containerView.tableView.reloadData()
+            let previousIds = previousRows.map(\.id)
+            let nextIds = nextRows.map(\.id)
+            // Positional mismatches bound the number of moveRow calls a drag
+            // needs (a single dragged row misaligns one contiguous span).
+            // Multiset equality (not Set) so duplicate ids — corrupt state —
+            // never masquerade as a pure reorder; and past the threshold the
+            // move planner's rescans would go quadratic, so bulk permutations
+            // take the reload path (they gain nothing from animation).
+            let mismatches = zip(previousIds, nextIds).reduce(into: 0) { count, pair in
+                if pair.0 != pair.1 { count += 1 }
+            }
+            if previousIds.count == nextIds.count,
+               mismatches <= Self.maxAnimatedReorderMoves,
+               Self.multisetEqual(previousIds, nextIds) {
+                // Pure reorder (drag-drop): move rows in place. reloadData
+                // tears down every visible cell and snaps the scroll
+                // position — the "click to reorder is jank" report — while
+                // moves keep cells alive and settle smoothly.
+                let table = containerView.tableView
+                table.beginUpdates()
+                var current = previousIds
+                for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
+                    guard let fromIndex = current.firstIndex(of: nextIds[targetIndex]) else { continue }
+                    table.moveRow(at: fromIndex, to: targetIndex)
+                    current.remove(at: fromIndex)
+                    current.insert(nextIds[targetIndex], at: targetIndex)
+                }
+                table.endUpdates()
+                // Per-index state (first-row flag, drop-indicator geometry)
+                // shifts with the order even when per-id content didn't.
+                let visible = table.rows(in: table.visibleRect)
+                if visible.length > 0 {
+                    reconfigureVisibleRows(
+                        IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
+                    )
+                }
+                if !heightChanges.isEmpty {
+                    noteHeightOfRowsWithoutAnimation(table, heightChanges)
+                }
+            } else {
+                containerView.tableView.reloadData()
+            }
         } else {
             reconfigureVisibleRows(contentChanges)
             if !heightChanges.isEmpty {
                 noteHeightOfRowsWithoutAnimation(containerView.tableView, heightChanges)
             }
         }
+
+#if DEBUG
+        // Height-drift probe (row clipping reports): the height the cache
+        // would serve vs the height the table is actually using. Any drift
+        // means a noteHeightOfRows was missed for that row. rect(ofRow:)
+        // includes intercellSpacing — subtract it or every row reports a
+        // phantom constant drift.
+        do {
+            let table = containerView.tableView
+            let spacing = table.intercellSpacing.height
+            let probeWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
+            let visible = table.rows(in: table.visibleRect)
+            for row in visible.lowerBound..<(visible.lowerBound + visible.length)
+            where rows.indices.contains(row) {
+                let served = pumpHeightOverrides[rows[row].id]
+                    ?? rowHeightCache.height(for: rows[row], columnWidth: probeWidth)
+                    ?? rows[row].estimatedHeight
+                let actual = table.rect(ofRow: row).height - spacing
+                if abs(served - actual) > 0.5 {
+                    cmuxDebugLog(
+                        "sidebar.heightDrift row=\(row) served=\(served) actual=\(actual) width=\(probeWidth)"
+                    )
+                }
+            }
+        }
+#endif
 
         let shouldScrollAfterWorkspaceChange = SidebarSelectedWorkspaceScrollPolicy
             .shouldScrollSelectedWorkspace(
@@ -214,9 +297,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // must not re-read the keyboard ~100ms later.
             let modifiers = NSEvent.modifierFlags
             if modifiers.contains(.command) || modifiers.contains(.shift) {
-                // Multi-select mutations are order-dependent; apply in order,
-                // never dropping intermediates.
-                selectionCoalescer.cancel()
+                // Multi-select mutations are order-dependent and extend the
+                // selection the user currently sees: flush (not drop) a
+                // plain click still in the coalescing window first.
+                selectionCoalescer.flushNow()
                 actions.commands.updateSelection(modifiers: modifiers)
             } else {
                 selectionCoalescer.request {
@@ -229,7 +313,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // optimistic anchor-active treatment).
             let modifiers = NSEvent.modifierFlags
             if modifiers.contains(.command) || modifiers.contains(.shift) {
-                selectionCoalescer.cancel()
+                selectionCoalescer.flushNow()
                 headerActions.onFocusAnchor()
             } else {
                 selectionCoalescer.request {
@@ -345,14 +429,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // visible row peeled. Drop the queued selection and restore visible
         // cells from their stored models before drop targets paint.
         selectionCoalescer.cancel()
-        if let table = containerView?.tableView {
-            let visible = table.rows(in: table.visibleRect)
-            if visible.length > 0 {
-                reconfigureVisibleRows(
-                    IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
-                )
-            }
-        }
+        previewBailoutTask?.cancel()
+        previewBailoutTask = nil
+        restoreVisibleCellPaint()
         if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
             positionAppKitDropIndicator()
         }
@@ -395,9 +474,67 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 // preview selection; a replaced header preview must peel too.
                 (cellView as? SidebarGroupHeaderTableCellView)?.clearOptimisticAnchorActive()
             }
+            workspaceCell?.showOptimisticSelectionHighlight()
+        } else {
+            // A modifier click joins the multi-selection: preview the dim
+            // multi-select tint, not the full active treatment (which made
+            // every cmd-click flash bright and settle dim).
+            workspaceCell?.showOptimisticMultiSelection()
         }
-        workspaceCell?.showOptimisticSelectionHighlight()
         headerCell?.showOptimisticAnchorActive()
+        // Optimistic paint is only reconciled by an authoritative apply, and
+        // some presses never produce one (drag that lands where it started,
+        // press swallowed by the drag threshold, selection unchanged). Left
+        // alone, those strand the peel — the sidebar shows NO selection until
+        // an unrelated change repaints. Restore truth if no apply arrives.
+        schedulePreviewBailout()
+    }
+
+    /// A user drag misaligns one contiguous span (single-digit moves); past
+    /// this, the per-move array rescans trend quadratic and the reload path
+    /// is both cheaper and visually equivalent for bulk permutations.
+    static let maxAnimatedReorderMoves = 32
+
+    static func multisetEqual(
+        _ a: [SidebarWorkspaceRenderItemID],
+        _ b: [SidebarWorkspaceRenderItemID]
+    ) -> Bool {
+        guard a.count == b.count else { return false }
+        var counts: [SidebarWorkspaceRenderItemID: Int] = [:]
+        counts.reserveCapacity(a.count)
+        for id in a { counts[id, default: 0] += 1 }
+        for id in b {
+            guard let count = counts[id], count > 0 else { return false }
+            counts[id] = count - 1
+        }
+        return true
+    }
+
+    private var applyGeneration: UInt64 = 0
+    private var previewBailoutTask: Task<Void, Never>?
+    private let previewBailoutClock = ContinuousClock()
+
+    private func schedulePreviewBailout() {
+        previewBailoutTask?.cancel()
+        let generation = applyGeneration
+        // Injected-Clock sleep with cancellation (bounded-delay policy); the
+        // authoritative apply cancels it and bumps the generation.
+        previewBailoutTask = Task { [weak self, previewBailoutClock] in
+            try? await previewBailoutClock.sleep(for: .milliseconds(400))
+            guard let self, !Task.isCancelled, self.applyGeneration == generation else { return }
+            self.previewBailoutTask = nil
+            self.restoreVisibleCellPaint()
+        }
+    }
+
+    private func restoreVisibleCellPaint() {
+        guard let table = containerView?.tableView else { return }
+        let visible = table.rows(in: table.visibleRect)
+        for row in visible.lowerBound..<(visible.lowerBound + visible.length) {
+            let cellView = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+            (cellView as? SidebarWorkspaceRowTableCellView)?.restoreStoredModelPaint()
+            (cellView as? SidebarGroupHeaderTableCellView)?.clearOptimisticAnchorActive()
+        }
     }
 
     func middleClick(row: Int) {
@@ -531,10 +668,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // it forces a full settle even when the drag ends back at the width
         // it started from.
         guard width != lastMeasuredWidth || hasLiveMeasuredRows else { return }
-        let changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
+        var changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
         lastMeasuredWidth = width
         hasLiveMeasuredRows = false
         lastLiveMeasuredWidth = 0
+        // Same rule as apply(): released pump overrides change what
+        // heightOfRow answers, so those rows re-note even when the cache
+        // entry itself didn't move.
+        if !pumpHeightOverrides.isEmpty {
+            for (index, row) in rows.enumerated() where pumpHeightOverrides[row.id] != nil {
+                changed.insert(index)
+            }
+        }
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         if !changed.isEmpty {
             if let table = containerView?.tableView { noteHeightOfRowsWithoutAnimation(table, changed) }
