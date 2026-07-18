@@ -102,11 +102,9 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderrPipe
         try process.run()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let stderr = String(
-            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return (process.terminationStatus, stderr)
     }
 }
