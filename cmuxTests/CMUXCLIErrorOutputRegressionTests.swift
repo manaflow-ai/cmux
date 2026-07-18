@@ -1077,6 +1077,46 @@ import Testing
         XCTAssertTrue(openEnvironment.contains("CMUX_TAG=keepme"), openEnvironment.joined(separator: "\n"))
     }
 
+    @Test func testDeliveryProcessGroupMarkerIsConsumedBeforeSpawningChildren() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-delivery-group-marker-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let fakeOpenURL = root.appendingPathComponent("open", isDirectory: false)
+        let openLogURL = root.appendingPathComponent("open-args.txt", isDirectory: false)
+        let openEnvLogURL = root.appendingPathComponent("open-env.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try fakeOpenScript().write(to: fakeOpenURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeOpenURL.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] = "1"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TEST_OPEN_TOOL_PATH"] = fakeOpenURL.path
+        environment["CMUX_TEST_OPEN_LOG"] = openLogURL.path
+        environment["CMUX_TEST_OPEN_ENV_LOG"] = openEnvLogURL.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["."],
+            environment: environment,
+            currentDirectoryURL: workingDirectory,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let childEnvironment = try readFakeOpenEnvironment(from: openEnvLogURL)
+        XCTAssertFalse(
+            childEnvironment.contains { $0.hasPrefix("CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=") },
+            childEnvironment.joined(separator: "\n")
+        )
+    }
+
     @Test func testBareRelativeDirectoryPathOpenBypassesProtectedSocketForExternalCLI() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

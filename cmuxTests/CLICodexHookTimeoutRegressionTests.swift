@@ -292,6 +292,88 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(feed.allSatisfy { $0.command.hasSuffix(".sh") && !codexHookExecutableIsMachO($0.command) })
     }
 
+    @Test func codexHookUpgradeReplacesPersistentScriptsWithoutSharedPathCollisions() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-native-upgrade-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hooksDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let lifecycleEvents = [
+            (agentEvent: "SessionStart", subcommand: "session-start"),
+            (agentEvent: "UserPromptSubmit", subcommand: "prompt-submit"),
+            (agentEvent: "Stop", subcommand: "stop"),
+        ]
+        var installedHooks: [String: Any] = [:]
+        for event in lifecycleEvents {
+            let previousPath = hooksDirectory
+                .appendingPathComponent("cmux-codex-hook-persistent-\(event.subcommand).sh")
+            try makeCodexHookExecutableShellFile(at: previousPath, lines: ["#!/bin/sh", "exit 0"])
+            installedHooks[event.agentEvent] = [[
+                "hooks": [[
+                    "command": previousPath.path,
+                    "timeout": 10,
+                    "type": "command",
+                ]],
+            ]]
+        }
+        let userCommand = "printf 'keep-user-hook'"
+        var sessionStart = try #require(installedHooks["SessionStart"] as? [[String: Any]])
+        sessionStart.append([
+            "hooks": [[
+                "command": userCommand,
+                "timeout": 10,
+                "type": "command",
+            ]],
+        ])
+        installedHooks["SessionStart"] = sessionStart
+        let hooksJSON: [String: Any] = ["hooks": installedHooks]
+        try JSONSerialization.data(withJSONObject: hooksJSON, options: [.prettyPrinted, .sortedKeys])
+            .write(to: codexHome.appendingPathComponent("hooks.json"), options: .atomic)
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let hooks = try codexHookEntries(in: codexHome)
+        #expect(hooks.contains { $0.command == userCommand })
+        #expect(!hooks.contains { $0.command.contains("cmux-codex-hook-persistent-") })
+        for event in lifecycleEvents {
+            let entries = hooks.filter { $0.eventName == event.agentEvent }
+            let nativeEntries = entries.filter { codexHookExecutableIsMachO($0.command) }
+            let historicalSharedPath = hooksDirectory
+                .appendingPathComponent("cmux-codex-hook-\(event.subcommand).sh")
+            #expect(nativeEntries.count == 1)
+            #expect(nativeEntries[0].command != historicalSharedPath.path)
+            #expect(nativeEntries[0].command.hasSuffix("cmux-codex-native-hook-\(event.subcommand)"))
+
+            // An older concurrently running cmux still rewrites this historical
+            // wrapper path. That must not change the installed native helper.
+            try makeCodexHookExecutableShellFile(
+                at: historicalSharedPath,
+                lines: ["#!/bin/sh", "sleep 30"]
+            )
+            #expect(codexHookExecutableIsMachO(nativeEntries[0].command))
+        }
+        let expectedFeedEvents: Set<String> = [
+            "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact",
+            "PostCompact", "SubagentStart", "SubagentStop",
+        ]
+        let feedHooks = hooks.filter { $0.body.contains("hooks feed --source codex") }
+        let installedFeedEvents = Set(feedHooks.compactMap { hook in
+            expectedFeedEvents.first { hook.body.contains("--event \($0)") }
+        })
+        #expect(feedHooks.count == expectedFeedEvents.count)
+        #expect(installedFeedEvents == expectedFeedEvents)
+    }
+
     @Test func codexHookGenerationFallsBackToPortableShellWithoutNativeClient() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -317,6 +399,76 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(shell.contains("/usr/bin/base64"))
         #expect(shell.contains("/usr/bin/nc"))
         #expect(shell.contains("hooks codex enqueue session-start"))
+    }
+
+    @Test func codexPortableHookBoundsSlowCLIFallbackAndPreservesPayload() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-portable-deadline-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux-slow-fallback", isDirectory: false)
+        let capturedInput = root.appendingPathComponent("captured-input.bin", isDirectory: false)
+        let leaderPIDFile = root.appendingPathComponent("leader.pid", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer {
+            if let rawPID = try? String(contentsOf: leaderPIDFile, encoding: .utf8),
+               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                Darwin.kill(pid, SIGKILL)
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        var generationEnvironment = codexHookTestEnvironment(root: root, codexHome: codexHome)
+        generationEnvironment["CMUX_CODEX_HOOK_CLIENT_PATH"] = root.appendingPathComponent("missing-client").path
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: generationEnvironment,
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let hookPath = hooksDirectory
+            .appendingPathComponent("cmux-codex-portable-hook-session-start.sh", isDirectory: false)
+            .path
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s' \"$$\" > \"$CMUX_TEST_LEADER_PID\"",
+            "cat > \"$CMUX_TEST_INPUT\"",
+            "trap 'exit 143' TERM",
+            "while :; do :; done",
+        ])
+        let payload = Data([0x00, 0x22, 0x5C, 0x7F, 0x80, 0xFF, 0x0A])
+        let started = ContinuousClock.now
+        let result = runCodexHookProcess(
+            executablePath: hookPath,
+            arguments: [],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "surface-portable-fallback",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-portable-missing.sock",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_TEST_INPUT": capturedInput.path,
+                "CMUX_TEST_LEADER_PID": leaderPIDFile.path,
+            ],
+            standardInputData: payload,
+            timeout: 3
+        )
+        let elapsed = started.duration(to: .now)
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(elapsed < .seconds(1))
+        #expect(try Data(contentsOf: capturedInput) == payload)
+        let rawPID = try String(contentsOf: leaderPIDFile, encoding: .utf8)
+        let leaderPID = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
+        let leaderGone = waitForCondition(timeout: 1) {
+            Darwin.kill(leaderPID, 0) == -1
+        }
+        #expect(leaderGone)
     }
 
     @Test func codexLifecycleHooksEnqueueWithoutDetachedProcessTrees() throws {
