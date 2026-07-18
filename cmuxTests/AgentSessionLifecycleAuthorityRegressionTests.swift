@@ -1637,4 +1637,65 @@ extension CMUXCLIErrorOutputRegressionTests {
             ) == .completeRecordedGeneration(.terminalLaunch)
         )
     }
+
+    @Test func unknownLiveNativeArgvCannotPublishRestoreAuthority() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-live-unknown-argv-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/usr/bin/yes", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["--future-one-shot-mode"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("codex-hook-sessions.json").path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+        ], agentName: "codex")
+        #expect(try store.upsert(
+            sessionId: "unknown-live-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: Int(process.processIdentifier),
+            markActive: true
+        ))
+
+        let record = try #require(try store.lookup(sessionId: "unknown-live-session"))
+        #expect(record.completedAt == nil)
+        #expect(record.restoreAuthority == false)
+        #expect(record.runs?.first { $0.runId == record.activeRunId }?.restoreAuthority == false)
+    }
+
+    @Test func legacyUnknownLineageWithoutPIDRetainsRestoreAuthority() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-legacy-no-pid-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("hook-sessions.json").path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+        ], agentName: "future-agent")
+        #expect(try store.upsert(
+            sessionId: "legacy-no-pid-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: nil,
+            markActive: true
+        ))
+
+        let record = try #require(try store.lookup(sessionId: "legacy-no-pid-session"))
+        #expect(record.restoreAuthority == true)
+    }
 }
