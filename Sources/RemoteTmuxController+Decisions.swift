@@ -149,14 +149,20 @@ extension RemoteTmuxController {
     ///   `select-window`s the remote, so the selected tab's window is targeted by
     ///   id rather than relying on tmux's current window.
     ///
-    /// Working directory: when non-blank, appends `-c '<path>'` so the new tab
-    /// opens in the active tab's directory (like a local new tab). Without `-c`,
-    /// tmux uses its default-path. The path is single-quoted so spaces and shell
-    /// metacharacters survive tmux's parser (the quoting the `rename-*` commands
-    /// use on this stream); a path carrying CR/LF/control bytes that could
-    /// terminate the command line is dropped, leaving the placement-only command.
-    /// Background requests add `-d`; focused requests ask tmux to print the stable
-    /// new window id so focus can be applied only after the mirror tab exists.
+    /// Working directory: when a concrete path is known, appends `-c '<path>'` so
+    /// the new tab opens in the active tab's directory (like a local new tab). The
+    /// path is single-quoted so spaces and shell metacharacters survive tmux's
+    /// parser (the quoting the `rename-*` commands use on this stream); a path
+    /// carrying CR/LF/control bytes that could terminate the command line is
+    /// treated as unknown. When no concrete path is known, falls back to
+    /// `-c '#{pane_current_path}'` — the target window's own active-pane
+    /// directory, which tmux expands server-side — rather than omitting `-c`.
+    /// Omitting it lets tmux pick the session's start directory, which for a
+    /// session cmux created is cmux's process cwd (`/` when launched from Finder),
+    /// so a new tab would land in the filesystem root instead of the current
+    /// directory. Background requests add `-d`; focused requests ask tmux to print
+    /// the stable new window id so focus can be applied only after the mirror tab
+    /// exists.
     nonisolated static func newWindowCommand(
         afterWindowId: Int?,
         workingDirectory: String?,
@@ -170,6 +176,11 @@ extension RemoteTmuxController {
            !directory.isEmpty,
            RemoteTmuxHost.controlModeLineSafeName(directory) != nil {
             command += " -c \(RemoteTmuxHost.shellSingleQuoted(directory))"
+        } else {
+            // Inherit the target window's active-pane directory (tmux expands the
+            // format server-side against the `-t` target), so a new tab never
+            // falls through to the session start dir / cmux's `/` process cwd.
+            command += " -c '#{pane_current_path}'"
         }
         return command
     }

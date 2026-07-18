@@ -147,10 +147,20 @@ actor RemoteTmuxSSHTransport {
         try await assertMinimumTmuxVersion(checkClientWhenNoServer: createIfEmpty)
         var sessions = try await listSessions()
         if sessions.isEmpty, createIfEmpty {
-            _ = try? await runTmux(["new-session", "-d"])
+            _ = try? await runTmux(["new-session", "-d"] + Self.localStartDirectoryArgs(host: host))
             sessions = try await listSessions()
         }
         return sessions
+    }
+
+    /// `-c <home>` for a session cmux creates on the LOCAL server, so it does not
+    /// inherit cmux's own process cwd (`/` when launched from Finder) as its start
+    /// directory and strand every `new-window` without `-c` in the filesystem
+    /// root. Empty for SSH hosts: a remote `new-session` already starts in the
+    /// remote login home (sshd runs the command from there), and a local home
+    /// path would be meaningless remotely.
+    nonisolated static func localStartDirectoryArgs(host: RemoteTmuxHost) -> [String] {
+        host.isLocal ? ["-c", NSHomeDirectory()] : []
     }
 
     /// Runs a `tmux <args…>` command on the remote host and returns its result.

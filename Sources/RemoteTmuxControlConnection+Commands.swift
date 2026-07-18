@@ -270,6 +270,11 @@ extension RemoteTmuxControlConnection {
                 sendPerWindowSize(windowId: windowId, columns: size.0, rows: size.1)
             }
         }
+        // A fresh control client starts with no flags, so re-apply a released
+        // size authority (cmux backgrounded across the reconnect) after re-pinning.
+        if sizeAuthorityReleased {
+            send("refresh-client -f ignore-size")
+        }
         // The re-applied size is usually a no-op (the server kept the window at our
         // size across the transport drop), so TUIs get no SIGWINCH — kick them so
         // they repaint over the re-seeded (possibly stale) frame. FIFO-safe: the

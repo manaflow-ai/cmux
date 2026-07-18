@@ -233,6 +233,71 @@ import Testing
         try await waitUntil("%sessions-changed reaches observers") { fired }
     }
 
+    /// Live: releasing size authority sets tmux's `ignore-size` flag on cmux's
+    /// control client (so a co-attached real terminal drives the window size), and
+    /// reclaiming clears it. Asserted through `list-clients` — the server's own
+    /// view of the flag.
+    @Test func sizeAuthorityReleaseTogglesIgnoreSizeFlag() async throws {
+        guard Self.tmuxInstalled() else { return }
+
+        let root = URL(
+            fileURLWithPath: "/tmp/cmux-lt-\(UUID().uuidString.prefix(8))",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let previousTmpdir = getenv("TMUX_TMPDIR").map { String(cString: $0) }
+        setenv("TMUX_TMPDIR", root.path, 1)
+        defer {
+            if let previousTmpdir {
+                setenv("TMUX_TMPDIR", previousTmpdir, 1)
+            } else {
+                unsetenv("TMUX_TMPDIR")
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+        defer { Self.runTmuxSynchronously(["kill-server"]) }
+        let session = "cmux-local-ignoresize"
+        let transport = RemoteTmuxSSHTransport(host: .local)
+        let created = try await transport.runTmux([
+            "new-session", "-d", "-s", session, "-x", "120", "-y", "30",
+        ])
+        try #require(created.succeeded, Comment(rawValue: created.stderr))
+
+        let connection = RemoteTmuxControlConnection(host: .local, sessionName: session)
+        defer { connection.stop() }
+        try connection.start()
+        let connected = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { @MainActor in await connection.waitUntilConnected() }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(20))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        try #require(connected, "local tmux -CC control stream never reached %enter")
+
+        func anyClientIgnoresSize() async -> Bool {
+            let result = try? await transport.runTmux(["list-clients", "-F", "#{client_flags}"])
+            return result?.stdout.contains("ignore-size") ?? false
+        }
+        func waitForIgnoreSize(_ expected: Bool, _ what: String) async throws {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(15))
+            while await anyClientIgnoresSize() != expected {
+                if clock.now > deadline { Issue.record("timed out waiting for \(what)"); return }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
+
+        connection.setSizeAuthorityReleased(true)
+        try await waitForIgnoreSize(true, "ignore-size flag set on the control client")
+
+        connection.setSizeAuthorityReleased(false)
+        try await waitForIgnoreSize(false, "ignore-size flag cleared on the control client")
+    }
+
     /// Synchronous tmux one-shot for `defer` cleanup (a `defer` cannot await,
     /// and an escaped async cleanup would outlive the test's env restoration).
     /// Inherits the live process environment, TMUX_TMPDIR included.

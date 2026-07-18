@@ -170,6 +170,13 @@ final class RemoteTmuxControlConnection {
     var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
     /// Whether the server accepts per-window `refresh-client -C` sizing.
     var supportsPerWindowSize = true
+    /// When true, cmux has released its window-size authority for this connection
+    /// (tmux `refresh-client -f ignore-size`), so co-attached real terminals drive
+    /// each window's size and cmux imposes no ceiling. Set while the cmux app is
+    /// not frontmost; cleared — and the pins re-asserted — when it returns. Kept
+    /// across a reconnect so the fresh control client re-applies it (see
+    /// ``reseedAfterReconnect()``).
+    var sizeAuthorityReleased = false
     /// Instant of the most recent sizing write on this connection — kept for
     /// diagnostics (how stale is the last size request).
     var lastSizingSendAt: ContinuousClock.Instant?

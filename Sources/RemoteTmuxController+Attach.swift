@@ -276,6 +276,7 @@ extension RemoteTmuxController {
         }
         guard let created = try? await transport(for: host).runTmux(
             ["new-session", "-d", "-P", "-F", "#{session_id}"]
+                + RemoteTmuxSSHTransport.localStartDirectoryArgs(host: host)
         ), created.succeeded else {
             fallbackToPlainWorkspace()
             return

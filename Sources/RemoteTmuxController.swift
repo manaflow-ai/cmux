@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CmuxSettings
 import OSLog
@@ -44,7 +45,47 @@ final class RemoteTmuxController {
     /// unconditional re-mirror would resurrect as a duplicate workspace.
     var discoveredSessionIdsByHost: [String: Set<String>] = [:]
 
-    init() {}
+    /// Whether the cmux app is currently frontmost. Drives focus-gated size
+    /// authority: while cmux is NOT frontmost, every mirror connection releases
+    /// its window-size hold so a co-attached real terminal can resize freely; when
+    /// cmux returns to the foreground each connection reclaims and re-imposes its
+    /// grid. See ``RemoteTmuxControlConnection/setSizeAuthorityReleased(_:)``.
+    private var appIsFrontmost = NSApplication.shared.isActive
+    private var appActivationObservers: [NSObjectProtocol] = []
+
+    init() {
+        observeAppActivationForSizeAuthority()
+    }
+
+    /// Registers the frontmost/background observers that gate size authority. The
+    /// notifications post on the main thread and this type is `@MainActor`, so the
+    /// `.main`-queue callbacks are already isolated.
+    private func observeAppActivationForSizeAuthority() {
+        let center = NotificationCenter.default
+        appActivationObservers = [
+            center.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setAppFrontmost(true) }
+            },
+            center.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setAppFrontmost(false) }
+            },
+        ]
+    }
+
+    /// Fans the app's frontmost state out to every live mirror connection: not
+    /// frontmost → release size authority (co-attached terminals drive the size);
+    /// frontmost → reclaim and re-impose cmux's grid.
+    private func setAppFrontmost(_ frontmost: Bool) {
+        guard frontmost != appIsFrontmost else { return }
+        appIsFrontmost = frontmost
+        for connection in connectionsByHostSession.values {
+            connection.setSizeAuthorityReleased(!frontmost)
+        }
+    }
 
     /// Synchronous read of the `remoteTmux` beta flag for AppKit/socket paths
     /// that run outside the SwiftUI update cycle. Resolves the same catalog key
@@ -185,8 +226,20 @@ final class RemoteTmuxController {
             onSessionsChanged: { [weak self, weak connection] in
                 guard let self, let connection else { return }
                 self.scheduleSessionSetReconcile(host: connection.host)
+            },
+            onConnectionStateChanged: { [weak self, weak connection] state in
+                // A connection that first reaches (or reconnects to) `.connected`
+                // while the app is backgrounded must release its size authority
+                // right away, not wait for the next foreground→background edge.
+                guard let self, let connection, state == .connected, !self.appIsFrontmost else { return }
+                connection.applySizeAuthority()
             }
         )
+        // A connection cached while the app is backgrounded starts released; the
+        // state observer above applies it once the stream reaches `.connected`.
+        if !appIsFrontmost {
+            connection.setSizeAuthorityReleased(true)
+        }
     }
 
     @discardableResult
@@ -253,7 +306,10 @@ final class RemoteTmuxController {
                 throw RemoteTmuxError.commandFailed(exitCode: existing.exitCode, stderr: existing.stderr)
             }
 
-            let created = try await transport.runTmux(["new-session", "-d", "-s", sessionName])
+            let created = try await transport.runTmux(
+                ["new-session", "-d", "-s", sessionName]
+                    + RemoteTmuxSSHTransport.localStartDirectoryArgs(host: host)
+            )
             guard created.succeeded else {
                 if let sshArgv = Self.authRequiredAttachArgv(host: host, result: created) {
                     return sshArgv
@@ -763,6 +819,14 @@ final class RemoteTmuxController {
 
     func sessionMirror(workspaceId: UUID) -> RemoteTmuxSessionMirror? {
         sessionMirrors.values.first { $0.mirroredWorkspaceId == workspaceId }
+    }
+
+    /// Whether the mirror for `workspaceId` targets the local tmux server. Used to
+    /// pick the workspace-close policy: closing a LOCAL mirror kills its session
+    /// (two-way sync — cmux is the tmux UI), while an SSH mirror detaches and keeps
+    /// the remote session alive for resume (PR #7264).
+    func mirrorHostIsLocal(workspaceId: UUID) -> Bool {
+        sessionMirror(workspaceId: workspaceId)?.host.isLocal == true
     }
     /// Detaches a control client and removes its mirror workspace while leaving
     /// the remote session alive (#7364). Internal callers that already removed the

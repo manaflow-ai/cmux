@@ -23,7 +23,7 @@ import Testing
     @Test func appendsAtEndWhenNoTargetWindow() {
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: nil, workingDirectory: nil)
-                == "new-window -d -a -t '{end}'"
+                == "new-window -d -a -t '{end}' -c '#{pane_current_path}'"
         )
     }
 
@@ -32,7 +32,7 @@ import Testing
     @Test func insertsAfterSelectedWindow() {
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: nil)
-                == "new-window -d -a -t @7"
+                == "new-window -d -a -t @7 -c '#{pane_current_path}'"
         )
     }
 
@@ -53,7 +53,7 @@ import Testing
                 afterWindowId: 7,
                 workingDirectory: nil,
                 focus: true
-            ) == "new-window -P -F '#{window_id}' -a -t @7"
+            ) == "new-window -P -F '#{window_id}' -a -t @7 -c '#{pane_current_path}'"
         )
     }
 }
