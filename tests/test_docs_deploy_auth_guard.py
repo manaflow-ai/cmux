@@ -6,6 +6,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_WORKFLOW = ROOT / ".github/workflows/docs-deploy-reusable.yml"
 DOCS_VERCEL_CONFIG = ROOT / "web/vercel.docs-channel.json"
+PRODUCTION_VERCEL_CONFIG = ROOT / "web/vercel.json"
 HEALTH_WORKFLOW = ROOT / ".github/workflows/vercel-auth-health.yml"
 
 
@@ -21,6 +22,7 @@ class DocsDeployAuthGuardTests(unittest.TestCase):
     def test_docs_deploy_excludes_production_crons(self) -> None:
         workflow = DEPLOY_WORKFLOW.read_text()
         config = json.loads(DOCS_VERCEL_CONFIG.read_text())
+        production_config = json.loads(PRODUCTION_VERCEL_CONFIG.read_text())
 
         self.assertIn(
             "cp web/vercel.docs-channel.json web/vercel.json",
@@ -28,7 +30,10 @@ class DocsDeployAuthGuardTests(unittest.TestCase):
         )
         self.assertNotIn("--local-config", workflow)
         self.assertNotIn("crons", config)
-        self.assertEqual(config["regions"], ["pdx1"])
+        self.assertEqual(
+            config,
+            {key: value for key, value in production_config.items() if key != "crons"},
+        )
 
     def test_vercel_auth_is_checked_daily(self) -> None:
         workflow = HEALTH_WORKFLOW.read_text()
