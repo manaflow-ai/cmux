@@ -603,6 +603,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
 /// change text has been typed yet.
 final class BrowserDesignModeTokenTextView: NSTextView {
     private var tokenTrackingArea: NSTrackingArea?
+    private var hoveredTokenHit: (
+        identity: String,
+        cell: BrowserDesignModeTokenCell,
+        frame: NSRect
+    )?
     var onHoveredTokenIdentityChanged: ((String?) -> Void)?
     private(set) var hoveredTokenIdentity: String? {
         didSet {
@@ -627,45 +632,51 @@ final class BrowserDesignModeTokenTextView: NSTextView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        hoveredTokenIdentity = tokenFrames().first(where: {
-            $0.frame.insetBy(dx: -2, dy: -2).contains(convert(event.locationInWindow, from: nil))
-        })?.identity
+        let previousFrame = hoveredTokenHit?.frame
+        let hit = tokenHit(at: convert(event.locationInWindow, from: nil))
+        hoveredTokenHit = hit
+        if previousFrame != hit?.frame {
+            window?.invalidateCursorRects(for: self)
+        }
+        hoveredTokenIdentity = hit?.identity
         super.mouseMoved(with: event)
     }
 
     override func mouseExited(with event: NSEvent) {
+        hoveredTokenHit = nil
         hoveredTokenIdentity = nil
         super.mouseExited(with: event)
     }
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        for token in tokenFrames() where token.identity == hoveredTokenIdentity {
-            addCursorRect(token.cell.deleteHitRect(in: token.frame), cursor: .pointingHand)
+        if let hit = hoveredTokenHit, hit.identity == hoveredTokenIdentity {
+            addCursorRect(hit.cell.deleteHitRect(in: hit.frame), cursor: .pointingHand)
         }
     }
 
-    private func tokenFrames() -> [(identity: String, cell: BrowserDesignModeTokenCell, frame: NSRect)] {
-        guard let storage = textStorage, let layoutManager, let textContainer else { return [] }
-        var tokens: [(String, BrowserDesignModeTokenCell, NSRect)] = []
-        storage.enumerateAttribute(
-            .attachment,
-            in: NSRange(location: 0, length: storage.length)
-        ) { value, range, _ in
-            guard let attachment = value as? BrowserDesignModeTokenAttachment,
-                  let cell = attachment.attachmentCell as? BrowserDesignModeTokenCell else { return }
-            let glyphRange = layoutManager.glyphRange(
-                forCharacterRange: range,
-                actualCharacterRange: nil
-            )
-            let containerFrame = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-            tokens.append((
-                attachment.identity,
-                cell,
-                containerFrame.offsetBy(dx: textContainerInset.width, dy: textContainerInset.height)
-            ))
-        }
-        return tokens
+    func tokenHit(
+        at point: NSPoint
+    ) -> (identity: String, cell: BrowserDesignModeTokenCell, frame: NSRect)? {
+        guard let storage = textStorage, storage.length > 0,
+              let layoutManager, let textContainer else { return nil }
+        let origin = textContainerOrigin
+        let containerPoint = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard characterIndex < storage.length,
+              let attachment = storage.attribute(
+                  .attachment,
+                  at: characterIndex,
+                  effectiveRange: nil
+              ) as? BrowserDesignModeTokenAttachment,
+              let cell = attachment.attachmentCell as? BrowserDesignModeTokenCell else { return nil }
+        let frame = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            in: textContainer
+        ).offsetBy(dx: origin.x, dy: origin.y)
+        guard frame.insetBy(dx: -2, dy: -2).contains(point) else { return nil }
+        return (attachment.identity, cell, frame)
     }
 
     override func draw(_ dirtyRect: NSRect) {
