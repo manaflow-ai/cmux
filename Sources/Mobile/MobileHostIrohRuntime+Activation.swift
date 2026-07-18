@@ -115,6 +115,7 @@ extension MobileHostIrohRuntime {
                 broker: broker
             )
             let effective: CmxIrohEffectiveRelayPolicy
+            diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
             do {
                 effective = try await service.refresh(
                     endpointID: derivedEndpointID,
@@ -122,7 +123,12 @@ extension MobileHostIrohRuntime {
                     trustRoot: relayPolicyTrustRoot,
                     now: Date()
                 )
+                diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
             } catch {
+                diagnosticLog.record(DiagnosticEvent(
+                    .relayPolicyRefreshFailed,
+                    b: Self.diagnosticFailureKind(for: error).rawValue
+                ))
                 effective = await service.restore(
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
@@ -188,7 +194,11 @@ extension MobileHostIrohRuntime {
             configuration: configuration,
             pendingRevocations: pendingRevocations,
             protocolConfiguration: protocolConfiguration,
-            handleTransport: { session, isCurrent in
+            handleTransport: { [diagnosticLog] session, isCurrent in
+                diagnosticLog.record(DiagnosticEvent(
+                    .admissionSucceeded,
+                    a: DiagnosticTransportKind.iroh.rawValue
+                ))
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
                 )
@@ -209,6 +219,10 @@ extension MobileHostIrohRuntime {
                     group.cancelAll()
                     await session.close()
                     await laneRouter.stop()
+                    diagnosticLog.record(DiagnosticEvent(
+                        .sessionClosed,
+                        a: DiagnosticTransportKind.iroh.rawValue
+                    ))
                 }
             },
             handleBinding: { [weak self] registration, discovery, attestation in
@@ -343,6 +357,10 @@ extension MobileHostIrohRuntime {
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
+        diagnosticLog.record(DiagnosticEvent(
+            .endpointActive,
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
         relayPolicyService = resolvedPolicyService
         relayPolicyEffective = resolvedEffectivePolicy
         relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()

@@ -215,67 +215,87 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
 
 pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
-    let Some(menu) = app.menu.as_mut() else { return };
-    menu.fit_to_rows(screen.height.saturating_sub(2) as usize);
-
-    // Clamp to the screen and write the final rect back so click and
-    // hover hit-testing match what is drawn.
-    let width = menu.rect.width.min(screen.width);
-    let height = menu.rect.height.min(screen.height);
-    let x = menu.rect.x.min(screen.width.saturating_sub(width));
-    let y = menu.rect.y.min(screen.height.saturating_sub(height));
-    menu.rect = Rect { x, y, width, height };
-    if width < 2 || height < 2 {
-        return;
-    }
-
     let chrome = app.chrome;
+    let Some(menu) = app.menu.as_mut() else { return };
     let base = Style::default().bg(chrome.menu_bg).fg(chrome.menu_fg);
     let border = base.fg(chrome.menu_border);
     let selected = Style::default()
         .bg(chrome.menu_selected_bg)
         .fg(chrome.menu_selected_fg)
         .add_modifier(Modifier::BOLD);
-    let buf = frame.buffer_mut();
-
-    for dy in 0..height {
-        for dx in 0..width {
-            set_cell(buf, x + dx, y + dy, " ", base);
-        }
-    }
-    draw_border(buf, menu.rect, border);
-
-    let pad = ContextMenu::PAD;
-    let inner_x = x + 1;
-    let inner_y = y + 1;
-    let inner_w = width.saturating_sub(2);
-    let inner_h = height.saturating_sub(2);
-    for (i, item) in menu.items.iter().enumerate() {
-        let row_y = inner_y + i as u16;
-        if i as u16 >= inner_h {
-            break;
-        }
-        if *item == MenuItem::Separator {
-            set_cell(buf, x, row_y, "├", border);
-            for dx in 0..inner_w {
-                set_cell(buf, inner_x + dx, row_y, "─", border);
-            }
-            set_cell(buf, x + width - 1, row_y, "┤", border);
+    for depth in 0..menu.levels.len() {
+        menu.levels[depth].fit_to_rows(screen.height.saturating_sub(2) as usize);
+        let width = menu.levels[depth].rect.width.min(screen.width);
+        let height = menu.levels[depth].rect.height.min(screen.height);
+        let (desired_x, desired_y) = if depth == 0 {
+            (menu.levels[depth].rect.x, menu.levels[depth].rect.y)
+        } else {
+            let parent = &menu.levels[depth - 1];
+            let right_x = parent.rect.x.saturating_add(parent.rect.width.saturating_sub(1));
+            let x = if right_x.saturating_add(width) <= screen.x.saturating_add(screen.width) {
+                right_x
+            } else {
+                parent.rect.x.saturating_sub(width.saturating_sub(1))
+            };
+            (
+                x,
+                parent
+                    .rect
+                    .y
+                    .saturating_add(1)
+                    .saturating_add(parent.selected.saturating_sub(parent.scroll_offset) as u16),
+            )
+        };
+        let x = desired_x.min(screen.width.saturating_sub(width));
+        let y = desired_y.min(screen.height.saturating_sub(height));
+        menu.levels[depth].rect = Rect { x, y, width, height };
+        if width < 2 || height < 2 {
             continue;
         }
-        if let Some(label) = item.label() {
-            let style = if i == menu.selected { selected } else { base };
-            // The highlight spans the full inner row, side padding included.
-            for dx in 0..inner_w {
-                set_cell(buf, inner_x + dx, row_y, " ", style);
+
+        let level = &menu.levels[depth];
+        let buf = frame.buffer_mut();
+        for dy in 0..height {
+            for dx in 0..width {
+                set_cell(buf, x + dx, y + dy, " ", base);
             }
-            buf.set_stringn(
-                inner_x + pad + 1,
-                row_y,
-                label,
-                inner_w.saturating_sub(pad * 2) as usize,
-                style,
-            );
+        }
+        draw_border(buf, level.rect, border);
+
+        let pad = ContextMenu::PAD;
+        let inner_x = x + 1;
+        let inner_y = y + 1;
+        let inner_w = width.saturating_sub(2);
+        let inner_h = height.saturating_sub(2);
+        for (i, item) in
+            level.items.iter().enumerate().skip(level.scroll_offset).take(inner_h as usize)
+        {
+            let row_y = inner_y + (i - level.scroll_offset) as u16;
+            if *item == MenuItem::Separator {
+                set_cell(buf, x, row_y, "├", border);
+                for dx in 0..inner_w {
+                    set_cell(buf, inner_x + dx, row_y, "─", border);
+                }
+                set_cell(buf, x + width - 1, row_y, "┤", border);
+                continue;
+            }
+            if let Some(label) = item.label() {
+                let style = if i == level.selected { selected } else { base };
+                for dx in 0..inner_w {
+                    set_cell(buf, inner_x + dx, row_y, " ", style);
+                }
+                let arrow_width = matches!(item, MenuItem::Submenu { .. }) as u16 * 2;
+                buf.set_stringn(
+                    inner_x + pad + 1,
+                    row_y,
+                    label,
+                    inner_w.saturating_sub(pad * 2 + arrow_width) as usize,
+                    style,
+                );
+                if matches!(item, MenuItem::Submenu { .. }) && inner_w > 2 {
+                    buf.set_stringn(x + width - pad - 3, row_y, " ›", 2, style);
+                }
+            }
         }
     }
 }
