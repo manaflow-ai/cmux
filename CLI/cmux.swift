@@ -30509,6 +30509,27 @@ export default CMUXSessionRestore;
                 return (workspaceId, surfaceId)
             }
 
+            // Explicit flags express operator intent. Ambient CMUX_* values do
+            // not: a pane move leaves the agent process holding the old
+            // workspace while its live PID/TTY binding already identifies the
+            // new workspace and surface. Validate that pair together, then use
+            // it atomically so the live surface is never looked up inside the
+            // stale environment workspace.
+            if hookWsFlag == nil,
+               explicitSurfaceFlag == nil,
+               let binding = processBinding(),
+               let workspaceId = resolveAccessibleWorkspaceId(binding.workspaceId),
+               let surfaceId = resolveAccessibleSurfaceId(binding.surfaceId, workspaceId: workspaceId) {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=liveProcess workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return (workspaceId, surfaceId)
+            }
+
             // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
             // (CMUX_SURFACE_ID), which a launcher or an inherited subprocess can leak as the operator's
             // FOCUSED pane rather than the agent's own pane. When the agent process's controlling TTY
