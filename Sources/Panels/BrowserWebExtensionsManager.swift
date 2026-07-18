@@ -526,7 +526,6 @@ final class BrowserWebExtensionsManager: NSObject {
             extensionIdentifier: context.uniqueIdentifier,
             panelID: panel.id
         )
-        let panelID = panel.id
         let invocation = PendingActionInvocation(
             anchorView: anchorView,
             panelID: panel.id
@@ -537,29 +536,10 @@ final class BrowserWebExtensionsManager: NSObject {
         } else {
             pendingActionInvocations.removeValue(forKey: key)
         }
-        if context.webExtension.hasBackgroundContent {
-            // Event-page and service-worker extensions can suspend between
-            // actions. Warm the background immediately before opening the
-            // popup so runtime.connect() observes its registered listeners.
-            context.loadBackgroundContent { [weak self, weak context, weak tabAdapter] error in
-                guard let self,
-                      !self.isShutDown,
-                      let context,
-                      self.loadedContexts.contains(where: { $0 === context }),
-                      let tabAdapter,
-                      self.tabAdapters[panelID] === tabAdapter else {
-                    return
-                }
-                if let error {
-                    self.backgroundLoadErrors[context.uniqueIdentifier] = error
-                } else {
-                    self.backgroundLoadErrors.removeValue(forKey: context.uniqueIdentifier)
-                }
-                context.performAction(for: tabAdapter)
-            }
-        } else {
-            context.performAction(for: tabAdapter)
-        }
+        // WebKit owns background activation for action events and popups.
+        // Waiting on loadBackgroundContent here can permanently swallow an
+        // action when a service worker keeps that callback pending.
+        context.performAction(for: tabAdapter)
         return true
     }
 
