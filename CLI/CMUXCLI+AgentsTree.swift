@@ -348,6 +348,7 @@ struct AgentTreeTextLineSequence: Sequence {
         private var nextFallbackIndex = 0
         private var stack: [RenderFrame] = []
         private var visited: Set<String> = []
+        private var covered: Set<String> = []
 
         init(snapshot: AgentSessionGraphSnapshot, maximumDepth: Int) {
             self.maximumDepth = maximumDepth
@@ -399,18 +400,31 @@ struct AgentTreeTextLineSequence: Sequence {
             while nextRootIndex < roots.count {
                 let root = roots[nextRootIndex]
                 nextRootIndex += 1
-                guard !visited.contains(root.nodeId) else { continue }
+                guard !covered.contains(root.nodeId) else { continue }
+                markReachable(from: root)
                 stack.append(RenderFrame(node: root, prefix: "", connector: "", depth: 0))
                 return true
             }
             while nextFallbackIndex < nodes.count {
                 let node = nodes[nextFallbackIndex]
                 nextFallbackIndex += 1
-                guard !visited.contains(node.nodeId) else { continue }
+                guard !covered.contains(node.nodeId) else { continue }
+                // Components made entirely of cycles have no root. Mark the
+                // whole component before rendering its fallback seed so a
+                // depth-truncated descendant cannot later reappear as a root.
+                markReachable(from: node)
                 stack.append(RenderFrame(node: node, prefix: "", connector: "", depth: 0))
                 return true
             }
             return false
+        }
+
+        private mutating func markReachable(from root: AgentSessionGraphNode) {
+            var pending = [root]
+            while let node = pending.popLast() {
+                guard covered.insert(node.nodeId).inserted else { continue }
+                pending.append(contentsOf: childrenByNodeID[node.nodeId] ?? [])
+            }
         }
 
         private static func line(
