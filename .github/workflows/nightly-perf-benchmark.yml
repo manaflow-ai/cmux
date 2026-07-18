@@ -8,6 +8,16 @@ on:
         required: false
         default: blacksmith-12vcpu-macos-26
         type: string
+      scenario:
+        description: One benchmark scenario to run
+        required: false
+        default: universal-wmo
+        type: choice
+        options:
+          - universal-wmo
+          - universal-singlefile
+          - arm64-wmo
+          - x86_64-wmo
   pull_request:
     paths:
       - .github/workflows/nightly-perf-benchmark.yml
@@ -24,6 +34,7 @@ concurrency:
 jobs:
   benchmark:
     name: ${{ matrix.scenario }}
+    if: ${{ github.event_name != 'workflow_dispatch' || matrix.scenario == inputs.scenario }}
     runs-on: ${{ inputs.runner || vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 55
     env:
