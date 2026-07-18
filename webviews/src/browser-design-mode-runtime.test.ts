@@ -80,6 +80,10 @@ type DesignRuntime = {
     width: number,
     height: number,
     imageURL: string,
+    expectedScrollX: number,
+    expectedScrollY: number,
+    expectedViewportWidth: number,
+    expectedViewportHeight: number,
   ): Snapshot;
 };
 
@@ -722,6 +726,10 @@ describe("browser design-mode runtime", () => {
       258,
       408,
       "data:image/png;base64,Y2FyZA==",
+      descriptor?.scroll_x ?? 0,
+      descriptor?.scroll_y ?? 0,
+      descriptor?.viewport.width ?? 0,
+      descriptor?.viewport.height ?? 0,
     );
 
     expect(runtime.composerState().annotation_phase).toBe("captured");
@@ -746,7 +754,7 @@ describe("browser design-mode runtime", () => {
         && (message as { request?: { id?: string } }).request?.id !== annotationID,
     ) as { request: { id: string } } | undefined;
     expect(secondRequest).toBeDefined();
-    runtime.prepareAnnotationCapture(secondRequest?.request.id ?? "");
+    const secondDescriptor = runtime.prepareAnnotationCapture(secondRequest?.request.id ?? "");
     const regions = runtime.completeAnnotationCapture(
       secondRequest?.request.id ?? "",
       252,
@@ -754,6 +762,10 @@ describe("browser design-mode runtime", () => {
       156,
       156,
       "data:image/png;base64,Y2FyZDI=",
+      secondDescriptor?.scroll_x ?? 0,
+      secondDescriptor?.scroll_y ?? 0,
+      secondDescriptor?.viewport.width ?? 0,
+      secondDescriptor?.viewport.height ?? 0,
     ).selections ?? [];
     expect(regions).toHaveLength(2);
     expect(regions[1]?.bounds?.x).toBe(252);
@@ -764,7 +776,7 @@ describe("browser design-mode runtime", () => {
   });
 
   test("modes are exclusive: no marquee in select mode, no element picks in draw mode", () => {
-    const { dom, runtime } = fixture(`<main><button id="b">B</button></main>`);
+    const { dom, messages, runtime } = fixture(`<main><button id="b">B</button></main>`);
     const doc = dom.window.document;
     const button = doc.querySelector("#b") as HTMLElement;
     Object.defineProperty(doc, "elementFromPoint", { value: () => button });
@@ -790,7 +802,22 @@ describe("browser design-mode runtime", () => {
     at("pointerdown", 40, 40);
     at("pointermove", 140, 140);
     at("pointerup", 140, 140);
-    const selections = runtime.snapshot().selections ?? [];
+    const request = messages.findLast(
+      (message) => (message as { type?: string }).type === "annotation_capture_requested",
+    ) as { request: { id: string } } | undefined;
+    const descriptor = runtime.prepareAnnotationCapture(request?.request.id ?? "");
+    const selections = runtime.completeAnnotationCapture(
+      request?.request.id ?? "",
+      0,
+      0,
+      188,
+      188,
+      "data:image/png;base64,Y2FyZA==",
+      descriptor?.scroll_x ?? 0,
+      descriptor?.scroll_y ?? 0,
+      descriptor?.viewport.width ?? 0,
+      descriptor?.viewport.height ?? 0,
+    ).selections ?? [];
     expect(selections).toHaveLength(2);
     expect(selections[0]?.selector).toBe("#b");
     expect(selections[1]?.tag_name).toBe("region");
