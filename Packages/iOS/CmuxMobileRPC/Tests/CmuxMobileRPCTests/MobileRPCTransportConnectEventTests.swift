@@ -50,7 +50,7 @@ import Testing
         #expect(failedID == attemptID)
         #expect(failedTransport == .iroh)
         #expect(failure == .unsupportedRoute)
-        #expect(elapsed >= 0)
+        #expect(elapsed.sign == .plus)
     }
 
     @Test func callerCancellationSuppressesCloseInducedFailureAndRetryConnects() async throws {
@@ -121,7 +121,7 @@ import Testing
         #expect(secondTransport == .debugLoopback)
         #expect(connectedID == secondAttemptID)
         #expect(connectedTransport == .debugLoopback)
-        #expect(elapsed >= 0)
+        #expect(elapsed.sign == .plus)
         await session.tearDown(error: .connectionClosed)
     }
 
