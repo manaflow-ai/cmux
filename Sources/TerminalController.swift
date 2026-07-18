@@ -14279,11 +14279,10 @@ class TerminalController {
         return .ok(payload)
     }
 
-    /// Forward a phone scroll gesture to the real surface so libghostty handles
-    /// it per-mode (scrollback in the normal screen, mouse-wheel to the program
-    /// in the alt screen). The producer already exports the live `vp_top`, so
-    /// the resulting viewport mirrors back to the phone; nudge an emit since a
-    /// pure scroll with no PTY output may not fire a render/tick on its own.
+    /// Handle phone scroll RPCs. Primary-screen history stays phone-local and
+    /// uses zero-delta requests only to fetch deeper snapshots. Alternate-
+    /// screen wheel input reaches the real surface so TUIs receive it; nudge an
+    /// emit because wheel input without PTY output may not trigger one itself.
     func v2MobileTerminalScroll(params: [String: Any]) -> V2CallResult {
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error

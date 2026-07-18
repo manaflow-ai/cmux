@@ -8,11 +8,9 @@ private let terminalScrollDeliveryLog = Logger(
 )
 
 extension MobileShellComposite {
-    /// Forward a scroll gesture to the Mac's real surface. libghostty does the
-    /// mode-correct thing: normal screen moves the viewport into scrollback;
-    /// alt screen + mouse reporting encodes mouse-wheel to the PTY for the
-    /// program. The render-grid mirrors the result (it exports the live
-    /// `vp_top`).
+    /// Route a scroll gesture by active screen. The phone owns its primary
+    /// viewport and asks the Mac only for deeper history; alternate-screen wheel
+    /// input still reaches the real PTY so full-screen programs keep scrolling.
     ///
     /// Fire-and-forget and single-flight per surface. Native iOS scrolling can
     /// continue through deceleration after the finger lifts; while one RPC is
@@ -21,19 +19,21 @@ extension MobileShellComposite {
     public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
         var prefetchState = terminalScrollbackPrefetchStatesBySurfaceID[surfaceID]
             ?? TerminalScrollbackPrefetchState()
-        let maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines)
-        terminalScrollbackPrefetchStatesBySurfaceID[surfaceID] = prefetchState
-        enqueueTerminalScroll(TerminalScrollDelivery(
+        let delivery = TerminalScrollDelivery.forScrollGesture(
             surfaceID: surfaceID,
+            activeScreen: terminalActiveScreenBySurfaceID[surfaceID],
             lines: lines,
             col: col,
             row: row,
-            maxScrollbackRows: maxScrollbackRows
-        ))
+            prefetchState: &prefetchState
+        )
+        terminalScrollbackPrefetchStatesBySurfaceID[surfaceID] = prefetchState
+        guard let delivery else { return }
+        enqueueTerminalScroll(delivery)
     }
 
     private func enqueueTerminalScroll(_ delivery: TerminalScrollDelivery) {
-        guard delivery.lines != 0 else { return }
+        guard delivery.lines != 0 || delivery.maxScrollbackRows != nil else { return }
         let queueToken = terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] ?? UUID()
         terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] = queueToken
         var queue = terminalScrollQueuesBySurfaceID[delivery.surfaceID] ?? TerminalScrollDeliveryQueue()
@@ -95,6 +95,13 @@ extension MobileShellComposite {
                   renderGrid.surfaceID == delivery.surfaceID else {
                 return
             }
+            var prefetchState = terminalScrollbackPrefetchStatesBySurfaceID[delivery.surfaceID]
+                ?? TerminalScrollbackPrefetchState()
+            prefetchState.recordResponse(
+                requestedRows: maxScrollbackRows,
+                availableRows: renderGrid.scrollbackRows
+            )
+            terminalScrollbackPrefetchStatesBySurfaceID[delivery.surfaceID] = prefetchState
             deliverAuthoritativeTerminalRenderGrid(
                 renderGrid,
                 expectedSurfaceID: delivery.surfaceID,

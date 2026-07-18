@@ -1540,8 +1540,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
         // The transparent UIScrollView supplies native iOS tracking,
-        // deceleration, and momentum. The Mac still owns terminal semantics:
-        // normal-screen scrollback and alt-screen mouse-wheel delivery.
+        // deceleration, and momentum. The local Ghostty mirror owns primary-
+        // screen scrollback; alternate-screen wheel input still reaches the Mac.
         guard deltaY != 0 else { return }
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
@@ -1552,6 +1552,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
+    /// A complete render-grid rebuild owns the local row space until its
+    /// compare-and-swap restoration finishes. Gesture deltas stay coalesced
+    /// during that window and are applied afterward.
+    private var fullReplacementOutputInFlight = false
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
@@ -1564,13 +1568,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return (col, row)
     }
 
-    private func flushPendingScrollIfNeeded() {
-        guard pendingScrollLines != 0 else { return }
+    func flushPendingScrollIfNeeded() {
+        guard !fullReplacementOutputInFlight, pendingScrollLines != 0 else { return }
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+        let appliedLocally = applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+        // Positive lines move toward older history. Keep delivering them at the
+        // loaded top so the shell can fetch a deeper phone-local window.
+        guard appliedLocally || lines > 0 else { return }
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+    }
+
+    func beginFullReplacementOutput() {
+        fullReplacementOutputInFlight = true
+    }
+
+    func finishFullReplacementOutput(applied: Bool) {
+        fullReplacementOutputInFlight = false
+        if applied {
+            flushPendingScrollIfNeeded()
+        } else {
+            pendingScrollLines = 0
+        }
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -2044,6 +2064,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func processOutput(
         _ data: Data,
         terminalConfigTheme outputConfigTheme: TerminalTheme? = nil,
+        preservingScrollbackOffset: Bool = false,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineRecoveryPaused else {
@@ -2095,6 +2116,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
         workQueue.async { [weak self] in
+            let distanceFromBottom = preservingScrollbackOffset
+                ? GhosttySurfaceScrollPosition(surface: surface).distanceFromBottom()
+                : nil
             if let preparedConfigBits,
                let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
                 ghostty_surface_update_theme_config(surface, preparedConfig)
@@ -2104,6 +2128,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+            }
+            let scrollPositionPreserved = if preservingScrollbackOffset,
+                                             let distanceFromBottom {
+                GhosttySurfaceScrollPosition(surface: surface).restore(distanceFromBottom)
+            } else {
+                !preservingScrollbackOffset
             }
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
@@ -2144,7 +2174,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 if !self.surfaceHasReceivedOutput {
                     self.surfaceHasReceivedOutput = true
                     self.snapshotFallbackView.isHidden = true
-                    self.scrollInitialOutputToBottomIfNeeded()
+                    if preservingScrollbackOffset {
+                        self.shouldScrollInitialOutputToBottom = false
+                    } else {
+                        self.scrollInitialOutputToBottomIfNeeded()
+                    }
                 }
                 let now = CACurrentMediaTime()
                 if now - self.lastProcessOutputLogTime > 1.0 {
@@ -2159,7 +2193,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 self.onOutputProcessedForTesting?()
                 #endif
-                completion?(true)
+                completion?(scrollPositionPreserved)
             }
         }
     }

@@ -11,6 +11,30 @@ import Testing
     #expect(queue.pendingCount == 0)
 }
 
+@Test func terminalOutputDeliveryMarksOnlyFullRenderGridAsReplacement() throws {
+    let full = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 1,
+        text: "full"
+    )
+    let delta = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 2,
+        columns: 12,
+        rows: 1,
+        text: "delta",
+        full: false,
+        changedRows: [0]
+    )
+
+    #expect(TerminalOutputDelivery(renderGrid: full, replaceable: true).isFullReplacement)
+    #expect(!TerminalOutputDelivery(renderGrid: delta, replaceable: true).isFullReplacement)
+    #expect(!TerminalOutputDelivery(theme: full).isFullReplacement)
+    #expect(!TerminalOutputDelivery(bytes: Data(), replaceable: false).isFullReplacement)
+}
+
 @Test func terminalOutputQueueIgnoresCompletionWhenNothingIsInFlight() {
     var queue = TerminalOutputDeliveryQueue()
 

@@ -10,7 +10,7 @@ extension TerminalController {
 
     /// Larger history window returned only on explicit mobile scroll prefetch
     /// requests, keeping ordinary scroll RPCs small.
-    nonisolated static let mobileScrollPrefetchScrollbackLineBudget = 600
+    nonisolated static let mobileScrollPrefetchScrollbackLineBudget = 4800
 
     func mobileTerminalRenderGridFrame(
         terminalPanel: TerminalPanel,

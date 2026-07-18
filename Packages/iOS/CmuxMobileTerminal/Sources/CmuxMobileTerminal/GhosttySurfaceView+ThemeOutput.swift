@@ -32,26 +32,49 @@ extension GhosttySurfaceView {
         _ data: Data,
         terminalConfigTheme: TerminalTheme?
     ) async -> Bool {
+        await processOutputAndWait(
+            data,
+            terminalConfigTheme: terminalConfigTheme,
+            preservingScrollbackOffset: false
+        )
+    }
+
+    private func processOutputAndWait(
+        _ data: Data,
+        terminalConfigTheme: TerminalTheme?,
+        preservingScrollbackOffset: Bool
+    ) async -> Bool {
         await withCheckedContinuation { continuation in
             let operationID = registerPendingOutputApply(
                 byteCount: data.count,
                 continuation: continuation
             )
-            processOutput(data, terminalConfigTheme: terminalConfigTheme) { [weak self] applied in
+            processOutput(
+                data,
+                terminalConfigTheme: terminalConfigTheme,
+                preservingScrollbackOffset: preservingScrollbackOffset
+            ) { [weak self] applied in
                 self?.completePendingOutputApply(id: operationID, returning: applied)
             }
         }
     }
 
-    /// Dedicated seam for complete render-grid replacements. The regression
-    /// test intentionally starts with a plain forward so the first commit
-    /// demonstrates the reset-induced scroll jump.
+    /// Applies a complete render-grid replacement without moving the phone's
+    /// local viewport. Scroll geometry is captured and restored inside the
+    /// same serial Ghostty operation as the terminal rebuild.
     @discardableResult
     public func processFullReplacementOutputAndWait(
         _ data: Data,
         terminalConfigTheme: TerminalTheme? = nil
     ) async -> Bool {
-        await processOutputAndWait(data, terminalConfigTheme: terminalConfigTheme)
+        beginFullReplacementOutput()
+        let applied = await processOutputAndWait(
+            data,
+            terminalConfigTheme: terminalConfigTheme,
+            preservingScrollbackOffset: true
+        )
+        finishFullReplacementOutput(applied: applied)
+        return applied
     }
 
     /// Enqueues the current raw config defaults on this surface's serial Ghostty queue.

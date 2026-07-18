@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -67,14 +68,95 @@ import Testing
     #expect(coalesced.maxScrollbackRows == 600)
 }
 
-@Test func terminalScrollbackPrefetchStatePrimesThenRefreshesByDistance() {
+@Test func terminalScrollbackPrefetchStateOnlyCountsContinuousHistoryMovement() {
     var state = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
 
     #expect(state.rowsToPrefetch(forScrollLines: 0) == nil)
+    #expect(state.rowsToPrefetch(forScrollLines: -1) == nil)
     #expect(state.rowsToPrefetch(forScrollLines: 1) == 600)
     #expect(state.rowsToPrefetch(forScrollLines: 4) == nil)
     #expect(state.rowsToPrefetch(forScrollLines: -5.5) == nil)
-    #expect(state.rowsToPrefetch(forScrollLines: 0.5) == 600)
+    #expect(state.rowsToPrefetch(forScrollLines: 6) == nil)
+    #expect(state.rowsToPrefetch(forScrollLines: 4) == 1200)
+}
+
+@Test func terminalScrollbackPrefetchStatePagesToCapThenStops() {
+    var state = TerminalScrollbackPrefetchState(
+        windowRows: 600,
+        refreshDistanceRows: 10,
+        maxWindowRows: 1800
+    )
+
+    #expect(state.rowsToPrefetch(forScrollLines: 1) == 600)
+    #expect(state.rowsToPrefetch(forScrollLines: 10) == 1200)
+    #expect(state.rowsToPrefetch(forScrollLines: 10) == 1800)
+    state.recordResponse(requestedRows: 1800, availableRows: 1800)
+    #expect(state.rowsToPrefetch(forScrollLines: 100) == nil)
+}
+
+@Test func terminalScrollbackPrefetchStateStopsAfterShortResponse() {
+    var state = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
+
+    #expect(state.rowsToPrefetch(forScrollLines: 1) == 600)
+    state.recordResponse(requestedRows: 600, availableRows: 420)
+    #expect(state.rowsToPrefetch(forScrollLines: 100) == nil)
+}
+
+@Test func terminalScrollGestureRoutingKeepsPrimaryViewportPhoneLocal() {
+    var state = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
+
+    let priming = TerminalScrollDelivery.forScrollGesture(
+        surfaceID: "surface",
+        activeScreen: .primary,
+        lines: 2,
+        col: 3,
+        row: 4,
+        prefetchState: &state
+    )
+    #expect(priming?.lines == 0)
+    #expect(priming?.maxScrollbackRows == 600)
+
+    let localOnly = TerminalScrollDelivery.forScrollGesture(
+        surfaceID: "surface",
+        activeScreen: .primary,
+        lines: 3,
+        col: 3,
+        row: 4,
+        prefetchState: &state
+    )
+    #expect(localOnly == nil)
+}
+
+@Test func terminalScrollGestureRoutingForwardsAlternateScreenWheel() {
+    var state = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
+
+    let delivery = TerminalScrollDelivery.forScrollGesture(
+        surfaceID: "surface",
+        activeScreen: .alternate,
+        lines: -3.5,
+        col: 7,
+        row: 9,
+        prefetchState: &state
+    )
+
+    #expect(delivery == TerminalScrollDelivery(surfaceID: "surface", lines: -3.5, col: 7, row: 9))
+    #expect(state.rowsToPrefetch(forScrollLines: 1) == 600)
+}
+
+@Test func terminalScrollGestureRoutingPreservesLegacyForwardingWhileScreenUnknown() {
+    var state = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
+
+    let delivery = TerminalScrollDelivery.forScrollGesture(
+        surfaceID: "surface",
+        activeScreen: nil,
+        lines: 2,
+        col: 1,
+        row: 1,
+        prefetchState: &state
+    )
+
+    #expect(delivery?.lines == 2)
+    #expect(delivery?.maxScrollbackRows == 600)
 }
 
 @Test func terminalScrollQueueResetDropsPendingWork() {

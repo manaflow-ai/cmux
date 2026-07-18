@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 struct TerminalScrollDelivery: Equatable, Sendable {
@@ -25,29 +26,90 @@ struct TerminalScrollDelivery: Equatable, Sendable {
 struct TerminalScrollbackPrefetchState: Equatable, Sendable {
     static let defaultWindowRows = 600
     static let defaultRefreshDistanceRows = 120.0
+    static let defaultMaxWindowRows = 4800
 
     var windowRows: Int
     var refreshDistanceRows: Double
+    var maxWindowRows: Int
     private var hasPrimedWindow = false
     private var accumulatedRowsSincePrefetch = 0.0
+    private var historyFullyLoaded = false
 
     init(
         windowRows: Int = Self.defaultWindowRows,
-        refreshDistanceRows: Double = Self.defaultRefreshDistanceRows
+        refreshDistanceRows: Double = Self.defaultRefreshDistanceRows,
+        maxWindowRows: Int = Self.defaultMaxWindowRows
     ) {
         self.windowRows = max(0, windowRows)
         self.refreshDistanceRows = max(1, refreshDistanceRows)
+        self.maxWindowRows = max(self.windowRows, maxWindowRows)
     }
 
     mutating func rowsToPrefetch(forScrollLines lines: Double) -> Int? {
-        guard lines != 0, windowRows > 0 else { return nil }
-        accumulatedRowsSincePrefetch += abs(lines)
+        guard lines > 0, windowRows > 0 else {
+            accumulatedRowsSincePrefetch = 0
+            return nil
+        }
+        guard !historyFullyLoaded else { return nil }
+        accumulatedRowsSincePrefetch += lines
         guard !hasPrimedWindow || accumulatedRowsSincePrefetch >= refreshDistanceRows else {
             return nil
+        }
+        if hasPrimedWindow {
+            windowRows = min(windowRows + Self.defaultWindowRows, maxWindowRows)
         }
         hasPrimedWindow = true
         accumulatedRowsSincePrefetch = 0
         return windowRows
+    }
+
+    /// Stops deeper fetches after the host returns less history than requested,
+    /// or after the configured client cap has been served.
+    mutating func recordResponse(requestedRows: Int, availableRows: Int) {
+        guard requestedRows > 0 else { return }
+        if availableRows < requestedRows || requestedRows >= maxWindowRows {
+            historyFullyLoaded = true
+        }
+    }
+}
+
+extension TerminalScrollDelivery {
+    /// Routes phone gestures without giving the primary-screen viewport two
+    /// owners. The local mirror scrolls primary history; the Mac only serves
+    /// periodic history snapshots. Alternate-screen wheel input still reaches
+    /// the real PTY, and an unknown screen keeps legacy forwarding until the
+    /// first render-grid frame reports its mode.
+    static func forScrollGesture(
+        surfaceID: String,
+        activeScreen: MobileTerminalRenderGridFrame.Screen?,
+        lines: Double,
+        col: Int,
+        row: Int,
+        prefetchState: inout TerminalScrollbackPrefetchState
+    ) -> TerminalScrollDelivery? {
+        switch activeScreen {
+        case .primary:
+            guard let maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines) else {
+                return nil
+            }
+            return TerminalScrollDelivery(
+                surfaceID: surfaceID,
+                lines: 0,
+                col: col,
+                row: row,
+                maxScrollbackRows: maxScrollbackRows
+            )
+        case .alternate:
+            return TerminalScrollDelivery(surfaceID: surfaceID, lines: lines, col: col, row: row)
+        case nil:
+            return TerminalScrollDelivery(
+                surfaceID: surfaceID,
+                lines: lines,
+                col: col,
+                row: row,
+                maxScrollbackRows: prefetchState.rowsToPrefetch(forScrollLines: lines)
+            )
+        }
     }
 }
 

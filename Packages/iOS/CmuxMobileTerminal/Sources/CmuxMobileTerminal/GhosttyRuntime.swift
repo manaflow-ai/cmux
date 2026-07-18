@@ -446,8 +446,8 @@ private extension GhosttyRuntime {
     }
 
     func applyGhosttyiOSDefaults(_ config: ghostty_config_t, theme: TerminalTheme) {
-        // The phone scrolls the authoritative Mac surface. Local scrollback exists
-        // only for bounded local text reads, so cap it below Ghostty's 10MB default.
+        // The phone owns its primary-screen viewport and pages bounded history
+        // snapshots from the Mac. Keep that local history below Ghostty's 10MB default.
         let defaults = """
         scrollback-limit = 2000000
         font-family = Menlo
