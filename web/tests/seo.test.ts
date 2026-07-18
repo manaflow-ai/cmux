@@ -34,6 +34,7 @@ import {
   landingPageSeoCopy,
   ohMyPiSeoCopy,
   pricingSeoCopy,
+  wallOfLoveSeoCopy,
 } from "../i18n/audited-seo";
 import { englishFallbackContentLocales } from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
@@ -227,6 +228,37 @@ describe("SEO metadata helpers", () => {
       expect(detailedDescription).not.toContain("…");
       expect(searchSnippetLength(standardDescription)).toBeLessThanOrEqual(160);
       expect(detailedLength).toBeLessThanOrEqual(160);
+    }
+  });
+
+  test("builds Wall of Love metadata from authored copy in every locale", async () => {
+    const englishMessages = await messagesFor("en");
+
+    for (const locale of locales) {
+      const messages = await messagesFor(locale);
+      const copy = wallOfLoveSeoCopy(
+        locale,
+        messageLookup(messages.wallOfLove),
+      );
+      const expectedTitle =
+        locale === "en"
+          ? englishMessages.wallOfLove.metaTitle
+          : messages.wallOfLove.title;
+      const expectedDescription =
+        locale === "en"
+          ? englishMessages.wallOfLove.metaDescription
+          : messages.wallOfLove.description;
+
+      expect(copy.title).toContain(expectedTitle);
+      expect(copy.description).toStartWith(expectedDescription);
+      expect(searchSnippetLength(copy.title)).toBeLessThanOrEqual(60);
+      expect(searchSnippetLength(copy.description)).toBeLessThanOrEqual(160);
+
+      if (locale !== "en") {
+        expect(copy.description).not.toContain(
+          englishMessages.wallOfLove.metaDescription,
+        );
+      }
     }
   });
 
