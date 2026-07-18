@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import type { ContextMenuPoint } from "../lib/contextMenu";
 
@@ -24,6 +32,8 @@ interface MenuPopoverProps {
   ariaLabel?: string;
 }
 
+const MenuLayoutContext = createContext("root");
+
 function focusMenuItem(item: HTMLButtonElement | null | undefined) {
   if (!item) return;
   item.focus({ preventScroll: true });
@@ -33,16 +43,31 @@ function focusMenuItem(item: HTMLButtonElement | null | undefined) {
 export function MenuPopover({ point, onClose, children, className, ariaLabel }: MenuPopoverProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(point);
+  const [layoutRevision, setLayoutRevision] = useState(0);
 
   useLayoutEffect(() => {
+    const positionMenu = () => {
+      const menu = menuRef.current;
+      if (!menu) return;
+      const rect = menu.getBoundingClientRect();
+      setPosition({
+        x: Math.max(8, Math.min(point.x, window.innerWidth - rect.width - 8)),
+        y: Math.max(8, Math.min(point.y, window.innerHeight - rect.height - 8)),
+      });
+      setLayoutRevision((revision) => revision + 1);
+    };
+    positionMenu();
+    const viewport = window.visualViewport;
+    window.addEventListener("resize", positionMenu);
+    viewport?.addEventListener("resize", positionMenu);
+    viewport?.addEventListener("scroll", positionMenu);
     const menu = menuRef.current;
-    if (!menu) return;
-    const rect = menu.getBoundingClientRect();
-    setPosition({
-      x: Math.max(8, Math.min(point.x, window.innerWidth - rect.width - 8)),
-      y: Math.max(8, Math.min(point.y, window.innerHeight - rect.height - 8)),
-    });
-    focusMenuItem(menu.querySelector<HTMLButtonElement>('button[role="menuitem"]'));
+    focusMenuItem(menu?.querySelector<HTMLButtonElement>('button[role="menuitem"]'));
+    return () => {
+      window.removeEventListener("resize", positionMenu);
+      viewport?.removeEventListener("resize", positionMenu);
+      viewport?.removeEventListener("scroll", positionMenu);
+    };
   }, [point]);
 
   useEffect(() => {
@@ -77,16 +102,19 @@ export function MenuPopover({ point, onClose, children, className, ariaLabel }: 
   };
 
   return createPortal(
-    <div
-      className={`context-menu${className ? ` ${className}` : ""}`}
-      aria-label={ariaLabel}
-      onKeyDown={moveFocus}
-      ref={menuRef}
-      role="menu"
-      style={{ left: position.x, top: position.y }}
-    >
-      {children}
-    </div>,
+    <MenuLayoutContext.Provider value={`${position.x}:${position.y}:${layoutRevision}`}>
+      <div
+        className={`context-menu${className ? ` ${className}` : ""}`}
+        aria-label={ariaLabel}
+        onKeyDown={moveFocus}
+        onScrollCapture={() => setLayoutRevision((revision) => revision + 1)}
+        ref={menuRef}
+        role="menu"
+        style={{ left: position.x, top: position.y }}
+      >
+        {children}
+      </div>
+    </MenuLayoutContext.Provider>,
     document.body,
   );
 }
@@ -156,6 +184,7 @@ function MenuItems({ items, onClose }: { items: ContextMenuItem[]; onClose(): vo
 function Submenu({ items, onClose }: { items: ContextMenuItem[]; onClose(): void }) {
   const submenuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number }>();
+  const parentLayout = useContext(MenuLayoutContext);
 
   useLayoutEffect(() => {
     const submenu = submenuRef.current;
@@ -177,16 +206,20 @@ function Submenu({ items, onClose }: { items: ContextMenuItem[]; onClose(): void
     const y = Math.max(margin, Math.min(entryRect.top - verticalOffset, maxY));
     const next = { left: x, top: y };
     setPosition((current) => current?.left === next.left && current.top === next.top ? current : next);
-  }, [items]);
+  }, [items, parentLayout]);
 
   return (
-    <div
-      className="context-menu context-menu-submenu"
-      ref={submenuRef}
-      role="menu"
-      style={position}
+    <MenuLayoutContext.Provider
+      value={`${parentLayout}/${position?.left ?? "pending"}:${position?.top ?? "pending"}`}
     >
-      <MenuItems items={items} onClose={onClose} />
-    </div>
+      <div
+        className="context-menu context-menu-submenu"
+        ref={submenuRef}
+        role="menu"
+        style={position}
+      >
+        <MenuItems items={items} onClose={onClose} />
+      </div>
+    </MenuLayoutContext.Provider>
   );
 }

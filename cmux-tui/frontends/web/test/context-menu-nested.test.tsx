@@ -33,12 +33,13 @@ describe("nested ContextMenu", () => {
     const originalHeight = window.innerHeight;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+    let entryTop = 570;
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains("context-menu-submenu")) {
         return DOMRect.fromRect({ x: 778, y: 570, width: 190, height: 120 });
       }
       if (this.classList.contains("context-menu-entry")) {
-        return DOMRect.fromRect({ x: 590, y: 570, width: 190, height: 36 });
+        return DOMRect.fromRect({ x: 590, y: entryTop, width: 190, height: 36 });
       }
       return DOMRect.fromRect({ x: 590, y: 500, width: 190, height: 80 });
     });
@@ -53,6 +54,10 @@ describe("nested ContextMenu", () => {
 
     const submenu = screen.getAllByRole("menu", { hidden: true })[1];
     expect(submenu).toHaveStyle({ left: "402px", top: "472px" });
+
+    entryTop = 300;
+    fireEvent.scroll(document.querySelector(".context-menu-items")!);
+    expect(submenu).toHaveStyle({ left: "402px", top: "296px" });
 
     rect.mockRestore();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
@@ -88,5 +93,56 @@ describe("nested ContextMenu", () => {
     } else {
       delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
     }
+  });
+
+  it("reanchors third-level menus after an ancestor menu moves", () => {
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("context-menu-entry")) {
+        const owner = this.closest<HTMLElement>(".context-menu")!;
+        return DOMRect.fromRect({
+          x: Number.parseFloat(owner.style.left || "0"),
+          y: Number.parseFloat(owner.style.top || "0"),
+          width: 190,
+          height: 36,
+        });
+      }
+      return DOMRect.fromRect({ width: 190, height: 80 });
+    });
+
+    const view = render(
+      <ContextMenu
+        point={{ x: 20, y: 20 }}
+        onClose={vi.fn()}
+        items={[{
+          label: "Clients",
+          children: [{
+            label: "Client 1",
+            children: [{ label: "Disconnect" }],
+          }],
+        }]}
+      />,
+    );
+    const initialMenus = screen.getAllByRole("menu", { hidden: true });
+    expect(initialMenus[1]).toHaveStyle({ left: "208px", top: "16px" });
+    expect(initialMenus[2]).toHaveStyle({ left: "396px", top: "12px" });
+
+    view.rerender(
+      <ContextMenu
+        point={{ x: 300, y: 200 }}
+        onClose={vi.fn()}
+        items={[{
+          label: "Clients",
+          children: [{
+            label: "Client 1",
+            children: [{ label: "Disconnect" }],
+          }],
+        }]}
+      />,
+    );
+    const movedMenus = screen.getAllByRole("menu", { hidden: true });
+    expect(movedMenus[1]).toHaveStyle({ left: "488px", top: "196px" });
+    expect(movedMenus[2]).toHaveStyle({ left: "676px", top: "192px" });
+
+    rect.mockRestore();
   });
 });

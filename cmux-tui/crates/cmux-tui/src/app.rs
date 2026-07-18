@@ -2045,19 +2045,16 @@ impl ContextMenu {
     }
 
     pub fn hit_at(&self, x: u16, y: u16) -> Option<(usize, usize)> {
-        self.levels.iter().enumerate().rev().find_map(|(depth, level)| {
-            let rect = level.rect;
-            if !rect.contains(x, y) {
-                return None;
-            }
-            let right = rect.x + rect.width.saturating_sub(1);
-            let bottom = rect.y + rect.height.saturating_sub(1);
-            if x == rect.x || y == rect.y || x == right || y == bottom {
-                return None;
-            }
-            let row = level.scroll_offset + (y - rect.y - 1) as usize;
-            level.items.get(row).filter(|item| item.selectable()).map(|_| (depth, row))
-        })
+        let (depth, level) =
+            self.levels.iter().enumerate().rev().find(|(_, level)| level.rect.contains(x, y))?;
+        let rect = level.rect;
+        let right = rect.x + rect.width.saturating_sub(1);
+        let bottom = rect.y + rect.height.saturating_sub(1);
+        if x == rect.x || y == rect.y || x == right || y == bottom {
+            return None;
+        }
+        let row = level.scroll_offset + (y - rect.y - 1) as usize;
+        level.items.get(row).filter(|item| item.selectable()).map(|_| (depth, row))
     }
 
     pub fn contains(&self, x: u16, y: u16) -> bool {
@@ -3833,6 +3830,7 @@ impl App {
                     Ok(tree) => {
                         let empty = tree.workspaces.is_empty();
                         self.replace_authoritative_tree(tree, routing_generation);
+                        self.session.refresh_clients_background();
                         if empty {
                             self.quit = true;
                             return Ok(RenderAction::None);
@@ -7650,6 +7648,23 @@ mod tests {
     }
 
     #[test]
+    fn topmost_menu_chrome_blocks_hits_on_overlapped_parent_actions() {
+        let mut menu = ContextMenu::with_groups(
+            10,
+            5,
+            vec![vec![MenuItem::Submenu {
+                label: "Clients".to_string(),
+                items: vec![MenuItem::Action(MenuAction::RestoreAllClientSizing)],
+            }]],
+        );
+        assert!(menu.open_selected_submenu());
+        menu.levels[1].rect = Rect { x: 10, y: 5, width: 20, height: 3 };
+
+        assert_eq!(menu.hit_at(10, 5), None);
+        assert_eq!(menu.selected_action(), Some(MenuAction::RestoreAllClientSizing));
+    }
+
+    #[test]
     fn control_only_client_menu_offers_disconnect_without_sizing_actions() {
         let client = ClientInfo {
             client: 7,
@@ -9003,6 +9018,7 @@ mod tests {
 
         app.handle(AppEvent::Input(Event::Paste("queued".to_string()))).unwrap();
         assert_eq!(app.deferred_input.len(), 1);
+        let client_refresh_generation = app.session.client_refresh_generation();
 
         app.handle(AppEvent::MuxSubscriptionRecovered {
             recovery_generation: 1,
@@ -9012,6 +9028,7 @@ mod tests {
         .unwrap();
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 1);
         assert_eq!(app.deferred_input.len(), 1);
+        assert!(app.session.client_refresh_generation() > client_refresh_generation);
 
         app.handle(AppEvent::MuxRecoveryComplete { recovery_generation: 1 }).unwrap();
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 0);
