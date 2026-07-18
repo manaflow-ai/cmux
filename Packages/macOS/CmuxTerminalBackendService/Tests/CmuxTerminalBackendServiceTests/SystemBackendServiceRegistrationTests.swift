@@ -266,6 +266,70 @@ struct SystemBackendServiceRegistrationTests {
         #expect(controller.bootstrapCount == 3)
     }
 
+    @Test("handoff primitives replace and restore exact immutable pairs and plist bytes")
+    func exactHandoffPrimitivesRestoreOldDescriptor() async throws {
+        let installRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-exact-handoff-\(UUID())", isDirectory: true)
+        let launchAgent = installRoot.appendingPathComponent("service.plist")
+        let controller = FakeLaunchController()
+        let v1 = try PairFixture(buildID: buildID("a"), installationRoot: installRoot)
+        let v2 = try PairFixture(buildID: buildID("b"), installationRoot: installRoot)
+        let registration1 = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: v1.installer,
+            propertyListURL: launchAgent,
+            launchController: controller
+        )
+        let registration2 = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: v2.installer,
+            propertyListURL: launchAgent,
+            launchController: controller
+        )
+        let pair1 = try await registration1.prepareBundledPair()
+        let pair2 = try await registration2.prepareBundledPair()
+        try await registration1.register(pair1)
+        let old = try #require(try await registration1.activeHandoffDescriptor())
+
+        try await registration1.bootoutExact(old)
+        let replacement = try await registration2.writeHandoffDescriptor(for: pair2)
+        try await registration2.bootstrapExact(replacement)
+        #expect(try await registration2.activeHandoffDescriptor() == replacement)
+
+        try await registration2.bootoutExact(replacement)
+        try await registration1.restoreHandoffDescriptor(old)
+        #expect(try Data(contentsOf: launchAgent) == old.propertyListData)
+        try await registration1.bootstrapExact(old)
+        #expect(try await registration1.activeHandoffDescriptor() == old)
+    }
+
+    @Test("exact bootout preserves a racing loaded pair")
+    func exactBootoutPreservesRacingPair() async throws {
+        let installRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-exact-bootout-race-\(UUID())", isDirectory: true)
+        let launchAgent = installRoot.appendingPathComponent("service.plist")
+        let controller = FakeLaunchController()
+        let v1 = try PairFixture(buildID: buildID("4"), installationRoot: installRoot)
+        let v2 = try PairFixture(buildID: buildID("5"), installationRoot: installRoot)
+        let registration = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: v1.installer,
+            propertyListURL: launchAgent,
+            launchController: controller
+        )
+        let pair1 = try await registration.prepareBundledPair()
+        let pair2 = try v2.installer.installBundledPair()
+        try await registration.register(pair1)
+        let old = try #require(try await registration.activeHandoffDescriptor())
+        controller.loadedProgram = pair2.backendExecutableURL
+
+        await #expect(throws: BackendServicePairError.self) {
+            try await registration.bootoutExact(old)
+        }
+        #expect(controller.loadedProgram == pair2.backendExecutableURL)
+        #expect(controller.bootoutCount == 0)
+    }
+
     @Test("tampered installed helper never reaches launchctl")
     func tamperedRendererFailsBeforeBootstrap() async throws {
         let fixture = try PairFixture(buildID: buildID("1"))

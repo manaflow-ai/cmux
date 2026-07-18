@@ -10,6 +10,7 @@ public actor BackendServiceBootstrapCoordinator {
     private let inspection: BackendServiceBundleInspection
     private let registration: any BackendServiceRegistration
     private let readinessChecker: any BackendServiceReadinessChecking
+    private let handoffCoordinator: BackendServiceHandoffCoordinator?
     private var state: BackendServiceRuntimeState
     private var continuations: [UUID: AsyncStream<BackendServiceRuntimeState>.Continuation] = [:]
     private var currentOperationID = UUID()
@@ -29,12 +30,14 @@ public actor BackendServiceBootstrapCoordinator {
         activationPolicy: BackendServiceActivationPolicy,
         inspection: BackendServiceBundleInspection,
         registration: any BackendServiceRegistration,
-        readinessChecker: any BackendServiceReadinessChecking
+        readinessChecker: any BackendServiceReadinessChecking,
+        handoffCoordinator: BackendServiceHandoffCoordinator? = nil
     ) {
         self.activationPolicy = activationPolicy
         self.inspection = inspection
         self.registration = registration
         self.readinessChecker = readinessChecker
+        self.handoffCoordinator = handoffCoordinator
         state = activationPolicy.isEnabled ? .checking : .disabled
     }
 
@@ -94,7 +97,17 @@ public actor BackendServiceBootstrapCoordinator {
         try requireCurrent(operationID)
         switch initialStatus {
         case .enabled:
-            let result = try await verifyReadinessForActivePair(operationID: operationID)
+            let result = try await verifyReadinessForActivePair(
+                operationID: operationID,
+                publishReady: handoffCoordinator == nil
+            )
+            if case .ready(let readiness) = result, let handoffCoordinator {
+                return try await attemptIdleHandoff(
+                    handoffCoordinator,
+                    currentReadiness: readiness,
+                    operationID: operationID
+                )
+            }
             if case .ready = result {
                 beginBestEffortCurrentBundleStaging()
             }
@@ -213,7 +226,8 @@ public actor BackendServiceBootstrapCoordinator {
     }
 
     private func verifyReadinessForActivePair(
-        operationID: UUID
+        operationID: UUID,
+        publishReady: Bool = true
     ) async throws -> BackendServiceBootstrapResult {
         do {
             guard let activePair = try await registration.activeInstalledPair() else {
@@ -222,7 +236,8 @@ public actor BackendServiceBootstrapCoordinator {
             }
             return try await verifyReadiness(
                 trustedPair: activePair,
-                operationID: operationID
+                operationID: operationID,
+                publishReady: publishReady
             )
         } catch is CancellationError {
             throw CancellationError()
@@ -234,18 +249,46 @@ public actor BackendServiceBootstrapCoordinator {
 
     private func verifyReadiness(
         trustedPair: BackendServiceInstalledPair,
-        operationID: UUID
+        operationID: UUID,
+        publishReady: Bool = true
     ) async throws -> BackendServiceBootstrapResult {
         try publish(.launching, operationID: operationID)
         do {
             let readiness = try await readinessChecker.checkReadiness(
                 trustedPair: trustedPair
             )
-            try publish(.ready(readiness), operationID: operationID)
+            if publishReady {
+                try publish(.ready(readiness), operationID: operationID)
+            }
             return .ready(readiness)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            try publish(.unavailable(.readinessFailed), operationID: operationID)
+            return .backendUnavailable
+        }
+    }
+
+    private func attemptIdleHandoff(
+        _ coordinator: BackendServiceHandoffCoordinator,
+        currentReadiness: BackendServiceReadiness,
+        operationID: UUID
+    ) async throws -> BackendServiceBootstrapResult {
+        try requireCurrent(operationID)
+        let result = try await coordinator.activateStagedPairIfIdle()
+        try requireCurrent(operationID)
+        switch result {
+        case .deferredNotIdle:
+            try publish(.ready(currentReadiness), operationID: operationID)
+            return .ready(currentReadiness)
+        case .activated(let readiness):
+            try publish(.ready(readiness), operationID: operationID)
+            return .ready(readiness)
+        case .rolledBack(_, let readiness):
+            let proven = readiness ?? currentReadiness
+            try publish(.ready(proven), operationID: operationID)
+            return .ready(proven)
+        case .rollbackFailed:
             try publish(.unavailable(.readinessFailed), operationID: operationID)
             return .backendUnavailable
         }

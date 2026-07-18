@@ -28,6 +28,8 @@ public enum BackendRegisteredClientKind: String, Decodable, Equatable, Sendable 
     /// A compatibility byte-stream connection that may submit delegated terminal input only.
     case mobileCompatibility = "mobile-compatibility"
     case rendererWorker = "renderer-worker"
+    /// A same-user app connection restricted to idle service handoff.
+    case serviceCoordinator = "service-coordinator"
     case web
 }
 
@@ -40,6 +42,8 @@ public enum BackendConnectionRole: String, Decodable, Equatable, Sendable {
     /// A same-user connection restricted to server-issued delegated terminal input.
     case trustedInputDelegate = "trusted-input-delegate"
     case trustedRenderer = "trusted-renderer"
+    /// A same-user role with only the dedicated service-handoff permission.
+    case serviceCoordinator = "service-coordinator"
 }
 
 /// The server-echoed registration fence for one transport connection.

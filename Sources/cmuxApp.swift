@@ -266,19 +266,30 @@ struct cmuxApp: App {
             descriptor: terminalBackendDescriptor
         )
         let terminalBackendActivationPolicy = Self.terminalBackendActivationPolicy()
+        let terminalBackendRegistration = SystemBackendServiceRegistration(
+            descriptor: terminalBackendDescriptor,
+            bundleInspection: terminalBackendBundleInspection,
+            runtimePaths: terminalBackendRuntimePaths,
+            userID: UInt32(Darwin.getuid())
+        )
+        let terminalBackendReadiness = BackendServiceReadinessProbe(
+            descriptor: terminalBackendDescriptor,
+            runtimePaths: terminalBackendRuntimePaths
+        )
+        let terminalBackendHandoff = BackendServiceHandoffCoordinator(
+            descriptor: terminalBackendDescriptor,
+            runtimePaths: terminalBackendRuntimePaths,
+            registration: terminalBackendRegistration,
+            readinessChecker: terminalBackendReadiness,
+            processInstanceUUID: Self.terminalBackendProcessInstanceUUID,
+            userID: UInt32(Darwin.getuid())
+        )
         let terminalBackendServiceBootstrap = BackendServiceBootstrapCoordinator(
             activationPolicy: terminalBackendActivationPolicy,
             inspection: terminalBackendBundleInspection,
-            registration: SystemBackendServiceRegistration(
-                descriptor: terminalBackendDescriptor,
-                bundleInspection: terminalBackendBundleInspection,
-                runtimePaths: terminalBackendRuntimePaths,
-                userID: UInt32(Darwin.getuid())
-            ),
-            readinessChecker: BackendServiceReadinessProbe(
-                descriptor: terminalBackendDescriptor,
-                runtimePaths: terminalBackendRuntimePaths
-            )
+            registration: terminalBackendRegistration,
+            readinessChecker: terminalBackendReadiness,
+            handoffCoordinator: terminalBackendHandoff
         )
         let terminalBackendServiceModel = TerminalBackendServiceModel(
             coordinator: terminalBackendServiceBootstrap

@@ -1,5 +1,6 @@
 @testable import CmuxTerminalBackendService
 import CmuxTerminalBackend
+import Darwin
 import Foundation
 import Testing
 
@@ -18,6 +19,33 @@ struct BackendServiceHandoffCoordinatorTests {
             .loadActiveDescriptor,
             .connectCoordinator,
             .preparePermit,
+            .closeCoordinator,
+        ])
+        #expect(await harness.activeDescriptor == harness.oldDescriptor)
+    }
+
+    @Test("wrong source build in a daemon permit is cancelled before the service lock")
+    func invalidPermitNeverTouchesLaunchd() async throws {
+        let invalid = BackendServiceHandoffPermit.fixture(
+            source: String(repeating: "4", count: 64),
+            target: String(repeating: "2", count: 64)
+        )
+        let harness = HandoffHarness(preparation: .prepared(invalid))
+        let coordinator = harness.coordinator()
+
+        let result = try await coordinator.activateStagedPairIfIdle()
+
+        guard case .rolledBack(let failure, _) = result else {
+            Issue.record("expected invalid permit rejection")
+            return
+        }
+        #expect(failure.stage == .validatePermit)
+        #expect(await harness.operations == [
+            .stageTarget,
+            .loadActiveDescriptor,
+            .connectCoordinator,
+            .preparePermit,
+            .cancelPermit,
             .closeCoordinator,
         ])
         #expect(await harness.activeDescriptor == harness.oldDescriptor)
@@ -42,6 +70,7 @@ struct BackendServiceHandoffCoordinatorTests {
             .preparePermit,
             .acquireLock,
             .loadActiveDescriptor,
+            .revalidatePermit,
             .bootoutOld,
             .writeNewDescriptor,
             .bootstrapNew,
@@ -99,6 +128,7 @@ struct BackendServiceHandoffCoordinatorTests {
             .preparePermit,
             .acquireLock,
             .loadActiveDescriptor,
+            .revalidatePermit,
             .bootoutOld,
             .writeNewDescriptor,
             .bootstrapNew,
@@ -136,6 +166,7 @@ struct BackendServiceHandoffCoordinatorTests {
             .preparePermit,
             .acquireLock,
             .loadActiveDescriptor,
+            .revalidatePermit,
             .bootoutOld,
             .writeNewDescriptor,
             .bootstrapNew,
@@ -152,6 +183,7 @@ struct BackendServiceHandoffCoordinatorTests {
         .preparePermit,
         .acquireLock,
         .loadActiveDescriptor,
+        .revalidatePermit,
         .bootoutOld,
     ])
     func preBootoutFailure(step: HandoffOperation) async throws {
@@ -161,7 +193,9 @@ struct BackendServiceHandoffCoordinatorTests {
         _ = try await coordinator.activateStagedPairIfIdle()
 
         #expect(await harness.activeDescriptor == harness.oldDescriptor)
-        if step == .acquireLock || step == .loadActiveDescriptor || step == .bootoutOld {
+        if step == .acquireLock || step == .loadActiveDescriptor
+            || step == .revalidatePermit || step == .bootoutOld
+        {
             #expect(await harness.operations.contains(.cancelPermit))
         }
         #expect(!(await harness.operations.contains(.writeNewDescriptor)))
@@ -187,6 +221,44 @@ struct BackendServiceHandoffCoordinatorTests {
         #expect(await harness.operations.contains(.checkOldReadiness))
     }
 
+    @Test("reported old bootout failure restores vN when launchd already removed it")
+    func ambiguousOldBootoutFailureRestoresOld() async throws {
+        let harness = HandoffHarness(failingAfterEffect: .bootoutOld)
+        let coordinator = harness.coordinator()
+
+        let result = try await coordinator.activateStagedPairIfIdle()
+
+        guard case .rolledBack(let activation, let readiness) = result else {
+            Issue.record("expected exact rollback after ambiguous old bootout")
+            return
+        }
+        #expect(activation.stage == .bootoutOldDescriptor)
+        #expect(readiness == harness.oldReadiness)
+        #expect(await harness.activeDescriptor == harness.oldDescriptor)
+        #expect(!(await harness.operations.contains(.cancelPermit)))
+        #expect(await harness.operations.contains(.restoreOldDescriptor))
+    }
+
+    @Test("reported new bootout failure restores vN when launchd already removed vN+1")
+    func ambiguousNewBootoutFailureRestoresOld() async throws {
+        let harness = HandoffHarness(
+            failing: [.checkNewReadiness],
+            failingAfterEffect: .bootoutNew
+        )
+        let coordinator = harness.coordinator()
+
+        let result = try await coordinator.activateStagedPairIfIdle()
+
+        guard case .rolledBack(let activation, let readiness) = result else {
+            Issue.record("expected exact rollback after ambiguous new bootout")
+            return
+        }
+        #expect(activation.stage == .proveNewReadiness)
+        #expect(readiness == harness.oldReadiness)
+        #expect(await harness.activeDescriptor == harness.oldDescriptor)
+        #expect(await harness.operations.contains(.restoreOldDescriptor))
+    }
+
     @Test("rollback step failures are typed and never accepted as activation", arguments: [
         HandoffOperation.bootoutNew,
         .restoreOldDescriptor,
@@ -205,6 +277,49 @@ struct BackendServiceHandoffCoordinatorTests {
         }
         #expect(activation.stage == .proveNewReadiness)
         #expect(rollback.stage.isRollbackStage)
+    }
+
+    @Test("private kernel lock excludes an independent service controller")
+    func serviceControlLockIsCrossProcess() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-service-handoff-lock-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let descriptor = try #require(
+            BackendServiceDescriptor(bundleIdentifier: "com.cmuxterm.test.handoff-lock")
+        )
+        let runtimePaths = BackendServiceRuntimePaths(
+            descriptor: descriptor,
+            userID: UInt32(geteuid()),
+            homeDirectoryURL: home
+        )
+        try FileManager.default.createDirectory(
+            at: runtimePaths.serviceInstallationRootURL,
+            withIntermediateDirectories: true
+        )
+        let lock = SystemBackendServiceHandoffLock(
+            runtimePaths: runtimePaths,
+            expectedUserID: UInt32(geteuid())
+        )
+
+        let lease = try await lock.acquire()
+        let lockURL = runtimePaths.serviceInstallationRootURL
+            .appendingPathComponent(".service-control.lock", isDirectory: false)
+        let contender = open(lockURL.path, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+        #expect(contender >= 0)
+        guard contender >= 0 else {
+            await lease.release()
+            return
+        }
+        defer { close(contender) }
+
+        let contested = flock(contender, LOCK_EX | LOCK_NB)
+        let contestedError = errno
+        #expect(contested == -1)
+        #expect(contestedError == EWOULDBLOCK)
+
+        await lease.release()
+        #expect(flock(contender, LOCK_EX | LOCK_NB) == 0)
+        #expect(flock(contender, LOCK_UN) == 0)
     }
 
     @Test("coordinator lifetime and normal app exit never unregister the service")
@@ -229,6 +344,7 @@ private enum HandoffOperation: Hashable, Sendable {
     case closeCoordinator
     case acquireLock
     case releaseLock
+    case revalidatePermit
     case bootoutOld
     case writeNewDescriptor
     case bootstrapNew
@@ -263,12 +379,15 @@ private actor HandoffHarness: BackendServiceHandoffRegistering,
     private var pairForNextReadiness: BackendServiceInstalledPair?
     private var activeReplacementOnLock: BackendServiceHandoffLaunchDescriptor?
     private var activeReplacementBeforeRollback: BackendServiceHandoffLaunchDescriptor?
+    private var failureAfterBootoutEffect: HandoffOperation?
 
     init(
         failing: HandoffOperation? = nil,
+        failingAfterEffect: HandoffOperation? = nil,
         preparation: BackendServiceHandoffPreparation? = nil
     ) {
         failures = Set(failing.map { [$0] } ?? [])
+        failureAfterBootoutEffect = failingAfterEffect
         let oldPair = BackendServiceInstalledPair.fixture(buildID: String(repeating: "1", count: 64))
         let newPair = BackendServiceInstalledPair.fixture(buildID: String(repeating: "2", count: 64))
         let racingPair = BackendServiceInstalledPair.fixture(buildID: String(repeating: "3", count: 64))
@@ -276,12 +395,26 @@ private actor HandoffHarness: BackendServiceHandoffRegistering,
         newDescriptor = .fixture(pair: newPair, marker: "exact-new-plist")
         racingDescriptor = .fixture(pair: racingPair, marker: "racing-plist")
         activeDescriptor = oldDescriptor
-        permit = .fixture(source: oldPair.buildID, target: newPair.buildID)
-        self.preparation = preparation ?? .prepared(permit)
+        let defaultPermit = BackendServiceHandoffPermit.fixture(
+            source: oldPair.buildID,
+            target: newPair.buildID
+        )
+        let selectedPreparation = preparation ?? .prepared(defaultPermit)
+        switch selectedPreparation {
+        case .prepared(let prepared):
+            permit = prepared
+        case .deferredNotIdle:
+            permit = defaultPermit
+        }
+        self.preparation = selectedPreparation
     }
 
-    init(failing: Set<HandoffOperation>) {
+    init(
+        failing: Set<HandoffOperation>,
+        failingAfterEffect: HandoffOperation? = nil
+    ) {
         failures = failing
+        failureAfterBootoutEffect = failingAfterEffect
         let oldPair = BackendServiceInstalledPair.fixture(buildID: String(repeating: "1", count: 64))
         let newPair = BackendServiceInstalledPair.fixture(buildID: String(repeating: "2", count: 64))
         let racingPair = BackendServiceInstalledPair.fixture(buildID: String(repeating: "3", count: 64))
@@ -331,6 +464,9 @@ private actor HandoffHarness: BackendServiceHandoffRegistering,
             throw BackendServiceHandoffFailure(stage: .revalidateNewDescriptor, detail: "descriptor changed")
         }
         activeDescriptor = nil
+        if failureAfterBootoutEffect == operation {
+            throw HarnessFailure(operation: operation)
+        }
     }
 
     func writeHandoffDescriptor(for pair: BackendServiceInstalledPair) throws
@@ -361,6 +497,11 @@ private actor HandoffHarness: BackendServiceHandoffRegistering,
         try record(.preparePermit)
         #expect(targetBuildID == newPair.buildID)
         return preparation
+    }
+
+    func revalidate(_ permit: BackendServiceHandoffPermit) throws {
+        try record(.revalidatePermit)
+        #expect(permit == self.permit)
     }
 
     func cancel(_ permit: BackendServiceHandoffPermit) throws {
@@ -394,7 +535,10 @@ private actor HandoffHarness: BackendServiceHandoffRegistering,
 
     private func record(_ operation: HandoffOperation) throws {
         operations.append(operation)
-        if failures.contains(operation) {
+        let shouldFail = failures.contains(operation)
+            && (operation != .loadActiveDescriptor
+                || operations.filter { $0 == .loadActiveDescriptor }.count >= 2)
+        if shouldFail {
             throw HarnessFailure(operation: operation)
         }
     }
@@ -473,8 +617,12 @@ private extension BackendServiceHandoffPermit {
             capability: String(repeating: "a", count: 64),
             ownerConnectionID: UUID(),
             authority: BackendAuthority(
-                daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
-                sessionID: SessionID(rawValue: UUID())
+                daemonInstanceID: DaemonInstanceID(
+                    rawValue: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+                ),
+                sessionID: SessionID(
+                    rawValue: UUID(uuidString: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")!
+                )
             ),
             session: "cmux",
             sourceBuildID: source,
