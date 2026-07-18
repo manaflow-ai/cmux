@@ -382,6 +382,8 @@ struct AgentHibernationOwnedLiveProcessTests {
             processGroupID: Int(childPID),
             terminalProcessGroupID: Int(childPID)
         )
+        let signalTrace = OSAllocatedUnfairLock(initialState: [String]())
+        let initialStatus = liveProcessStatus(childPID)
 
         let keepLoading = OSAllocatedUnfairLock(initialState: true)
         let loadGroup = DispatchGroup()
@@ -396,28 +398,76 @@ struct AgentHibernationOwnedLiveProcessTests {
                 loadGroup.leave()
             }
         }
-        let frozen = lease.freezeForFinalTeardown(finalProcessFreeValidation: { true })
+        let frozen = lease.freezeForFinalTeardown(
+            sendSignal: { pid, signal in
+                let statusBefore = liveProcessStatus(pid)
+                errno = 0
+                let result = Darwin.kill(pid, signal)
+                let signalError = errno
+                let statusAfter = liveProcessStatus(pid)
+                signalTrace.withLock {
+                    $0.append(
+                        "signal=\(signal) result=\(result) errno=\(signalError) "
+                            + "before=\(String(describing: statusBefore)) "
+                            + "after=\(String(describing: statusAfter))"
+                    )
+                }
+                return result
+            },
+            finalProcessFreeValidation: { true }
+        )
+        let stoppedStatus = liveProcessStatus(childPID)
         keepLoading.withLock { $0 = false }
         loadGroup.wait()
         let exactFrozen = try #require(frozen)
         exactFrozen.resume()
+        let resumedStatus = liveProcessStatus(childPID)
 
         let didExit = DispatchSemaphore(value: 0)
+        let exitSourceTrace = OSAllocatedUnfairLock(initialState: ["created"])
         let exitSource = DispatchSource.makeProcessSource(
             identifier: childPID,
             eventMask: .exit,
             queue: .global(qos: .utility)
         )
-        exitSource.setEventHandler { didExit.signal() }
+        exitSource.setEventHandler {
+            exitSourceTrace.withLock { $0.append("exit-event") }
+            didExit.signal()
+        }
+        exitSource.setCancelHandler {
+            exitSourceTrace.withLock { $0.append("cancel-handler") }
+        }
+        exitSourceTrace.withLock { $0.append("activating") }
         exitSource.activate()
-        _ = kill(childPID, SIGTERM)
+        exitSourceTrace.withLock { $0.append("activated") }
+        errno = 0
+        let terminateResult = kill(childPID, SIGTERM)
+        let terminateError = errno
+        let terminatedStatus = liveProcessStatus(childPID)
         let exitResult = didExit.wait(timeout: .now() + 2)
+        let statusAfterExitWait = liveProcessStatus(childPID)
+        exitSourceTrace.withLock { $0.append("wait=\(exitResult)") }
         exitSource.cancel()
+        exitSourceTrace.withLock { $0.append("cancelled") }
         if exitResult != .success { _ = kill(childPID, SIGKILL) }
-        _ = waitpid(childPID, nil, 0)
+        var childStatus: Int32 = 0
+        let waitResult = waitpid(childPID, &childStatus, 0)
         didReapChild = true
 
-        #expect(exitResult == .success)
+        let evidence = [
+            "initial=\(String(describing: initialStatus))",
+            "stopped=\(String(describing: stoppedStatus))",
+            "resumed=\(String(describing: resumedStatus))",
+            "terminateResult=\(terminateResult)",
+            "terminateErrno=\(terminateError)",
+            "terminated=\(String(describing: terminatedStatus))",
+            "afterExitWait=\(String(describing: statusAfterExitWait))",
+            "waitResult=\(waitResult)",
+            "waitStatus=\(childStatus)",
+            "signals=\(signalTrace.withLock { $0 })",
+            "exitSource=\(exitSourceTrace.withLock { $0 })",
+        ].joined(separator: " ")
+        #expect(exitResult == .success, Comment(rawValue: evidence))
     }
 
     @MainActor
@@ -877,6 +927,19 @@ private func withPOSIXCStringArray<Result>(
     cStrings.append(nil)
     defer { cStrings.forEach { free($0) } }
     return cStrings.withUnsafeMutableBufferPointer { body($0.baseAddress!) }
+}
+
+private func liveProcessStatus(_ processID: pid_t) -> UInt32? {
+    var info = proc_bsdinfo()
+    let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+    let size = proc_pidinfo(
+        processID,
+        PROC_PIDTBSDINFO,
+        0,
+        &info,
+        Int32(expectedSize)
+    )
+    return size == expectedSize ? info.pbi_status : nil
 }
 
 private final class AgentHibernationFrozenShellTestState: @unchecked Sendable {
