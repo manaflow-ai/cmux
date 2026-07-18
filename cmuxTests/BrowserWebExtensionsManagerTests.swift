@@ -226,6 +226,22 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func freshProfileDoesNotInstallExtensionsByDefault() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+
+        await manager.loadExtensions()
+
+        #expect(manager.loadedContexts.isEmpty)
+        #expect(manager.loadErrors.isEmpty)
+        #expect(BrowserWebExtensionsManager.candidateURLs(in: root).isEmpty)
+    }
+
+    @available(macOS 15.4, *)
     @Test func loadsUnpackedExtensionAndGrantsRequestedPermissions() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
