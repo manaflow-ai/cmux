@@ -8,50 +8,46 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 const S = 2; // render at 2x for sharper images on social platforms
-const NOTO_BASE =
-  "https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts";
-const NOTO_CJK_BASE =
-  "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF";
-const localeFonts: Record<string, { name: string; url: string }> = {
+const localeFonts: Partial<
+  Record<Locale, { name: string; filename: string }>
+> = {
   ja: {
     name: "Noto Sans CJK JP",
-    url: `${NOTO_CJK_BASE}/Japanese/NotoSansCJKjp-Regular.otf`,
+    filename: "noto-cjk-jp.otf",
   },
   "zh-CN": {
     name: "Noto Sans CJK SC",
-    url: `${NOTO_CJK_BASE}/SimplifiedChinese/NotoSansCJKsc-Regular.otf`,
+    filename: "noto-cjk-sc.otf",
   },
   "zh-TW": {
     name: "Noto Sans CJK TC",
-    url: `${NOTO_CJK_BASE}/TraditionalChinese/NotoSansCJKtc-Regular.otf`,
+    filename: "noto-cjk-tc.otf",
   },
   ko: {
     name: "Noto Sans CJK KR",
-    url: `${NOTO_CJK_BASE}/Korean/NotoSansCJKkr-Regular.otf`,
+    filename: "noto-cjk-kr.otf",
   },
   ar: {
     name: "Tajawal",
-    url: "https://fonts.gstatic.com/s/tajawal/v12/Iura6YBj_oCad4k1rzY.ttf",
+    filename: "tajawal.ttf",
   },
   th: {
     name: "Noto Sans Thai",
-    url: `${NOTO_BASE}/NotoSansThai/hinted/ttf/NotoSansThai-Regular.ttf`,
+    filename: "noto-thai.ttf",
   },
   km: {
     name: "Noto Sans Khmer",
-    url: `${NOTO_BASE}/NotoSansKhmer/hinted/ttf/NotoSansKhmer-Regular.ttf`,
+    filename: "noto-khmer.ttf",
   },
   ru: {
     name: "Noto Sans",
-    url: `${NOTO_BASE}/NotoSans/hinted/ttf/NotoSans-Regular.ttf`,
+    filename: "noto-sans-cyrillic.ttf",
   },
   uk: {
     name: "Noto Sans",
-    url: `${NOTO_BASE}/NotoSans/hinted/ttf/NotoSans-Regular.ttf`,
+    filename: "noto-sans-cyrillic.ttf",
   },
 };
-const FONT_FETCH_TIMEOUT_MS = 1500;
-const remoteFontData = new Map<string, ArrayBuffer>();
 
 type OpenGraphImageRenderer = (locale: string) => Response | Promise<Response>;
 
@@ -66,30 +62,19 @@ export async function openGraphImageResponse(
   return render(locale);
 }
 
-async function fetchRemoteFont(url: string) {
-  const existing = remoteFontData.get(url);
-  if (existing) {
-    return existing;
-  }
-
-  try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(FONT_FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      return null;
-    }
-    const data = await res.arrayBuffer();
-    remoteFontData.set(url, data);
-    return data;
-  } catch {
-    return null;
-  }
+async function readBundledFont(filename: string): Promise<ArrayBuffer> {
+  const data = await readFile(
+    join(process.cwd(), "app", "lib", "open-graph-fonts", filename)
+  );
+  return data.buffer.slice(
+    data.byteOffset,
+    data.byteOffset + data.byteLength
+  ) as ArrayBuffer;
 }
 
 export async function renderOpenGraphImage(locale: string) {
   const tagline = openGraphImageTagline(locale);
-  const localeFont = localeFonts[locale];
+  const localeFont = localeFonts[locale as Locale];
   const [logoData, screenshotData, geistRegular, geistSemiBold, localeFontData] =
     await Promise.all([
       readFile(join(process.cwd(), "public", "logo.png")),
@@ -100,37 +85,31 @@ export async function renderOpenGraphImage(locale: string) {
           "[locale]",
           "(landing)",
           "assets",
-          "og-screenshot.png",
+          "landing-image.png",
         )
       ),
-      fetchRemoteFont(
-        "https://fonts.gstatic.com/s/geist/v4/gyBhhwUxId8gMGYQMKR3pzfaWI_RnOM4nQ.ttf"
-      ),
-      fetchRemoteFont(
-        "https://fonts.gstatic.com/s/geist/v4/gyBhhwUxId8gMGYQMKR3pzfaWI_RQuQ4nQ.ttf"
-      ),
-      localeFont ? fetchRemoteFont(localeFont.url) : Promise.resolve(null),
+      readBundledFont("geist-regular.ttf"),
+      readBundledFont("geist-semibold.ttf"),
+      localeFont
+        ? readBundledFont(localeFont.filename)
+        : Promise.resolve(null),
     ]);
 
   const logoSrc = `data:image/png;base64,${logoData.toString("base64")}`;
   const screenshotSrc = `data:image/png;base64,${screenshotData.toString("base64")}`;
   const fonts = [];
-  if (geistRegular) {
-    fonts.push({
-      name: "Geist",
-      data: geistRegular,
-      weight: 400 as const,
-      style: "normal" as const,
-    });
-  }
-  if (geistSemiBold) {
-    fonts.push({
-      name: "Geist",
-      data: geistSemiBold,
-      weight: 600 as const,
-      style: "normal" as const,
-    });
-  }
+  fonts.push({
+    name: "Geist",
+    data: geistRegular,
+    weight: 400 as const,
+    style: "normal" as const,
+  });
+  fonts.push({
+    name: "Geist",
+    data: geistSemiBold,
+    weight: 600 as const,
+    style: "normal" as const,
+  });
   if (localeFont && localeFontData) {
     fonts.push({
       name: localeFont.name,
@@ -139,12 +118,8 @@ export async function renderOpenGraphImage(locale: string) {
       style: "normal" as const,
     });
   }
-  const taglineFontFamily =
-    localeFont && localeFontData ? `${localeFont.name}, Geist` : "Geist";
-  // Keep retry-time font failures from exposing the wrong language. The
-  // screenshot and wordmark still provide a representative social image.
-  const renderedTagline = localeFont && !localeFontData ? "" : tagline;
-  const taglineDirection = locale === "ar" && localeFontData ? "rtl" : "ltr";
+  const taglineFontFamily = localeFont ? `${localeFont.name}, Geist` : "Geist";
+  const taglineDirection = locale === "ar" ? "rtl" : "ltr";
 
   return new ImageResponse(
     (
@@ -236,7 +211,7 @@ export async function renderOpenGraphImage(locale: string) {
                     lineHeight: 1,
                   }}
                 >
-                  {renderedTagline}
+                  {tagline}
                 </div>
               </div>
             </div>
