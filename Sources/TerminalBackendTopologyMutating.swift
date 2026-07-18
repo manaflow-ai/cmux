@@ -73,6 +73,15 @@ protocol TerminalBackendTopologyMutating: Sendable {
         rows: UInt16?
     ) async throws -> BackendSurfacePlacement
 
+    func materializeExternalTerminal(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool
+    ) async throws -> BackendSurfacePlacement
+
     func splitPane(
         requestID: UUID,
         surfaceID: SurfaceID,
@@ -137,4 +146,37 @@ protocol TerminalBackendTopologyMutating: Sendable {
         direction: BackendSplitDirection,
         ratio: Float
     ) async throws -> BackendTopologyMutationReceipt
+}
+
+/// Ordered connection-owned bridge between an external PTY producer and one
+/// daemon-owned parser/render runtime.
+protocol TerminalBackendExternalTerminalServing: Sendable {
+    func claimExternalTerminal(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> BackendExternalTerminalClaimReceipt
+
+    func resetExternalTerminal(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        columns: UInt16,
+        rows: UInt16,
+        seed: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt
+
+    func sendExternalTerminalOutput(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        sequence: UInt64,
+        data: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt
+
+    func drainExternalTerminalEgress(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64
+    ) async throws -> Data
 }

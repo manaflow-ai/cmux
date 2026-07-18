@@ -9,7 +9,8 @@ import Foundation
 actor TerminalBackendClientCoordinator:
     TerminalBackendClient,
     TerminalBackendProjectionStateServing,
-    TerminalBackendTopologyMutating
+    TerminalBackendTopologyMutating,
+    TerminalBackendExternalTerminalServing
 {
     typealias ReadinessProvider = @Sendable () async throws -> BackendServiceBootstrapResult
     typealias SessionFactory = @Sendable (BackendServiceReadiness) -> any TerminalBackendSessionServing
@@ -401,6 +402,97 @@ actor TerminalBackendClientCoordinator:
             }
             return placement
         }
+    }
+
+    func materializeExternalTerminal(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool
+    ) async throws -> BackendSurfacePlacement {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-materialize-external-terminal",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.materializeExternalTerminal(
+                expectation: expectation,
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                columns: columns,
+                rows: rows,
+                noReflow: noReflow
+            )
+            guard placement.workspaceID == workspaceID,
+                  placement.surfaceID == surfaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
+    func claimExternalTerminal(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> BackendExternalTerminalClaimReceipt {
+        let connection = try await connectedSession()
+        return try await connection.session.claimExternalTerminal(
+            surfaceID: surfaceID,
+            requestID: requestID
+        )
+    }
+
+    func resetExternalTerminal(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        columns: UInt16,
+        rows: UInt16,
+        seed: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt {
+        let connection = try await connectedSession()
+        return try await connection.session.resetExternalTerminal(
+            surfaceID: surfaceID,
+            ownerGeneration: ownerGeneration,
+            requestID: requestID,
+            outputGeneration: outputGeneration,
+            columns: columns,
+            rows: rows,
+            seed: seed
+        )
+    }
+
+    func sendExternalTerminalOutput(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        sequence: UInt64,
+        data: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt {
+        let connection = try await connectedSession()
+        return try await connection.session.sendExternalTerminalOutput(
+            surfaceID: surfaceID,
+            ownerGeneration: ownerGeneration,
+            requestID: requestID,
+            outputGeneration: outputGeneration,
+            sequence: sequence,
+            data: data
+        )
+    }
+
+    func drainExternalTerminalEgress(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64
+    ) async throws -> Data {
+        let connection = try await connectedSession()
+        return try await connection.session.drainExternalTerminalEgress(
+            surfaceID: surfaceID,
+            ownerGeneration: ownerGeneration
+        )
     }
 
     func splitPane(

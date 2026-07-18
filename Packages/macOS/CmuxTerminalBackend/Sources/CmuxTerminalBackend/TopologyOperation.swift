@@ -12,6 +12,9 @@ public enum TopologyOperation: String, Codable, CaseIterable, Sendable {
     /// A surface was attached to a pane.
     case surfaceAttached = "surface-attached"
 
+    /// A surface runtime was atomically replaced under the same stable UUID.
+    case surfaceReplaced = "surface-replaced"
+
     /// A surface was closed.
     case surfaceClosed = "surface-closed"
 

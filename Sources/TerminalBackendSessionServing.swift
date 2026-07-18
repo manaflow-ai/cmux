@@ -97,6 +97,39 @@ protocol TerminalBackendSessionServing: Sendable {
         columns: UInt16?,
         rows: UInt16?
     ) async throws -> BackendSurfacePlacement
+    func materializeExternalTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool
+    ) async throws -> BackendSurfacePlacement
+    func claimExternalTerminal(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> BackendExternalTerminalClaimReceipt
+    func resetExternalTerminal(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        columns: UInt16,
+        rows: UInt16,
+        seed: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt
+    func sendExternalTerminalOutput(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        sequence: UInt64,
+        data: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt
+    func drainExternalTerminalEgress(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64
+    ) async throws -> Data
     func splitPane(
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID,
@@ -458,6 +491,77 @@ extension TerminalBackendSessionServing {
         _ = launch
         _ = columns
         _ = rows
+        throw BackendProtocolError.notConnected
+    }
+
+    func materializeExternalTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = workspaceID
+        _ = surfaceID
+        _ = columns
+        _ = rows
+        _ = noReflow
+        throw BackendProtocolError.notConnected
+    }
+
+    func claimExternalTerminal(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> BackendExternalTerminalClaimReceipt {
+        _ = surfaceID
+        _ = requestID
+        throw BackendProtocolError.notConnected
+    }
+
+    func resetExternalTerminal(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        columns: UInt16,
+        rows: UInt16,
+        seed: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt {
+        _ = surfaceID
+        _ = ownerGeneration
+        _ = requestID
+        _ = outputGeneration
+        _ = columns
+        _ = rows
+        _ = seed
+        throw BackendProtocolError.notConnected
+    }
+
+    func sendExternalTerminalOutput(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        sequence: UInt64,
+        data: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt {
+        _ = surfaceID
+        _ = ownerGeneration
+        _ = requestID
+        _ = outputGeneration
+        _ = sequence
+        _ = data
+        throw BackendProtocolError.notConnected
+    }
+
+    func drainExternalTerminalEgress(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64
+    ) async throws -> Data {
+        _ = surfaceID
+        _ = ownerGeneration
         throw BackendProtocolError.notConnected
     }
 

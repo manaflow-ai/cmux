@@ -996,6 +996,129 @@ public actor BackendCanonicalSession {
         )
     }
 
+    /// Materializes one terminal in an existing canonical workspace.
+    public func materializeTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch = BackendTerminalLaunch(),
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-materialize-terminal")
+        return try await client.canonicalMaterializeTerminal(
+            expectation: expectation,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            launch: launch,
+            columns: columns,
+            rows: rows
+        )
+    }
+
+    /// Replaces one PTY runtime under its existing stable surface UUID.
+    public func respawnTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch = BackendTerminalLaunch(),
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-respawn-terminal")
+        return try await client.canonicalRespawnTerminal(
+            expectation: expectation,
+            surfaceID: surfaceID,
+            launch: launch,
+            columns: columns,
+            rows: rows
+        )
+    }
+
+    /// Materializes one parser-only terminal with no daemon PTY or child.
+    public func materializeExternalTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool
+    ) async throws -> BackendSurfacePlacement {
+        try requireCanonicalTopologyMutation(
+            expectation,
+            command: "canonical-materialize-external-terminal"
+        )
+        return try await client.canonicalMaterializeExternalTerminal(
+            expectation: expectation,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            columns: columns,
+            rows: rows,
+            noReflow: noReflow
+        )
+    }
+
+    public func claimExternalTerminal(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> BackendExternalTerminalClaimReceipt {
+        try requireConnected()
+        return try await client.claimExternalTerminal(
+            surfaceID: surfaceID,
+            requestID: requestID
+        )
+    }
+
+    public func resetExternalTerminal(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        columns: UInt16,
+        rows: UInt16,
+        seed: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt {
+        try requireConnected()
+        return try await client.resetExternalTerminal(
+            surfaceID: surfaceID,
+            ownerGeneration: ownerGeneration,
+            requestID: requestID,
+            outputGeneration: outputGeneration,
+            columns: columns,
+            rows: rows,
+            seed: seed
+        )
+    }
+
+    public func sendExternalTerminalOutput(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        sequence: UInt64,
+        data: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt {
+        try requireConnected()
+        return try await client.sendExternalTerminalOutput(
+            surfaceID: surfaceID,
+            ownerGeneration: ownerGeneration,
+            requestID: requestID,
+            outputGeneration: outputGeneration,
+            sequence: sequence,
+            data: data
+        )
+    }
+
+    public func drainExternalTerminalEgress(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64
+    ) async throws -> Data {
+        try requireConnected()
+        return try await client.drainExternalTerminalEgress(
+            surfaceID: surfaceID,
+            ownerGeneration: ownerGeneration
+        )
+    }
+
     /// Creates one daemon-owned browser in a new canonical workspace.
     public func newBrowserWorkspace(
         expectation: BackendTopologyMutationExpectation,

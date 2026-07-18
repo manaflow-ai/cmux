@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 public extension BackendProtocolClient {
     /// Idempotently creates or reattaches one caller-identified canonical terminal.
@@ -194,6 +194,144 @@ public extension BackendProtocolClient {
             parameters: parameters,
             as: BackendSurfacePlacement.self
         )
+    }
+
+    /// Materializes one exactly identified terminal in an existing workspace.
+    func canonicalMaterializeTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch = BackendTerminalLaunch(),
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        var parameters = try launch.validatedJSONParameters()
+        parameters.merge(expectation.jsonParameters) { _, new in new }
+        parameters["workspace_uuid"] = .string(workspaceID.description)
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
+        if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
+        return try await call(
+            command: "canonical-materialize-terminal",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Replaces one terminal runtime while preserving its stable surface UUID.
+    func canonicalRespawnTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch = BackendTerminalLaunch(),
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        var parameters = try launch.validatedJSONParameters()
+        parameters.merge(expectation.jsonParameters) { _, new in new }
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
+        if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
+        return try await call(
+            command: "canonical-respawn-terminal",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Materializes one parser-only terminal with no daemon PTY or child process.
+    func canonicalMaterializeExternalTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool
+    ) async throws -> BackendSurfacePlacement {
+        var parameters = expectation.jsonParameters
+        parameters["workspace_uuid"] = .string(workspaceID.description)
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        parameters["cols"] = .unsignedInteger(UInt64(columns))
+        parameters["rows"] = .unsignedInteger(UInt64(rows))
+        parameters["no_reflow"] = .bool(noReflow)
+        return try await call(
+            command: "canonical-materialize-external-terminal",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    func claimExternalTerminal(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> BackendExternalTerminalClaimReceipt {
+        try await call(
+            command: "claim-external-terminal",
+            parameters: [
+                "surface_uuid": .string(surfaceID.description),
+                "request_id": .string(requestID.uuidString.lowercased()),
+            ],
+            as: BackendExternalTerminalClaimReceipt.self
+        )
+    }
+
+    func resetExternalTerminal(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        columns: UInt16,
+        rows: UInt16,
+        seed: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt {
+        try await call(
+            command: "reset-external-terminal",
+            parameters: [
+                "surface_uuid": .string(surfaceID.description),
+                "owner_generation": .unsignedInteger(ownerGeneration),
+                "request_id": .string(requestID.uuidString.lowercased()),
+                "output_generation": .unsignedInteger(outputGeneration),
+                "cols": .unsignedInteger(UInt64(columns)),
+                "rows": .unsignedInteger(UInt64(rows)),
+                "seed": .string(seed.base64EncodedString()),
+            ],
+            as: BackendExternalTerminalOutputReceipt.self
+        )
+    }
+
+    func sendExternalTerminalOutput(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        sequence: UInt64,
+        data: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt {
+        try await call(
+            command: "external-terminal-output",
+            parameters: [
+                "surface_uuid": .string(surfaceID.description),
+                "owner_generation": .unsignedInteger(ownerGeneration),
+                "request_id": .string(requestID.uuidString.lowercased()),
+                "output_generation": .unsignedInteger(outputGeneration),
+                "sequence": .unsignedInteger(sequence),
+                "data": .string(data.base64EncodedString()),
+            ],
+            as: BackendExternalTerminalOutputReceipt.self
+        )
+    }
+
+    func drainExternalTerminalEgress(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64
+    ) async throws -> Data {
+        return try await call(
+            command: "drain-external-terminal-egress",
+            parameters: [
+                "surface_uuid": .string(surfaceID.description),
+                "owner_generation": .unsignedInteger(ownerGeneration),
+            ],
+            as: BackendExternalTerminalEgressResponse.self
+        ).egress
     }
 
     /// Creates one exactly identified daemon-owned browser in a new workspace.
