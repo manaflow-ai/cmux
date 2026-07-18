@@ -8,6 +8,9 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
     private var effects: [SignalEffect] = []
 
     private let tableView = NSTableView()
+    private let newTaskField = NSTextField()
+    private let addTaskButton = NSButton()
+    private let clearCompletedButton = NSButton()
     private let searchField = NSSearchField()
     private let filterControl = NSSegmentedControl()
     private let visibleCountLabel = NSTextField(labelWithString: "")
@@ -73,6 +76,14 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
         guard tasks.indices.contains(row), let tableColumn else { return nil }
         let task = tasks[row]
         let identifier = tableColumn.identifier
+        if identifier.rawValue == "done" {
+            let button = tableView.makeView(withIdentifier: identifier, owner: self) as? NSButton
+                ?? makeCompletionButton(identifier: identifier)
+            button.tag = row
+            button.state = task.status == .complete ? .on : .off
+            button.toolTip = String(localized: "debug.signalLab.todo.toggle", defaultValue: "Toggle completion")
+            return button
+        }
         let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
             ?? makeCell(identifier: identifier)
 
@@ -100,7 +111,12 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
     }
 
     func controlTextDidChange(_ obj: Notification) {
-        model.query.set(searchField.stringValue)
+        guard let field = obj.object as? NSTextField else { return }
+        if field === newTaskField {
+            model.draftTaskTitle.set(field.stringValue)
+        } else if field === searchField {
+            model.query.set(field.stringValue)
+        }
     }
 
     private func buildInterface() {
@@ -119,6 +135,7 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
         ])
 
         rootStack.addArrangedSubview(makeHeader())
+        rootStack.addArrangedSubview(makeComposer())
         rootStack.addArrangedSubview(makeMetricStrip())
         let splitView = makeSplitView()
         rootStack.addArrangedSubview(splitView)
@@ -127,9 +144,9 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
     }
 
     private func makeHeader() -> NSView {
-        let title = NSTextField(labelWithString: String(localized: "debug.signalLab.title", defaultValue: "Operations control center"))
+        let title = NSTextField(labelWithString: String(localized: "debug.signalLab.title", defaultValue: "Signal Todo List"))
         title.font = .systemFont(ofSize: 26, weight: .bold)
-        let subtitle = NSTextField(labelWithString: String(localized: "debug.signalLab.subtitle", defaultValue: "Solid-style signals driving native AppKit controls with targeted effects."))
+        let subtitle = NSTextField(labelWithString: String(localized: "debug.signalLab.subtitle", defaultValue: "A native AppKit todo app driven by Solid-style signals."))
         subtitle.textColor = .secondaryLabelColor
 
         let titleStack = NSStackView(views: [title, subtitle])
@@ -138,7 +155,7 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
         titleStack.spacing = 4
 
         let simulateButton = NSButton(
-            title: String(localized: "debug.signalLab.simulate", defaultValue: "Run simulation step"),
+            title: String(localized: "debug.signalLab.simulate", defaultValue: "Run demo step"),
             target: self,
             action: #selector(runSimulationStep)
         )
@@ -156,18 +173,50 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
         return header
     }
 
+    private func makeComposer() -> NSView {
+        newTaskField.placeholderString = String(
+            localized: "debug.signalLab.todo.placeholder",
+            defaultValue: "What needs to be done?"
+        )
+        newTaskField.delegate = self
+        newTaskField.target = self
+        newTaskField.action = #selector(addDraftTask)
+
+        addTaskButton.title = String(localized: "debug.signalLab.todo.add", defaultValue: "Add Todo")
+        addTaskButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+        addTaskButton.imagePosition = .imageLeading
+        addTaskButton.bezelStyle = .rounded
+        addTaskButton.target = self
+        addTaskButton.action = #selector(addDraftTask)
+
+        clearCompletedButton.title = String(
+            localized: "debug.signalLab.todo.clearCompleted",
+            defaultValue: "Clear Completed"
+        )
+        clearCompletedButton.bezelStyle = .rounded
+        clearCompletedButton.target = self
+        clearCompletedButton.action = #selector(clearCompleted)
+
+        let composer = NSStackView(views: [newTaskField, addTaskButton, clearCompletedButton])
+        composer.orientation = .horizontal
+        composer.spacing = 10
+        newTaskField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        composer.widthAnchor.constraint(greaterThanOrEqualToConstant: 700).isActive = true
+        return composer
+    }
+
     private func makeMetricStrip() -> NSView {
         let metrics = NSStackView(views: [
             makeMetricCard(
-                title: String(localized: "debug.signalLab.metric.active", defaultValue: "ACTIVE NODES"),
+                title: String(localized: "debug.signalLab.metric.active", defaultValue: "REMAINING"),
                 valueLabel: activeValueLabel
             ),
             makeMetricCard(
-                title: String(localized: "debug.signalLab.metric.throughput", defaultValue: "THROUGHPUT"),
+                title: String(localized: "debug.signalLab.metric.throughput", defaultValue: "COMPLETED"),
                 valueLabel: throughputValueLabel
             ),
             makeMetricCard(
-                title: String(localized: "debug.signalLab.metric.health", defaultValue: "GRAPH HEALTH"),
+                title: String(localized: "debug.signalLab.metric.health", defaultValue: "COMPLETION"),
                 valueLabel: healthValueLabel
             ),
             makeMetricCard(
@@ -228,7 +277,7 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
         container.blendingMode = .withinWindow
         container.state = .active
 
-        let heading = NSTextField(labelWithString: String(localized: "debug.signalLab.sidebar.heading", defaultValue: "PIPELINES"))
+        let heading = NSTextField(labelWithString: String(localized: "debug.signalLab.sidebar.heading", defaultValue: "TODO LISTS"))
         heading.font = .systemFont(ofSize: 11, weight: .bold)
         heading.textColor = .secondaryLabelColor
 
@@ -264,14 +313,14 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
     }
 
     private func makeWorkList() -> NSView {
-        searchField.placeholderString = String(localized: "debug.signalLab.search.placeholder", defaultValue: "Search work or owner")
+        searchField.placeholderString = String(localized: "debug.signalLab.search.placeholder", defaultValue: "Search todos or lists")
         searchField.delegate = self
 
         filterControl.segmentCount = 4
         filterControl.setLabel(String(localized: "debug.signalLab.filter.all.short", defaultValue: "All"), forSegment: 0)
-        filterControl.setLabel(String(localized: "debug.signalLab.filter.active", defaultValue: "Active"), forSegment: 1)
+        filterControl.setLabel(String(localized: "debug.signalLab.filter.active", defaultValue: "Open"), forSegment: 1)
         filterControl.setLabel(String(localized: "debug.signalLab.filter.blocked", defaultValue: "Blocked"), forSegment: 2)
-        filterControl.setLabel(String(localized: "debug.signalLab.filter.complete", defaultValue: "Complete"), forSegment: 3)
+        filterControl.setLabel(String(localized: "debug.signalLab.filter.complete", defaultValue: "Done"), forSegment: 3)
         filterControl.selectedSegment = 0
         filterControl.target = self
         filterControl.action = #selector(selectSegment(_:))
@@ -298,7 +347,7 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
         scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -28).isActive = true
-        scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 360).isActive = true
+        scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 280).isActive = true
         return stack
     }
 
@@ -313,18 +362,26 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
         tableView.target = self
 
         let columns: [(String, String, CGFloat)] = [
-            ("work", String(localized: "debug.signalLab.column.work", defaultValue: "Work item"), 230),
-            ("owner", String(localized: "debug.signalLab.column.owner", defaultValue: "Owner"), 85),
+            ("done", "", 32),
+            ("work", String(localized: "debug.signalLab.column.work", defaultValue: "Todo"), 210),
+            ("owner", String(localized: "debug.signalLab.column.owner", defaultValue: "List"), 85),
             ("status", String(localized: "debug.signalLab.column.status", defaultValue: "Status"), 75),
-            ("progress", String(localized: "debug.signalLab.column.progress", defaultValue: "Progress"), 64),
         ]
         for (identifier, title, width) in columns {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier))
             column.title = title
             column.width = width
-            column.minWidth = identifier == "work" ? 150 : 60
+            column.minWidth = identifier == "done" ? 32 : (identifier == "work" ? 150 : 60)
+            column.maxWidth = identifier == "done" ? 32 : .greatestFiniteMagnitude
             tableView.addTableColumn(column)
         }
+    }
+
+    private func makeCompletionButton(identifier: NSUserInterfaceItemIdentifier) -> NSButton {
+        let button = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggleTodoCompletion(_:)))
+        button.identifier = identifier
+        button.setButtonType(.switch)
+        return button
     }
 
     private func makeCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
@@ -368,7 +425,7 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
         container.material = .contentBackground
         container.blendingMode = .withinWindow
 
-        let heading = NSTextField(labelWithString: String(localized: "debug.signalLab.inspector.heading", defaultValue: "INSPECTOR"))
+        let heading = NSTextField(labelWithString: String(localized: "debug.signalLab.inspector.heading", defaultValue: "TODO DETAILS"))
         heading.font = .systemFont(ofSize: 11, weight: .bold)
         heading.textColor = .secondaryLabelColor
         selectionTitleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
@@ -399,17 +456,17 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
         capacitySlider.target = self
         capacitySlider.action = #selector(changeCapacity(_:))
         capacitySlider.isContinuous = true
-        let capacityLabel = NSTextField(labelWithString: String(localized: "debug.signalLab.capacity", defaultValue: "Fleet capacity"))
+        let capacityLabel = NSTextField(labelWithString: String(localized: "debug.signalLab.capacity", defaultValue: "Focus capacity"))
 
         automationSwitch.title = String(localized: "debug.signalLab.automation", defaultValue: "Auto-schedule dependencies")
         automationSwitch.target = self
         automationSwitch.action = #selector(toggleAutomation(_:))
 
-        advanceButton.title = String(localized: "debug.signalLab.advance", defaultValue: "Advance")
+        advanceButton.title = String(localized: "debug.signalLab.advance", defaultValue: "Advance Todo")
         advanceButton.target = self
         advanceButton.action = #selector(advanceSelected)
         advanceButton.bezelStyle = .rounded
-        blockButton.title = String(localized: "debug.signalLab.toggleBlock", defaultValue: "Toggle block")
+        blockButton.title = String(localized: "debug.signalLab.toggleBlock", defaultValue: "Toggle Blocked")
         blockButton.target = self
         blockButton.action = #selector(toggleBlock)
         blockButton.bezelStyle = .rounded
@@ -417,7 +474,7 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
         actionStack.orientation = .horizontal
         actionStack.distribution = .fillEqually
 
-        let pulseTitle = NSTextField(labelWithString: String(localized: "debug.signalLab.pulse", defaultValue: "WORK PULSE"))
+        let pulseTitle = NSTextField(labelWithString: String(localized: "debug.signalLab.pulse", defaultValue: "TODO PULSE"))
         pulseTitle.font = .systemFont(ofSize: 11, weight: .bold)
         pulseTitle.textColor = .secondaryLabelColor
         pulseView.heightAnchor.constraint(equalToConstant: 58).isActive = true
@@ -502,25 +559,36 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
             guard let self else { return }
             let metrics = model.metrics.get()
             let allTasks = model.tasks.get()
-            activeValueLabel.stringValue = "\(metrics.activeCount)"
-            throughputValueLabel.stringValue = String(
-                format: String(localized: "debug.signalLab.throughputValue", defaultValue: "%lld/h"),
-                Int64(metrics.throughput)
+            let remainingCount = allTasks.count - metrics.completedCount
+            activeValueLabel.stringValue = "\(remainingCount)"
+            throughputValueLabel.stringValue = "\(metrics.completedCount)"
+            healthValueLabel.stringValue = formattedPercent(
+                allTasks.isEmpty ? 0 : Double(metrics.completedCount) / Double(allTasks.count)
             )
-            healthValueLabel.stringValue = formattedPercent(metrics.health)
             progressValueLabel.stringValue = formattedPercent(metrics.averageProgress)
             capacitySlider.doubleValue = metrics.capacity
             automationSwitch.state = metrics.automationEnabled ? .on : .off
             allFilterButton.title = "\(AppKitSignalLabFilter.all.title)  \(allTasks.count)"
-            activeFilterButton.title = "\(AppKitSignalLabFilter.active.title)  \(metrics.activeCount)"
+            let openCount = allTasks.filter { AppKitSignalLabFilter.active.includes($0.status) }.count
+            activeFilterButton.title = "\(AppKitSignalLabFilter.active.title)  \(openCount)"
             blockedFilterButton.title = "\(AppKitSignalLabFilter.blocked.title)  \(metrics.blockedCount)"
             completeFilterButton.title = "\(AppKitSignalLabFilter.complete.title)  \(metrics.completedCount)"
+            clearCompletedButton.isEnabled = metrics.completedCount > 0
+        })
+
+        effects.append(model.graph.createEffect { [weak self] _ in
+            guard let self else { return }
+            let draft = model.draftTaskTitle.get()
+            if newTaskField.stringValue != draft {
+                newTaskField.stringValue = draft
+            }
+            addTaskButton.isEnabled = model.canAddTask.get()
         })
 
         effects.append(model.graph.createEffect { [weak self] _ in
             guard let self else { return }
             guard let task = model.selectedTask.get() else {
-                selectionTitleLabel.stringValue = String(localized: "debug.signalLab.inspector.none", defaultValue: "No work selected")
+                selectionTitleLabel.stringValue = String(localized: "debug.signalLab.inspector.none", defaultValue: "No todo selected")
                 selectionOwnerLabel.stringValue = ""
                 selectionStatusLabel.stringValue = ""
                 selectionProgressLabel.stringValue = ""
@@ -579,6 +647,19 @@ final class AppKitSignalLabViewController: NSViewController, NSTableViewDataSour
 
     @objc private func runSimulationStep() {
         model.runSimulationStep()
+    }
+
+    @objc private func addDraftTask() {
+        model.draftTaskTitle.set(newTaskField.stringValue)
+        model.addDraftTask()
+    }
+
+    @objc private func clearCompleted() {
+        model.clearCompletedTasks()
+    }
+
+    @objc private func toggleTodoCompletion(_ sender: NSButton) {
+        model.toggleCompletion(at: sender.tag)
     }
 
     @objc private func advanceSelected() {

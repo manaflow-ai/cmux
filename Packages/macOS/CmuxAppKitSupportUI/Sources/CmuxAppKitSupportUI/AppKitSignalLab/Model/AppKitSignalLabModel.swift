@@ -5,6 +5,7 @@ final class AppKitSignalLabModel {
     let graph: SignalGraph
     let tasks: Signal<[AppKitSignalLabTask]>
     let query: Signal<String>
+    let draftTaskTitle: Signal<String>
     let filter: Signal<AppKitSignalLabFilter>
     let selectedTaskID: Signal<UUID?>
     let capacity: Signal<Double>
@@ -13,12 +14,14 @@ final class AppKitSignalLabModel {
     let filteredTasks: SignalMemo<[AppKitSignalLabTask]>
     let selectedTask: SignalMemo<AppKitSignalLabTask?>
     let metrics: SignalMemo<AppKitSignalLabMetrics>
+    let canAddTask: SignalMemo<Bool>
 
     init() {
         let graph = SignalGraph()
         let initialTasks = Self.makeFixtureTasks()
         let tasks = graph.createSignal(initialTasks)
         let query = graph.createSignal("")
+        let draftTaskTitle = graph.createSignal("")
         let filter = graph.createSignal(AppKitSignalLabFilter.all)
         let selectedTaskID = graph.createSignal(initialTasks.first?.id)
         let capacity = graph.createSignal(0.74)
@@ -27,13 +30,14 @@ final class AppKitSignalLabModel {
         self.graph = graph
         self.tasks = tasks
         self.query = query
+        self.draftTaskTitle = draftTaskTitle
         self.filter = filter
         self.selectedTaskID = selectedTaskID
         self.capacity = capacity
         self.automationEnabled = automationEnabled
         self.activity = graph.createSignal([
-            String(localized: "debug.signalLab.activity.seeded", defaultValue: "Signal graph seeded with eight work items."),
-            String(localized: "debug.signalLab.activity.ready", defaultValue: "Fine-grained AppKit bindings are live."),
+            String(localized: "debug.signalLab.activity.seeded", defaultValue: "Signal graph seeded with eight todos."),
+            String(localized: "debug.signalLab.activity.ready", defaultValue: "Fine-grained todo bindings are live."),
         ])
 
         self.filteredTasks = graph.createMemo { [tasks, query, filter] in
@@ -72,6 +76,64 @@ final class AppKitSignalLabModel {
                 automationEnabled: automation
             )
         }
+        self.canAddTask = graph.createMemo { [draftTaskTitle] in
+            !draftTaskTitle.get().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    func addDraftTask() {
+        let title = draftTaskTitle.get().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        let task = AppKitSignalLabTask(
+            id: UUID(),
+            title: title,
+            owner: String(localized: "debug.signalLab.owner.personal", defaultValue: "Personal"),
+            status: .queued,
+            progress: 0,
+            priority: 2
+        )
+        graph.batch {
+            tasks.update { [task] + $0 }
+            selectedTaskID.set(task.id)
+            draftTaskTitle.set("")
+            appendActivity(String(localized: "debug.signalLab.activity.added", defaultValue: "Added a new todo in one batch."))
+        }
+    }
+
+    func toggleCompletion(at filteredIndex: Int) {
+        let visibleTasks = filteredTasks.get()
+        guard visibleTasks.indices.contains(filteredIndex) else { return }
+        let identifier = visibleTasks[filteredIndex].id
+        graph.batch {
+            tasks.update { tasks in
+                tasks.map { task in
+                    guard task.id == identifier else { return task }
+                    var updatedTask = task
+                    if task.status == .complete {
+                        updatedTask.status = .queued
+                        updatedTask.progress = 0
+                    } else {
+                        updatedTask.status = .complete
+                        updatedTask.progress = 1
+                    }
+                    return updatedTask
+                }
+            }
+            selectedTaskID.set(identifier)
+            appendActivity(String(localized: "debug.signalLab.activity.completionToggled", defaultValue: "Toggled a todo's completion state."))
+        }
+    }
+
+    func clearCompletedTasks() {
+        let completedIDs = Set(tasks.get().filter { $0.status == .complete }.map(\.id))
+        guard !completedIDs.isEmpty else { return }
+        graph.batch {
+            tasks.update { $0.filter { !completedIDs.contains($0.id) } }
+            if let selectedID = selectedTaskID.get(), completedIDs.contains(selectedID) {
+                selectedTaskID.set(tasks.get().first?.id)
+            }
+            appendActivity(String(localized: "debug.signalLab.activity.cleared", defaultValue: "Cleared completed todos."))
+        }
     }
 
     func selectTask(at filteredIndex: Int) {
@@ -95,7 +157,7 @@ final class AppKitSignalLabModel {
                     return updatedTask
                 }
             }
-            appendActivity(String(localized: "debug.signalLab.activity.advanced", defaultValue: "Selected work item advanced in one batch."))
+            appendActivity(String(localized: "debug.signalLab.activity.advanced", defaultValue: "Selected todo advanced in one batch."))
         }
     }
 
@@ -110,7 +172,7 @@ final class AppKitSignalLabModel {
                     return updatedTask
                 }
             }
-            appendActivity(String(localized: "debug.signalLab.activity.blockToggled", defaultValue: "Selected work item's blocked state changed."))
+            appendActivity(String(localized: "debug.signalLab.activity.blockToggled", defaultValue: "Selected todo's blocked state changed."))
         }
     }
 
@@ -140,7 +202,7 @@ final class AppKitSignalLabModel {
                 }
             }
             capacity.update { value in value > 0.88 ? 0.62 : value + 0.06 }
-            appendActivity(String(localized: "debug.signalLab.activity.simulated", defaultValue: "Simulation updated progress and capacity atomically."))
+            appendActivity(String(localized: "debug.signalLab.activity.simulated", defaultValue: "Demo step updated todo progress atomically."))
         }
     }
 

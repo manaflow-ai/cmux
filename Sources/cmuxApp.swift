@@ -614,7 +614,7 @@ struct cmuxApp: App {
                     Button(
                         String(
                             localized: "debug.menu.appKitSignalLab",
-                            defaultValue: "AppKit Signals Lab…"
+                            defaultValue: "Signal Todo List…"
                         )
                     ) {
                         AppDelegate.shared?.debugWindowsCoordinator.showAppKitSignalLabWindow()

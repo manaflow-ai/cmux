@@ -14,7 +14,7 @@ final class AppKitSignalLabWindowController: NSWindowController, NSWindowDelegat
             backing: .buffered,
             defer: false
         )
-        window.title = String(localized: "debug.signalLab.windowTitle", defaultValue: "AppKit Signals Lab")
+        window.title = String(localized: "debug.signalLab.windowTitle", defaultValue: "Signal Todo List")
         window.identifier = NSUserInterfaceItemIdentifier("cmux.appKitSignalsLab")
         window.minSize = NSSize(width: 960, height: 640)
         window.isReleasedWhenClosed = false

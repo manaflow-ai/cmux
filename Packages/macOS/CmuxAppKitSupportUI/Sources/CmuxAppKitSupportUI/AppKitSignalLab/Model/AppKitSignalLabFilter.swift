@@ -9,13 +9,13 @@ enum AppKitSignalLabFilter: Equatable {
     var title: String {
         switch self {
         case .all:
-            String(localized: "debug.signalLab.filter.all", defaultValue: "All work")
+            String(localized: "debug.signalLab.filter.all", defaultValue: "All todos")
         case .active:
-            String(localized: "debug.signalLab.filter.active", defaultValue: "Active")
+            String(localized: "debug.signalLab.filter.active", defaultValue: "Open")
         case .blocked:
             String(localized: "debug.signalLab.filter.blocked", defaultValue: "Blocked")
         case .complete:
-            String(localized: "debug.signalLab.filter.complete", defaultValue: "Complete")
+            String(localized: "debug.signalLab.filter.complete", defaultValue: "Done")
         }
     }
 
@@ -24,7 +24,7 @@ enum AppKitSignalLabFilter: Equatable {
         case .all:
             true
         case .active:
-            status == .running || status == .review
+            status == .queued || status == .running || status == .review
         case .blocked:
             status == .blocked
         case .complete:
