@@ -7,7 +7,7 @@ struct AgentResumeArgvTests {
         ("claude", "claude", ["claude", "--resume", "SID"]),
         ("grok", "grok", ["grok", "-r", "SID"]),
         ("pi", "pi", ["pi", "--session", "SID"]),
-        ("omp", "omp", ["omp", "--session", "SID"]),
+        ("omp", "omp", ["omp", "--resume", "SID"]),
         ("campfire", "campfire", ["campfire", "--session", "SID"]),
         ("cursor", "cursor-agent", ["cursor-agent", "--resume", "SID"]),
         ("antigravity", "agy", ["agy", "--conversation", "SID"]),
@@ -318,12 +318,12 @@ struct AgentResumeArgvTests {
         #expect(
             AgentResumeArgv().builtInKind(
                 kind: "omp", sessionId: "SID", executablePath: nil, arguments: ["omp"] + ompValues
-            ) == ["omp", "--session", "SID"] + ompValues
+            ) == ["omp", "--resume", "SID"] + ompValues
         )
         #expect(
             AgentForkArgv().builtInKind(
                 kind: "omp", sessionId: "SID", executablePath: nil, arguments: ["omp"] + ompValues
-            ) == ["omp", "--fork", "SID"] + ompValues
+            ) == nil
         )
 
         let campfireArguments = [

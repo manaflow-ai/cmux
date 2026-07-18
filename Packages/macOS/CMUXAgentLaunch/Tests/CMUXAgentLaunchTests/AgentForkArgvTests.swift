@@ -39,14 +39,6 @@ struct AgentForkArgvTests {
         )
         #expect(
             AgentForkArgv().builtInKind(
-                kind: "omp",
-                sessionId: "SID",
-                executablePath: "/opt/bin/omp",
-                arguments: ["/opt/bin/omp", "--model", "anthropic/claude-sonnet-4-6"]
-            ) == ["/opt/bin/omp", "--fork", "SID", "--model", "anthropic/claude-sonnet-4-6"]
-        )
-        #expect(
-            AgentForkArgv().builtInKind(
                 kind: "campfire",
                 sessionId: "SID",
                 executablePath: "/opt/bin/campfire",
@@ -237,6 +229,9 @@ struct AgentForkArgvTests {
         )
         #expect(
             AgentForkArgv().builtInKind(kind: "cursor", sessionId: "SID", executablePath: nil, arguments: ["cursor-agent"]) == nil
+        )
+        #expect(
+            AgentForkArgv().builtInKind(kind: "omp", sessionId: "SID", executablePath: nil, arguments: ["omp"]) == nil
         )
     }
 

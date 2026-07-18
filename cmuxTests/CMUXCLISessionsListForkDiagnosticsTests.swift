@@ -305,22 +305,20 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_unavailable_reason"] as? String == "record_marked_non_restorable")
     }
 
-    @Test func testSessionsListFailsClosedForUnverifiedPiFamilyVersions() throws {
-        for agent in ["pi", "omp"] {
-            let session = try sessionsListDiagnosticSession(
-                agent: agent,
-                launcher: agent,
-                executablePath: agent,
-                arguments: [agent, "--session", "session-id"]
-            )
-            #expect(session["fork_command_available"] as? Bool == true)
-            #expect(session["fork_supported"] as? Bool == false)
-            #expect(session["fork_unavailable_reason"] as? String == "\(agent)_version_unverified")
-            #expect(session["fork_startup_input_available"] as? Bool == true)
-        }
+    @Test func testSessionsListFailsClosedForUnverifiedPiVersion() throws {
+        let session = try sessionsListDiagnosticSession(
+            agent: "pi",
+            launcher: "pi",
+            executablePath: "pi",
+            arguments: ["pi", "--session", "session-id"]
+        )
+        #expect(session["fork_command_available"] as? Bool == true)
+        #expect(session["fork_supported"] as? Bool == false)
+        #expect(session["fork_unavailable_reason"] as? String == "pi_version_unverified")
+        #expect(session["fork_startup_input_available"] as? Bool == true)
     }
 
-    @Test func testSessionsListUsesRequestedPiFamilyAgentBeforeExecutableBasename() throws {
+    @Test func testSessionsListReportsNoForkCommandForOmp() throws {
         let session = try sessionsListDiagnosticSession(
             agent: "omp",
             launcher: "omp",
@@ -328,9 +326,10 @@ extension CMUXCLIErrorOutputRegressionTests {
             arguments: ["/tmp/pi", "--session", "session-id"]
         )
 
-        #expect(session["fork_command_available"] as? Bool == true)
+        #expect(session["fork_command_available"] as? Bool == false)
         #expect(session["fork_supported"] as? Bool == false)
-        #expect(session["fork_unavailable_reason"] as? String == "omp_version_unverified")
+        #expect(session["fork_unavailable_reason"] as? String == "agent_has_no_fork_command")
+        #expect(session["fork_startup_input_available"] as? Bool == false)
     }
 
     @Test func testSessionsListDoesNotInferPiFamilyFromBasenameWhenStructuredIdentityDisagrees() throws {

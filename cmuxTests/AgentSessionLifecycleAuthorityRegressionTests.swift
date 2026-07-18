@@ -9,6 +9,58 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func activeOneShotNeverPublishesRestoreAuthorityBeforeItsStopHook() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-live-one-shot-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/usr/bin/yes", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["exec", "inspect this repository"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("codex-hook-sessions.json").path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+            "CMUX_RUNTIME_ID": "live-one-shot-runtime",
+        ], agentName: "codex")
+        let sessionID = "live-one-shot"
+        let launchCommand = AgentHookLaunchCommandRecord(
+            launcher: "codex",
+            executablePath: executable.path,
+            arguments: [executable.path, "exec", "inspect this repository"],
+            workingDirectory: root.path,
+            environment: nil,
+            capturedAt: Date().timeIntervalSince1970,
+            source: "rejected"
+        )
+        #expect(try store.upsert(
+            sessionId: sessionID,
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: Int(process.processIdentifier),
+            launchCommand: launchCommand,
+            isRestorable: true,
+            markActive: true
+        ))
+
+        let record = try #require(try store.lookup(sessionId: sessionID))
+        let activeRunID = try #require(record.activeRunId)
+        #expect(record.completedAt == nil)
+        #expect(record.restoreAuthority == false)
+        #expect(record.runs?.first { $0.runId == activeRunID }?.restoreAuthority == false)
+    }
+
     @Test func lateStopFromExitedOneShotCompletesGenerationWithoutFallbackAuthority() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-exited-one-shot-\(UUID().uuidString)", isDirectory: true)

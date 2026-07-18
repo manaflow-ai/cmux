@@ -183,6 +183,20 @@ struct ProviderCurrentVersionContractTests {
                 kind: "cursor"
             ) == .oneShot
         )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "cursor-agent",
+                arguments: ["cursor-agent", "ls"],
+                kind: "cursor"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["cursor-agent", "ls", "--model", "composer-1.5"],
+                launcher: "cursor",
+                fallbackKind: "cursor"
+            ) == ["cursor-agent"]
+        )
     }
 
     @Test("Gemini 0.51.0 booleans do not consume adjacent flags")
@@ -233,6 +247,24 @@ struct ProviderCurrentVersionContractTests {
                 fallbackKind: "gemini"
             ) == ["gemini", "--model", "gemini-2.5-pro"]
         )
+        for arguments in [
+            ["gemini", "--list-sessions"],
+            ["gemini", "--delete-session", "session-1"],
+            ["gemini", "--list-extensions"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "gemini", arguments: arguments, kind: "gemini"
+                ) == .nonSession,
+                "\(arguments)"
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "gemini", fallbackKind: "gemini"
+                ) == nil,
+                "\(arguments)"
+            )
+        }
     }
 
     @Test("Kimi 1.37.0 interactive booleans")
@@ -268,6 +300,16 @@ struct ProviderCurrentVersionContractTests {
                 kind: "kimi"
             ) == .oneShot
         )
+        for selector in ["--session", "--resume", "-S", "-r"] {
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    ["kimi", selector, "--model", "kimi-for-coding"],
+                    launcher: "kimi",
+                    fallbackKind: "kimi"
+                ) == ["kimi", "--model", "kimi-for-coding"],
+                Comment(rawValue: selector)
+            )
+        }
     }
 
     @Test("Hermes Agent 0.15.1 booleans and utilities")
@@ -325,6 +367,17 @@ struct ProviderCurrentVersionContractTests {
                 arguments: ["hermes", "acp"],
                 kind: "hermes-agent"
             ) == .interactive
+        )
+        let checkpoints = ["hermes", "chat", "--checkpoints", "--model", "gpt-5.4"]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "hermes", arguments: checkpoints, kind: "hermes-agent"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                checkpoints, launcher: "hermes-agent", fallbackKind: "hermes-agent"
+            ) == ["hermes", "--checkpoints", "--model", "gpt-5.4"]
         )
     }
 
@@ -446,6 +499,29 @@ struct ProviderCurrentVersionContractTests {
                 Comment(rawValue: option)
             )
         }
+
+        for provider in ["pi", "omp", "campfire"] {
+            for selector in ["--resume", "-r"] {
+                #expect(
+                    AgentLaunchSanitizer.sanitizedLaunchArguments(
+                        [provider, selector, "--model", "anthropic/claude-sonnet"],
+                        launcher: provider,
+                        fallbackKind: provider
+                    ) == [provider, "--model", "anthropic/claude-sonnet"],
+                    "\(provider) \(selector) picker"
+                )
+            }
+        }
+
+        for provider in ["pi", "campfire"] {
+            let arguments = [provider, "-xt", "read,bash", "--model", "anthropic/claude-sonnet"]
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: provider, fallbackKind: provider
+                ) == arguments,
+                "\(provider) -xt"
+            )
+        }
     }
 
     @Test("Grok 0.2.103 interactive booleans preserve adjacent options")
@@ -478,6 +554,21 @@ struct ProviderCurrentVersionContractTests {
                 Comment(rawValue: option)
             )
         }
+
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["grok", "-s", "old-session", "--check", "--model", "grok-code-fast-1"],
+                launcher: "grok",
+                fallbackKind: "grok"
+            ) == ["grok", "--check", "--model", "grok-code-fast-1"]
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "grok",
+                arguments: ["grok", "--check", "--model", "grok-code-fast-1"],
+                kind: "grok"
+            ) == .interactive
+        )
     }
 
     @Test("OpenCode 1.18.3 root options preserve exact widths")

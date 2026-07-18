@@ -217,7 +217,7 @@ struct ForkParentFallbackGeneralizationTests {
         #expect(detected[fixture.forkKey] == nil)
     }
 
-    @Test func ompForkFlagDoesNotInferSingleChildThatNamesParentSession() throws {
+    @Test func unsupportedOmpForkFlagDoesNotOverrideLatestSessionInference() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
         let sessionDirectory = try piSessionDirectory(fixture: fixture)
@@ -236,10 +236,11 @@ struct ForkParentFallbackGeneralizationTests {
             processPath: "/usr/local/bin/omp"
         )
 
-        #expect(detected[fixture.forkKey] == nil)
+        #expect(detected[fixture.forkKey]?.snapshot.sessionId == childPath)
+        #expect(detected[fixture.forkKey]?.sessionIDSource == .inferredLatestSessionFile)
     }
 
-    @Test func legacyOmpSessionForkFlagStaysParentFallback() throws {
+    @Test func unsupportedOmpForkFlagDoesNotChangeExplicitSessionAuthority() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
 
@@ -253,7 +254,7 @@ struct ForkParentFallbackGeneralizationTests {
             processPath: "/usr/local/bin/omp"
         )
 
-        #expect(detected[fixture.forkKey]?.sessionIDSource == .forkParentFallback)
+        #expect(detected[fixture.forkKey]?.sessionIDSource == .explicit)
     }
 
     @Test func piPaneHookIdentityWinsAfterForkMintsOwnSession() throws {

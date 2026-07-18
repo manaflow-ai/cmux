@@ -46,6 +46,11 @@ struct OmpSupportTests {
         )
         #expect(taskManagerDefinition.assetName == "AgentIcons/Pi")
         #expect(CmuxVaultAgentRegistration.builtInOmp.iconAssetName == "AgentIcons/Pi")
+        #expect(
+            CmuxVaultAgentRegistration.builtInOmp.resumeCommand
+                == "{{executable}} --resume {{sessionId}}"
+        )
+        #expect(CmuxVaultAgentRegistration.builtInOmp.forkCommand == nil)
     }
 
     @Test func directProcessDetectionUsesExplicitSessionSelectorsBeforeLatestFallback() throws {
@@ -414,6 +419,62 @@ struct OmpSupportTests {
             environment: [:]
         ))
         #expect(legacyPi.id == "pi")
+    }
+
+    @Test func piSessionDirectoryIndexEnumeratesThousandFileFixtureOncePerProcessScan() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-pi-session-index-")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var expectedLatest: URL?
+        for index in 0..<1_000 {
+            let url = root.appendingPathComponent(
+                String(format: "session-%04d.jsonl", index),
+                isDirectory: false
+            )
+            try "{}\n".write(to: url, atomically: false, encoding: .utf8)
+            let modifiedAt = Date(timeIntervalSince1970: TimeInterval(index))
+            try FileManager.default.setAttributes(
+                [.modificationDate: modifiedAt],
+                ofItemAtPath: url.path
+            )
+            expectedLatest = url
+        }
+
+        var index = PiSessionDirectoryIndex(fileManager: .default)
+        #expect(index.newestJSONLFile(in: root.path) == expectedLatest)
+        #expect(
+            index.resolvedSessionPath("session-0500", in: root.path)
+                == root.appendingPathComponent("session-0500.jsonl").path
+        )
+        #expect(index.newestJSONLFile(in: root.path) == expectedLatest)
+        #expect(index.directoryEnumerationCount == 1)
+        #expect(index.candidateQueryVisitCount == 0)
+    }
+
+    @Test func piSessionDirectoryIndexBreaksEqualMtimeTiesByStablePath() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-pi-session-tie-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstDirectory = root.appendingPathComponent("a", isDirectory: true)
+        let secondDirectory = root.appendingPathComponent("b", isDirectory: true)
+        try FileManager.default.createDirectory(at: firstDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondDirectory, withIntermediateDirectories: true)
+        let modifiedAt = Date(timeIntervalSince1970: 1_000)
+        let first = try Self.writeSessionFile(
+            id: "same-session",
+            in: firstDirectory,
+            modifiedAt: modifiedAt
+        )
+        _ = try Self.writeSessionFile(
+            id: "same-session",
+            in: secondDirectory,
+            modifiedAt: modifiedAt
+        )
+
+        var index = PiSessionDirectoryIndex(fileManager: .default)
+        #expect(index.newestJSONLFile(in: root.path) == first)
+        #expect(index.resolvedSessionPath("same-session", in: root.path) == first.path)
+        #expect(index.directoryEnumerationCount == 1)
+        #expect(index.candidateQueryVisitCount == 0)
     }
 
     private static func detectedOmpSnapshot(
