@@ -1007,6 +1007,47 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
+    @Test func runOnlyGraphParentsRejectASingleForeignProviderCandidate() {
+        let foreignParent = makeAgentSessionGraphTestNode(
+            provider: "claude", sessionID: "foreign", runID: "shared-run", updatedAt: 200
+        )
+        let child = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "child", runID: "child-run", updatedAt: 400
+        )
+        let edge = AgentSessionGraphEdge(
+            fromRunId: "shared-run", fromSessionId: nil,
+            toNodeId: child.nodeId, toRunId: child.runId, relationship: .spawned
+        )
+
+        #expect(
+            AgentSessionGraphEdgeResolver(nodes: [foreignParent, child]).parentNodeId(for: edge) == nil
+        )
+    }
+
+    @Test func exactRunAndSessionGraphParentsStayWithinTheChildProvider() {
+        let codexParent = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "shared-session", runID: "shared-run", updatedAt: 200
+        )
+        let claudeParent = makeAgentSessionGraphTestNode(
+            provider: "claude", sessionID: "shared-session", runID: "shared-run", updatedAt: 300
+        )
+        let child = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "child", runID: "child-run", updatedAt: 400
+        )
+        let edge = AgentSessionGraphEdge(
+            fromRunId: "shared-run", fromSessionId: "shared-session",
+            toNodeId: child.nodeId, toRunId: child.runId, relationship: .spawned
+        )
+
+        #expect(
+            AgentSessionGraphEdgeResolver(nodes: [claudeParent, codexParent, child]).parentNodeId(for: edge)
+                == codexParent.nodeId
+        )
+        #expect(
+            AgentSessionGraphEdgeResolver(nodes: [claudeParent, child]).parentNodeId(for: edge) == nil
+        )
+    }
+
     @Test func graphParentTieOrderingSurvivesSelfExclusion() {
         let first = makeAgentSessionGraphTestNode(
             provider: "codex", sessionID: "shared-session", runID: "a-run", updatedAt: 200
