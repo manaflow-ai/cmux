@@ -2839,6 +2839,91 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(sharedIndex.forkSupportProbeRejected(workspaceId: workspaceId, panelId: panelId))
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func sharedForkProbeRejectsExecutableABADuringCapabilityProbe() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-fork-executable-aba-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        let supportedExecutable = root.appendingPathComponent("pi-supported", isDirectory: false)
+        let unsupportedExecutable = root.appendingPathComponent("pi-unsupported", isDirectory: false)
+        try writeExecutableFixture(at: supportedExecutable, output: "pi 0.80.6")
+        try writeExecutableFixture(at: unsupportedExecutable, output: "pi 0.59.0")
+        try fm.createSymbolicLink(at: executable, withDestinationURL: supportedExecutable)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let snapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        let providerStarted = ForkProbeTestLatch()
+        let providerRelease = ForkProbeTestLatch()
+        let watchInvalidated = ForkProbeTestLatch()
+        let watchBudgetChecks = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            forkSupportProvider: { _, _ in
+                await providerStarted.signal()
+                await providerRelease.wait()
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            forkExecutableWatchSourceBudgetProvider: { _ in
+                watchBudgetChecks.withLock { $0 += 1 }
+                return 64
+            }
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { notification in
+            guard let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"]
+                as? [UUID: Set<UUID>],
+                  panelIdsByWorkspaceId[workspaceId]?.contains(panelId) == true else {
+                return
+            }
+            Task { await watchInvalidated.signal() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let refreshTask = Task { @MainActor in
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: snapshot
+            )
+        }
+        await providerStarted.wait()
+        let watchWasInstalledBeforeProbe = watchBudgetChecks.withLock { $0 > 0 }
+
+        try fm.removeItem(at: executable)
+        try fm.createSymbolicLink(at: executable, withDestinationURL: unsupportedExecutable)
+        try fm.removeItem(at: executable)
+        try fm.createSymbolicLink(at: executable, withDestinationURL: supportedExecutable)
+
+        if watchWasInstalledBeforeProbe {
+            await watchInvalidated.wait()
+        }
+        await providerRelease.signal()
+        await refreshTask.value
+
+        #expect(
+            !sharedIndex.forkSupportProbeAccepted(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: snapshot
+            ),
+            "An A→B→A executable transition during the capability probe must not cache B's result for A."
+        )
+    }
+
     @Test
     func sharedForkProbeValidationInvalidatesWhenPathDirectorySymlinkRetargets() async throws {
         let fm = FileManager.default
