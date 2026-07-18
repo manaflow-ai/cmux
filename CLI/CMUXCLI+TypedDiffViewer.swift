@@ -104,17 +104,24 @@ extension CMUXCLI {
         let repoCandidates: [DiffViewerRepoOption] = repoRoot.map {
             gitDiffViewerRepoOptions(selectedRepoRoot: $0, context: context)
         } ?? []
-        var allowedRepoRoots = repoCandidates.map(\.repoRoot)
+        let allowedAgentTurns: [DiffViewerAgentTurnAuthorization]
         if selectedSource == .lastTurn,
-           let trajectoryRoot = normalizedDiffSourceValue(context.repoRoot),
-           !allowedRepoRoots.contains(trajectoryRoot) {
-            allowedRepoRoots.append(trajectoryRoot)
+           let providerInput = normalizedDiffSourceValue(context.agentProvider),
+           let sessionId = normalizedDiffSourceValue(context.sessionId) {
+            let provider = providerInput.lowercased()
+            allowedAgentTurns = [DiffViewerAgentTurnAuthorization(
+                provider: provider == "opencode" ? "openCode" : provider,
+                sessionId: sessionId
+            )]
+        } else {
+            allowedAgentTurns = []
         }
         let session = DiffViewerBranchSession(
             token: target.mapper.token,
             groupID: target.groupID,
             repoRoot: repoRoot ?? "",
-            allowedRepoRoots: allowedRepoRoots,
+            allowedRepoRoots: repoCandidates.map(\.repoRoot),
+            allowedAgentTurns: allowedAgentTurns,
             layout: layout,
             layoutSource: layoutSource,
             appearance: appearance,

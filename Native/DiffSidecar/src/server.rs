@@ -128,6 +128,15 @@ struct BranchSessionAuthorization {
     #[serde(rename = "groupID")]
     group_id: String,
     allowed_repo_roots: Vec<String>,
+    #[serde(default)]
+    allowed_agent_turns: Vec<AgentTurnAuthorization>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentTurnAuthorization {
+    provider: crate::protocol::AgentProvider,
+    session_id: String,
 }
 
 const MAX_CACHED_MANIFESTS: usize = 64;
@@ -857,7 +866,9 @@ async fn open_session(
         .map_err(|_| SessionOpenError::Failed)?
         .map_err(|_| SessionOpenError::Failed)?;
         drop(cancellation_guard);
-        if !authorizations_allow_repo(&authorizations, location.repo_root()).await {
+        if !authorizations_allow_agent_turn(&authorizations, &identity)
+            && !authorizations_allow_repo(&authorizations, location.repo_root()).await
+        {
             return Err(SessionOpenError::Unauthorized);
         }
         Some((identity, location))
@@ -2111,6 +2122,17 @@ async fn authorizations_allow_repo(
         }
     }
     false
+}
+
+fn authorizations_allow_agent_turn(
+    authorizations: &[BranchSessionAuthorization],
+    identity: &AgentTurnIdentity,
+) -> bool {
+    authorizations.iter().any(|authorization| {
+        authorization.allowed_agent_turns.iter().any(|allowed| {
+            allowed.provider == identity.provider && allowed.session_id == identity.session_id
+        })
+    })
 }
 
 async fn authorize_branch_change(state: &AppState, token: &str, group: &str, repo: &str) -> bool {

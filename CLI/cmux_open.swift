@@ -385,11 +385,17 @@ extension CMUXCLI {
     /// is validated against, and the exact layout/appearance/title/workspace
     /// context so the regenerated page matches the original visually and
     /// behaviorally. Written next to the manifest as `.branch-session-<group>.json`.
+    struct DiffViewerAgentTurnAuthorization: Codable, Equatable {
+        var provider: String
+        var sessionId: String
+    }
+
     struct DiffViewerBranchSession: Codable {
         var token: String
         var groupID: String
         var repoRoot: String
         var allowedRepoRoots: [String]
+        var allowedAgentTurns: [DiffViewerAgentTurnAuthorization]
         var layout: String
         var layoutSource: String
         var appearance: DiffViewerAppearance
@@ -408,6 +414,7 @@ extension CMUXCLI {
             case groupID
             case repoRoot
             case allowedRepoRoots
+            case allowedAgentTurns
             case layout
             case layoutSource
             case appearance
@@ -422,6 +429,7 @@ extension CMUXCLI {
             groupID: String,
             repoRoot: String,
             allowedRepoRoots: [String],
+            allowedAgentTurns: [DiffViewerAgentTurnAuthorization] = [],
             layout: String,
             layoutSource: String,
             appearance: DiffViewerAppearance,
@@ -434,6 +442,7 @@ extension CMUXCLI {
             self.groupID = groupID
             self.repoRoot = repoRoot
             self.allowedRepoRoots = allowedRepoRoots
+            self.allowedAgentTurns = allowedAgentTurns
             self.layout = layout
             self.layoutSource = layoutSource
             self.appearance = appearance
@@ -449,6 +458,10 @@ extension CMUXCLI {
             groupID = try container.decode(String.self, forKey: .groupID)
             repoRoot = try container.decode(String.self, forKey: .repoRoot)
             allowedRepoRoots = try container.decode([String].self, forKey: .allowedRepoRoots)
+            allowedAgentTurns = try container.decodeIfPresent(
+                [DiffViewerAgentTurnAuthorization].self,
+                forKey: .allowedAgentTurns
+            ) ?? []
             layout = try container.decode(String.self, forKey: .layout)
             layoutSource = try container.decode(String.self, forKey: .layoutSource)
             appearance = try container.decode(DiffViewerAppearance.self, forKey: .appearance)
@@ -1316,7 +1329,10 @@ extension CMUXCLI {
                 case "--target-operation-id":
                     let value = try openOptionValue(commandArgs, index: index, name: arg)
                     guard UUID(uuidString: value) != nil else {
-                        throw CLIError(message: "--target-operation-id must be a UUID")
+                        throw CLIError(message: CMUXDiffViewerLocalization.string(
+                            "cli.diff.error.targetOperationIDInvalid",
+                            defaultValue: "--target-operation-id must be a UUID"
+                        ))
                     }
                     parsed.targetOperationID = value
                     index += 2
@@ -1418,7 +1434,10 @@ extension CMUXCLI {
         }
         if parsed.targetOperationID != nil,
            parsed.targetSurface == nil || parsed.targetExpectedURL == nil {
-            throw CLIError(message: "--target-operation-id requires --target-surface and --target-expected-url")
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.diff.error.targetOperationIDRequiresTarget",
+                defaultValue: "--target-operation-id requires --target-surface and --target-expected-url"
+            ))
         }
 
         return parsed
