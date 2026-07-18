@@ -324,6 +324,7 @@ struct CLIHookNoResponseTests {
                 "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_AGENT_HOOK_DELIVERY_ID": "native-admission-deadline",
@@ -403,6 +404,7 @@ struct CLIHookNoResponseTests {
                 "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_SOCKET_PATH": "/tmp/cmux-native-forced-fork-failure.sock",
                 "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_AGENT_HOOK_DELIVERY_ID": "native-forced-fork-failure",
@@ -485,6 +487,7 @@ struct CLIHookNoResponseTests {
                     "CMUX_SURFACE_ID": "surface-\(index)",
                     "CMUX_SOCKET_PATH": socketPath,
                     "CMUX_SOCKET_CAPABILITY": "test-capability",
+                    "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                     "CMUX_BUNDLED_CLI_PATH": "/usr/bin/false",
                     "CMUX_CODEX_PID": "\(50_000 + index)",
                     "CMUX_AGENT_HOOK_DELIVERY_ID": "native-burst-\(index)",
@@ -568,7 +571,7 @@ struct CLIHookNoResponseTests {
             "printf '%s' \"$*\" > \"$CMUX_TEST_FALLBACK_ARGS\"",
             "cat > \"$CMUX_TEST_FALLBACK_INPUT\"",
         ])
-        let server = Self.startMultiConnectionMockServerAllowingNoResponse(
+        _ = Self.startMultiConnectionMockServerAllowingNoResponse(
             listenerFD: listenerFD,
             state: state,
             connectionLimit: cases.count,
@@ -629,12 +632,11 @@ struct CLIHookNoResponseTests {
             )
             #expect(try String(contentsOf: fallbackInput, encoding: .utf8) == payload)
         }
-        #expect(server.wait(timeout: 5), "Older app did not receive a queue capability probe")
-        #expect(waitForCondition(timeout: 2) {
-            state.snapshot().filter {
-                codexHookJSONObject($0)?["method"] as? String == "agent.hook.enqueue"
-            }.count == cases.count
-        })
+        Thread.sleep(forTimeInterval: 0.1)
+        #expect(
+            state.snapshot().isEmpty,
+            "A helper launched by an older app must use the legacy entrypoint without probing an unsupported queue method"
+        )
     }
 
     private static func bundledCLIPath() throws -> String {

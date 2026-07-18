@@ -91,6 +91,7 @@ struct CLICodexHookTimeoutRegressionTests {
         for (index, path) in installedPaths.enumerated() {
             var environment = expectedEnvironment
             environment["CMUX_SOCKET_CAPABILITY"] = "test-capability"
+            environment["CMUX_AGENT_HOOK_ENQUEUE_V1"] = "1"
             environment["CMUX_BUNDLED_CLI_PATH"] = cliPath
             environment["CMUX_AGENT_HOOK_DELIVERY_ID"] = "native-event-\(index)"
             let payload = index == 0 ? binaryPayload : Data("payload-\(expectedEvents[index])".utf8)
@@ -168,6 +169,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_SURFACE_ID": "surface-fallback",
                 "CMUX_SOCKET_PATH": "/tmp/cmux-native-missing.sock",
                 "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_AGENT_HOOK_DELIVERY_ID": deliveryID,
@@ -202,6 +204,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_SURFACE_ID": "surface-fallback",
                 "CMUX_SOCKET_PATH": "/tmp/cmux-native-missing.sock",
                 "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                 "CMUX_CODEX_PID": "4242",
             ],
             standardInputData: payload,
@@ -410,6 +413,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_SURFACE_ID": "surface-hung-fallback",
                 "CMUX_SOCKET_PATH": "/tmp/cmux-native-hung-missing.sock",
                 "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_AGENT_HOOK_DELIVERY_ID": "native-hung-fallback",
@@ -520,6 +524,23 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(inject.status == 0, Comment(rawValue: inject.stderr))
         let injectedCommands = codexInjectedHookCommands(inject.stdout)
         #expect(injectedCommands.count == 6)
+        let injectedCommandsByEvent = codexInjectedHookCommandsByEvent(inject.stdout)
+        let expectedInjectedTags = [
+            "SessionStart": "session-start",
+            "UserPromptSubmit": "prompt-submit",
+            "Stop": "stop",
+            "PreToolUse": "pre-tool-use",
+            "PostToolUse": "post-tool-use",
+            "PermissionRequest": "notification",
+        ]
+        #expect(Set(injectedCommandsByEvent.keys) == Set(expectedInjectedTags.keys))
+        for (event, tag) in expectedInjectedTags {
+            let command = try #require(injectedCommandsByEvent[event])
+            #expect(
+                URL(fileURLWithPath: command).lastPathComponent
+                    .hasPrefix("cmux-codex-native-hook-\(tag)-")
+            )
+        }
 
         let generatedCommands = persistentHooks
             .filter { $0.command != userCommand }
@@ -602,6 +623,7 @@ struct CLICodexHookTimeoutRegressionTests {
                     "CMUX_SURFACE_ID": "surface-native-feed",
                     "CMUX_SOCKET_PATH": socketPath,
                     "CMUX_SOCKET_CAPABILITY": "test-capability",
+                    "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                     "CMUX_AGENT_HOOK_DELIVERY_ID": "native-feed-\(index)",
                 ],
                 standardInputData: payload,
@@ -1077,6 +1099,7 @@ struct CLICodexHookTimeoutRegressionTests {
                     "TMPDIR": root.path,
                     "CMUX_SOCKET_PATH": socketPath,
                     "CMUX_SOCKET_CAPABILITY": "test-capability",
+                    "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                     "CMUX_WORKSPACE_ID": workspaceId,
                     "CMUX_SURFACE_ID": surfaceId,
                     "CMUX_CODEX_PID": "4242",
@@ -1156,6 +1179,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "PWD": "/tmp/project-safe",
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
                 "CMUX_SURFACE_ID": surfaceId,
                 "CMUX_CODEX_PID": "4242",
@@ -1953,12 +1977,22 @@ struct CLICodexHookTimeoutRegressionTests {
     }
 
     private func codexInjectedHookCommands(_ output: String) -> [String] {
+        Array(codexInjectedHookCommandsByEvent(output).values)
+    }
+
+    private func codexInjectedHookCommandsByEvent(_ output: String) -> [String: String] {
         output.utf8.split(separator: 0).compactMap { rawField in
             let field = String(decoding: rawField, as: UTF8.self)
+            guard field.hasPrefix("hooks."),
+                  let eventEnd = field.firstIndex(of: "=") else { return nil }
+            let eventStart = field.index(field.startIndex, offsetBy: "hooks.".count)
+            let event = String(field[eventStart..<eventEnd])
             guard let prefix = field.range(of: "command='''") else { return nil }
             let remainder = field[prefix.upperBound...]
             guard let suffix = remainder.range(of: "''',timeout=") else { return nil }
-            return String(remainder[..<suffix.lowerBound])
+            return (event, String(remainder[..<suffix.lowerBound]))
+        }.reduce(into: [:]) { result, entry in
+            result[entry.0] = entry.1
         }
     }
 
