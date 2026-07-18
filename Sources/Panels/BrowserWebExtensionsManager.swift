@@ -533,8 +533,9 @@ final class BrowserWebExtensionsManager: NSObject {
             pendingActionInvocations[key, default: []].append(invocation)
             // WebKit's delegate callback is delayed until the popup finishes
             // loading. Present its public popover immediately for a user click
-            // so a slow extension still has a visible loading surface.
-            context.userGesturePerformed(in: tabAdapter)
+            // after invoking the action so a slow extension still has a visible
+            // loading surface while WebKit activates its background content.
+            context.performAction(for: tabAdapter)
             do {
                 try showPopup(action, for: context)
                 return true
