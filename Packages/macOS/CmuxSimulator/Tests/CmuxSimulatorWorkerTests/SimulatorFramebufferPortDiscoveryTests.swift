@@ -1,4 +1,5 @@
 import CmuxSimulator
+import Darwin
 import Foundation
 import IOSurface
 import Testing
@@ -161,6 +162,31 @@ struct SimulatorFramebufferPortDiscoveryTests {
         #expect(transports.count == 1)
         #expect(transports.first?.width == 8)
         #expect(transports.first?.height == 12)
+    }
+
+    @Test("Replacing geometry releases the obsolete worker-owned frame ring")
+    func resizeReleasesObsoleteFrameRing() async throws {
+        let fixture = SimulatorFramebufferPortFixture()
+        var transports: [SimulatorFrameTransportDescriptor] = []
+        let framebuffer = SimulatorFramebuffer(
+            onFrameTransportChange: { transports.append($0) },
+            onDisplayChange: { _ in }
+        )
+        try await framebuffer.start(device: fixture.device)
+        let obsoleteName = try #require(transports.first?.sharedMemoryName)
+
+        framebuffer.setTargetGeometry(SimulatorSurfaceGeometry(width: 4, height: 6, scale: 1))
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while transports.count < 2, clock.now < deadline {
+            try await clock.sleep(for: .milliseconds(1))
+        }
+
+        #expect(transports.count == 2)
+        let obsoleteHandle = try simulatorOpenSharedMemory(named: obsoleteName, flags: O_RDONLY)
+        if obsoleteHandle >= 0 { close(obsoleteHandle) }
+        #expect(obsoleteHandle == -1)
+        framebuffer.stop()
     }
 
     @Test("A failed publication resume remains retryable")
