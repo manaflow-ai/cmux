@@ -31,6 +31,15 @@ func TestResizeResponsePreservesReservationIdentity(t *testing.T) {
 	}
 }
 
+func TestSetSplitRatioRejectsServersOlderThanProtocolEight(t *testing.T) {
+	protocol := uint32(7)
+	client := &Client{protocol: &protocol}
+	err := client.SetSplitRatio(context.Background(), 1, 0.5)
+	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("SetSplitRatio() error = %v, want protocol mismatch", err)
+	}
+}
+
 func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()

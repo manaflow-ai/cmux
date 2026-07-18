@@ -937,6 +937,23 @@ mod tests {
     }
 
     #[test]
+    fn set_split_ratio_requires_protocol_eight() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(7),
+        };
+        let error = client.require_protocol(8, "set-split-ratio").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "set-split-ratio requires protocol 8; server uses protocol 7"
+        );
+    }
+
+    #[test]
     fn overflow_decodes_recovery_fields() {
         let event = parse_event(serde_json::json!({
             "event": "overflow",
