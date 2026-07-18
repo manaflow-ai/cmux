@@ -308,6 +308,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     @Test func liveOneShotStopCompletesEverySupportedLaunchGeneration() throws {
         let launches: [(agent: String, executable: String, arguments: [String])] = [
             ("codex", "codex", ["exec", "fix this"]),
+            ("codex", "codex", ["review", "--uncommitted"]),
             ("claude", "claude", ["-p", "fix this"]),
             ("claude", "claude", ["--print", "fix this"]),
             ("gemini", "gemini", ["-p", "fix this"]),
@@ -315,7 +316,6 @@ extension CMUXCLIErrorOutputRegressionTests {
             ("cursor", "cursor-agent", ["--print", "fix this"]),
             ("factory", "droid", ["exec", "fix this"]),
             ("opencode", "opencode", ["run", "fix this"]),
-            ("opencode", "opencode", ["pr", "123"]),
             ("grok", "grok", ["--single", "fix this"]),
             ("pi", "pi", ["--print", "fix this"]),
             ("omp", "omp", ["--prompt", "fix this"]),
@@ -329,10 +329,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             ("copilot", "copilot", ["--prompt", "fix this"]),
             ("codebuddy", "codebuddy", ["--print", "fix this"]),
             ("qoder", "qodercli", ["--print", "fix this"]),
-            ("kiro", "kiro-cli", ["--no-interactive"]),
             ("kimi", "kimi", ["--print", "fix this"]),
-            ("kimi", "kimi", ["--prompt", "fix this"]),
-            ("kimi", "kimi", ["-p", "fix this"]),
         ]
 
         for (index, launch) in launches.enumerated() {
@@ -403,26 +400,37 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @Test func liveInteractiveStopRemainsATurnBoundaryForEverySupportedAgent() throws {
-        let launches: [(agent: String, executable: String)] = [
-            ("codex", "codex"),
-            ("claude", "claude"),
-            ("gemini", "gemini"),
-            ("cursor", "cursor-agent"),
-            ("factory", "droid"),
-            ("opencode", "opencode"),
-            ("grok", "grok"),
-            ("pi", "pi"),
-            ("omp", "omp"),
-            ("campfire", "campfire"),
-            ("amp", "amp"),
-            ("antigravity", "agy"),
-            ("rovodev", "acli"),
-            ("hermes-agent", "hermes"),
-            ("copilot", "copilot"),
-            ("codebuddy", "codebuddy"),
-            ("qoder", "qodercli"),
-            ("kiro", "kiro-cli"),
-            ("kimi", "kimi"),
+        let launches: [(agent: String, executable: String, arguments: [String])] = [
+            ("codex", "codex", []),
+            ("codex", "codex", ["--future-launch-mode"]),
+            ("claude", "claude", []),
+            ("claude", "claude", ["--no-session-persistence"]),
+            ("gemini", "gemini", []),
+            ("gemini", "gemini", ["--prompt-interactive", "fix this"]),
+            ("cursor", "cursor-agent", []),
+            ("factory", "droid", []),
+            ("opencode", "opencode", []),
+            ("opencode", "opencode", ["pr", "123"]),
+            ("grok", "grok", []),
+            ("pi", "pi", []),
+            ("pi", "pi", ["--no-session"]),
+            ("omp", "omp", []),
+            ("campfire", "campfire", []),
+            ("amp", "amp", []),
+            ("antigravity", "agy", []),
+            ("antigravity", "agy", ["--prompt-interactive", "fix this"]),
+            ("rovodev", "acli", []),
+            ("rovodev", "acli", ["rovodev", "run", "--prompt-interactive", "fix this"]),
+            ("hermes-agent", "hermes", []),
+            ("copilot", "copilot", []),
+            ("codebuddy", "codebuddy", []),
+            ("qoder", "qodercli", []),
+            ("qoder", "qodercli", ["--prompt-interactive", "fix this"]),
+            ("kiro", "kiro-cli", []),
+            ("kiro", "kiro-cli", ["--no-interactive"]),
+            ("kimi", "kimi", []),
+            ("kimi", "kimi", ["--prompt", "fix this"]),
+            ("kimi", "kimi", ["-p", "fix this"]),
         ]
 
         for (index, launch) in launches.enumerated() {
@@ -435,7 +443,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
             let process = Process()
             process.executableURL = executable
-            process.arguments = []
+            process.arguments = launch.arguments
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             try process.run()
@@ -448,7 +456,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             let command = AgentHookLaunchCommandRecord(
                 launcher: launch.agent,
                 executablePath: executable.path,
-                arguments: [executable.path],
+                arguments: [executable.path] + launch.arguments,
                 workingDirectory: root.path,
                 environment: nil,
                 capturedAt: Date().timeIntervalSince1970,

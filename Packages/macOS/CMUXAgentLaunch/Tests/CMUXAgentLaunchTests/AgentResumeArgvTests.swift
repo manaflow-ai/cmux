@@ -53,8 +53,8 @@ struct AgentResumeArgvTests {
         )
     }
 
-    @Test("Kimi resume rejects one-shot prompts but removes stale interactive sessions")
-    func kimiResumeRejectsPromptAndSanitizesInteractiveArguments() {
+    @Test("Kimi resume removes initial prompts and stale interactive sessions")
+    func kimiResumeSanitizesInteractiveArguments() {
         #expect(
             AgentResumeArgv().builtInKind(
                 kind: "kimi",
@@ -67,7 +67,7 @@ struct AgentResumeArgvTests {
                     "--yolo",
                     "--prompt", "do not replay this prompt",
                 ]
-            ) == nil
+            ) == ["kimi", "--session", "SID", "--model", "kimi-k2", "--yolo"]
         )
         #expect(
             AgentResumeArgv().builtInKind(

@@ -257,6 +257,6 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertNil(factoryExec.resumeCommand)
         XCTAssertNil(qoderPrint.resumeCommand)
         XCTAssertNil(kimiPrint.resumeCommand)
-        XCTAssertNil(kimiPrompt.resumeCommand)
+        XCTAssertNotNil(kimiPrompt.resumeCommand)
     }
 }
