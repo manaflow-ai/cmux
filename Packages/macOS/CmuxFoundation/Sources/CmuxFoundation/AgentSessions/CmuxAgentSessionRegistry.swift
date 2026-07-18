@@ -219,9 +219,13 @@ public struct CmuxAgentSessionRegistry: Sendable {
         sources: [LegacySource],
         fileManager: FileManager = .default
     ) throws -> [String: Snapshot] {
-        try withDatabase { database in
+        let uniqueSources = Dictionary(
+            sources.map { ($0.provider, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        ).values.sorted { $0.provider < $1.provider }
+        return try withDatabase { database in
             var changed: [(source: LegacySource, stamp: LegacyStamp, payload: LegacyPayload)] = []
-            for source in sources {
+            for source in uniqueSources {
                 guard let stamp = LegacyStamp.read(path: source.url.path, fileManager: fileManager),
                       try !legacySourceIsCurrent(
                         database: database,
@@ -243,7 +247,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     }
                 }
             }
-            return try Dictionary(uniqueKeysWithValues: sources.map { source in
+            return try Dictionary(uniqueKeysWithValues: uniqueSources.map { source in
                 (source.provider, Snapshot(
                     records: try readRecords(database: database, provider: source.provider),
                     activeSlots: try readSlots(database: database, provider: source.provider)
