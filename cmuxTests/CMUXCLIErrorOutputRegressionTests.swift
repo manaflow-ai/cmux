@@ -76,16 +76,18 @@ import Testing
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        let request = try XCTUnwrap(responder.receivedRequests.only)
-        let data = try XCTUnwrap(request.data(using: .utf8))
-        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertEqual(object["method"] as? String, "simulator.context")
-        let params = try XCTUnwrap(object["params"] as? [String: Any])
-        XCTAssertEqual(params["workspace_id"] as? String, "workspace:caller")
-        XCTAssertNil(params["pane_id"])
-        XCTAssertNil(params["surface_id"])
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = responder.receivedRequests
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        let data = try #require(request.data(using: String.Encoding.utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["method"] as? String == "simulator.context")
+        let params = try #require(object["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == "workspace:caller")
+        #expect(params["pane_id"] == nil)
+        #expect(params["surface_id"] == nil)
     }
 
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
