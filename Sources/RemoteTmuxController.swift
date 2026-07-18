@@ -504,6 +504,12 @@ final class RemoteTmuxController {
         _ = mirror.connection.send("rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(name))")
         // Do not re-key local state here. tmux can reject a rename (for example
         // duplicate session name); `%session-changed` is the confirmation point.
+        // Multiplexed mirrors never receive `%session-changed` (the shared stream's
+        // event describes the hidden view session), so nudge a reconcile to observe
+        // the confirmed rename instead.
+        if isMultiplexed(mirror) {
+            multiplexedViewsByHost[mirror.host.connectionHash]?.requestReconcile()
+        }
     }
 
     /// Tmux confirmed that a mirrored session's name changed. This is the single
@@ -731,6 +737,17 @@ final class RemoteTmuxController {
         reason: RemoteTmuxMirrorTeardownReason
     ) {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
+        // Multiplexed teardown: release the channel only. The shared stream and
+        // ControlMaster belong to the host's view — tearing them down here would
+        // kill every sibling session's mirror — and an explicit detach must record
+        // the intent so the reconcile excludes the session instead of re-creating it.
+        if let mirror = sessionMirrors[key], isMultiplexed(mirror) {
+            if reason == .explicitDetach { mirror.connection.endSession(kill: false) }
+            teardownMultiplexedMirror(key: key)
+            if !hostHasLiveMirror(host) { stopMultiplexedHost(host: host) }
+            closeDeadMirrorWorkspace(mirror.mirroredWorkspace)
+            return
+        }
         let mirrorWorkspace = sessionMirrors[key]?.mirroredWorkspace
         if let mirror = sessionMirrors.removeValue(forKey: key) {
             mirror.detachObserver()
@@ -782,9 +799,23 @@ final class RemoteTmuxController {
         for (key, mirror) in sessionMirrors {
             guard let workspaceId = mirror.mirroredWorkspaceId, ids.contains(workspaceId) else { continue }
             affectedHosts[mirror.host.connectionHash] = mirror.host
+            mirror.connection.endSession(kill: false)
             mirror.detachObserver()
             sessionMirrors.removeValue(forKey: key)
-            removeCachedConnection(forKey: key)?.stop()
+            // Multiplexed mirrors have a channel, not a cached connection — release
+            // it so the shared stream's observer slot doesn't leak.
+            if let channel = channelsByHostSession.removeValue(forKey: key) {
+                channel.releaseMirror()
+            } else {
+                removeCachedConnection(forKey: key)?.stop()
+            }
+        }
+        // Stop the shared view for any affected host whose sessions all closed (its
+        // channels aren't cached connections, so the master-teardown loop below
+        // can't see it).
+        for (hash, host) in affectedHosts
+        where multiplexedViewsByHost[hash] != nil && !hostHasLiveMirror(host) {
+            stopMultiplexedHost(host: host)
         }
         // For any host left with no live mirror or connection, close its shared SSH
         // ControlMaster now — the last-session teardown paths already do this, and
@@ -841,6 +872,15 @@ final class RemoteTmuxController {
     func detachMirrorWorkspaceKeptOpenLocally(workspaceId: UUID) {
         guard let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId }) else { return }
         let host = entry.value.host
+        if isMultiplexed(entry.value) {
+            entry.value.connection.endSession(kill: false)
+            teardownMultiplexedMirror(key: entry.key)
+            // The remote session stays alive and stays published by the view —
+            // record the detach intent (via endSession) so the next reconcile
+            // excludes it instead of re-mirroring what the user detached.
+            if !hostHasLiveMirror(host) { stopMultiplexedHost(host: host) }
+            return
+        }
         sessionMirrors.removeValue(forKey: entry.key)
         entry.value.detachObserver()
         removeCachedConnection(forKey: entry.key)?.stop()
@@ -855,6 +895,18 @@ final class RemoteTmuxController {
         let mirror = entry.value
         let host = mirror.host
         let sessionName = mirror.sessionName
+        // Multiplexer: kill over the shared view stream (a one-shot ssh would be
+        // refused on a single-connection host) and let the reconcile confirm.
+        // Remove the mirror + channel NOW (matches GA), and — via the channel's
+        // end-session intent — mark the session pending-kill so the next reconcile
+        // won't re-surface a workspace for it (the session is still published until
+        // tmux confirms the kill) and retries the kill if this send is dropped. Do
+        // NOT stop the view here: the reconcile drives last-session teardown.
+        if isMultiplexed(mirror) {
+            mirror.connection.endSession(kill: true)
+            teardownMultiplexedMirror(key: entry.key)
+            return
+        }
         // Kill by the stable session id when known, so a prior rename-session
         // can't leave us targeting a stale name. If the control client already
         // ended (for example after deliberate detach), closing leftover local
@@ -930,6 +982,9 @@ final class RemoteTmuxController {
     /// CLI's `ssh -f` left them persistent). Does NOT kill any remote tmux
     /// server/session — only the local control clients and masters.
     func detachAll() {
+        // Stop every shared view stream first — their channels aren't cached
+        // connections, so the loop below can't see them.
+        for host in multiplexedViewsByHost.values.map(\.host) { stopMultiplexedHost(host: host) }
         let connections = Array(connectionsByHostSession.keys).compactMap { removeCachedConnection(forKey: $0) }
         for connection in connections { connection.stop() }
         // Fire-and-forget `ssh -O exit` per endpoint: it hits the local control
