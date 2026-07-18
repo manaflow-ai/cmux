@@ -882,13 +882,13 @@ check_no_self_hosted_fleet_runners() {
   # labels so Tart cutover and paid-provider fallback remain configuration
   # changes and a physical host label cannot bypass the isolated VM pool.
   # Allowed macOS labels (none carried by any fleet runner):
-  #   blacksmith-6vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
+  #   blacksmith-{6,12}vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
   #   depot-macos-{latest,14}.
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
   local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
-  local allowed='blacksmith-6vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
+  local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
   # Case-sensitive: GitHub's auto labels are `macOS`/`ARM64`, distinct from the
@@ -910,6 +910,7 @@ check_no_self_hosted_fleet_runners() {
     fi
   done
   for probe in "runs-on: \${{ vars.X || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ vars.X || 'blacksmith-12vcpu-macos-26' }}" \
                "runs-on: \${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}" \
                '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15' \
                '- blacksmith-4vcpu-ubuntu-2404'; do
@@ -983,7 +984,7 @@ check_no_self_hosted_fleet_runners() {
   if [[ -n "$hits" ]]; then
     echo "FAIL: workflow references a self-hosted mac fleet label or bare self-hosted runner in a runner-selection position."
     echo "      Use a cloud label so required jobs never land on a mini that can't foreground a GUI app:"
-    echo "      blacksmith-6vcpu-macos-{15,26,latest} / warp-macos-15-arm64-6x / depot-macos-{latest,14}."
+    echo "      blacksmith-{6,12}vcpu-macos-{15,26,latest} / warp-macos-15-arm64-6x / depot-macos-{latest,14}."
     echo "$hits"
     exit 1
   fi

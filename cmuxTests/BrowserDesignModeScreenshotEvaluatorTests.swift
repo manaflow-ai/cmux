@@ -401,10 +401,8 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         await controller.copySelection()
 
         let prompt = try #require(copiedPrompt)
-        // Named to avoid shadowing the payload(from:) helper, which the
-        // second copySelection assertion below still needs to call.
-        let stackedPayload = try payload(from: prompt)
-        let elements = try #require(stackedPayload["elements"] as? [[String: Any]])
+        let initialPayload = try payload(from: prompt)
+        let elements = try #require(initialPayload["elements"] as? [[String: Any]])
         #expect(elements.count == 2)
         #expect((elements[0]["selection"] as? [String: Any])?["selector"] as? String == "#first")
         #expect((elements[1]["selection"] as? [String: Any])?["selector"] as? String == "#second")
