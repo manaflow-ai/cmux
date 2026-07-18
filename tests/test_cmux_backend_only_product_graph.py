@@ -375,7 +375,7 @@ def write_xcode_target_fixture(root: Path) -> Path:
         "TARGET": {
             "isa": "PBXNativeTarget",
             "name": "cmux-backend-only",
-            "buildPhases": ["SOURCES"],
+            "buildPhases": ["SOURCES", "FRAMEWORKS"],
             "packageProductDependencies": [f"PRODUCT-{index}" for index in range(len(products))],
             "buildConfigurationList": "CONFIG-LIST",
         },
@@ -384,6 +384,10 @@ def write_xcode_target_fixture(root: Path) -> Path:
             "files": ["BUILD-FILE"],
         },
         "BUILD-FILE": {"isa": "PBXBuildFile", "fileRef": "SOURCE-FILE"},
+        "FRAMEWORKS": {
+            "isa": "PBXFrameworksBuildPhase",
+            "files": [f"PRODUCT-BUILD-{index}" for index in range(len(products))],
+        },
         "SOURCE-GROUP": {
             "isa": "PBXGroup",
             "path": "Sources",
@@ -422,6 +426,10 @@ def write_xcode_target_fixture(root: Path) -> Path:
         objects[f"PRODUCT-{index}"] = {
             "isa": "XCSwiftPackageProductDependency",
             "productName": product,
+        }
+        objects[f"PRODUCT-BUILD-{index}"] = {
+            "isa": "PBXBuildFile",
+            "productRef": f"PRODUCT-{index}",
         }
     project = root / "project.json"
     project.write_text(json.dumps({"objects": objects}), encoding="utf-8")
@@ -502,6 +510,71 @@ def test_xcode_target_and_link_map_bind_the_actual_host_boundary() -> None:
             raise AssertionError("legacy terminal product was accepted")
 
 
+def test_xcode_frameworks_phase_cannot_hide_a_legacy_product_or_file_reference() -> None:
+    verifier = load_verifier_module()
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        project = write_xcode_target_fixture(root)
+        raw = json.loads(project.read_text(encoding="utf-8"))
+        objects = raw["objects"]
+
+        objects["HIDDEN-GHOSTTY-PRODUCT"] = {
+            "isa": "XCSwiftPackageProductDependency",
+            "productName": "GhosttyKit",
+        }
+        objects["HIDDEN-GHOSTTY-BUILD"] = {
+            "isa": "PBXBuildFile",
+            "productRef": "HIDDEN-GHOSTTY-PRODUCT",
+        }
+        objects["FRAMEWORKS"]["files"].append("HIDDEN-GHOSTTY-BUILD")
+        project.write_text(json.dumps(raw), encoding="utf-8")
+        try:
+            verifier.xcode_target_report(project, "cmux-backend-only")
+        except verifier.VerificationError as error:
+            assert "links forbidden products: GhosttyKit" in str(error)
+        else:
+            raise AssertionError("Frameworks-phase GhosttyKit product was accepted")
+
+        objects["FRAMEWORKS"]["files"].remove("HIDDEN-GHOSTTY-BUILD")
+        objects["HIDDEN-CORE-FILE"] = {
+            "isa": "PBXFileReference",
+            "path": "CmuxTerminalCore.framework",
+            "sourceTree": "BUILT_PRODUCTS_DIR",
+        }
+        objects["HIDDEN-CORE-BUILD"] = {
+            "isa": "PBXBuildFile",
+            "fileRef": "HIDDEN-CORE-FILE",
+        }
+        objects["FRAMEWORKS"]["files"].append("HIDDEN-CORE-BUILD")
+        project.write_text(json.dumps(raw), encoding="utf-8")
+        try:
+            verifier.xcode_target_report(project, "cmux-backend-only")
+        except verifier.VerificationError as error:
+            assert "links forbidden products: CmuxTerminalCore" in str(error)
+        else:
+            raise AssertionError("Frameworks-phase CmuxTerminalCore file was accepted")
+
+
+def test_xcode_source_import_audit_covers_swift_import_attributes_and_symbols() -> None:
+    verifier = load_verifier_module()
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        project = write_xcode_target_fixture(root)
+        source = root / "Sources/BackendHost.swift"
+        for statement, module in (
+            ("@_implementationOnly import GhosttyKit", "GhosttyKit"),
+            ("@preconcurrency import CmuxTerminalCore", "CmuxTerminalCore"),
+            ("import struct CmuxTerminal.TerminalSurface", "CmuxTerminal"),
+        ):
+            source.write_text(statement + "\n", encoding="utf-8")
+            try:
+                verifier.xcode_target_report(project, "cmux-backend-only")
+            except verifier.VerificationError as error:
+                assert f"legacy terminal import {module}" in str(error)
+            else:
+                raise AssertionError(f"attributed or symbol import of {module} was accepted")
+
+
 def main() -> int:
     test_repository_frontend_product_has_a_ghostty_free_closure()
     test_source_policy_rejects_ghostty_and_dynamic_loading()
@@ -509,6 +582,8 @@ def main() -> int:
     test_artifact_attestation_binds_graph_to_recursive_host_load_closure()
     test_dynamic_load_source_policy_is_exact_and_hash_bound()
     test_xcode_target_and_link_map_bind_the_actual_host_boundary()
+    test_xcode_frameworks_phase_cannot_hide_a_legacy_product_or_file_reference()
+    test_xcode_source_import_audit_covers_swift_import_attributes_and_symbols()
     print("PASS: backend-only product graph and host artifact are bound")
     return 0
 

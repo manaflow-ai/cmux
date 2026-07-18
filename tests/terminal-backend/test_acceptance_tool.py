@@ -832,9 +832,12 @@ class AcceptanceToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             app = root / "cmux.app"
+            link_map = root / "host-attestation-LinkMap.txt"
+            link_map.write_text("fixture link map\n", encoding="utf-8")
             report = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "graph_sha256": "a" * 64,
+                "graph_binding_sha256": "f" * 64,
                 "product_closure": {
                     "nodes": [
                         {"package": "CmuxTerminal", "target": "CmuxTerminalDomain"},
@@ -847,6 +850,10 @@ class AcceptanceToolTests(unittest.TestCase):
                     "package": "CmuxTerminal",
                     "product": "CmuxTerminalFrontend",
                 },
+                "xcode_target": {
+                    "target": acceptance.BACKEND_ONLY_XCODE_TARGET,
+                    "sha256": "e" * 64,
+                },
                 "host_artifact": {
                     "executable": "Contents/MacOS/cmux",
                     "load_closure": [
@@ -856,6 +863,10 @@ class AcceptanceToolTests(unittest.TestCase):
                     "linkage_auditor_sha256": acceptance.sha256_file(
                         acceptance.BACKEND_ONLY_LINKAGE_AUDITOR
                     ),
+                    "link_map": {
+                        "path": link_map.name,
+                        "sha256": acceptance.sha256_file(link_map),
+                    },
                     "attestation_sha256": "c" * 64,
                 },
             }
@@ -874,6 +885,15 @@ class AcceptanceToolTests(unittest.TestCase):
                             "linkage_auditor_sha256": acceptance.sha256_file(
                                 acceptance.BACKEND_ONLY_LINKAGE_AUDITOR
                             ),
+                            "xcode_project_path": str(
+                                acceptance.BACKEND_ONLY_XCODE_PROJECT.resolve()
+                            ),
+                            "xcode_project_sha256": acceptance.sha256_file(
+                                acceptance.BACKEND_ONLY_XCODE_PROJECT
+                            ),
+                            "xcode_target": acceptance.BACKEND_ONLY_XCODE_TARGET,
+                            "link_map_path": link_map.name,
+                            "link_map_sha256": acceptance.sha256_file(link_map),
                         },
                         "records": [report],
                     }
@@ -893,12 +913,15 @@ class AcceptanceToolTests(unittest.TestCase):
                     source_commit="d" * 40,
                     app_bundle=app,
                 )
-            verifier.assert_called_once_with(app.resolve())
+            verifier.assert_called_once_with(app.resolve(), link_map.resolve())
             self.assertEqual(
                 metrics,
                 {
                     "source_commit": "d" * 40,
                     "graph_sha256": "a" * 64,
+                    "graph_binding_sha256": "f" * 64,
+                    "xcode_target_sha256": "e" * 64,
+                    "link_map_sha256": acceptance.sha256_file(link_map),
                     "host_attestation_sha256": "c" * 64,
                     "host_load_closure_binary_count": 1,
                     "frontend_target_count": 1,
@@ -927,6 +950,61 @@ class AcceptanceToolTests(unittest.TestCase):
                     source_commit="d" * 40,
                     app_bundle=app,
                 )
+
+            raw_payload = json.loads(raw.read_text(encoding="utf-8"))
+            raw_payload["records"] = [report]
+            raw_payload["records"][0]["xcode_target"]["target"] = "forged-target"
+            raw.write_text(json.dumps(raw_payload), encoding="utf-8")
+            with mock.patch.object(
+                acceptance,
+                "_backend_only_product_report",
+                return_value=raw_payload["records"][0],
+            ), self.assertRaisesRegex(
+                acceptance.AcceptanceError,
+                "exact backend-only Xcode target",
+            ):
+                acceptance.derive_payload_metrics(
+                    "PROC-1",
+                    "host-backend-only-attestation",
+                    raw,
+                    "forged target host attestation",
+                    source_commit="d" * 40,
+                    app_bundle=app,
+                )
+
+            raw_payload["records"][0]["xcode_target"]["target"] = (
+                acceptance.BACKEND_ONLY_XCODE_TARGET
+            )
+            raw_payload["records"][0]["schema_version"] = 1
+            raw.write_text(json.dumps(raw_payload), encoding="utf-8")
+            with mock.patch.object(
+                acceptance,
+                "_backend_only_product_report",
+                return_value=raw_payload["records"][0],
+            ), self.assertRaisesRegex(
+                acceptance.AcceptanceError,
+                "verifier report schema is unsupported",
+            ):
+                acceptance.derive_payload_metrics(
+                    "PROC-1",
+                    "host-backend-only-attestation",
+                    raw,
+                    "old schema host attestation",
+                    source_commit="d" * 40,
+                    app_bundle=app,
+                )
+
+    def test_host_attestation_collector_requires_a_link_map(self) -> None:
+        with self.assertRaises(SystemExit):
+            acceptance.parser().parse_args(
+                [
+                    "collect-host-backend-only-attestation",
+                    "--manifest",
+                    "manifest.json",
+                    "--output",
+                    "proc-1/host-attestation.json",
+                ]
+            )
 
     def test_restart_transcript_proves_a_host_absent_continuity_phase(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
