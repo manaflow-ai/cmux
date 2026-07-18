@@ -106,6 +106,28 @@ describe("Open Graph image discovery", () => {
     );
   }
 
+  test("insets the screenshot from the card edges", async () => {
+    const response = await withoutNetwork(() => renderOpenGraphImage("en"));
+    const body = new Uint8Array(await response.arrayBuffer());
+    const { data } = await sharp(body)
+      .extract({ left: 16, top: 16, width: 32, height: 32 })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    let nonBackgroundPixels = 0;
+    for (let offset = 0; offset < data.length; offset += 3) {
+      if (
+        Math.abs(data[offset] - 10) > 2 ||
+        Math.abs(data[offset + 1] - 10) > 2 ||
+        Math.abs(data[offset + 2] - 10) > 2
+      ) {
+        nonBackgroundPixels += 1;
+      }
+    }
+
+    expect(nonBackgroundPixels).toBe(0);
+  });
+
   test("keeps the README hero synchronized with the landing screenshot", async () => {
     const [landingScreenshot, readmeScreenshot] = await Promise.all([
       readFile(
