@@ -40,6 +40,11 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "HERMES_CODEX_BASE_URL",
     ]
 
+    /// One-launch authority proofs must never become replay configuration.
+    private static let transientEnvironmentKeys: Set<String> = [
+        AgentHibernationResumeEvidence.environmentKey,
+    ]
+
     /// Keys campfire manages itself and must not inherit from a captured Pi
     /// environment. Replaying a captured PI_PACKAGE_DIR would pin a resumed
     /// campfire to the previous binary's extracted asset cache
@@ -144,7 +149,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
 
     /// Returns a replay-safe value for a single environment variable, or `nil` when it should drop.
     public func sanitizedValue(key: String, value: String?) -> String? {
-        guard Self.safeEnvironmentKeys.contains(key) else { return nil }
+        guard !Self.transientEnvironmentKeys.contains(key),
+              Self.safeEnvironmentKeys.contains(key) else { return nil }
         switch key {
         case "CLAUDE_CONFIG_DIR":
             return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }

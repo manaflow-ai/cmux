@@ -460,7 +460,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         let resumedGeneration = AgentHookSessionLineage(
             runId: savedRun.runId, pid: 456, processStartedAt: 300,
-            processLaunchMode: .interactive,
+            processDescribesAgent: true, processLaunchMode: .interactive,
             parentRunId: nil, parentSessionId: nil, relationship: .resumed,
             restoreAuthority: true
         )

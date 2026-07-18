@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 import Bonsplit
@@ -797,6 +798,16 @@ struct AgentHibernationTests {
 
         expectEqual(snapshot.agentDisplayName, "Local Agent")
         expectEqual(snapshot.resumeCommand, "cd -- '/tmp/custom-agent' 2>/dev/null || [ ! -d '/tmp/custom-agent' ] && '/usr/local/bin/local-agent' 'resume' 'custom-session'")
+
+        let attemptID = UUID()
+        let startupInput = snapshot.resumeStartupInput(
+            allowLauncherScript: false,
+            hibernationResumeAttemptId: attemptID
+        )
+        let expectedAssignment = "'\(AgentHibernationResumeEvidence.environmentKey)=\(attemptID.uuidString)'"
+        expectTrue(startupInput?.hasPrefix("/usr/bin/env \(expectedAssignment) /bin/zsh -c ") == true)
+        expectTrue(startupInput?.contains("local-agent") == true)
+        expectTrue(startupInput?.hasSuffix("\n") == true)
     }
 
     @MainActor

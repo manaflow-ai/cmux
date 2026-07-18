@@ -5470,7 +5470,10 @@ final class Workspace: Identifiable, ObservableObject {
                 if focusPanelId == candidate.panelId { focusPanel(candidate.panelId) }
                 continue
             }
-            let preparation = candidate.panel.applyAgentHibernationResume(candidate.plan)
+            let preparation = candidate.panel.applyAgentHibernationResume(
+                candidate.plan,
+                hibernationResumeAttemptId: claimedRequest?.attemptId
+            )
             guard preparation.didResume else {
                 if let claimedRequest {
                     AgentHookSessionStateWriter.releaseFailedHibernatedResumeAuthority(

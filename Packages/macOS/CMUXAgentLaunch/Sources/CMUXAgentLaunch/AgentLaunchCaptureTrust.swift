@@ -133,11 +133,20 @@ public enum AgentLaunchCaptureTrust {
               let arguments else {
             return false
         }
-        return nativeProcessDescriptors(processName: processName, arguments: arguments).contains { descriptor in
+        if nativeProcessDescriptors(processName: processName, arguments: arguments).contains(where: { descriptor in
             descriptor == expectedKind
                 || nativeProcessAliasesByKind[expectedKind]?.contains(descriptor) == true
                 || descriptor == "\(expectedKind)-cli"
+        }) {
+            return true
         }
+        guard let entrypointIndex = interpreterScriptEntrypointIndex(
+            processName: processName,
+            arguments: arguments
+        ) else {
+            return false
+        }
+        return scriptArgument(arguments[entrypointIndex], describes: expectedKind)
     }
 
     public static func nativeProcessDescribesKnownAgent(

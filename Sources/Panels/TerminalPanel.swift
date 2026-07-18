@@ -784,13 +784,15 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func applyAgentHibernationResume(
-        _ plan: AgentHibernationResumePlan
+        _ plan: AgentHibernationResumePlan,
+        hibernationResumeAttemptId: UUID? = nil
     ) -> AgentHibernationResumePreparation {
         guard let state = agentHibernationState,
               plan.matches(state),
               surface.canPrepareAgentHibernationResume,
               let startupInput = state.agent.resumeStartupInput(
-                  temporaryDirectory: plan.temporaryDirectory
+                  temporaryDirectory: plan.temporaryDirectory,
+                  hibernationResumeAttemptId: hibernationResumeAttemptId
               ) else {
             return .unavailable
         }

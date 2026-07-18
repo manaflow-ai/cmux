@@ -782,15 +782,32 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable, Equatable {
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false
+        allowOversizedInlineInput: Bool = false,
+        hibernationResumeAttemptId: UUID? = nil
     ) -> String? {
         startupInput(
-            command: resumeCommand,
+            command: resumeCommand.map {
+                commandWithHibernationResumeEvidence(
+                    $0,
+                    attemptId: hibernationResumeAttemptId
+                )
+            },
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript,
             allowOversizedInlineInput: allowOversizedInlineInput
         )
+    }
+
+    private func commandWithHibernationResumeEvidence(
+        _ command: String,
+        attemptId: UUID?
+    ) -> String {
+        guard let attemptId else { return command }
+        let assignment = shellSingleQuoted(
+            "\(AgentHibernationResumeEvidence.environmentKey)=\(attemptId.uuidString)"
+        )
+        return "/usr/bin/env \(assignment) /bin/zsh -c \(shellSingleQuoted(command))"
     }
 
     func resumeStartupCommand(

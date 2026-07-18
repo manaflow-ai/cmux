@@ -338,8 +338,22 @@ struct AgentHookSessionActivationPolicy: Sendable {
     ) -> Bool {
         guard hasIncomingPID,
               lineage.pid != nil,
-              lineage.processLaunchMode == .interactive,
+              lineage.restoreAuthority,
+              lineage.processDescribesAgent,
               let incomingStartedAt = lineage.processStartedAt else { return false }
+        switch lineage.processLaunchMode {
+        case .interactive:
+            break
+        case .unknown:
+            guard let incomingAttemptId = lineage.hibernationResumeAttemptId,
+                  let recordedAttemptValue = record.cmuxHibernationResumeAttemptId,
+                  let recordedAttemptId = UUID(uuidString: recordedAttemptValue),
+                  incomingAttemptId == recordedAttemptId else {
+                return false
+            }
+        case .oneShot, .nonSession:
+            return false
+        }
         let relevantRuns = (record.runs ?? []).filter { run in
             run.runId == lineage.runId || run.runId == record.activeRunId
         }

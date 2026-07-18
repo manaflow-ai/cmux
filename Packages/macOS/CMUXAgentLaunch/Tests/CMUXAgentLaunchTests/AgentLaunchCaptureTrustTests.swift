@@ -41,6 +41,20 @@ struct AgentLaunchCaptureTrustTests {
         )
     }
 
+    @Test func customInterpreterEntrypointDescribesKindButKeepsUnknownMode() {
+        let arguments = ["/usr/local/bin/node", "/opt/local-agent/bin/local-agent.js", "resume"]
+        #expect(AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+            processName: "node",
+            arguments: arguments,
+            kind: "local-agent"
+        ))
+        #expect(AgentLaunchModeClassifier.processMode(
+            processName: "node",
+            arguments: arguments,
+            kind: "local-agent"
+        ) == .unknown)
+    }
+
     @Test func wrapperLaunchersDescribeTheirKind() {
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("claudeTeams", kind: "claude"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("codexTeams", kind: "codex"))
