@@ -47,16 +47,30 @@ public struct SubrouterAccountSwitcherPopoverView: View {
     @ViewBuilder
     private func providerPicker(provider: SubrouterProvider, snapshot: SubrouterSnapshot) -> some View {
         let accounts = snapshot.accounts(for: provider)
+        // The popover is the quick-switch surface: signed-out accounts are
+        // not useful switch targets, so only the active account and healthy
+        // candidates appear here. The Agents panel keeps the full list.
+        let active = accounts.filter(\.isActive)
+        let healthy = accounts.filter { !$0.isActive && !($0.authChecked && !$0.authValid) }
+        let usable = active + healthy
         VStack(alignment: .leading, spacing: 3) {
             Text(provider.displayName)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
-            ForEach(accounts) { account in
+            ForEach(usable) { account in
                 SubrouterPopoverAccountRow(
                     account: account,
                     isSwitchPending: store.pendingSwitchAccountID == account.id,
                     onSwitch: switchAction(for: account)
                 )
+            }
+            if usable.isEmpty && !accounts.isEmpty {
+                Text(String(
+                    localized: "subrouter.popover.allSignedOut",
+                    defaultValue: "All accounts signed out (\(accounts.count))"
+                ))
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
             }
         }
     }

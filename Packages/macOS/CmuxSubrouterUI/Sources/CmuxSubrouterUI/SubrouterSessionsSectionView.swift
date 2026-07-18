@@ -4,6 +4,10 @@ public import CmuxSubrouter
 /// The live agent-session → account pinning list. Receives value snapshots
 /// only.
 public struct SubrouterSessionsSectionView: View {
+    /// Long-lived daemons accumulate hundreds of session pins; the panel
+    /// shows only the most recently routed handful.
+    static let visibleSessionLimit = 8
+
     private let sessions: [SubrouterSessionAssignment]
 
     /// Creates the section.
@@ -13,14 +17,30 @@ public struct SubrouterSessionsSectionView: View {
     }
 
     public var body: some View {
+        let recent = recentSessions
         VStack(alignment: .leading, spacing: 2) {
             Text(String(localized: "subrouter.sessions.header", defaultValue: "Sessions"))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-            ForEach(sessions) { session in
+            ForEach(recent) { session in
                 SubrouterSessionRowView(session: session)
             }
+            if sessions.count > recent.count {
+                Text(String(
+                    localized: "subrouter.sessions.more",
+                    defaultValue: "and \(sessions.count - recent.count) more"
+                ))
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+            }
         }
+    }
+
+    private var recentSessions: [SubrouterSessionAssignment] {
+        sessions
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(Self.visibleSessionLimit)
+            .map { $0 }
     }
 }
 
