@@ -737,8 +737,9 @@ final class OpenCodeHookRegressionTests: XCTestCase {
     func testOpenCodeStopWithoutPriorStartCreatesRestorableDurableRow() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-opencode-stop-only-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent(".cmuxterm", isDirectory: true)
         let executable = root.appendingPathComponent("opencode", isDirectory: false)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
         try FileManager.default.copyItem(atPath: "/usr/bin/yes", toPath: executable.path)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -752,8 +753,13 @@ final class OpenCodeHookRegressionTests: XCTestCase {
             process.waitUntilExit()
         }
 
-        let stateURL = root.appendingPathComponent("opencode-hook-sessions.json", isDirectory: false)
-        let registryURL = root.appendingPathComponent("sessions.sqlite3", isDirectory: false)
+        let stateURL = stateDirectory.appendingPathComponent("opencode-hook-sessions.json", isDirectory: false)
+        let registryURL = stateDirectory.appendingPathComponent(
+            CmuxAgentSessionRegistry.filename,
+            isDirectory: false
+        )
+        let workspaceID = UUID()
+        let surfaceID = UUID()
         let environment = [
             "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
             "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
@@ -771,8 +777,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let store = ClaudeHookSessionStore(processEnv: environment, agentName: "opencode")
         let stop = try store.recordPromptStop(
             sessionId: "session-stop-only",
-            workspaceId: "workspace-stop-only",
-            surfaceId: "surface-stop-only",
+            workspaceId: workspaceID.uuidString,
+            surfaceId: surfaceID.uuidString,
             cwd: root.path,
             pid: Int(process.processIdentifier),
             launchCommand: launchCommand,
@@ -790,11 +796,13 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(record.agentLifecycle, .idle)
         XCTAssertEqual(record.runtimeStatus, .idle)
         XCTAssertEqual(record.launchCommand?.arguments, [executable.path])
-        XCTAssertTrue(CMUXCLI(args: []).agentHookRecordIsRestorable(
-            agent: "opencode",
-            record: record,
-            claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache(homeDirectory: root.path)
-        ))
+        let restored = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: .default
+        ).exactEntry(workspaceId: workspaceID, panelId: surfaceID)?.snapshot
+        XCTAssertEqual(restored?.kind, .opencode)
+        XCTAssertEqual(restored?.sessionId, "session-stop-only")
+        XCTAssertNotNil(restored?.resumeCommand)
     }
 
     func testOpenCodeNaturalExitDrainsQueuedLifecycleHooks() throws {
