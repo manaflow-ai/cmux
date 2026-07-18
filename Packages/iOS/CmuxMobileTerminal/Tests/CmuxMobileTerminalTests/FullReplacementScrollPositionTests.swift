@@ -51,10 +51,19 @@ struct FullReplacementScrollPositionTests {
         return predicate()
     }
 
-    private func scrollbarDistanceFromBottom(_ view: GhosttySurfaceView) -> UInt64? {
+    private func scrollbarSnapshot(_ view: GhosttySurfaceView) -> ghostty_surface_scrollbar_s? {
         guard let surface = view.surface else { return nil }
         var snapshot = ghostty_surface_scrollbar_s()
         guard ghostty_surface_scrollbar(surface, &snapshot) else { return nil }
+        return snapshot
+    }
+
+    private func scrollbarDistanceFromBottom(_ view: GhosttySurfaceView) -> UInt64? {
+        guard let snapshot = scrollbarSnapshot(view) else { return nil }
+        return scrollbarDistanceFromBottom(snapshot)
+    }
+
+    private func scrollbarDistanceFromBottom(_ snapshot: ghostty_surface_scrollbar_s) -> UInt64 {
         let maximumOffset = snapshot.total > snapshot.len ? snapshot.total - snapshot.len : 0
         return maximumOffset - min(snapshot.offset, maximumOffset)
     }
@@ -93,7 +102,8 @@ struct FullReplacementScrollPositionTests {
         #expect(await waitUntil {
             (scrollbarDistanceFromBottom(harness.view) ?? 0) >= 40
         })
-        let before = try #require(scrollbarDistanceFromBottom(harness.view))
+        let beforeSnapshot = try #require(scrollbarSnapshot(harness.view))
+        let before = scrollbarDistanceFromBottom(beforeSnapshot)
 
         #expect(
             await harness.view.processFullReplacementOutputAndWait(
@@ -101,8 +111,13 @@ struct FullReplacementScrollPositionTests {
                 terminalConfigTheme: frame.terminalConfigTheme
             )
         )
-        let after = try #require(scrollbarDistanceFromBottom(harness.view))
+        let afterSnapshot = try #require(scrollbarSnapshot(harness.view))
+        let after = scrollbarDistanceFromBottom(afterSnapshot)
 
+        #expect(
+            afterSnapshot.row_space_revision != beforeSnapshot.row_space_revision,
+            "full replay must rebuild the row space before scroll restoration is judged"
+        )
         #expect(after == before, "full replay moved the viewport from \(before) rows above bottom to \(after)")
     }
 }
