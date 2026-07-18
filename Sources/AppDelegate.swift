@@ -6093,9 +6093,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         let workspaceId = workspace.id
-        let cachedSnapshot = preferAgentContext
-            ? SharedLiveAgentIndex.shared.snapshot(workspaceId: workspaceId, panelId: sourceSurfaceId)
-            : nil
         let freshSnapshotTask: Task<SessionRestorableAgentSnapshot?, Never>? = preferAgentContext
             ? Task { @MainActor in
                 await SharedLiveAgentIndex.shared.freshSnapshot(
@@ -6156,9 +6153,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 case .value(let snapshot):
                     freshSnapshot = snapshot
                 case .timedOut:
-                    freshSnapshot = cachedSnapshot
+                    freshSnapshot = nil
 #if DEBUG
-                    cmuxDebugLog("diffViewer.agentSnapshot.timedOut fallback=cached")
+                    cmuxDebugLog("diffViewer.agentSnapshot.timedOut fallback=unstaged")
 #endif
                 }
             } else {

@@ -8,6 +8,21 @@ import Testing
 #endif
 
 @Suite @MainActor struct DiffViewerFinalReviewRegressionTests {
+    @Test func diffViewerMissingVerifiedIdentityFallsBackToUnstaged() {
+        let context = AppDelegate.openDiffViewerLaunchContext(
+            preferAgentContext: true,
+            fallbackCwd: "/workspace",
+            sessionId: nil,
+            agentProvider: nil,
+            agentWorkingDirectory: nil
+        )
+
+        #expect(!context.useLastTurnSource)
+        #expect(context.cwd == "/workspace")
+        #expect(context.sessionId == nil)
+        #expect(context.agentProvider == nil)
+    }
+
     @Test func diffViewerSnapshotDeadlineReturnsWithoutWaitingForStalledRefresh() async {
         let stalled = Task<Int, Never> {
             do {
