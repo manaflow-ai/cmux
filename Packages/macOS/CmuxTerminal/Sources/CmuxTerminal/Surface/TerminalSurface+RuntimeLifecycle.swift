@@ -325,6 +325,8 @@ extension TerminalSurface {
             return false
         }
 
+        let validationGate = TerminalSurfaceHibernationValidationGate()
+        runtimeSurfaceHibernationValidationGate = validationGate
         runtimeSurfaceHibernationTeardownInFlight = true
         let transferredGeneration = runtimeSurfaceGeneration
         let callbackContext = surfaceCallbackContext
@@ -363,7 +365,10 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
-                finalValidation: finalValidation,
+                finalValidation: {
+                    guard await finalValidation() else { return false }
+                    return validationGate.claim()
+                },
                 freeSurface: freeSurface
             )
         )
@@ -375,6 +380,7 @@ extension TerminalSurface {
             mobileByteTeeLease = teeLease
             registry.registerRuntimeSurface(surfaceToFree, ownerId: id)
             runtimeSurfaceHibernationTeardownInFlight = false
+            runtimeSurfaceHibernationValidationGate = nil
             flushPendingRemoteOutput(to: surfaceToFree)
             if pendingSocketInputBytes > 0 {
                 flushPendingSocketInputIfNeeded()
@@ -403,6 +409,7 @@ extension TerminalSurface {
 
         commitTransferredRuntimeSurfaceTeardown()
         runtimeSurfaceHibernationTeardownInFlight = false
+        runtimeSurfaceHibernationValidationGate = nil
         byteTee.dropSurface(surfaceID: id, surfaceGeneration: transferredGeneration)
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
@@ -410,8 +417,10 @@ extension TerminalSurface {
         closeHeadlessStartupWindowIfNeeded()
         activePortalHostLease = nil
         portalHostAuthority = nil
-        pendingSocketInputQueue.removeAll(keepingCapacity: false)
-        pendingSocketInputBytes = 0
+        if portalLifecycleState != .live {
+            pendingSocketInputQueue.removeAll(keepingCapacity: false)
+            pendingSocketInputBytes = 0
+        }
         desiredFocusState = false
 
         guard portalLifecycleState == .live, didFree else {
@@ -420,6 +429,17 @@ extension TerminalSurface {
         }
         runtimeSurfaceSuspendedForAgentHibernation = true
         return true
+    }
+
+    /// Revokes a provisional native hibernation transfer.
+    ///
+    /// Workspace shell, agent lifecycle, and tracked-process mutations call
+    /// this synchronously on the main actor. The internal one-shot gate remains
+    /// claimable until immediately before native free, so a mutation that lands
+    /// after the controller's outer token was claimed still rejects teardown.
+    @MainActor
+    public func invalidateProvisionalAgentHibernation() {
+        runtimeSurfaceHibernationValidationGate?.invalidate()
     }
 
     /// Marks the resume side of agent hibernation and primes the next runtime
@@ -449,6 +469,13 @@ extension TerminalSurface {
         }
         runtimeSurfaceSuspendedForAgentHibernation = true
         return true
+    }
+
+    /// Whether explicit input arrived after the native hibernation commit
+    /// point and must trigger an immediate agent resume.
+    @MainActor
+    public var hasPendingInputForAgentHibernationResume: Bool {
+        pendingSocketInputBytes > 0
     }
 
     /// Primes the initial input for the next runtime spawn only.

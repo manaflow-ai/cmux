@@ -35,6 +35,44 @@ private actor HibernationValidationGate {
     }
 }
 
+private final class HibernationSurfaceInvalidator: @unchecked Sendable {
+    private weak var surface: TerminalSurface?
+
+    @MainActor
+    init(surface: TerminalSurface) {
+        self.surface = surface
+    }
+
+    func invalidate() async {
+        await MainActor.run {
+            self.surface?.invalidateProvisionalAgentHibernation()
+        }
+    }
+}
+
+private final class HibernationSurfaceRegistry: TerminalSurfaceRegistering, @unchecked Sendable {
+    private var runtimeOwners: [UInt: UUID] = [:]
+
+    var topologyGeneration: UInt64 { 0 }
+    func register(_ surface: any TerminalSurfacing) {}
+    func unregister(_ surface: any TerminalSurfacing) {}
+    func registerRuntimeSurface(_ surface: ghostty_surface_t, ownerId: UUID) {
+        runtimeOwners[UInt(bitPattern: surface)] = ownerId
+    }
+    func unregisterRuntimeSurface(_ surface: ghostty_surface_t, ownerId: UUID) {
+        let key = UInt(bitPattern: surface)
+        guard runtimeOwners[key] == ownerId else { return }
+        runtimeOwners.removeValue(forKey: key)
+    }
+    func runtimeSurfaceOwnerId(_ surface: ghostty_surface_t) -> UUID? {
+        runtimeOwners[UInt(bitPattern: surface)]
+    }
+    func surface(id: UUID) -> (any TerminalSurfacing)? { nil }
+    func isRightSidebarDockSurface(id: UUID) -> Bool { false }
+    func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {}
+    func allSurfaces() -> [any TerminalSurfacing] { [] }
+}
+
 /// The ghostty PTY tee callback and the MANUAL-mode `io_write_cb` fire on
 /// ghostty's IO threads until `ghostty_surface_free` joins those threads. The
 /// retained callback userdata (the byte-tee lease's context and the manual IO
@@ -175,9 +213,12 @@ private actor HibernationValidationGate {
     @Test func explicitInputDuringProvisionalHibernationRejectsAndFlushesToRestoredRuntime() async {
         let recorder = TeardownOrderRecorder()
         let validationGate = HibernationValidationGate()
-        let surface = makeSurface()
-        let runtimeSurface = fakeRuntimeSurface()
+        let registry = HibernationSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { runtimeSurface.deallocate() }
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         let generation = surface.runtimeSurfaceGeneration
         surface.pendingSocketInputFlushOverrideForTesting = { items, bytes in
             #expect(items > 0)
@@ -203,10 +244,14 @@ private actor HibernationValidationGate {
         }
         await validationGate.waitUntilValidationStarts()
 
+        #expect(surface.portalLifecycleState == .live)
         #expect(surface.sendInputResult("echo preserved\r") == .queued)
+        #expect(surface.portalLifecycleState == .live)
         #expect(surface.debugPendingSocketInputForTesting().items > 0)
         await validationGate.resolveValidation(true)
         let didSuspend = await suspension.value
+        #expect(surface.portalLifecycleState == .live)
+        #expect(surface.teardownRequestReason == nil)
 
         #expect(!didSuspend)
         #expect(surface.surface == runtimeSurface)
@@ -216,6 +261,74 @@ private actor HibernationValidationGate {
 
         surface.runtimeSurfaceFreedOutOfBandForTesting = true
         surface.teardownSurface()
+    }
+
+    @Test func lifecycleInvalidationAfterOuterClaimStillRejectsNativeHibernation() async {
+        let recorder = TeardownOrderRecorder()
+        let registry = HibernationSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { runtimeSurface.deallocate() }
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        let generation = surface.runtimeSurfaceGeneration
+        let invalidator = HibernationSurfaceInvalidator(surface: surface)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        let didSuspend = await surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.hibernate.lifecycleAfterOuterClaim",
+            finalValidation: {
+                // Model the controller token having been claimed, followed by
+                // a Workspace shell/lifecycle/PID mutation before the package's
+                // last native-free gate.
+                recorder.record(.finalValidation)
+                await invalidator.invalidate()
+                return true
+            }
+        )
+
+        #expect(!didSuspend)
+        #expect(surface.surface == runtimeSurface)
+        #expect(surface.runtimeSurfaceGeneration == generation)
+        #expect(recorder.events == [.finalValidation])
+
+        surface.runtimeSurfaceFreedOutOfBandForTesting = true
+        surface.teardownSurface()
+    }
+
+    @Test func explicitInputAfterCommitPointSurvivesForImmediateResume() async {
+        let recorder = TeardownOrderRecorder()
+        let releaseNativeFree = DispatchSemaphore(value: 0)
+        let surface = makeSurface()
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+            releaseNativeFree.wait()
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        let suspension = Task { @MainActor in
+            await surface.suspendRuntimeSurfaceForAgentHibernation(
+                reason: "test.hibernate.inputAfterCommit",
+                finalValidation: {
+                    recorder.record(.finalValidation)
+                    return true
+                }
+            )
+        }
+        await recorder.waitForEventCount(2)
+
+        #expect(surface.sendNamedKey("enter") == .queued)
+        #expect(surface.debugPendingSocketInputForTesting().items == 1)
+        releaseNativeFree.signal()
+
+        #expect(await suspension.value)
+        #expect(surface.hasPendingInputForAgentHibernationResume)
+        #expect(surface.debugPendingSocketInputForTesting().items == 1)
+        #expect(recorder.events == [.finalValidation, .nativeFree])
     }
 
     @Test func resumeCannotReopenRuntimeUntilHibernationFreeCompletes() async {
@@ -349,7 +462,9 @@ private actor HibernationValidationGate {
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
-    private func makeSurface() -> TerminalSurface {
+    private func makeSurface(
+        registry: any TerminalSurfaceRegistering = FakeSurfaceRegistry()
+    ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         return TerminalSurface(
@@ -357,7 +472,7 @@ private actor HibernationValidationGate {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             dependencies: TerminalSurfaceRuntimeDependencies(
-                registry: FakeSurfaceRegistry(),
+                registry: registry,
                 engine: FakeTerminalEngine(),
                 viewProvider: FakeTerminalSurfaceViewProvider(surfaceView: nativeView, paneHost: paneHost),
                 spawnPolicy: FakeSpawnPolicyProvider(),

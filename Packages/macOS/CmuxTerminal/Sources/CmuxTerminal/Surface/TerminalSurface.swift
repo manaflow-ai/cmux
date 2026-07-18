@@ -7,6 +7,34 @@ public import CmuxTerminalCore
 internal import CMUXDebugLog
 #endif
 
+/// One-shot arbitration between explicit input and a provisional native
+/// hibernation free. The lock protects only the three-state handoff shared by
+/// the main-actor input path and the utility teardown worker.
+final class TerminalSurfaceHibernationValidationGate: @unchecked Sendable {
+    private enum State {
+        case valid
+        case invalidated
+        case claimed
+    }
+
+    private let lock = NSLock()
+    private var state = State.valid
+
+    func invalidate() {
+        lock.lock()
+        if state == .valid { state = .invalidated }
+        lock.unlock()
+    }
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard state == .valid else { return false }
+        state = .claimed
+        return true
+    }
+}
+
 /// The owner of one `ghostty_surface_t` lifecycle: spawn inputs, runtime
 /// creation/teardown, pending input queues, portal-host leases, and renderer
 /// reclamation state.
@@ -284,6 +312,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var runtimeSurfaceHibernationTeardownInFlight = false
+    var runtimeSurfaceHibernationValidationGate: TerminalSurfaceHibernationValidationGate?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var claudeCommandShim: ClaudeCommandShim?
@@ -319,6 +348,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public internal(set) var clipboardReadGeneration = 0
 #if DEBUG
     var needsConfirmCloseOverrideForTesting: Bool?
+    var pendingSocketInputFlushOverrideForTesting: ((Int, Int) -> Void)?
     var runtimeSurfaceFreedOutOfBandForTesting = false
     var runtimeSurfaceCreateAttemptCountForTesting = 0
     // Same off-isolation-reader carve-out as debugMetadataLock.
