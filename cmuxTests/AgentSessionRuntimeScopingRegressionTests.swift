@@ -3555,7 +3555,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     @MainActor
     @Test(arguments: ["clear", "evict"])
-    func permanentlyDiscardedClosedHistoryReleasesHibernatedAuthority(
+    func permanentlyDiscardedClosedHistoryPreservesHibernatedAuthority(
         removal: String
     ) async throws {
         let root = FileManager.default.temporaryDirectory
@@ -3613,24 +3613,15 @@ extension CMUXCLIErrorOutputRegressionTests {
             )))
         }
 
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        var registrySnapshot = try registry.snapshot(provider: "codex")
-        while clock.now < deadline {
-            guard let record = registrySnapshot.records.first,
-                  let object = try JSONSerialization.jsonObject(with: record.json) as? [String: Any],
-                  object["sessionState"] as? String != "ended" else {
-                break
-            }
-            try await clock.sleep(for: .milliseconds(10))
-            registrySnapshot = try registry.snapshot(provider: "codex")
-        }
-
+        let registrySnapshot = try registry.snapshot(provider: "codex")
         let stored = try #require(registrySnapshot.records.first)
         let object = try #require(JSONSerialization.jsonObject(with: stored.json) as? [String: Any])
-        #expect(object["sessionState"] as? String == "ended")
-        #expect(object["restoreAuthority"] as? Bool == false)
-        #expect(registrySnapshot.activeSlots.isEmpty)
+        #expect(object["sessionState"] as? String == "hibernated")
+        #expect(object["restoreAuthority"] as? Bool == true)
+        #expect(Set(registrySnapshot.activeSlots.map(\.scopeID)) == [
+            fixture.source.id.uuidString,
+            fixture.sourcePanelID.uuidString,
+        ])
     }
 
     @MainActor
