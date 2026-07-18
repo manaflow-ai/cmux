@@ -2057,6 +2057,69 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func portalCloseAfterDurableHibernationCommitReleasesExactAuthority() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-live-hibernation-close-race-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let runtimeID = "live-hibernation-close-race-runtime"
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": runtimeID,
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeLiveHibernationAuthorityFixture(
+            root: root,
+            runtimeID: runtimeID,
+            sessionID: "live-hibernation-close-race-session"
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        fixture.panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let nativeFreeStarted = AgentSessionAsyncGate()
+        let releaseNativeFree = DispatchSemaphore(value: 0)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { pointer in
+            Task { await nativeFreeStarted.open() }
+            releaseNativeFree.wait()
+            pointer.deallocate()
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        let hibernation = Task { @MainActor in
+            await fixture.workspace.enterAgentHibernation(
+                panelId: fixture.panelID,
+                agent: fixture.agent,
+                lastActivityAt: Date(timeIntervalSince1970: 10),
+                finalValidation: { true }
+            )
+        }
+        await nativeFreeStarted.waitUntilOpen()
+
+        // The native free starts only after the durable hibernation write. A
+        // close at this point must compensate that exact committed generation.
+        fixture.panel.surface.teardownSurface()
+        releaseNativeFree.signal()
+
+        #expect(!(await hibernation.value))
+        let saved = try fixture.registry.snapshot(provider: "codex")
+        let savedRecord = try #require(saved.records.first)
+        let savedObject = try #require(
+            JSONSerialization.jsonObject(with: savedRecord.json) as? [String: Any]
+        )
+        #expect(savedObject["sessionState"] as? String == "ended")
+        #expect(savedObject["restoreAuthority"] as? Bool == false)
+        #expect(saved.activeSlots.isEmpty)
+    }
+
+    @MainActor
     @Test func liveHibernationSnapshotCarriesCanonicalAuthorityGeneration() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-live-hibernation-generation-\(UUID().uuidString)", isDirectory: true)

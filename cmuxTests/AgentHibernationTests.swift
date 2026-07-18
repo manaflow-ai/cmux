@@ -1090,7 +1090,7 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
-    func testResumePreparationWithoutStartupInputStillLeavesHibernation() throws {
+    func testResumePreparationWithoutStartupInputKeepsHibernationRetryable() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
@@ -1109,8 +1109,8 @@ struct AgentHibernationTests {
 
         let preparation = panel.prepareAgentHibernationResume()
 
-        expectEqual(preparation, .resumed(queuedStartupInput: false))
-        expectFalse(panel.isAgentHibernated)
+        expectEqual(preparation, .unavailable)
+        expectTrue(panel.isAgentHibernated)
         expectFalse(panel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
