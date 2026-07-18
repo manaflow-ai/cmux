@@ -627,18 +627,19 @@ Payload:
 object{
   event:"renderer-config-invalidated",
   revision:uint64,
-  reason:"default-colors-changed",
+  digest:string,
+  reason:"ghostty-config-loaded"|"ghostty-config-reloaded",
   default_colors:TerminalColors
 }
 ```
 
 Meaning: presentation-owned Ghostty theme configuration is stale. A renderer
-frontend must rebuild its resolved configuration from `default_colors` and
-upsert every live presentation before treating another worker frame as
-current. `revision` increases once per changed daemon default and duplicate
-`set-default-colors` values emit nothing. The trusted `renderer-workers`
-response carries the same `default_colors_revision` and `default_colors`
-snapshot so a reconnect cannot miss invalidation.
+frontend must replace every live presentation from the daemon-owned canonical
+snapshot before treating another worker frame as current. `revision` increases
+once per changed byte-or-color snapshot, `digest` is SHA-256 of the canonical
+Ghostty bytes, and unchanged or invalid reloads emit nothing. The trusted
+`renderer-workers` response carries the same revision, digest, and colors so a
+reconnect cannot miss invalidation.
 
 `default_colors.palette` is a sparse object keyed by decimal palette index.
 These values are presentation defaults, while OSC overrides remain in the
@@ -647,7 +648,7 @@ canonical semantic scene.
 Example:
 
 ```json
-{"event":"renderer-config-invalidated","revision":3,"reason":"default-colors-changed","default_colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"palette":{},"cursor_style":null,"cursor_blink":null}}
+{"event":"renderer-config-invalidated","revision":3,"digest":"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a","reason":"ghostty-config-reloaded","default_colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"palette":{},"cursor_style":null,"cursor_blink":null}}
 ```
 
 ### window-title-requested
@@ -862,7 +863,7 @@ object{
 }
 ```
 
-Meaning: The session defaults changed through `set-default-colors`. Each live PTY byte-attach stream receives the effective colors, sparse PTY-authored OSC 4 palette overrides, and cursor state for its surface after applying the merged defaults. Session palette defaults never populate `palette`. Active per-surface OSC 10/11/12, OSC 4, and DECSCUSR overrides remain authoritative. Protocol v7 requires the explicit `surface` subject id so multiple attach streams on one connection can be routed without implicit stream state.
+Meaning: The daemon installed a changed canonical renderer-config snapshot. Each live PTY byte-attach stream receives the effective colors, sparse PTY-authored OSC 4 palette overrides, and cursor state for its surface after applying the new defaults. Session palette defaults never populate `palette`. Active per-surface OSC 10/11/12, OSC 4, and DECSCUSR overrides remain authoritative. Protocol v7 requires the explicit `surface` subject id so multiple attach streams on one connection can be routed without implicit stream state.
 
 Compatibility mode also carries `surface_uuid`, `runtime_epoch`, `generation`, and the current `sequence`; it does not advance the byte cursor or reset generation.
 

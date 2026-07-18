@@ -67,7 +67,7 @@ split
 set-ratio
 move-tab
 move-workspace
-set-default-colors
+set-default-colors (deprecated wire command, always rejected; edit Ghostty config and use reload-config)
 close-surface
 close-pane
 close-screen

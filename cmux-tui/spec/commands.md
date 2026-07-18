@@ -1652,10 +1652,13 @@ Point rows, including `cursor.row`, are zero-based absolute rows in retained scr
 | Field | Value |
 | --- | --- |
 | name | `set-default-colors` |
-| status | implemented |
+| status | deprecated, rejected |
 | since | protocol 5 |
 
-Updates the session default foreground and/or background colors used by PTY surfaces. Missing fields preserve their previous values. Existing PTY surfaces receive the merged defaults. When the merged defaults change, each live PTY attach stream receives a `colors-changed` event containing that surface's effective colors and cursor metadata; active OSC 10/11/12 and DECSCUSR overrides remain authoritative. The cursor fields may be unchanged by this command. The server also emits `surface-output` for every existing surface, including browser surfaces; browser color application is a no-op, but the event is still emitted. Future PTY surfaces start with the merged defaults. Attach clients can read the initial effective colors and cursor metadata from `vt-state.colors` without issuing this write command.
+The daemon recognizes this legacy wire command only to return a migration
+error. Renderer configuration is daemon-owned. Edit Ghostty configuration and
+send `reload-config`; attached frontends read the resulting canonical colors
+from `renderer-workers` and cannot mutate the renderer revision.
 
 Params:
 
@@ -1664,34 +1667,20 @@ Params:
 | `fg` | `ColorHex` | default null | Foreground color |
 | `bg` | `ColorHex` | default null | Background color |
 
-Result:
-
-```text
-object{}
-```
-
 Errors:
 
 | Error | Condition |
 | --- | --- |
-| `bad color "<value>" (want "#rrggbb")` | Color is not exactly `#rrggbb` |
+| `set-default-colors is deprecated because renderer configuration is daemon-owned; edit Ghostty config and use reload-config` | Every request |
 | `bad request: ...` | Wrong JSON type |
 
-CLI mapping:
-
-| Item | Value |
-| --- | --- |
-| Verb | `set-default-colors` |
-| Flags | `[--fg #rrggbb] [--bg #rrggbb]` |
-| Plain stdout | no output |
-| JSON stdout | exact result object |
-| Exit codes | common |
+There is no CLI mapping.
 
 Example:
 
 ```json
 {"id":12,"cmd":"set-default-colors","fg":"#d8d9da","bg":"#131415"}
-{"id":12,"ok":true,"data":{}}
+{"id":12,"ok":false,"error":"set-default-colors is deprecated because renderer configuration is daemon-owned; edit Ghostty config and use reload-config"}
 ```
 
 ### close-surface
@@ -2618,7 +2607,7 @@ CLI mapping: verb `subscribe-topology`; flags `--daemon-instance-id <uuid> --ses
 
 Attaches the connection to a PTY surface stream. In protocol v5, the server first sends a `vt-state` event for the current surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
 
-Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output | colors-changed)* -> detached`. A v6 `resized` attach event carries a fresh replay in `replay` and requires clients to discard the old mirror and replace it from that replay. The additive `vt-state.colors` field contains effective colors plus `cursor_style` and `cursor_blink` captured with the snapshot, and `colors-changed` reports later `set-default-colors` updates without changing the replay/output ordering contract. The Ghostty VT replay does not emit DECSCUSR, so clients must apply these cursor fields after replaying `data`; current per-surface DECSCUSR state takes precedence over Ghostty configuration defaults. Clients that support only protocol 5 or older must refuse protocol v6 attach streams rather than treating `resized` as a normal resize.
+Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output | colors-changed)* -> detached`. A v6 `resized` attach event carries a fresh replay in `replay` and requires clients to discard the old mirror and replace it from that replay. The additive `vt-state.colors` field contains effective colors plus `cursor_style` and `cursor_blink` captured with the snapshot, and `colors-changed` reports later daemon renderer-config updates without changing the replay/output ordering contract. The Ghostty VT replay does not emit DECSCUSR, so clients must apply these cursor fields after replaying `data`; current per-surface DECSCUSR state takes precedence over Ghostty configuration defaults. Clients that support only protocol 5 or older must refuse protocol v6 attach streams rather than treating `resized` as a normal resize.
 
 Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is absent, is the exact protocol-v6 attach behavior above. `mode:"render"` selects the authoritative styled-cell stream specified in [`render.md`](render.md): `render-state -> (render-delta | scroll-changed)* -> detached`. A client must require `identify.protocol >= 7` before selecting render mode.
 

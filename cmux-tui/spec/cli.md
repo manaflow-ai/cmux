@@ -80,7 +80,6 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |
 | `zoom-pane` | implemented | none | `--pane <id>`, `--mode toggle|on|off` | zoom state line |
 | `process-info` | implemented | `--surface <id>` | none | process metadata line |
-| `set-default-colors` | implemented | none | `--fg #rrggbb`, `--bg #rrggbb` | none |
 | `close-surface` | implemented | `--surface <id>` | none | none |
 | `close-pane` | implemented | `--pane <id>` | none | none |
 | `close-screen` | implemented | `--screen <id>` | none | none |
