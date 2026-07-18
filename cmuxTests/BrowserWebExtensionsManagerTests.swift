@@ -837,6 +837,26 @@ struct BrowserWebExtensionsManagerTests {
         #expect(configuration.webExtensionController === services.webExtensionsManager?.controller)
     }
 
+    @available(macOS 15.4, *)
+    @Test func webViewConfigurationDoesNotStartExtensionsBeforeWebViewExists() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let services = BrowserServices(extensionDirectory: root)
+        let profileID = UUID()
+        let manager = services.webExtensionsManager(for: profileID)
+        let configuration = WKWebViewConfiguration()
+
+        BrowserPanel.configureWebViewConfiguration(
+            configuration,
+            profileID: profileID,
+            websiteDataStore: .nonPersistent(),
+            browserServices: services
+        )
+
+        #expect(configuration.webExtensionController === manager.controller)
+        #expect(manager.loadTask == nil)
+    }
+
     @Test func installedSafariAppsAreOptInSuggestions() {
         let applicationsDirectory = URL(fileURLWithPath: "/Applications", isDirectory: true)
         let installedPaths = Set([
