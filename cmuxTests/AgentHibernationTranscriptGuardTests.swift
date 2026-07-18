@@ -198,6 +198,37 @@ struct AgentHibernationTranscriptGuardTests {
     }
 
     @Test
+    func teardownSnapshotPersistsRestartRecoveryMetadata() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/restart-recovery"
+        let sessionId = "session-restart-recovery"
+        let transcript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(populatedTranscript, to: transcript)
+        let snapshot = try #require(
+            snapshotOutcomeValue(
+                from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                    agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                    homeDirectory: home.path,
+                    snapshotDirectory: snapshots
+                )
+            )
+        )
+        let metadataURL = URL(fileURLWithPath: snapshot.snapshotPath + ".recovery.json")
+
+        #expect(FileManager.default.fileExists(atPath: metadataURL.path))
+        let metadata = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: metadataURL)) as? [String: Any]
+        )
+        #expect(metadata["version"] as? Int == 1)
+        #expect(metadata["sessionId"] as? String == sessionId)
+        #expect(metadata["transcriptPath"] as? String == transcript.path)
+        #expect(metadata["snapshotPath"] as? String == snapshot.snapshotPath)
+    }
+
+    @Test
     func resolveTranscriptPathHonorsConfigOverrideAndRejectsUnsupportedAgents() throws {
         let home = try temporaryDirectory()
         let customConfig = home.appendingPathComponent("custom-claude", isDirectory: true)
