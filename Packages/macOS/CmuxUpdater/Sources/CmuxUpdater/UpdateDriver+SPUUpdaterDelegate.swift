@@ -60,6 +60,20 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         handleDidFindValidUpdate(item)
     }
 
+    func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem, with request: NSMutableURLRequest) {
+        let userInitiated = userInitiatedDownloadPending
+        userInitiatedDownloadPending = false
+        let policy = UpdateDownloadNetworkPolicy(
+            allowsMeteredAutomaticDownloads: allowsMeteredDownloadsProvider()
+        )
+        policy.apply(to: request, userInitiated: userInitiated)
+        log.append(
+            "update download request configured "
+                + "(userInitiated=\(userInitiated), allowsExpensive=\(request.allowsExpensiveNetworkAccess), "
+                + "allowsConstrained=\(request.allowsConstrainedNetworkAccess))"
+        )
+    }
+
     /// Records a background-detected available update — unless this is a DEV/staging build, in
     /// which case any detected update is cleared so the public appcast's pill never appears.
     ///
@@ -74,6 +88,14 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
             // these builds, clear it rather than surfacing the pill (#6292).
             model.clearDetectedUpdate()
             log.append("ignoring update for dev/staging build: \(item.displayVersionString)")
+            return
+        }
+        if automaticallyDownloadsUpdatesProvider() {
+            // Sparkle's automatic driver is downloading and preparing this item without user
+            // interaction. Keep the foreground quiet until `willInstallUpdateOnQuit` proves the
+            // signed update is ready to finish with an immediate restart.
+            model.clearDetectedUpdate()
+            log.append("staging update in background: \(item.displayVersionString)")
             return
         }
         model.recordDetectedUpdate(item)

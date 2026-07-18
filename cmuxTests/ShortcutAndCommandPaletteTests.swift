@@ -1983,22 +1983,24 @@ final class UpdateChannelSettingsTests: XCTestCase {
 
 
 final class UpdateSettingsTests: XCTestCase {
-    func testApplyEnablesAutomaticChecksAndDailySchedule() {
+    func testApplyEnablesAutomaticChecksAndBackgroundStaging() {
         let defaults = makeDefaults()
         UpdateSettings().apply(to: defaults)
 
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
         XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings().scheduledCheckInterval)
-        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.allowMeteredDownloadsKey))
         XCTAssertFalse(defaults.bool(forKey: UpdateSettings.sendProfileInfoKey))
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.migrationKey))
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.backgroundDownloadsMigrationKey))
     }
 
-    func testApplyRepairsLegacyDisabledAutomaticChecksOnce() {
+    func testApplyRepairsLegacySettingsOnce() {
         let defaults = makeDefaults()
         defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         defaults.set(0, forKey: UpdateSettings.scheduledCheckIntervalKey)
-        defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
+        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
 
         UpdateSettings().apply(to: defaults)
 
@@ -2007,9 +2009,11 @@ final class UpdateSettingsTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
 
         defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
         UpdateSettings().apply(to: defaults)
 
         XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
     private func makeDefaults() -> UserDefaults {
