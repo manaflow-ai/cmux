@@ -579,6 +579,36 @@ extension CMUXCLIErrorOutputRegressionTests {
             #expect(active.completedAt == nil)
             #expect(active.activeRunId != nil)
             #expect(store.snapshot().activeSessionsByWorkspace["workspace-a"]?.sessionId == evidence)
+
+            let drainedStop: AgentPromptStopResult
+            if evidence == "incoming-pending" {
+                drainedStop = try store.upsertPromptStop(
+                    sessionId: evidence,
+                    workspaceId: "workspace-a",
+                    surfaceId: "surface-a",
+                    cwd: root.path,
+                    pid: pid,
+                    launchCommand: command,
+                    agentLifecycle: .idle,
+                    hadPendingBackgroundWorkAtStop: false,
+                    markActive: true
+                )
+            } else {
+                drainedStop = try store.recordPromptStop(
+                    sessionId: evidence,
+                    workspaceId: "workspace-a",
+                    surfaceId: "surface-a",
+                    cwd: root.path,
+                    pid: pid,
+                    launchCommand: command,
+                    lastSubtitle: nil,
+                    lastBody: nil,
+                    hadPendingBackgroundWorkAtStop: false
+                )
+            }
+            #expect(!drainedStop.accepted)
+            #expect(drainedStop.completedGeneration)
+            #expect(drainedStop.completionReason == .terminalLaunch)
         }
     }
 
