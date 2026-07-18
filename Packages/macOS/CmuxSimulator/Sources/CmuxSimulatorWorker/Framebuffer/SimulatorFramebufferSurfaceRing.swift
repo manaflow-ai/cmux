@@ -113,10 +113,11 @@ final class SimulatorFramebufferSurfaceRing: @unchecked Sendable {
     }
 
     func publish(_ source: IOSurface) throws {
-        guard IOSurfaceGetWidth(source) == layout.width,
-              IOSurfaceGetHeight(source) == layout.height else {
+        let sourceWidth = IOSurfaceGetWidth(source)
+        let sourceHeight = IOSurfaceGetHeight(source)
+        guard sourceWidth > 0, sourceHeight > 0 else {
             throw SimulatorWorkerFailure.framebufferUnavailable(
-                "The Simulator framebuffer changed dimensions before its transport was replaced."
+                "The Simulator framebuffer has invalid dimensions."
             )
         }
         let (nextSequence, sequenceOverflow) = frameSequence.addingReportingOverflow(1)
@@ -142,8 +143,12 @@ final class SimulatorFramebufferSurfaceRing: @unchecked Sendable {
         )
 
         let bounds = CGRect(x: 0, y: 0, width: layout.width, height: layout.height)
+        let image = CIImage(ioSurface: source).transformed(by: CGAffineTransform(
+            scaleX: Double(layout.width) / Double(sourceWidth),
+            y: Double(layout.height) / Double(sourceHeight)
+        ))
         context.render(
-            CIImage(ioSurface: source),
+            image,
             toBitmap: UnsafeMutableRawPointer(mutating: slotBytes),
             rowBytes: layout.bytesPerRow,
             bounds: bounds,

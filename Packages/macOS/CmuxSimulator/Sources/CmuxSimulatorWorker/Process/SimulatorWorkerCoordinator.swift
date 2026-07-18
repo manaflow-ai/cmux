@@ -28,6 +28,7 @@ final class SimulatorWorkerCoordinator {
     var scrollWheel: SimulatorScrollWheelController?
     var currentDisplay: SimulatorDisplayMetadata?
     var currentFrameTransport: SimulatorFrameTransportDescriptor?
+    var surfaceGeometry: SimulatorSurfaceGeometry?
     var currentDeviceIdentifier: String?
     var attachedDevice: NSObject?
     var deviceStateMonitor: SimulatorDeviceStateMonitor?
@@ -101,10 +102,12 @@ final class SimulatorWorkerCoordinator {
         switch message {
         case .ping(let sequence):
             send(.ack(sequence))
-        case .attach(let udid, _):
+        case .attach(let udid, let geometry):
+            surfaceGeometry = geometry
             await attach(udid: udid)
-        case .resize:
-            break
+        case .resize(let geometry):
+            surfaceGeometry = geometry
+            framebuffer?.setTargetGeometry(geometry)
         case .setFramebufferPublishing(let enabled):
             await setFramebufferPublishing(enabled)
         case .pointer(let event):

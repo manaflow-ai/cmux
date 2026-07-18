@@ -1,3 +1,4 @@
+import CmuxSimulator
 import IOSurface
 
 /// One retained private Simulator surface handed to the bounded frame copier.
@@ -10,9 +11,14 @@ struct SimulatorFramebufferFrame: @unchecked Sendable {
     let width: Int
     let height: Int
 
-    init(surface: IOSurface) {
+    init(surface: IOSurface, geometry: SimulatorSurfaceGeometry? = nil) {
         self.surface = surface
-        width = IOSurfaceGetWidth(surface)
-        height = IOSurfaceGetHeight(surface)
+        let size = SimulatorFramebufferTargetSize(
+            sourceWidth: IOSurfaceGetWidth(surface),
+            sourceHeight: IOSurfaceGetHeight(surface),
+            geometry: geometry
+        )
+        width = size.width
+        height = size.height
     }
 }

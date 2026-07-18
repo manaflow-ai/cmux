@@ -94,7 +94,9 @@ extension SimulatorWorkerCoordinator {
                     }
                     self.currentDisplay = display
                     self.send(.display(display))
-                })
+                },
+                targetGeometry: surfaceGeometry
+            )
             try await framebuffer.start(device: device)
 
             let hid = SimulatorHIDTransport(frameworkLoader: frameworkLoader)

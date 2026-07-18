@@ -80,10 +80,6 @@ struct SimulatorDeviceStage: View {
         )
         .clipShape(.rect(cornerRadius: coordinator.chromeProfile == nil ? deviceCornerRadius : 0))
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
-        .overlay(alignment: .topTrailing) {
-            SimulatorDeviceQuickControls(coordinator: coordinator, family: selectedFamily)
-                .offset(x: 10, y: -10)
-        }
         .padding(simulatorDeviceStagePadding)
         .accessibilityLabel(simulatorStrings.simulator)
     }

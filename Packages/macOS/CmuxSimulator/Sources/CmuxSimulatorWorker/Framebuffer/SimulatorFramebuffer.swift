@@ -28,17 +28,20 @@ final class SimulatorFramebuffer {
     private var nativeOrientationRawValue: UInt32?
     private var displayScale = 1.0
     private var lastPublishedMetadata: SimulatorDisplayMetadata?
+    private var targetGeometry: SimulatorSurfaceGeometry?
 
     init(
         onFrameTransportChange: @escaping @MainActor (SimulatorFrameTransportDescriptor) -> Void,
         onDisplayChange: @escaping @MainActor (SimulatorDisplayMetadata) -> Void,
         beforeFrameTransportChange: @escaping @Sendable () async -> Void = {},
-        afterFrameTransportChange: @escaping @Sendable () async -> Void = {}
+        afterFrameTransportChange: @escaping @Sendable () async -> Void = {},
+        targetGeometry: SimulatorSurfaceGeometry? = nil
     ) {
         self.onFrameTransportChange = onFrameTransportChange
         self.onDisplayChange = onDisplayChange
         self.beforeFrameTransportChange = beforeFrameTransportChange
         self.afterFrameTransportChange = afterFrameTransportChange
+        self.targetGeometry = targetGeometry
     }
 
     deinit {
@@ -110,10 +113,17 @@ final class SimulatorFramebuffer {
         _ = publishLatest(readNativeOrientation: true)
     }
 
+    func setTargetGeometry(_ geometry: SimulatorSurfaceGeometry) {
+        guard targetGeometry != geometry else { return }
+        targetGeometry = geometry
+        _ = publishLatest()
+    }
+
     private func startPublisher(initialSurface: IOSurface) async throws {
         let publisherGeneration = framePublisherGeneration
         let publisher = try await SimulatorFramebufferFramePublisher(
             initialSurface: initialSurface,
+            initialGeometry: targetGeometry,
             beforeFrameTransportChange: beforeFrameTransportChange,
             afterFrameTransportChange: afterFrameTransportChange,
             onFrameTransportChange: { [weak self] transport in
@@ -285,7 +295,7 @@ final class SimulatorFramebuffer {
         let width = IOSurfaceGetWidth(surface)
         let height = IOSurfaceGetHeight(surface)
         guard width > 0, height > 0 else { return false }
-        framePublisher?.enqueue(surface)
+        framePublisher?.enqueue(surface, geometry: targetGeometry)
 
         let orientation = orientationState.observe(
             width: width,

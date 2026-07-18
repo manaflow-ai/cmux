@@ -209,9 +209,14 @@ struct SimulatorFrameTransportCrashTests {
         let surface = try #require(IOSurfaceCreate(properties as CFDictionary))
         IOSurfaceLock(surface, [], nil)
         defer { IOSurfaceUnlock(surface, [], nil) }
-        let pixels = IOSurfaceGetBaseAddress(surface).assumingMemoryBound(to: UInt32.self)
-        for index in 0..<4 {
-            pixels[index] = pixel
+        let baseAddress = IOSurfaceGetBaseAddress(surface)
+        let bytesPerRow = IOSurfaceGetBytesPerRow(surface)
+        for row in 0..<2 {
+            let pixels = baseAddress.advanced(by: row * bytesPerRow)
+                .assumingMemoryBound(to: UInt32.self)
+            for column in 0..<2 {
+                pixels[column] = pixel
+            }
         }
         return surface
     }

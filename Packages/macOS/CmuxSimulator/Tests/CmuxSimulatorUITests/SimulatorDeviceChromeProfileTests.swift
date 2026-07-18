@@ -6,6 +6,27 @@ import Testing
 
 @Suite("DeviceKit chrome geometry")
 struct SimulatorDeviceChromeProfileTests {
+    @MainActor
+    @Test("DeviceKit artwork is decoded once per chrome profile")
+    func chromeArtworkIsCached() {
+        let url = URL(fileURLWithPath: "/tmp/cmux-simulator-devicekit.pdf")
+        var loadCount = 0
+        let expectedImage = NSImage(size: NSSize(width: 1, height: 1))
+        let cache = SimulatorDeviceChromeImageCache { loadedURL in
+            #expect(loadedURL == url)
+            loadCount += 1
+            return expectedImage
+        }
+
+        #expect(cache.image(at: url) === expectedImage)
+        #expect(cache.image(at: url) === expectedImage)
+        #expect(loadCount == 1)
+
+        cache.removeAll()
+        #expect(cache.image(at: url) === expectedImage)
+        #expect(loadCount == 2)
+    }
+
     @Test("Maps the exact portrait screen opening")
     func portraitScreenOpening() {
         let profile = profileFixture()

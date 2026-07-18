@@ -11,13 +11,17 @@ final class SimulatorFramebufferFramePublisher {
 
     init(
         initialSurface: IOSurface,
+        initialGeometry: SimulatorSurfaceGeometry? = nil,
         beforeFrameTransportChange: @escaping @Sendable () async -> Void = {},
         afterFrameTransportChange: @escaping @Sendable () async -> Void = {},
         onFrameTransportChange: @escaping @MainActor @Sendable (
             SimulatorFrameTransportDescriptor
         ) -> Void
     ) async throws {
-        let initialFrame = SimulatorFramebufferFrame(surface: initialSurface)
+        let initialFrame = SimulatorFramebufferFrame(
+            surface: initialSurface,
+            geometry: initialGeometry
+        )
         let initialRing = try await Task.detached(priority: .userInitiated) {
             let ring = try SimulatorFramebufferSurfaceRing(
                 width: initialFrame.width,
@@ -62,8 +66,8 @@ final class SimulatorFramebufferFramePublisher {
         cancel()
     }
 
-    func enqueue(_ surface: IOSurface) {
-        continuation.yield(SimulatorFramebufferFrame(surface: surface))
+    func enqueue(_ surface: IOSurface, geometry: SimulatorSurfaceGeometry? = nil) {
+        continuation.yield(SimulatorFramebufferFrame(surface: surface, geometry: geometry))
     }
 
     func cancel() {

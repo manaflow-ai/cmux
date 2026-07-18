@@ -23,6 +23,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     private var isTornDown = false
     var display: SimulatorDisplayMetadata?
     var chrome: SimulatorDeviceChromeProfile?
+    let chromeImageCache = SimulatorDeviceChromeImageCache()
     var input = SimulatorInputStateMachine()
     var chromeButtonInput = SimulatorChromeButtonStateMachine()
     var activeChromeButton: SimulatorDeviceChromeProfile.Button?
@@ -104,6 +105,9 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         }
         input.updateOrientationGeometry(geometry)
         self.display = display
+        if self.chrome != chrome {
+            chromeImageCache.removeAll()
+        }
         self.chrome = chrome
         updateChromeLayerBackground()
         if frameTransport != frameTransportDescriptor {
@@ -130,6 +134,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         lastFrameSequence = nil
         display = nil
         chrome = nil
+        chromeImageCache.removeAll()
         onMessage = nil
         onGeometry = nil
         onRequestPanelFocus = nil

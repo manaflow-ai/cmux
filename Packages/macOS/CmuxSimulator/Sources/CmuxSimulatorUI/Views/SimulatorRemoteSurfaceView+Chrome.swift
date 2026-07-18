@@ -50,7 +50,7 @@ extension SimulatorRemoteSurfaceView {
         ).fill()
 
         if let compositeURL = profile.compositeURL,
-           let image = NSImage(contentsOf: compositeURL) {
+           let image = chromeImageCache.image(at: compositeURL) {
             image.draw(in: body)
         } else {
             let left = profile.bezelInsets.leading
@@ -131,8 +131,7 @@ extension SimulatorRemoteSurfaceView {
     }
 
     private func drawAsset(_ url: URL?, in rect: CGRect) {
-        guard let url,
-              let image = NSImage(contentsOf: url),
+        guard let image = chromeImageCache.image(at: url),
               rect.width > 0,
               rect.height > 0 else { return }
         image.draw(in: rect)
