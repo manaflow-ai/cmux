@@ -12,7 +12,7 @@
       "id": "PROC-2",
       "priority": "P0",
       "observable": "GPU ownership",
-      "pass_condition": "The Swift PID performs no terminal shaping, terminal render encoding, or terminal draws and submits at most one labeled full-surface blit per admitted visible frame; renderer PIDs own terminal GPU work.",
+      "pass_condition": "Every Metal encoder submitted by the bound Swift PID is either the exact full-surface IOSurface blit or an exact reviewed nonterminal encoder pair, every renderer encoder is the exact terminal render pass, cmuxd submits no Metal work, the Swift PID performs no terminal shaping or terminal draws, and Swift submits at most one blit per admitted visible frame.",
       "required_artifact_kinds": ["time-profiler", "metal-system-trace", "frame-counters"]
     },
     {

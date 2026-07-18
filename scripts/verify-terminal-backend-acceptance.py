@@ -331,7 +331,10 @@ ARTIFACT_REQUIRED_METRICS: dict[str, set[str]] = {
     "metal-system-trace": {
         "swift_terminal_draw_count",
         "swift_full_surface_blit_count",
+        "swift_sanctioned_nonterminal_encoder_count",
+        "swift_unclassified_encoder_count",
         "renderer_terminal_draw_count",
+        "renderer_unclassified_encoder_count",
     },
     "negative-test": {"case_count", "rejected_count", "state_mutation_count"},
     "process-census": {
@@ -505,6 +508,13 @@ HOST_METAL_BLIT_ENCODER_LABEL = "cmux host compositor: no Ghostty rendering"
 RENDERER_METAL_COMMAND_BUFFER_LABEL = "cmux Ghostty worker semantic-scene render"
 RENDERER_METAL_ENCODER_LABEL = "Ghostty terminal glyph render pass"
 
+# Every encoder submitted by the bound Swift host must match the terminal
+# compositor blit above or one exact reviewed nonterminal pair. A new app-owned
+# GPU path must be named and reviewed before its trace can become evidence.
+HOST_SANCTIONED_NONTERMINAL_METAL_ENCODERS = frozenset({
+    ("SwiftUI command buffer", "SwiftUI render encoder"),
+})
+
 # These fragments intentionally identify Ghostty's terminal-specific stack,
 # rather than generic CoreText/Metal work that the Swift shell may legitimately
 # perform for its own UI. They are applied only to commit-bound process PIDs.
@@ -586,6 +596,8 @@ ZERO_ON_PASS_METRICS = {
     "browser_raw_pty_consumer_callsite_count",
     "browser_canonical_parser_constructor_callsite_count",
     "swift_terminal_draw_count",
+    "swift_unclassified_encoder_count",
+    "renderer_unclassified_encoder_count",
     "state_mutation_count",
     "swift_pty_master_count",
     "renderer_pty_master_count",
@@ -2343,10 +2355,14 @@ def derive_metal_metrics_from_export(
     label: str,
 ) -> dict[str, Any]:
     swift_pid = next(iter(_trace_role_pids(process_roles, "swift-host", label)))
+    backend_pids = _trace_role_pids(process_roles, "terminal-backend", label)
     renderer_pids = _trace_role_pids(process_roles, "renderer-worker", label)
     swift_draws = 0
     swift_blits = 0
+    swift_sanctioned_nonterminal = 0
+    swift_unclassified = 0
     renderer_draws = 0
+    renderer_unclassified = 0
     rows = xctrace_table_rows(
         root,
         "metal-application-encoders-list",
@@ -2364,19 +2380,44 @@ def derive_metal_metrics_from_export(
             command_buffer == RENDERER_METAL_COMMAND_BUFFER_LABEL
             and encoder == RENDERER_METAL_ENCODER_LABEL
         )
+        is_sanctioned_nonterminal = (
+            command_buffer,
+            encoder,
+        ) in HOST_SANCTIONED_NONTERMINAL_METAL_ENCODERS
         if pid == swift_pid:
             swift_blits += int(is_host_blit)
             swift_draws += int(is_terminal_draw)
+            swift_sanctioned_nonterminal += int(is_sanctioned_nonterminal)
+            if not (is_host_blit or is_terminal_draw or is_sanctioned_nonterminal):
+                swift_unclassified += 1
+                raise AcceptanceError(
+                    f"{label} unclassified Swift Metal encoder: "
+                    f"command buffer {command_buffer!r}, encoder {encoder!r}"
+                )
         elif pid in renderer_pids:
             renderer_draws += int(is_terminal_draw)
             if is_host_blit:
                 raise AcceptanceError(f"{label} renderer PID submitted a host compositor blit")
+            if not is_terminal_draw:
+                renderer_unclassified += 1
+                raise AcceptanceError(
+                    f"{label} unclassified renderer Metal encoder: "
+                    f"command buffer {command_buffer!r}, encoder {encoder!r}"
+                )
+        elif pid in backend_pids:
+            raise AcceptanceError(
+                f"{label} backend PID submitted a Metal encoder: "
+                f"command buffer {command_buffer!r}, encoder {encoder!r}"
+            )
         elif is_host_blit or is_terminal_draw:
             raise AcceptanceError(f"{label} terminal Metal label belongs to an unbound PID {pid}")
     return {
         "swift_terminal_draw_count": swift_draws,
         "swift_full_surface_blit_count": swift_blits,
+        "swift_sanctioned_nonterminal_encoder_count": swift_sanctioned_nonterminal,
+        "swift_unclassified_encoder_count": swift_unclassified,
         "renderer_terminal_draw_count": renderer_draws,
+        "renderer_unclassified_encoder_count": renderer_unclassified,
     }
 
 
