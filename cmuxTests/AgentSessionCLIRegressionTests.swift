@@ -507,6 +507,67 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(iterator.next() == nil)
     }
 
+    @Test func limitedAgentListRetainsOnlyTheExactSortedPrefix() {
+        var entries = SessionListEntryAccumulator(limit: 2)
+        entries.insert(updatedAt: 10, payload: ["session_id": "session-a"])
+        entries.insert(updatedAt: 30, payload: ["session_id": "session-b"])
+        entries.insert(updatedAt: 20, payload: ["session_id": "session-c"])
+        entries.insert(updatedAt: 30, payload: ["session_id": "session-d"])
+
+        #expect(entries.totalCount == 4)
+        #expect(entries.retainedCount == 2)
+        #expect(entries.sortedPayloads.compactMap { $0["session_id"] as? String } == [
+            "session-b", "session-d",
+        ])
+    }
+
+    @Test func limitedAgentListTextAndJSONPreserveCountLimitAndOrdering() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-list-limit-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeAgentTreeStore(
+            parentIndices: [nil, nil, nil, nil],
+            to: root.appendingPathComponent("opencode-hook-sessions.json")
+        )
+        let baseArguments = [
+            "agents", "list", "--agent", "opencode", "--limit", "2",
+            "--state-dir", root.path,
+        ]
+        let environment = isolatedAgentTreeEnvironment(home: root)
+
+        let text = runProcess(
+            executablePath: cliPath,
+            arguments: baseArguments,
+            environment: environment,
+            timeout: 5
+        )
+        let lines = text.stdout.split(separator: "\n").map(String.init)
+        #expect(text.status == 0, Comment(rawValue: text.stdout))
+        #expect(lines.count == 3)
+        #expect(lines[0].contains("opencode session-00003 "))
+        #expect(lines[1].contains("opencode session-00002 "))
+        #expect(lines[2] == "... 2 more. Pass --all or --limit <n>.")
+
+        let json = runProcess(
+            executablePath: cliPath,
+            arguments: baseArguments + ["--json"],
+            environment: environment,
+            timeout: 5
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(json.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try #require(object["sessions"] as? [[String: Any]])
+        #expect(json.status == 0, Comment(rawValue: json.stdout))
+        #expect(object["total_matches"] as? Int == 4)
+        #expect(object["limit"] as? Int == 2)
+        #expect(sessions.compactMap { $0["session_id"] as? String } == [
+            "session-00003", "session-00002",
+        ])
+    }
+
     @Test func agentsTreeTextDoesNotOverflowTheStackBeyondTwoThousandFiveHundredLevels() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
