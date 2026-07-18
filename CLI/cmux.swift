@@ -29725,7 +29725,7 @@ export default CMUXSessionRestore;
                 return
             }
             if !sessionId.isEmpty,
-               !suppressVisibleMutations || (try? store.lookup(sessionId: sessionId))?.restoreAuthority == false {
+               !suppressVisibleMutations || (try? store.projectedRestoreAuthority(sessionId: sessionId)) == false {
                 try? store.reconcileSemanticState(
                     sessionId: sessionId,
                     foregroundState: .idle,
@@ -30051,7 +30051,7 @@ export default CMUXSessionRestore;
                 }
             }
             if !sessionId.isEmpty,
-               !suppressVisibleMutations || (try? store.lookup(sessionId: sessionId))?.restoreAuthority == false {
+               !suppressVisibleMutations || (try? store.projectedRestoreAuthority(sessionId: sessionId)) == false {
                 try? store.reconcileSemanticState(
                     sessionId: sessionId,
                     foregroundState: .working,
@@ -30364,7 +30364,7 @@ export default CMUXSessionRestore;
                 }
             }
             if !sessionId.isEmpty,
-               !suppressVisibleMutations || (try? store.lookup(sessionId: sessionId))?.restoreAuthority == false {
+               !suppressVisibleMutations || (try? store.projectedRestoreAuthority(sessionId: sessionId)) == false {
                 try? store.reconcileSemanticState(
                     sessionId: sessionId,
                     foregroundState: stopWasInterrupted

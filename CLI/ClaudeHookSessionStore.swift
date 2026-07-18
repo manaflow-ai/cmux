@@ -60,6 +60,18 @@ final class ClaudeHookSessionStore {
         return try registryBridge.lookup(sessionID: normalized, decoder: decoder)
     }
 
+    func projectedRestoreAuthority(sessionId: String) throws -> Bool? {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return nil }
+        return try withSessionSnapshot(sessionID: normalized) { record -> Bool? in
+            guard let record else { return nil }
+            return AgentSessionRunCanonicalizer().projectedRun(
+                record: record,
+                provider: agentName
+            ).restoreAuthority
+        }
+    }
+
     func snapshot() -> ClaudeHookSessionStoreFile {
         withSnapshotState { $0 }
     }

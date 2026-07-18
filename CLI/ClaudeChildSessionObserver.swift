@@ -88,6 +88,6 @@ struct ClaudeChildSessionObserver: Sendable {
             pid: pid,
             environment: environment
         ).restoreAuthority else { return false }
-        return (try? store.lookup(sessionId: sessionId))?.restoreAuthority != true
+        return (try? store.projectedRestoreAuthority(sessionId: sessionId)) != true
     }
 }
