@@ -195,7 +195,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(controller.phase == .active(annotation: .drawing(id: "active-stroke")))
     }
 
-    @Test func switchingToSelectInvalidatesAnInFlightAnnotationCommit() async {
+    @Test func failedModeSwitchPreservesAnInFlightAnnotationCommit() async {
         let controller = makeDetachedController()
         let webView = WKWebView()
         controller.install(on: webView)
@@ -212,8 +212,9 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
         await controller.setInteractionMode(.select)
 
-        #expect(controller.operationRevision > captureRevision)
-        #expect(controller.phase == .active(annotation: .idle))
+        #expect(controller.operationRevision == captureRevision)
+        #expect(controller.interactionMode == .draw)
+        #expect(controller.phase == .active(annotation: .capturing(request)))
     }
 
     @Test func composerCopyRequestWritesSelectedContextWithoutDescriptionOrRuntimeEdits() async throws {
