@@ -1237,7 +1237,14 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "agent.hook.enqueue":
             guard let event = AgentHookDeliveryEvent(params: request.params) else {
-                return v2Error(id: request.id, code: "invalid_params", message: "Invalid agent hook event")
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.agentHook.error.invalidEvent",
+                        defaultValue: "Invalid agent hook event"
+                    )
+                )
             }
             do {
                 try agentHookDeliveryQueue.enqueue(event)
@@ -1246,7 +1253,10 @@ class TerminalController {
                 return v2Error(
                     id: request.id,
                     code: "hook_queue_unavailable",
-                    message: "Could not persist agent hook event"
+                    message: String(
+                        localized: "socket.agentHook.error.persistenceFailed",
+                        defaultValue: "Could not persist agent hook event"
+                    )
                 )
             }
         case "browser.download.wait":
@@ -5682,7 +5692,10 @@ class TerminalController {
         if case .unavailable = result {
             return .err(
                 code: "feed_unavailable",
-                message: "Feed store is unavailable; retry after cmux finishes starting.",
+                message: String(
+                    localized: "socket.feed.error.unavailable",
+                    defaultValue: "Feed store is unavailable; retry after cmux finishes starting."
+                ),
                 data: nil
             )
         }

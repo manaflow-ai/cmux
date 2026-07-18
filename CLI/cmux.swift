@@ -31916,7 +31916,10 @@ export default CMUXSessionRestore;
             ownedClient = feedClient
             activeClient = feedClient
         } else {
-            throw CLIError(message: "Queued feed delivery requires a cmux socket")
+            throw CLIError(message: String(
+                localized: "cli.hooks.feed.error.socketRequired",
+                defaultValue: "Queued feed delivery requires a cmux socket"
+            ))
         }
 
         _ = try activeClient.sendV2(
