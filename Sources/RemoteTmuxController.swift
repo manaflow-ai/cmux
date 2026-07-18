@@ -594,21 +594,15 @@ final class RemoteTmuxController {
         if (mirrorWorkspace ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
             .tabs.first(where: { $0.id == workspaceId }))?
             .handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() == true { return }
-        // Close just the dead workspace. `closeWorkspace` refuses to remove a
-        // window's last workspace (it would leave a windowless state), so if the
-        // dead mirror is the only workspace in its window, add a fresh local
-        // workspace first — that leaves a usable window instead of stranding a
-        // frozen, connection-less remote tab. `inheritWorkingDirectory: false`
-        // avoids inheriting the mirror's remote path; `select: false` keeps the
-        // disconnect from stealing focus (closeWorkspace reselects after the
-        // dead one is removed).
+        // Use the shared noninteractive close mutation: a mirror in a mixed
+        // window removes only its workspace, while a mirror that is the final
+        // workspace closes the owning window. Creating a local replacement here
+        // strands a blank dedicated `--new-window` shell after explicit detach
+        // (#7992). Detach is authoritative even if the mirror was pinned.
         let manager = mirrorWorkspace?.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
         let workspace = mirrorWorkspace ?? manager?.tabs.first(where: { $0.id == workspaceId })
         if let manager, let workspace {
-            if manager.tabs.count == 1 {
-                _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
-            }
-            manager.closeWorkspace(workspace)
+            _ = manager.closeWorkspaceNonInteractively(workspace, allowPinned: true)
         }
     }
 

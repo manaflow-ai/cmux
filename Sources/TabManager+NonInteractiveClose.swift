@@ -7,8 +7,12 @@ extension TabManager {
     /// mirror is detached from its local owner first so a socket close never maps
     /// to the explicit remote-session kill path.
     @discardableResult
-    func closeWorkspaceNonInteractively(_ workspace: Workspace, recordHistory: Bool = true) -> Bool {
-        guard canCloseWorkspace(workspace),
+    func closeWorkspaceNonInteractively(
+        _ workspace: Workspace,
+        recordHistory: Bool = true,
+        allowPinned: Bool = false
+    ) -> Bool {
+        guard canCloseWorkspace(workspace, allowPinned: allowPinned),
               tabs.contains(where: { $0.id == workspace.id }) else { return false }
         guard tabs.count == 1 else {
             closeWorkspace(workspace, recordHistory: recordHistory)
