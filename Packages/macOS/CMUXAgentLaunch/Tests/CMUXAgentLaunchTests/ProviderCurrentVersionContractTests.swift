@@ -950,4 +950,158 @@ struct ProviderCurrentVersionContractTests {
             )
         }
     }
+
+    @Test("One-shot output modifiers retain terminal lifetime")
+    func oneShotOutputModifiersRetainTerminalLifetime() {
+        let cases: [(process: String, kind: String, arguments: [String])] = [
+            ("pi", "pi", ["pi", "--print", "--no-session", "fix this"]),
+            ("omp", "omp", ["omp", "-p", "--no-session", "fix this"]),
+            ("campfire", "campfire", ["campfire", "-p", "--no-session", "fix this"]),
+            ("kimi", "kimi", ["kimi", "--print", "--prompt", "fix this"]),
+            ("kimi", "kimi", ["kimi", "--quiet", "--command", "fix this"]),
+        ]
+
+        for testCase in cases {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: testCase.process,
+                    arguments: testCase.arguments,
+                    kind: testCase.kind
+                ) == .oneShot,
+                "\(testCase.arguments)"
+            )
+        }
+    }
+
+    @Test("Claude forwarding output remains one-shot only in its documented print mode")
+    func claudeForwardingOutputContract() {
+        let oneShot = [
+            "claude", "--print", "--output-format", "stream-json",
+            "--forward-subagent-text", "fix this",
+        ]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "claude", arguments: oneShot, kind: "claude"
+            ) == .oneShot
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                oneShot, launcher: "claude", fallbackKind: "claude"
+            ) == nil
+        )
+
+        for invalid in [
+            ["claude", "--forward-subagent-text", "fix this"],
+            ["claude", "--print", "--forward-subagent-text", "fix this"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "claude", arguments: invalid, kind: "claude"
+                ) == .unknown,
+                "\(invalid)"
+            )
+        }
+    }
+
+    @Test("Gemini ACP overrides terminal-looking prompt flags")
+    func geminiACPProtocolLifetime() {
+        for arguments in [
+            ["gemini", "--acp", "--prompt", "ignored by ACP"],
+            ["gemini", "--experimental-acp", "-p", "ignored by ACP"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "gemini", arguments: arguments, kind: "gemini"
+                ) == .interactive,
+                "\(arguments)"
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "gemini", fallbackKind: "gemini"
+                ) == nil,
+                "\(arguments)"
+            )
+        }
+    }
+
+    @Test("Gemini utility command aliases never restore as sessions")
+    func geminiUtilityAliasesAreNonSession() {
+        for command in ["extension", "skill", "hook"] {
+            let arguments = ["gemini", command, "list"]
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "gemini", arguments: arguments, kind: "gemini"
+                ) == .nonSession,
+                Comment(rawValue: command)
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "gemini", fallbackKind: "gemini"
+                ) == nil,
+                Comment(rawValue: command)
+            )
+        }
+    }
+
+    @Test("Codex resume-only picker option is rejected by fork")
+    func codexForkRejectsResumeOnlyPickerOption() {
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "codex",
+                arguments: ["codex", "fork", "--include-non-interactive", "--last"],
+                kind: "codex"
+            ) == .unknown
+        )
+    }
+
+    @Test("Cursor plan and worker modes match the current command grammar")
+    func cursorPlanAndWorkerModes() {
+        let plan = ["cursor-agent", "--plan", "inspect this"]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "cursor-agent", arguments: plan, kind: "cursor"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                plan, launcher: "cursor", fallbackKind: "cursor"
+            ) == ["cursor-agent", "--plan"]
+        )
+
+        for arguments in [
+            ["cursor-agent", "worker", "start"],
+            ["cursor-agent", "worker", "--worker-dir", "/tmp/cmux-worker", "start"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "cursor-agent", arguments: arguments, kind: "cursor"
+                ) == .interactive,
+                "\(arguments)"
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "cursor", fallbackKind: "cursor"
+                ) == nil,
+                "\(arguments)"
+            )
+        }
+
+        for arguments in [
+            ["cursor-agent", "worker"],
+            ["cursor-agent", "worker", "debug"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "cursor-agent", arguments: arguments, kind: "cursor"
+                ) == .nonSession,
+                "\(arguments)"
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "cursor", fallbackKind: "cursor"
+                ) == nil,
+                "\(arguments)"
+            )
+        }
+    }
 }
