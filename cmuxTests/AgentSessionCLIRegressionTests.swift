@@ -1027,7 +1027,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         #expect(result.status != 0)
-        #expect((result.stdout + result.stderr).contains("unknown agent 'definitely-not-an-agent'"))
+        #expect(result.stdout.contains("unknown agent 'definitely-not-an-agent'"))
     }
 
     @Test func agentsTreeRejectsBlankAgentFilter() throws {
@@ -1045,7 +1045,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         #expect(result.status != 0)
-        #expect((result.stdout + result.stderr).contains("--agent requires a value"))
+        #expect(result.stdout.contains("--agent requires a value"))
     }
 
 }

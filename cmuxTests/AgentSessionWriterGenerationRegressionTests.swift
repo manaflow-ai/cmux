@@ -70,7 +70,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         try store.updateLastPermissionMode(sessionId: sessionID, permissionMode: "plan")
 
-        let saved = try #require(store.lookup(sessionId: sessionID))
+        let saved = try #require(try store.lookup(sessionId: sessionID))
         #expect(saved.lastPermissionMode == "plan")
         #expect(saved.updatedAt > 200)
         let registry = CmuxAgentSessionRegistry(url: registryURL)

@@ -1,12 +1,12 @@
 import Foundation
 
-enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseIterable {
+public enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseIterable {
     case unknown
     case running
     case idle
     case needsInput
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
         self = Self.parse(rawValue) ?? .unknown
@@ -16,7 +16,7 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         self == .idle
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
     }
