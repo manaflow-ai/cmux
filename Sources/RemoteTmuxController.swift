@@ -560,15 +560,17 @@ final class RemoteTmuxController {
         sessionName: String,
         workspaceId: UUID
     ) {
-        tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId)
+        tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId, reason: .sessionEnded)
     }
 
-    /// Removes a mirror + its control connection, then closes or converts the local
-    /// workspace. Shared by remote session-end and deliberate detach; neither kills.
+    /// Removes a mirror + its control connection, then closes the local workspace.
+    /// A genuine remote end may instead honor a pending keep-workspace-open intent;
+    /// deliberate detach is authoritative and always removes the mirror workspace.
     private func tearDownMirrorAndCloseWorkspace(
         host: RemoteTmuxHost,
         sessionName: String,
-        workspaceId: UUID
+        workspaceId: UUID,
+        reason: RemoteTmuxMirrorTeardownReason
     ) {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         let mirrorWorkspace = sessionMirrors[key]?.mirroredWorkspace
@@ -587,10 +589,11 @@ final class RemoteTmuxController {
         }
         #if DEBUG
         cmuxDebugLog(
-            "remote-tmux: session ended hostHasOtherMirrors=\(hostHasOtherMirrors)"
+            "remote-tmux: teardown hostHasOtherMirrors=\(hostHasOtherMirrors)"
         )
         #endif
-        if (mirrorWorkspace ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
+        if reason == .sessionEnded,
+           (mirrorWorkspace ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
             .tabs.first(where: { $0.id == workspaceId }))?
             .handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() == true { return }
         // Use the shared noninteractive close mutation: a mirror in a mixed
@@ -740,7 +743,7 @@ final class RemoteTmuxController {
     func detach(host: RemoteTmuxHost, sessionName: String) {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         if let workspaceId = sessionMirrors[key]?.mirroredWorkspaceId {
-            tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId)
+            tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId, reason: .explicitDetach)
             return
         }
         if let mirror = sessionMirrors.removeValue(forKey: key) {
