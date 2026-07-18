@@ -14,6 +14,12 @@ import type { ShareParticipant, TextSelectionAwareness, WorkspaceSurface } from 
 import type { RenderedGhosttyTerminal } from "../../../services/share/ghosttyTerminal";
 import type { TextDocumentView } from "../../../services/share/textDocument";
 import {
+  SHARE_CURSOR_PATH_DATA,
+  SHARE_CURSOR_SCALE,
+  SHARE_CURSOR_STROKE_WIDTH,
+  SHARE_CURSOR_VIEW_BOX,
+} from "../../../services/share/cursorShape";
+import {
   terminalCommandForKeyboardEvent,
   type TerminalInputCommand,
 } from "../../../services/share/terminalInput";
@@ -501,8 +507,17 @@ function RemotePointer({
   const participantColor = color(participant.color);
   return (
     <div className="share-remote-pointer" style={{ left: `${x * 100}%`, top: `${y * 100}%` }}>
-      <svg width="22" height="27" viewBox="0 0 22 27" aria-hidden="true">
-        <path d="M2 1.5v20.2l5.2-5.1 3.9 8.2 3.8-1.8-3.8-7.8h7.2L2 1.5Z" fill={participantColor} stroke="#fff" strokeWidth="1.4" strokeLinejoin="round" />
+      <svg width="24" height="30" viewBox={SHARE_CURSOR_VIEW_BOX} aria-hidden="true">
+        <g transform={`scale(${SHARE_CURSOR_SCALE})`}>
+          <path
+            d={SHARE_CURSOR_PATH_DATA}
+            fill={participantColor}
+            stroke="#fff"
+            strokeWidth={SHARE_CURSOR_STROKE_WIDTH}
+            strokeLinejoin="round"
+            style={{ paintOrder: "stroke fill" }}
+          />
+        </g>
       </svg>
       <span className="share-pointer-name" style={{ background: participantColor }}>{participant.displayName}</span>
       {message && <span className="share-pointer-bubble">{message}</span>}

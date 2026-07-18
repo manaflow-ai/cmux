@@ -1,3 +1,4 @@
+import CmuxWorkspaceShare
 import SwiftUI
 
 struct WorkspaceShareCursorOverlayView: View {
@@ -11,10 +12,7 @@ struct WorkspaceShareCursorOverlayView: View {
                 let color = Self.color(index: pointer.participant.color)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .top, spacing: 0) {
-                        Image(systemName: "cursorarrow")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(color)
-                            .shadow(color: .black.opacity(0.7), radius: 1)
+                        WorkspaceShareCursorGlyph(color: color)
                         Text(pointer.participant.displayName)
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(Color.black.opacity(0.9))
@@ -64,6 +62,52 @@ struct WorkspaceShareCursorOverlayView: View {
             Color(red: 0.67, green: 0.57, blue: 1),
         ]
         return palette[abs(index) % palette.count]
+    }
+}
+
+private struct WorkspaceShareCursorGlyph: View {
+    let color: Color
+
+    var body: some View {
+        Canvas { context, _ in
+            let path = Self.path()
+            context.stroke(
+                path,
+                with: .color(.white),
+                style: StrokeStyle(
+                    lineWidth: WorkspaceShareCursorGeometry.strokeWidth * WorkspaceShareCursorGeometry.scale,
+                    lineJoin: .round
+                )
+            )
+            context.fill(path, with: .color(color))
+        }
+        .frame(
+            width: WorkspaceShareCursorGeometry.viewWidth,
+            height: WorkspaceShareCursorGeometry.viewHeight
+        )
+        .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
+        .accessibilityHidden(true)
+    }
+
+    private static func path() -> Path {
+        let scale = WorkspaceShareCursorGeometry.scale
+        var path = Path()
+        for element in WorkspaceShareCursorGeometry.elements {
+            switch element {
+            case let .move(x, y):
+                path.move(to: CGPoint(x: x * scale, y: y * scale))
+            case let .line(x, y):
+                path.addLine(to: CGPoint(x: x * scale, y: y * scale))
+            case let .quadratic(controlX, controlY, x, y):
+                path.addQuadCurve(
+                    to: CGPoint(x: x * scale, y: y * scale),
+                    control: CGPoint(x: controlX * scale, y: controlY * scale)
+                )
+            case .close:
+                path.closeSubpath()
+            }
+        }
+        return path
     }
 }
 
