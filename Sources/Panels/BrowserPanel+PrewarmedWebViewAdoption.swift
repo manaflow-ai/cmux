@@ -101,6 +101,37 @@ final class DiffViewerImmediateLoadingPresentation {
 
 }
 
+/// Owns the best available first-frame presentation without making that
+/// optimization a prerequisite for opening the diff viewer. Panel types that
+/// do not expose an AppKit presentation view still proceed to browser creation,
+/// where the prewarmed loading page supplies the skeleton.
+@MainActor
+final class DiffViewerInitialLoadingPresentation {
+    typealias Target = (
+        referenceView: NSView,
+        placement: DiffViewerImmediatePresentationPlacement
+    )
+
+    private var immediatePresentation: DiffViewerImmediateLoadingPresentation?
+
+    init(target: Target?) {
+        guard let target else { return }
+        immediatePresentation = DiffViewerImmediateLoadingPresentation(
+            relativeTo: target.referenceView,
+            placement: target.placement
+        )
+    }
+
+    var isPresented: Bool {
+        immediatePresentation != nil
+    }
+
+    func close() {
+        immediatePresentation?.close()
+        immediatePresentation = nil
+    }
+}
+
 extension BrowserPanel {
     /// The profile a panel would use for the given requested ID. Shared with
     /// prewarm callers so a prewarmed webview and the panel that later adopts

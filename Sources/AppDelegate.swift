@@ -6059,20 +6059,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         let loadingURL = DiffViewerLoadingPage.url
         let attachStartedAt = CFAbsoluteTimeGetCurrent()
-        guard let immediateTarget = workspace.diffViewerImmediatePresentationTarget(
+        let immediateTarget = workspace.diffViewerImmediatePresentationTarget(
             from: sourceSurfaceId
-        ),
-        let immediateLoadingPresentation = DiffViewerImmediateLoadingPresentation(
-            relativeTo: immediateTarget.referenceView,
-            placement: immediateTarget.placement
-        ) else {
-            return false
-        }
+        )
+        let immediateLoadingPresentation = DiffViewerInitialLoadingPresentation(
+            target: immediateTarget
+        )
 #if DEBUG
         let attachMilliseconds = (CFAbsoluteTimeGetCurrent() - attachStartedAt) * 1_000
         cmuxDebugLog(
             "diffViewer.placeholder.attached elapsedMs=\(String(format: "%.1f", attachMilliseconds)) " +
-            "source=\(sourceSurfaceId.uuidString.prefix(5)) immediate=1"
+            "source=\(sourceSurfaceId.uuidString.prefix(5)) " +
+            "immediate=\(immediateLoadingPresentation.isPresented ? 1 : 0)"
         )
 #endif
         let workspaceId = workspace.id
@@ -6111,17 +6109,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             let targetSurfaceId = placement.panel.id
-            let presentationReference = placement.createdSplit
-                ? immediateTarget.referenceView
-                : placement.immediatePresentationReferenceView
+            if placement.createdSplit, let immediateTarget {
+                _ = placement.panel.presentDiffViewerLoadingImmediately(
+                    relativeTo: immediateTarget.referenceView,
+                    placement: .futureRightSplit
+                )
+            } else if !placement.createdSplit {
+                let presentationReference = placement.immediatePresentationReferenceView
                     ?? placement.panel.webView.cmuxBrowserViewportPresentationView
-            let presentationPlacement: DiffViewerImmediatePresentationPlacement = placement.createdSplit
-                ? .futureRightSplit
-                : .existingTargetPane
-            _ = placement.panel.presentDiffViewerLoadingImmediately(
-                relativeTo: presentationReference,
-                placement: presentationPlacement
-            )
+                _ = placement.panel.presentDiffViewerLoadingImmediately(
+                    relativeTo: presentationReference,
+                    placement: .existingTargetPane
+                )
+            }
             immediateLoadingPresentation.close()
 
             let freshSnapshot = await freshSnapshotTask?.value

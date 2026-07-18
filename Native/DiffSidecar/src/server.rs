@@ -1317,14 +1317,17 @@ fn session_lease_is_active(root: &Path, token: &str) -> bool {
     else {
         return false;
     };
-    match lock.try_lock() {
-        Ok(()) => {
-            let _ = lock.unlock();
-            false
-        }
-        Err(std::fs::TryLockError::WouldBlock) => true,
-        Err(std::fs::TryLockError::Error(_)) => false,
+    let result = lock.try_lock();
+    if result.is_ok() {
+        let _ = lock.unlock();
     }
+    session_lease_lock_is_active(&result)
+}
+
+fn session_lease_lock_is_active(result: &Result<(), std::fs::TryLockError>) -> bool {
+    // Cleanup must fail closed. A contended lease and a platform error both
+    // preserve the private session file for a later pass.
+    result.is_err()
 }
 
 fn valid_session_temp_name(name: &str) -> bool {
@@ -2369,7 +2372,7 @@ mod tests {
 
     #[test]
     fn session_lease_lock_errors_preserve_session_files() {
-        assert!(session_lease_lock_is_active(Err(
+        assert!(session_lease_lock_is_active(&Err(
             std::fs::TryLockError::Error(std::io::Error::other("lock state unavailable"))
         )));
     }
