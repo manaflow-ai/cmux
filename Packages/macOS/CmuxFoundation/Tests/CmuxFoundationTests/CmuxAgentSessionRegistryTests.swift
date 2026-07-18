@@ -149,6 +149,303 @@ struct CmuxAgentSessionRegistryTests {
         #expect(stored.writerGeneration == CmuxAgentSessionRegistry.currentWriterGeneration)
     }
 
+    @Test("record and active panel bindings rebind atomically")
+    func recordAndActivePanelBindingsRebindAtomically() throws {
+        let fixture = try Fixture()
+        let oldWorkspace = "11111111-1111-1111-1111-111111111111"
+        let oldSurface = "22222222-2222-2222-2222-222222222222"
+        let newWorkspace = "33333333-3333-3333-3333-333333333333"
+        let newSurface = "44444444-4444-4444-4444-444444444444"
+        try fixture.registry.apply(
+            provider: "codex",
+            records: [try fixture.record(
+                sessionID: "restored",
+                updatedAt: 10,
+                generation: 2,
+                extra: ["futureRecordKey": "preserved"]
+            )],
+            activeSlots: [
+                try fixture.slot(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: oldWorkspace,
+                    sessionID: "restored",
+                    updatedAt: 10,
+                    generation: 2,
+                    extra: ["futureSlotKey": "preserved"]
+                ),
+                try fixture.slot(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: oldSurface,
+                    sessionID: "restored",
+                    updatedAt: 10,
+                    generation: 2
+                ),
+            ]
+        )
+
+        let patched = try fixture.registry.patchRecordRebindingActiveSlots(
+            provider: "codex",
+            sessionID: "restored",
+            updatedAt: 20,
+            previousSlots: [
+                .init(scope: .workspace, scopeID: oldWorkspace),
+                .init(scope: .surface, scopeID: oldSurface),
+            ],
+            activeSlots: [
+                .init(scope: .workspace, scopeID: newWorkspace),
+                .init(scope: .surface, scopeID: newSurface),
+            ],
+            shouldMutate: {
+                $0["workspaceId"] as? String == oldWorkspace
+                    && $0["surfaceId"] as? String == oldSurface
+            }
+        ) { object in
+            object["workspaceId"] = newWorkspace
+            object["surfaceId"] = newSurface
+            object["updatedAt"] = 20
+            object["sessionState"] = "hibernated"
+        }
+
+        #expect(patched)
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        #expect(object["workspaceId"] as? String == newWorkspace)
+        #expect(object["surfaceId"] as? String == newSurface)
+        #expect(object["futureRecordKey"] as? String == "preserved")
+        #expect(record.writerGeneration == 2)
+        #expect(Set(snapshot.activeSlots.map(\.scopeID)) == [newWorkspace, newSurface])
+        for slot in snapshot.activeSlots {
+            let slotObject = try #require(JSONSerialization.jsonObject(with: slot.json) as? [String: Any])
+            #expect(slot.sessionID == "restored")
+            #expect(slot.writerGeneration == 2)
+            #expect(slotObject["futureSlotKey"] as? String == "preserved")
+        }
+    }
+
+    @Test("active slot collisions reject the complete rebind")
+    func activeSlotCollisionRejectsCompleteRebind() throws {
+        let fixture = try Fixture()
+        let oldWorkspace = "11111111-1111-1111-1111-111111111111"
+        let oldSurface = "22222222-2222-2222-2222-222222222222"
+        let occupiedWorkspace = "33333333-3333-3333-3333-333333333333"
+        let newSurface = "44444444-4444-4444-4444-444444444444"
+        try fixture.registry.apply(
+            provider: "codex",
+            records: [
+                try fixture.record(sessionID: "restored", updatedAt: 10, generation: 1),
+                try fixture.record(sessionID: "occupant", updatedAt: 11, generation: 1),
+            ],
+            activeSlots: [
+                try fixture.slot(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: oldWorkspace,
+                    sessionID: "restored",
+                    updatedAt: 10
+                ),
+                try fixture.slot(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: oldSurface,
+                    sessionID: "restored",
+                    updatedAt: 10
+                ),
+                try fixture.slot(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: occupiedWorkspace,
+                    sessionID: "occupant",
+                    updatedAt: 11
+                ),
+            ]
+        )
+
+        let patched = try fixture.registry.patchRecordRebindingActiveSlots(
+            provider: "codex",
+            sessionID: "restored",
+            updatedAt: 20,
+            previousSlots: [
+                .init(scope: .workspace, scopeID: oldWorkspace),
+                .init(scope: .surface, scopeID: oldSurface),
+            ],
+            activeSlots: [
+                .init(scope: .workspace, scopeID: occupiedWorkspace),
+                .init(scope: .surface, scopeID: newSurface),
+            ]
+        ) { object in
+            object["workspaceId"] = occupiedWorkspace
+            object["surfaceId"] = newSurface
+            object["updatedAt"] = 20
+        }
+
+        #expect(!patched)
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        let restored = try #require(snapshot.records.first(where: { $0.sessionID == "restored" }))
+        let object = try #require(JSONSerialization.jsonObject(with: restored.json) as? [String: Any])
+        #expect(object["workspaceId"] as? String == oldWorkspace)
+        #expect(object["surfaceId"] as? String == oldSurface)
+        #expect(Set(snapshot.activeSlots.map(\.scopeID)) == [oldWorkspace, oldSurface, occupiedWorkspace])
+        #expect(!snapshot.activeSlots.contains(where: { $0.scopeID == newSurface }))
+    }
+
+    @Test("stale previous slots owned by another session survive rebind")
+    func stalePreviousSlotOwnedByAnotherSessionSurvivesRebind() throws {
+        let fixture = try Fixture()
+        let oldWorkspace = "11111111-1111-1111-1111-111111111111"
+        let oldSurface = "22222222-2222-2222-2222-222222222222"
+        let newWorkspace = "33333333-3333-3333-3333-333333333333"
+        let newSurface = "44444444-4444-4444-4444-444444444444"
+        try fixture.registry.apply(
+            provider: "codex",
+            records: [try fixture.record(sessionID: "restored", updatedAt: 10, generation: 1)],
+            activeSlots: [
+                try fixture.slot(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: oldWorkspace,
+                    sessionID: "new-owner",
+                    updatedAt: 15
+                ),
+                try fixture.slot(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: oldSurface,
+                    sessionID: "restored",
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let patched = try fixture.registry.patchRecordRebindingActiveSlots(
+            provider: "codex",
+            sessionID: "restored",
+            updatedAt: 20,
+            previousSlots: [
+                .init(scope: .workspace, scopeID: oldWorkspace),
+                .init(scope: .surface, scopeID: oldSurface),
+            ],
+            activeSlots: [
+                .init(scope: .workspace, scopeID: newWorkspace),
+                .init(scope: .surface, scopeID: newSurface),
+            ]
+        ) { object in
+            object["workspaceId"] = newWorkspace
+            object["surfaceId"] = newSurface
+            object["updatedAt"] = 20
+        }
+
+        #expect(patched)
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        #expect(snapshot.activeSlots.first(where: { $0.scopeID == oldWorkspace })?.sessionID == "new-owner")
+        #expect(!snapshot.activeSlots.contains(where: { $0.scopeID == oldSurface }))
+        #expect(snapshot.activeSlots.first(where: { $0.scopeID == newWorkspace })?.sessionID == "restored")
+        #expect(snapshot.activeSlots.first(where: { $0.scopeID == newSurface })?.sessionID == "restored")
+    }
+
+    @Test("concurrent stale rebinds serialize through the record fence")
+    func concurrentStaleRebindsSerializeThroughRecordFence() async throws {
+        let fixture = try Fixture(busyTimeoutMilliseconds: 25)
+        let oldWorkspace = "11111111-1111-1111-1111-111111111111"
+        let oldSurface = "22222222-2222-2222-2222-222222222222"
+        try fixture.registry.apply(
+            provider: "codex",
+            records: [try fixture.record(sessionID: "restored", updatedAt: 10, generation: 1)],
+            activeSlots: [
+                try fixture.slot(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: oldWorkspace,
+                    sessionID: "restored",
+                    updatedAt: 10
+                ),
+                try fixture.slot(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: oldSurface,
+                    sessionID: "restored",
+                    updatedAt: 10
+                ),
+            ]
+        )
+        let registry = fixture.registry
+        let targets = [
+            ("33333333-3333-3333-3333-333333333333", "44444444-4444-4444-4444-444444444444"),
+            ("55555555-5555-5555-5555-555555555555", "66666666-6666-6666-6666-666666666666"),
+        ]
+
+        let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+            for (workspace, surface) in targets {
+                group.addTask {
+                    (try? registry.patchRecordRebindingActiveSlots(
+                        provider: "codex",
+                        sessionID: "restored",
+                        updatedAt: 20,
+                        previousSlots: [
+                            .init(scope: .workspace, scopeID: oldWorkspace),
+                            .init(scope: .surface, scopeID: oldSurface),
+                        ],
+                        activeSlots: [
+                            .init(scope: .workspace, scopeID: workspace),
+                            .init(scope: .surface, scopeID: surface),
+                        ],
+                        shouldMutate: {
+                            $0["workspaceId"] as? String == oldWorkspace
+                                && $0["surfaceId"] as? String == oldSurface
+                        }
+                    ) { object in
+                        object["workspaceId"] = workspace
+                        object["surfaceId"] = surface
+                        object["updatedAt"] = 20
+                    }) == true
+                }
+            }
+            var values: [Bool] = []
+            for await value in group { values.append(value) }
+            return values
+        }
+
+        #expect(results.filter { $0 }.count == 1)
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        let workspace = try #require(object["workspaceId"] as? String)
+        let surface = try #require(object["surfaceId"] as? String)
+        #expect(Set(snapshot.activeSlots.map(\.scopeID)) == [workspace, surface])
+        #expect(snapshot.activeSlots.allSatisfy { $0.sessionID == "restored" })
+    }
+
+    @Test("targeted rebind stays bounded with ten thousand other sessions")
+    func targetedRebindPerformance() throws {
+        let fixture = try Fixture()
+        let records = try (0..<10_000).map { index in
+            try fixture.record(sessionID: "session-\(index)", updatedAt: Double(index), generation: 1)
+        }
+        try fixture.registry.apply(provider: "codex", records: records)
+
+        let clock = ContinuousClock()
+        let elapsed = try clock.measure {
+            let patched = try fixture.registry.patchRecordRebindingActiveSlots(
+                provider: "codex",
+                sessionID: "session-5000",
+                updatedAt: 20_000,
+                previousSlots: [],
+                activeSlots: [
+                    .init(scope: .workspace, scopeID: "new-workspace"),
+                    .init(scope: .surface, scopeID: "new-surface"),
+                ]
+            ) { object in
+                object["workspaceId"] = "new-workspace"
+                object["surfaceId"] = "new-surface"
+                object["updatedAt"] = 20_000
+            }
+            #expect(patched)
+        }
+        #expect(elapsed < .seconds(1))
+    }
+
     @Test("one thousand indexed session rows load within a bounded interval")
     func indexedSnapshotPerformance() throws {
         let fixture = try Fixture()
@@ -437,6 +734,30 @@ struct CmuxAgentSessionRegistryTests {
             let object = object(sessionID: sessionID, updatedAt: updatedAt).merging(extra) { _, new in new }
             return CmuxAgentSessionRegistry.Record(
                 provider: "test",
+                sessionID: sessionID,
+                updatedAt: updatedAt,
+                writerGeneration: generation,
+                json: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            )
+        }
+
+        func slot(
+            provider: String,
+            scope: CmuxAgentSessionRegistry.Scope,
+            scopeID: String,
+            sessionID: String,
+            updatedAt: TimeInterval,
+            generation: Int = CmuxAgentSessionRegistry.currentWriterGeneration,
+            extra: [String: Any] = [:]
+        ) throws -> CmuxAgentSessionRegistry.ActiveSlot {
+            let object: [String: Any] = [
+                "sessionId": sessionID,
+                "updatedAt": updatedAt,
+            ].merging(extra) { _, new in new }
+            return CmuxAgentSessionRegistry.ActiveSlot(
+                provider: provider,
+                scope: scope,
+                scopeID: scopeID,
                 sessionID: sessionID,
                 updatedAt: updatedAt,
                 writerGeneration: generation,
