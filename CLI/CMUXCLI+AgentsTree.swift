@@ -281,8 +281,12 @@ extension CMUXCLI {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             print(String(decoding: try encoder.encode(snapshot), as: UTF8.self))
+        } else if snapshot.nodes.isEmpty {
+            print(String(localized: "cli.agents.tree.output.noMatches", defaultValue: "No saved agent runs matched."))
         } else {
-            print(agentsTreeText(snapshot: snapshot, maximumDepth: maximumDepth))
+            for line in AgentTreeTextLineSequence(snapshot: snapshot, maximumDepth: maximumDepth) {
+                print(line)
+            }
         }
     }
 
@@ -305,67 +309,6 @@ extension CMUXCLI {
         )]
     }
 
-    private func agentsTreeText(snapshot: AgentSessionGraphSnapshot, maximumDepth: Int) -> String {
-        guard !snapshot.nodes.isEmpty else {
-            return String(localized: "cli.agents.tree.output.noMatches", defaultValue: "No saved agent runs matched.")
-        }
-        let nodeById = AgentSessionGraphNodeIndex.nodes(snapshot.nodes)
-        let edgeResolver = AgentSessionGraphEdgeResolver(nodes: snapshot.nodes)
-        let childrenByRunId = Dictionary(grouping: snapshot.edges.compactMap { edge -> (String, AgentSessionGraphEdge)? in
-            guard let parent = edgeResolver.parentNodeId(for: edge) else { return nil }
-            return (parent, edge)
-        }, by: \.0).mapValues { $0.map(\.1) }
-        let childRunIds = Set(snapshot.edges.compactMap { edge in
-            edgeResolver.parentNodeId(for: edge).map { _ in edge.toNodeId }
-        })
-        let roots = snapshot.nodes.filter { !childRunIds.contains($0.nodeId) }
-        var lines: [String] = []
-        var visited: Set<String> = []
-
-        struct RenderFrame {
-            var node: AgentSessionGraphNode
-            var prefix: String
-            var connector: String
-            var depth: Int
-        }
-
-        func append(_ node: AgentSessionGraphNode, prefix: String, connector: String, depth: Int) {
-            var stack = [RenderFrame(node: node, prefix: prefix, connector: connector, depth: depth)]
-            while let frame = stack.popLast() {
-                let node = frame.node
-                guard frame.depth <= maximumDepth, visited.insert(node.nodeId).inserted else { continue }
-                let authority: String
-                if node.identitySource == "terminal_process" {
-                    authority = " process"
-                } else {
-                    authority = node.restoreAuthority ? " restore-owner" : " child"
-                }
-                let modes = node.activity.modes.map(\.rawValue).joined(separator: ",")
-                let activity = modes.isEmpty ? "" : " [\(modes)]"
-                let identity = node.sessionId ?? "pid \(node.pid.map(String.init) ?? "unknown")"
-                let location = "workspace:\(node.workspaceId) surface:\(node.surfaceId)"
-                let workingDirectory = node.cwd.map { " cwd:\($0)" } ?? ""
-                lines.append("\(frame.prefix)\(frame.connector)\(node.provider) \(identity) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(location)\(workingDirectory)")
-                let children = (childrenByRunId[node.nodeId] ?? []).compactMap { nodeById[$0.toNodeId] }
-                let childPrefix = frame.prefix
-                    + (frame.connector == "├── " ? "│   " : frame.connector == "└── " ? "    " : "")
-                for index in children.indices.reversed() {
-                    stack.append(RenderFrame(
-                        node: children[index],
-                        prefix: childPrefix,
-                        connector: index == children.count - 1 ? "└── " : "├── ",
-                        depth: frame.depth + 1
-                    ))
-                }
-            }
-        }
-        for root in roots { append(root, prefix: "", connector: "", depth: 0) }
-        for node in snapshot.nodes where !visited.contains(node.nodeId) {
-            append(node, prefix: "", connector: "", depth: 0)
-        }
-        return lines.joined(separator: "\n")
-    }
-
     private func agentsTreeExpandedPath(_ value: String) -> String {
         NSString(string: value).expandingTildeInPath
     }
@@ -378,5 +321,115 @@ extension CMUXCLI {
     private func agentsTreeNormalizedID(_ value: String?) -> String? {
         guard let value = agentsTreeNormalized(value) else { return nil }
         return value.split(separator: ":", maxSplits: 1).last.map(String.init)
+    }
+}
+
+struct AgentTreeTextLineSequence: Sequence {
+    let snapshot: AgentSessionGraphSnapshot
+    let maximumDepth: Int
+
+    func makeIterator() -> Iterator {
+        Iterator(snapshot: snapshot, maximumDepth: maximumDepth)
+    }
+
+    struct Iterator: IteratorProtocol {
+        private struct RenderFrame {
+            var node: AgentSessionGraphNode
+            var prefix: String
+            var connector: String
+            var depth: Int
+        }
+
+        private let maximumDepth: Int
+        private let childrenByNodeID: [String: [AgentSessionGraphNode]]
+        private let roots: [AgentSessionGraphNode]
+        private let nodes: [AgentSessionGraphNode]
+        private var nextRootIndex = 0
+        private var nextFallbackIndex = 0
+        private var stack: [RenderFrame] = []
+        private var visited: Set<String> = []
+
+        init(snapshot: AgentSessionGraphSnapshot, maximumDepth: Int) {
+            self.maximumDepth = maximumDepth
+            nodes = snapshot.nodes
+            let nodeByID = AgentSessionGraphNodeIndex.nodes(snapshot.nodes)
+            let edgeResolver = AgentSessionGraphEdgeResolver(nodes: snapshot.nodes)
+            let childEdgesByNodeID = Dictionary(
+                grouping: snapshot.edges.compactMap { edge -> (String, AgentSessionGraphEdge)? in
+                    guard let parent = edgeResolver.parentNodeId(for: edge) else { return nil }
+                    return (parent, edge)
+                },
+                by: \.0
+            ).mapValues { $0.map(\.1) }
+            childrenByNodeID = childEdgesByNodeID.mapValues { edges in
+                edges.compactMap { nodeByID[$0.toNodeId] }
+            }
+            let childNodeIDs = Set(snapshot.edges.compactMap { edge in
+                edgeResolver.parentNodeId(for: edge).map { _ in edge.toNodeId }
+            })
+            roots = snapshot.nodes.filter { !childNodeIDs.contains($0.nodeId) }
+        }
+
+        mutating func next() -> String? {
+            while true {
+                if stack.isEmpty, !seedNextTraversal() { return nil }
+                guard let frame = stack.popLast() else { continue }
+                let node = frame.node
+                guard frame.depth <= maximumDepth,
+                      visited.insert(node.nodeId).inserted else {
+                    continue
+                }
+
+                let children = childrenByNodeID[node.nodeId] ?? []
+                let childPrefix = frame.prefix
+                    + (frame.connector == "├── " ? "│   " : frame.connector == "└── " ? "    " : "")
+                for index in children.indices.reversed() {
+                    stack.append(RenderFrame(
+                        node: children[index],
+                        prefix: childPrefix,
+                        connector: index == children.count - 1 ? "└── " : "├── ",
+                        depth: frame.depth + 1
+                    ))
+                }
+                return Self.line(for: node, prefix: frame.prefix, connector: frame.connector)
+            }
+        }
+
+        private mutating func seedNextTraversal() -> Bool {
+            while nextRootIndex < roots.count {
+                let root = roots[nextRootIndex]
+                nextRootIndex += 1
+                guard !visited.contains(root.nodeId) else { continue }
+                stack.append(RenderFrame(node: root, prefix: "", connector: "", depth: 0))
+                return true
+            }
+            while nextFallbackIndex < nodes.count {
+                let node = nodes[nextFallbackIndex]
+                nextFallbackIndex += 1
+                guard !visited.contains(node.nodeId) else { continue }
+                stack.append(RenderFrame(node: node, prefix: "", connector: "", depth: 0))
+                return true
+            }
+            return false
+        }
+
+        private static func line(
+            for node: AgentSessionGraphNode,
+            prefix: String,
+            connector: String
+        ) -> String {
+            let authority: String
+            if node.identitySource == "terminal_process" {
+                authority = " process"
+            } else {
+                authority = node.restoreAuthority ? " restore-owner" : " child"
+            }
+            let modes = node.activity.modes.map(\.rawValue).joined(separator: ",")
+            let activity = modes.isEmpty ? "" : " [\(modes)]"
+            let identity = node.sessionId ?? "pid \(node.pid.map(String.init) ?? "unknown")"
+            let location = "workspace:\(node.workspaceId) surface:\(node.surfaceId)"
+            let workingDirectory = node.cwd.map { " cwd:\($0)" } ?? ""
+            return "\(prefix)\(connector)\(node.provider) \(identity) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(location)\(workingDirectory)"
+        }
     }
 }
