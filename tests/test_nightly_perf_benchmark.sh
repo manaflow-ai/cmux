@@ -59,7 +59,7 @@ for requirement in \
   'COMPILER_INDEX_STORE_ENABLE=NO' \
   'CODE_SIGNING_ALLOWED=NO' \
   'lipo' \
-  'dwarfdump --uuid' \
+  'macho-uuid-keys.sh' \
   'strip-release-bundle.sh' \
   'smoke-launch-macos-app.sh'; do
   if ! grep -Fq "$requirement" "$RUNNER"; then

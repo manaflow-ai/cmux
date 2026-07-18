@@ -118,8 +118,8 @@ inspect_cold_artifact() {
   unstripped_bytes="$(stat -f %z "$archive")"
   binary_bytes="$(stat -f %z "$binary")"
 
-  uuid_before="$(dwarfdump --uuid "$binary" | sort)"
-  dsym_uuid="$(dwarfdump --uuid "$products/cmux.app.dSYM" | sort)"
+  uuid_before="$("$root/scripts/ci/macho-uuid-keys.sh" "$binary")"
+  dsym_uuid="$("$root/scripts/ci/macho-uuid-keys.sh" "$products/cmux.app.dSYM")"
   if ! comm -12 <(printf '%s\n' "$uuid_before") <(printf '%s\n' "$dsym_uuid") | grep -q UUID; then
     echo "error: app and dSYM UUIDs do not intersect" >&2
     exit 1
@@ -128,7 +128,7 @@ inspect_cold_artifact() {
   stripped_app="$RUNNER_TEMP/cmux-stripped-$scenario.app"
   ditto "$app" "$stripped_app"
   "$root/scripts/strip-release-bundle.sh" "$stripped_app"
-  uuid_after="$(dwarfdump --uuid "$stripped_app/Contents/MacOS/$executable" | sort)"
+  uuid_after="$("$root/scripts/ci/macho-uuid-keys.sh" "$stripped_app/Contents/MacOS/$executable")"
   if [ "$uuid_before" != "$uuid_after" ]; then
     echo "error: stripping changed the app Mach-O UUID" >&2
     exit 1
