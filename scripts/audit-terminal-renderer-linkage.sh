@@ -46,7 +46,7 @@ elif [[ -n "$BINARY" ]]; then
   exit 2
 fi
 
-for command in ar clang file nm otool; do
+for command in ar clang file nm otool strings; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "error: required audit command is missing: $command" >&2
     exit 1
@@ -78,6 +78,9 @@ contains_exact_symbol() {
 banned_process_regex='(^|[[:space:]])(_openpty|_forkpty|_fork|_vfork|_posix_spawn|_posix_spawnp|_execv|_execve|_execvp|_execvpe|_execl|_execle|_execlp|_waitpid)([[:space:]]|$)'
 banned_ghostty_regex='ghostty_(app_|surface_|process_census)'
 banned_terminal_regex='terminal\.(Parser|Stream)|termio|(^|[._])pty([._]|$)'
+banned_dynamic_loader_regex='(^|[[:space:]])(_dlopen|_dlopen_preflight|_dlsym|_CFBundleLoadExecutable|_CFBundleLoadExecutableAndReturnError|_CFBundlePreflightExecutable|_NSCreateObjectFileImageFromFile|_NSLinkModule)([[:space:]]|$)'
+banned_swift_bundle_loader_regex='\$s10Foundation6BundleC(4load|6unload)'
+bundle_loader_selector_regex='^(load|loadAndReturnError:|preflightAndReturnError:|unload)$'
 
 if [[ "$ARCHIVE_ONLY" == false ]]; then
   FILE_OUTPUT="$TEMP_DIR/file.txt"
@@ -85,6 +88,7 @@ if [[ "$ARCHIVE_ONLY" == false ]]; then
   UNDEFINED="$TEMP_DIR/undefined.txt"
   ALL_SYMBOLS="$TEMP_DIR/all-symbols.txt"
   LOADS="$TEMP_DIR/loads.txt"
+  EMBEDDED_STRINGS="$TEMP_DIR/strings.txt"
 
   file "$BINARY" > "$FILE_OUTPUT"
   grep -q 'Mach-O' "$FILE_OUTPUT" || fail_with_matches \
@@ -96,6 +100,7 @@ if [[ "$ARCHIVE_ONLY" == false ]]; then
   nm -uj "$BINARY" > "$UNDEFINED"
   nm -a "$BINARY" > "$ALL_SYMBOLS"
   otool -L "$BINARY" > "$LOADS"
+  strings -a "$BINARY" > "$EMBEDDED_STRINGS"
 
   required_worker_symbols=(
     _ghostty_scene_init
@@ -135,6 +140,20 @@ if [[ "$ARCHIVE_ONLY" == false ]]; then
         "$matches"
     fi
   done
+  dynamic_loader_matches="$(grep -E "$banned_dynamic_loader_regex|$banned_swift_bundle_loader_regex" "$DEFINED" "$UNDEFINED" "$ALL_SYMBOLS" || true)"
+  if [[ -n "$dynamic_loader_matches" ]]; then
+    fail_with_matches \
+      "final renderer executable links a generic dynamic-loading escape hatch" \
+      "$dynamic_loader_matches"
+  fi
+  bundle_class_matches="$(grep -F '_OBJC_CLASS_$_NSBundle' "$ALL_SYMBOLS" || true)"
+  bundle_selector_matches="$(grep -E "$bundle_loader_selector_regex" "$EMBEDDED_STRINGS" || true)"
+  if [[ -n "$bundle_class_matches" && -n "$bundle_selector_matches" ]]; then
+    fail_with_matches \
+      "final renderer executable exposes an NSBundle dynamic-loading escape hatch" \
+      "$bundle_class_matches
+$bundle_selector_matches"
+  fi
   terminal_matches="$(grep -Ei "$banned_terminal_regex" "$ALL_SYMBOLS" || true)"
   if [[ -n "$terminal_matches" ]]; then
     fail_with_matches \
@@ -184,17 +203,33 @@ while IFS= read -r archive; do
   archive_all="$TEMP_DIR/archive-$archive_slug-all.txt"
   archive_members="$TEMP_DIR/archive-$archive_slug-members.txt"
   archive_ghostty="$TEMP_DIR/archive-$archive_slug-ghostty.txt"
+  archive_strings="$TEMP_DIR/archive-$archive_slug-strings.txt"
 
   nm -gUj "$archive" > "$archive_defined"
   nm -u -A "$archive" > "$archive_undefined"
   nm -a "$archive" > "$archive_all"
   ar -t "$archive" > "$archive_members"
+  strings -a "$archive" > "$archive_strings"
   grep -E '^_ghostty_' "$archive_defined" | sort -u > "$archive_ghostty"
 
   forbidden_undefined="$(grep -E "$banned_process_regex|$banned_ghostty_regex" "$archive_undefined" || true)"
   [[ -z "$forbidden_undefined" ]] || fail_with_matches \
     "scene archive contains forbidden process/runtime references: $archive" \
     "$forbidden_undefined"
+
+  forbidden_dynamic_loader="$(grep -E "$banned_dynamic_loader_regex|$banned_swift_bundle_loader_regex" "$archive_defined" "$archive_undefined" "$archive_all" || true)"
+  [[ -z "$forbidden_dynamic_loader" ]] || fail_with_matches \
+    "scene archive contains a generic dynamic-loading escape hatch: $archive" \
+    "$forbidden_dynamic_loader"
+
+  archive_bundle_class="$(grep -F '_OBJC_CLASS_$_NSBundle' "$archive_all" || true)"
+  archive_bundle_selectors="$(grep -E "$bundle_loader_selector_regex" "$archive_strings" || true)"
+  if [[ -n "$archive_bundle_class" && -n "$archive_bundle_selectors" ]]; then
+    fail_with_matches \
+      "scene archive exposes an NSBundle dynamic-loading escape hatch: $archive" \
+      "$archive_bundle_class
+$archive_bundle_selectors"
+  fi
 
   forbidden_symbols="$(grep -Ei "$banned_terminal_regex|$banned_ghostty_regex" "$archive_all" || true)"
   [[ -z "$forbidden_symbols" ]] || fail_with_matches \

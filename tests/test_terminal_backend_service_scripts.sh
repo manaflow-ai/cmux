@@ -49,6 +49,8 @@ bash -n \
   "$ROOT/scripts/test-terminal-renderer-helper.sh" \
   "$ROOT/scripts/verify-terminal-backend-service-artifact.sh"
 
+"$ROOT/tests/test_terminal_renderer_linkage_audit.sh"
+
 "$ROOT/scripts/terminal-backend-identity.py" --check-vectors
 first_fingerprint="$("$ROOT/scripts/terminal-backend-build-fingerprint.py" --metadata test=service-scripts)"
 second_fingerprint="$("$ROOT/scripts/terminal-backend-build-fingerprint.py" --metadata test=service-scripts)"
