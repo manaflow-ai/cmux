@@ -18,7 +18,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         WorkspaceListUITableView,
         @escaping RefreshCollapseAction
     ) -> Void
-    typealias RefreshTaskCompletion = @MainActor () -> Void
 
     private enum HeightKind: Hashable {
         case workspaceUniform
@@ -48,13 +47,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
     private var dropJustCompleted = false
     private var refreshLifecycle = WorkspaceListRefreshLifecycle()
-    private var refreshTask: Task<Void, Never>?
+    private(set) var refreshTask: Task<Void, Never>?
     private var refreshTaskID: WorkspaceListRefreshLifecycle.RefreshID?
     private weak var activeRefreshControl: UIRefreshControl?
     private weak var tableView: WorkspaceListUITableView?
     private let scheduleRefreshCollapse: RefreshCollapseScheduler
     private let animateRefreshCollapse: RefreshCollapseAnimation
-    private let refreshTaskDidFinish: RefreshTaskCompletion
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -66,7 +64,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 completion: completion
             )
         }
-        refreshTaskDidFinish = {}
         super.init()
     }
 
@@ -77,13 +74,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     init(
         configuration: WorkspaceListTable,
         scheduleRefreshCollapse: @escaping RefreshCollapseScheduler,
-        animateRefreshCollapse: @escaping RefreshCollapseAnimation,
-        refreshTaskDidFinish: @escaping RefreshTaskCompletion = {}
+        animateRefreshCollapse: @escaping RefreshCollapseAnimation
     ) {
         self.configuration = configuration
         self.scheduleRefreshCollapse = scheduleRefreshCollapse
         self.animateRefreshCollapse = animateRefreshCollapse
-        self.refreshTaskDidFinish = refreshTaskDidFinish
         super.init()
     }
 
@@ -396,7 +391,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         refreshTask = Task { @MainActor [weak self, weak refreshControl] in
             await refresh()
             guard let self else { return }
-            defer { self.refreshTaskDidFinish() }
             self.clearRefreshTask(refreshID)
             guard !Task.isCancelled else {
                 self.cancelRefresh(refreshID, refreshControl: refreshControl)

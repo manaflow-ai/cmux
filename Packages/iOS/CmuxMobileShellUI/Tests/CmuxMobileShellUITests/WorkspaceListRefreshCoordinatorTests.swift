@@ -203,10 +203,9 @@ struct WorkspaceListRefreshCoordinatorTests {
     }
 
     @Test("a stale cancelled task cannot release replacement task ownership")
-    func staleCancelledTaskCannotReleaseReplacementTaskOwnership() async {
+    func staleCancelledTaskCannotReleaseReplacementTaskOwnership() async throws {
         let firstGate = RefreshActionGate()
         let firstCancellationObserved = AsyncBoolSignal()
-        let firstTaskDidFinish = MainActorSignal()
         let firstConfiguration = makeConfiguration {
             await firstGate.waitForRelease()
             await firstCancellationObserved.signal(Task.isCancelled)
@@ -216,8 +215,7 @@ struct WorkspaceListRefreshCoordinatorTests {
         let coordinator = WorkspaceListTableCoordinator(
             configuration: firstConfiguration,
             scheduleRefreshCollapse: scheduler.schedule,
-            animateRefreshCollapse: animator.animate,
-            refreshTaskDidFinish: firstTaskDidFinish.signal
+            animateRefreshCollapse: animator.animate
         )
         let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
         let firstRefreshControl = RecordingRefreshControl()
@@ -230,6 +228,7 @@ struct WorkspaceListRefreshCoordinatorTests {
             with: firstRefreshControl
         )
         await firstGate.waitUntilStarted()
+        let firstTask = try #require(coordinator.refreshTask)
 
         coordinator.update(
             configuration: makeConfiguration(refresh: nil),
@@ -251,11 +250,13 @@ struct WorkspaceListRefreshCoordinatorTests {
             with: secondRefreshControl
         )
         await secondGate.waitUntilStarted()
+        let secondTask = try #require(coordinator.refreshTask)
 
         await firstGate.release()
+        await firstTask.value
         let firstWasCancelled = await firstCancellationObserved.wait()
         #expect(firstWasCancelled)
-        await firstTaskDidFinish.wait()
+        #expect(coordinator.refreshTask != nil)
         #expect(firstRefreshControl.endCount == 1)
 
         coordinator.update(
@@ -264,6 +265,7 @@ struct WorkspaceListRefreshCoordinatorTests {
         )
         await secondRefreshControl.waitUntilEndCount(1)
         await secondGate.release()
+        await secondTask.value
         let secondWasCancelled = await secondCancellationObserved.wait()
         #expect(
             secondWasCancelled,
