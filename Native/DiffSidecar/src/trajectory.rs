@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde::Deserialize;
@@ -150,12 +150,46 @@ pub struct ResolvedTurnPatch {
 pub struct AgentTurnLocation {
     repo_root: PathBuf,
     transcript: Option<PathBuf>,
+    generation: AgentTurnGeneration,
 }
 
 impl AgentTurnLocation {
     #[must_use]
     pub fn repo_root(&self) -> &Path {
         &self.repo_root
+    }
+
+    pub(crate) fn generation(&self) -> &AgentTurnGeneration {
+        &self.generation
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum AgentTurnGeneration {
+    Transcript(Vec<TranscriptGeneration>),
+    OpenCode {
+        database: PathBuf,
+        latest_user_message: Option<String>,
+        patch_part_count: i64,
+        latest_patch_part: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct TranscriptGeneration {
+    path: PathBuf,
+    byte_length: u64,
+    modified: Option<SystemTime>,
+}
+
+#[cfg(test)]
+impl AgentTurnGeneration {
+    pub(crate) fn for_test(discriminator: u64) -> Self {
+        Self::Transcript(vec![TranscriptGeneration {
+            path: PathBuf::from(format!("test-{discriminator}")),
+            byte_length: discriminator,
+            modified: None,
+        }])
     }
 }
 
@@ -297,26 +331,83 @@ pub fn resolve_agent_turn_location_cancellable(
     validate_session_id(&identity.session_id)?;
     match identity.provider {
         AgentProvider::Codex => {
-            codex_location(identity, roots).map(|(transcript, repo_root)| AgentTurnLocation {
-                repo_root,
-                transcript: Some(transcript),
+            codex_location(identity, roots).and_then(|(transcript, repo_root)| {
+                let generation =
+                    AgentTurnGeneration::Transcript(vec![transcript_generation(&transcript)?]);
+                Ok(AgentTurnLocation {
+                    repo_root,
+                    transcript: Some(transcript),
+                    generation,
+                })
             })
         }
         AgentProvider::Claude => {
-            claude_location(identity, roots, cancellation).map(|(transcript, repo_root)| {
-                AgentTurnLocation {
+            claude_location(identity, roots, cancellation).and_then(|(transcript, repo_root)| {
+                let generation = claude_transcript_generation(&transcript, cancellation)?;
+                Ok(AgentTurnLocation {
                     repo_root,
                     transcript: Some(transcript),
-                }
+                    generation,
+                })
             })
         }
         AgentProvider::OpenCode => {
-            opencode_repository(identity, roots).map(|repo_root| AgentTurnLocation {
+            opencode_location(identity, roots).map(|(repo_root, generation)| AgentTurnLocation {
                 repo_root,
                 transcript: None,
+                generation,
             })
         }
     }
+}
+
+fn transcript_generation(path: &Path) -> Result<TranscriptGeneration, TrajectoryError> {
+    let metadata = path.metadata().map_err(|_| TrajectoryError::Unavailable)?;
+    if !metadata.is_file() {
+        return Err(TrajectoryError::Unavailable);
+    }
+    Ok(TranscriptGeneration {
+        path: path.to_path_buf(),
+        byte_length: metadata.len(),
+        modified: metadata.modified().ok(),
+    })
+}
+
+fn claude_transcript_generation(
+    transcript: &Path,
+    cancellation: &TrajectoryCancellation,
+) -> Result<AgentTurnGeneration, TrajectoryError> {
+    let mut generations = vec![transcript_generation(transcript)?];
+    let subagent_directory = transcript.with_extension("").join("subagents");
+    let entries = match std::fs::read_dir(subagent_directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(AgentTurnGeneration::Transcript(generations));
+        }
+        Err(_) => return Err(TrajectoryError::Unavailable),
+    };
+    let mut paths = Vec::new();
+    for entry in entries {
+        cancellation.check()?;
+        let path = entry.map_err(|_| TrajectoryError::Invalid)?.path();
+        let is_subagent_transcript = path.extension().and_then(|value| value.to_str())
+            == Some("jsonl")
+            && path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .is_some_and(|name| name.starts_with("agent-") && name.len() > "agent-".len());
+        if is_subagent_transcript {
+            paths.push(path);
+            if paths.len() > MAX_CLAUDE_SUBAGENT_TRANSCRIPTS {
+                return Err(TrajectoryError::Invalid);
+            }
+        }
+    }
+    paths.sort_unstable();
+    for path in paths {
+        generations.push(transcript_generation(&path)?);
+    }
+    Ok(AgentTurnGeneration::Transcript(generations))
 }
 
 fn validate_session_id(session_id: &str) -> Result<(), TrajectoryError> {
@@ -447,12 +538,48 @@ fn resolve_opencode(
     finish(repo_root, patch)
 }
 
-fn opencode_repository(
+fn opencode_location(
     identity: &AgentTurnIdentity,
     roots: &TrajectoryRoots,
-) -> Result<PathBuf, TrajectoryError> {
-    let connection = open_opencode_database(&roots.opencode_database())?;
-    opencode_repository_from_connection(identity, &connection)
+) -> Result<(PathBuf, AgentTurnGeneration), TrajectoryError> {
+    let database = roots.opencode_database();
+    let connection = open_opencode_database(&database)?;
+    let repo_root = opencode_repository_from_connection(identity, &connection)?;
+    let latest_user_message = connection
+        .query_row(
+            "SELECT id FROM message \
+             WHERE session_id = ?1 AND json_extract(data, '$.role') = 'user' \
+             ORDER BY time_created DESC, id DESC LIMIT 1",
+            [&identity.session_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| TrajectoryError::Invalid)?;
+    let (patch_part_count, latest_patch_part) = if let Some(user_message) = &latest_user_message {
+        connection
+            .query_row(
+                "SELECT COUNT(*), MAX(part.id) \
+                 FROM part JOIN message ON message.id = part.message_id \
+                 WHERE message.session_id = ?1 \
+                   AND json_extract(message.data, '$.role') = 'assistant' \
+                   AND json_extract(message.data, '$.parentID') = ?2 \
+                   AND json_type(part.data, '$.state.metadata.diff') = 'text'",
+                params![identity.session_id, user_message],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .map_err(|_| TrajectoryError::Invalid)?
+    } else {
+        (0, None)
+    };
+    Ok((
+        repo_root,
+        AgentTurnGeneration::OpenCode {
+            database,
+            latest_user_message,
+            patch_part_count,
+            latest_patch_part,
+        },
+    ))
 }
 
 fn open_opencode_database(path: &Path) -> Result<Connection, TrajectoryError> {
