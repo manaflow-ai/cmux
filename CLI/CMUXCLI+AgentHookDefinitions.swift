@@ -422,12 +422,49 @@ extension CMUXCLI {
         if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
             return true
         }
+        if isGeneratedCodexHookPath(command, for: def) {
+            return true
+        }
         if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
             || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
         {
             return true
         }
         return includeLegacy && isLegacyCmuxOwnedHookCommand(command, for: def)
+    }
+
+    private static func isGeneratedCodexHookPath(_ command: String, for def: AgentHookDef) -> Bool {
+        guard def.name == "codex" else { return false }
+        let path = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard path.hasPrefix("/") else { return false }
+        let url = URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL
+        let directory = url.deletingLastPathComponent()
+        guard directory.lastPathComponent == "hooks",
+              directory.deletingLastPathComponent().lastPathComponent == ".cmux" else {
+            return false
+        }
+
+        let name = url.lastPathComponent
+        let subcommands = codexWrapperInjectionEvents.map { $0.cmuxSubcommand }
+        for subcommand in subcommands {
+            if name == "cmux-codex-native-hook-\(subcommand)"
+                || name == "cmux-codex-portable-hook-\(subcommand).sh"
+                || name == "cmux-codex-hook-\(subcommand).sh"
+                || name == "cmux-codex-hook-persistent-\(subcommand).sh"
+            {
+                return true
+            }
+            for prefix in [
+                "cmux-codex-hook-\(subcommand)-",
+                "cmux-codex-hook-persistent-\(subcommand)-",
+            ] where name.hasPrefix(prefix) && name.hasSuffix(".sh") {
+                let hash = name.dropFirst(prefix.count).dropLast(".sh".count)
+                if hash.count >= 8, hash.allSatisfy(\.isHexDigit) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {

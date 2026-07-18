@@ -362,8 +362,9 @@ struct CLICodexHookTimeoutRegressionTests {
             let historicalSharedPath = hooksDirectory
                 .appendingPathComponent("cmux-codex-hook-\(event.subcommand).sh")
             #expect(nativeEntries.count == 1)
-            #expect(nativeEntries[0].command != historicalSharedPath.path)
-            #expect(nativeEntries[0].command.hasSuffix("cmux-codex-native-hook-\(event.subcommand)"))
+            let nativeEntry = try #require(nativeEntries.first)
+            #expect(nativeEntry.command != historicalSharedPath.path)
+            #expect(nativeEntry.command.hasSuffix("cmux-codex-native-hook-\(event.subcommand)"))
 
             // An older concurrently running cmux still rewrites this historical
             // wrapper path. That must not change the installed native helper.
@@ -371,7 +372,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 at: historicalSharedPath,
                 lines: ["#!/bin/sh", "sleep 30"]
             )
-            #expect(codexHookExecutableIsMachO(nativeEntries[0].command))
+            #expect(codexHookExecutableIsMachO(nativeEntry.command))
         }
         let expectedFeedEvents: Set<String> = [
             "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact",
@@ -407,8 +408,10 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!codexHookExecutableIsMachO(shellPath.path))
         let shell = try String(contentsOf: shellPath, encoding: .utf8)
         #expect(shell.hasPrefix("#!/bin/sh\n"))
-        #expect(shell.contains("/usr/bin/base64"))
-        #expect(shell.contains("/usr/bin/nc"))
+        #expect(!shell.contains("/usr/bin/base64"))
+        #expect(!shell.contains("/usr/bin/nc"))
+        #expect(shell.contains("CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=1"))
+        #expect(shell.contains("/bin/sleep 2"))
         #expect(shell.contains("hooks codex enqueue session-start"))
     }
 

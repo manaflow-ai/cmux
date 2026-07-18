@@ -116,6 +116,13 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
 
     private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
 
+    /// Keys that existing launch and auto-naming policies may safely inspect
+    /// after a hook crosses a process boundary. The transport still applies its
+    /// own narrower routing and provider policy before persisting values.
+    public static var replaySafeEnvironmentKeys: Set<String> {
+        safeEnvironmentKeys
+    }
+
     /// Returns the subset of captured environment variables that should be replayed for an agent.
     ///
     /// The optional `kind` applies agent-specific exclusions for values that are safe for one
@@ -246,5 +253,69 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     private func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
         guard index < tokens.count else { return 1 }
         return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
+    }
+}
+
+/// Selects the routing and auto-naming inputs that may cross the durable agent
+/// hook queue. This is the shared admission policy for the native sender, the
+/// portable CLI fallback, and the app-side decoder.
+public struct AgentHookTransportEnvironmentPolicy: Sendable {
+    public init() {}
+
+    private static let coreKeys: Set<String> = [
+        "HOME", "PATH", "PWD", "TMPDIR", "TMP", "TEMP",
+        "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE",
+        "CODEX_HOME",
+        "CMUX_AGENT_HOOK_DELIVERY_ID",
+        "CMUX_AGENT_HOOK_STATE_DIR",
+        "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
+        "CMUX_AGENT_LAUNCH_ARGV_B64",
+        "CMUX_AGENT_LAUNCH_CWD",
+        "CMUX_AGENT_LAUNCH_EXECUTABLE",
+        "CMUX_AGENT_LAUNCH_KIND",
+        "CMUX_AGENT_MANAGED_SUBAGENT",
+        "CMUX_BUNDLE_ID",
+        "CMUX_CODEX_PID",
+        "CMUX_CUSTOM_CLAUDE_PATH",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
+        "CMUX_SURFACE_ID",
+        "CMUX_TAG",
+        "CMUX_WORKSPACE_ID",
+    ]
+
+    private static let autoNamingExactKeys: Set<String> = [
+        "ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+        "all_proxy", "https_proxy", "http_proxy", "no_proxy",
+        "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "SSL_CERT_DIR", "SSL_CERT_FILE",
+        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+    ]
+
+    /// Provider families intentionally accepted here are narrowed again by the
+    /// selected summarizer's existing environment policy before execution.
+    private static let autoNamingPrefixes = [
+        "ANTHROPIC_", "AWS_", "CLOUD_ML_", "GCLOUD_", "GOOGLE_", "OPENAI_",
+    ]
+
+    public func selectedEnvironment(from environment: [String: String]) -> [String: String] {
+        let launchPolicy = AgentLaunchEnvironmentPolicy()
+        let replaySafeKeys = AgentLaunchEnvironmentPolicy.replaySafeEnvironmentKeys
+        var selected: [String: String] = [:]
+        selected.reserveCapacity(environment.count)
+        for (key, value) in environment {
+            if replaySafeKeys.contains(key) {
+                if let sanitized = launchPolicy.sanitizedValue(key: key, value: value) {
+                    selected[key] = sanitized
+                }
+                continue
+            }
+            if Self.coreKeys.contains(key)
+                || Self.autoNamingExactKeys.contains(key)
+                || Self.autoNamingPrefixes.contains(where: key.hasPrefix)
+            {
+                selected[key] = value
+            }
+        }
+        return selected
     }
 }

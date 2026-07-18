@@ -35405,8 +35405,13 @@ private enum CMUXCLIOutput {
 @main
 struct CMUXTermMain {
     static func main() {
-        if ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] == "1" {
+        let deliveryProcessGroupMarker = "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"
+        if let marker = getenv(deliveryProcessGroupMarker), strcmp(marker, "1") == 0 {
             _ = Darwin.setpgid(0, 0)
+            // This marker belongs only to the one delivery CLI. Transcript
+            // monitors and auto-name children must inherit its group rather
+            // than creating new groups that timeout cleanup cannot reach.
+            unsetenv(deliveryProcessGroupMarker)
         }
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)

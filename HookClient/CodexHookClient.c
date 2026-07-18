@@ -51,6 +51,7 @@ static const char *const cmux_hook_environment_keys[] = {
     "CMUX_AGENT_MANAGED_SUBAGENT",
     "CMUX_BUNDLE_ID",
     "CMUX_CODEX_PID",
+    "CMUX_CUSTOM_CLAUDE_PATH",
     "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
     "CMUX_SURFACE_ID",
     "CMUX_TAG",
@@ -205,11 +206,15 @@ static char *cmux_base64_encode(const unsigned char *input, size_t count) {
 static const char *cmux_hook_subcommand(const char *executable_path) {
     const char *name = strrchr(executable_path, '/');
     name = name == NULL ? executable_path : name + 1;
-    static const char prefix[] = "cmux-codex-hook-";
-    if (strncmp(name, prefix, sizeof(prefix) - 1) != 0) {
+    static const char native_prefix[] = "cmux-codex-native-hook-";
+    static const char legacy_prefix[] = "cmux-codex-hook-";
+    if (strncmp(name, native_prefix, sizeof(native_prefix) - 1) == 0) {
+        name += sizeof(native_prefix) - 1;
+    } else if (strncmp(name, legacy_prefix, sizeof(legacy_prefix) - 1) == 0) {
+        name += sizeof(legacy_prefix) - 1;
+    } else {
         return NULL;
     }
-    name += sizeof(prefix) - 1;
 
     static const char *const subcommands[] = {
         "session-start",
@@ -290,14 +295,35 @@ static const char *cmux_resolve_delivery_id(
     return storage;
 }
 
-static bool cmux_build_environment(CMUXBuffer *environment) {
+static bool cmux_hook_environment_key_is_allowed(const char *key, size_t key_count) {
+    if (key_count < 5 || strncmp(key, "CMUX_", 5) != 0) {
+        // The app-side shared policy admits only selected provider and launch
+        // variables. Forwarding non-CMUX values here lets that policy evolve
+        // without duplicating every provider key in this C client.
+        return true;
+    }
     for (size_t index = 0; cmux_hook_environment_keys[index] != NULL; index += 1) {
-        const char *key = cmux_hook_environment_keys[index];
-        const char *value = getenv(key);
-        if (value == NULL) {
+        const char *allowed = cmux_hook_environment_keys[index];
+        if (strlen(allowed) == key_count && memcmp(key, allowed, key_count) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool cmux_build_environment(CMUXBuffer *environment) {
+    for (char **entry = environ; entry != NULL && *entry != NULL; entry += 1) {
+        const char *separator = strchr(*entry, '=');
+        if (separator == NULL) {
             continue;
         }
-        const size_t key_count = strlen(key);
+        const char *key = *entry;
+        const size_t key_count = (size_t)(separator - key);
+        if (key_count == 0 || key_count > 128
+            || !cmux_hook_environment_key_is_allowed(key, key_count)) {
+            continue;
+        }
+        const char *value = separator + 1;
         const size_t value_count = strnlen(value, CMUX_HOOK_MAX_ENVIRONMENT_VALUE_BYTES + 1);
         if (value_count > CMUX_HOOK_MAX_ENVIRONMENT_VALUE_BYTES) {
             return false;

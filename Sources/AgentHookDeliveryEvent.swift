@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CryptoKit
 import Foundation
 
@@ -5,35 +6,6 @@ import Foundation
 nonisolated struct AgentHookDeliveryEvent: Sendable {
     static let maximumPayloadBytes = 8 * 1024 * 1024
     static let maximumEnvironmentBytes = 256 * 1024
-
-    private static let allowedEnvironmentKeys: Set<String> = [
-        "CODEX_HOME",
-        "CMUX_AGENT_HOOK_DELIVERY_ID",
-        "CMUX_AGENT_HOOK_STATE_DIR",
-        "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
-        "CMUX_AGENT_LAUNCH_ARGV_B64",
-        "CMUX_AGENT_LAUNCH_CWD",
-        "CMUX_AGENT_LAUNCH_EXECUTABLE",
-        "CMUX_AGENT_LAUNCH_KIND",
-        "CMUX_AGENT_MANAGED_SUBAGENT",
-        "CMUX_BUNDLE_ID",
-        "CMUX_CODEX_PID",
-        "CMUX_SOCKET_PATH",
-        "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
-        "CMUX_SURFACE_ID",
-        "CMUX_TAG",
-        "CMUX_WORKSPACE_ID",
-        "HOME",
-        "LANG",
-        "LC_ALL",
-        "LC_CTYPE",
-        "LOGNAME",
-        "PATH",
-        "PWD",
-        "SHELL",
-        "TMPDIR",
-        "USER",
-    ]
 
     let deliveryID: String
     let agent: String
@@ -152,24 +124,19 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         }
 
         var totalBytes = 0
-        var sanitized: [String: String] = [:]
-        sanitized.reserveCapacity(environment.count)
         for (key, value) in environment {
-            guard allowedEnvironmentKeys.contains(key),
-                  key.utf8.count <= 128,
+            guard key.utf8.count <= 128,
                   value.utf8.count <= 128 * 1024 else {
                 return nil
             }
             totalBytes += key.utf8.count + value.utf8.count + 2
             guard totalBytes <= maximumEnvironmentBytes else { return nil }
-            // The direct shell form emits empty placeholders while the CLI
-            // fallback omits unset keys. Normalize them so both submissions of
-            // one stable delivery ID have the same digest.
-            if !value.isEmpty {
-                sanitized[key] = value
-            }
         }
-        return sanitized
+        // Unknown variables are ignored rather than rejecting the whole hook:
+        // the native sender deliberately forwards its ambient environment so
+        // this shared policy remains the sole admission source of truth.
+        return AgentHookTransportEnvironmentPolicy().selectedEnvironment(from: environment)
+            .filter { !$0.value.isEmpty }
     }
 
     private static func decodeNULTuples(_ data: Data) -> [String: String]? {
