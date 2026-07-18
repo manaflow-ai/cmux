@@ -14,7 +14,6 @@ struct SimulatorPaneToolbar: View {
                         String(localized: simulatorStrings.deviceState($0))
                     }
                 ),
-                coordinatorIdentity: ObjectIdentifier(coordinator),
                 actions: SimulatorDevicePickerActions(
                     select: { coordinator.selectDevice(id: $0) },
                     refresh: {
@@ -24,7 +23,6 @@ struct SimulatorPaneToolbar: View {
                     }
                 )
             )
-            .equatable()
             statusView
             Spacer(minLength: 8)
             controlButtons
@@ -85,15 +83,11 @@ private struct SimulatorDevicePickerActions {
     let refresh: () -> Void
 }
 
-private struct SimulatorDevicePicker: View, Equatable {
+// Keep the coordinator out of this subtree, but let SwiftUI own its identity.
+// EquatableView recursively compared this closure-bearing view in AttributeGraph.
+private struct SimulatorDevicePicker: View {
     let snapshot: SimulatorDevicePickerSnapshot
-    let coordinatorIdentity: ObjectIdentifier
     let actions: SimulatorDevicePickerActions
-
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.snapshot == rhs.snapshot
-            && lhs.coordinatorIdentity == rhs.coordinatorIdentity
-    }
 
     var body: some View {
         Menu {
