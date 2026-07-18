@@ -79,5 +79,15 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// Aggregates all of a host's sessions through one shared `tmux -CC` connection
+    /// (required for hosts that permit a single concurrent SSH connection) instead of
+    /// one connection per session. The workspace model is identical either way.
+    /// Defaults off; while off, the per-session GA transport is used.
+    public let remoteTmuxMultiplexer = DefaultsKey<Bool>(
+        id: "remoteTmux.multiplexer.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.multiplexer.beta.enabled"
+    )
+
     public init() {}
 }
