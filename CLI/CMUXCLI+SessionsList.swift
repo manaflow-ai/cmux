@@ -235,12 +235,9 @@ extension CMUXCLI {
                     runRuntime: rawRunRuntime,
                     legacyVisible: true
                 ) else { continue }
-                let record = spec.name == "claude"
-                    ? sessionsListResolvedClaudeWorkflowRecord(rawRecord, lookup: claudeTranscriptLookup)
-                    : rawRecord
+                let record = rawRecord
                 let rawSessionId = rawRecord.sessionId.lowercased()
-                let resolvedSessionId = record.sessionId.lowercased()
-                guard sessionFilter == nil || rawSessionId == sessionFilter || resolvedSessionId == sessionFilter else {
+                guard sessionFilter == nil || rawSessionId == sessionFilter else {
                     continue
                 }
                 guard workspaceFilter == nil || record.workspaceId.lowercased() == workspaceFilter else { continue }
@@ -262,9 +259,6 @@ extension CMUXCLI {
                     "updated_at": sessionsListTimestamp(record.updatedAt, formatter: timestampFormatter),
                     "updated_at_unix": record.updatedAt
                 ]
-                if rawRecord.sessionId != record.sessionId {
-                    payload["hook_session_id"] = rawRecord.sessionId
-                }
                 payload["cwd"] = record.cwd ?? NSNull()
                 payload["transcript_path"] = record.transcriptPath ?? NSNull()
                 payload["pid"] = record.pid ?? NSNull()

@@ -1160,13 +1160,7 @@ struct RestorableAgentSessionIndex: Sendable {
                                              decoder: decoder) else { continue }
 
             for record in state.sessions.values where record.restoreAuthority != false && record.completedAt == nil {
-                var effectiveRecord = kind == .claude
-                    ? resolvedClaudeWorkflowRecord(
-                        record,
-                        fileManager: fileManager,
-                        lookup: claudeTranscriptLookup
-                    )
-                    : record
+                var effectiveRecord = record
                 // Drop untrusted launch captures before ANY derivation: the
                 // working directory below would otherwise inherit the foreign launch cwd.
                 effectiveRecord.launchCommand = trustedLaunchCommand(
@@ -1502,154 +1496,20 @@ struct RestorableAgentSessionIndex: Sendable {
         guard kind == .claude else {
             return record.isRestorable != false
         }
-        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
-           regularNonEmptyFileExists(
-               atPath: (transcriptPath as NSString).expandingTildeInPath,
-               fileManager: fileManager
-           ) {
-            return true
-        }
-        return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
-    }
-
-    private static func resolvedClaudeWorkflowRecord(
-        _ record: RestorableAgentHookSessionRecord,
-        fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
-    ) -> RestorableAgentHookSessionRecord {
         guard let sessionId = normalizedNonEmptyValue(record.sessionId),
               claudeSessionIdIsSafeFilename(sessionId) else {
-            return record
+            return false
         }
-        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
-           regularNonEmptyFileExists(
-               atPath: (transcriptPath as NSString).expandingTildeInPath,
-               fileManager: fileManager
-           ) {
-            return record
-        }
-
-        let roots = lookup.configRoots(for: record)
-        guard !roots.isEmpty else { return record }
-        let candidateProjectDirs = claudeWorkflowProjectDirs(
-            for: record,
-            sessionId: sessionId,
-            roots: roots,
-            fileManager: fileManager,
-            lookup: lookup
-        )
-        guard let resolved = singleClaudeSiblingTranscript(
-            in: candidateProjectDirs,
-            excludingSessionId: sessionId,
-            fileManager: fileManager
-        ) else {
-            return record
-        }
-
-        var resolvedRecord = record
-        resolvedRecord.sessionId = resolved.sessionId
-        resolvedRecord.transcriptPath = resolved.path
-        return resolvedRecord
-    }
-
-    private static func claudeWorkflowProjectDirs(
-        for record: RestorableAgentHookSessionRecord,
-        sessionId: String,
-        roots: [String],
-        fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
-    ) -> [String] {
-        var projectDirs: [String] = []
-        var seen: Set<String> = []
-
-        func appendIfWorkflowContainer(projectRoot: String) {
-            let workflowContainer = (projectRoot as NSString).appendingPathComponent(sessionId)
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: workflowContainer, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                return
+        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
+            let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
+            guard claudeTranscriptPath(expandedTranscriptPath, matchesSessionId: sessionId) else {
+                return false
             }
-            let standardized = (projectRoot as NSString).standardizingPath
-            guard seen.insert(standardized).inserted else { return }
-            projectDirs.append(standardized)
-        }
-
-        let cwdCandidates = [
-            normalizedWorkingDirectory(record.launchCommand?.workingDirectory),
-            normalizedWorkingDirectory(record.cwd),
-        ].compactMap { $0 }
-        for root in roots {
-            let projectsRoot = (root as NSString).appendingPathComponent("projects")
-            for cwd in cwdCandidates {
-                appendIfWorkflowContainer(
-                    projectRoot: (projectsRoot as NSString).appendingPathComponent(encodeClaudeProjectDir(cwd))
-                )
-            }
-            for projectDir in lookup.projectDirs(configRoot: root) {
-                appendIfWorkflowContainer(
-                    projectRoot: (projectsRoot as NSString).appendingPathComponent(projectDir)
-                )
+            if regularNonEmptyFileExists(atPath: expandedTranscriptPath, fileManager: fileManager) {
+                return true
             }
         }
-        return projectDirs
-    }
-
-    private static func singleClaudeSiblingTranscript(
-        in projectDirs: [String],
-        excludingSessionId excludedSessionId: String,
-        fileManager: FileManager
-    ) -> (sessionId: String, path: String)? {
-        var matches: [(sessionId: String, path: String)] = []
-        for projectDir in projectDirs {
-            guard matches.count < 2 else { break }
-            collectClaudeTranscripts(
-                inDirectory: projectDir,
-                excludingSessionId: excludedSessionId,
-                remainingDirectoryDepth: 4,
-                fileManager: fileManager,
-                matches: &matches
-            )
-        }
-        guard matches.count == 1, let match = matches.first else { return nil }
-        return match
-    }
-
-    private static func collectClaudeTranscripts(
-        inDirectory directory: String,
-        excludingSessionId excludedSessionId: String,
-        remainingDirectoryDepth: Int,
-        fileManager: FileManager,
-        matches: inout [(sessionId: String, path: String)]
-    ) {
-        guard matches.count < 2 else { return }
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let children = try? fileManager.contentsOfDirectory(atPath: directory) else {
-            return
-        }
-        for child in children {
-            let childPath = (directory as NSString).appendingPathComponent(child)
-            if child.hasSuffix(".jsonl") {
-                let sessionId = String(child.dropLast(".jsonl".count))
-                guard sessionId != excludedSessionId,
-                      claudeSessionIdIsSafeFilename(sessionId),
-                      regularNonEmptyFileExists(atPath: childPath, fileManager: fileManager) else {
-                    continue
-                }
-                matches.append((sessionId, childPath))
-                if matches.count >= 2 { return }
-            } else if remainingDirectoryDepth > 0 {
-                collectClaudeTranscripts(
-                    inDirectory: childPath,
-                    excludingSessionId: excludedSessionId,
-                    remainingDirectoryDepth: remainingDirectoryDepth - 1,
-                    fileManager: fileManager,
-                    matches: &matches
-                )
-                if matches.count >= 2 { return }
-            }
-        }
+        return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
     }
 
     private static func claudeTranscriptExists(
@@ -1665,22 +1525,22 @@ struct RestorableAgentSessionIndex: Sendable {
         let roots = lookup.configRoots(for: record)
         guard !roots.isEmpty else { return false }
 
-        let cwd = normalizedWorkingDirectory(record.cwd)
-            ?? normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
-        for root in roots {
-            if let cwd,
-               lookup.transcriptPath(
-                   configRoot: root,
-                   projectDirName: encodeClaudeProjectDir(cwd),
-                   sessionId: sessionId
-               ) != nil {
-                return true
-            }
-            if lookup.transcriptPathInAnyProject(
-                configRoot: root,
-                sessionId: sessionId
-            ) != nil {
-                return true
+        var seenProjectDirectories: Set<String> = []
+        let candidates = [
+            normalizedWorkingDirectory(record.launchCommand?.workingDirectory),
+            normalizedWorkingDirectory(record.cwd),
+        ].compactMap { $0 }
+        for cwd in candidates {
+            let projectDirectory = encodeClaudeProjectDir(cwd)
+            guard seenProjectDirectories.insert(projectDirectory).inserted else { continue }
+            for root in roots {
+                if lookup.transcriptPath(
+                    configRoot: root,
+                    projectDirName: projectDirectory,
+                    sessionId: sessionId
+                ) != nil {
+                    return true
+                }
             }
         }
         return false
@@ -1796,6 +1656,12 @@ struct RestorableAgentSessionIndex: Sendable {
             && !sessionId.isEmpty
             && sessionId != "."
             && sessionId != ".."
+            && sessionId.trimmingCharacters(in: .whitespacesAndNewlines) == sessionId
+            && sessionId.rangeOfCharacter(from: .controlCharacters) == nil
+    }
+
+    private static func claudeTranscriptPath(_ path: String, matchesSessionId sessionId: String) -> Bool {
+        (path as NSString).lastPathComponent == "\(sessionId).jsonl"
     }
 
     static func encodeClaudeProjectDir(_ path: String) -> String {
@@ -1958,14 +1824,8 @@ struct RestorableAgentSessionIndex: Sendable {
         var lookups: [String: ClaudeTranscriptLookupResult] = [:]
     }
 
-    private struct ClaudeTranscriptProjectDirsCache: Sendable {
-        var stamp: ClaudeTranscriptDirectoryStamp?
-        var projectDirs: [String]
-    }
-
     private struct ClaudeTranscriptSharedStore: Sendable {
         var projectRootCaches: [String: ClaudeTranscriptProjectRootCache] = [:]
-        var projectDirsByConfigRoot: [String: ClaudeTranscriptProjectDirsCache] = [:]
     }
 
     // load() is synchronous and can be invoked concurrently by the live index and
@@ -1978,13 +1838,14 @@ struct RestorableAgentSessionIndex: Sendable {
     // nested `<sessionId>/messages/` layout (or on zero-byte files growing in place)
     // are marked `requiresPerLoadRecheck` and re-probed once per load instead of being
     // trusted across loads.
-    // Growth stays bounded: per-root session entries only exist for hook-store records
-    // the loader walks and are replaced wholesale when that directory's mtime changes,
-    // while caches for deleted project directories are pruned when the projects/
-    // listing is revalidated (deletion bumps the projects/ root mtime).
+    // Growth is capped at both ownership levels without scanning unrelated project
+    // directories. Exact hook session IDs and recorded working directories are the
+    // only keys admitted to this cache.
     private nonisolated static let claudeTranscriptSharedStore = OSAllocatedUnfairLock(
         initialState: ClaudeTranscriptSharedStore()
     )
+    private nonisolated static let maximumClaudeTranscriptProjectRootCacheCount = 512
+    private nonisolated static let maximumClaudeTranscriptSessionCacheCountPerRoot = 2_048
 
     private final class ClaudeTranscriptLookupCache {
         private let homeDirectory: String
@@ -1992,13 +1853,9 @@ struct RestorableAgentSessionIndex: Sendable {
         private let usesSharedStore: Bool
         private var defaultRoots: [String]?
         private var validatedProjectRootStamps: [String: ClaudeTranscriptDirectoryValidation] = [:]
-        private var validatedProjectDirsStamps: [String: ClaudeTranscriptDirectoryValidation] = [:]
-        private var projectDirsByConfigRoot: [String: [String]] = [:]
         private var transcriptPathByProjectRootAndSession: [String: String] = [:]
         private var missingTranscriptPathByProjectRootAndSession: Set<String> = []
         private var volatileTranscriptLookupCheckedThisLoad: Set<String> = []
-        private var transcriptPathByConfigRootAndSession: [String: String] = [:]
-        private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
 
         init(homeDirectory: String, fileManager: FileManager) {
             self.homeDirectory = homeDirectory
@@ -2034,13 +1891,6 @@ struct RestorableAgentSessionIndex: Sendable {
                 roots.append(standardized)
             }
 
-            let accountRoot = (homeDirectory as NSString).appendingPathComponent(".codex-accounts/claude")
-            if directoryExists(atPath: accountRoot),
-               let accountDirs = try? fileManager.contentsOfDirectory(atPath: accountRoot) {
-                for accountDir in accountDirs.sorted() {
-                    appendRoot((accountRoot as NSString).appendingPathComponent(accountDir))
-                }
-            }
             appendRoot((homeDirectory as NSString).appendingPathComponent(".claude"))
             appendRoot(
                 ClaudeConfigDirectoryPath.preferredPath(
@@ -2052,75 +1902,6 @@ struct RestorableAgentSessionIndex: Sendable {
 
             defaultRoots = roots
             return roots
-        }
-
-        func projectDirs(configRoot: String) -> [String] {
-            let standardizedRoot = (configRoot as NSString).standardizingPath
-            guard usesSharedStore else {
-                return uncachedProjectDirs(configRoot: standardizedRoot)
-            }
-
-            let stamp = validatedProjectsRootStamp(configRoot: standardizedRoot)
-            if let cached = RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock({ store in
-                store.projectDirsByConfigRoot[standardizedRoot]
-            }), cached.stamp == stamp {
-                return cached.projectDirs
-            }
-
-            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
-            let projectDirs: [String]
-            if directoryExists(atPath: projectsRoot) {
-                guard let listed = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else {
-                    return []
-                }
-                projectDirs = listed
-            } else {
-                projectDirs = []
-            }
-
-            // Recomputing the listing is the eviction point for dead project roots:
-            // deleting a project directory (or the whole projects/ root) bumps the
-            // projects/ mtime, lands here, and drops the per-root lookup caches for
-            // directories that no longer exist. Per-root session entries are bounded
-            // by the hook-store records the loader walks and are replaced wholesale
-            // whenever that directory's own mtime changes.
-            let liveProjectRoots = Set(projectDirs.map { dirName in
-                ((projectsRoot as NSString).appendingPathComponent(dirName) as NSString).standardizingPath
-            })
-            let projectsRootPrefix = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
-            RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
-                if let existing = store.projectDirsByConfigRoot[standardizedRoot],
-                   existing.stamp != stamp {
-                    return
-                }
-                store.projectDirsByConfigRoot[standardizedRoot] = ClaudeTranscriptProjectDirsCache(
-                    stamp: stamp,
-                    projectDirs: projectDirs
-                )
-                let staleRoots = store.projectRootCaches.keys.filter { root in
-                    root.hasPrefix(projectsRootPrefix) && !liveProjectRoots.contains(root)
-                }
-                for staleRoot in staleRoots {
-                    store.projectRootCaches[staleRoot] = nil
-                }
-            }
-            return projectDirs
-        }
-
-        private func uncachedProjectDirs(configRoot standardizedRoot: String) -> [String] {
-            if let cached = projectDirsByConfigRoot[standardizedRoot] {
-                return cached
-            }
-
-            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
-            guard directoryExists(atPath: projectsRoot),
-                  let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else {
-                projectDirsByConfigRoot[standardizedRoot] = []
-                return []
-            }
-
-            projectDirsByConfigRoot[standardizedRoot] = projectDirs
-            return projectDirs
         }
 
         func transcriptPath(configRoot: String, projectDirName: String, sessionId: String) -> String? {
@@ -2160,7 +1941,17 @@ struct RestorableAgentSessionIndex: Sendable {
             RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
                 var cache = store.projectRootCaches[projectRoot] ?? ClaudeTranscriptProjectRootCache(stamp: stamp)
                 guard cache.stamp == stamp else { return }
+                if cache.lookups[sessionId] == nil,
+                   cache.lookups.count >= RestorableAgentSessionIndex.maximumClaudeTranscriptSessionCacheCountPerRoot,
+                   let evictedSessionID = cache.lookups.keys.first {
+                    cache.lookups.removeValue(forKey: evictedSessionID)
+                }
                 cache.lookups[sessionId] = result
+                if store.projectRootCaches[projectRoot] == nil,
+                   store.projectRootCaches.count >= RestorableAgentSessionIndex.maximumClaudeTranscriptProjectRootCacheCount,
+                   let evictedProjectRoot = store.projectRootCaches.keys.first {
+                    store.projectRootCaches.removeValue(forKey: evictedProjectRoot)
+                }
                 store.projectRootCaches[projectRoot] = cache
             }
             return result.path
@@ -2188,47 +1979,6 @@ struct RestorableAgentSessionIndex: Sendable {
             return path
         }
 
-        func transcriptPathInAnyProject(configRoot: String, sessionId: String) -> String? {
-            let standardizedRoot = (configRoot as NSString).standardizingPath
-            let key = cacheKey(standardizedRoot, sessionId)
-            if let cached = transcriptPathByConfigRootAndSession[key] {
-                return cached
-            }
-            if missingTranscriptPathByConfigRootAndSession.contains(key) {
-                return nil
-            }
-
-            for projectDir in projectDirs(configRoot: standardizedRoot) {
-                if let path = transcriptPath(
-                    configRoot: standardizedRoot,
-                    projectDirName: projectDir,
-                    sessionId: sessionId
-                ) {
-                    transcriptPathByConfigRootAndSession[key] = path
-                    return path
-                }
-            }
-            missingTranscriptPathByConfigRootAndSession.insert(key)
-            return nil
-        }
-
-        private func validatedProjectsRootStamp(configRoot standardizedRoot: String) -> ClaudeTranscriptDirectoryStamp? {
-            if let validation = validatedProjectDirsStamps[standardizedRoot] {
-                return validation.stamp
-            }
-
-            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
-            let stamp = RestorableAgentSessionIndex.directoryStamp(atPath: projectsRoot)
-            RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
-                if let existing = store.projectDirsByConfigRoot[standardizedRoot],
-                   existing.stamp != stamp {
-                    store.projectDirsByConfigRoot[standardizedRoot] = nil
-                }
-            }
-            validatedProjectDirsStamps[standardizedRoot] = ClaudeTranscriptDirectoryValidation(stamp: stamp)
-            return stamp
-        }
-
         private func validatedProjectRootStamp(_ projectRoot: String) -> ClaudeTranscriptDirectoryStamp? {
             if let validation = validatedProjectRootStamps[projectRoot] {
                 return validation.stamp
@@ -2239,6 +1989,11 @@ struct RestorableAgentSessionIndex: Sendable {
                 if let existing = store.projectRootCaches[projectRoot],
                    existing.stamp == stamp {
                     return
+                }
+                if store.projectRootCaches[projectRoot] == nil,
+                   store.projectRootCaches.count >= RestorableAgentSessionIndex.maximumClaudeTranscriptProjectRootCacheCount,
+                   let evictedProjectRoot = store.projectRootCaches.keys.first {
+                    store.projectRootCaches.removeValue(forKey: evictedProjectRoot)
                 }
                 store.projectRootCaches[projectRoot] = ClaudeTranscriptProjectRootCache(stamp: stamp)
             }

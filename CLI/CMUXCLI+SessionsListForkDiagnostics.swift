@@ -9,9 +9,8 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord,
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> [String: Any] {
-        // The list projection resolves Claude workflow aliases before it builds
-        // the payload. Reuse that record instead of repeating transcript lookup
-        // while adding diagnostics for the same row.
+        // Keep diagnostics bound to the exact hook identity used by the list
+        // projection. Transcript lookup only verifies that identity.
         let diagnosticRecord = record
         let storedPIDExists = sessionsListStoredPIDExists(diagnosticRecord.pid)
         let hookRecordRestorable = agentHookRecordIsRestorable(
@@ -156,11 +155,20 @@ extension CMUXCLI {
                 transcriptPath: record.transcriptPath
             )
         }
-        if let transcriptPath = sessionsListNormalized(record.transcriptPath),
-           sessionsListRegularNonEmptyFileExists(
-               atPath: (transcriptPath as NSString).expandingTildeInPath
-           ) {
-            return true
+        guard sessionsListClaudeSessionIdIsSafeFilename(record.sessionId) else {
+            return false
+        }
+        if let transcriptPath = sessionsListNormalized(record.transcriptPath) {
+            let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
+            guard sessionsListClaudeTranscriptPath(
+                expandedTranscriptPath,
+                matchesSessionId: record.sessionId
+            ) else {
+                return false
+            }
+            if sessionsListRegularNonEmptyFileExists(atPath: expandedTranscriptPath) {
+                return true
+            }
         }
         return sessionsListClaudeTranscriptExists(record: record, lookup: claudeTranscriptLookup)
     }
@@ -186,18 +194,22 @@ extension CMUXCLI {
         let roots = lookup.configRoots(record: record)
         guard !roots.isEmpty else { return false }
 
-        let cwd = sessionsListNormalized(record.cwd) ?? sessionsListNormalized(record.launchCommand?.workingDirectory)
-        for root in roots {
-            if let cwd,
-               lookup.transcriptPath(
-                   configRoot: root,
-                   projectDirName: sessionsListEncodeClaudeProjectDir(cwd),
-                   sessionId: record.sessionId
-               ) != nil {
-                return true
-            }
-            if lookup.transcriptPathInAnyProject(configRoot: root, sessionId: record.sessionId) != nil {
-                return true
+        var seenProjectDirectories: Set<String> = []
+        let candidates = [
+            sessionsListNormalized(record.launchCommand?.workingDirectory),
+            sessionsListNormalized(record.cwd),
+        ].compactMap { $0 }
+        for cwd in candidates {
+            let projectDirectory = sessionsListEncodeClaudeProjectDir(cwd)
+            guard seenProjectDirectories.insert(projectDirectory).inserted else { continue }
+            for root in roots {
+                if lookup.transcriptPath(
+                    configRoot: root,
+                    projectDirName: projectDirectory,
+                    sessionId: record.sessionId
+                ) != nil {
+                    return true
+                }
             }
         }
         return false
@@ -208,6 +220,12 @@ extension CMUXCLI {
             && !sessionId.isEmpty
             && sessionId != "."
             && sessionId != ".."
+            && sessionId.trimmingCharacters(in: .whitespacesAndNewlines) == sessionId
+            && sessionId.rangeOfCharacter(from: .controlCharacters) == nil
+    }
+
+    private func sessionsListClaudeTranscriptPath(_ path: String, matchesSessionId sessionId: String) -> Bool {
+        (path as NSString).lastPathComponent == "\(sessionId).jsonl"
     }
 
     func sessionsListEncodeClaudeProjectDir(_ path: String) -> String {
