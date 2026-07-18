@@ -16,6 +16,28 @@ enum CommandClickFileOpenRouter {
         filePath: String
     ) -> Bool {
         let store = FileRouteSettingsStore(defaults: .standard)
+
+        // Local HTML renders in the embedded browser (a rendered page), not the
+        // raw-source preview — gated by the same toggle + readable-regular-file
+        // discipline as the other routed files (via `shouldRouteSupportedFile`).
+        // `openOrFocusBrowserSplit` focuses an existing tab for this file
+        // (matched on a stable local-file identity), so the two dispatches of one
+        // cmd-click (mouse handler + Ghostty OPEN_URL) collapse into a single tab
+        // and a re-click focuses the open tab. Success-only early return, like
+        // the markdown route below: if the browser is off or the open fails, this
+        // falls through to the in-app preview; an opt-out / missing / non-regular
+        // path isn't supported-file-eligible, so it falls through to the external
+        // opener.
+        if FileRouteSettingsStore.isHTMLPath(filePath),
+           store.shouldRouteSupportedFile(path: filePath),
+           BrowserAvailabilitySettings.isEnabled(),
+           workspace.openOrFocusBrowserSplit(
+               from: sourcePanelId,
+               localFileURL: URL(fileURLWithPath: filePath)
+           ) != nil {
+            return true
+        }
+
         if store.shouldRouteMarkdown(path: filePath),
            workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
             return true

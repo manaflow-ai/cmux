@@ -2715,6 +2715,12 @@ final class BrowserPanel: Panel, ObservableObject {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
 
+    /// The local file this browser tab was opened to render, set at
+    /// construction and never changed by navigation. Lets an existing tab for a
+    /// file be focused instead of opening a duplicate (unlike `currentURL`,
+    /// which drifts to WebKit-normalized values). `nil` for web tabs.
+    let sourceLocalFileURL: URL?
+
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
@@ -3971,6 +3977,7 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId: UUID,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
+        sourceLocalFileURL: URL? = nil,
         initialRequest: URLRequest? = nil,
         renderInitialNavigation: Bool = true,
         preloadInitialNavigationInBackground: Bool = false,
@@ -3987,6 +3994,7 @@ final class BrowserPanel: Panel, ObservableObject {
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
+        self.sourceLocalFileURL = sourceLocalFileURL
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -6233,6 +6241,17 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
         lower.hasPrefix("[::1]") ||
         (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
         return URL(string: "http://\(trimmed)")
+    }
+
+    // A bare absolute filesystem path ("/Users/.../page.html", "~/page.html")
+    // is a local file, not a web host. Without this it falls through to the
+    // "contains /" branch below and becomes a broken "https:///Users/..." URL.
+    // "//host" is left alone as a protocol-relative web reference.
+    if trimmed.hasPrefix("/"), !trimmed.hasPrefix("//") {
+        return URL(fileURLWithPath: trimmed)
+    }
+    if trimmed == "~" || trimmed.hasPrefix("~/") {
+        return URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath)
     }
 
     if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {

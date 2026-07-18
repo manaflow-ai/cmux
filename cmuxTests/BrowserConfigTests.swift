@@ -5323,6 +5323,23 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         #expect(resolved.path == "/tmp/cmux-local-test.html")
     }
 
+    @Test func resolvesBareAbsolutePathAsFileURL() throws {
+        // A bare "/Users/.../page.html" typed/pasted in the omnibar must open as
+        // a local file, not be rewritten to a broken "https:///Users/..." URL.
+        let resolved = try #require(resolveBrowserNavigableURL("/tmp/cmux-local-test.html"))
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/tmp/cmux-local-test.html")
+
+        // "//host" stays a protocol-relative web reference, not a file path.
+        #expect(resolveBrowserNavigableURL("//example.com/path")?.isFileURL != true)
+
+        // "~/..." expands to an absolute home-directory file URL.
+        let tilde = try #require(resolveBrowserNavigableURL("~/cmux-local-test.html"))
+        #expect(tilde.isFileURL)
+        #expect(tilde.path.hasPrefix(NSHomeDirectory()))
+        #expect(tilde.path.hasSuffix("/cmux-local-test.html"))
+    }
+
     @Test func resolvesBareLocalhostSubdomainAsHTTPURL() throws {
         let resolved = try #require(resolveBrowserNavigableURL("api.localhost:3000"))
         #expect(resolved.scheme == "http")

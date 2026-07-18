@@ -7832,6 +7832,7 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         url: URL? = nil,
+        sourceLocalFileURL: URL? = nil,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
@@ -7872,6 +7873,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: panelId
             ),
             initialURL: url,
+            sourceLocalFileURL: sourceLocalFileURL,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             omnibarVisible: omnibarVisible,
@@ -7943,6 +7945,7 @@ final class Workspace: Identifiable, ObservableObject {
     func newBrowserSurface(
         inPane paneId: PaneID,
         url: URL? = nil,
+        sourceLocalFileURL: URL? = nil,
         initialRequest: URLRequest? = nil,
         focus: Bool? = nil,
         selectWhenNotFocused: Bool = false,
@@ -7979,6 +7982,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: sourcePanelId
             ),
             initialURL: url,
+            sourceLocalFileURL: sourceLocalFileURL,
             initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
@@ -8093,6 +8097,44 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return extensionBrowserPanel
+    }
+
+    /// Focus an existing browser tab already opened for `localFileURL`, or open
+    /// one in a right-side split (mirroring `openOrFocusMarkdownSplit`). Matches
+    /// on the stable `sourceLocalFileURL` set at construction, so the two
+    /// dispatches of one cmd-click collapse into a single tab and a re-click
+    /// focuses the existing tab instead of duplicating it. Returns `nil` when no
+    /// existing viewer matches and split creation fails.
+    @discardableResult
+    func openOrFocusBrowserSplit(
+        from panelId: UUID,
+        localFileURL: URL
+    ) -> BrowserPanel? {
+        let canonical = (localFileURL.path as NSString).resolvingSymlinksInPath
+        for (existingId, panel) in panels {
+            guard let browser = panel as? BrowserPanel,
+                  let source = browser.sourceLocalFileURL,
+                  (source.path as NSString).resolvingSymlinksInPath == canonical else { continue }
+            focusPanel(existingId)
+            return browser
+        }
+
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+            return newBrowserSurface(
+                inPane: targetPane,
+                url: localFileURL,
+                sourceLocalFileURL: localFileURL,
+                focus: true
+            )
+        }
+
+        return newBrowserSplit(
+            from: panelId,
+            orientation: .horizontal,
+            url: localFileURL,
+            sourceLocalFileURL: localFileURL,
+            focus: true
+        )
     }
 
     /// Open the markdown viewer for `filePath`, reusing an existing

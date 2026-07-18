@@ -100,6 +100,15 @@ public struct FileRouteSettingsStore: FileRouteSettingsReading {
         return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mdx"
     }
 
+    /// Cheap extension check for files that render as a real page in the
+    /// embedded browser (matching `cmux open`'s handling, #6717) rather than a
+    /// source preview. Parallels `isMarkdownPath`; safe to call off the main
+    /// thread before any filesystem probe.
+    public static func isHTMLPath(_ path: String) -> Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ext == "html" || ext == "htm"
+    }
+
     /// Whether `path` (after resolving symlinks) is a readable regular file.
     public func isReadableRegularFile(path: String) -> Bool {
         let resolved = (path as NSString).resolvingSymlinksInPath
