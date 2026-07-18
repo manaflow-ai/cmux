@@ -3605,10 +3605,16 @@ final class BrowserPanel: Panel, ObservableObject {
         baseConfiguration: WKWebViewConfiguration? = nil
     ) -> CmuxWebView {
         let config = baseConfiguration ?? WKWebViewConfiguration()
+        // WebKit's extension-page configurations can be related to the
+        // extension background WebView. Related WebViews must retain the exact
+        // same data-store object, even when it represents this browser profile.
+        let effectiveWebsiteDataStore = baseConfiguration?.websiteDataStore
+            ?? websiteDataStore
+            ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
         configureWebViewConfiguration(
             config,
             profileID: profileID,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
+            websiteDataStore: effectiveWebsiteDataStore,
             browserServices: browserServices
         )
 
