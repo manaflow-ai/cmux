@@ -170,10 +170,12 @@ final class TerminalFrontendAccessibilityBridge {
             )
             else { return nil }
             let label = model.string(for: range)
+            let accessibleLabel = label.flatMap { $0.isEmpty ? nil : $0 }
+                ?? link.target
             return TerminalFrontendAccessibilityLinkElement(
                 parent: owner,
                 link: link,
-                label: label?.isEmpty == false ? label : link.target,
+                label: accessibleLabel,
                 frameInParentSpace: frameInParentSpace,
                 action: { [weak self] in
                     Task { @MainActor [weak self] in
