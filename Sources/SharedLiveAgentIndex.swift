@@ -67,6 +67,7 @@ final class SharedLiveAgentIndex {
     private var pendingForkExecutableWatchDescriptorReservations = 0
     private var forkExecutableWatchPathTasks: [String: Task<ForkExecutableWatchKey?, Never>] = [:]
     private var forkExecutableWatchOpenTasks: [String: Task<[Int32]?, Never>] = [:]
+    private var forkExecutableWatchInstallTasks: [ForkExecutableWatchKey: Task<UUID?, Never>] = [:]
     private var timedOutForkExecutableWatchPathKeys = Set<String>()
     private var timedOutForkExecutableWatchOpenKeys = Set<String>()
     private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
@@ -1643,48 +1644,81 @@ final class SharedLiveAgentIndex {
             return nil
         }
         let watchKey: ForkExecutableWatchKey = watchPaths
-        if var record = forkExecutableWatchRecords[watchKey] {
-            record.probeKeys.insert(probeKey)
-            record.panelAliasesByProbeKey[probeKey, default: []].insert(requestingPanelKey)
-            forkExecutableWatchRecords[watchKey] = record
-            forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
-            forkExecutableWatchGenerations[probeKey] = record.generation
-            return record.generation
+        if let generation = attachForkExecutableWatch(
+            for: probeKey,
+            requestingPanelKey: requestingPanelKey,
+            watchKey: watchKey
+        ) {
+            return generation
         }
 
-        let generation = UUID()
         pruneExpiredForkSupportValidations(now: dateProvider())
-        if var record = forkExecutableWatchRecords[watchKey] {
-            record.probeKeys.insert(probeKey)
-            record.panelAliasesByProbeKey[probeKey, default: []].insert(requestingPanelKey)
-            forkExecutableWatchRecords[watchKey] = record
-            forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
-            forkExecutableWatchGenerations[probeKey] = record.generation
+        guard await installForkExecutableWatchIfNeeded(watchKey: watchKey) != nil else {
+            return nil
+        }
+        return attachForkExecutableWatch(
+            for: probeKey,
+            requestingPanelKey: requestingPanelKey,
+            watchKey: watchKey
+        )
+    }
+
+    private func attachForkExecutableWatch(
+        for probeKey: ForkProbeKey,
+        requestingPanelKey: RestorableAgentSessionIndex.PanelKey,
+        watchKey: ForkExecutableWatchKey
+    ) -> UUID? {
+        guard var record = forkExecutableWatchRecords[watchKey] else { return nil }
+        record.probeKeys.insert(probeKey)
+        record.panelAliasesByProbeKey[probeKey, default: []].insert(requestingPanelKey)
+        forkExecutableWatchRecords[watchKey] = record
+        forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
+        forkExecutableWatchGenerations[probeKey] = record.generation
+        return record.generation
+    }
+
+    private func installForkExecutableWatchIfNeeded(
+        watchKey: ForkExecutableWatchKey
+    ) async -> UUID? {
+        if let record = forkExecutableWatchRecords[watchKey] {
+            return record.generation
+        }
+        if let task = forkExecutableWatchInstallTasks[watchKey] {
+            return await task.value
+        }
+        let task: Task<UUID?, Never> = Task { @MainActor [weak self] () -> UUID? in
+            guard let self else { return nil }
+            defer { self.forkExecutableWatchInstallTasks[watchKey] = nil }
+            return await self.installForkExecutableWatch(watchKey: watchKey)
+        }
+        forkExecutableWatchInstallTasks[watchKey] = task
+        return await task.value
+    }
+
+    private func installForkExecutableWatch(
+        watchKey: ForkExecutableWatchKey
+    ) async -> UUID? {
+        if let record = forkExecutableWatchRecords[watchKey] {
             return record.generation
         }
         let activeWatchCount = forkExecutableWatchRecords.values.reduce(0) { partial, record in
             partial + record.sources.count
         }
-        guard activeWatchCount + watchPaths.count <= Self.maximumForkExecutableWatchSourceCountCeiling else {
+        guard activeWatchCount + watchKey.count <= Self.maximumForkExecutableWatchSourceCountCeiling else {
             return nil
         }
-        guard reserveForkExecutableWatchDescriptors(count: watchPaths.count) else {
+        guard reserveForkExecutableWatchDescriptors(count: watchKey.count) else {
             return nil
         }
         let openedFileDescriptors = await openForkExecutableWatchFileDescriptorsBounded(
-            watchPaths: watchPaths
+            watchPaths: watchKey
         )
-        releaseForkExecutableWatchDescriptorReservation(count: watchPaths.count)
+        releaseForkExecutableWatchDescriptorReservation(count: watchKey.count)
         guard let openedFileDescriptors else {
             return nil
         }
-        if var record = forkExecutableWatchRecords[watchKey] {
+        if let record = forkExecutableWatchRecords[watchKey] {
             openedFileDescriptors.forEach { Darwin.close($0) }
-            record.probeKeys.insert(probeKey)
-            record.panelAliasesByProbeKey[probeKey, default: []].insert(requestingPanelKey)
-            forkExecutableWatchRecords[watchKey] = record
-            forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
-            forkExecutableWatchGenerations[probeKey] = record.generation
             return record.generation
         }
         guard Self.forkExecutableWatchDescriptorReserveIsSatisfied(
@@ -1701,6 +1735,7 @@ final class SharedLiveAgentIndex {
             return nil
         }
 
+        let generation = UUID()
         var sources: [DispatchSourceFileSystemObject] = []
         for fileDescriptor in openedFileDescriptors {
             let source = DispatchSource.makeFileSystemObjectSource(
@@ -1723,12 +1758,10 @@ final class SharedLiveAgentIndex {
         }
         forkExecutableWatchRecords[watchKey] = (
             generation: generation,
-            probeKeys: [probeKey],
-            panelAliasesByProbeKey: [probeKey: [requestingPanelKey]],
+            probeKeys: [],
+            panelAliasesByProbeKey: [:],
             sources: sources
         )
-        forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
-        forkExecutableWatchGenerations[probeKey] = generation
         for source in sources {
             source.resume()
         }
@@ -1745,24 +1778,30 @@ final class SharedLiveAgentIndex {
             realPath: realPath,
             watchDirectories: watchDirectories
         )
-        guard forkExecutableWatchPathTasks[key] == nil,
-              !timedOutForkExecutableWatchPathKeys.contains(key),
-              outstandingForkExecutableWatchInstallWorkCount
-                < Self.maximumOutstandingForkExecutableWatchInstallWork else {
+        guard !timedOutForkExecutableWatchPathKeys.contains(key) else {
             return nil
         }
-        let task = Task.detached(priority: .utility) {
-            Self.forkExecutableWatchPaths(
-                lookupPath: lookupPath,
-                realPath: realPath,
-                watchDirectories: watchDirectories
-            )
-        }
-        forkExecutableWatchPathTasks[key] = task
-        Task { @MainActor in
-            _ = await task.value
-            self.forkExecutableWatchPathTasks[key] = nil
-            self.timedOutForkExecutableWatchPathKeys.remove(key)
+        let task: Task<ForkExecutableWatchKey?, Never>
+        if let existingTask = forkExecutableWatchPathTasks[key] {
+            task = existingTask
+        } else {
+            guard outstandingForkExecutableWatchInstallWorkCount
+                    < Self.maximumOutstandingForkExecutableWatchInstallWork else {
+                return nil
+            }
+            task = Task.detached(priority: .utility) {
+                Self.forkExecutableWatchPaths(
+                    lookupPath: lookupPath,
+                    realPath: realPath,
+                    watchDirectories: watchDirectories
+                )
+            }
+            forkExecutableWatchPathTasks[key] = task
+            Task { @MainActor in
+                _ = await task.value
+                self.forkExecutableWatchPathTasks[key] = nil
+                self.timedOutForkExecutableWatchPathKeys.remove(key)
+            }
         }
         return await boundedForkExecutableWatchTaskValue(
             task: task,
