@@ -156,6 +156,224 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(doneFile, containing: "done", timeout: 1))
     }
 
+    @Test func codexGeneratedHookPreservesExactPayloadAndResumeContextOnDirectSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-encoded-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("custom codex home", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("encoded")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let launchCwd = #"/tmp/project \"quoted\"/日本語\\repo"#
+        let launchExecutable = #"/tmp/bin/codex \"custom\"\\版本"#
+        let payloads = [
+            "",
+            #"{"session_id":"plain","prompt":"quote: \" and slash: \\"}"#,
+            "{\n  \"session_id\": \"unicode-日本語\",\n  \"prompt\": \"line one\\nline two\"\n}\n",
+            "not-json: \"quoted\" \\ path 日本語\n",
+            String(repeating: "x", count: 256 * 1024),
+        ]
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: payloads.count
+        )
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+        let command = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
+        )
+
+        for (index, payload) in payloads.enumerated() {
+            let deliveryID = "encoded-payload-\(index)"
+            let run = runCodexHookProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", command],
+                environment: [
+                    "HOME": root.path,
+                    "CODEX_HOME": codexHome.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": launchCwd,
+                    "TMPDIR": root.path,
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_SOCKET_CAPABILITY": "test-capability",
+                    "CMUX_WORKSPACE_ID": workspaceId,
+                    "CMUX_SURFACE_ID": surfaceId,
+                    "CMUX_CODEX_PID": "4242",
+                    "CMUX_AGENT_HOOK_DELIVERY_ID": deliveryID,
+                    "CMUX_AGENT_LAUNCH_CWD": launchCwd,
+                    "CMUX_AGENT_LAUNCH_EXECUTABLE": launchExecutable,
+                    "CMUX_AGENT_LAUNCH_KIND": "codex",
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": Data("codex\0resume\0session\0".utf8).base64EncodedString(),
+                    "CMUX_BUNDLED_CLI_PATH": cliPath,
+                ],
+                standardInput: payload,
+                timeout: 5
+            )
+            #expect(!run.timedOut, Comment(rawValue: run.stderr))
+            #expect(run.status == 0, Comment(rawValue: run.stderr))
+            #expect(run.stdout == "{}\n")
+            #expect(waitForCondition(timeout: 2) {
+                commands.snapshot().compactMap(codexHookJSONObject).filter {
+                    $0["method"] as? String == "agent.hook.enqueue"
+                }.count == index + 1
+            })
+
+            let request = try #require(commands.snapshot().compactMap(codexHookJSONObject).last)
+            let params = try #require(request["params"] as? [String: Any])
+            #expect(params["delivery_id"] as? String == deliveryID)
+            let payloadBase64 = try #require(params["payload_b64"] as? String)
+            let deliveredPayload = try #require(Data(base64Encoded: payloadBase64))
+            #expect(deliveredPayload == Data(payload.utf8))
+            let environmentBase64 = try #require(params["environment_b64"] as? String)
+            let deliveredEnvironment = try #require(decodeNULSeparatedEnvironment(environmentBase64))
+            #expect(deliveredEnvironment["CODEX_HOME"] == codexHome.path)
+            #expect(deliveredEnvironment["CMUX_AGENT_LAUNCH_CWD"] == launchCwd)
+            #expect(deliveredEnvironment["CMUX_AGENT_LAUNCH_EXECUTABLE"] == launchExecutable)
+            #expect(deliveredEnvironment["CMUX_SOCKET_PATH"] == socketPath)
+        }
+    }
+
+    @Test func codexQueueFallbackAcceptsEveryWrapperEvent() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-fallback-events-\(UUID().uuidString)", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("fallback")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 6
+        )
+
+        let subcommands = [
+            "session-start", "prompt-submit", "stop",
+            "pre-tool-use", "post-tool-use", "notification",
+        ]
+        for (index, subcommand) in subcommands.enumerated() {
+            let result = runCodexHookProcess(
+                executablePath: cliPath,
+                arguments: ["--socket", socketPath, "hooks", "codex", "enqueue", subcommand],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_SURFACE_ID": surfaceId,
+                    "CMUX_AGENT_HOOK_DELIVERY_ID": "fallback-event-\(index)",
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                standardInput: "payload-\(subcommand)",
+                timeout: 3
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            #expect(result.stdout == "{}\n")
+        }
+
+        let queuedSubcommands = commands.snapshot().compactMap(codexHookJSONObject).compactMap { request -> String? in
+            guard request["method"] as? String == "agent.hook.enqueue",
+                  let params = request["params"] as? [String: Any] else { return nil }
+            return params["subcommand"] as? String
+        }
+        #expect(queuedSubcommands == subcommands)
+    }
+
+    @Test func codexResumeUsesGeneratedQueuedSessionStartBeforeExec() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-wrapper-resume-\(UUID().uuidString)", isDirectory: true)
+        let hooksDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let fakeCodex = root.appendingPathComponent("codex-real", isDirectory: false)
+        let resumeHook = hooksDirectory.appendingPathComponent("cmux-codex-hook-session-start.sh", isDirectory: false)
+        let capturedPayload = root.appendingPathComponent("resume-payload.json", isDirectory: false)
+        let capturedDeliveryID = root.appendingPathComponent("resume-delivery-id.txt", isDirectory: false)
+        let capturedCodexArgs = root.appendingPathComponent("codex-args.txt", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("wrapper")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let sessionID = "12345678-1234-1234-1234-123456789abc"
+        let wrapper = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/bin/cmux-codex-wrapper", isDirectory: false)
+        try FileManager.default.createDirectory(at: hooksDirectory, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "case \"$*\" in",
+            "  *ping*) exit 0 ;;",
+            "  *\"hooks codex inject-args\"*) printf '%s\\0' --enable hooks; exit 0 ;;",
+            "esac",
+            "exit 1",
+        ])
+        try makeCodexHookExecutableShellFile(at: resumeHook, lines: [
+            "#!/bin/sh",
+            "cat > \"$CMUX_TEST_RESUME_PAYLOAD\"",
+            "printf '%s' \"$CMUX_AGENT_HOOK_DELIVERY_ID\" > \"$CMUX_TEST_RESUME_DELIVERY_ID\"",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeCodex, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$@\" > \"$CMUX_TEST_CODEX_ARGS\"",
+        ])
+
+        let result = runCodexHookProcess(
+            executablePath: wrapper.path,
+            arguments: ["resume", sessionID],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_SURFACE_ID": "surface-wrapper",
+                "CMUX_WORKSPACE_ID": "workspace-wrapper",
+                "CMUX_TEST_RESUME_PAYLOAD": capturedPayload.path,
+                "CMUX_TEST_RESUME_DELIVERY_ID": capturedDeliveryID.path,
+                "CMUX_TEST_CODEX_ARGS": capturedCodexArgs.path,
+            ],
+            timeout: 5
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(try String(contentsOf: capturedPayload, encoding: .utf8) == #"{"session_id":"12345678-1234-1234-1234-123456789abc"}"#)
+        let deliveryID = try String(contentsOf: capturedDeliveryID, encoding: .utf8)
+        #expect(deliveryID.hasPrefix("codex-resume-"))
+        let codexArgs = try String(contentsOf: capturedCodexArgs, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        #expect(codexArgs == ["--enable", "hooks", "resume", sessionID])
+    }
+
     @Test func codexInstalledStopHookHandsPayloadToInboxCommand() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -681,5 +899,22 @@ struct CLICodexHookTimeoutRegressionTests {
 
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+    }
+
+    private func decodeNULSeparatedEnvironment(_ encoded: String) -> [String: String]? {
+        guard let data = Data(base64Encoded: encoded) else { return nil }
+        let fields = data.split(separator: 0, omittingEmptySubsequences: false)
+        guard fields.last?.isEmpty == true, fields.count.isMultiple(of: 2) == false else { return nil }
+        var environment: [String: String] = [:]
+        var index = 0
+        while index + 1 < fields.count - 1 {
+            guard let key = String(data: fields[index], encoding: .utf8),
+                  let value = String(data: fields[index + 1], encoding: .utf8) else {
+                return nil
+            }
+            environment[key] = value
+            index += 2
+        }
+        return environment
     }
 }

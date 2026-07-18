@@ -183,6 +183,9 @@ func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String 
             result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
         )
     }
+    if payload["method"] as? String == "agent.hook.enqueue" {
+        return codexHookV2Response(id: id, ok: true, result: ["queued": true])
+    }
     return codexHookV2Response(id: id, ok: true, result: [:])
 }
 
@@ -198,7 +201,15 @@ func codexHookV2Response(
 }
 
 func codexHookJSONObject(_ line: String) -> [String: Any]? {
-    guard let data = line.data(using: .utf8) else { return nil }
+    let json: Substring
+    if line.hasPrefix("_cmux_capability_v1 "),
+       let firstSpace = line.firstIndex(of: " "),
+       let secondSpace = line[line.index(after: firstSpace)...].firstIndex(of: " ") {
+        json = line[line.index(after: secondSpace)...]
+    } else {
+        json = Substring(line)
+    }
+    guard let data = String(json).data(using: .utf8) else { return nil }
     return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
 }
 
