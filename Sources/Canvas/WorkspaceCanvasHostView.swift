@@ -62,6 +62,7 @@ struct WorkspaceCanvasHostView: View {
                             panel: panel,
                             workspace: workspace,
                             pointerInputOwner: container,
+                            isFocused: isFocused,
                             isWorkspaceVisible: isWorkspaceVisible,
                             allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
                             portalPriority: portalPriority,
@@ -114,6 +115,7 @@ struct WorkspaceCanvasHostView: View {
         panel: any Panel,
         workspace: Workspace?,
         pointerInputOwner: NSView,
+        isFocused: Bool,
         isWorkspaceVisible: Bool,
         allowsPointerInput: Bool,
         portalPriority: Int,
@@ -128,6 +130,7 @@ struct WorkspaceCanvasHostView: View {
         let workspaceId = workspace?.id ?? UUID()
         let paneId = workspace?.bonsplitPaneId(forPanelId: panel.id) ?? PaneID()
         let presentation = CanvasHostedPanelPresentation(
+            isFocused: isFocused,
             allowsPointerInput: allowsPointerInput,
             pointerInputOwner: pointerInputOwner
         )
@@ -136,7 +139,6 @@ struct WorkspaceCanvasHostView: View {
             panel: panel,
             workspaceId: workspaceId,
             paneId: paneId,
-            isFocused: false,
             isVisibleInUI: isWorkspaceVisible,
             portalPriority: portalPriority,
             appearance: appearance,

@@ -91,7 +91,7 @@ struct SimulatorControlServiceTests {
 
         let devices = try await service.discoverDevices()
 
-        #expect(devices.first?.family == .unknown)
+        #expect(devices.first?.family == .television)
     }
 
     @Test("Routes project validated speed, cadence, and waypoints without shell interpolation")

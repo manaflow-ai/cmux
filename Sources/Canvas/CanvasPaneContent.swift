@@ -122,6 +122,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 visible: showsInactiveOverlay
             )
         case .hosted(_, _, let presentation):
+            presentation.setFocused(isFocused)
             presentation.setAllowsPointerInput(allowsPointerInput)
         }
     }

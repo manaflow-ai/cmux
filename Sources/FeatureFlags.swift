@@ -271,7 +271,6 @@ final class CmuxFeatureFlags {
     /// uses one product-wide identifier, so it cannot correlate an installation
     /// or reuse PostHog's analytics identity.
     func start() {
-        guard TelemetrySettings.enabledForCurrentLaunch else { return }
         guard refreshTimer == nil else { return }
         refreshRemoteFlags()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in

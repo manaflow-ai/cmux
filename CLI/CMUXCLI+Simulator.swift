@@ -644,14 +644,12 @@ extension CMUXCLI {
         )
         return try simulatorRoutingParams(
             normalizedSurface: normalizedSurface,
-            client: client,
             window: window
         )
     }
 
     private func simulatorRoutingParams(
         normalizedSurface: String?,
-        client: SocketClient,
         window: String?
     ) throws -> [String: Any] {
         if window != nil || normalizedSurface != nil {
@@ -665,34 +663,7 @@ extension CMUXCLI {
         guard let workspaceID = environment["CMUX_WORKSPACE_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !workspaceID.isEmpty else { return [:] }
-        var params: [String: Any] = ["workspace_id": workspaceID]
-        if let callerSurfaceID = environment["CMUX_SURFACE_ID"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !callerSurfaceID.isEmpty {
-            guard let paneID = try simulatorPaneIDForCallerSurface(
-                workspaceID: workspaceID, surfaceID: callerSurfaceID, client: client
-            ) else {
-                throw CLIError(message: String(
-                    localized: "cli.simulator.error.callerSurfaceUnavailable",
-                    defaultValue: "The caller surface is no longer available. Pass --surface or --window to select a Simulator."
-                ))
-            }
-            params["pane_id"] = paneID
-        }
-        return params
-    }
-
-    private func simulatorPaneIDForCallerSurface(
-        workspaceID: String,
-        surfaceID: String,
-        client: SocketClient
-    ) throws -> String? {
-        let payload = try client.sendV2(
-            method: "surface.list",
-            params: ["workspace_id": workspaceID]
-        )
-        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
-        return surfaces.first(where: { $0["id"] as? String == surfaceID })?["pane_id"] as? String
+        return ["workspace_id": workspaceID]
     }
 
 }

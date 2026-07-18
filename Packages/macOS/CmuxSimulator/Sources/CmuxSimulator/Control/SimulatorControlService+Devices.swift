@@ -51,7 +51,8 @@ extension SimulatorControlService {
                     runtimeName: runtimeNames[runtimeIdentifier] ?? runtimeName(from: runtimeIdentifier),
                     deviceTypeIdentifier: record.deviceTypeIdentifier,
                     family: family(
-                        productFamily: productFamilies[record.deviceTypeIdentifier]
+                        productFamily: productFamilies[record.deviceTypeIdentifier],
+                        deviceTypeIdentifier: record.deviceTypeIdentifier
                     ),
                     state: SimulatorDeviceState(simctlState: record.state),
                     isAvailable: record.isAvailable ?? true,
@@ -105,8 +106,11 @@ extension SimulatorControlService {
         return "\(pieces[0]) \(pieces.dropFirst().joined(separator: "."))"
     }
 
-    func family(productFamily: String?) -> SimulatorDeviceFamily {
-        guard let value = productFamily?.lowercased() else { return .unknown }
+    func family(
+        productFamily: String?,
+        deviceTypeIdentifier: String
+    ) -> SimulatorDeviceFamily {
+        let value = (productFamily ?? deviceTypeIdentifier).lowercased()
         if value.contains("iphone") { return .iPhone }
         if value.contains("ipad") { return .iPad }
         if value.contains("watch") { return .watch }

@@ -13,7 +13,6 @@ struct CanvasHostedPanelContentView: View {
     let panel: any Panel
     let workspaceId: UUID
     let paneId: PaneID
-    let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
@@ -26,7 +25,7 @@ struct CanvasHostedPanelContentView: View {
             panel: panel,
             workspaceId: workspaceId,
             paneId: paneId,
-            isFocused: isFocused,
+            isFocused: presentation.isFocused,
             isSelectedInPane: true,
             isVisibleInUI: isVisibleInUI,
             allowsPointerInput: presentation.allowsPointerInput,
