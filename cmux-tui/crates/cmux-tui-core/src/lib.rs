@@ -10,6 +10,7 @@
 
 mod accessibility;
 mod browser;
+pub mod build_identity;
 mod event_bus;
 mod identity;
 mod model;

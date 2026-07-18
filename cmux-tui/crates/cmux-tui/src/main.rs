@@ -73,6 +73,7 @@ OPTIONS:
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.
   -V, --version      Print the cmux-tui version.
+  --build-id         Print the packaged daemon content fingerprint.
 
 KEYS (prefix: Ctrl-b)
   t  new tab in pane   B    new browser tab    Tab/BackTab  next/prev tab
@@ -188,6 +189,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
                 println!("cmux-tui {}", version_string());
                 std::process::exit(0);
             }
+            "--build-id" => {
+                println!("{}", cmux_tui_core::build_identity::BUILD_ID);
+                std::process::exit(0);
+            }
             other => usage_exit(&format!("unknown argument {other:?}")),
         }
     }
@@ -203,7 +208,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
 fn version_string() -> String {
     // CI artifact builds stamp the commit so binaries in cloud snapshots are
     // traceable back to a cmux revision; local builds report the crate version.
-    match option_env!("CMUX_TUI_BUILD_COMMIT").or(option_env!("CMUX_MUX_BUILD_COMMIT")) {
+    match option_env!("CMUX_TUI_BUILD_COMMIT")
+        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
+        .or(option_env!("CMUX_TUI_BUILD_FINGERPRINT"))
+    {
         Some(commit) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
         None => env!("CARGO_PKG_VERSION").to_string(),
     }
@@ -259,7 +267,8 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
-    let state_store = match (args.state_dir, args.app_service_layout) {
+    let app_service_layout = args.app_service_layout;
+    let state_store = match (args.state_dir, app_service_layout) {
         (Some(directory), false) => StateStore::new(directory),
         (None, true) => StateStore::new(
             cmux_tui_core::platform::app_service_state_dir()
@@ -275,7 +284,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
         }
     }
     let mux = Mux::recover_from_state_store(args.session.clone(), surface_options, &state_store)?;
-    if args.app_service_layout {
+    if app_service_layout {
         mux.install_renderer_supervisor(RendererSupervisorConfig::bundled(
             mux.daemon_instance_id,
         )?)?;
@@ -304,7 +313,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
 
     let result = if args.headless {
-        run_headless(&mux, &socket_path)
+        run_headless(&mux, &socket_path, app_service_layout)
     } else {
         // The embedded frontend uses the same protocol-v9 authority path as
         // an attached TUI. This prevents in-process PTY writes or legacy
@@ -338,7 +347,11 @@ fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
     app::run(session, session_label, colors)
 }
 
-fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {
+fn run_headless(
+    mux: &Arc<Mux>,
+    socket_path: &std::path::Path,
+    app_service_layout: bool,
+) -> anyhow::Result<()> {
     eprintln!("cmux-tui: headless, control socket at {}", socket_path.display());
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself.
@@ -346,6 +359,24 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
     loop {
         if shutdown_requested() {
             break;
+        }
+        if app_service_layout {
+            let executable = std::env::current_exe().ok();
+            let packaged = executable
+                .as_deref()
+                .and_then(cmux_tui_core::build_identity::read_packaged_build_id);
+            if cmux_tui_core::build_identity::should_retire_for_packaged_build(
+                cmux_tui_core::build_identity::BUILD_ID,
+                packaged.as_deref(),
+                mux.surface_count(),
+            ) {
+                eprintln!(
+                    "cmux-tui: retiring idle backend build {} for packaged build {}",
+                    cmux_tui_core::build_identity::BUILD_ID,
+                    packaged.as_deref().unwrap_or("unknown")
+                );
+                break;
+            }
         }
         match events.recv_timeout(std::time::Duration::from_millis(250)) {
             Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}

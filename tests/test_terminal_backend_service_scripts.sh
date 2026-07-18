@@ -85,8 +85,16 @@ grep -q -- '--smoke-headless' "$ROOT/scripts/reload.sh"
 
 APP="$TEST_ROOT/cmux DEV service.app"
 mkdir -p "$APP/Contents/Resources/bin"
+FIXTURE_BUILD_ID="1111111111111111111111111111111111111111111111111111111111111111"
 cat > "$TEST_ROOT/cmux-terminal-backend.c" <<'C'
-int main(void) { return 0; }
+#include <stdio.h>
+#include <string.h>
+int main(int argc, char **argv) {
+  if (argc == 2 && strcmp(argv[1], "--build-id") == 0) {
+    puts("1111111111111111111111111111111111111111111111111111111111111111");
+  }
+  return 0;
+}
 C
 xcrun clang \
   -Werror \
@@ -94,6 +102,8 @@ xcrun clang \
   "$TEST_ROOT/cmux-terminal-backend.c" \
   -o "$APP/Contents/Resources/bin/cmux-terminal-backend"
 chmod +x "$APP/Contents/Resources/bin/cmux-terminal-backend"
+printf '%s\n' "$FIXTURE_BUILD_ID" \
+  > "$APP/Contents/Resources/bin/cmux-terminal-backend.build-id"
 cp \
   "$APP/Contents/Resources/bin/cmux-terminal-backend" \
   "$APP/Contents/Resources/bin/cmux-terminal-renderer"

@@ -16,6 +16,7 @@ FINGERPRINT_TOOL="$REPO_ROOT/scripts/terminal-backend-build-fingerprint.py"
 RENDERER_BUILD_TOOL="$REPO_ROOT/scripts/build-terminal-renderer.sh"
 FINGERPRINT_STAMP=""
 DEPENDENCY_FILE=""
+PACKAGED_BUILD_ID_PATH=""
 
 export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 
@@ -121,8 +122,11 @@ if [[ -n "$DEPENDENCY_FILE" ]]; then
 fi
 FINGERPRINT="$($FINGERPRINT_TOOL "${FINGERPRINT_ARGS[@]}")"
 FINGERPRINT_STAMP="${FINGERPRINT_STAMP:-${OUTPUT_PATH}.terminal-backend-fingerprint}"
-if [[ -x "$OUTPUT_PATH" && -x "$RENDERER_OUTPUT_PATH" && -f "$FINGERPRINT_STAMP" ]] \
-  && [[ "$(cat "$FINGERPRINT_STAMP")" == "$FINGERPRINT" ]]; then
+PACKAGED_BUILD_ID_PATH="${OUTPUT_PATH}.build-id"
+if [[ -x "$OUTPUT_PATH" && -x "$RENDERER_OUTPUT_PATH" && -f "$FINGERPRINT_STAMP" \
+  && -f "$PACKAGED_BUILD_ID_PATH" ]] \
+  && [[ "$(cat "$FINGERPRINT_STAMP")" == "$FINGERPRINT" ]] \
+  && [[ "$(cat "$PACKAGED_BUILD_ID_PATH")" == "$FINGERPRINT" ]]; then
   if [[ "$SHOULD_SIGN" -eq 0 ]] \
     || { /usr/bin/codesign --verify --strict "$OUTPUT_PATH" >/dev/null 2>&1 \
       && /usr/bin/codesign --verify --strict "$RENDERER_OUTPUT_PATH" >/dev/null 2>&1; }; then
@@ -157,6 +161,7 @@ build_target() {
   env -u SDKROOT \
     ZIG="$ZIG_BIN" \
     CMUX_GHOSTTY_SRC="$REPO_ROOT/ghostty" \
+    CMUX_TUI_BUILD_FINGERPRINT="$FINGERPRINT" \
     MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}" \
     cargo build \
       --manifest-path "$REPO_ROOT/cmux-tui/Cargo.toml" \
@@ -175,6 +180,7 @@ if [[ -z "$ARCHITECTURES" ]]; then
   env -u SDKROOT \
     ZIG="$ZIG_BIN" \
     CMUX_GHOSTTY_SRC="$REPO_ROOT/ghostty" \
+    CMUX_TUI_BUILD_FINGERPRINT="$FINGERPRINT" \
     MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}" \
     cargo build \
       --manifest-path "$REPO_ROOT/cmux-tui/Cargo.toml" \
@@ -230,6 +236,11 @@ else
   RENDERER_BUILD_ARGS+=(--skip-signing)
 fi
 "$RENDERER_BUILD_TOOL" "${RENDERER_BUILD_ARGS[@]}"
+
+BUILD_ID_TEMP="${PACKAGED_BUILD_ID_PATH}.tmp.$$"
+printf '%s\n' "$FINGERPRINT" > "$BUILD_ID_TEMP"
+chmod 0644 "$BUILD_ID_TEMP"
+mv "$BUILD_ID_TEMP" "$PACKAGED_BUILD_ID_PATH"
 
 STAMP_TEMP="${FINGERPRINT_STAMP}.tmp.$$"
 mkdir -p "$(dirname "$FINGERPRINT_STAMP")"

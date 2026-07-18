@@ -109,12 +109,25 @@ fi
 
 PLIST="$APP_BUNDLE/Contents/Library/LaunchAgents/$PLIST_NAME"
 EXECUTABLE="$APP_BUNDLE/Contents/Resources/bin/cmux-terminal-backend"
+BUILD_ID_FILE="${EXECUTABLE}.build-id"
 RENDERER_EXECUTABLE="$APP_BUNDLE/Contents/Resources/bin/cmux-terminal-renderer"
 
 [[ -x "$EXECUTABLE" ]] || { echo "error: terminal backend executable missing: $EXECUTABLE" >&2; exit 1; }
+[[ -r "$BUILD_ID_FILE" ]] || { echo "error: terminal backend build ID missing: $BUILD_ID_FILE" >&2; exit 1; }
 [[ -x "$RENDERER_EXECUTABLE" ]] || { echo "error: terminal renderer executable missing: $RENDERER_EXECUTABLE" >&2; exit 1; }
 [[ -r "$PLIST" ]] || { echo "error: terminal backend launch-agent plist missing: $PLIST" >&2; exit 1; }
 /usr/bin/plutil -lint "$PLIST" >/dev/null
+
+PACKAGED_BUILD_ID="$(tr -d '[:space:]' < "$BUILD_ID_FILE")"
+[[ "$PACKAGED_BUILD_ID" =~ ^[0-9a-f]{64}$ ]] || {
+  echo "error: terminal backend build ID is not a lowercase SHA-256: $PACKAGED_BUILD_ID" >&2
+  exit 1
+}
+REPORTED_BUILD_ID="$($EXECUTABLE --build-id)"
+[[ "$REPORTED_BUILD_ID" == "$PACKAGED_BUILD_ID" ]] || {
+  echo "error: terminal backend reports build ID $REPORTED_BUILD_ID, packaged sidecar has $PACKAGED_BUILD_ID" >&2
+  exit 1
+}
 
 expect_plist_value() {
   local key="$1"
