@@ -842,7 +842,7 @@ static bool cmux_outbox_budget_header_is_valid(
     return file_size == expected_size;
 }
 
-static bool cmux_initialize_or_read_outbox_budget(
+static bool cmux_read_outbox_budget(
     int descriptor,
     CMUXHookOutboxBudgetHeader *header
 ) {
@@ -852,30 +852,6 @@ static bool cmux_initialize_or_read_outbox_budget(
         || status.st_uid != geteuid()
         || (status.st_mode & 0077) != 0) {
         return false;
-    }
-    if (status.st_size == 0) {
-        memset(header, 0, sizeof(*header));
-        memcpy(header->magic, cmux_hook_outbox_budget_magic, sizeof(header->magic));
-        header->version = CMUX_HOOK_OUTBOX_BUDGET_VERSION;
-        header->slot_count = (uint32_t)cmux_debug_limit(
-            "CMUX_TEST_HOOK_OUTBOX_MAX_RECORDS",
-            CMUX_HOOK_OUTBOX_MAX_RECORDS,
-            1,
-            CMUX_HOOK_OUTBOX_MAX_RECORDS
-        );
-        header->maximum_bytes = cmux_debug_limit(
-            "CMUX_TEST_HOOK_OUTBOX_MAX_BYTES",
-            CMUX_HOOK_OUTBOX_MAX_BYTES,
-            (uint64_t)getpagesize(),
-            CMUX_HOOK_OUTBOX_MAX_BYTES
-        );
-        const off_t expected_size = (off_t)sizeof(*header)
-            + (off_t)header->slot_count * (off_t)sizeof(CMUXHookOutboxReservationRecord);
-        if (ftruncate(descriptor, expected_size) != 0
-            || !cmux_pwrite_all_at(descriptor, header, sizeof(*header), 0)) {
-            return false;
-        }
-        return true;
     }
     if (status.st_size < (off_t)sizeof(*header)
         || !cmux_pread_all_at(descriptor, header, sizeof(*header), 0)) {
@@ -888,13 +864,9 @@ static int cmux_open_outbox_budget(int directory) {
     const int descriptor = openat(
         directory,
         cmux_hook_outbox_budget_name,
-        O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
-        0600
+        O_RDWR | O_NOFOLLOW | O_CLOEXEC
     );
-    if (descriptor < 0 || fchmod(descriptor, 0600) != 0) {
-        if (descriptor >= 0) {
-            close(descriptor);
-        }
+    if (descriptor < 0) {
         return -1;
     }
     struct stat status = {0};
@@ -1038,7 +1010,7 @@ static bool cmux_reserve_outbox_budget(
 
     bool succeeded = false;
     CMUXHookOutboxBudgetHeader header = {0};
-    if (!cmux_initialize_or_read_outbox_budget(descriptor, &header)) {
+    if (!cmux_read_outbox_budget(descriptor, &header)) {
         goto done;
     }
     if (rounded_bytes > header.maximum_bytes) {

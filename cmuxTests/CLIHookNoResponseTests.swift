@@ -557,13 +557,24 @@ struct CLIHookNoResponseTests {
         let socketPath = Self.makeSocketPath("native-admission")
         let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 8)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: outboxDirectory, withIntermediateDirectories: true)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outboxDirectory.path)
-        let capabilityAuthority = SocketClientCapabilityAuthority(
-            secret: Data(repeating: 0x51, count: SocketClientCapabilityAuthority.secureByteCount),
-            audience: "com.cmuxterm.test.outbox"
+        let audience = "com.cmuxterm.test.outbox"
+        let deliveryQueue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
         )
-        let capability = capabilityAuthority.issueCapability()
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxDirectory,
+            audience: audience,
+            deliveryQueue: deliveryQueue
+        ))
+        let outboxSecret = try Data(contentsOf: outbox.capabilitySecretURL)
+        let capabilityAuthority = SocketClientCapabilityAuthority(
+            secret: outboxSecret,
+            audience: audience
+        )
+        let capability = outbox.issueCapability()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -832,12 +843,18 @@ struct CLIHookNoResponseTests {
         let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 256)
         let state = MockSocketServerState()
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: outboxDirectory, withIntermediateDirectories: true)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outboxDirectory.path)
-        let capability = SocketClientCapabilityAuthority(
-            secret: Data(repeating: 0x62, count: SocketClientCapabilityAuthority.secureByteCount),
-            audience: "com.cmuxterm.test.outbox-burst"
-        ).issueCapability()
+        let deliveryQueue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxDirectory,
+            audience: "com.cmuxterm.test.outbox-burst",
+            deliveryQueue: deliveryQueue
+        ))
+        let capability = outbox.issueCapability()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -926,6 +943,11 @@ struct CLIHookNoResponseTests {
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outboxDirectory, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outboxDirectory.path)
+        try Self.installOutboxBudgetFixture(
+            at: outboxDirectory,
+            slotCount: 2,
+            maximumBytes: 1_048_576
+        )
         try makeCodexHookExecutableShellFile(at: fallbackCLI, lines: [
             "#!/bin/sh",
             "/bin/cat > \"$CMUX_TEST_OVERFLOW_PAYLOAD\"",
@@ -963,8 +985,6 @@ struct CLIHookNoResponseTests {
             "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
             "CMUX_BUNDLED_CLI_PATH": fallbackCLI.path,
             "CMUX_CODEX_PID": "5656",
-            "CMUX_TEST_HOOK_OUTBOX_MAX_RECORDS": "2",
-            "CMUX_TEST_HOOK_OUTBOX_MAX_BYTES": "1048576",
             "CMUX_TEST_OVERFLOW_PAYLOAD": overflowPayload.path,
         ]
         var crashedEnvironment = baseEnvironment
@@ -1570,6 +1590,41 @@ struct CLIHookNoResponseTests {
             at: directory,
             includingPropertiesForKeys: nil
         ).filter { $0.lastPathComponent.hasPrefix("ready-") }) ?? []
+    }
+
+    private static func installOutboxBudgetFixture(
+        at directory: URL,
+        slotCount: UInt32,
+        maximumBytes: UInt64
+    ) throws {
+        var data = Data("CMUXHQ01".utf8)
+        appendLittleEndian(UInt32(1), to: &data)
+        appendLittleEndian(slotCount, to: &data)
+        appendLittleEndian(maximumBytes, to: &data)
+        appendLittleEndian(UInt32(0), to: &data)
+        appendLittleEndian(UInt32(0), to: &data)
+        appendLittleEndian(UInt64(0), to: &data)
+        data.append(Data(repeating: 0, count: 24 + Int(slotCount) * 32))
+        guard data.count == 64 + Int(slotCount) * 32,
+              FileManager.default.createFile(
+                atPath: directory.appendingPathComponent(".quota-v1").path,
+                contents: data,
+                attributes: [.posixPermissions: 0o600]
+              ) else {
+            throw NSError(domain: "cmux.tests", code: 89, userInfo: [
+                NSLocalizedDescriptionKey: "Could not install hook outbox budget fixture",
+            ])
+        }
+    }
+
+    private static func appendLittleEndian<T: FixedWidthInteger>(
+        _ value: T,
+        to data: inout Data
+    ) {
+        var littleEndian = value.littleEndian
+        Swift.withUnsafeBytes(of: &littleEndian) { bytes in
+            data.append(contentsOf: bytes)
+        }
     }
 
     private static func readOutboxRecords(at directory: URL) throws -> [OutboxRecord] {
