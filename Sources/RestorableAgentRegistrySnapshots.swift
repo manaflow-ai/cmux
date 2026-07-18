@@ -2,6 +2,16 @@ import CmuxFoundation
 import Foundation
 
 extension RestorableAgentSessionIndex {
+    struct AgentRegistryHibernationSnapshotResult {
+        var snapshots: [String: CmuxAgentSessionRegistry.Snapshot]
+        var failedProviders: Set<String>
+    }
+
+    static let maximumHibernationRegistryProviders = 64
+    static let maximumHibernationPanelContexts = 4_096
+    static let maximumHibernationRegistryRecords = 12_288
+    static let maximumHibernationRegistryBytes: Int64 = 64 * 1_024 * 1_024
+
     /// Ensures the durable registry has seen the legacy providers referenced by
     /// persisted hibernation placeholders before any panel can adopt one. This
     /// only stats/parses those providers; it does not scan transcripts or the
@@ -156,6 +166,105 @@ extension RestorableAgentSessionIndex {
             }
             return recovered.isEmpty ? nil : recovered
         }
+    }
+
+    /// Refreshes compatibility sources, then materializes only the active slot
+    /// owners for open panels and exact process-detected session identities.
+    /// Every failure produces an explicit empty provider snapshot so callers do
+    /// not fall back to full registry history or compatibility JSON.
+    static func agentRegistryHibernationSnapshots(
+        _ sources: [(kind: RestorableAgentKind, fileURL: URL)],
+        panelKeys: Set<PanelKey>,
+        exactSessionIDsByProvider: [String: Set<String>],
+        maximumProviders: Int = maximumHibernationRegistryProviders,
+        maximumPanelContexts: Int = maximumHibernationPanelContexts,
+        maximumRecords: Int = maximumHibernationRegistryRecords,
+        maximumBytes: Int64 = maximumHibernationRegistryBytes,
+        fileManager: FileManager,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> AgentRegistryHibernationSnapshotResult {
+        let uniqueSources = Dictionary(
+            sources.map { ($0.kind.rawValue, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        ).values.sorted { $0.kind.rawValue < $1.kind.rawValue }
+        let emptySnapshots = Dictionary(uniqueKeysWithValues: uniqueSources.map {
+            ($0.kind.rawValue, CmuxAgentSessionRegistry.Snapshot(records: [], activeSlots: []))
+        })
+        let allProviders = Set(uniqueSources.map { $0.kind.rawValue })
+        guard !uniqueSources.isEmpty else {
+            return AgentRegistryHibernationSnapshotResult(snapshots: [:], failedProviders: [])
+        }
+        guard uniqueSources.count <= max(0, maximumProviders),
+              panelKeys.count <= max(0, maximumPanelContexts),
+              maximumRecords >= 0,
+              maximumBytes >= 0 else {
+            return AgentRegistryHibernationSnapshotResult(
+                snapshots: emptySnapshots,
+                failedProviders: allProviders
+            )
+        }
+
+        let firstSource = uniqueSources[0]
+        let registryURL: URL
+        if let explicit = environment["CMUX_AGENT_SESSION_REGISTRY_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            registryURL = URL(fileURLWithPath: NSString(string: explicit).expandingTildeInPath)
+        } else {
+            registryURL = firstSource.fileURL.deletingLastPathComponent()
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename, isDirectory: false)
+        }
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let legacySources = uniqueSources.map {
+            CmuxAgentSessionRegistry.LegacySource(provider: $0.kind.rawValue, url: $0.fileURL)
+        }
+        let refresh: CmuxAgentSessionRegistry.LegacyRefreshResult
+        do {
+            refresh = try registry.refreshLegacySources(legacySources, fileManager: fileManager)
+        } catch {
+            return AgentRegistryHibernationSnapshotResult(
+                snapshots: emptySnapshots,
+                failedProviders: allProviders
+            )
+        }
+
+        let panelContexts = Set(panelKeys.map {
+            CmuxAgentSessionRegistry.HookHibernationPanelContext(
+                workspaceID: $0.workspaceId.uuidString,
+                surfaceID: $0.panelId.uuidString
+            )
+        })
+        var snapshots = emptySnapshots
+        var failedProviders = refresh.failedProviders
+        var remainingRecords = maximumRecords
+        var remainingBytes = maximumBytes
+        for source in uniqueSources where !failedProviders.contains(source.kind.rawValue) {
+            let provider = source.kind.rawValue
+            do {
+                let snapshot = try registry.hookHibernationSnapshot(
+                    provider: provider,
+                    panelContexts: panelContexts,
+                    exactSessionIDs: exactSessionIDsByProvider[provider] ?? [],
+                    maximumRecords: remainingRecords,
+                    maximumBytes: remainingBytes
+                )
+                let bytes = snapshot.records.reduce(into: Int64(0)) {
+                    $0 += Int64($1.json.count)
+                } + snapshot.activeSlots.reduce(into: Int64(0)) {
+                    $0 += Int64($1.json.count)
+                }
+                remainingRecords -= snapshot.records.count
+                remainingBytes -= bytes
+                snapshots[provider] = snapshot
+            } catch {
+                snapshots[provider] = .init(records: [], activeSlots: [])
+                failedProviders.insert(provider)
+            }
+        }
+        return AgentRegistryHibernationSnapshotResult(
+            snapshots: snapshots,
+            failedProviders: failedProviders
+        )
     }
 
     static func agentHookState(

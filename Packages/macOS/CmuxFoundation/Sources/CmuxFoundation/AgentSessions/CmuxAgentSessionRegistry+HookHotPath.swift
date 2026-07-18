@@ -870,23 +870,19 @@ extension CmuxAgentSessionRegistry {
                     return $0.surfaceID < $1.surfaceID
                 }
                 for context in orderedContexts {
-                    for key in [
-                        ActiveSlotKey(scope: .workspace, scopeID: context.workspaceID),
-                        ActiveSlotKey(scope: .surface, scopeID: context.surfaceID),
-                    ] {
-                        guard slotsByKey[key] == nil,
-                              let slot = try readSlot(
-                                  database: database,
-                                  provider: provider,
-                                  scope: key.scope,
-                                  scopeID: key.scopeID
-                              ) else {
-                            continue
-                        }
-                        try include(slot.json, sessionID: slot.sessionID)
-                        slotsByKey[key] = slot
-                        sessionIDs.insert(slot.sessionID)
+                    let key = ActiveSlotKey(scope: .surface, scopeID: context.surfaceID)
+                    guard slotsByKey[key] == nil,
+                          let slot = try readSlot(
+                              database: database,
+                              provider: provider,
+                              scope: key.scope,
+                              scopeID: key.scopeID
+                          ) else {
+                        continue
                     }
+                    try include(slot.json, sessionID: slot.sessionID)
+                    slotsByKey[key] = slot
+                    sessionIDs.insert(slot.sessionID)
                 }
 
                 guard sessionIDs.count <= maximumRecords else {

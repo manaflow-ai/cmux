@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import CMUXAgentLaunch
+import CmuxFoundation
 import os
 
 enum TerminalStartupShellQuoting {
@@ -1027,19 +1028,22 @@ struct RestorableAgentSessionIndex: Sendable {
 
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        hibernationPanelKeys: Set<PanelKey>? = nil
     ) async -> RestorableAgentSessionIndex {
         await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager
+                fileManager: fileManager,
+                hibernationPanelKeys: hibernationPanelKeys
             )
         }.value
     }
 
     private static func loadIncludingProcessDetectedSnapshotsSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        hibernationPanelKeys: Set<PanelKey>? = nil
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let capturedAt = Date().timeIntervalSince1970
@@ -1055,7 +1059,8 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager,
             registry: registry,
             detectedSnapshots: detectedSnapshots,
-            mode: .hibernation(processSnapshot: processSnapshot)
+            mode: .hibernation(processSnapshot: processSnapshot),
+            hibernationPanelKeys: hibernationPanelKeys
         )
     }
 
@@ -1065,6 +1070,7 @@ struct RestorableAgentSessionIndex: Sendable {
         registry: CmuxVaultAgentRegistry,
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         mode: LoadMode = .standard,
+        hibernationPanelKeys: Set<PanelKey>? = nil,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
@@ -1109,7 +1115,29 @@ struct RestorableAgentSessionIndex: Sendable {
         let hookSources = hookKinds.map {
             ($0.kind, $0.registration, $0.kind.hookStoreFileURL(homeDirectory: homeDirectory))
         }
-        let registrySnapshots = agentRegistrySnapshots(hookSources.map { (kind: $0.0, fileURL: $0.2) }, fileManager: fileManager)
+        let registrySources = hookSources.map { (kind: $0.0, fileURL: $0.2) }
+        let registrySnapshots: [String: CmuxAgentSessionRegistry.Snapshot]?
+        if let hibernationPanelKeys {
+            var exactSessionIDsByProvider: [String: Set<String>] = [:]
+            for detected in detectedSnapshots.values where detected.sessionIDSource == .explicit {
+                let sessionID = detected.snapshot.sessionId
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !sessionID.isEmpty else { continue }
+                exactSessionIDsByProvider[detected.snapshot.kind.rawValue, default: []]
+                    .insert(sessionID)
+            }
+            registrySnapshots = agentRegistryHibernationSnapshots(
+                registrySources,
+                panelKeys: hibernationPanelKeys,
+                exactSessionIDsByProvider: exactSessionIDsByProvider,
+                fileManager: fileManager
+            ).snapshots
+        } else {
+            registrySnapshots = agentRegistrySnapshots(
+                registrySources,
+                fileManager: fileManager
+            )
+        }
         for (kind, registration, fileURL) in hookSources {
             guard let state = agentHookState(kind: kind, fileURL: fileURL,
                                              snapshots: registrySnapshots, fileManager: fileManager,

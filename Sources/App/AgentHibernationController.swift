@@ -194,10 +194,16 @@ final class AgentHibernationController {
         timer.setEventHandler {
             let now = Date()
             Task { @MainActor in
-                guard !AgentHibernationController.shared.hibernationIndexLoadInFlight else { return }
+                guard !AgentHibernationController.shared.hibernationIndexLoadInFlight,
+                      let appDelegate = AppDelegate.shared,
+                      let panelKeys = appDelegate.agentHibernationOpenTerminalPanelKeys(
+                          maximumCount: RestorableAgentSessionIndex.maximumHibernationPanelContexts
+                      ) else { return }
                 AgentHibernationController.shared.hibernationIndexLoadInFlight = true
                 defer { AgentHibernationController.shared.hibernationIndexLoadInFlight = false }
-                let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+                let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots(
+                    hibernationPanelKeys: panelKeys
+                )
                 let settings = AgentHibernationSettings.values()
                 guard settings.enabled else { return }
                 AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)

@@ -212,7 +212,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(Set(result.snapshots["codex"]?.records.map(\.sessionID) ?? []) == [
             activeSessionID, detectedSessionID,
         ])
-        #expect(result.snapshots["codex"]?.activeSlots.count == 2)
+        #expect(result.snapshots["codex"]?.activeSlots.count == 1)
     }
 
     @Test func hibernationRegistryLoadFailsClosedPerProviderAtProjectionLimit() throws {

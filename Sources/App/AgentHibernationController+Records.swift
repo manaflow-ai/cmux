@@ -2,6 +2,32 @@ import Foundation
 
 extension AppDelegate {
     @MainActor
+    func agentHibernationOpenTerminalPanelKeys(
+        maximumCount: Int
+    ) -> Set<RestorableAgentSessionIndex.PanelKey>? {
+        guard maximumCount >= 0 else { return nil }
+        var panelKeys = Set<RestorableAgentSessionIndex.PanelKey>()
+        var seenManagers = Set<ObjectIdentifier>()
+
+        func visit(tabManager manager: TabManager) -> Bool {
+            guard seenManagers.insert(ObjectIdentifier(manager)).inserted else { return true }
+            for workspace in manager.tabs {
+                for (panelID, panel) in workspace.panels where panel is TerminalPanel {
+                    panelKeys.insert(.init(workspaceId: workspace.id, panelId: panelID))
+                    guard panelKeys.count <= maximumCount else { return false }
+                }
+            }
+            return true
+        }
+
+        for context in mainWindowContexts.values {
+            guard visit(tabManager: context.tabManager) else { return nil }
+        }
+        if let tabManager, !visit(tabManager: tabManager) { return nil }
+        return panelKeys
+    }
+
+    @MainActor
     func agentHibernationPanelIsProtected(workspace: Workspace, panelId: UUID) -> Bool {
         for context in mainWindowContexts.values {
             guard context.window?.isVisible == true,
