@@ -357,6 +357,94 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(hooks.allSatisfy { isContentAddressedCodexHookPath($0.command) })
     }
 
+    @Test func codexHookCommandsRemainExecutableWithSpacesInHome() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-spaced-home-\(UUID().uuidString)", isDirectory: true)
+        let home = root.appendingPathComponent("user home with spaces", isDirectory: true)
+        let codexHome = root.appendingPathComponent("custom CODEX_HOME with spaces", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let staleSharedCommand = "/Users/Shared/.cmux-hooks-\(geteuid())/cmux-codex-native-hook-session-start-deadbeef"
+        let userCommand = "printf keep-user-hook"
+        let existing: [String: Any] = [
+            "hooks": [
+                "SessionStart": [
+                    ["hooks": [["command": staleSharedCommand, "timeout": 10, "type": "command"]]],
+                    ["hooks": [["command": userCommand, "timeout": 10, "type": "command"]]],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+            .write(to: codexHome.appendingPathComponent("hooks.json"), options: .atomic)
+
+        let environment = [
+            "HOME": home.path,
+            "CODEX_HOME": codexHome.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let persistentHooks = try codexHookEntries(in: codexHome)
+        #expect(persistentHooks.count == 11)
+        #expect(persistentHooks.filter { $0.eventName == "SessionStart" }.count == 2)
+        #expect(persistentHooks.contains { $0.command == userCommand })
+        #expect(!persistentHooks.contains { $0.command == staleSharedCommand })
+
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let injectedCommands = codexInjectedHookCommands(inject.stdout)
+        #expect(injectedCommands.count == 6)
+
+        let generatedCommands = persistentHooks
+            .filter { $0.command != userCommand }
+            .map(\.command) + injectedCommands
+        #expect(generatedCommands.count == 16)
+        #expect(generatedCommands.allSatisfy { !$0.hasPrefix(home.path) })
+        #expect(generatedCommands.allSatisfy { isShellSafeBareHookPath($0) })
+        #expect(generatedCommands.allSatisfy { FileManager.default.isExecutableFile(atPath: $0) })
+        #expect(generatedCommands.allSatisfy { isContentAddressedCodexHookPath($0) })
+
+        for (index, command) in generatedCommands.enumerated() {
+            let input = Data("{\"hook\":\(index)}".utf8)
+            let direct = runCodexHookProcess(
+                executablePath: command,
+                arguments: [],
+                environment: environment,
+                standardInputData: input,
+                timeout: 2
+            )
+            #expect(!direct.timedOut, Comment(rawValue: direct.stderr))
+            #expect(direct.status == 0, Comment(rawValue: direct.stderr))
+            #expect(direct.stdout == "{}\n")
+
+            let shell = runCodexHookProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", command],
+                environment: environment,
+                standardInputData: input,
+                timeout: 2
+            )
+            #expect(!shell.timedOut, Comment(rawValue: shell.stderr))
+            #expect(shell.status == 0, Comment(rawValue: shell.stderr))
+            #expect(shell.stdout == "{}\n")
+        }
+    }
+
     @Test func everyCodexFeedHookPreservesPayloadThroughNativeAdmission() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -1746,6 +1834,22 @@ struct CLICodexHookTimeoutRegressionTests {
                 && rawHash.allSatisfy(\.isHexDigit)
         }
         return try #require(candidates.count == 1 ? candidates.first?.path : nil)
+    }
+
+    private func codexInjectedHookCommands(_ output: String) -> [String] {
+        output.utf8.split(separator: 0).compactMap { rawField in
+            let field = String(decoding: rawField, as: UTF8.self)
+            guard let prefix = field.range(of: "command='''") else { return nil }
+            let remainder = field[prefix.upperBound...]
+            guard let suffix = remainder.range(of: "''',timeout=") else { return nil }
+            return String(remainder[..<suffix.lowerBound])
+        }
+    }
+
+    private func isShellSafeBareHookPath(_ path: String) -> Bool {
+        guard path.hasPrefix("/") else { return false }
+        let shellSyntax = CharacterSet(charactersIn: " \\t\\r\\n\\\\\"'`$&;|<>()*?[]{}!")
+        return path.unicodeScalars.allSatisfy { !shellSyntax.contains($0) }
     }
 
     private func isContentAddressedCodexHookPath(_ path: String) -> Bool {
