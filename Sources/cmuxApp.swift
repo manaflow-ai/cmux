@@ -16,6 +16,7 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
+import CmuxTerminalBackend
 import CmuxTerminalBackendService
 
 /// The process entry point. When the binary is launched with a sidebar worker
@@ -64,6 +65,8 @@ enum CmuxMain {
 }
 
 struct cmuxApp: App {
+    private static let terminalBackendProcessInstanceUUID = UUID()
+
     /// Invalid or missing app identities are quarantined in a namespace that can never
     /// address the production backend. If the backend gate is on, bundle inspection then
     /// fails closed with actionable service guidance.
@@ -89,6 +92,7 @@ struct cmuxApp: App {
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
     private let terminalClientComposition: TerminalClientComposition
+    private let terminalBackendTopologyProjectionRegistry: TerminalBackendTopologyProjectionRegistry
     private let terminalBackendTopologyCoordinator: TerminalBackendTopologyCoordinator?
     @State private var terminalBackendServiceModel: TerminalBackendServiceModel? = nil
     @StateObject private var tabManager: TabManager
@@ -275,10 +279,19 @@ struct cmuxApp: App {
         // The gate is resolved before constructing any workspace. A gate-on process gets
         // only the persistent factory, so backend startup failure cannot create a local PTY.
         let terminalClientComposition: TerminalClientComposition
+        let terminalBackendProjectionStateStore:
+            (any TerminalBackendProjectionStateServing)?
         if terminalBackendActivationPolicy.isEnabled {
             let backendClient = TerminalBackendClientCoordinator(
                 bootstrapCoordinator: terminalBackendServiceBootstrap,
-                runtimePaths: terminalBackendRuntimePaths
+                runtimePaths: terminalBackendRuntimePaths,
+                registrationIdentity: BackendClientRegistrationIdentity(
+                    clientUUID: terminalBackendDescriptor.terminalClientUUID,
+                    processInstanceUUID: Self.terminalBackendProcessInstanceUUID
+                )!,
+                compatibilityReporter: { compatibility in
+                    await terminalBackendServiceModel.reportCompatibility(compatibility)
+                }
             )
             terminalClientComposition = .persistent(
                 backendClient: backendClient,
@@ -287,22 +300,40 @@ struct cmuxApp: App {
                     terminalBackendServiceModel.reportTopologyFailure(message)
                 }
             )
+            terminalBackendProjectionStateStore = backendClient
         } else {
             terminalClientComposition = .embedded()
+            terminalBackendProjectionStateStore = nil
         }
         self.terminalClientComposition = terminalClientComposition
         let tabManager = TabManager(
             terminalClientComposition: terminalClientComposition
         )
         _tabManager = StateObject(wrappedValue: tabManager)
-        let terminalBackendTopologyCoordinator = TerminalBackendTopologyCoordinator(
+        let terminalBackendTopologyProjectionRegistry =
+            TerminalBackendTopologyProjectionRegistry(
+                projectionStateStore: terminalBackendProjectionStateStore
+            )
+        self.terminalBackendTopologyProjectionRegistry =
+            terminalBackendTopologyProjectionRegistry
+        let terminalBackendActivityStore = TerminalNotificationStore.shared
+        let topologyCoordinator = TerminalBackendTopologyCoordinator(
             composition: terminalClientComposition,
-            projector: tabManager,
+            projector: terminalBackendTopologyProjectionRegistry,
+            activityReporter: { unreadWorkspaceIDs in
+                terminalBackendActivityStore.setBackendActivityUnreadWorkspaceIDs(
+                    unreadWorkspaceIDs
+                )
+            },
             failureReporter: { message in
                 terminalBackendServiceModel.reportTopologyFailure(message)
             }
         )
-        self.terminalBackendTopologyCoordinator = terminalBackendTopologyCoordinator
+        self.terminalBackendTopologyCoordinator = topologyCoordinator
+        terminalBackendTopologyProjectionRegistry.setProjectionStateDidChange {
+            [weak topologyCoordinator] in
+            topologyCoordinator?.projectorsDidChange()
+        }
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -338,6 +369,7 @@ struct cmuxApp: App {
             auth: authComposition,
             terminalClientComposition: terminalClientComposition,
             terminalBackendServiceModel: terminalBackendServiceModel,
+            terminalBackendTopologyProjectionRegistry: terminalBackendTopologyProjectionRegistry,
             terminalBackendTopologyCoordinator: terminalBackendTopologyCoordinator
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
@@ -540,6 +572,11 @@ struct cmuxApp: App {
                     if terminalBackendServiceModel.canOpenSystemSettings {
                         Button(terminalBackendServiceModel.openSystemSettingsTitle) {
                             terminalBackendServiceModel.openSystemSettingsLoginItems()
+                        }
+                    }
+                    if terminalBackendServiceModel.canCheckForCompatibilityUpdate {
+                        Button(terminalBackendServiceModel.compatibilityUpdateTitle) {
+                            appDelegate.checkForUpdates(nil)
                         }
                     }
                 }

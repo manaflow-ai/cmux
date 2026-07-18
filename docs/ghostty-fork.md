@@ -14,8 +14,8 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### Renderer scene projection seam (feature integration)
 
-The cmux terminal-backend feature currently pins `066f7a3d4` on the fork branch
-`feat/cmux-render-scene`, two commits above the released fork `main` head
+The cmux terminal-backend feature currently pins `eefdfed16` on the fork branch
+`feat/cmux-render-scene`, five commits above the released fork `main` head
 `bb30526cd`. This feature integration is pushed to `manaflow-ai/ghostty`, but it
 is not merged into fork `main` and does not have a GhosttyKit release archive
 yet.
@@ -23,11 +23,18 @@ yet.
 - Commits:
   - `6a1f7b257` (`renderer: split scene projection from terminal capture`)
   - `066f7a3d4` (`renderer: complete isolated scene worker ABI`)
+  - `2e11055cb` (`renderer: complete external scene fidelity`)
+  - `b9746b9cf` (`renderer: preserve advanced external scene fidelity`)
+  - `eefdfed16` (`instrument process-lifetime terminal ownership`)
 - Files:
   - `src/renderer/Scene.zig`
   - `src/renderer.zig`
   - `src/renderer/State.zig`
   - `src/renderer/generic.zig`
+  - `src/process_census.zig`
+  - `src/apprt/embedded.zig`
+  - `src/pty.zig`
+  - `include/ghostty.h`
 - Summary:
   - Introduces a borrowed synchronous `Scene.Projection` containing the
     renderer state, locked mouse snapshot, and preedit state required to
@@ -50,6 +57,74 @@ state, standalone IOSurface renderer, exact frame leases and metrics, resolved
 config serialization, and lib-vt selection/search APIs. Verified with Zig
 0.15.2, focused scene/config tests, a real Metal smoke, C header compilation,
 and a signed universal Swift renderer helper. This branch adds C ABI.
+
+The third commit advances the scene codec to version 3 and transports bounded,
+content-addressed static Kitty resources, image identities, viewport cropping,
+placement order, z-order, and deletion through full and delta scenes. It also
+allows negotiated custom shaders in the isolated worker, adds renderer-side
+resource caching and image projection, and expands the Metal smoke fixture.
+Version 3 remains the static-scene compatibility format.
+
+The terminal-backend working tree advances the codec to version 4 for animated
+Kitty images. Ghostty VT state now owns fully materialized RGBA frames, signed
+frame gaps, composition and disposal metadata, source-frame identity,
+background color, playback state, current frame, and Kitty loop semantics.
+Frame payloads use the existing SHA-256 resource identity and are deduplicated,
+sorted, and bounded by frame, resource, placement, allocation, encoded-byte,
+and decoded-pixel limits. Version 4 decoders reject invalid enums, missing or
+out-of-order frames, bad digests, unsupported capabilities, invalid frame
+references, zero-duration non-root frames, and limit overruns before rendering.
+Version 3 encode/decode remains deterministic for static scenes and rejects an
+animation capability rather than silently dropping frame state.
+
+The standalone renderer process selects frames from immutable resources with
+per-image worker-local playback origins. Unrelated terminal scene updates keep
+the existing playback phase; control or timing changes start a new phase.
+Visibility loss and three outstanding IOSurface leases cancel the worker's
+one-shot animation wake, and an exact lease release resumes it. The Swift app
+process owns no animation timer, Kitty decoder, raw PTY replay, texture, or GPU
+renderer state. Renderer restart reconstructs every frame from cmuxd's latest
+canonical scene, so all renderer animation state remains disposable.
+
+Conflict note: future image work must preserve version 3 static compatibility,
+version 4 fail-closed negotiation, SHA-256 resource identity, deterministic
+frame ordering, global resource/frame/placement/byte limits, base-scene delta
+validation, fully materialized terminal-owned frames, and worker-only playback
+and GPU caches.
+
+The fourth commit advances the scene codec to version 5. It adds bounded rich
+IME preedit selection and caret state, daemon-authored visible search
+highlights, and a search snapshot C API that can refresh either the current
+viewport or the viewport centered on a selected match without mutating scroll
+position. It also completes Kitty animation transport with ordered fully
+materialized frames, terminal-owned playback policy, resource deduplication,
+and worker-local timing. Version 3 static and version 4 animation decoders stay
+available for compatibility tests; version 5 validation rejects malformed
+UTF-16 ranges, invalid highlight coordinates, unsupported capabilities, and
+resource or frame limit overruns before rendering.
+
+Conflict note: future IME and search work must keep presentation-local state
+out of the canonical terminal model, preserve appended C ABI option sizing,
+and derive highlights from the daemon's current canonical viewport. Future
+Kitty work must keep frame composition in the terminal process and leave only
+clock advancement and GPU resource caches in the disposable renderer worker.
+
+The fifth commit adds a process-lifetime ownership census to the embedded C
+ABI. Both public `ghostty_surface_new` entrypoints pass through one instrumented
+constructor seam, which counts canonical surface attempts and distinguishes
+manual-I/O surfaces from embedded-PTY surfaces. The POSIX PTY path counts the
+real `openpty` attempt and successful master allocation. Counters saturate
+rather than wrap and never reset when a surface or PTY is freed. A bounded
+schema-v1 signpost snapshot under `com.cmux.ghostty.process-census` lets an
+Instruments trace prove a process has never constructed either resource, even
+if a hypothetical resource was freed before the trace attached. Overflow emits
+an explicit marker so verification fails closed.
+
+Conflict note: every future embedded surface constructor must use
+`surface_new_`, every POSIX PTY-master allocation must retain the accounting
+around `openpty`, and census counters must remain monotonic for the process
+lifetime. Changes to the signpost subsystem, interval, unit names, C struct
+layout, or snapshot bound require a matching acceptance-verifier update.
 
 Current cmux pinned fork head: `bb30526cd`. It advances the previous cmux pin
 `b4b6d69c8` through the already-merged theme, render-grid, and wrap-aware URL

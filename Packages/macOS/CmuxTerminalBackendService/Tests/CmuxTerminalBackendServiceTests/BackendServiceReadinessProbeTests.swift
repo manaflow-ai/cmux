@@ -12,6 +12,7 @@ struct BackendServiceReadinessProbeTests {
         "canonical-topology-snapshot-v1",
         "durable-session-identity-v1",
         "presentation-registry-v1",
+        "projection-state-reconnect-v1",
         "stable-entity-uuid-v1",
         "topology-resume-v1",
     ]
@@ -31,6 +32,12 @@ struct BackendServiceReadinessProbeTests {
         #expect(readiness.topologyRevision == 8)
         #expect(readiness.authority.daemonInstanceID.description == Self.daemonID)
         #expect(readiness.authority.sessionID.description == Self.sessionID)
+        guard case .readOnly(let diagnostic) = readiness.compatibility else {
+            Issue.record("expected protocol-v8 readiness to be read-only")
+            return
+        }
+        #expect(diagnostic.negotiatedProtocol == 8)
+        #expect(diagnostic.reasons.contains(.protocolTooOld))
         #expect(await transport.isClosed())
     }
 
@@ -191,7 +198,7 @@ struct BackendServiceReadinessProbeTests {
         #expect(!(await unusedValidTransport.isClosed()))
     }
 
-    @Test("missing terminal-authority capability is rejected")
+    @Test("missing terminal-authority capability stays connected read-only")
     func missingCapability() async throws {
         let transport = try makeTransport(
             capabilities: Self.capabilities.filter { $0 != "topology-resume-v1" }
@@ -199,12 +206,18 @@ struct BackendServiceReadinessProbeTests {
         let unusedValidTransport = try makeTransport()
         let sequence = BackendServiceProbeTransportSequence([transport, unusedValidTransport])
 
-        await #expect(throws: BackendProtocolError.self) {
-            _ = try await makeProbe(
-                transportFactory: { sequence.next() },
-                retryPolicy: .immediateForTesting
-            ).checkReadiness()
+        let readiness = try await makeProbe(
+            transportFactory: { sequence.next() },
+            retryPolicy: .immediateForTesting
+        ).checkReadiness()
+        guard case .readOnly(let diagnostic) = readiness.compatibility else {
+            Issue.record("expected missing capabilities to produce read-only readiness")
+            return
         }
+        #expect(diagnostic.reasons.contains(.protocolTooOld))
+        #expect(diagnostic.reasons.contains(.missingCapabilities))
+        #expect(diagnostic.missingCapabilities.contains("topology-resume-v1"))
+        #expect(diagnostic.upgradeAction == .updateCmux)
         #expect(sequence.remainingCount() == 1)
         #expect(await transport.isClosed())
         #expect(!(await unusedValidTransport.isClosed()))

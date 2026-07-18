@@ -2715,6 +2715,9 @@ final class BrowserPanel: Panel, ObservableObject {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
 
+    /// Distinguishes local WKWebView overlays from verified daemon content.
+    let endpointProvenance: BrowserPanelEndpointProvenance
+
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
@@ -3968,7 +3971,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     init(
+        id: UUID = UUID(),
         workspaceId: UUID,
+        endpointProvenance: BrowserPanelEndpointProvenance = .clientOverlay,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
@@ -3985,7 +3990,14 @@ final class BrowserPanel: Panel, ObservableObject {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
-        self.id = UUID()
+        if case .backend(let endpoint) = endpointProvenance {
+            precondition(
+                endpoint.surfaceID.rawValue == id,
+                "backend browser panel ID must equal its canonical SurfaceID"
+            )
+        }
+        self.id = id
+        self.endpointProvenance = endpointProvenance
         self.workspaceId = workspaceId
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
@@ -4843,6 +4855,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
+        guard endpointProvenance == .clientOverlay else {
+            // cmuxd owns canonical browser placement and runtime identity. A
+            // local session snapshot must never recreate it as a WKWebView.
+            return false
+        }
         // Diff viewer surfaces are otherwise treated as temporary. Persist them
         // only when they can actually be restored via the custom scheme (a
         // local-only, non-pending manifest); otherwise persisting would leave a

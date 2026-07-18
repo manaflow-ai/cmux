@@ -24,10 +24,13 @@ public actor RendererWorkerRuntime {
         let engine: any RendererPresentationEngine
         var inFlight: [UInt64: RendererFrameLease] = [:]
         var renderPending = false
+        // The daemon attaches only visible presentations and removes them on
+        // visibility loss. Retired records remain solely to release leases.
         var acceptsScenes = true
         var didPublishMetrics = false
         var lastCanonicalSequence: UInt64 = 0
         var lastPresentationSequence: UInt64 = 0
+        var animationCancellation: (any RendererAnimationCancellation)?
 
         init(
             attachment: RendererPresentationAttachment,
@@ -36,24 +39,34 @@ public actor RendererWorkerRuntime {
             self.attachment = attachment
             self.engine = engine
         }
+
+        func cancelAnimation() {
+            animationCancellation?.cancel()
+            animationCancellation = nil
+        }
     }
 
     private let expectation: RendererWorkerExpectation
     private let ready: RendererWorkerReady
     private let engineFactory: any RendererPresentationEngineFactory
+    private let animationScheduler: any RendererAnimationScheduling
     private var phase = Phase.awaitingBootstrap
     private var records: [PresentationLifetime: PresentationRecord] = [:]
     private var currentLifetimes: [UUID: PresentationLifetime] = [:]
     private var highestGenerations: [UUID: UInt64] = [:]
+    private var asynchronousFailure: RendererWorkerRuntimeError?
 
     public init(
         expectation: RendererWorkerExpectation,
         ready: RendererWorkerReady,
-        engineFactory: any RendererPresentationEngineFactory
+        engineFactory: any RendererPresentationEngineFactory,
+        animationScheduler: any RendererAnimationScheduling =
+            RendererDisplayAnimationScheduler()
     ) {
         self.expectation = expectation
         self.ready = ready
         self.engineFactory = engineFactory
+        self.animationScheduler = animationScheduler
     }
 
     /// Applies one already-framed daemon command and fails closed on violations.
@@ -83,6 +96,10 @@ public actor RendererWorkerRuntime {
     private func handleValidated(
         _ message: RendererControlMessage
     ) async throws -> RendererWorkerRuntimeResult {
+        if let asynchronousFailure {
+            self.asynchronousFailure = nil
+            throw asynchronousFailure
+        }
         switch phase {
         case .awaitingBootstrap:
             guard case let .bootstrap(bootstrap) = message else {
@@ -149,6 +166,7 @@ public actor RendererWorkerRuntime {
                 throw RendererWorkerRuntimeError.invalidPresentation
             }
             record.acceptsScenes = false
+            record.cancelAnimation()
             currentLifetimes.removeValue(forKey: attachment.presentationID)
             try await reapIfUnused(previous)
         }
@@ -189,6 +207,7 @@ public actor RendererWorkerRuntime {
             throw RendererWorkerRuntimeError.unknownPresentation
         }
         record.acceptsScenes = false
+        record.cancelAnimation()
         currentLifetimes.removeValue(forKey: removal.presentationID)
         try await reapIfUnused(lifetime)
     }
@@ -258,6 +277,7 @@ public actor RendererWorkerRuntime {
             )), at: 0)
             record.didPublishMetrics = true
         }
+        try synchronizeAnimation(lifetime: lifetime, record: record)
         return replies
     }
 
@@ -299,8 +319,11 @@ public actor RendererWorkerRuntime {
             return []
         }
         if record.renderPending {
-            return try await renderAndPublish(record, bootstrap: bootstrap)
+            let replies = try await renderAndPublish(record, bootstrap: bootstrap)
+            try synchronizeAnimation(lifetime: lifetime, record: record)
+            return replies
         }
+        try synchronizeAnimation(lifetime: lifetime, record: record)
         return []
     }
 
@@ -388,10 +411,54 @@ public actor RendererWorkerRuntime {
         ))
     }
 
+    private func synchronizeAnimation(
+        lifetime: PresentationLifetime,
+        record: PresentationRecord
+    ) throws {
+        guard record.acceptsScenes,
+              record.inFlight.count < Self.maximumLeasesPerPresentation,
+              !record.renderPending,
+              try record.engine.shouldAnimate(visible: record.acceptsScenes) else {
+            record.cancelAnimation()
+            return
+        }
+        guard record.animationCancellation == nil else { return }
+        record.animationCancellation = animationScheduler.schedule { [weak self] in
+            await self?.animationTick(lifetime: lifetime)
+        }
+    }
+
+    private func animationTick(lifetime: PresentationLifetime) async {
+        guard case let .active(bootstrap) = phase,
+              currentLifetimes[lifetime.id] == lifetime,
+              let record = records[lifetime],
+              record.acceptsScenes else {
+            records[lifetime]?.cancelAnimation()
+            return
+        }
+        record.animationCancellation = nil
+        do {
+            guard record.inFlight.count < Self.maximumLeasesPerPresentation,
+                  !record.renderPending,
+                  try record.engine.shouldAnimate(visible: record.acceptsScenes) else {
+                return
+            }
+            _ = try await renderAndPublish(record, bootstrap: bootstrap)
+            try synchronizeAnimation(lifetime: lifetime, record: record)
+        } catch {
+            record.cancelAnimation()
+            asynchronousFailure = normalize(error)
+            for value in records.values {
+                value.cancelAnimation()
+            }
+        }
+    }
+
     private func reapIfUnused(_ lifetime: PresentationLifetime) async throws {
         guard let record = records[lifetime],
               !record.acceptsScenes,
               record.inFlight.isEmpty else { return }
+        record.cancelAnimation()
         do {
             try await record.engine.close()
         } catch {
@@ -402,6 +469,7 @@ public actor RendererWorkerRuntime {
 
     private func terminateResources() async {
         for record in records.values {
+            record.cancelAnimation()
             for lease in record.inFlight.values {
                 try? record.engine.release(lease: lease)
             }

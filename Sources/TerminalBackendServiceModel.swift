@@ -1,4 +1,5 @@
 import CmuxTerminalBackendService
+import CmuxTerminalBackend
 import Foundation
 import Observation
 
@@ -12,6 +13,7 @@ final class TerminalBackendServiceModel {
 
     private(set) var state: BackendServiceRuntimeState
     private(set) var topologyFailureMessage: String?
+    private(set) var compatibility: BackendCompatibilityResult?
 
     init(coordinator: BackendServiceBootstrapCoordinator) {
         self.coordinator = coordinator
@@ -19,6 +21,12 @@ final class TerminalBackendServiceModel {
     }
 
     var guidanceMenuTitle: String? {
+        if compatibility?.readOnlyDiagnostic != nil {
+            return String(
+                localized: "terminalBackend.status.updateRequired",
+                defaultValue: "Terminal backend update required"
+            )
+        }
         if topologyFailureMessage != nil {
             return String(
                 localized: "terminalBackend.status.topologyUnavailable",
@@ -42,6 +50,22 @@ final class TerminalBackendServiceModel {
     }
 
     var guidanceMessage: String? {
+        if let diagnostic = compatibility?.readOnlyDiagnostic {
+            let missing = diagnostic.missingCapabilities.sorted().joined(separator: ", ")
+            let detail = missing.isEmpty
+                ? String(
+                    localized: "terminalBackend.guidance.protocolVersion",
+                    defaultValue: "protocol version"
+                )
+                : missing
+            return String(
+                format: String(
+                    localized: "terminalBackend.guidance.updateRequired",
+                    defaultValue: "This cmux build cannot safely control the terminal backend. Update cmux before editing terminals. Missing capabilities: %@"
+                ),
+                detail
+            )
+        }
         if let topologyFailureMessage {
             return topologyFailureMessage
         }
@@ -85,6 +109,15 @@ final class TerminalBackendServiceModel {
         state == .requiresApproval
     }
 
+    var canCheckForCompatibilityUpdate: Bool {
+        compatibility?.readOnlyDiagnostic?.upgradeAction == .updateCmux
+    }
+
+    var compatibilityUpdateTitle: String {
+        compatibility?.readOnlyDiagnostic?.upgradeAction.localizedTitle
+            ?? BackendCompatibilityUpgradeAction.updateCmux.localizedTitle
+    }
+
     var openSystemSettingsTitle: String {
         String(
             localized: "terminalBackend.action.openLoginItems",
@@ -117,6 +150,10 @@ final class TerminalBackendServiceModel {
 
     func reportTopologyFailure(_ message: String?) {
         topologyFailureMessage = message
+    }
+
+    func reportCompatibility(_ compatibility: BackendCompatibilityResult?) {
+        self.compatibility = compatibility
     }
 
     func openSystemSettingsLoginItems() {

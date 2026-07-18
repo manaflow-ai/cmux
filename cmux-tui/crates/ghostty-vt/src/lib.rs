@@ -21,12 +21,14 @@ pub use render::{
     RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
 pub use scene::{
-    EncodedRenderScene, RenderSceneEncoder, RenderSceneError, RenderSceneLimits,
-    RenderSceneOptions, SceneSectionKind,
+    EncodedRenderScene, RenderSceneEncoder, RenderSceneError, RenderSceneHighlight,
+    RenderSceneHighlightKind, RenderSceneLimits, RenderSceneOptions, RenderScenePreedit,
+    SceneSectionKind,
 };
 pub use terminal::{
     Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, SearchSelection, SelectionAdjustment,
-    SelectionPoint, SelectionSnapshot, Terminal, parse_color, parse_palette_entry,
+    SelectionPoint, SelectionRangeSnapshot, SelectionSnapshot, Terminal, parse_color,
+    parse_palette_entry,
 };
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {

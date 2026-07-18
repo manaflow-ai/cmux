@@ -9,7 +9,7 @@ Implemented event lines can appear on two stream types:
 | Stream | How to start | Event names |
 | --- | --- | --- |
 | Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `renderer-config-invalidated`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `empty`, `overflow` |
-| Canonical topology stream v8 | `subscribe-topology` command | `topology-delta`, `topology-resnapshot-required` |
+| Canonical topology stream v8 | `subscribe-topology` command | `topology-delta`, `topology-resnapshot-required`; registered v9 readers also receive `terminal-activity` and their own `terminal-activity-receipt` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -23,6 +23,8 @@ Every entity-scoped event carries its subject id in the field named below. Tree 
 Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. The table's canonical protocol-v7 subscribe and attach event-name sets are otherwise disjoint: an attach stream never emits tree/client/global events, and a v7 subscribe stream never emits render, byte, or attach-viewport events. The wire-compatibility exception is `scroll-changed`: protocol v6 already delivers that attach event name to legacy subscribe consumers. That legacy delivery is retained and recorded in the compatibility column; event instances remain ordered within the registration that produced them.
 
 Protocol-v8 topology events belong only to the `subscribe-topology` registration. They contain canonical workspace structure and stable UUID subjects, excluding presentations and dynamic terminal, notification, agent, PTY, and render state. Legacy focus, selection, zoom, and `subscribe` behavior is unchanged and does not advance the structural topology revision.
+
+With `terminal-activity-v1`, a registered protocol-v9 topology subscription also receives persisted `terminal-activity` facts and receipt events only for its registered reader UUID. `terminal-activity` has `surface_uuid`, `sequence`, `kind`, notification id, and level. `terminal-activity-receipt` has `reader_uuid`, `surface_uuid`, and `seen_sequence`. The daemon persists each value before emitting it. Overflow closes the connection, and the client recovers with a new activity snapshot.
 
 | Event | Stream | Subject field | Since/compatibility |
 | --- | --- | --- | --- |

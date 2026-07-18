@@ -7533,6 +7533,7 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions,
+        SurfaceUuid,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -10668,6 +10669,7 @@ mod tests {
     fn browser_completion_tree(created_surface: SurfaceId, active_surface: SurfaceId) -> TreeView {
         let tab = |surface| TabView {
             surface,
+            surface_uuid: SurfaceUuid::new(),
             short_id: format!("{surface:06}"),
             name: None,
             title: String::new(),
@@ -10894,6 +10896,7 @@ mod tests {
                         active_tab: 0,
                         tabs: vec![TabView {
                             surface,
+                            surface_uuid: SurfaceUuid::new(),
                             short_id: "000001".to_string(),
                             name: Some("tab".to_string()),
                             title: "shell".to_string(),

@@ -23,6 +23,9 @@ public struct BackendServiceReadiness: Equatable, Sendable {
     /// The canonical topology revision observed by the readiness snapshot.
     public let topologyRevision: UInt64
 
+    /// Explicit mutation authority negotiated by the identify-first probe.
+    public let compatibility: BackendCompatibilityResult
+
     /// Creates a readiness proof from one successful kernel and protocol handshake.
     ///
     /// - Parameters:
@@ -32,6 +35,7 @@ public struct BackendServiceReadiness: Equatable, Sendable {
     ///   - userID: The kernel-verified daemon effective user identifier.
     ///   - peerTrust: The verified code identity and live executable path.
     ///   - topologyRevision: The canonical topology revision observed by the probe.
+    ///   - compatibility: The identify-first compatibility result.
     public init(
         authority: BackendAuthority,
         session: String,
@@ -39,7 +43,8 @@ public struct BackendServiceReadiness: Equatable, Sendable {
         userID: UInt32,
         peerIdentity: BackendPeerIdentity,
         peerTrust: BackendPeerTrustEvidence,
-        topologyRevision: UInt64
+        topologyRevision: UInt64,
+        compatibility: BackendCompatibilityResult
     ) {
         self.authority = authority
         self.session = session
@@ -48,5 +53,6 @@ public struct BackendServiceReadiness: Equatable, Sendable {
         self.peerIdentity = peerIdentity
         self.peerTrust = peerTrust
         self.topologyRevision = topologyRevision
+        self.compatibility = compatibility
     }
 }

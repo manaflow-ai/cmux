@@ -206,6 +206,7 @@ dependencies = [
  "smallvec",
  "toml",
  "unicode-width",
+ "uuid",
 ]
 
 [[package]]
@@ -233,6 +234,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2",
  "tungstenite",
  "uds_windows",
  "uuid",

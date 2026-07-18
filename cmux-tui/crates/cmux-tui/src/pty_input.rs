@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use cmux_tui_core::{SurfaceId, SurfaceKind};
 use smallvec::SmallVec;
+use uuid::Uuid;
 
 use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failure};
 
@@ -57,7 +58,9 @@ pub struct PtyInputEvent {
     coalesce_key: Option<(&'static str, u64)>,
     remote: bool,
     reservation_id: Option<u64>,
-    remote_release_attempts: u8,
+    request_id: Uuid,
+    input_group: Option<(Uuid, u32, bool)>,
+    remote_attempts: u8,
 }
 
 impl PtyInputEvent {
@@ -68,6 +71,9 @@ impl PtyInputEvent {
         kind: PtyInputKind,
     ) -> Self {
         let remote = surface.is_remote();
+        let input_group =
+            matches!(kind, PtyInputKind::Press | PtyInputKind::Motion | PtyInputKind::Release)
+                .then(|| (Uuid::new_v4(), 0, true));
         Self {
             surface_id,
             surface,
@@ -80,7 +86,9 @@ impl PtyInputEvent {
             coalesce_key: None,
             remote,
             reservation_id: None,
-            remote_release_attempts: 0,
+            request_id: Uuid::new_v4(),
+            input_group,
+            remote_attempts: 0,
         }
     }
 
@@ -125,7 +133,9 @@ impl PtyInputEvent {
             coalesce_key,
             remote,
             reservation_id: None,
-            remote_release_attempts: 0,
+            request_id: Uuid::new_v4(),
+            input_group: None,
+            remote_attempts: 0,
         }
     }
 }
@@ -195,10 +205,12 @@ impl ReleaseReservations {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct InFlightInput {
     surface_id: SurfaceId,
     kind: PtyInputKind,
+    request_id: Uuid,
+    bytes: PtyInputBytes,
 }
 
 #[derive(Default)]
@@ -601,8 +613,12 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                 return;
             }
             let event = state.events.pop_front().unwrap();
-            state.in_flight =
-                Some(InFlightInput { surface_id: event.surface_id, kind: event.kind });
+            state.in_flight = Some(InFlightInput {
+                surface_id: event.surface_id,
+                kind: event.kind,
+                request_id: event.request_id,
+                bytes: event.bytes.clone(),
+            });
             state.queued_bytes = state.queued_bytes.saturating_sub(event.bytes.len());
             event
         };
@@ -610,14 +626,14 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         let surface_id = kind.map(|_| event.surface_id);
         let remote = event.remote;
         let reservation_id = event.reservation_id;
-        if remote && event.kind == PtyInputKind::Release {
-            event.remote_release_attempts = event.remote_release_attempts.saturating_add(1);
+        if remote && event.kind != PtyInputKind::Mutation {
+            event.remote_attempts = event.remote_attempts.saturating_add(1);
         }
         let after_operation = event.after_operation.take();
         let result = if let Some(operation) = event.mutation.take() {
             operation()
         } else {
-            event.surface.write_bytes(&event.bytes)
+            event.surface.write_bytes_request(&event.bytes, event.request_id, event.input_group)
         };
         #[cfg(test)]
         let before_cleanup = queue.after_operation_before_cleanup.lock().unwrap().clone();
@@ -635,24 +651,24 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         let known_not_delivered =
             remote_transport_failed || (!remote && event.surface.kind() == SurfaceKind::Browser);
         let suppress_mutation_timeout = remote_timed_out && event.kind == PtyInputKind::Mutation;
-        let ambiguous_release = remote_timed_out && event.kind == PtyInputKind::Release;
-        let retry_ambiguous_release =
-            ambiguous_release && event.remote_release_attempts < REMOTE_RELEASE_MAX_ATTEMPTS;
-        let exhausted_ambiguous_release = ambiguous_release && !retry_ambiguous_release;
+        let ambiguous_input = remote_timed_out && event.kind != PtyInputKind::Mutation;
+        let retry_ambiguous_input =
+            ambiguous_input && event.remote_attempts < REMOTE_RELEASE_MAX_ATTEMPTS;
+        let exhausted_ambiguous_input = ambiguous_input && !retry_ambiguous_input;
         let failure = result.err().and_then(|error| {
-            (!suppress_mutation_timeout && !retry_ambiguous_release).then(|| PtyOperationFailure {
+            (!suppress_mutation_timeout && !retry_ambiguous_input).then(|| PtyOperationFailure {
                 surface_id,
                 kind,
                 reservation_id,
                 label: event.label,
-                error: if exhausted_ambiguous_release {
+                error: if exhausted_ambiguous_input {
                     format!(
-                        "mouse release timed out after {REMOTE_RELEASE_MAX_ATTEMPTS} attempts; detach and reconnect before sending more input"
+                        "terminal request timed out after {REMOTE_RELEASE_MAX_ATTEMPTS} receipt-recovery attempts; detach and reconnect before sending more input"
                     )
                 } else {
                     error.to_string()
                 },
-                lane_failed: remote_transport_failed || exhausted_ambiguous_release,
+                lane_failed: remote_transport_failed || exhausted_ambiguous_input,
                 delivery: if known_not_delivered {
                     PtyOperationDelivery::KnownNotDelivered
                 } else {
@@ -670,7 +686,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         {
             state.release_reservations.outstanding.remove(&reservation_id);
         }
-        if remote_transport_failed || exhausted_ambiguous_release {
+        if remote_transport_failed || exhausted_ambiguous_input {
             // One dispatcher belongs to one local or remote App session. A
             // A failed socket write means every queued remote request shares
             // the same dead transport, so cancel the backlog immediately.
@@ -680,8 +696,9 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                 kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
                 reservation_id: event.reservation_id,
                 label: event.label,
-                error: if exhausted_ambiguous_release {
-                    "canceled after mouse release recovery timed out; detach and reconnect".into()
+                error: if exhausted_ambiguous_input {
+                    "canceled after terminal receipt recovery timed out; detach and reconnect"
+                        .into()
                 } else {
                     "canceled after the remote transport failed".into()
                 },
@@ -691,17 +708,17 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             state.queued_bytes = 0;
             state.release_reservations.clear();
         } else if remote_timed_out {
-            // A timeout does not prove the socket is dead. Drop stale queued
-            // work so one stalled request cannot multiply into minutes of
-            // latency, but retain releases that may balance a press already
-            // executed by the remote server.
-            if retry_ambiguous_release && (!state.closed || state.shutdown_release_drain) {
-                requeue_ambiguous_release(&mut state, event);
+            // The event retains its stable request UUID and payload until a
+            // definitive receipt. A retry first queries terminal-request-status
+            // and therefore cannot duplicate an already-applied PTY write.
+            if retry_ambiguous_input && (!state.closed || state.shutdown_release_drain) {
+                requeue_ambiguous_input(&mut state, event);
+            } else {
+                canceled.extend(prune_to_recovery_releases(
+                    &mut state,
+                    "canceled after a remote request timed out",
+                ));
             }
-            canceled.extend(prune_to_recovery_releases(
-                &mut state,
-                "canceled after a remote request timed out",
-            ));
         }
         state.in_flight = None;
         queue.changed.notify_all();
@@ -720,8 +737,8 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
     }
 }
 
-fn requeue_ambiguous_release(state: &mut QueueState, event: PtyInputEvent) {
-    debug_assert_eq!(event.kind, PtyInputKind::Release);
+fn requeue_ambiguous_input(state: &mut QueueState, event: PtyInputEvent) {
+    debug_assert_ne!(event.kind, PtyInputKind::Mutation);
     state.queued_bytes += event.bytes.len();
     state.events.push_front(event);
 }
@@ -1164,7 +1181,12 @@ mod tests {
             }));
             state.events.push_back(release);
             state.queued_bytes = 2;
-            state.in_flight = Some(InFlightInput { surface_id: 2, kind: PtyInputKind::Ordered });
+            state.in_flight = Some(InFlightInput {
+                surface_id: 2,
+                kind: PtyInputKind::Ordered,
+                request_id: Uuid::new_v4(),
+                bytes: PtyInputBytes::new(),
+            });
         }
         let mut dispatcher = PtyInputDispatcher {
             sender: PtyInputSender { queue: queue.clone(), on_failure: Arc::new(|_| {}) },
@@ -1273,7 +1295,12 @@ mod tests {
             let mut state = queue.state.lock().unwrap();
             state.events.push_back(event(1, 1, PtyInputKind::Ordered));
             state.queued_bytes = 1;
-            state.in_flight = Some(InFlightInput { surface_id: 1, kind: PtyInputKind::Ordered });
+            state.in_flight = Some(InFlightInput {
+                surface_id: 1,
+                kind: PtyInputKind::Ordered,
+                request_id: Uuid::new_v4(),
+                bytes: PtyInputBytes::new(),
+            });
         }
         let mut dispatcher = PtyInputDispatcher {
             sender: PtyInputSender { queue: queue.clone(), on_failure: Arc::new(|_| {}) },
@@ -1416,7 +1443,7 @@ mod tests {
         let mut release = event(7, 3, PtyInputKind::Release);
         release.reservation_id = Some(11);
 
-        requeue_ambiguous_release(&mut state, release);
+        requeue_ambiguous_input(&mut state, release);
 
         assert_eq!(state.queued_bytes, 1);
         assert_eq!(state.events.len(), 1);

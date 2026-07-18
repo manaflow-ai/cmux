@@ -2491,7 +2491,7 @@ class GhosttyApp {
     }
 
     @MainActor
-    private static func openEmbeddedBrowserLink(
+    fileprivate static func openEmbeddedBrowserLink(
         url: URL,
         sourceWorkspaceId: UUID,
         sourcePanelId: UUID,
@@ -3325,6 +3325,184 @@ extension TerminalSurface {
 
 // MARK: - Ghostty Surface View
 
+struct TerminalAccessibilityTextModel {
+    struct CellMapping: Equatable {
+        let row: UInt64
+        let column: Int
+        let columnSpan: Int
+        let range: NSRange
+    }
+
+    let snapshot: TerminalAccessibilitySnapshot
+
+    var utf16Length: Int { (snapshot.text as NSString).length }
+
+    var selectedRanges: [NSRange] {
+        snapshot.selections.flatMap(\.utf16Ranges).map(\.nsRange)
+    }
+
+    var selectedRange: NSRange {
+        Self.union(selectedRanges)
+            ?? snapshot.cursor?.insertionRange.nsRange
+            ?? NSRange(location: 0, length: 0)
+    }
+
+    func string(for range: NSRange) -> String? {
+        let text = snapshot.text as NSString
+        guard Self.isValid(range, maximum: text.length) else { return nil }
+        return text.substring(with: range)
+    }
+
+    func line(for index: Int) -> Int {
+        guard index >= 0, index <= utf16Length else { return NSNotFound }
+        for (lineIndex, _) in snapshot.lines.enumerated() {
+            let nextStart = snapshot.lines.indices.contains(lineIndex + 1)
+                ? snapshot.lines[lineIndex + 1].utf16Range.location
+                : utf16Length + 1
+            if index < nextStart { return lineIndex }
+        }
+        return max(snapshot.lines.count - 1, 0)
+    }
+
+    func range(forLine line: Int) -> NSRange {
+        guard snapshot.lines.indices.contains(line) else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        return snapshot.lines[line].utf16Range.nsRange
+    }
+
+    func composedRange(for index: Int) -> NSRange {
+        let text = snapshot.text as NSString
+        guard index >= 0, index < text.length else {
+            return index == text.length
+                ? NSRange(location: index, length: 0)
+                : NSRange(location: NSNotFound, length: 0)
+        }
+        return text.rangeOfComposedCharacterSequence(at: index)
+    }
+
+    func range(viewportRow: Int, column: Int) -> NSRange? {
+        guard viewportRow >= 0, viewportRow < snapshot.rows,
+              column >= 0, column < snapshot.columns else { return nil }
+        let rowResult = snapshot.viewportOffset.addingReportingOverflow(UInt64(viewportRow))
+        guard !rowResult.overflow,
+              let line = snapshot.lines.first(where: { $0.row == rowResult.partialValue }),
+              let cell = line.cells.first(where: {
+                column >= $0.column && column < $0.column + max($0.columnSpan, 1)
+              }) else { return nil }
+        return cell.utf16Range.nsRange
+    }
+
+    func cells(intersecting range: NSRange) -> [CellMapping] {
+        guard Self.isValid(range, maximum: utf16Length) else { return [] }
+        let rangeEnd = range.location + range.length
+        var result: [CellMapping] = []
+        for line in snapshot.lines {
+            for cell in line.cells {
+                let cellRange = cell.utf16Range.nsRange
+                let cellEnd = cellRange.location + cellRange.length
+                let intersects = range.length == 0
+                    ? range.location >= cellRange.location && range.location <= cellEnd
+                    : range.location < cellEnd && rangeEnd > cellRange.location
+                guard intersects else { continue }
+                result.append(CellMapping(
+                    row: line.row,
+                    column: cell.column,
+                    columnSpan: cell.columnSpan,
+                    range: cellRange
+                ))
+                if range.length == 0 { return result }
+            }
+        }
+        return result
+    }
+
+    static func isValid(_ range: NSRange, maximum: Int) -> Bool {
+        range.location != NSNotFound
+            && range.location <= maximum
+            && range.length <= maximum - range.location
+    }
+
+    static func union(_ ranges: [NSRange]) -> NSRange? {
+        guard let first = ranges.first else { return nil }
+        var lower = first.location
+        var upper = first.location + first.length
+        for range in ranges.dropFirst() {
+            lower = min(lower, range.location)
+            upper = max(upper, range.location + range.length)
+        }
+        return NSRange(location: lower, length: upper - lower)
+    }
+}
+
+enum TerminalAccessibilityGeometry {
+    static func unflippedCellY(
+        boundsHeight: Double,
+        yInset: Double,
+        cellHeight: Double,
+        viewportRow: Int
+    ) -> Double {
+        boundsHeight - yInset - (Double(viewportRow + 1) * cellHeight)
+    }
+
+    static func unflippedViewportRow(
+        localY: Double,
+        boundsHeight: Double,
+        yInset: Double,
+        cellHeight: Double
+    ) -> Int {
+        Int(floor((boundsHeight - localY - yInset) / cellHeight))
+    }
+}
+
+private extension TerminalAccessibilityRange {
+    var nsRange: NSRange {
+        NSRange(location: location, length: length)
+    }
+}
+
+@MainActor
+private final class TerminalAccessibilityLinkElement: NSAccessibilityElement {
+    private weak var owner: GhosttyNSView?
+    fileprivate let link: TerminalAccessibilityLink
+    fileprivate let snapshot: TerminalAccessibilitySnapshot
+
+    init(
+        owner: GhosttyNSView,
+        link: TerminalAccessibilityLink,
+        snapshot: TerminalAccessibilitySnapshot
+    ) {
+        self.owner = owner
+        self.link = link
+        self.snapshot = snapshot
+        super.init()
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .link }
+
+    override func accessibilityLabel() -> String? {
+        owner?.accessibilityString(for: link.utf16Range.nsRange) ?? link.target
+    }
+
+    override func accessibilityValue() -> Any? { link.target }
+
+    override func accessibilityIdentifier() -> String? { link.id }
+
+    override func accessibilityParent() -> Any? { owner }
+
+    override func accessibilityFrame() -> NSRect {
+        owner?.accessibilityFrame(for: link.utf16Range.nsRange) ?? .zero
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let owner else { return false }
+        owner.activateAccessibilityLink(link, snapshot: snapshot)
+        return true
+    }
+}
+
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
@@ -3401,6 +3579,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _renderedFrameLock = NSLock()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
+    private weak var accessibilityObservedSurface: TerminalSurface?
+    private var accessibilitySnapshotTask: Task<Void, Never>?
+    private var accessibilityObservedSnapshot: TerminalAccessibilitySnapshot?
+    private var accessibilityLinkElements: [TerminalAccessibilityLinkElement] = []
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
@@ -3533,6 +3715,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
+    var renderOwnership: TerminalSurfaceRenderOwnership { .embeddedGhostty }
     var tabId: UUID?
     var selectionTranslationHostView: NSView?
     var onFocus: (() -> Void)?
@@ -3604,6 +3787,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
     private var hasPendingLeftMouseRelease = false
+    private var externalLeftMouseDragged = false
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -3803,6 +3987,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
         }
         if !isSameSurface {
+            stopExternalAccessibilityObservation()
             appliedColorScheme = nil
             // Reset any OSC 22 mouse shape carried over from the previous surface.
             updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
@@ -4106,7 +4291,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         layer?.contentsScale = layerScale
         layer?.masksToBounds = true
-        if let metalLayer = layer as? CAMetalLayer {
+        if renderOwnership == .externalCompositor {
+            // The backend compositor owns the only Metal layer for this
+            // presentation. Keep sending geometry updates, but never wait for
+            // an embedded Ghostty layer to materialize beneath this host.
+            deferredSurfaceSizeNonMetalRetryCount = 0
+            needsSurfaceSizeRetryAfterMetalLayerRealizes = false
+        } else if let metalLayer = layer as? CAMetalLayer {
             deferredSurfaceSizeNonMetalRetryCount = 0
             needsSurfaceSizeRetryAfterMetalLayerRealizes = false
             if drawablePixelSize != lastDrawableSize || metalLayer.drawableSize != drawablePixelSize {
@@ -4153,6 +4344,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func debugPendingSurfaceSize() -> CGSize? { pendingSurfaceSize }
     func debugLastDrawableSizeForTesting() -> CGSize { lastDrawableSize }
     func debugDeferredSurfaceSizeRetryQueuedForTesting() -> Bool { deferredSurfaceSizeRetryQueued }
+    func debugDeferredSurfaceSizeNonMetalRetryCountForTesting() -> Int {
+        deferredSurfaceSizeNonMetalRetryCount
+    }
+    func debugNeedsSurfaceSizeRetryAfterMetalLayerRealizesForTesting() -> Bool {
+        needsSurfaceSizeRetryAfterMetalLayerRealizes
+    }
     @discardableResult func debugUpdateSurfaceSizeForTesting(_ size: CGSize) -> Bool { updateSurfaceSize(size: size) }
 #endif
 
@@ -5341,14 +5538,96 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func accessibilityHelp() -> String? {
-        "Terminal content area"
+        String(
+            localized: "accessibility.terminalContentArea",
+            defaultValue: "Terminal content area"
+        )
     }
 
     override func accessibilityValue() -> Any? {
-        // We don't keep a full terminal text snapshot in this layer.
-        // Expose selected text when available; otherwise provide an empty value
-        // so AX clients still treat this as an editable text area.
-        accessibilitySelectedText() ?? ""
+        if let snapshot = externalAccessibilitySnapshot() {
+            return snapshot.text
+        }
+        return accessibilitySelectedText() ?? ""
+    }
+
+    private func ensureExternalAccessibilityObservation() {
+        guard let requestedSurface = terminalSurface,
+              requestedSurface.isExternallyManaged else {
+            stopExternalAccessibilityObservation()
+            return
+        }
+        guard accessibilityObservedSurface !== requestedSurface
+                || accessibilitySnapshotTask == nil else { return }
+
+        stopExternalAccessibilityObservation()
+        accessibilityObservedSurface = requestedSurface
+        requestedSurface.enableExternalAccessibility()
+        if let initial = requestedSurface.externalRuntimeSnapshot?.accessibility {
+            installExternalAccessibilitySnapshot(initial, postNotifications: false)
+        }
+        let snapshots = requestedSurface.externalAccessibilitySnapshots()
+        accessibilitySnapshotTask = Task { @MainActor [weak self, weak requestedSurface] in
+            for await snapshot in snapshots {
+                guard let self, let requestedSurface,
+                      !Task.isCancelled,
+                      self.terminalSurface === requestedSurface else { return }
+                self.installExternalAccessibilitySnapshot(snapshot, postNotifications: true)
+            }
+        }
+    }
+
+    private func stopExternalAccessibilityObservation() {
+        accessibilitySnapshotTask?.cancel()
+        accessibilitySnapshotTask = nil
+        accessibilityObservedSurface = nil
+        accessibilityObservedSnapshot = nil
+        accessibilityLinkElements.removeAll()
+    }
+
+    private func externalAccessibilitySnapshot() -> TerminalAccessibilitySnapshot? {
+        guard terminalSurface?.isExternallyManaged == true else { return nil }
+        ensureExternalAccessibilityObservation()
+        guard let snapshot = terminalSurface?.externalRuntimeSnapshot?.accessibility else {
+            return nil
+        }
+        installExternalAccessibilitySnapshot(snapshot, postNotifications: false)
+        return snapshot
+    }
+
+    private func installExternalAccessibilitySnapshot(
+        _ snapshot: TerminalAccessibilitySnapshot,
+        postNotifications: Bool
+    ) {
+        guard let terminalSurface,
+              terminalSurface.isExternallyManaged,
+              snapshot.surfaceID == terminalSurface.id else { return }
+        let previous = accessibilityObservedSnapshot
+        let sameRevision = previous.map {
+            $0.presentationID == snapshot.presentationID
+                && $0.presentationGeneration == snapshot.presentationGeneration
+                && $0.terminalRevision == snapshot.terminalRevision
+                && $0.contentRevision == snapshot.contentRevision
+                && $0.viewportRevision == snapshot.viewportRevision
+        } ?? false
+        guard !sameRevision else { return }
+
+        accessibilityObservedSnapshot = snapshot
+        accessibilityLinkElements = snapshot.links.map {
+            TerminalAccessibilityLinkElement(owner: self, link: $0, snapshot: snapshot)
+        }
+        guard postNotifications else { return }
+        NSAccessibility.post(element: self, notification: .valueChanged)
+        if previous?.selections != snapshot.selections || previous?.cursor != snapshot.cursor {
+            NSAccessibility.post(element: self, notification: .selectedTextChanged)
+        }
+        if previous?.focused != snapshot.focused {
+            let focusedElement: Any = snapshot.focused ? self : (window?.firstResponder ?? self)
+            NSAccessibility.post(
+                element: focusedElement,
+                notification: .focusedUIElementChanged
+            )
+        }
     }
 
     override func setAccessibilityValue(_ value: Any?) {
@@ -5387,12 +5666,280 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
-        selectedRange()
+        if let snapshot = externalAccessibilitySnapshot() {
+            return TerminalAccessibilityTextModel(snapshot: snapshot).selectedRange
+        }
+        return selectedRange()
     }
 
     override func accessibilitySelectedText() -> String? {
+        if let snapshot = externalAccessibilitySnapshot() {
+            let selected = snapshot.selections.first?.text ?? ""
+            return selected.isEmpty ? nil : selected
+        }
         guard let snapshot = readSelectionSnapshot() else { return nil }
         return snapshot.string.isEmpty ? nil : snapshot.string
+    }
+
+    override func accessibilitySelectedTextRanges() -> [NSValue]? {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilitySelectedTextRanges()
+        }
+        let ranges = TerminalAccessibilityTextModel(snapshot: snapshot).selectedRanges
+        if ranges.isEmpty, let insertion = snapshot.cursor?.insertionRange.nsRange {
+            return [NSValue(range: insertion)]
+        }
+        return ranges.map(NSValue.init(range:))
+    }
+
+    override func accessibilityNumberOfCharacters() -> Int {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilityNumberOfCharacters()
+        }
+        return TerminalAccessibilityTextModel(snapshot: snapshot).utf16Length
+    }
+
+    override func accessibilityVisibleCharacterRange() -> NSRange {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilityVisibleCharacterRange()
+        }
+        return NSRange(
+            location: 0,
+            length: TerminalAccessibilityTextModel(snapshot: snapshot).utf16Length
+        )
+    }
+
+    override func accessibilityInsertionPointLineNumber() -> Int {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilityInsertionPointLineNumber()
+        }
+        return snapshot.cursor?.line ?? 0
+    }
+
+    override func accessibilityString(for range: NSRange) -> String? {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilityString(for: range)
+        }
+        return TerminalAccessibilityTextModel(snapshot: snapshot).string(for: range)
+    }
+
+    override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilityAttributedString(for: range)
+        }
+        guard let text = TerminalAccessibilityTextModel(snapshot: snapshot).string(for: range) else {
+            return nil
+        }
+        return NSAttributedString(
+            string: text,
+            attributes: [
+                .font: NSFont.monospacedSystemFont(
+                    ofSize: NSFont.systemFontSize,
+                    weight: .regular
+                )
+            ]
+        )
+    }
+
+    override func accessibilityLine(for index: Int) -> Int {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilityLine(for: index)
+        }
+        return TerminalAccessibilityTextModel(snapshot: snapshot).line(for: index)
+    }
+
+    override func accessibilityRange(forLine line: Int) -> NSRange {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilityRange(forLine: line)
+        }
+        return TerminalAccessibilityTextModel(snapshot: snapshot).range(forLine: line)
+    }
+
+    override func accessibilityRange(for index: Int) -> NSRange {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilityRange(for: index)
+        }
+        return TerminalAccessibilityTextModel(snapshot: snapshot).composedRange(for: index)
+    }
+
+    override func accessibilityFrame(for range: NSRange) -> NSRect {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilityFrame(for: range)
+        }
+        return externalAccessibilityFrame(for: range, snapshot: snapshot) ?? .zero
+    }
+
+    override func accessibilityRange(for point: NSPoint) -> NSRange {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.accessibilityRange(for: point)
+        }
+        return externalAccessibilityRange(forScreenPoint: point, snapshot: snapshot)
+            ?? NSRange(location: NSNotFound, length: 0)
+    }
+
+    override func isAccessibilityFocused() -> Bool {
+        guard let snapshot = externalAccessibilitySnapshot() else {
+            return super.isAccessibilityFocused()
+        }
+        return snapshot.focused
+    }
+
+    override func setAccessibilityFocused(_ focused: Bool) {
+        guard terminalSurface?.isExternallyManaged == true else {
+            super.setAccessibilityFocused(focused)
+            return
+        }
+        guard focused else { return }
+        window?.makeFirstResponder(self)
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        guard externalAccessibilitySnapshot() != nil else {
+            return super.accessibilityChildren()
+        }
+        return accessibilityLinkElements
+    }
+
+    private func externalAccessibilityLayout(
+        snapshot: TerminalAccessibilitySnapshot
+    ) -> (cellWidth: Double, cellHeight: Double, xInset: Double, yInset: Double)? {
+        guard let metrics = terminalSurface?.externalRuntimeSnapshot?.cellMetrics,
+              metrics.columns == snapshot.columns,
+              metrics.rows == snapshot.rows,
+              metrics.columns > 0,
+              metrics.rows > 0,
+              metrics.cellWidthPixels > 0,
+              metrics.cellHeightPixels > 0 else { return nil }
+        let scale = max(metrics.backingScale, 1)
+        let cellWidth = Double(metrics.cellWidthPixels) / scale
+        let cellHeight = Double(metrics.cellHeightPixels) / scale
+        let terminalWidth = Double(metrics.columns) * cellWidth
+        let terminalHeight = Double(metrics.rows) * cellHeight
+        return (
+            cellWidth,
+            cellHeight,
+            max((Double(bounds.width) - terminalWidth) / 2, 0),
+            max((Double(bounds.height) - terminalHeight) / 2, 0)
+        )
+    }
+
+    private func externalAccessibilityCellRect(
+        row: UInt64,
+        column: Int,
+        columnSpan: Int,
+        snapshot: TerminalAccessibilitySnapshot
+    ) -> NSRect? {
+        guard let layout = externalAccessibilityLayout(snapshot: snapshot),
+              row >= snapshot.viewportOffset,
+              let viewportRow = Int(exactly: row - snapshot.viewportOffset),
+              viewportRow >= 0,
+              viewportRow < snapshot.rows,
+              column >= 0,
+              column < snapshot.columns else { return nil }
+        return NSRect(
+            x: layout.xInset + Double(column) * layout.cellWidth,
+            y: TerminalAccessibilityGeometry.unflippedCellY(
+                boundsHeight: Double(bounds.height),
+                yInset: layout.yInset,
+                cellHeight: layout.cellHeight,
+                viewportRow: viewportRow
+            ),
+            width: Double(max(columnSpan, 1)) * layout.cellWidth,
+            height: layout.cellHeight
+        )
+    }
+
+    private func externalAccessibilityFrame(
+        for range: NSRange,
+        snapshot: TerminalAccessibilitySnapshot
+    ) -> NSRect? {
+        let model = TerminalAccessibilityTextModel(snapshot: snapshot)
+        guard TerminalAccessibilityTextModel.isValid(range, maximum: model.utf16Length),
+              let window else { return nil }
+        var localFrame = NSRect.null
+
+        for cell in model.cells(intersecting: range) {
+            guard let rect = externalAccessibilityCellRect(
+                row: cell.row,
+                column: cell.column,
+                columnSpan: cell.columnSpan,
+                snapshot: snapshot
+            ) else { continue }
+            localFrame = localFrame.isNull ? rect : localFrame.union(rect)
+        }
+        guard !localFrame.isNull else { return nil }
+        return window.convertToScreen(convert(localFrame, to: nil))
+    }
+
+    private func externalAccessibilityRange(
+        forScreenPoint point: NSPoint,
+        snapshot: TerminalAccessibilitySnapshot
+    ) -> NSRange? {
+        guard let layout = externalAccessibilityLayout(snapshot: snapshot),
+              let window else { return nil }
+        let windowPoint = window.convertFromScreen(
+            NSRect(origin: point, size: .zero)
+        ).origin
+        let localPoint = convert(windowPoint, from: nil)
+        let column = Int(floor((Double(localPoint.x) - layout.xInset) / layout.cellWidth))
+        let viewportRow = TerminalAccessibilityGeometry.unflippedViewportRow(
+            localY: Double(localPoint.y),
+            boundsHeight: Double(bounds.height),
+            yInset: layout.yInset,
+            cellHeight: layout.cellHeight
+        )
+        guard column >= 0, column < snapshot.columns,
+              viewportRow >= 0, viewportRow < snapshot.rows else { return nil }
+        return TerminalAccessibilityTextModel(snapshot: snapshot).range(
+            viewportRow: viewportRow,
+            column: column
+        )
+    }
+
+    fileprivate func activateAccessibilityLink(
+        _ link: TerminalAccessibilityLink,
+        snapshot: TerminalAccessibilitySnapshot
+    ) {
+        guard let requestedSurface = terminalSurface,
+              requestedSurface.isExternallyManaged else { return }
+        Task { @MainActor [weak self, weak requestedSurface] in
+            guard let self, let requestedSurface,
+                  self.terminalSurface === requestedSurface,
+                  let validated = await requestedSurface.activateExternalAccessibilityLink(
+                    link,
+                    snapshot: snapshot
+                  ),
+                  validated == link.target,
+                  let target = resolveTerminalOpenURLTarget(validated) else { return }
+            self.openAccessibilityLinkTarget(target, from: requestedSurface)
+        }
+    }
+
+    private func openAccessibilityLinkTarget(
+        _ target: TerminalOpenURLTarget,
+        from surface: TerminalSurface
+    ) {
+        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() else {
+            NSWorkspace.shared.open(target.url)
+            return
+        }
+        switch target {
+        case .external(let url):
+            NSWorkspace.shared.open(url)
+        case .embeddedBrowser(let url):
+            guard !BrowserLinkOpenSettings.shouldOpenExternally(url),
+                  let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? ""),
+                  BrowserLinkOpenSettings.hostMatchesWhitelist(host) else {
+                NSWorkspace.shared.open(url)
+                return
+            }
+            _ = GhosttyApp.openEmbeddedBrowserLink(
+                url: url,
+                sourceWorkspaceId: surface.tabId,
+                sourcePanelId: surface.id,
+                host: host
+            )
+        }
     }
 
     private func externalTerminalTopOriginCellRect(
@@ -6949,7 +7496,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         button: TerminalExternalMouseButton?,
         point: NSPoint
     ) -> Bool {
-        guard let terminalSurface else { return false }
+        guard let terminalSurface,
+              let externalEvent = makeExternalMouseEvent(
+                event,
+                action: action,
+                button: button,
+                point: point
+              ) else { return false }
+        return terminalSurface.sendExternalMouseEvent(externalEvent).accepted
+    }
+
+    private func makeExternalMouseEvent(
+        _ event: NSEvent,
+        action: TerminalExternalMouseAction,
+        button: TerminalExternalMouseButton?,
+        point: NSPoint
+    ) -> TerminalExternalMouseEvent? {
+        guard let terminalSurface else { return nil }
         let scale = max(
             terminalSurface.externalRuntimeSnapshot?.cellMetrics?.backingScale
                 ?? window?.backingScaleFactor
@@ -6959,8 +7522,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         let anyButtonPressed = action == .press
             || (action == .motion && NSEvent.pressedMouseButtons != 0)
-        return terminalSurface.sendExternalMouseEvent(
-            TerminalExternalMouseEvent(
+        return TerminalExternalMouseEvent(
                 action: action,
                 button: button,
                 modifiers: TerminalExternalKeyModifiers(
@@ -6971,7 +7533,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 anyButtonPressed: anyButtonPressed,
                 clickCount: UInt32(clamping: max(event.clickCount, 1))
             )
-        ).accepted
     }
 
     private func forwardExternalScrollWheel(
@@ -7075,6 +7636,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if terminalSurface?.isExternallyManaged == true {
             let point = convert(event.locationInWindow, from: nil)
             trackMousePointIfUsable(point)
+            externalLeftMouseDragged = false
             hasPendingLeftMouseRelease = sendExternalMouseEvent(
                 event,
                 action: .press,
@@ -7108,6 +7670,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             guard hasPendingLeftMouseRelease else { return false }
             let point = convert(event.locationInWindow, from: nil)
             trackMousePointIfUsable(point)
+            externalLeftMouseDragged = true
             return sendExternalMouseEvent(
                 event,
                 action: .motion,
@@ -7127,12 +7690,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard hasPendingLeftMouseRelease else { return false }
         hasPendingLeftMouseRelease = false
         if terminalSurface?.isExternallyManaged == true {
-            return sendExternalMouseEvent(
+            let point = convert(event.locationInWindow, from: nil)
+            guard let externalEvent = makeExternalMouseEvent(
                 event,
                 action: .release,
                 button: .left,
-                point: convert(event.locationInWindow, from: nil)
-            )
+                point: point
+            ), let requestedSurface = terminalSurface else { return false }
+            let accepted = requestedSurface.sendExternalMouseEvent(externalEvent).accepted
+            let shouldActivateLink = accepted
+                && !externalLeftMouseDragged
+                && event.modifierFlags.contains(.command)
+            externalLeftMouseDragged = false
+            if shouldActivateLink {
+                Task { @MainActor [weak self, weak requestedSurface] in
+                    guard let self,
+                          let requestedSurface,
+                          self.terminalSurface === requestedSurface,
+                          let hit = await requestedSurface.activateExternalHyperlink(
+                            at: externalEvent
+                          ),
+                          let target = resolveTerminalOpenURLTarget(hit.target) else { return }
+                    self.openAccessibilityLinkTarget(target, from: requestedSurface)
+                }
+            }
+            return accepted
         }
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
@@ -8233,6 +8815,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
     deinit {
+        accessibilitySnapshotTask?.cancel()
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
             titleUpdateIngress.retireCurrentAttachment()
@@ -12607,9 +13190,20 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
         if terminalSurface?.isExternallyManaged == true {
             if markedText.length > 0 {
-                _ = terminalSurface?.setExternalPreedit(markedText.string)
+                let selection = normalizedMarkedSelectionRange(
+                    markedSelectedRange,
+                    markedLength: markedText.length
+                )
+                let start = UInt32(clamping: selection.location)
+                let length = UInt32(clamping: selection.length)
+                _ = terminalSurface?.setExternalPreeditState(TerminalExternalPreedit(
+                    text: markedText.string,
+                    selectionStartUTF16: start,
+                    selectionLengthUTF16: length,
+                    caretUTF16: start &+ length
+                ))
             } else if clearIfNeeded {
-                _ = terminalSurface?.setExternalPreedit(nil)
+                _ = terminalSurface?.setExternalPreeditState(nil)
             }
             return
         }

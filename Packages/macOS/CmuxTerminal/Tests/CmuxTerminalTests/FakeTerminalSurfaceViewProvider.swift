@@ -7,9 +7,11 @@ struct FakeTerminalSurfaceViewProvider: TerminalSurfaceViewProviding {
     let paneHost: FakeTerminalSurfacePaneHost
 
     func makeSurfaceViews(
-        initialFrame: NSRect
+        initialFrame: NSRect,
+        renderOwnership: TerminalSurfaceRenderOwnership
     ) -> (surfaceView: any TerminalSurfaceNativeViewing, paneHost: any TerminalSurfacePaneHosting) {
         _ = initialFrame
+        precondition(surfaceView.renderOwnership == renderOwnership)
         return (surfaceView, paneHost)
     }
 }

@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
 
-use ghostty_vt::{Callbacks, Cell, ColorSpec, CursorShape, Dirty, RenderState, Rgb, Terminal};
+use ghostty_vt::{
+    Callbacks, Cell, ColorSpec, CursorShape, Dirty, RenderState, Rgb, SelectionPoint, Terminal,
+};
 
 fn snapshot_cells(term: &mut Terminal) -> Vec<Vec<Cell>> {
     let mut rs = RenderState::new().unwrap();
@@ -292,6 +294,57 @@ fn scrollbar_tracks_scrollback() {
     term.scroll_delta(-5);
     let sb = term.scrollbar().unwrap();
     assert!(sb.scrolled_back(), "{sb:?}");
+}
+
+#[test]
+fn terminal_modes_can_be_reset_by_daemon_safety_policy() {
+    let mut terminal = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+    terminal.vt_write(b"\x1b[?2026h");
+    assert!(terminal.mode(2026, false));
+    terminal.set_mode(2026, false, false).unwrap();
+    assert!(!terminal.mode(2026, false));
+}
+
+#[test]
+fn search_select_returns_every_match_in_the_selected_viewport() {
+    let mut terminal = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+    terminal.vt_write(b"hit one\r\nhit two\r\nmiss");
+    terminal
+        .select_range_screen(
+            SelectionPoint { column: 4, row: 0 },
+            SelectionPoint { column: 6, row: 0 },
+            false,
+        )
+        .unwrap();
+
+    let result = terminal.search_select("hit", 0).unwrap();
+    assert_eq!(result.total_matches, 2);
+    assert_eq!(result.selection.as_ref().unwrap().text, "hit");
+    assert_eq!(result.viewport_matches.len(), 2);
+    assert!(result.viewport_matches.iter().any(|range| range.top_left.row == 0));
+    assert!(result.viewport_matches.iter().any(|range| range.top_left.row == 1));
+    assert_eq!(terminal.current_selection().unwrap().unwrap().text, "one");
+}
+
+#[test]
+fn search_snapshot_refreshes_the_current_viewport_without_scrolling() {
+    let mut terminal = Terminal::new(16, 4, 100, Callbacks::default()).unwrap();
+    for row in 0..10 {
+        terminal.vt_write(format!("hit-{row:02}\r\n").as_bytes());
+    }
+    let selected = terminal.search_select("hit", 0).unwrap();
+    assert_eq!(selected.total_matches, 10);
+
+    terminal.scroll_to_top();
+    let before = terminal.scrollbar().unwrap().offset;
+    let snapshot = terminal.search_snapshot("hit", 0).unwrap();
+    let after = terminal.scrollbar().unwrap().offset;
+
+    assert_eq!(before, after);
+    assert_eq!(snapshot.total_matches, 10);
+    assert!(!snapshot.viewport_matches.is_empty());
+    assert!(snapshot.viewport_matches.iter().all(|range| range.top_left.row < 4));
+    assert!(snapshot.selection.as_ref().unwrap().top_left.row >= 8);
 }
 
 #[test]

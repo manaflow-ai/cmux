@@ -661,11 +661,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		0A1107110000000000000016 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000017 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift */; };
 		C750500000000000000000A3 /* CmuxTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C750500000000000000000A2 /* CmuxTerminal */; };
 		CBAD00000000000000000301 /* CmuxTerminalBackend in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000501 /* CmuxTerminalBackend */; };
+		CBAD00000000000000000305 /* CmuxTerminalBackend in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000501 /* CmuxTerminalBackend */; };
 		CBAC00000000000000000001 /* CmuxTerminalBackendService in Frameworks */ = {isa = PBXBuildFile; productRef = CBAC00000000000000000004 /* CmuxTerminalBackendService */; };
 		CBAC00000000000000000002 /* CmuxTerminalBackendService in Frameworks */ = {isa = PBXBuildFile; productRef = CBAC00000000000000000004 /* CmuxTerminalBackendService */; };
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		CBAD00000000000000000304 /* CmuxTerminalRenderCompositor in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000504 /* CmuxTerminalRenderCompositor */; };
 		CBAD00000000000000000302 /* CmuxTerminalRenderProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */; };
+		CBAD00000000000000000306 /* CmuxTerminalRenderProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */; };
 		CBAD00000000000000000303 /* CmuxTerminalRenderTransport in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000503 /* CmuxTerminalRenderTransport */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
 		C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */; };
@@ -800,6 +802,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
 		E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
+		CE7700010000000000000001 /* ExternalTerminalHostNSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7700020000000000000001 /* ExternalTerminalHostNSView.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
@@ -1721,6 +1724,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A502000000000000000001 /* TaskManagerWindowController.swift */; };
 		7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */; };
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
+		B10B00000000000000000001 /* TerminalBackendBrowserEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10B00000000000000000002 /* TerminalBackendBrowserEndpoint.swift */; };
 		CBAD00000000000000000103 /* TerminalBackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000203 /* TerminalBackendClient.swift */; };
 		CBAD00000000000000000104 /* TerminalBackendClientCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000204 /* TerminalBackendClientCoordinator.swift */; };
 		CBAD00000000000000000105 /* TerminalBackendClientError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000205 /* TerminalBackendClientError.swift */; };
@@ -1734,6 +1738,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CBAD00000000000000000113 /* TerminalBackendQueuedMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000213 /* TerminalBackendQueuedMutation.swift */; };
 		CBAD00000000000000000114 /* TerminalBackendReconnectPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000214 /* TerminalBackendReconnectPolicy.swift */; };
 		CBAD00000000000000000121 /* TerminalBackendRenderConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000221 /* TerminalBackendRenderConfigSource.swift */; };
+		CBAD00000000000000000199 /* TerminalBackendRenderDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000299 /* TerminalBackendRenderDiagnostics.swift */; };
 		CBAD00000000000000000115 /* TerminalBackendRendererAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000215 /* TerminalBackendRendererAttachment.swift */; };
 		CBAD00000000000000000116 /* TerminalBackendRendererEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000216 /* TerminalBackendRendererEvent.swift */; };
 		CBAD00000000000000000117 /* TerminalBackendScreenTextLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000217 /* TerminalBackendScreenTextLimiter.swift */; };
@@ -1752,8 +1757,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7D200000000000000000106 /* TerminalBackendTopologyProjecting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000206 /* TerminalBackendTopologyProjecting.swift */; };
 		C7D200000000000000000107 /* TerminalBackendTopologyProjectionError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000207 /* TerminalBackendTopologyProjectionError.swift */; };
 		C7D200000000000000000108 /* TerminalBackendTopologyProjectionPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000208 /* TerminalBackendTopologyProjectionPlan.swift */; };
+		C7D200000000000000000111 /* TerminalBackendTopologyProjectionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D200000000000000000211 /* TerminalBackendTopologyProjectionRegistry.swift */; };
 		E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */; };
 		C7C100040000000000000002 /* TerminalClientComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C100040000000000000001 /* TerminalClientComposition.swift */; };
+		C7C100060000000000000002 /* TerminalClientCompositionTestFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C100060000000000000001 /* TerminalClientCompositionTestFixtures.swift */; };
 		C7C100050000000000000002 /* TerminalClientCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C100050000000000000001 /* TerminalClientCompositionTests.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
 		D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */; };
@@ -2890,6 +2897,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
 		E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
+		CE7700020000000000000001 /* ExternalTerminalHostNSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalTerminalHostNSView.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
@@ -3792,6 +3800,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C7A502000000000000000001 /* TaskManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerWindowController.swift; sourceTree = "<group>"; };
 		7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TaskVMInfoMemoryPressureFootprintSampler.swift; sourceTree = "<group>"; };
 		02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
+		B10B00000000000000000002 /* TerminalBackendBrowserEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendBrowserEndpoint.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000203 /* TerminalBackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendClient.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000204 /* TerminalBackendClientCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendClientCoordinator.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000205 /* TerminalBackendClientError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendClientError.swift; sourceTree = "<group>"; };
@@ -3805,6 +3814,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CBAD00000000000000000213 /* TerminalBackendQueuedMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendQueuedMutation.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000214 /* TerminalBackendReconnectPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendReconnectPolicy.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000221 /* TerminalBackendRenderConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendRenderConfigSource.swift; sourceTree = "<group>"; };
+		CBAD00000000000000000299 /* TerminalBackendRenderDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendRenderDiagnostics.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000215 /* TerminalBackendRendererAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendRendererAttachment.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000216 /* TerminalBackendRendererEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendRendererEvent.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000217 /* TerminalBackendScreenTextLimiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendScreenTextLimiter.swift; sourceTree = "<group>"; };
@@ -3823,8 +3833,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C7D200000000000000000206 /* TerminalBackendTopologyProjecting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyProjecting.swift; sourceTree = "<group>"; };
 		C7D200000000000000000207 /* TerminalBackendTopologyProjectionError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyProjectionError.swift; sourceTree = "<group>"; };
 		C7D200000000000000000208 /* TerminalBackendTopologyProjectionPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyProjectionPlan.swift; sourceTree = "<group>"; };
+		C7D200000000000000000211 /* TerminalBackendTopologyProjectionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendTopologyProjectionRegistry.swift; sourceTree = "<group>"; };
 		F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClearScreenKeepScrollbackTests.swift; sourceTree = "<group>"; };
 		C7C100040000000000000001 /* TerminalClientComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClientComposition.swift; sourceTree = "<group>"; };
+		C7C100060000000000000001 /* TerminalClientCompositionTestFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClientCompositionTestFixtures.swift; sourceTree = "<group>"; };
 		C7C100050000000000000001 /* TerminalClientCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClientCompositionTests.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
 		D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentPromptDelivery.swift"; sourceTree = "<group>"; };
@@ -4274,7 +4286,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C1A072000000000000000003 /* CmuxMobileRPC in Frameworks */,
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
+				CBAD00000000000000000305 /* CmuxTerminalBackend in Frameworks */,
 				CBAC00000000000000000002 /* CmuxTerminalBackendService in Frameworks */,
+				CBAD00000000000000000306 /* CmuxTerminalRenderProtocol in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
 			);
@@ -4491,6 +4505,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7C100030000000000000001 /* EmbeddedTerminalPanelFactory.swift */,
 				CBAD00000000000000000201 /* PersistentTerminalExternalRuntime.swift */,
 				CBAD00000000000000000202 /* PersistentTerminalPanelFactory.swift */,
+				CBAD00000000000000000299 /* TerminalBackendRenderDiagnostics.swift */,
 				CBAD00000000000000000203 /* TerminalBackendClient.swift */,
 				CBAD00000000000000000204 /* TerminalBackendClientCoordinator.swift */,
 				CBAD00000000000000000205 /* TerminalBackendClientError.swift */,
@@ -4503,6 +4518,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000212 /* TerminalBackendPresentationRegistry.swift */,
 				CBAD00000000000000000213 /* TerminalBackendQueuedMutation.swift */,
 				CBAD00000000000000000214 /* TerminalBackendReconnectPolicy.swift */,
+				B10B00000000000000000002 /* TerminalBackendBrowserEndpoint.swift */,
 				CBAD00000000000000000215 /* TerminalBackendRendererAttachment.swift */,
 				CBAD00000000000000000216 /* TerminalBackendRendererEvent.swift */,
 				CBAD00000000000000000217 /* TerminalBackendScreenTextLimiter.swift */,
@@ -4518,6 +4534,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7D200000000000000000206 /* TerminalBackendTopologyProjecting.swift */,
 				C7D200000000000000000207 /* TerminalBackendTopologyProjectionError.swift */,
 				C7D200000000000000000208 /* TerminalBackendTopologyProjectionPlan.swift */,
+				C7D200000000000000000211 /* TerminalBackendTopologyProjectionRegistry.swift */,
 				CBAC00000000000000000012 /* TerminalBackendServiceModel.swift */,
 				CBAC00000000000000000014 /* TerminalBackendServiceStatusCommand.swift */,
 				CBAC00000000000000000010 /* TerminalBackendServiceUnregistrationCommand.swift */,
@@ -4963,6 +4980,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */,
 				C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				CE7700020000000000000001 /* ExternalTerminalHostNSView.swift */,
 				816400000000000000000002 /* GhosttyScrollView.swift */,
 				A11E5E1E0000000000000002 /* TerminalSelectionAccessibilityNotifier.swift */,
 				A5F10000000000000000000A /* GhosttySurfaceScrollView+NotificationScroll.swift */,
@@ -5845,6 +5863,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXGroup;
 			children = (
 				C7C100050000000000000001 /* TerminalClientCompositionTests.swift */,
+				C7C100060000000000000001 /* TerminalClientCompositionTestFixtures.swift */,
 				C7D200000000000000000210 /* TerminalBackendTopologyCoordinatorTests.swift */,
 				A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
@@ -6563,7 +6582,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5E27010400000000000000A3 /* CmuxSettings */,
 				5E27010400000000000000A4 /* CmuxWorkspaces */,
 				C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */,
+				CBAD00000000000000000501 /* CmuxTerminalBackend */,
 				CBAC00000000000000000004 /* CmuxTerminalBackendService */,
+				CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */,
 				D7032A060000000000000002 /* CmuxBrowser */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
@@ -7325,6 +7346,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
+				CE7700010000000000000001 /* ExternalTerminalHostNSView.swift in Sources */,
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
@@ -7929,6 +7951,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A506000000000000000002 /* TaskManagerView.swift in Sources */,
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
+				B10B00000000000000000001 /* TerminalBackendBrowserEndpoint.swift in Sources */,
 				CBAD00000000000000000103 /* TerminalBackendClient.swift in Sources */,
 				CBAD00000000000000000104 /* TerminalBackendClientCoordinator.swift in Sources */,
 				CBAD00000000000000000105 /* TerminalBackendClientError.swift in Sources */,
@@ -7942,6 +7965,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000113 /* TerminalBackendQueuedMutation.swift in Sources */,
 				CBAD00000000000000000114 /* TerminalBackendReconnectPolicy.swift in Sources */,
 				CBAD00000000000000000121 /* TerminalBackendRenderConfigSource.swift in Sources */,
+				CBAD00000000000000000199 /* TerminalBackendRenderDiagnostics.swift in Sources */,
 				CBAD00000000000000000115 /* TerminalBackendRendererAttachment.swift in Sources */,
 				CBAD00000000000000000116 /* TerminalBackendRendererEvent.swift in Sources */,
 				CBAD00000000000000000117 /* TerminalBackendScreenTextLimiter.swift in Sources */,
@@ -7959,6 +7983,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7D200000000000000000106 /* TerminalBackendTopologyProjecting.swift in Sources */,
 				C7D200000000000000000107 /* TerminalBackendTopologyProjectionError.swift in Sources */,
 				C7D200000000000000000108 /* TerminalBackendTopologyProjectionPlan.swift in Sources */,
+				C7D200000000000000000111 /* TerminalBackendTopologyProjectionRegistry.swift in Sources */,
 				C7C100040000000000000002 /* TerminalClientComposition.swift in Sources */,
 				D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */,
 				8054A0030000000000000003 /* TerminalController+BrowserAutomationRecovery.swift in Sources */,
@@ -8842,6 +8867,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */,
 				C7D200000000000000000110 /* TerminalBackendTopologyCoordinatorTests.swift in Sources */,
 				E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */,
+				C7C100060000000000000002 /* TerminalClientCompositionTestFixtures.swift in Sources */,
 				C7C100050000000000000002 /* TerminalClientCompositionTests.swift in Sources */,
 				8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 				9C1BEA3D2E6F49709A71C020 /* TerminalControllerTerminalTextTests.swift in Sources */,

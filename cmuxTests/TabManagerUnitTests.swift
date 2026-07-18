@@ -3939,6 +3939,20 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
         XCTAssertTrue(destination.tabs.contains { $0.id == onlyWorkspace.id })
     }
 
+    func testTransactionalLastWorkspaceDetachDoesNotCreateBootstrap() {
+        let source = TabManager()
+        let onlyWorkspace = source.tabs[0]
+
+        let detached = source.detachWorkspace(
+            tabId: onlyWorkspace.id,
+            provisionReplacementIfEmpty: false
+        )
+
+        XCTAssertTrue(detached === onlyWorkspace)
+        XCTAssertTrue(source.tabs.isEmpty)
+        XCTAssertNil(source.selectedTabId)
+    }
+
     func testMovingPinnedWorkspaceLandsAtFrontEvenWhenDroppedBelowUnpinnedRows() {
         let source = TabManager()
         let destination = TabManager()

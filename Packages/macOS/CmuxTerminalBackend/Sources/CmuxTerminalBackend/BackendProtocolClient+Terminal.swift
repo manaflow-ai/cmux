@@ -45,6 +45,21 @@ public extension BackendProtocolClient {
         )
     }
 
+    /// Resolves or creates up to 1,024 stable terminals in one canonical
+    /// topology and persistence transaction, preserving request order.
+    func ensureTerminals(
+        _ requests: [BackendEnsureTerminalRequest]
+    ) async throws -> [BackendEnsuredTerminalPlacement] {
+        guard !requests.isEmpty else { return [] }
+        return try await call(
+            command: "ensure-terminals",
+            parameters: [
+                "terminals": .array(requests.map(\.jsonValue)),
+            ],
+            as: [BackendEnsuredTerminalPlacement].self
+        )
+    }
+
     /// Moves one canonical terminal into a workspace without replacing its PTY.
     ///
     /// Repeating a successful move is idempotent and returns `moved == false`.
@@ -97,14 +112,21 @@ public extension BackendProtocolClient {
     func setTerminalPreedit(
         presentationID: PresentationID,
         rendererGeneration: UInt64,
-        text: String?
+        preedit: BackendTerminalPreedit?
     ) async throws {
         let _: BackendEmptyResponse = try await call(
             command: "terminal-preedit",
             parameters: [
                 "presentation_id": .string(presentationID.description),
                 "renderer_generation": .unsignedInteger(rendererGeneration),
-                "text": text.map(BackendJSONValue.string) ?? .null,
+                "text": preedit.map { .string($0.text) } ?? .null,
+                "selection_start_utf16": .unsignedInteger(UInt64(
+                    preedit?.selectionStartUTF16 ?? 0
+                )),
+                "selection_length_utf16": .unsignedInteger(UInt64(
+                    preedit?.selectionLengthUTF16 ?? 0
+                )),
+                "caret_utf16": .unsignedInteger(UInt64(preedit?.caretUTF16 ?? 0)),
             ],
             as: BackendEmptyResponse.self
         )
@@ -276,6 +298,68 @@ public extension BackendProtocolClient {
             command: "terminal-state",
             parameters: ["surface_uuid": .string(surfaceID.description)],
             as: BackendTerminalStateResponse.self
+        )
+    }
+
+    /// Reads one bounded semantic accessibility snapshot for an owned presentation.
+    func terminalAccessibilitySnapshot(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        expectedContentSequence: UInt64
+    ) async throws -> BackendTerminalAccessibilitySnapshot {
+        try await call(
+            command: "terminal-accessibility-snapshot",
+            parameters: [
+                "presentation_id": .string(presentationID.description),
+                "expected_generation": .unsignedInteger(expectedGeneration),
+                "expected_content_sequence": .unsignedInteger(expectedContentSequence),
+            ],
+            as: BackendTerminalAccessibilitySnapshot.self
+        )
+    }
+
+    /// Revalidates a snapshot revision and OSC 8 identity before returning its target.
+    func activateTerminalAccessibilityLink(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        terminalRevision: UInt64,
+        contentRevision: UInt64,
+        viewportRevision: UInt64,
+        linkID: String
+    ) async throws -> BackendTerminalAccessibilityLinkActivation {
+        try await call(
+            command: "terminal-accessibility-activate-link",
+            parameters: [
+                "presentation_id": .string(presentationID.description),
+                "expected_generation": .unsignedInteger(expectedGeneration),
+                "terminal_revision": .unsignedInteger(terminalRevision),
+                "content_revision": .unsignedInteger(contentRevision),
+                "viewport_revision": .unsignedInteger(viewportRevision),
+                "link_id": .string(linkID),
+            ],
+            as: BackendTerminalAccessibilityLinkActivation.self
+        )
+    }
+
+    /// Resolves an OSC 8 link only when the clicked cell still belongs to the
+    /// exact semantic frame admitted by the host compositor.
+    func terminalHyperlinkAtCell(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        expectedContentSequence: UInt64,
+        column: UInt16,
+        row: UInt16
+    ) async throws -> BackendTerminalHyperlinkHit {
+        try await call(
+            command: "terminal-link-at-cell",
+            parameters: [
+                "presentation_id": .string(presentationID.description),
+                "expected_generation": .unsignedInteger(expectedGeneration),
+                "expected_content_sequence": .unsignedInteger(expectedContentSequence),
+                "column": .unsignedInteger(UInt64(column)),
+                "row": .unsignedInteger(UInt64(row)),
+            ],
+            as: BackendTerminalHyperlinkHit.self
         )
     }
 

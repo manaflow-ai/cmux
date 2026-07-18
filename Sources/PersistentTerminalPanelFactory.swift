@@ -59,7 +59,7 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
         )
         _ = presentationRegistry.mountCompositor(
             surfaceID: request.id,
-            in: panel.hostedView.surfaceView
+            in: panel.surface.compositorHostView
         )
         return panel
     }

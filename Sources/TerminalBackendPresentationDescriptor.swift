@@ -9,7 +9,7 @@ struct TerminalBackendPresentationDescriptor: Equatable, Sendable {
     let viewport: TerminalExternalViewport
     let focused: Bool
     let visible: Bool
-    let preedit: String?
+    let preedit: TerminalExternalPreedit?
     let pixelFormat: TerminalRenderPixelFormat
     let colorSpace: TerminalRenderColorSpace
     let resolvedConfigRevision: UInt64

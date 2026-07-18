@@ -14,9 +14,16 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{PaneUuid, ScreenUuid, SessionId, SurfaceUuid, WorkspaceUuid, platform};
+use crate::terminal_activity::{
+    LEGACY_TERMINAL_ACTIVITY_READER_UUID, MAX_TERMINAL_ACTIVITY_FACTS,
+    MAX_TERMINAL_ACTIVITY_READERS, MAX_TERMINAL_ACTIVITY_STABLE_RECEIPTS,
+};
+use crate::{
+    PaneUuid, ScreenUuid, SessionId, SurfaceUuid, TerminalActivityFact,
+    TerminalActivityReadReceipt, WorkspaceUuid, platform,
+};
 
-pub const STATE_STORE_VERSION: u32 = 2;
+pub const STATE_STORE_VERSION: u32 = 3;
 
 pub(crate) const MAX_PERSISTED_TOMBSTONES: usize = 1_024;
 pub(crate) const MAX_PERSISTED_IDEMPOTENCY_RESULTS: usize = 1_024;
@@ -120,6 +127,37 @@ struct StoredSessionV1 {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PersistedSessionStateV2 {
+    session_id: SessionId,
+    topology_revision: u64,
+    active_workspace: Option<WorkspaceUuid>,
+    workspaces: Vec<PersistedWorkspace>,
+    panes: Vec<PersistedPane>,
+    surfaces: Vec<PersistedSurface>,
+    tombstones: Vec<PersistedTombstone>,
+    idempotency_results: Vec<PersistedIdempotencyResult>,
+}
+
+impl From<PersistedSessionStateV2> for PersistedSessionState {
+    fn from(state: PersistedSessionStateV2) -> Self {
+        Self {
+            session_id: state.session_id,
+            topology_revision: state.topology_revision,
+            active_workspace: state.active_workspace,
+            workspaces: state.workspaces,
+            panes: state.panes,
+            surfaces: state.surfaces,
+            tombstones: state.tombstones,
+            idempotency_results: state.idempotency_results,
+            activity_sequence: 0,
+            activity_facts: Vec::new(),
+            activity_receipts: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PersistedSessionState {
     pub session_id: SessionId,
     pub topology_revision: u64,
@@ -129,6 +167,9 @@ pub(crate) struct PersistedSessionState {
     pub surfaces: Vec<PersistedSurface>,
     pub tombstones: Vec<PersistedTombstone>,
     pub idempotency_results: Vec<PersistedIdempotencyResult>,
+    pub activity_sequence: u64,
+    pub activity_facts: Vec<TerminalActivityFact>,
+    pub activity_receipts: Vec<TerminalActivityReadReceipt>,
 }
 
 impl PersistedSessionState {
@@ -142,6 +183,9 @@ impl PersistedSessionState {
             surfaces: Vec::new(),
             tombstones: Vec::new(),
             idempotency_results: Vec::new(),
+            activity_sequence: 0,
+            activity_facts: Vec::new(),
+            activity_receipts: Vec::new(),
         }
     }
 }
@@ -332,6 +376,24 @@ struct CheckpointEnvelope {
     checksum: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckpointBodyV2 {
+    version: u32,
+    format: String,
+    session: String,
+    epoch: u64,
+    sequence: u64,
+    state: PersistedSessionStateV2,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckpointEnvelopeV2 {
+    body: CheckpointBodyV2,
+    checksum: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct JournalBody {
@@ -349,6 +411,26 @@ struct JournalBody {
 #[serde(deny_unknown_fields)]
 struct JournalEnvelope {
     body: JournalBody,
+    checksum: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JournalBodyV2 {
+    version: u32,
+    format: String,
+    session_id: SessionId,
+    epoch: u64,
+    sequence: u64,
+    idempotency_key: String,
+    result: Option<PersistedIdempotencyResult>,
+    state: PersistedSessionStateV2,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JournalEnvelopeV2 {
+    body: JournalBodyV2,
     checksum: String,
 }
 
@@ -540,7 +622,8 @@ impl StateStore {
     fn load_session_while_locked(&self, session: &str) -> Result<LoadedSession, StateStoreError> {
         let checkpoint_path = self.session_path(session);
         let journal_path = self.journal_path(session);
-        let (checkpoint, migrated) = self.load_or_create_checkpoint(session, &checkpoint_path)?;
+        let (checkpoint, migrated) =
+            self.load_or_create_checkpoint(session, &checkpoint_path, &journal_path)?;
         if migrated {
             replace_file_atomically(&journal_path, &[])?;
         }
@@ -581,7 +664,7 @@ impl StateStore {
     }
 
     /// Load an existing session identity or atomically create an empty
-    /// version-2 session. This compatibility API releases the startup lock
+    /// version-3 session. This compatibility API releases the startup lock
     /// immediately; daemon code must use [`StateStore::open_session`].
     pub fn load_or_create_session(&self, session: &str) -> Result<SessionId, StateStoreError> {
         let opened = self.open_session(session)?;
@@ -638,6 +721,7 @@ impl StateStore {
         &self,
         session: &str,
         path: &Path,
+        journal_path: &Path,
     ) -> Result<(CheckpointEnvelope, bool), StateStoreError> {
         let bytes = match read_bounded(path, self.limits.max_checkpoint_bytes)? {
             Some(bytes) => bytes,
@@ -672,6 +756,33 @@ impl StateStore {
             let state = PersistedSessionState::empty(stored.session_id);
             write_checkpoint_atomic(path, session, 1, 0, &state, self.limits)?;
             return Ok((checkpoint_envelope(session, 1, 0, &state)?, true));
+        }
+        if version == 2 {
+            let envelope =
+                serde_json::from_value::<CheckpointEnvelopeV2>(value).map_err(|error| {
+                    StateStoreError::corrupt(
+                        path,
+                        format!("invalid version-2 checkpoint envelope: {error}"),
+                    )
+                })?;
+            validate_checkpoint_v2(path, session, &envelope)?;
+            let replay = replay_journal_v2(
+                journal_path,
+                envelope.body.epoch,
+                envelope.body.sequence,
+                envelope.body.state.into(),
+                self.limits,
+            )?;
+            let epoch = replay
+                .epoch
+                .checked_add(1)
+                .ok_or_else(|| StateStoreError::corrupt(path, "checkpoint epoch exhausted"))?;
+            write_checkpoint_atomic(path, session, epoch, 0, &replay.state, self.limits)?;
+            // The new checkpoint uses a later epoch. If the process exits
+            // before this atomic reset, the v3 loader recognizes the older
+            // v2 journal records as already compacted.
+            replace_file_atomically(journal_path, &[])?;
+            return Ok((checkpoint_envelope(session, epoch, 0, &replay.state)?, true));
         }
         if version != u64::from(STATE_STORE_VERSION) {
             return Err(StateStoreError::corrupt(
@@ -776,6 +887,29 @@ fn replay_journal(
             }
             return Err(StateStoreError::corrupt(path, "oversized interior journal record"));
         }
+        let stale_v2 = match stale_v2_journal_record(path, line) {
+            Ok(record) => record,
+            Err(error) if line_end == bytes.len() => {
+                let _ = error;
+                invalid_tail = Some(cursor);
+                break;
+            }
+            Err(error) => return Err(error),
+        };
+        if let Some(record) = stale_v2 {
+            if record.body.epoch < checkpoint_epoch
+                || (record.body.epoch == checkpoint_epoch
+                    && record.body.sequence <= checkpoint_sequence)
+            {
+                cursor = line_end;
+                valid_bytes = line_end;
+                continue;
+            }
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-2 journal record is newer than the version-3 checkpoint",
+            ));
+        }
         let envelope = match decode_journal(path, line) {
             Ok(envelope) => envelope,
             Err(error) if line_end == bytes.len() => {
@@ -822,6 +956,9 @@ fn replay_journal(
         if body.state.topology_revision < state.topology_revision {
             return Err(StateStoreError::corrupt(path, "journal topology revision moved backward"));
         }
+        if body.state.activity_sequence < state.activity_sequence {
+            return Err(StateStoreError::corrupt(path, "journal activity sequence moved backward"));
+        }
         if let Some(existing) = seen.get(&body.idempotency_key) {
             if body.result.as_ref() != Some(existing) || body.state != state {
                 return Err(StateStoreError::corrupt(
@@ -840,6 +977,154 @@ fn replay_journal(
                 seen.insert(result.key.clone(), result.clone());
             }
             state = body.state;
+        }
+        epoch = body.epoch;
+        sequence = body.sequence;
+        record_count += 1;
+        cursor = line_end;
+        valid_bytes = line_end;
+    }
+
+    let quarantined_tail = if let Some(start) = invalid_tail {
+        Some(quarantine_tail(path, &bytes, start)?)
+    } else {
+        None
+    };
+    Ok(JournalReplay { state, epoch, sequence, record_count, valid_bytes, quarantined_tail })
+}
+
+fn replay_journal_v2(
+    path: &Path,
+    checkpoint_epoch: u64,
+    checkpoint_sequence: u64,
+    mut state: PersistedSessionState,
+    limits: StateStoreLimits,
+) -> Result<JournalReplay, StateStoreError> {
+    let Some(bytes) = read_bounded(
+        path,
+        limits.max_journal_bytes.saturating_add(limits.max_journal_record_bytes),
+    )?
+    else {
+        return Ok(JournalReplay {
+            state,
+            epoch: checkpoint_epoch,
+            sequence: checkpoint_sequence,
+            record_count: 0,
+            valid_bytes: 0,
+            quarantined_tail: None,
+        });
+    };
+    let mut epoch = checkpoint_epoch;
+    let mut sequence = checkpoint_sequence;
+    let mut record_count = 0usize;
+    let mut valid_bytes = 0usize;
+    let mut seen = state
+        .idempotency_results
+        .iter()
+        .map(|result| (result.key.clone(), result.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut cursor = 0usize;
+    let mut invalid_tail = None;
+
+    while cursor < bytes.len() {
+        let line_end = bytes[cursor..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|offset| cursor + offset + 1);
+        let Some(line_end) = line_end else {
+            invalid_tail = Some(cursor);
+            break;
+        };
+        let line = &bytes[cursor..line_end - 1];
+        if line.is_empty() {
+            if bytes[line_end..].iter().all(u8::is_ascii_whitespace) {
+                invalid_tail = Some(cursor);
+                break;
+            }
+            return Err(StateStoreError::corrupt(path, "empty interior version-2 journal record"));
+        }
+        if line.len().saturating_add(1) > limits.max_journal_record_bytes {
+            if line_end == bytes.len() {
+                invalid_tail = Some(cursor);
+                break;
+            }
+            return Err(StateStoreError::corrupt(
+                path,
+                "oversized interior version-2 journal record",
+            ));
+        }
+        let envelope = match decode_journal_v2(path, line) {
+            Ok(envelope) => envelope,
+            Err(error) if line_end == bytes.len() => {
+                let _ = error;
+                invalid_tail = Some(cursor);
+                break;
+            }
+            Err(error) => return Err(error),
+        };
+        let body = envelope.body;
+        if body.session_id != state.session_id {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-2 journal session identity mismatch",
+            ));
+        }
+        if body.epoch < checkpoint_epoch
+            || (body.epoch == checkpoint_epoch && body.sequence <= checkpoint_sequence)
+        {
+            cursor = line_end;
+            valid_bytes = line_end;
+            continue;
+        }
+        if body.epoch != epoch || body.sequence != sequence.saturating_add(1) {
+            return Err(StateStoreError::corrupt(
+                path,
+                format!(
+                    "version-2 journal sequence gap: expected {epoch}/{}, found {}/{}",
+                    sequence.saturating_add(1),
+                    body.epoch,
+                    body.sequence
+                ),
+            ));
+        }
+        if record_count >= limits.max_journal_records {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-2 journal record count exceeds the compaction bound",
+            ));
+        }
+        let next_state: PersistedSessionState = body.state.into();
+        validate_snapshot(path, &next_state)?;
+        if next_state.session_id != state.session_id {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-2 journal state changed session identity",
+            ));
+        }
+        if next_state.topology_revision < state.topology_revision {
+            return Err(StateStoreError::corrupt(
+                path,
+                "version-2 journal topology revision moved backward",
+            ));
+        }
+        if let Some(existing) = seen.get(&body.idempotency_key) {
+            if body.result.as_ref() != Some(existing) || next_state != state {
+                return Err(StateStoreError::corrupt(
+                    path,
+                    "duplicate version-2 idempotency key changed its result or state",
+                ));
+            }
+        } else {
+            if let Some(result) = body.result.as_ref() {
+                if result.key != body.idempotency_key {
+                    return Err(StateStoreError::corrupt(
+                        path,
+                        "version-2 journal idempotency result key mismatch",
+                    ));
+                }
+                seen.insert(result.key.clone(), result.clone());
+            }
+            state = next_state;
         }
         epoch = body.epoch;
         sequence = body.sequence;
@@ -875,6 +1160,28 @@ fn validate_checkpoint(
     }
     verify_checksum(path, &envelope.body, &envelope.checksum, "checkpoint")?;
     validate_snapshot(path, &envelope.body.state)
+}
+
+fn validate_checkpoint_v2(
+    path: &Path,
+    session: &str,
+    envelope: &CheckpointEnvelopeV2,
+) -> Result<(), StateStoreError> {
+    if envelope.body.version != 2 || envelope.body.format != CHECKPOINT_FORMAT {
+        return Err(StateStoreError::corrupt(path, "version-2 checkpoint format mismatch"));
+    }
+    if envelope.body.session != session {
+        return Err(StateStoreError::corrupt(
+            path,
+            format!(
+                "session key collision: expected {session:?}, found {:?}",
+                envelope.body.session
+            ),
+        ));
+    }
+    verify_checksum(path, &envelope.body, &envelope.checksum, "version-2 checkpoint")?;
+    let state = envelope.body.state.clone().into();
+    validate_snapshot(path, &state)
 }
 
 fn validate_snapshot(path: &Path, state: &PersistedSessionState) -> Result<(), StateStoreError> {
@@ -1001,6 +1308,59 @@ fn validate_snapshot(path: &Path, state: &PersistedSessionState) -> Result<(), S
         return Err(StateStoreError::corrupt(
             path,
             "surface records and ordered tab references differ",
+        ));
+    }
+
+    if state.activity_facts.len() > MAX_TERMINAL_ACTIVITY_FACTS {
+        return Err(StateStoreError::corrupt(path, "terminal activity fact capacity exceeded"));
+    }
+    let mut activity_surfaces = BTreeSet::new();
+    let mut activity_sequences = BTreeSet::new();
+    for fact in &state.activity_facts {
+        if !surface_ids.contains(&fact.surface_uuid)
+            || fact.sequence == 0
+            || fact.sequence > state.activity_sequence
+            || fact.notification == 0
+            || !activity_surfaces.insert(fact.surface_uuid)
+            || !activity_sequences.insert(fact.sequence)
+        {
+            return Err(StateStoreError::corrupt(
+                path,
+                "invalid, duplicate, or out-of-order terminal activity fact",
+            ));
+        }
+    }
+    // `activity_sequence` may remain nonzero after deleting the last fact;
+    // retaining the high-water mark prevents sequence reuse after recovery.
+    let mut receipt_keys = BTreeSet::new();
+    let mut activity_readers = BTreeSet::new();
+    let mut stable_receipts = 0usize;
+    for receipt in &state.activity_receipts {
+        let fact =
+            state.activity_facts.iter().find(|fact| fact.surface_uuid == receipt.surface_uuid);
+        if receipt.reader_uuid.is_nil()
+            || receipt.seen_sequence == 0
+            || fact.is_none_or(|fact| receipt.seen_sequence > fact.sequence)
+            || !receipt_keys.insert((receipt.reader_uuid, receipt.surface_uuid))
+        {
+            return Err(StateStoreError::corrupt(
+                path,
+                "invalid or duplicate terminal activity receipt",
+            ));
+        }
+        activity_readers.insert(receipt.reader_uuid);
+        if receipt.reader_uuid != LEGACY_TERMINAL_ACTIVITY_READER_UUID {
+            stable_receipts = stable_receipts.saturating_add(1);
+        }
+    }
+    if activity_readers.len() > MAX_TERMINAL_ACTIVITY_READERS
+        || stable_receipts > MAX_TERMINAL_ACTIVITY_STABLE_RECEIPTS
+        || state.activity_receipts.len()
+            > MAX_TERMINAL_ACTIVITY_STABLE_RECEIPTS.saturating_add(MAX_TERMINAL_ACTIVITY_FACTS)
+    {
+        return Err(StateStoreError::corrupt(
+            path,
+            "terminal activity reader or receipt capacity exceeded",
         ));
     }
 
@@ -1230,6 +1590,34 @@ fn decode_journal(path: &Path, line: &[u8]) -> Result<JournalEnvelope, StateStor
     Ok(envelope)
 }
 
+fn decode_journal_v2(path: &Path, line: &[u8]) -> Result<JournalEnvelopeV2, StateStoreError> {
+    let envelope = serde_json::from_slice::<JournalEnvelopeV2>(line).map_err(|error| {
+        StateStoreError::corrupt(path, format!("invalid version-2 journal JSON: {error}"))
+    })?;
+    if envelope.body.version != 2 || envelope.body.format != JOURNAL_FORMAT {
+        return Err(StateStoreError::corrupt(path, "version-2 journal format mismatch"));
+    }
+    validate_idempotency_key(path, &envelope.body.idempotency_key)?;
+    verify_checksum(path, &envelope.body, &envelope.checksum, "version-2 journal")?;
+    Ok(envelope)
+}
+
+fn stale_v2_journal_record(
+    path: &Path,
+    line: &[u8],
+) -> Result<Option<JournalEnvelopeV2>, StateStoreError> {
+    let value = match serde_json::from_slice::<serde_json::Value>(line) {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    if value.get("body").and_then(|body| body.get("version")).and_then(serde_json::Value::as_u64)
+        != Some(2)
+    {
+        return Ok(None);
+    }
+    decode_journal_v2(path, line).map(Some)
+}
+
 fn checksum_json(value: &impl Serialize) -> Result<String, serde_json::Error> {
     let bytes = serde_json::to_vec(value)?;
     Ok(format!("{:08x}", crc32(&bytes)))
@@ -1419,6 +1807,50 @@ mod tests {
             panes: Vec::new(),
             surfaces: Vec::new(),
         }
+    }
+
+    fn state_with_terminal(session_id: SessionId) -> (PersistedSessionState, SurfaceUuid) {
+        let surface_uuid = SurfaceUuid::new();
+        let pane_uuid = PaneUuid::new();
+        let screen_uuid = ScreenUuid::new();
+        let workspace_uuid = WorkspaceUuid::new();
+        let mut state = PersistedSessionState::empty(session_id);
+        state.active_workspace = Some(workspace_uuid);
+        state.workspaces.push(PersistedWorkspace {
+            uuid: workspace_uuid,
+            name: "1".to_string(),
+            screens: vec![PersistedScreen {
+                uuid: screen_uuid,
+                name: None,
+                root: PersistedNode::Leaf { pane_uuid },
+                active_pane: pane_uuid,
+                zoomed_pane: None,
+            }],
+            active_screen: 0,
+        });
+        state.panes.push(PersistedPane {
+            uuid: pane_uuid,
+            name: None,
+            tabs: vec![surface_uuid],
+            active_tab: 0,
+            active_at: 1,
+        });
+        state.surfaces.push(PersistedSurface {
+            uuid: surface_uuid,
+            name: None,
+            kind: PersistedSurfaceKind::Terminal {
+                launch: PersistedLaunchRecipe::sanitized(
+                    vec!["/bin/sh".to_string()],
+                    Some("/tmp".to_string()),
+                    Vec::new(),
+                    80,
+                    24,
+                    10_000,
+                    false,
+                ),
+            },
+        });
+        (state, surface_uuid)
     }
 
     fn append_revision(
@@ -1668,6 +2100,77 @@ mod tests {
     }
 
     #[test]
+    fn terminal_activity_round_trips_without_notification_content() {
+        let directory = TestDirectory::new("activity-round-trip");
+        let store = StateStore::new(&directory.0);
+        let mut opened = store.open_session("main").unwrap();
+        let reader_uuid = Uuid::new_v4();
+        let (mut state, surface_uuid) = state_with_terminal(opened.snapshot.session_id);
+        state.activity_sequence = 7;
+        state.activity_facts.push(crate::TerminalActivityFact {
+            surface_uuid,
+            sequence: 7,
+            kind: crate::TerminalActivityKind::Notification,
+            notification: 41,
+            level: crate::NotificationLevel::Warning,
+        });
+        state.activity_receipts.push(crate::TerminalActivityReadReceipt {
+            reader_uuid,
+            surface_uuid,
+            seen_sequence: 7,
+        });
+        opened.durable.append(state.clone(), "activity".to_string(), None).unwrap();
+        drop(opened.durable);
+
+        let bytes = fs::read(store.journal_path("main")).unwrap();
+        assert!(!bytes.windows(b"private title".len()).any(|window| window == b"private title"));
+        assert!(!bytes.windows(b"private body".len()).any(|window| window == b"private body"));
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot, state);
+    }
+
+    #[test]
+    fn terminal_activity_validation_rejects_bad_references_order_and_reader_bounds() {
+        let path = PathBuf::from("activity-validation");
+        let (mut state, surface_uuid) = state_with_terminal(SessionId::new());
+        state.activity_sequence = 2;
+        state.activity_facts.push(crate::TerminalActivityFact {
+            surface_uuid,
+            sequence: 2,
+            kind: crate::TerminalActivityKind::Notification,
+            notification: 1,
+            level: crate::NotificationLevel::Info,
+        });
+
+        let mut unknown_surface = state.clone();
+        unknown_surface.activity_facts[0].surface_uuid = SurfaceUuid::new();
+        assert!(validate_snapshot(&path, &unknown_surface).is_err());
+
+        let mut future_fact = state.clone();
+        future_fact.activity_facts[0].sequence = 3;
+        assert!(validate_snapshot(&path, &future_fact).is_err());
+
+        let mut future_receipt = state.clone();
+        future_receipt.activity_receipts.push(crate::TerminalActivityReadReceipt {
+            reader_uuid: Uuid::new_v4(),
+            surface_uuid,
+            seen_sequence: 3,
+        });
+        assert!(validate_snapshot(&path, &future_receipt).is_err());
+
+        let mut too_many_readers = state;
+        too_many_readers.activity_receipts = (0..=MAX_TERMINAL_ACTIVITY_READERS)
+            .map(|index| crate::TerminalActivityReadReceipt {
+                reader_uuid: Uuid::from_u128(index as u128 + 1),
+                surface_uuid,
+                seen_sequence: 2,
+            })
+            .collect();
+        let error = validate_snapshot(&path, &too_many_readers).unwrap_err();
+        assert!(error.to_string().contains("reader or receipt capacity"));
+    }
+
+    #[test]
     fn recovery_metadata_is_strictly_bounded() {
         let directory = TestDirectory::new("bounded-metadata");
         let store = StateStore::new(&directory.0);
@@ -1762,6 +2265,72 @@ mod tests {
         assert_eq!(store.load_or_create_session("main").unwrap(), session_id);
         let value: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
         assert_eq!(value["body"]["version"], STATE_STORE_VERSION);
+    }
+
+    #[test]
+    fn version_two_checkpoint_and_synced_journal_migrate_without_state_loss() {
+        let directory = TestDirectory::new("v2-migration");
+        let store = StateStore::new(&directory.0);
+        let checkpoint_path = store.session_path("main");
+        let journal_path = store.journal_path("main");
+        fs::create_dir_all(checkpoint_path.parent().unwrap()).unwrap();
+        let session_id = SessionId::new();
+        let checkpoint_state = PersistedSessionStateV2 {
+            session_id,
+            topology_revision: 0,
+            active_workspace: None,
+            workspaces: Vec::new(),
+            panes: Vec::new(),
+            surfaces: Vec::new(),
+            tombstones: Vec::new(),
+            idempotency_results: Vec::new(),
+        };
+        let checkpoint_body = CheckpointBodyV2 {
+            version: 2,
+            format: CHECKPOINT_FORMAT.to_string(),
+            session: "main".to_string(),
+            epoch: 4,
+            sequence: 0,
+            state: checkpoint_state.clone(),
+        };
+        let checkpoint = CheckpointEnvelopeV2 {
+            checksum: checksum_json(&checkpoint_body).unwrap(),
+            body: checkpoint_body,
+        };
+        fs::write(&checkpoint_path, serde_json::to_vec_pretty(&checkpoint).unwrap()).unwrap();
+
+        let mut journal_state = checkpoint_state;
+        journal_state.topology_revision = 1;
+        let journal_body = JournalBodyV2 {
+            version: 2,
+            format: JOURNAL_FORMAT.to_string(),
+            session_id,
+            epoch: 4,
+            sequence: 1,
+            idempotency_key: "v2-synced".to_string(),
+            result: None,
+            state: journal_state,
+        };
+        let journal = JournalEnvelopeV2 {
+            checksum: checksum_json(&journal_body).unwrap(),
+            body: journal_body,
+        };
+        let mut journal_bytes = serde_json::to_vec(&journal).unwrap();
+        journal_bytes.push(b'\n');
+        fs::write(&journal_path, journal_bytes).unwrap();
+
+        let opened = store.open_session("main").unwrap();
+        assert_eq!(opened.snapshot.session_id, session_id);
+        assert_eq!(opened.snapshot.topology_revision, 1);
+        assert_eq!(opened.snapshot.activity_sequence, 0);
+        assert!(opened.snapshot.activity_facts.is_empty());
+        assert!(opened.snapshot.activity_receipts.is_empty());
+        drop(opened.durable);
+        assert!(fs::read(&journal_path).unwrap().is_empty());
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(checkpoint_path).unwrap()).unwrap();
+        assert_eq!(value["body"]["version"], STATE_STORE_VERSION);
+        assert_eq!(value["body"]["epoch"], 5);
     }
 
     #[test]

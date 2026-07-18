@@ -14,6 +14,9 @@ extension Workspace {
     enum CustomTitleSource: String, Codable, Sendable {
         case user
         case auto
+        /// Name committed by canonical cmuxd topology. OSC/process title
+        /// updates cannot replace this explicit daemon-owned layer.
+        case backend
     }
 
     var hasCustomTitle: Bool {

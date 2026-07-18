@@ -1,3 +1,5 @@
+public import Foundation
+
 /// Describes one app-bundle-scoped persistent terminal backend service.
 ///
 /// The app bundle identifier is the namespace boundary. Production keeps the
@@ -14,6 +16,9 @@ public struct BackendServiceDescriptor: Equatable, Sendable {
 
     /// The app bundle identifier that owns this service.
     public let bundleIdentifier: String
+
+    /// Stable logical-client UUID shared by reconnects and app relaunches of this bundle.
+    public let terminalClientUUID: UUID
 
     /// The launchd label embedded in the bundled launch-agent property list.
     public let serviceLabel: String
@@ -57,6 +62,7 @@ public struct BackendServiceDescriptor: Equatable, Sendable {
             : "cmux-\(identity.token)"
 
         self.bundleIdentifier = bundleIdentifier
+        terminalClientUUID = identity.terminalClientUUID
         self.serviceLabel = serviceLabel
         self.propertyListName = "\(serviceLabel).plist"
         self.executableRelativePath = "Contents/Resources/bin/cmux-terminal-backend"

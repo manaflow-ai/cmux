@@ -1,10 +1,10 @@
 # Transport Contract
 
-The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 added render-mode negotiation, and protocol v8 adds canonical topology synchronization without changing either framing contract. HTTP and SSE remain proposals.
+The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 added render-mode negotiation, protocol v8 adds canonical topology synchronization, and opt-in protocol v9 adds registered terminal-control leases without changing either framing contract. HTTP and SSE remain proposals.
 
 ## Protocol Negotiation
 
-Protocol-v8 servers report `protocol:8`, `protocol_min:6`, and `protocol_max:8` from `identify` and `ping`. Clients must inspect named capabilities before using gated additions. In particular, a client selecting `attach-surface` with `mode:"render"` requires `render-attach-v1`, and a canonical topology client requires `canonical-topology-snapshot-v1`, `stable-entity-uuid-v1`, and `topology-resume-v1`.
+Servers report `protocol:8`, `protocol_min:6`, and `protocol_max:9` from `identify` and `ping`. Version 8 remains preferred. A connection opts into v9 by sending `register-client` with an overlapping range and two non-nil UUID identities. Clients must inspect named capabilities before using gated additions. In particular, a client selecting `attach-surface` with `mode:"render"` requires `render-attach-v1`, a canonical topology client requires `canonical-topology-snapshot-v1`, `stable-entity-uuid-v1`, and `topology-resume-v1`, a reconnecting window frontend requires `projection-state-reconnect-v1`, a cold-restore client requires `ensure-terminals-v1` before sending a terminal batch, and a v9 terminal client requires `terminal-activity-v1` plus the full split-lease, transfer, delegation, grouping, global-order, and idempotency capability set in `terminal-control-v9.md`.
 
 There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 8.
 

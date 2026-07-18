@@ -7,6 +7,9 @@ actor TerminalRenderMetalBlitter {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let releaseHandler: @Sendable (TerminalRenderFrameRelease) -> Void
+    private let dispositionHandler: TerminalRenderFrameDispositionHandler?
+    private let metricEventHandler: TerminalRenderCompositorMetricEventHandler?
+    private let presentedHandler: TerminalRenderFramePresentedHandler?
     private var currentEpoch: UInt64
     private var currentLayer: TerminalRenderMetalLayerHandle
     private var inFlight = false
@@ -19,13 +22,19 @@ actor TerminalRenderMetalBlitter {
         commandQueue: any MTLCommandQueue,
         initialEpoch: UInt64,
         initialLayer: TerminalRenderMetalLayerHandle,
-        releaseHandler: @escaping @Sendable (TerminalRenderFrameRelease) -> Void
+        releaseHandler: @escaping @Sendable (TerminalRenderFrameRelease) -> Void,
+        dispositionHandler: TerminalRenderFrameDispositionHandler?,
+        metricEventHandler: TerminalRenderCompositorMetricEventHandler?,
+        presentedHandler: TerminalRenderFramePresentedHandler?
     ) {
         self.device = device
         self.commandQueue = commandQueue
         self.currentEpoch = initialEpoch
         self.currentLayer = initialLayer
         self.releaseHandler = releaseHandler
+        self.dispositionHandler = dispositionHandler
+        self.metricEventHandler = metricEventHandler
+        self.presentedHandler = presentedHandler
     }
 
     func register(
@@ -42,21 +51,33 @@ actor TerminalRenderMetalBlitter {
         layer: TerminalRenderMetalLayerHandle
     ) -> TerminalRenderCompositorEnqueueResult {
         guard !stopped else {
+            metricsStorage.rejectedFrames &+= 1
+            metricsStorage.metalUnavailableFrames &+= 1
+            metricEventHandler?(.rejectedFrame)
+            metricEventHandler?(.metalUnavailable)
+            record(frame, result: .metalUnavailable)
             release(frame)
             return .metalUnavailable
         }
         guard epoch >= currentEpoch else {
+            let result = TerminalRenderCompositorEnqueueResult.rejected(
+                .presentationGenerationMismatch
+            )
+            record(frame, result: result)
             release(frame)
             metricsStorage.rejectedFrames &+= 1
-            return .rejected(.presentationGenerationMismatch)
+            metricEventHandler?(.rejectedFrame)
+            return result
         }
         transitionIfNeeded(epoch: epoch, layer: layer)
         if inFlight {
             if let pendingFrame {
                 release(pendingFrame)
                 metricsStorage.coalescedFrames &+= 1
+                metricEventHandler?(.coalescedFrame)
             }
             pendingFrame = frame
+            record(frame, result: .coalesced)
             return .coalesced
         }
         // A prior drawable miss may have left one pending frame while no blit
@@ -66,6 +87,7 @@ actor TerminalRenderMetalBlitter {
             release(pendingFrame)
             self.pendingFrame = nil
             metricsStorage.coalescedFrames &+= 1
+            metricEventHandler?(.coalescedFrame)
         }
         return submit(frame)
     }
@@ -105,20 +127,28 @@ actor TerminalRenderMetalBlitter {
         currentLayer = layer
     }
 
-    private func submit(
-        _ frame: TerminalRenderFrame
-    ) -> TerminalRenderCompositorEnqueueResult {
+    private func submit(_ frame: TerminalRenderFrame) -> TerminalRenderCompositorEnqueueResult {
         guard let sourceTexture = makeTexture(frame: frame) else {
             metricsStorage.rejectedFrames &+= 1
+            metricEventHandler?(.rejectedFrame)
+            record(frame, result: .invalidSurface)
             release(frame)
             return .invalidSurface
         }
         guard let drawable = currentLayer.layer.nextDrawable() else {
+            metricsStorage.drawableUnavailableEvents &+= 1
+            metricEventHandler?(.drawableUnavailable)
             pendingFrame = frame
+            record(frame, result: .drawableUnavailable)
             return .drawableUnavailable
         }
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let blit = commandBuffer.makeBlitCommandEncoder() else {
+            metricsStorage.rejectedFrames &+= 1
+            metricsStorage.metalUnavailableFrames &+= 1
+            metricEventHandler?(.rejectedFrame)
+            metricEventHandler?(.metalUnavailable)
+            record(frame, result: .metalUnavailable)
             release(frame)
             return .metalUnavailable
         }
@@ -144,8 +174,20 @@ actor TerminalRenderMetalBlitter {
 
         inFlight = true
         metricsStorage.submittedBlits &+= 1
+        metricEventHandler?(.submittedBlit)
+        record(frame, result: .submitted)
         let release = releaseHandler
         let releaseRecord = TerminalRenderFrameRelease(frame: frame)
+        let presentedMetadata = frame.metadata
+        let presentedEpoch = currentEpoch
+        drawable.addPresentedHandler { [weak self] _ in
+            Task {
+                await self?.frameBecameVisible(
+                    presentedMetadata,
+                    submissionEpoch: presentedEpoch
+                )
+            }
+        }
         commandBuffer.addCompletedHandler { [weak self, frame] _ in
             // Retain the imported IOSurface until Metal has stopped reading it,
             // then permit the remote worker to reuse exactly this pool slot.
@@ -163,6 +205,14 @@ actor TerminalRenderMetalBlitter {
     private func completedBlit() {
         inFlight = false
         drainPendingFrame()
+    }
+
+    private func frameBecameVisible(
+        _ metadata: TerminalRenderFrameMetadata,
+        submissionEpoch: UInt64
+    ) {
+        guard !stopped, submissionEpoch == currentEpoch else { return }
+        presentedHandler?(metadata)
     }
 
     private func drainPendingFrame() {
@@ -193,6 +243,13 @@ actor TerminalRenderMetalBlitter {
 
     private func release(_ frame: TerminalRenderFrame) {
         releaseHandler(TerminalRenderFrameRelease(frame: frame))
+    }
+
+    private func record(
+        _ frame: TerminalRenderFrame,
+        result: TerminalRenderCompositorEnqueueResult
+    ) {
+        dispositionHandler?(frame, result)
     }
 
     private static func metalPixelFormat(

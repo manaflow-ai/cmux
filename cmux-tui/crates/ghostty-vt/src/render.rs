@@ -84,6 +84,12 @@ pub const ATTR_BLINK: u16 = 0x0040;
 pub struct Cell {
     pub text: String,
     pub width: CellWidth,
+    /// OSC 8 target attached to this exact retained-grid cell.
+    ///
+    /// Render-state snapshots do not currently expose the URI, so this is
+    /// populated only by read-only grid-reference snapshots such as
+    /// `Terminal::styled_screen_rows`.
+    pub hyperlink_uri: Option<String>,
     pub fg: ColorSpec,
     pub bg: ColorSpec,
     pub resolved_fg: Option<Rgb>,
@@ -555,6 +561,32 @@ pub(crate) fn read_grid_ref_cell(
         for &cp in grapheme_buf.iter().take(grapheme_len) {
             cell.text.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
         }
+    }
+
+    // OSC 8 URI lookup uses the same tracked grid reference as the cell and
+    // grapheme reads, so the text and target cannot come from different
+    // terminal revisions. Oversized URIs are intentionally omitted from
+    // semantic snapshots rather than allocating an attacker-controlled buffer.
+    const MAX_HYPERLINK_URI_BYTES: usize = 4 * 1024;
+    let mut hyperlink_len = 0usize;
+    let hyperlink_query = unsafe {
+        sys::ghostty_grid_ref_hyperlink_uri(grid_ref, ptr::null_mut(), 0, &mut hyperlink_len)
+    };
+    if hyperlink_len > 0
+        && hyperlink_len <= MAX_HYPERLINK_URI_BYTES
+        && (hyperlink_query == sys::GHOSTTY_SUCCESS || hyperlink_query == sys::GHOSTTY_OUT_OF_SPACE)
+    {
+        let mut bytes = vec![0u8; hyperlink_len];
+        check(unsafe {
+            sys::ghostty_grid_ref_hyperlink_uri(
+                grid_ref,
+                bytes.as_mut_ptr(),
+                bytes.len(),
+                &mut hyperlink_len,
+            )
+        })?;
+        bytes.truncate(hyperlink_len);
+        cell.hyperlink_uri = String::from_utf8(bytes).ok();
     }
 
     apply_style(&mut cell, raw, &style);

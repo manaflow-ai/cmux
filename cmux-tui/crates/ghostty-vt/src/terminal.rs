@@ -86,11 +86,23 @@ pub struct SelectionSnapshot {
     pub rectangle: bool,
 }
 
+/// Coordinate-only selection range used for presentation highlights.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionRangeSnapshot {
+    pub start: SelectionPoint,
+    pub end: SelectionPoint,
+    pub top_left: SelectionPoint,
+    pub bottom_right: SelectionPoint,
+    pub rectangle: bool,
+}
+
 /// Result of one complete active-screen and scrollback search.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchSelection {
     pub total_matches: usize,
     pub selection: Option<SelectionSnapshot>,
+    /// Every match intersecting the viewport centered on `selection`.
+    pub viewport_matches: Vec<SelectionRangeSnapshot>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -673,6 +685,39 @@ impl Terminal {
         u32::try_from(self.scrollback_rows()).unwrap_or(u32::MAX)
     }
 
+    /// Total retained rows, including the live viewport.
+    pub fn total_rows(&self) -> u32 {
+        let total = self.get::<usize>(sys::GHOSTTY_TERMINAL_DATA_TOTAL_ROWS).unwrap_or(0);
+        u32::try_from(total).unwrap_or(u32::MAX)
+    }
+
+    /// Read styled rows in absolute retained-screen coordinates without
+    /// moving the viewport or consuming renderer damage.
+    pub fn styled_screen_rows(&self, start: u32, count: u16) -> Result<Vec<Vec<Cell>>> {
+        let total = self.total_rows();
+        if count == 0 || start >= total {
+            return Ok(Vec::new());
+        }
+
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
+        let end = start.saturating_add(u32::from(count)).min(total);
+        let cols = self.cols();
+        let mut rows = Vec::with_capacity((end - start) as usize);
+        let mut grapheme_buf = Vec::new();
+
+        for y in start..end {
+            let mut row = Vec::with_capacity(cols as usize);
+            for x in 0..cols {
+                let grid_ref = self
+                    .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, x, u64::from(y))
+                    .ok_or(crate::Error::InvalidValue)?;
+                row.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf)?);
+            }
+            rows.push(row);
+        }
+        Ok(rows)
+    }
+
     /// Read styled retained rows without moving the viewport or consuming
     /// terminal/render damage.
     ///
@@ -740,6 +785,14 @@ impl Terminal {
             sys::ghostty_terminal_mode_get(self.raw, sys::ghostty_mode_new(mode, ansi), &mut out)
         };
         result == sys::GHOSTTY_SUCCESS && out
+    }
+
+    /// Set a terminal mode. This is used by daemon-owned safety policies that
+    /// must resolve a wedged mode without replaying synthetic escape bytes.
+    pub fn set_mode(&mut self, mode: u16, ansi: bool, enabled: bool) -> Result<()> {
+        check(unsafe {
+            sys::ghostty_terminal_mode_set(self.raw, sys::ghostty_mode_new(mode, ansi), enabled)
+        })
     }
 
     pub fn scroll_delta(&mut self, delta: isize) {
@@ -962,40 +1015,85 @@ impl Terminal {
         self.selection_snapshot(&selection).map(Some)
     }
 
-    /// Search retained screen history, install one newest-first match as the
-    /// active selection, and place its first row inside the viewport.
+    /// Search retained screen history and place one newest-first match inside
+    /// the viewport. Search candidates remain presentation highlights rather
+    /// than replacing the terminal's user selection.
     pub fn search_select(&mut self, query: &str, match_index: usize) -> Result<SearchSelection> {
+        self.search(query, match_index, true)
+    }
+
+    /// Refresh one search result and every match intersecting the current
+    /// viewport without scrolling. This keeps active-search presentation
+    /// highlights current after independent output or viewport movement.
+    pub fn search_snapshot(&mut self, query: &str, match_index: usize) -> Result<SearchSelection> {
+        self.search(query, match_index, false)
+    }
+
+    fn search(
+        &mut self,
+        query: &str,
+        match_index: usize,
+        center_selected_viewport: bool,
+    ) -> Result<SearchSelection> {
         let options = sys::GhosttyTerminalSearchSelectOptions {
             size: size_of::<sys::GhosttyTerminalSearchSelectOptions>(),
             needle: query.as_ptr(),
             needle_len: query.len(),
             match_index,
+            center_selected_viewport,
         };
         let mut selection = sys::GhosttySelection {
             size: size_of::<sys::GhosttySelection>(),
             ..Default::default()
         };
         let mut total_matches = 0;
+        // A fixed non-empty needle has at most one match beginning at each
+        // viewport cell. The needle allowance covers matches beginning just
+        // before the viewport and spanning into it.
+        let viewport_capacity = usize::from(self.rows())
+            .saturating_mul(usize::from(self.cols()))
+            .saturating_add(query.len());
+        let mut viewport_matches = Vec::new();
+        viewport_matches
+            .try_reserve_exact(viewport_capacity)
+            .map_err(|_| crate::Error::OutOfMemory)?;
+        viewport_matches.resize_with(viewport_capacity, || sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        });
+        let mut viewport_match_count = 0;
         let result = unsafe {
             sys::ghostty_terminal_search_select(
                 self.raw,
                 &options,
                 &mut selection,
                 &mut total_matches,
+                viewport_matches.as_mut_ptr(),
+                viewport_matches.len(),
+                &mut viewport_match_count,
             )
         };
         if result == sys::GHOSTTY_NO_VALUE {
-            self.clear_selection();
-            return Ok(SearchSelection { total_matches, selection: None });
+            return Ok(SearchSelection {
+                total_matches,
+                selection: None,
+                viewport_matches: Vec::new(),
+            });
         }
         check(result)?;
-        self.install_selection(&selection)?;
+        viewport_matches.truncate(viewport_match_count);
+        let viewport_matches = viewport_matches
+            .iter()
+            .map(|match_selection| self.selection_range_snapshot(match_selection))
+            .collect::<Result<Vec<_>>>()?;
         let selection = self.selection_snapshot(&selection)?;
-        let viewport_rows = self.rows().max(1);
-        self.scroll_to_row(u64::from(
-            selection.top_left.row.saturating_sub(u32::from(viewport_rows / 2)),
-        ));
-        Ok(SearchSelection { total_matches, selection: Some(selection) })
+        if center_selected_viewport {
+            let viewport_rows = self.rows().max(1);
+            self.scroll_to_row(u64::from(
+                selection.top_left.row.saturating_sub(u32::from(viewport_rows / 2)),
+            ));
+        }
+        Ok(SearchSelection { total_matches, selection: Some(selection), viewport_matches })
     }
 
     fn install_selection(&mut self, selection: &sys::GhosttySelection) -> Result<()> {
@@ -1012,6 +1110,22 @@ impl Terminal {
         &mut self,
         selection: &sys::GhosttySelection,
     ) -> Result<SelectionSnapshot> {
+        let range = self.selection_range_snapshot(selection)?;
+        let text = self.selection_text_from_snapshot(selection)?;
+        Ok(SelectionSnapshot {
+            text,
+            start: range.start,
+            end: range.end,
+            top_left: range.top_left,
+            bottom_right: range.bottom_right,
+            rectangle: range.rectangle,
+        })
+    }
+
+    fn selection_range_snapshot(
+        &self,
+        selection: &sys::GhosttySelection,
+    ) -> Result<SelectionRangeSnapshot> {
         let start = self.selection_point(&selection.start)?;
         let end = self.selection_point(&selection.end)?;
         let (top_left, bottom_right) = if selection.rectangle {
@@ -1030,9 +1144,7 @@ impl Terminal {
         } else {
             (end, start)
         };
-        let text = self.selection_text_from_snapshot(selection)?;
-        Ok(SelectionSnapshot {
-            text,
+        Ok(SelectionRangeSnapshot {
             start,
             end,
             top_left,

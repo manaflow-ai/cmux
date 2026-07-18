@@ -16,6 +16,15 @@ TTY, and terminal runtime epoch are new. Live PTY survival across daemon death
 requires a separate PTY broker and descriptor handoff and is outside this
 format.
 
+The projection-state registry is also outside this format. It retains stable
+frontend-window to workspace and selected-screen mappings only while the same
+daemon process lives. A Swift frontend disconnect releases its claim but keeps
+the mapping for a later process with the same registered client UUID. An
+explicit window close deletes the mapping. Renderer presentations and terminal
+control leases are always released with their connection. A daemon restart
+starts with an empty projection-state registry even when canonical topology is
+restored from disk.
+
 ## Files and lock
 
 One session key deterministically maps to three private paths beneath the
@@ -49,11 +58,12 @@ The checkpoint stores only stable identities and ordered canonical values:
 - browser placement UUID and user name without URL or browser engine state;
 - bounded deletion tombstones;
 - bounded idempotency results.
+- a globally monotonic terminal activity sequence, the latest content-free fact per live terminal, and bounded per-reader receipts.
 
 Legacy numeric workspace, screen, pane, surface, and process aliases are not
 serialized. Terminal output, VT state, scrollback bytes, pasted text, browser
 URLs, image bytes, PID, TTY, daemon instance ID, client state, presentation
-state, leases, and renderer state are not serialized.
+state, leases, and renderer state are not serialized. Activity facts never contain notification titles or bodies.
 
 Browser URLs are deliberately omitted because user-info, query, and fragment
 components can carry credentials or private content. Browser placements
@@ -133,11 +143,11 @@ synced record from the older checkpoint.
 Tombstones and idempotency results each retain at most 1,024 entries and evict
 the oldest entry first. Checkpoint, journal, record, entity, string, argv,
 environment, and topology sizes are validated before allocation or mutation.
+Activity keeps at most 16,384 latest facts, 1,024 reader UUIDs, and 65,536 stable-reader receipts. Capacity or sequence exhaustion rejects the mutation without eviction. Closing a surface removes its fact and receipts while retaining the global sequence high-water mark.
 
 ## Recovery behavior
 
-Version-1 identity-only state migrates atomically to an empty version-2
-canonical checkpoint without changing `session_id`. Unsupported versions and
+Version-1 identity-only state migrates atomically through the canonical schema. Version-2 topology checkpoints and their synced journals migrate atomically to version 3 with empty activity state without changing `session_id`. Unsupported versions and
 corrupt checkpoints fail closed. Explicit `--recover-state` archives corrupt
 checkpoint and journal bytes before creating a new session identity.
 

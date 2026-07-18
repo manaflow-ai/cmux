@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use cmux_tui_core::{
     BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind,
-    SurfaceNotification, WorkspaceId, assign_short_ids,
+    SurfaceNotification, SurfaceUuid, WorkspaceId, assign_short_ids,
 };
 use serde_json::Value;
 
@@ -51,6 +51,7 @@ pub struct PaneView {
 #[derive(Clone)]
 pub struct TabView {
     pub surface: SurfaceId,
+    pub surface_uuid: SurfaceUuid,
     pub short_id: String,
     pub name: Option<String>,
     pub title: String,
@@ -116,6 +117,16 @@ impl TreeView {
             .find(|tab| tab.surface == id)
             .map(|tab| tab.kind)
             .unwrap_or(SurfaceKind::Pty)
+    }
+
+    pub fn surface_uuid(&self, id: SurfaceId) -> Option<SurfaceUuid> {
+        self.workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == id)
+            .map(|tab| tab.surface_uuid)
     }
 }
 
@@ -187,6 +198,7 @@ pub fn tree_from_state_with_notifications(
                 .iter()
                 .map(|sid| TabView {
                     surface: *sid,
+                    surface_uuid: state.surfaces.get(sid).map(|surface| surface.uuid).unwrap(),
                     short_id: short_ids.get(sid).cloned().unwrap_or_default(),
                     name: state.surfaces.get(sid).and_then(|s| s.name()),
                     title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
@@ -271,6 +283,11 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                     .filter_map(|tab| {
                         Some(TabView {
                             surface: tab.get("surface")?.as_u64()?,
+                            surface_uuid: tab
+                                .get("uuid")
+                                .and_then(|value| value.as_str())
+                                .and_then(|value| value.parse().ok())
+                                .unwrap_or_else(SurfaceUuid::new),
                             short_id: tab
                                 .get("short_id")
                                 .and_then(|v| v.as_str())

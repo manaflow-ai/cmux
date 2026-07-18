@@ -24,6 +24,7 @@ struct MuxEventSubscriber {
 enum MuxEventFilter {
     All,
     AttachedSurface(SurfaceId),
+    TerminalActivity,
 }
 
 pub struct MuxEventReceiver {
@@ -57,6 +58,10 @@ impl MuxEventBroadcaster {
         self.subscribe_with_filter(MuxEventFilter::AttachedSurface(surface))
     }
 
+    pub fn subscribe_terminal_activity(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::TerminalActivity)
+    }
+
     fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
         let mailbox = Arc::new(MuxEventMailbox::default());
         self.subscribers
@@ -84,6 +89,10 @@ impl MuxEventFilter {
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => *event_surface == surface,
                 _ => false,
             },
+            Self::TerminalActivity => matches!(
+                event,
+                MuxEvent::TerminalActivity(_) | MuxEvent::TerminalActivityReceipt(_)
+            ),
         }
     }
 }

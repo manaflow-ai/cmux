@@ -5,6 +5,7 @@
 //! browser-aware frontends should branch on [`SurfaceKind`] before using
 //! VT operations.
 
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::ops::Deref;
@@ -17,11 +18,16 @@ use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
-    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Scrollbar,
-    SelectionAdjustment, SelectionPoint, SelectionSnapshot, Terminal,
+    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderSceneHighlight,
+    RenderSceneHighlightKind, RenderState, Rgb, Scrollbar, SearchSelection, SelectionAdjustment,
+    SelectionPoint, SelectionSnapshot, Terminal,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
+use crate::accessibility::{
+    TerminalAccessibilityIdentity, TerminalAccessibilitySnapshot,
+    build_terminal_accessibility_snapshot,
+};
 use crate::platform;
 use crate::semantic_scene::{
     SemanticSceneAttachError, SemanticSceneAttachment, SemanticSceneAttachmentOptions,
@@ -395,6 +401,20 @@ pub(crate) struct TerminalInteractionSnapshot {
     pub cursor_visible: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TerminalHyperlinkHit {
+    pub surface_uuid: crate::SurfaceUuid,
+    pub presentation_id: crate::PresentationId,
+    pub presentation_generation: u64,
+    pub content_sequence: u64,
+    pub terminal_revision: u64,
+    pub content_revision: u64,
+    pub viewport_revision: u64,
+    pub column: u16,
+    pub row: u64,
+    pub target: String,
+}
+
 #[derive(Debug, Default)]
 struct TerminalSearchState {
     query: String,
@@ -408,6 +428,31 @@ struct TerminalInteractionState {
     copy_cursor: Option<SelectionPoint>,
     search: Option<TerminalSearchState>,
     mouse_selection_anchor: Option<SelectionPoint>,
+    mouse_autoscroll: Option<MouseSelectionAutoscrollState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MouseSelectionAutoscrollDirection {
+    Up,
+    Down,
+}
+
+struct MouseSelectionAutoscrollState {
+    generation: u64,
+    direction: MouseSelectionAutoscrollDirection,
+    column: u16,
+    cancel: SyncSender<()>,
+}
+
+impl std::fmt::Debug for MouseSelectionAutoscrollState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MouseSelectionAutoscrollState")
+            .field("generation", &self.generation)
+            .field("direction", &self.direction)
+            .field("column", &self.column)
+            .finish_non_exhaustive()
+    }
 }
 
 pub struct SurfaceMeta {
@@ -476,8 +521,17 @@ pub struct PtySurface {
     semantic_attachment_count: AtomicUsize,
     semantic_identity: SemanticSceneTerminalIdentity,
     render_generation: AtomicU64,
+    accessibility_content_revision: AtomicU64,
+    accessibility_viewport_revision: AtomicU64,
+    accessibility_focus_revision: AtomicU64,
+    /// AX reads are opt-in. Once requested for a rendered terminal, retain a
+    /// short exact-sequence history until the semantic renderer detaches.
+    accessibility_demanded: AtomicBool,
+    accessibility_frames: Mutex<VecDeque<TerminalAccessibilitySnapshot>>,
     frame_requests: SyncSender<u64>,
 }
+
+const TERMINAL_ACCESSIBILITY_FRAME_CACHE_CAPACITY: usize = 3;
 
 impl std::fmt::Debug for Surface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -557,6 +611,10 @@ impl Surface {
         };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        // Semantic Kitty capture requires nonzero terminal pixel geometry even
+        // before the first renderer-reported resize. Use the same nominal cell
+        // metrics as later PTY geometry updates.
+        term.resize(opts.cols.max(1), opts.rows.max(1), 8, 16)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.set_default_colors(colors.fg, colors.bg, colors.cursor);
@@ -597,6 +655,11 @@ impl Surface {
             semantic_attachment_count: AtomicUsize::new(0),
             semantic_identity,
             render_generation: AtomicU64::new(1),
+            accessibility_content_revision: AtomicU64::new(1),
+            accessibility_viewport_revision: AtomicU64::new(1),
+            accessibility_focus_revision: AtomicU64::new(1),
+            accessibility_demanded: AtomicBool::new(false),
+            accessibility_frames: Mutex::new(VecDeque::new()),
             frame_requests,
         }));
 
@@ -618,6 +681,10 @@ impl Surface {
                         let mut term = pty.term.lock().unwrap();
                         let before = terminal_scroll_position(&term);
                         term.vt_write(&buf[..n]);
+                        // Active-search ranges are presentation state over
+                        // canonical content. Refresh them before publishing
+                        // the next scene so output cannot leave stale ranges.
+                        let _ = pty.refresh_active_search_locked(&mut term);
                         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                         let after = terminal_scroll_position(&term);
                         pty.broadcast_attach_output(&buf[..n]);
@@ -635,9 +702,11 @@ impl Surface {
                             *pty.pwd.lock().unwrap() = Some(pwd);
                         }
                         if before != after {
+                            pty.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
                             scroll_changed = Some(after);
                             broadcast_render_scroll_locked(pty, after);
                         }
+                        pty.accessibility_content_revision.fetch_add(1, Ordering::AcqRel);
                         pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                     };
                     pty.request_frame(generation);
@@ -713,6 +782,7 @@ impl Surface {
         };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        term.resize(opts.cols.max(1), opts.rows.max(1), 8, 16)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.set_default_colors(colors.fg, colors.bg, colors.cursor);
@@ -763,6 +833,11 @@ impl Surface {
             semantic_attachment_count: AtomicUsize::new(0),
             semantic_identity,
             render_generation: AtomicU64::new(1),
+            accessibility_content_revision: AtomicU64::new(1),
+            accessibility_viewport_revision: AtomicU64::new(1),
+            accessibility_focus_revision: AtomicU64::new(1),
+            accessibility_demanded: AtomicBool::new(false),
+            accessibility_frames: Mutex::new(VecDeque::new()),
             frame_requests,
         }));
         if start_frame_producer {
@@ -915,9 +990,15 @@ impl Surface {
         };
         let generation = {
             let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
             term.vt_write(bytes);
+            pty.refresh_active_search_locked(&mut term)?;
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
             pty.broadcast_attach_output(bytes);
+            if terminal_scroll_position(&term) != before {
+                pty.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
+            }
+            pty.accessibility_content_revision.fetch_add(1, Ordering::AcqRel);
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         };
         pty.request_frame(generation);
@@ -938,6 +1019,169 @@ impl Surface {
         let mut term = pty.term.lock().unwrap();
         let interaction = pty.interaction.lock().unwrap();
         Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_accessibility_snapshot(
+        &self,
+        presentation_id: crate::PresentationId,
+        presentation_generation: u64,
+        focused: bool,
+    ) -> anyhow::Result<TerminalAccessibilitySnapshot> {
+        let expected_content_sequence = self
+            .as_pty()
+            .ok_or_else(|| {
+                anyhow::anyhow!("browser surface does not have terminal accessibility state")
+            })?
+            .render_generation
+            .load(Ordering::Acquire);
+        self.terminal_accessibility_snapshot_at(
+            presentation_id,
+            presentation_generation,
+            focused,
+            expected_content_sequence,
+        )
+    }
+
+    pub(crate) fn terminal_accessibility_snapshot_at(
+        &self,
+        presentation_id: crate::PresentationId,
+        presentation_generation: u64,
+        focused: bool,
+        expected_content_sequence: u64,
+    ) -> anyhow::Result<TerminalAccessibilitySnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have terminal accessibility state");
+        };
+        let mut terminal = pty.term.lock().unwrap();
+        pty.accessibility_demanded.store(true, Ordering::Release);
+        let render_revision = pty.render_generation.load(Ordering::Acquire);
+        if expected_content_sequence == 0 {
+            anyhow::bail!("terminal accessibility content sequence must be nonzero");
+        }
+        let mut snapshot = pty
+            .accessibility_frames
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|snapshot| snapshot.content_sequence == expected_content_sequence)
+            .cloned();
+        if snapshot.is_none() && render_revision == expected_content_sequence {
+            let identity = TerminalAccessibilityIdentity {
+                surface_uuid: self.uuid,
+                presentation_id,
+                presentation_generation,
+                content_sequence: expected_content_sequence,
+                terminal_revision: render_revision,
+                content_revision: pty.accessibility_content_revision.load(Ordering::Acquire),
+                viewport_revision: pty.accessibility_viewport_revision.load(Ordering::Acquire),
+                focused,
+            };
+            let built = build_terminal_accessibility_snapshot(&mut terminal, identity)?;
+            pty.cache_accessibility_frame(built.clone());
+            snapshot = Some(built);
+        }
+        let Some(mut snapshot) = snapshot else {
+            anyhow::bail!(
+                "terminal accessibility frame sequence {expected_content_sequence} is unavailable; current sequence is {render_revision}"
+            );
+        };
+        let focus_revision = pty.accessibility_focus_revision.load(Ordering::Acquire);
+        snapshot.presentation_id = presentation_id;
+        snapshot.presentation_generation = presentation_generation;
+        snapshot.terminal_revision = expected_content_sequence.saturating_add(focus_revision);
+        snapshot.focused = focused;
+        Ok(snapshot)
+    }
+
+    pub(crate) fn terminal_hyperlink_at_viewport_cell(
+        &self,
+        presentation_id: crate::PresentationId,
+        presentation_generation: u64,
+        focused: bool,
+        expected_content_sequence: u64,
+        column: u16,
+        viewport_row: u16,
+    ) -> anyhow::Result<TerminalHyperlinkHit> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have terminal hyperlink state");
+        };
+        let mut terminal = pty.term.lock().unwrap();
+        let content_sequence = pty.render_generation.load(Ordering::Acquire);
+        if expected_content_sequence == 0 || content_sequence != expected_content_sequence {
+            anyhow::bail!(
+                "stale terminal frame sequence {expected_content_sequence}; current sequence is {content_sequence}"
+            );
+        }
+        let focus_revision = pty.accessibility_focus_revision.load(Ordering::Acquire);
+        let identity = TerminalAccessibilityIdentity {
+            surface_uuid: self.uuid,
+            presentation_id,
+            presentation_generation,
+            content_sequence,
+            terminal_revision: content_sequence.saturating_add(focus_revision),
+            content_revision: pty.accessibility_content_revision.load(Ordering::Acquire),
+            viewport_revision: pty.accessibility_viewport_revision.load(Ordering::Acquire),
+            focused,
+        };
+        let snapshot = build_terminal_accessibility_snapshot(&mut terminal, identity)?;
+        if column >= snapshot.columns || viewport_row >= snapshot.rows {
+            anyhow::bail!("terminal hyperlink cell is outside the rendered viewport");
+        }
+        let absolute_row = snapshot.viewport_offset.saturating_add(u64::from(viewport_row));
+        let link = snapshot
+            .links
+            .into_iter()
+            .find(|link| {
+                link.row == absolute_row && column >= link.start_column && column <= link.end_column
+            })
+            .ok_or_else(|| anyhow::anyhow!("terminal cell has no hyperlink"))?;
+        Ok(TerminalHyperlinkHit {
+            surface_uuid: self.uuid,
+            presentation_id,
+            presentation_generation,
+            content_sequence,
+            terminal_revision: snapshot.terminal_revision,
+            content_revision: snapshot.content_revision,
+            viewport_revision: snapshot.viewport_revision,
+            column,
+            row: absolute_row,
+            target: link.target,
+        })
+    }
+
+    pub(crate) fn activate_terminal_accessibility_link(
+        &self,
+        presentation_id: crate::PresentationId,
+        presentation_generation: u64,
+        focused: bool,
+        terminal_revision: u64,
+        content_revision: u64,
+        viewport_revision: u64,
+        link_id: &str,
+    ) -> anyhow::Result<String> {
+        let snapshot = self.terminal_accessibility_snapshot(
+            presentation_id,
+            presentation_generation,
+            focused,
+        )?;
+        if snapshot.terminal_revision != terminal_revision
+            || snapshot.content_revision != content_revision
+            || snapshot.viewport_revision != viewport_revision
+        {
+            anyhow::bail!("stale terminal accessibility snapshot");
+        }
+        snapshot
+            .links
+            .into_iter()
+            .find(|link| link.id == link_id)
+            .map(|link| link.target)
+            .ok_or_else(|| anyhow::anyhow!("stale terminal accessibility link"))
+    }
+
+    pub(crate) fn terminal_accessibility_focus_changed(&self) {
+        if let Some(pty) = self.as_pty() {
+            pty.accessibility_focus_revision.fetch_add(1, Ordering::AcqRel);
+        }
     }
 
     pub(crate) fn terminal_selection_clear(&self) -> anyhow::Result<TerminalInteractionSnapshot> {
@@ -1125,11 +1369,15 @@ impl Surface {
         search.selected_match = None;
         search.total_matches = 0;
         if search.query.is_empty() {
-            term.clear_selection();
+            pty.semantic_scenes.lock().unwrap().set_presentation_highlights_locked(Vec::new());
         } else {
             let result = term.search_select(&search.query, 0)?;
             search.total_matches = result.total_matches;
             search.selected_match = result.selection.is_some().then_some(0);
+            pty.semantic_scenes
+                .lock()
+                .unwrap()
+                .set_presentation_highlights_locked(search_scene_highlights(&result));
         }
         pty.terminal_visual_changed_locked(&mut term)?;
         Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
@@ -1160,6 +1408,10 @@ impl Surface {
         let result = term.search_select(&search.query, desired)?;
         search.total_matches = result.total_matches;
         search.selected_match = result.selection.is_some().then_some(desired);
+        pty.semantic_scenes
+            .lock()
+            .unwrap()
+            .set_presentation_highlights_locked(search_scene_highlights(&result));
         pty.terminal_visual_changed_locked(&mut term)?;
         Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
     }
@@ -1169,26 +1421,29 @@ impl Surface {
             anyhow::bail!("browser surface does not support terminal search");
         };
         let mut term = pty.term.lock().unwrap();
-        term.clear_selection();
         let mut interaction = pty.interaction.lock().unwrap();
         interaction.search = None;
+        pty.semantic_scenes.lock().unwrap().set_presentation_highlights_locked(Vec::new());
         pty.terminal_visual_changed_locked(&mut term)?;
         Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_mouse_selection(
-        &self,
+        self: &Arc<Self>,
         action: ghostty_vt::MouseAction,
         point: SelectionPoint,
         click_count: u8,
+        autoscroll: Option<MouseSelectionAutoscrollDirection>,
     ) -> anyhow::Result<(bool, TerminalInteractionSnapshot)> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not support terminal selection");
         };
         let mut term = pty.term.lock().unwrap();
         let mut interaction = pty.interaction.lock().unwrap();
+        let mut start_autoscroll = None;
         let handled = match action {
             ghostty_vt::MouseAction::Press => {
+                cancel_mouse_selection_autoscroll_locked(&mut interaction);
                 let selection = match click_count {
                     1 => Some(term.select_point_screen(point)?),
                     2 => term.select_word_screen(point)?,
@@ -1202,11 +1457,33 @@ impl Surface {
             ghostty_vt::MouseAction::Motion => match interaction.mouse_selection_anchor {
                 Some(anchor) => {
                     term.select_range_screen(anchor, point, false)?;
+                    match autoscroll {
+                        Some(direction) => {
+                            if let Some(active) = interaction.mouse_autoscroll.as_mut() {
+                                active.direction = direction;
+                                active.column = point.column;
+                            } else {
+                                let generation =
+                                    pty.render_generation.load(Ordering::Acquire).saturating_add(1);
+                                let (cancel, canceled) = sync_channel(1);
+                                interaction.mouse_autoscroll =
+                                    Some(MouseSelectionAutoscrollState {
+                                        generation,
+                                        direction,
+                                        column: point.column,
+                                        cancel,
+                                    });
+                                start_autoscroll = Some((generation, canceled));
+                            }
+                        }
+                        None => cancel_mouse_selection_autoscroll_locked(&mut interaction),
+                    }
                     true
                 }
                 None => false,
             },
             ghostty_vt::MouseAction::Release => {
+                cancel_mouse_selection_autoscroll_locked(&mut interaction);
                 let anchor = interaction.mouse_selection_anchor.take();
                 if let Some(anchor) = anchor {
                     term.select_range_screen(anchor, point, false)?;
@@ -1220,7 +1497,60 @@ impl Surface {
             pty.terminal_visual_changed_locked(&mut term)?;
         }
         let snapshot = terminal_interaction_snapshot_locked(&mut term, &interaction)?;
+        drop(interaction);
+        drop(term);
+        if let Some((generation, canceled)) = start_autoscroll {
+            spawn_mouse_selection_autoscroll(self, generation, canceled)?;
+        }
         Ok((handled, snapshot))
+    }
+
+    fn terminal_mouse_selection_autoscroll_tick(&self, generation: u64) -> anyhow::Result<bool> {
+        let Some(pty) = self.as_pty() else { return Ok(false) };
+        let mut term = pty.term.lock().unwrap();
+        let mut interaction = pty.interaction.lock().unwrap();
+        let Some(active) = interaction.mouse_autoscroll.as_ref() else {
+            return Ok(false);
+        };
+        if active.generation != generation || interaction.mouse_selection_anchor.is_none() {
+            return Ok(false);
+        }
+        let anchor = interaction.mouse_selection_anchor.unwrap();
+        let direction = active.direction;
+        let column = active.column;
+        let before = terminal_scroll_position(&term);
+        term.scroll_delta(match direction {
+            MouseSelectionAutoscrollDirection::Up => -1,
+            MouseSelectionAutoscrollDirection::Down => 1,
+        });
+        let after = terminal_scroll_position(&term);
+        let rows = u32::from(self.size().1.max(1));
+        let endpoint = SelectionPoint {
+            column,
+            row: u32::try_from(after.0).unwrap_or(u32::MAX).saturating_add(match direction {
+                MouseSelectionAutoscrollDirection::Up => 0,
+                MouseSelectionAutoscrollDirection::Down => rows.saturating_sub(1),
+            }),
+        };
+        term.select_range_screen(anchor, endpoint, false)?;
+        pty.refresh_active_search_with_interaction_locked(&mut term, &mut interaction)?;
+        if before != after {
+            pty.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
+            broadcast_render_scroll_locked(pty, after);
+        }
+        pty.terminal_visual_changed_locked(&mut term)?;
+        drop(interaction);
+        drop(term);
+        if before != after
+            && let Some(mux) = pty.mux.upgrade()
+        {
+            mux.emit(MuxEvent::ScrollChanged {
+                surface: self.id,
+                offset: after.0,
+                at_bottom: after.1,
+            });
+        }
+        Ok(true)
     }
 
     pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
@@ -1235,7 +1565,9 @@ impl Surface {
             if before == after {
                 None
             } else {
+                pty.refresh_active_search_locked(&mut term)?;
                 broadcast_render_scroll_locked(pty, after);
+                pty.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
                 let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
                 let _ = pty.build_frame_locked(&mut term, generation, false);
                 Some(after)
@@ -1261,7 +1593,9 @@ impl Surface {
             if before == after {
                 None
             } else {
+                pty.refresh_active_search_locked(&mut term)?;
                 broadcast_render_scroll_locked(pty, after);
+                pty.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
                 let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
                 let _ = pty.build_frame_locked(&mut term, generation, false);
                 Some(after)
@@ -1287,7 +1621,9 @@ impl Surface {
             if before == after {
                 None
             } else {
+                pty.refresh_active_search_locked(&mut term)?;
                 broadcast_render_scroll_locked(pty, after);
+                pty.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
                 let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
                 let _ = pty.build_frame_locked(&mut term, generation, false);
                 Some(after)
@@ -1313,7 +1649,9 @@ impl Surface {
             if before == after {
                 None
             } else {
+                pty.refresh_active_search_locked(&mut term)?;
                 broadcast_render_scroll_locked(pty, after);
+                pty.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
                 let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
                 let _ = pty.build_frame_locked(&mut term, generation, false);
                 Some(after)
@@ -1705,6 +2043,40 @@ impl Surface {
     }
 }
 
+fn search_scene_highlights(result: &SearchSelection) -> Vec<RenderSceneHighlight> {
+    let selected = result.selection.as_ref().map(|selection| {
+        (
+            selection.top_left.row,
+            selection.top_left.column,
+            selection.bottom_right.row,
+            selection.bottom_right.column,
+        )
+    });
+    result
+        .viewport_matches
+        .iter()
+        .map(|range| {
+            let coordinates = (
+                range.top_left.row,
+                range.top_left.column,
+                range.bottom_right.row,
+                range.bottom_right.column,
+            );
+            RenderSceneHighlight {
+                start_row: u64::from(range.top_left.row),
+                start_column: u32::from(range.top_left.column),
+                end_row: u64::from(range.bottom_right.row),
+                end_column: u32::from(range.bottom_right.column),
+                kind: if Some(coordinates) == selected {
+                    RenderSceneHighlightKind::SearchMatchSelected
+                } else {
+                    RenderSceneHighlightKind::SearchMatch
+                },
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 struct TestMasterPty {
     size: Mutex<PtySize>,
@@ -1798,6 +2170,56 @@ fn terminal_interaction_snapshot_locked(
 }
 
 impl PtySurface {
+    fn refresh_active_search_locked(&self, term: &mut Terminal) -> ghostty_vt::Result<()> {
+        let mut interaction = self.interaction.lock().unwrap();
+        self.refresh_active_search_with_interaction_locked(term, &mut interaction)
+    }
+
+    fn refresh_active_search_with_interaction_locked(
+        &self,
+        term: &mut Terminal,
+        interaction: &mut TerminalInteractionState,
+    ) -> ghostty_vt::Result<()> {
+        let Some(search) = interaction.search.as_mut() else { return Ok(()) };
+        if search.query.is_empty() {
+            self.semantic_scenes.lock().unwrap().set_presentation_highlights_locked(Vec::new());
+            search.selected_match = None;
+            search.total_matches = 0;
+            return Ok(());
+        }
+
+        let requested = search.selected_match.unwrap_or(0);
+        let mut result = term.search_snapshot(&search.query, requested)?;
+        if result.selection.is_none() && result.total_matches > 0 {
+            result =
+                term.search_snapshot(&search.query, requested.min(result.total_matches - 1))?;
+        }
+        search.total_matches = result.total_matches;
+        search.selected_match = result
+            .selection
+            .as_ref()
+            .map(|_| requested.min(result.total_matches.saturating_sub(1)));
+        self.semantic_scenes
+            .lock()
+            .unwrap()
+            .set_presentation_highlights_locked(search_scene_highlights(&result));
+        Ok(())
+    }
+
+    fn cache_accessibility_frame(&self, snapshot: TerminalAccessibilitySnapshot) {
+        let mut frames = self.accessibility_frames.lock().unwrap();
+        if frames
+            .back()
+            .is_some_and(|existing| existing.content_sequence >= snapshot.content_sequence)
+        {
+            return;
+        }
+        frames.push_back(snapshot);
+        while frames.len() > TERMINAL_ACCESSIBILITY_FRAME_CACHE_CAPACITY {
+            frames.pop_front();
+        }
+    }
+
     fn terminal_visual_changed_locked(&self, term: &mut Terminal) -> ghostty_vt::Result<()> {
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(term, generation, true)?;
@@ -1830,7 +2252,10 @@ impl PtySurface {
         generation: u64,
         producer_driven: bool,
     ) -> ghostty_vt::Result<bool> {
-        let semantic_work = if self.semantic_attachment_count.load(Ordering::Acquire) == 0 {
+        let semantic_attachment_count = self.semantic_attachment_count.load(Ordering::Acquire);
+        let semantic_work = if semantic_attachment_count == 0 {
+            self.accessibility_demanded.store(false, Ordering::Release);
+            self.accessibility_frames.lock().unwrap().clear();
             false
         } else {
             let mut scenes = self.semantic_scenes.lock().unwrap();
@@ -1838,6 +2263,22 @@ impl PtySurface {
             self.semantic_attachment_count.store(scenes.attachment_count(), Ordering::Release);
             worked
         };
+        if semantic_attachment_count > 0 && self.accessibility_demanded.load(Ordering::Acquire) {
+            let focus_revision = self.accessibility_focus_revision.load(Ordering::Acquire);
+            let identity = TerminalAccessibilityIdentity {
+                surface_uuid: self.meta.uuid,
+                presentation_id: crate::PresentationId::new(),
+                presentation_generation: 1,
+                content_sequence: generation,
+                terminal_revision: generation.saturating_add(focus_revision),
+                content_revision: self.accessibility_content_revision.load(Ordering::Acquire),
+                viewport_revision: self.accessibility_viewport_revision.load(Ordering::Acquire),
+                focused: false,
+            };
+            if let Ok(snapshot) = build_terminal_accessibility_snapshot(term, identity) {
+                self.cache_accessibility_frame(snapshot);
+            }
+        }
         let built = {
             let mut render = self.render.lock().unwrap();
             if (producer_driven && render.taps.is_empty()) || render.built_generation >= generation
@@ -1894,8 +2335,10 @@ impl PtySurface {
         });
         // Nominal cell metrics; only pixel size reports observe these.
         let _ = term.resize(cols, rows, 8, 16);
+        let _ = self.refresh_active_search_locked(&mut term);
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
         self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay });
+        self.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
         true
@@ -1903,12 +2346,16 @@ impl PtySurface {
 }
 
 const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
+const MOUSE_SELECTION_AUTOSCROLL_CADENCE: Duration = Duration::from_millis(50);
+const SYNCHRONIZED_OUTPUT_SAFETY_TIMEOUT: Duration = Duration::from_secs(1);
+const SYNCHRONIZED_OUTPUT_MODE: u16 = 2026;
 
 fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyhow::Result<()> {
     let weak = Arc::downgrade(surface);
     let id = surface.id;
     std::thread::Builder::new().name(format!("surface-{id}-frames")).spawn(move || {
         let mut last_frame = Instant::now() - RENDER_FRAME_CADENCE;
+        let mut synchronized_output_started: Option<Instant> = None;
         while let Ok(mut requested) = requests.recv() {
             let deadline = last_frame + RENDER_FRAME_CADENCE;
             loop {
@@ -1922,15 +2369,74 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
                     Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
-            let Some(surface) = weak.upgrade() else { break };
-            let Some(pty) = surface.as_pty() else { break };
-            let mut term = pty.term.lock().unwrap();
-            let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
-            if pty.build_frame_locked(&mut term, generation, true).unwrap_or(false) {
-                last_frame = Instant::now();
+            loop {
+                let Some(surface) = weak.upgrade() else { return };
+                let Some(pty) = surface.as_pty() else { return };
+                let mut term = pty.term.lock().unwrap();
+                let synchronized = term.mode(SYNCHRONIZED_OUTPUT_MODE, false);
+
+                if synchronized {
+                    let started = *synchronized_output_started.get_or_insert_with(Instant::now);
+                    let deadline = started + SYNCHRONIZED_OUTPUT_SAFETY_TIMEOUT;
+                    let now = Instant::now();
+                    if now < deadline {
+                        drop(term);
+                        match requests.recv_timeout(deadline.saturating_duration_since(now)) {
+                            Ok(next) => {
+                                requested = requested.max(next);
+                                continue;
+                            }
+                            Err(RecvTimeoutError::Timeout) => continue,
+                            Err(RecvTimeoutError::Disconnected) => return,
+                        }
+                    }
+
+                    // Match Ghostty's synchronized-output safety valve. A client
+                    // that never sends DECRST 2026 cannot freeze its renderer.
+                    let _ = term.set_mode(SYNCHRONIZED_OUTPUT_MODE, false, false);
+                }
+
+                if synchronized_output_started.take().is_some() {
+                    pty.semantic_scenes.lock().unwrap().force_full_locked();
+                }
+                let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
+                if pty.build_frame_locked(&mut term, generation, true).unwrap_or(false) {
+                    last_frame = Instant::now();
+                }
+                break;
             }
         }
     })?;
+    Ok(())
+}
+
+fn cancel_mouse_selection_autoscroll_locked(interaction: &mut TerminalInteractionState) {
+    if let Some(active) = interaction.mouse_autoscroll.take() {
+        match active.cancel.try_send(()) {
+            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+        }
+    }
+}
+
+fn spawn_mouse_selection_autoscroll(
+    surface: &Arc<Surface>,
+    generation: u64,
+    canceled: Receiver<()>,
+) -> anyhow::Result<()> {
+    let weak = Arc::downgrade(surface);
+    let id = surface.id;
+    std::thread::Builder::new().name(format!("surface-{id}-selection-autoscroll")).spawn(
+        move || loop {
+            match canceled.recv_timeout(MOUSE_SELECTION_AUTOSCROLL_CADENCE) {
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            let Some(surface) = weak.upgrade() else { return };
+            if !surface.terminal_mouse_selection_autoscroll_tick(generation).unwrap_or(false) {
+                return;
+            }
+        },
+    )?;
     Ok(())
 }
 
@@ -1952,7 +2458,8 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ghostty_vt::SceneSectionKind;
+    use ghostty_vt::{SceneSectionKind, SelectionRangeSnapshot};
+    use sha2::{Digest, Sha256};
 
     fn semantic_options(
         surface: &Surface,
@@ -1972,6 +2479,7 @@ mod tests {
         let pty = surface.as_pty().unwrap();
         let mut term = pty.term.lock().unwrap();
         term.vt_write(bytes);
+        pty.accessibility_content_revision.fetch_add(1, Ordering::AcqRel);
         let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let worked = pty.build_frame_locked(&mut term, generation, true).unwrap();
         (generation, worked)
@@ -1984,6 +2492,235 @@ mod tests {
                 panic!("expected semantic scene, got failure: {error}")
             }
         }
+    }
+
+    #[test]
+    fn search_scene_marks_all_visible_matches_and_only_the_selected_match() {
+        let selected_range = SelectionRangeSnapshot {
+            start: SelectionPoint { column: 2, row: 3 },
+            end: SelectionPoint { column: 4, row: 3 },
+            top_left: SelectionPoint { column: 2, row: 3 },
+            bottom_right: SelectionPoint { column: 4, row: 3 },
+            rectangle: false,
+        };
+        let other_range = SelectionRangeSnapshot {
+            start: SelectionPoint { column: 6, row: 5 },
+            end: SelectionPoint { column: 8, row: 5 },
+            top_left: SelectionPoint { column: 6, row: 5 },
+            bottom_right: SelectionPoint { column: 8, row: 5 },
+            rectangle: false,
+        };
+        let result = SearchSelection {
+            total_matches: 2,
+            selection: Some(SelectionSnapshot {
+                text: "hit".into(),
+                start: selected_range.start,
+                end: selected_range.end,
+                top_left: selected_range.top_left,
+                bottom_right: selected_range.bottom_right,
+                rectangle: false,
+            }),
+            viewport_matches: vec![selected_range, other_range],
+        };
+
+        let highlights = search_scene_highlights(&result);
+        assert_eq!(highlights.len(), 2);
+        assert_eq!(highlights[0].kind, RenderSceneHighlightKind::SearchMatchSelected);
+        assert_eq!(highlights[1].kind, RenderSceneHighlightKind::SearchMatch);
+        assert_eq!((highlights[1].start_row, highlights[1].start_column), (5, 6));
+    }
+
+    #[test]
+    fn active_search_refreshes_after_output_and_viewport_movement() {
+        let mut options = SurfaceOptions::default();
+        options.cols = 24;
+        options.rows = 4;
+        let mux = Mux::new_for_test("search-refresh", options.clone());
+        let surface = Surface::spawn_for_test(1, options, Arc::downgrade(&mux)).unwrap();
+        surface
+            .inject_terminal_output(
+                b"cmux-search-0\r\nrow\r\nrow\r\nrow\r\ncmux-search-1\r\nrow\r\n",
+            )
+            .unwrap();
+        let started = surface.terminal_search_update("cmux-search".into()).unwrap();
+        assert_eq!(started.search.total_matches, 2);
+        let centered_rows = {
+            let pty = surface.as_pty().unwrap();
+            pty.semantic_scenes
+                .lock()
+                .unwrap()
+                .presentation_highlights_for_test()
+                .iter()
+                .map(|highlight| highlight.start_row)
+                .collect::<Vec<_>>()
+        };
+
+        surface.scroll_to_top().unwrap();
+        let top_rows = {
+            let pty = surface.as_pty().unwrap();
+            pty.semantic_scenes
+                .lock()
+                .unwrap()
+                .presentation_highlights_for_test()
+                .iter()
+                .map(|highlight| highlight.start_row)
+                .collect::<Vec<_>>()
+        };
+        assert_ne!(top_rows, centered_rows);
+
+        surface.inject_terminal_output(b"cmux-search-2\r\n").unwrap();
+        let refreshed = surface.terminal_interaction_snapshot().unwrap();
+        assert_eq!(refreshed.search.total_matches, 3);
+        assert!(refreshed.search.selected_match.is_some());
+    }
+
+    #[test]
+    fn selection_drag_autoscroll_ticks_the_viewport_and_release_cancels_it() {
+        let mut options = SurfaceOptions::default();
+        options.cols = 12;
+        options.rows = 4;
+        let mux = Mux::new_for_test("selection-autoscroll", options.clone());
+        let surface = Surface::spawn_for_test(1, options, Arc::downgrade(&mux)).unwrap();
+        surface
+            .try_with_terminal(|terminal| {
+                for row in 0..12 {
+                    terminal.vt_write(format!("row-{row:02}\r\n").as_bytes());
+                }
+            })
+            .unwrap();
+
+        let before = surface.terminal_interaction_snapshot().unwrap().viewport.unwrap();
+        assert!(before.offset > 0);
+        let anchor = SelectionPoint { column: 1, row: u32::try_from(before.offset + 2).unwrap() };
+        assert!(
+            surface
+                .terminal_mouse_selection(ghostty_vt::MouseAction::Press, anchor, 1, None)
+                .unwrap()
+                .0
+        );
+        let edge = SelectionPoint { column: 1, row: u32::try_from(before.offset).unwrap() };
+        assert!(
+            surface
+                .terminal_mouse_selection(
+                    ghostty_vt::MouseAction::Motion,
+                    edge,
+                    1,
+                    Some(MouseSelectionAutoscrollDirection::Up),
+                )
+                .unwrap()
+                .0
+        );
+
+        let generation = surface
+            .as_pty()
+            .unwrap()
+            .interaction
+            .lock()
+            .unwrap()
+            .mouse_autoscroll
+            .as_ref()
+            .unwrap()
+            .generation;
+        assert!(surface.terminal_mouse_selection_autoscroll_tick(generation).unwrap());
+        let after = surface.terminal_interaction_snapshot().unwrap().viewport.unwrap();
+        assert_eq!(after.offset, before.offset - 1);
+
+        assert!(
+            surface
+                .terminal_mouse_selection(ghostty_vt::MouseAction::Release, edge, 1, None)
+                .unwrap()
+                .0
+        );
+        assert!(surface.as_pty().unwrap().interaction.lock().unwrap().mouse_autoscroll.is_none());
+        assert!(!surface.terminal_mouse_selection_autoscroll_tick(generation).unwrap());
+    }
+
+    #[test]
+    fn terminal_accessibility_link_activation_rejects_stale_revisions() {
+        let mux = Mux::new_for_test("accessibility-link-fence", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let presentation_id = crate::PresentationId::new();
+        apply_terminal_output(&surface, b"\x1b]8;;https://example.com/a\x1b\\link\x1b]8;;\x1b\\");
+        let snapshot = surface.terminal_accessibility_snapshot(presentation_id, 7, true).unwrap();
+        let link = snapshot.links.first().unwrap();
+        assert_eq!(
+            surface
+                .activate_terminal_accessibility_link(
+                    presentation_id,
+                    7,
+                    true,
+                    snapshot.terminal_revision,
+                    snapshot.content_revision,
+                    snapshot.viewport_revision,
+                    &link.id,
+                )
+                .unwrap(),
+            "https://example.com/a"
+        );
+
+        apply_terminal_output(&surface, b"x");
+        assert!(
+            surface
+                .activate_terminal_accessibility_link(
+                    presentation_id,
+                    7,
+                    true,
+                    snapshot.terminal_revision,
+                    snapshot.content_revision,
+                    snapshot.viewport_revision,
+                    &link.id,
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("stale terminal accessibility snapshot")
+        );
+    }
+
+    #[test]
+    fn terminal_accessibility_focus_change_advances_only_terminal_revision() {
+        let mux = Mux::new_for_test("accessibility-focus", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let presentation_id = crate::PresentationId::new();
+        let unfocused = surface.terminal_accessibility_snapshot(presentation_id, 7, false).unwrap();
+        surface.terminal_accessibility_focus_changed();
+        let focused = surface.terminal_accessibility_snapshot(presentation_id, 7, true).unwrap();
+        assert!(!unfocused.focused);
+        assert!(focused.focused);
+        assert!(focused.terminal_revision > unfocused.terminal_revision);
+        assert_eq!(focused.content_revision, unfocused.content_revision);
+        assert_eq!(focused.viewport_revision, unfocused.viewport_revision);
+    }
+
+    #[test]
+    fn terminal_accessibility_reads_the_exact_displayed_sequence_after_canonical_state_advances() {
+        let mux = Mux::new_for_test("accessibility-displayed-sequence", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let presentation_id = crate::PresentationId::new();
+
+        // Enable bounded AX capture, then build the frame that a renderer can display.
+        let initial = pty.render_generation.load(Ordering::Acquire);
+        surface.terminal_accessibility_snapshot_at(presentation_id, 7, true, initial).unwrap();
+        pty.semantic_attachment_count.store(1, Ordering::Release);
+        let (displayed_sequence, _) = apply_terminal_output(&surface, b"displayed");
+
+        // Canonical state can advance before Swift reports that frame as presented.
+        {
+            let mut terminal = pty.term.lock().unwrap();
+            terminal.vt_write(b"future");
+            pty.accessibility_content_revision.fetch_add(1, Ordering::AcqRel);
+            pty.render_generation.fetch_add(1, Ordering::AcqRel);
+        }
+
+        let displayed = surface
+            .terminal_accessibility_snapshot_at(presentation_id, 7, true, displayed_sequence)
+            .unwrap();
+        assert_eq!(displayed.content_sequence, displayed_sequence);
+        assert!(displayed.text.contains("displayed"));
+        assert!(!displayed.text.contains("future"));
     }
 
     #[test]
@@ -2083,6 +2820,72 @@ mod tests {
         assert_eq!(delta.as_bytes()[16], 2);
         assert_eq!(u64::from_le_bytes(delta.as_bytes()[48..56].try_into().unwrap()), generation);
         assert_eq!(u64::from_le_bytes(delta.as_bytes()[104..112].try_into().unwrap()), 2);
+    }
+
+    #[test]
+    fn synchronized_output_withholds_scenes_then_releases_one_full_scene() {
+        let mux = Mux::new_for_test("semantic-synchronized-output", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test_with_frame_producer(
+            1,
+            crate::SurfaceUuid::new(),
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            true,
+        )
+        .unwrap();
+        let attachment = surface.attach_semantic_scene(semantic_options(&surface, 2)).unwrap();
+        let pty = surface.as_pty().unwrap();
+
+        let held_generation = {
+            let mut terminal = pty.term.lock().unwrap();
+            terminal.vt_write(b"\x1b[?2026hfirst");
+            pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+        };
+        pty.request_frame(held_generation);
+        assert!(matches!(
+            attachment.events.recv_timeout(Duration::from_millis(100)),
+            Err(RecvTimeoutError::Timeout)
+        ));
+
+        let released_generation = {
+            let mut terminal = pty.term.lock().unwrap();
+            terminal.vt_write(b"second\x1b[?2026l");
+            pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+        };
+        pty.request_frame(released_generation);
+        let released =
+            expect_semantic_scene(attachment.events.recv_timeout(Duration::from_secs(2)).unwrap());
+        assert_eq!(released.content_sequence, released_generation);
+        assert_eq!(released.canonical_kind, SceneSectionKind::Full);
+        assert!(matches!(attachment.events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn synchronized_output_safety_timeout_resets_mode_and_emits_full_scene() {
+        let mux = Mux::new_for_test("semantic-synchronized-timeout", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test_with_frame_producer(
+            1,
+            crate::SurfaceUuid::new(),
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            true,
+        )
+        .unwrap();
+        let attachment = surface.attach_semantic_scene(semantic_options(&surface, 1)).unwrap();
+        let pty = surface.as_pty().unwrap();
+
+        let held_generation = {
+            let mut terminal = pty.term.lock().unwrap();
+            terminal.vt_write(b"\x1b[?2026hstuck");
+            pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+        };
+        pty.request_frame(held_generation);
+        let released = expect_semantic_scene(
+            attachment.events.recv_timeout(Duration::from_millis(1_500)).unwrap(),
+        );
+        assert_eq!(released.content_sequence, held_generation);
+        assert_eq!(released.canonical_kind, SceneSectionKind::Full);
+        assert!(!pty.term.lock().unwrap().mode(SYNCHRONIZED_OUTPUT_MODE, false));
     }
 
     #[test]
@@ -2227,7 +3030,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_scene_kitty_failure_is_typed_and_closes_attachment() {
+    fn semantic_scene_static_kitty_is_content_addressed_and_keeps_attachment_open() {
         let mux = Mux::new_for_test("semantic-kitty", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
@@ -2235,16 +3038,25 @@ mod tests {
 
         let (_, worked) = apply_terminal_output(
             &surface,
-            b"\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2,c=10,r=1;////////\x1b\\",
+            b"\x1b_Ga=T,t=d,f=32,i=1,p=1,s=1,v=1,c=1,r=1,z=1;/wAA/w==\x1b\\",
         );
         assert!(worked);
-        assert!(matches!(
-            attachment.events.try_recv(),
-            Ok(crate::SemanticSceneEvent::Failed(
-                crate::SemanticSceneFailure::UnsupportedKittyImages
-            ))
-        ));
-        assert!(attachment.events.is_detached());
+        let scene = expect_semantic_scene(attachment.events.try_recv().unwrap());
+        assert_eq!(scene.canonical_kind, SceneSectionKind::Delta);
+        assert_eq!(scene.content_sequence, 2);
+
+        let pixels = [0xff, 0x00, 0x00, 0xff];
+        let mut digest = Sha256::new();
+        digest.update(b"ghostty-kitty-static-v1\0");
+        digest.update(1_u32.to_le_bytes());
+        digest.update(1_u32.to_le_bytes());
+        digest.update([3]);
+        digest.update(pixels);
+        let digest = digest.finalize();
+        assert!(scene.as_bytes().windows(digest.len()).any(|window| window == digest.as_slice()));
+        assert!(scene.as_bytes().windows(pixels.len()).any(|window| window == pixels));
+        assert!(!attachment.events.is_detached());
+        assert_eq!(surface.as_pty().unwrap().semantic_scenes.lock().unwrap().attachment_count(), 1);
     }
 
     #[test]
@@ -2276,19 +3088,17 @@ mod tests {
     }
 
     #[test]
-    fn semantic_scene_custom_shader_and_stale_identity_fail_before_registration() {
+    fn semantic_scene_custom_shader_negotiates_before_stale_identity_rejection() {
         let mux = Mux::new_for_test("semantic-invalid", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
 
         let mut shader_options = semantic_options(&surface, 1);
         shader_options.capture.custom_shader_count = 1;
-        assert!(matches!(
-            surface.attach_semantic_scene(shader_options),
-            Err(SemanticSceneAttachError::Capture(
-                crate::SemanticSceneFailure::UnsupportedCustomShaders
-            ))
-        ));
+        let shader_attachment = surface.attach_semantic_scene(shader_options).unwrap();
+        assert!(!shader_attachment.initial.is_empty());
+        drop(shader_attachment);
+        let _ = apply_terminal_output(&surface, b"prune detached shader presentation");
 
         let mut stale_options = semantic_options(&surface, 1);
         stale_options.terminal.runtime_epoch =

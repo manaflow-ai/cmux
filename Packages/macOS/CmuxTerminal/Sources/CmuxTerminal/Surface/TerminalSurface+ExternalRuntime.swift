@@ -38,7 +38,21 @@ extension TerminalSurface {
     @MainActor
     public func setExternalPreedit(_ text: String?) -> TerminalExternalIngressResult {
         guard let externalRuntime else { return .rejected(.unsupported) }
-        return externalRuntime.enqueue(.preedit(text?.isEmpty == true ? nil : text))
+        return externalRuntime.enqueue(.preedit(
+            text.flatMap { $0.isEmpty ? nil : .collapsedAtEnd($0) }
+        ))
+    }
+
+    /// Updates rich AppKit IME state without committing bytes to the PTY.
+    @discardableResult
+    @MainActor
+    public func setExternalPreeditState(
+        _ preedit: TerminalExternalPreedit?
+    ) -> TerminalExternalIngressResult {
+        guard let externalRuntime else { return .rejected(.unsupported) }
+        return externalRuntime.enqueue(.preedit(
+            preedit.flatMap { $0.text.isEmpty ? nil : $0 }
+        ))
     }
 
     /// Routes a pointer event through the backend's canonical mouse encoder.
@@ -56,6 +70,37 @@ extension TerminalSurface {
     public func readExternalSelection() async -> TerminalExternalSelection? {
         guard let externalRuntime else { return nil }
         return await externalRuntime.readSelection()
+    }
+
+    /// Starts bounded, demand-driven semantic reads for AppKit accessibility.
+    @MainActor
+    public func enableExternalAccessibility() {
+        externalRuntime?.enableAccessibility()
+    }
+
+    /// Streams revision changes for the daemon-owned accessibility projection.
+    @MainActor
+    public func externalAccessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
+        externalRuntime?.accessibilitySnapshots() ?? AsyncStream { $0.finish() }
+    }
+
+    /// Revalidates a projected OSC 8 link at the daemon revision fence.
+    @MainActor
+    public func activateExternalAccessibilityLink(
+        _ link: TerminalAccessibilityLink,
+        snapshot: TerminalAccessibilitySnapshot
+    ) async -> String? {
+        guard let externalRuntime else { return nil }
+        return await externalRuntime.activateAccessibilityLink(link, snapshot: snapshot)
+    }
+
+    /// Resolves a command-click through the daemon's canonical OSC 8 state.
+    @MainActor
+    public func activateExternalHyperlink(
+        at event: TerminalExternalMouseEvent
+    ) async -> TerminalExternalHyperlinkHit? {
+        guard let externalRuntime else { return nil }
+        return await externalRuntime.activateHyperlink(at: event)
     }
 
     @discardableResult

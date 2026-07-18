@@ -20,12 +20,12 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -35,41 +35,74 @@ use ghostty_vt::{
     SelectionAdjustment, StyledRun, UnderlineStyle, key_input_from_chord, rows_to_runs,
 };
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 
 use crate::model::{Screen, State};
-use crate::mux::{EnsureTerminalRequest, RendererPresentationConfiguration, clamp_terminal_size};
+use crate::mux::{
+    EnsureTerminalRequest, RendererPreedit, RendererPresentationConfiguration, clamp_terminal_size,
+};
 use crate::platform::{self, transport};
 use crate::presentation::normalize_presentation;
+use crate::projection_state::{
+    ProjectionClaimant, ProjectionStateUpdate, ProjectionWorkspaceState,
+};
 use crate::renderer_control::{RendererColorSpace, RendererFrameRelease, RendererPixelFormat};
-use crate::surface::{AttachLifecycle, TerminalInteractionSnapshot};
+use crate::surface::{
+    AttachLifecycle, MouseSelectionAutoscrollDirection, TerminalInteractionSnapshot,
+};
+use crate::terminal_authority::{
+    AutomationInputScope, BeginTerminalOperation, DEFAULT_TERMINAL_LEASE_TTL_MS,
+    PresentationAuthority, RequestFingerprint, TerminalConnectionClaim,
+    TerminalDelegationReference, TerminalInputGroup, TerminalLeaseClaim, TerminalLeaseKind,
+    TerminalLeaseReference, TerminalOperationKind, TerminalOperationOutcome,
+    TerminalOperationReceipt,
+};
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DaemonInstanceId, DefaultColors, Direction,
-    LayoutLeafSpec, LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId,
-    PresentationId, PresentationScroll, PresentationView, PresentationZoom, RenderAttachFrame, Rgb,
-    ScreenId, SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification,
-    SurfaceRenderFrame, SurfaceUuid, TerminalColors, TopologyResume, TreeDelta, TreeDeltaKind,
-    WorkspaceId, WorkspaceUuid, ZoomMode, assign_short_ids,
+    LEGACY_TERMINAL_ACTIVITY_READER_UUID, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
+    MuxEventReceiver, Node, NotificationLevel, PairingDecision, PaneId, PresentationId,
+    PresentationScroll, PresentationView, PresentationZoom, RenderAttachFrame, Rgb, ScreenId,
+    SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame,
+    SurfaceUuid, TerminalColors, TopologyResume, TreeDelta, TreeDeltaKind, WorkspaceId,
+    WorkspaceUuid, ZoomMode, assign_short_ids,
 };
 
 pub const PROTOCOL_VERSION: u32 = 8;
 pub const PROTOCOL_MIN_VERSION: u32 = 6;
+pub const PROTOCOL_MAX_VERSION: u32 = 9;
 pub const PROTOCOL_CAPABILITIES: &[&str] = &[
     "durable-session-identity-v1",
     "ensure-terminal-v1",
+    "ensure-terminals-v1",
     "reparent-terminal-v1",
     "canonical-topology-snapshot-v1",
     "presentation-registry-v1",
+    "projection-state-reconnect-v1",
     "renderer-semantic-scene-v1",
     "renderer-worker-supervision-v1",
     "render-attach-v1",
     "stable-entity-uuid-v1",
     "terminal-interaction-v1",
+    "terminal-accessibility-v1",
+    "terminal-activity-v1",
+    "terminal-control-lease-v1",
+    "terminal-split-leases-v1",
+    "terminal-lease-transfer-v1",
+    "terminal-input-delegation-v1",
+    "terminal-input-groups-v1",
+    "terminal-global-input-order-v1",
+    "terminal-input-idempotency-v1",
+    "terminal-input-receipt-ack-v1",
+    "terminal-nonrenderer-presentation-v1",
+    "terminal-link-hit-v1",
+    "terminal-ordered-input-v1",
     "topology-resume-v1",
     "topology-revision-v1",
     "tree-delta-v1",
@@ -118,6 +151,16 @@ struct Request {
     cmd: Command,
 }
 
+/// First-pass envelope used before allocating a typed command tree. Unknown
+/// fields are skipped by serde_json's non-materializing `IgnoredAny` path. A
+/// borrowed command rejects escaped command names instead of allocating a
+/// scratch String controlled by the peer.
+#[derive(Deserialize)]
+struct CommandEnvelope<'a> {
+    #[serde(borrow)]
+    cmd: &'a str,
+}
+
 #[derive(Deserialize)]
 struct EnsureTerminalEnvironment {
     name: String,
@@ -125,10 +168,84 @@ struct EnsureTerminalEnvironment {
 }
 
 #[derive(Deserialize)]
+struct EnsureTerminalSpec {
+    workspace_uuid: WorkspaceUuid,
+    surface_uuid: SurfaceUuid,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    argv: Option<Vec<String>>,
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
+    env: Vec<EnsureTerminalEnvironment>,
+    #[serde(default)]
+    initial_input: Option<String>,
+    #[serde(default)]
+    wait_after_command: bool,
+    cols: u16,
+    rows: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+enum TerminalInputPayload {
+    Text {
+        text: String,
+        #[serde(default)]
+        paste: bool,
+    },
+    Bytes {
+        data: String,
+        #[serde(default)]
+        paste: bool,
+    },
+    /// A Ghostty chord name such as `enter` or `ctrl+shift+p`. This is the
+    /// protocol-v9 equivalent of one entry in the legacy `send-key` command.
+    NamedKey { key: String },
+    Key {
+        key: u32,
+        #[serde(default)]
+        modifiers: u16,
+        #[serde(default)]
+        consumed_modifiers: u16,
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        unshifted_codepoint: u32,
+        #[serde(default)]
+        action: Option<String>,
+    },
+    /// Renderer-resolved cell coordinates. Protocol v9 never accepts
+    /// frontend-provided cell pixel dimensions as mouse authority.
+    Mouse {
+        action: String,
+        #[serde(default)]
+        button: Option<String>,
+        #[serde(default)]
+        modifiers: u16,
+        column: u16,
+        row: u16,
+        #[serde(default)]
+        any_button_pressed: bool,
+        #[serde(default = "default_terminal_mouse_click_count")]
+        click_count: u8,
+        #[serde(default)]
+        autoscroll: Option<String>,
+    },
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
     Ping,
+    RegisterClient {
+        protocol_min: u32,
+        protocol_max: u32,
+        client_uuid: uuid::Uuid,
+        process_instance_uuid: uuid::Uuid,
+    },
     OpenPresentation {
         #[serde(default)]
         view: PresentationView,
@@ -139,6 +256,10 @@ enum Command {
     },
     ClosePresentation {
         presentation_id: PresentationId,
+    },
+    ActivateTerminalPresentation {
+        presentation_id: PresentationId,
+        expected_generation: u64,
     },
     UpdatePresentation {
         presentation_id: PresentationId,
@@ -151,6 +272,24 @@ enum Command {
         scroll: Option<PresentationScroll>,
     },
     ListPresentations,
+    ClaimProjectionState {
+        logical_presentation_id: uuid::Uuid,
+    },
+    UpdateProjectionState {
+        logical_presentation_id: uuid::Uuid,
+        claim_id: uuid::Uuid,
+        expected_generation: u64,
+        workspaces: Vec<ProjectionWorkspaceState>,
+    },
+    UpdateProjectionStates {
+        projections: Vec<ProjectionStateUpdate>,
+    },
+    ReleaseProjectionState {
+        logical_presentation_id: uuid::Uuid,
+        claim_id: uuid::Uuid,
+        expected_generation: u64,
+    },
+    ListProjectionStates,
     EnsureTerminal {
         workspace_uuid: WorkspaceUuid,
         surface_uuid: SurfaceUuid,
@@ -168,6 +307,9 @@ enum Command {
         wait_after_command: bool,
         cols: u16,
         rows: u16,
+    },
+    EnsureTerminals {
+        terminals: Vec<EnsureTerminalSpec>,
     },
     ReparentTerminal {
         surface_uuid: SurfaceUuid,
@@ -196,6 +338,12 @@ enum Command {
         cursor_blink_visible: bool,
         #[serde(default)]
         preedit: Option<String>,
+        #[serde(default)]
+        preedit_selection_start_utf16: u32,
+        #[serde(default)]
+        preedit_selection_length_utf16: u32,
+        #[serde(default)]
+        preedit_caret_utf16: u32,
     },
     DetachRendererPresentation {
         presentation_id: PresentationId,
@@ -206,6 +354,153 @@ enum Command {
         renderer_generation: u64,
         #[serde(default)]
         text: Option<String>,
+        #[serde(default)]
+        selection_start_utf16: u32,
+        #[serde(default)]
+        selection_length_utf16: u32,
+        #[serde(default)]
+        caret_utf16: u32,
+    },
+    TerminalAccessibilitySnapshot {
+        presentation_id: PresentationId,
+        expected_generation: u64,
+        expected_content_sequence: u64,
+    },
+    TerminalAccessibilityActivateLink {
+        presentation_id: PresentationId,
+        expected_generation: u64,
+        terminal_revision: u64,
+        content_revision: u64,
+        viewport_revision: u64,
+        link_id: String,
+    },
+    TerminalLinkAtCell {
+        presentation_id: PresentationId,
+        expected_generation: u64,
+        expected_content_sequence: u64,
+        column: u16,
+        row: u16,
+    },
+    AcquireTerminalControl {
+        surface_uuid: SurfaceUuid,
+        presentation_id: PresentationId,
+        presentation_generation: u64,
+        #[serde(default = "default_terminal_lease_ttl_ms")]
+        ttl_ms: u64,
+    },
+    AcquireTerminalLease {
+        kind: String,
+        surface_uuid: SurfaceUuid,
+        presentation_id: PresentationId,
+        presentation_generation: u64,
+        #[serde(default = "default_terminal_lease_ttl_ms")]
+        ttl_ms: u64,
+    },
+    RenewTerminalLease {
+        kind: String,
+        surface_uuid: SurfaceUuid,
+        presentation_id: PresentationId,
+        presentation_generation: u64,
+        lease_id: uuid::Uuid,
+        lease_generation: u64,
+        #[serde(default = "default_terminal_lease_ttl_ms")]
+        ttl_ms: u64,
+    },
+    ReleaseTerminalControl {
+        surface_uuid: SurfaceUuid,
+        presentation_id: PresentationId,
+        presentation_generation: u64,
+        lease_id: uuid::Uuid,
+        lease_generation: u64,
+    },
+    ReleaseTerminalLease {
+        kind: String,
+        surface_uuid: SurfaceUuid,
+        presentation_id: PresentationId,
+        presentation_generation: u64,
+        lease_id: uuid::Uuid,
+        lease_generation: u64,
+    },
+    TransferTerminalLease {
+        kind: String,
+        surface_uuid: SurfaceUuid,
+        presentation_id: PresentationId,
+        presentation_generation: u64,
+        lease_id: uuid::Uuid,
+        lease_generation: u64,
+        target_client_uuid: uuid::Uuid,
+        target_presentation_id: PresentationId,
+        target_presentation_generation: u64,
+        #[serde(default = "default_terminal_lease_ttl_ms")]
+        ttl_ms: u64,
+    },
+    GrantTerminalInputDelegation {
+        surface_uuid: SurfaceUuid,
+        presentation_id: PresentationId,
+        presentation_generation: u64,
+        lease_id: uuid::Uuid,
+        lease_generation: u64,
+        delegate_client_uuid: uuid::Uuid,
+        ttl_ms: u64,
+        scopes: Vec<String>,
+    },
+    RevokeTerminalInputDelegation {
+        surface_uuid: SurfaceUuid,
+        presentation_id: PresentationId,
+        presentation_generation: u64,
+        lease_id: uuid::Uuid,
+        lease_generation: u64,
+        delegation_id: uuid::Uuid,
+        delegation_generation: u64,
+    },
+    TerminalInput {
+        surface_uuid: SurfaceUuid,
+        presentation_id: PresentationId,
+        presentation_generation: u64,
+        lease_id: uuid::Uuid,
+        lease_generation: u64,
+        sequence: u64,
+        request_id: uuid::Uuid,
+        input: TerminalInputPayload,
+        #[serde(default)]
+        input_group_id: Option<uuid::Uuid>,
+        #[serde(default)]
+        input_group_index: Option<u32>,
+        #[serde(default)]
+        input_group_end: Option<bool>,
+    },
+    TerminalDelegatedInput {
+        surface_uuid: SurfaceUuid,
+        delegation_id: uuid::Uuid,
+        delegation_generation: u64,
+        sequence: u64,
+        request_id: uuid::Uuid,
+        input: TerminalInputPayload,
+        #[serde(default)]
+        input_group_id: Option<uuid::Uuid>,
+        #[serde(default)]
+        input_group_index: Option<u32>,
+        #[serde(default)]
+        input_group_end: Option<bool>,
+    },
+    TerminalGeometry {
+        surface_uuid: SurfaceUuid,
+        presentation_id: PresentationId,
+        presentation_generation: u64,
+        lease_id: uuid::Uuid,
+        lease_generation: u64,
+        sequence: u64,
+        request_id: uuid::Uuid,
+        cols: u16,
+        rows: u16,
+    },
+    TerminalRequestStatus {
+        surface_uuid: SurfaceUuid,
+        request_id: uuid::Uuid,
+    },
+    AcknowledgeTerminalRequest {
+        surface_uuid: SurfaceUuid,
+        request_id: uuid::Uuid,
     },
     ReleaseRendererFrame {
         daemon_instance_id: uuid::Uuid,
@@ -245,6 +540,11 @@ enum Command {
     },
     ClearWindowTitle,
     TopologySnapshot,
+    TerminalActivitySnapshot,
+    MarkTerminalSeen {
+        surface_uuid: SurfaceUuid,
+        activity_sequence: u64,
+    },
     ListWorkspaces,
     ExportLayout {
         #[serde(default)]
@@ -704,6 +1004,18 @@ const MAX_TOPOLOGY_STREAMS: u64 = 256;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
 const CONTROL_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
 const WEBSOCKET_MESSAGE_MAX_BYTES: usize = CONTROL_MESSAGE_MAX_BYTES;
+/// One mux-wide ceiling covering Unix line buffers, WebSocket frame reads, and
+/// conservatively estimated allocations made while decoding admitted JSON.
+/// This replaces the old per-connection-only bound, which permitted 64 peers
+/// to materialize independent 4 MiB request trees at once.
+const INBOUND_INFLIGHT_MAX_BYTES: usize = 32 * 1024 * 1024;
+const PRE_REGISTRATION_MESSAGE_MAX_BYTES: usize = 16 * 1024;
+const STANDARD_COMMAND_MAX_BYTES: usize = 256 * 1024;
+const STANDARD_COMMAND_DECODE_MAX_BYTES: usize = 4 * 1024 * 1024;
+const BULK_COMMAND_DECODE_MAX_BYTES: usize = 12 * 1024 * 1024;
+const AUTH_DECODE_MAX_BYTES: usize = 32 * 1024;
+const COMMAND_NAME_MAX_BYTES: usize = 64;
+const WEBSOCKET_BUDGETED_READ_TIMEOUT: Duration = Duration::from_millis(50);
 const TERMINAL_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
 const TERMINAL_KEY_MODIFIERS_MASK: u16 = 0x03ff;
 const TERMINAL_SEARCH_QUERY_MAX_BYTES: usize = 64 * 1024;
@@ -719,6 +1031,10 @@ const fn default_repeat_count() -> usize {
 
 const fn default_terminal_mouse_click_count() -> u8 {
     1
+}
+
+const fn default_terminal_lease_ttl_ms() -> u64 {
+    DEFAULT_TERMINAL_LEASE_TTL_MS
 }
 
 fn parse_renderer_pixel_format(value: &str) -> anyhow::Result<RendererPixelFormat> {
@@ -745,6 +1061,35 @@ fn parse_renderer_color_space(value: &str) -> anyhow::Result<RendererColorSpace>
     }
 }
 
+fn parse_renderer_preedit(
+    text: Option<String>,
+    selection_start_utf16: u32,
+    selection_length_utf16: u32,
+    caret_utf16: u32,
+) -> anyhow::Result<Option<RendererPreedit>> {
+    let Some(text) = text else {
+        if selection_start_utf16 != 0 || selection_length_utf16 != 0 || caret_utf16 != 0 {
+            anyhow::bail!("bad request: cleared terminal preedit has nonzero UTF-16 state");
+        }
+        return Ok(None);
+    };
+    if text.len() > TERMINAL_KEY_TEXT_MAX_BYTES {
+        anyhow::bail!("bad request: terminal preedit exceeds {TERMINAL_KEY_TEXT_MAX_BYTES} bytes");
+    }
+    let utf16_len = u32::try_from(text.encode_utf16().count())
+        .map_err(|_| anyhow::anyhow!("bad request: terminal preedit UTF-16 length overflow"))?;
+    let selection_end = selection_start_utf16
+        .checked_add(selection_length_utf16)
+        .ok_or_else(|| anyhow::anyhow!("bad request: terminal preedit selection overflow"))?;
+    if selection_end > utf16_len || caret_utf16 > utf16_len {
+        anyhow::bail!("bad request: terminal preedit UTF-16 state is outside marked text");
+    }
+    if text.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(RendererPreedit { text, selection_start_utf16, selection_length_utf16, caret_utf16 }))
+}
+
 const fn renderer_color_space_name(value: RendererColorSpace) -> &'static str {
     match value {
         RendererColorSpace::Srgb => "srgb",
@@ -758,11 +1103,341 @@ const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
+#[derive(Debug)]
+struct InboundBudget {
+    limit: usize,
+    state: Mutex<InboundBudgetState>,
+    changed: Condvar,
+}
+
+#[derive(Debug, Default)]
+struct InboundBudgetState {
+    used: usize,
+    peak: usize,
+}
+
+impl InboundBudget {
+    fn new(limit: usize) -> Arc<Self> {
+        Arc::new(Self {
+            limit,
+            state: Mutex::new(InboundBudgetState::default()),
+            changed: Condvar::new(),
+        })
+    }
+
+    fn try_reserve(self: &Arc<Self>, bytes: usize) -> Option<InboundPermit> {
+        let mut state = self.state.lock().unwrap();
+        if bytes > self.limit.saturating_sub(state.used) {
+            return None;
+        }
+        state.used += bytes;
+        state.peak = state.peak.max(state.used);
+        Some(InboundPermit { budget: self.clone(), bytes })
+    }
+
+    fn reserve_timeout(self: &Arc<Self>, bytes: usize, timeout: Duration) -> Option<InboundPermit> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if bytes <= self.limit.saturating_sub(state.used) {
+                state.used += bytes;
+                state.peak = state.peak.max(state.used);
+                return Some(InboundPermit { budget: self.clone(), bytes });
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            let (next, wait) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if wait.timed_out() && bytes > self.limit.saturating_sub(state.used) {
+                return None;
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn usage(&self) -> (usize, usize) {
+        let state = self.state.lock().unwrap();
+        (state.used, state.peak)
+    }
+}
+
+struct InboundPermit {
+    budget: Arc<InboundBudget>,
+    bytes: usize,
+}
+
+impl InboundPermit {
+    fn try_grow(&mut self, bytes: usize) -> bool {
+        if bytes == 0 {
+            return true;
+        }
+        let mut state = self.budget.state.lock().unwrap();
+        if bytes > self.budget.limit.saturating_sub(state.used) {
+            return false;
+        }
+        state.used += bytes;
+        state.peak = state.peak.max(state.used);
+        self.bytes += bytes;
+        true
+    }
+
+    fn shrink_to(&mut self, bytes: usize) {
+        assert!(bytes <= self.bytes, "inbound permit cannot grow through shrink_to");
+        let released = self.bytes - bytes;
+        if released == 0 {
+            return;
+        }
+        let mut state = self.budget.state.lock().unwrap();
+        state.used = state.used.checked_sub(released).expect("inbound budget underflow");
+        self.bytes = bytes;
+        drop(state);
+        self.budget.changed.notify_all();
+    }
+
+    #[cfg(test)]
+    fn bytes(&self) -> usize {
+        self.bytes
+    }
+}
+
+impl Drop for InboundPermit {
+    fn drop(&mut self) {
+        let mut state = self.budget.state.lock().unwrap();
+        state.used = state.used.checked_sub(self.bytes).expect("inbound budget underflow");
+        drop(state);
+        self.budget.changed.notify_all();
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CommandAdmissionPolicy {
+    wire_max: usize,
+    decoded_max: usize,
+    trusted_local: bool,
+    protocol_v9: bool,
+}
+
+fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
+    let mut policy = CommandAdmissionPolicy {
+        wire_max: STANDARD_COMMAND_MAX_BYTES,
+        decoded_max: STANDARD_COMMAND_DECODE_MAX_BYTES,
+        trusted_local: false,
+        protocol_v9: false,
+    };
+    match command {
+        "identify" | "ping" | "register-client" => {
+            policy.wire_max = PRE_REGISTRATION_MESSAGE_MAX_BYTES;
+            policy.decoded_max = AUTH_DECODE_MAX_BYTES;
+        }
+        "ensure-terminal"
+        | "ensure-terminals"
+        | "update-projection-state"
+        | "update-projection-states"
+        | "configure-renderer-presentation"
+        | "terminal-input"
+        | "terminal-delegated-input"
+        | "send"
+        | "apply-layout"
+        | "browser-insert-text" => {
+            policy.wire_max = CONTROL_MESSAGE_MAX_BYTES;
+            policy.decoded_max = BULK_COMMAND_DECODE_MAX_BYTES;
+        }
+        _ => {}
+    }
+    policy.trusted_local = matches!(
+        command,
+        "ensure-terminal"
+            | "ensure-terminals"
+            | "reparent-terminal"
+            | "renderer-workers"
+            | "configure-renderer-presentation"
+            | "detach-renderer-presentation"
+            | "terminal-preedit"
+            | "terminal-accessibility-snapshot"
+            | "terminal-accessibility-activate-link"
+            | "terminal-link-at-cell"
+            | "release-renderer-frame"
+            | "pairing-response"
+    );
+    policy.protocol_v9 = matches!(
+        command,
+        "activate-terminal-presentation"
+            | "claim-projection-state"
+            | "update-projection-state"
+            | "update-projection-states"
+            | "release-projection-state"
+            | "list-projection-states"
+            | "terminal-accessibility-snapshot"
+            | "terminal-accessibility-activate-link"
+            | "terminal-link-at-cell"
+            | "acquire-terminal-control"
+            | "acquire-terminal-lease"
+            | "renew-terminal-lease"
+            | "release-terminal-control"
+            | "release-terminal-lease"
+            | "transfer-terminal-lease"
+            | "grant-terminal-input-delegation"
+            | "revoke-terminal-input-delegation"
+            | "terminal-input"
+            | "terminal-delegated-input"
+            | "terminal-geometry"
+            | "terminal-request-status"
+            | "acknowledge-terminal-request"
+            | "terminal-activity-snapshot"
+            | "mark-terminal-seen"
+    );
+    policy
+}
+
+/// Conservative accounting for allocations created by typed serde decoding.
+/// Strings are charged twice (owned String plus downstream decode/copy), while
+/// each sequence slot is charged 256 bytes so arrays of tiny JSON values cannot
+/// amplify a small wire payload into a large Vec tree.
+struct JsonDecodeAccount {
+    used: std::cell::Cell<usize>,
+    limit: usize,
+}
+
+impl JsonDecodeAccount {
+    fn charge<E: de::Error>(&self, bytes: usize) -> Result<(), E> {
+        let next = self
+            .used
+            .get()
+            .checked_add(bytes)
+            .ok_or_else(|| E::custom("decoded request allocation accounting overflow"))?;
+        if next > self.limit {
+            return Err(E::custom(format!(
+                "decoded request exceeds {}-byte allocation limit",
+                self.limit
+            )));
+        }
+        self.used.set(next);
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct JsonDecodeSeed<'a>(&'a JsonDecodeAccount);
+
+impl<'de> DeserializeSeed<'de> for JsonDecodeSeed<'_> {
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<(), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(self)
+    }
+}
+
+impl<'de> Visitor<'de> for JsonDecodeSeed<'_> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("bounded JSON")
+    }
+
+    fn visit_bool<E: de::Error>(self, _value: bool) -> Result<(), E> {
+        self.0.charge(16)
+    }
+
+    fn visit_i64<E: de::Error>(self, _value: i64) -> Result<(), E> {
+        self.0.charge(16)
+    }
+
+    fn visit_u64<E: de::Error>(self, _value: u64) -> Result<(), E> {
+        self.0.charge(16)
+    }
+
+    fn visit_f64<E: de::Error>(self, _value: f64) -> Result<(), E> {
+        self.0.charge(16)
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<(), E> {
+        self.0.charge(8)
+    }
+
+    fn visit_none<E: de::Error>(self) -> Result<(), E> {
+        self.visit_unit()
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<(), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        JsonDecodeSeed(self.0).deserialize(deserializer)
+    }
+
+    fn visit_borrowed_str<E: de::Error>(self, value: &'de str) -> Result<(), E> {
+        self.0.charge(value.len().saturating_mul(2).saturating_add(32))
+    }
+
+    fn visit_str<E: de::Error>(self, value: &str) -> Result<(), E> {
+        self.0.charge(value.len().saturating_mul(2).saturating_add(32))
+    }
+
+    fn visit_string<E: de::Error>(self, value: String) -> Result<(), E> {
+        self.visit_str(&value)
+    }
+
+    fn visit_borrowed_bytes<E: de::Error>(self, value: &'de [u8]) -> Result<(), E> {
+        self.0.charge(value.len().saturating_mul(2).saturating_add(32))
+    }
+
+    fn visit_bytes<E: de::Error>(self, value: &[u8]) -> Result<(), E> {
+        self.0.charge(value.len().saturating_mul(2).saturating_add(32))
+    }
+
+    fn visit_byte_buf<E: de::Error>(self, value: Vec<u8>) -> Result<(), E> {
+        self.visit_bytes(&value)
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<(), A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        self.0.charge::<A::Error>(32)?;
+        loop {
+            self.0.charge::<A::Error>(256)?;
+            if sequence.next_element_seed(JsonDecodeSeed(self.0))?.is_none() {
+                // Undoing the final speculative slot would complicate the
+                // monotonic failure path; charging one sentinel is deliberate.
+                return Ok(());
+            }
+        }
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<(), A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        self.0.charge::<A::Error>(32)?;
+        while map.next_key_seed(JsonDecodeSeed(self.0))?.is_some() {
+            self.0.charge::<A::Error>(64)?;
+            map.next_value_seed(JsonDecodeSeed(self.0))?;
+        }
+        Ok(())
+    }
+}
+
+fn account_json_decode(message: &str, limit: usize) -> anyhow::Result<usize> {
+    let account = JsonDecodeAccount { used: std::cell::Cell::new(0), limit };
+    let mut deserializer = serde_json::Deserializer::from_str(message);
+    JsonDecodeSeed(&account)
+        .deserialize(&mut deserializer)
+        .map_err(|error| anyhow::anyhow!("bad request: {error}"))?;
+    deserializer.end().map_err(|error| anyhow::anyhow!("bad request: {error}"))?;
+    Ok(account.used.get())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BoundedLineRead {
     Eof,
     Line,
     TooLong,
+    BudgetExceeded,
 }
 
 /// Read one JSON-lines frame without ever growing `line` beyond `max_bytes`.
@@ -797,6 +1472,49 @@ fn read_bounded_line<R: BufRead>(
         line.extend_from_slice(available);
         let consumed = available.len();
         reader.consume(consumed);
+    }
+}
+
+/// Production Unix reader. Every byte is reserved from the mux-wide inbound
+/// budget before the line Vec grows, and the returned permit remains live
+/// through typed decode and command execution.
+fn read_budgeted_line<R: BufRead>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+    max_bytes: usize,
+    budget: &Arc<InboundBudget>,
+) -> std::io::Result<(BoundedLineRead, Option<InboundPermit>)> {
+    line.clear();
+    let mut permit = budget.try_reserve(0).expect("zero-byte inbound reservation must succeed");
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            let status = if line.is_empty() { BoundedLineRead::Eof } else { BoundedLineRead::Line };
+            return Ok((status, Some(permit)));
+        }
+        let (chunk, consumed, complete) =
+            if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
+                (&available[..newline], newline + 1, true)
+            } else {
+                (available, available.len(), false)
+            };
+        if chunk.len() > max_bytes.saturating_sub(line.len()) {
+            return Ok((BoundedLineRead::TooLong, Some(permit)));
+        }
+        if !permit.try_grow(chunk.len()) {
+            return Ok((BoundedLineRead::BudgetExceeded, Some(permit)));
+        }
+        line.try_reserve_exact(chunk.len()).map_err(|error| {
+            std::io::Error::other(format!("request buffer allocation failed: {error}"))
+        })?;
+        line.extend_from_slice(chunk);
+        reader.consume(consumed);
+        if complete {
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            return Ok((BoundedLineRead::Line, Some(permit)));
+        }
     }
 }
 
@@ -1198,6 +1916,11 @@ impl SynchronizedTcpStream {
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.stream.set_write_timeout(timeout)
     }
+
+    fn wait_readable(&self) -> std::io::Result<()> {
+        let mut byte = [0_u8; 1];
+        self.stream.peek(&mut byte).map(|_| ())
+    }
 }
 
 impl Read for SynchronizedTcpStream {
@@ -1290,7 +2013,11 @@ struct AttachedSurface {
 
 struct ClientRecord {
     transport: ClientTransport,
+    connection_id: uuid::Uuid,
     connected_at: Instant,
+    protocol: u32,
+    client_uuid: Option<uuid::Uuid>,
+    process_instance_uuid: Option<uuid::Uuid>,
     name: Option<String>,
     kind: Option<String>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
@@ -1301,17 +2028,34 @@ struct ClientRecord {
 
 pub(crate) struct ClientRegistry {
     next_id: AtomicU64,
+    lifecycle: RwLock<()>,
     clients: Mutex<BTreeMap<u64, ClientRecord>>,
     active_topology_streams: Arc<AtomicU64>,
+    inbound_budget: Arc<InboundBudget>,
 }
 
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             next_id: AtomicU64::new(1),
+            lifecycle: RwLock::new(()),
             clients: Mutex::new(BTreeMap::new()),
             active_topology_streams: Arc::new(AtomicU64::new(0)),
+            inbound_budget: InboundBudget::new(INBOUND_INFLIGHT_MAX_BYTES),
         }
+    }
+
+    fn inbound_budget(&self) -> Arc<InboundBudget> {
+        self.inbound_budget.clone()
+    }
+
+    fn admission_state(&self, client: u64) -> anyhow::Result<(ClientTransport, u32, bool)> {
+        self.clients
+            .lock()
+            .unwrap()
+            .get(&client)
+            .map(|record| (record.transport, record.protocol, record.client_uuid.is_some()))
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))
     }
 
     fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
@@ -1320,7 +2064,11 @@ impl ClientRegistry {
             client,
             ClientRecord {
                 transport,
+                connection_id: uuid::Uuid::new_v4(),
                 connected_at: Instant::now(),
+                protocol: PROTOCOL_VERSION,
+                client_uuid: None,
+                process_instance_uuid: None,
                 name: None,
                 kind: None,
                 attached: BTreeMap::new(),
@@ -1330,6 +2078,116 @@ impl ClientRegistry {
             },
         );
         client
+    }
+
+    fn lock_lifecycle(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.lifecycle.write().unwrap()
+    }
+
+    fn read_lifecycle(&self) -> std::sync::RwLockReadGuard<'_, ()> {
+        self.lifecycle.read().unwrap()
+    }
+
+    fn register_protocol(
+        &self,
+        client: u64,
+        protocol_min: u32,
+        protocol_max: u32,
+        client_uuid: uuid::Uuid,
+        process_instance_uuid: uuid::Uuid,
+    ) -> anyhow::Result<(u32, uuid::Uuid)> {
+        if protocol_min > protocol_max {
+            anyhow::bail!("bad request: protocol_min exceeds protocol_max");
+        }
+        if client_uuid.is_nil() || process_instance_uuid.is_nil() {
+            anyhow::bail!("bad request: client identities must be non-nil UUIDs");
+        }
+        let common_min = protocol_min.max(PROTOCOL_MIN_VERSION);
+        let common_max = protocol_max.min(PROTOCOL_MAX_VERSION);
+        if common_min > common_max {
+            anyhow::bail!(
+                "no compatible protocol version (client {protocol_min}..={protocol_max}, server {PROTOCOL_MIN_VERSION}..={PROTOCOL_MAX_VERSION})"
+            );
+        }
+        let mut clients = self.clients.lock().unwrap();
+        let record =
+            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        if record.client_uuid.is_some() {
+            anyhow::bail!("connection already registered");
+        }
+        record.protocol = common_max;
+        record.client_uuid = Some(client_uuid);
+        record.process_instance_uuid = Some(process_instance_uuid);
+        Ok((record.protocol, record.connection_id))
+    }
+
+    fn protocol_identity(
+        &self,
+        client: u64,
+        minimum: u32,
+    ) -> anyhow::Result<(uuid::Uuid, uuid::Uuid, uuid::Uuid)> {
+        let clients = self.clients.lock().unwrap();
+        let record =
+            clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        if record.protocol < minimum {
+            anyhow::bail!("command requires negotiated protocol v{minimum}");
+        }
+        let client_uuid = record
+            .client_uuid
+            .ok_or_else(|| anyhow::anyhow!("command requires register-client"))?;
+        let process_instance_uuid = record
+            .process_instance_uuid
+            .ok_or_else(|| anyhow::anyhow!("command requires register-client"))?;
+        Ok((client_uuid, process_instance_uuid, record.connection_id))
+    }
+
+    fn stable_reader_uuid(&self, client: u64) -> Option<uuid::Uuid> {
+        self.clients
+            .lock()
+            .unwrap()
+            .get(&client)
+            .and_then(|record| (record.protocol >= 9).then_some(record.client_uuid).flatten())
+    }
+
+    /// Resolves a stable v9 client UUID to one exact live connection claim.
+    /// Duplicate logical clients fail closed so a stale process cannot receive
+    /// a transferred lease or automation delegation.
+    fn unique_connection_claim(
+        &self,
+        client_uuid: uuid::Uuid,
+    ) -> anyhow::Result<TerminalConnectionClaim> {
+        let clients = self.clients.lock().unwrap();
+        let mut matches = clients.iter().filter_map(|(connection, record)| {
+            (record.protocol >= 9 && record.client_uuid == Some(client_uuid)).then(|| {
+                TerminalConnectionClaim {
+                    connection: *connection,
+                    client_uuid,
+                    process_instance_uuid: record
+                        .process_instance_uuid
+                        .expect("registered v9 client has process identity"),
+                }
+            })
+        });
+        let claim = matches
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("delegate client {client_uuid} has no live v9 claim"))?;
+        if matches.next().is_some() {
+            anyhow::bail!("delegate client {client_uuid} has multiple live v9 claims");
+        }
+        Ok(claim)
+    }
+
+    pub(crate) fn negotiated_protocol(&self, client: u64) -> anyhow::Result<u32> {
+        self.clients
+            .lock()
+            .unwrap()
+            .get(&client)
+            .map(|record| record.protocol)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))
+    }
+
+    fn connection_id(&self, client: u64) -> Option<uuid::Uuid> {
+        self.clients.lock().unwrap().get(&client).map(|record| record.connection_id)
     }
 
     fn is_unix(&self, client: u64) -> bool {
@@ -1366,7 +2224,11 @@ impl ClientRegistry {
                 .map(|(client, record)| {
                     json!({
                         "client": client,
+                        "connection_id": record.connection_id,
                         "transport": record.transport.as_str(),
+                        "protocol": record.protocol,
+                        "client_uuid": record.client_uuid,
+                        "process_instance_uuid": record.process_instance_uuid,
                         "name": record.name,
                         "kind": record.kind,
                         "connected_seconds": record.connected_at.elapsed().as_secs(),
@@ -1460,6 +2322,21 @@ impl ClientRegistry {
         let attached = record.attached.get_mut(&surface)?;
         let changed = attached.size.take().is_some();
         Some((changed, record.name.clone(), record.kind.clone()))
+    }
+
+    pub(crate) fn clear_surface_sizes(&self, surface: SurfaceId) -> Vec<u64> {
+        let mut clients = self.clients.lock().unwrap();
+        let mut changed = Vec::new();
+        for (client, record) in clients.iter_mut() {
+            if record
+                .attached
+                .get_mut(&surface)
+                .is_some_and(|attached| attached.size.take().is_some())
+            {
+                changed.push(*client);
+            }
+        }
+        changed
     }
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
@@ -1716,11 +2593,20 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     };
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let mut reader = BufReader::new(stream);
-    let mut line = Vec::new();
+    let inbound_budget = mux.control_clients.inbound_budget();
     loop {
-        match read_bounded_line(&mut reader, &mut line, CONTROL_MESSAGE_MAX_BYTES) {
-            Ok(BoundedLineRead::Eof) | Err(_) => break,
-            Ok(BoundedLineRead::TooLong) => {
+        // A fresh allocation per request prevents every connection from
+        // retaining its previous 4 MiB high-water capacity after the permit
+        // is released.
+        let mut line = Vec::new();
+        let wire_permit = match read_budgeted_line(
+            &mut reader,
+            &mut line,
+            CONTROL_MESSAGE_MAX_BYTES,
+            &inbound_budget,
+        ) {
+            Ok((BoundedLineRead::Eof, _)) | Err(_) => break,
+            Ok((BoundedLineRead::TooLong, _)) => {
                 let response = Response {
                     id: None,
                     ok: false,
@@ -1732,13 +2618,27 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
                 }
                 break;
             }
-            Ok(BoundedLineRead::Line) => {}
-        }
+            Ok((BoundedLineRead::BudgetExceeded, _)) => {
+                let response = Response {
+                    id: None,
+                    ok: false,
+                    data: None,
+                    error: Some(format!(
+                        "server inbound request budget exceeds {INBOUND_INFLIGHT_MAX_BYTES} bytes"
+                    )),
+                };
+                if let Ok(value) = serde_json::to_value(response) {
+                    let _ = writer.send_control(&value);
+                }
+                break;
+            }
+            Ok((BoundedLineRead::Line, permit)) => permit,
+        };
         let Ok(line) = std::str::from_utf8(&line) else { break };
         if line.trim().is_empty() {
             continue;
         }
-        if !handle_message(&mux, client, line, &writer) {
+        if !handle_message_with_permit(&mux, client, line, &writer, wire_permit) {
             break;
         }
     }
@@ -1806,16 +2706,41 @@ fn handle_websocket_connection(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    let inbound_budget = mux.control_clients.inbound_budget();
+    // The authentication read can leave bytes for the first control frame in
+    // Tungstenite's private buffer, so the first read must be budgeted without
+    // probing the raw socket. After a timed-out read proves that buffer empty,
+    // a blocking peek avoids holding 4 MiB of budget for an idle connection.
+    let mut probe_socket = false;
 
     loop {
         if !writer.is_open() {
             break;
         }
 
+        if probe_socket {
+            if websocket.get_ref().set_read_timeout(None).is_err()
+                || websocket.get_ref().wait_readable().is_err()
+            {
+                break;
+            }
+            probe_socket = false;
+        }
+        let Some(wire_permit) = inbound_budget
+            .reserve_timeout(WEBSOCKET_MESSAGE_MAX_BYTES, WEBSOCKET_BUDGETED_READ_TIMEOUT)
+        else {
+            continue;
+        };
+        if websocket.get_ref().set_read_timeout(Some(WEBSOCKET_BUDGETED_READ_TIMEOUT)).is_err() {
+            break;
+        }
+
         let incoming = websocket.read();
         match incoming {
             Ok(Message::Text(text)) => {
-                if !handle_message(&mux, client, &text, &writer) {
+                let mut wire_permit = wire_permit;
+                wire_permit.shrink_to(text.len());
+                if !handle_message_with_permit(&mux, client, &text, &writer, Some(wire_permit)) {
                     break;
                 }
             }
@@ -1824,6 +2749,14 @@ fn handle_websocket_connection(
             }
             Ok(Message::Close(_)) => break,
             Ok(_) => break,
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                probe_socket = true;
+            }
             Err(_) => break,
         }
     }
@@ -1838,7 +2771,19 @@ fn authenticate_websocket(
     peer: SocketAddr,
     configured_token: Option<&str>,
 ) -> bool {
+    let Some(wire_permit) = mux
+        .control_clients
+        .inbound_budget()
+        .reserve_timeout(WEBSOCKET_AUTH_MAX_BYTES, WEBSOCKET_HANDSHAKE_TIMEOUT)
+    else {
+        return false;
+    };
     let Ok(Message::Text(text)) = websocket.read() else { return false };
+    let mut wire_permit = wire_permit;
+    wire_permit.shrink_to(text.len());
+    let Ok(_inbound_permit) = preflight_authentication_message(&text, wire_permit) else {
+        return false;
+    };
     if let Some(provided) = auth_token(&text) {
         return configured_token
             .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.as_bytes()))
@@ -1888,12 +2833,15 @@ fn authenticate_websocket(
 }
 
 fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
+    let _client_lifecycle = mux.control_clients.lock_lifecycle();
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
         mux.remove_size_client(client);
         record
     };
+    mux.terminal_authority.revoke_connection(client);
+    mux.projection_states.release_connection(record.connection_id);
     for presentation_id in mux.presentations.remove_client(client) {
         let _ = mux.remove_renderer_presentation(presentation_id);
     }
@@ -1917,20 +2865,118 @@ pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
 }
 
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
+    handle_message_with_permit(mux, client, message, writer, None)
+}
+
+fn preflight_authentication_message(
+    message: &str,
+    mut wire_permit: InboundPermit,
+) -> anyhow::Result<InboundPermit> {
+    if message.len() > WEBSOCKET_AUTH_MAX_BYTES {
+        anyhow::bail!("authentication request exceeds {WEBSOCKET_AUTH_MAX_BYTES}-byte limit");
+    }
+    if !wire_permit.try_grow(message.len()) {
+        anyhow::bail!("server inbound request budget exceeds {INBOUND_INFLIGHT_MAX_BYTES} bytes");
+    }
+    let decoded = account_json_decode(message, AUTH_DECODE_MAX_BYTES)?;
+    if wire_permit.bytes < message.len() && !wire_permit.try_grow(message.len() - wire_permit.bytes)
+    {
+        anyhow::bail!("server inbound request budget exceeds {INBOUND_INFLIGHT_MAX_BYTES} bytes");
+    }
+    if !wire_permit.try_grow(decoded) {
+        anyhow::bail!("server inbound request budget exceeds {INBOUND_INFLIGHT_MAX_BYTES} bytes");
+    }
+    Ok(wire_permit)
+}
+
+fn preflight_request(
+    mux: &Mux,
+    client: u64,
+    message: &str,
+    wire_permit: Option<InboundPermit>,
+) -> anyhow::Result<InboundPermit> {
+    let envelope: CommandEnvelope<'_> =
+        serde_json::from_str(message).map_err(|error| anyhow::anyhow!("bad request: {error}"))?;
+    if envelope.cmd.is_empty() || envelope.cmd.len() > COMMAND_NAME_MAX_BYTES {
+        anyhow::bail!("bad request: invalid command name");
+    }
+    let policy = command_admission_policy(envelope.cmd);
+    if message.len() > policy.wire_max {
+        anyhow::bail!(
+            "request for command {:?} exceeds {}-byte wire limit",
+            envelope.cmd,
+            policy.wire_max
+        );
+    }
+
+    let (transport, protocol, registered) = mux.control_clients.admission_state(client)?;
+    if envelope.cmd == "register-client" && registered {
+        anyhow::bail!("connection already registered");
+    }
+    if policy.trusted_local && !matches!(transport, ClientTransport::Unix) {
+        anyhow::bail!("command {:?} requires a trusted local connection", envelope.cmd);
+    }
+    if policy.protocol_v9 && (!registered || protocol < 9) {
+        anyhow::bail!("command {:?} requires a registered protocol v9 capability", envelope.cmd);
+    }
+
+    let budget = mux.control_clients.inbound_budget();
+    let mut permit = match wire_permit {
+        Some(permit) => permit,
+        None => budget.try_reserve(message.len()).ok_or_else(|| {
+            anyhow::anyhow!(
+                "server inbound request budget exceeds {INBOUND_INFLIGHT_MAX_BYTES} bytes"
+            )
+        })?,
+    };
+    if permit.bytes > message.len() {
+        permit.shrink_to(message.len());
+    }
+    if permit.bytes < message.len() && !permit.try_grow(message.len() - permit.bytes) {
+        anyhow::bail!("server inbound request budget exceeds {INBOUND_INFLIGHT_MAX_BYTES} bytes");
+    }
+    // serde_json's structural pass does not materialize a Value tree, but an
+    // escaped JSON string can use a scratch buffer as large as the wire text.
+    // Reserve that exact worst case before traversing untrusted structure.
+    if !permit.try_grow(message.len()) {
+        anyhow::bail!("server inbound request budget exceeds {INBOUND_INFLIGHT_MAX_BYTES} bytes");
+    }
+    let decoded = account_json_decode(message, policy.decoded_max)?;
+    if !permit.try_grow(decoded) {
+        anyhow::bail!("server inbound request budget exceeds {INBOUND_INFLIGHT_MAX_BYTES} bytes");
+    }
+    Ok(permit)
+}
+
+fn handle_message_with_permit(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+    wire_permit: Option<InboundPermit>,
+) -> bool {
     let mut detach_self = false;
-    let response = match serde_json::from_str::<Request>(message) {
-        Ok(req) => {
-            let id = req.id.clone();
-            detach_self =
-                matches!(&req.cmd, Command::DetachClient { client: target } if *target == client);
-            match handle_command(mux, client, req.cmd, writer) {
-                Ok(data) => Response { id, ok: true, data: Some(data), error: None },
-                Err(e) => Response { id, ok: false, data: None, error: Some(e.to_string()) },
+    let response = match preflight_request(mux, client, message, wire_permit) {
+        Ok(_inbound_permit) => match serde_json::from_str::<Request>(message) {
+            Ok(req) => {
+                let id = req.id.clone();
+                detach_self = matches!(
+                    &req.cmd,
+                    Command::DetachClient { client: target } if *target == client
+                );
+                match handle_command(mux, client, req.cmd, writer) {
+                    Ok(data) => Response { id, ok: true, data: Some(data), error: None },
+                    Err(e) => Response { id, ok: false, data: None, error: Some(e.to_string()) },
+                }
             }
-        }
-        Err(e) => {
-            Response { id: None, ok: false, data: None, error: Some(format!("bad request: {e}")) }
-        }
+            Err(e) => Response {
+                id: None,
+                ok: false,
+                data: None,
+                error: Some(format!("bad request: {e}")),
+            },
+        },
+        Err(error) => Response { id: None, ok: false, data: None, error: Some(error.to_string()) },
     };
     let response_ok = response.ok;
     let sent =
@@ -2724,6 +3770,43 @@ fn spawn_attach_notification_stream(
         .map(|_| ())
 }
 
+fn spawn_terminal_activity_stream(
+    events: MuxEventReceiver,
+    reader_uuid: uuid::Uuid,
+    writer: MessageWriter,
+    outbound_stream: OutboundStream,
+) -> std::io::Result<()> {
+    std::thread::Builder::new().name("mux-terminal-activity-out".into()).spawn(move || {
+        while writer.is_open() && outbound_stream.is_open() {
+            let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                Ok(event) => event,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            let value = match event {
+                MuxEvent::TerminalActivity(fact) => {
+                    subscribed_event_json(&MuxEvent::TerminalActivity(fact))
+                }
+                MuxEvent::TerminalActivityReceipt(receipt)
+                    if receipt.reader_uuid == reader_uuid =>
+                {
+                    subscribed_event_json(&MuxEvent::TerminalActivityReceipt(receipt))
+                }
+                _ => continue,
+            };
+            if writer.send_stream(&value, &outbound_stream).is_err() {
+                break;
+            }
+        }
+        if events.overflowed() {
+            // The client recovers from a closed connection by taking a fresh
+            // persisted activity snapshot. Never hide a receipt or fact gap.
+            writer.close();
+        }
+    })?;
+    Ok(())
+}
+
 fn report_attach_overflow(
     writer: &MessageWriter,
     surface_id: SurfaceId,
@@ -2757,6 +3840,478 @@ fn mark_client_attached(
     Ok(())
 }
 
+fn terminal_request_fingerprint(value: &Value) -> anyhow::Result<RequestFingerprint> {
+    let encoded = serde_json::to_vec(value)?;
+    let digest: [u8; 32] = Sha256::digest(encoded).into();
+    Ok(RequestFingerprint(digest))
+}
+
+fn terminal_lease_reference(
+    mux: &Mux,
+    client: u64,
+    presentation_id: PresentationId,
+    presentation_generation: u64,
+    lease_id: uuid::Uuid,
+    lease_generation: u64,
+) -> anyhow::Result<TerminalLeaseReference> {
+    let (client_uuid, process_instance_uuid, _) =
+        mux.control_clients.protocol_identity(client, 9)?;
+    Ok(TerminalLeaseReference {
+        connection: client,
+        client_uuid,
+        process_instance_uuid,
+        presentation_id,
+        presentation_generation,
+        lease_id,
+        lease_generation,
+    })
+}
+
+fn terminal_lease_kind(value: &str) -> anyhow::Result<TerminalLeaseKind> {
+    match value {
+        "input" => Ok(TerminalLeaseKind::Input),
+        "geometry" => Ok(TerminalLeaseKind::Geometry),
+        other => anyhow::bail!("bad request: unknown terminal lease kind {other:?}"),
+    }
+}
+
+fn terminal_input_scope(input: &TerminalInputPayload) -> AutomationInputScope {
+    match input {
+        TerminalInputPayload::Text { .. } | TerminalInputPayload::Bytes { .. } => {
+            AutomationInputScope::Text
+        }
+        TerminalInputPayload::NamedKey { .. } | TerminalInputPayload::Key { .. } => {
+            AutomationInputScope::Key
+        }
+        TerminalInputPayload::Mouse { .. } => AutomationInputScope::Mouse,
+    }
+}
+
+fn terminal_automation_scopes(
+    values: Vec<String>,
+) -> anyhow::Result<BTreeSet<AutomationInputScope>> {
+    let mut scopes = BTreeSet::new();
+    for value in values {
+        let scope = match value.as_str() {
+            "text" => AutomationInputScope::Text,
+            "key" => AutomationInputScope::Key,
+            "mouse" => AutomationInputScope::Mouse,
+            other => anyhow::bail!("bad request: unknown terminal input scope {other:?}"),
+        };
+        if !scopes.insert(scope) {
+            anyhow::bail!("bad request: duplicate terminal input scope {value:?}");
+        }
+    }
+    if scopes.is_empty() {
+        anyhow::bail!("bad request: terminal input delegation requires at least one scope");
+    }
+    Ok(scopes)
+}
+
+fn terminal_input_group(
+    id: Option<uuid::Uuid>,
+    index: Option<u32>,
+    end: Option<bool>,
+) -> anyhow::Result<Option<TerminalInputGroup>> {
+    match (id, index, end) {
+        (None, None, None) => Ok(None),
+        (Some(id), Some(index), Some(end)) if !id.is_nil() => {
+            Ok(Some(TerminalInputGroup { id, index, end }))
+        }
+        (Some(id), Some(_), Some(_)) if id.is_nil() => {
+            anyhow::bail!("bad request: terminal input_group_id must be a non-nil UUID")
+        }
+        _ => anyhow::bail!(
+            "bad request: input_group_id, input_group_index, and input_group_end must appear together"
+        ),
+    }
+}
+
+fn terminal_lease_json(
+    lease: crate::terminal_authority::TerminalLease,
+    presentation_id: PresentationId,
+    presentation_generation: u64,
+) -> Value {
+    let kind = match lease.kind {
+        TerminalLeaseKind::Input => "input",
+        TerminalLeaseKind::Geometry => "geometry",
+    };
+    json!({
+        "kind": kind,
+        "surface_uuid": lease.surface_uuid,
+        "presentation_id": presentation_id,
+        "presentation_generation": presentation_generation,
+        "lease_id": lease.lease_id,
+        "lease_generation": lease.lease_generation,
+        "revocation_sequence": lease.revocation_sequence,
+        "expires_at_ms": lease.expires_at_ms,
+        "next_sequence": lease.next_client_sequence,
+        "next_global_input_sequence": lease.next_global_input_sequence,
+        "migrated_from_legacy": lease.migrated_from_legacy,
+    })
+}
+
+fn terminal_receipt_json(receipt: TerminalOperationReceipt) -> Value {
+    let kind = match receipt.kind {
+        TerminalOperationKind::Input => "input",
+        TerminalOperationKind::Geometry => "geometry",
+    };
+    let mut value = json!({
+        "request_id": receipt.request_id,
+        "kind": kind,
+        "sequence": receipt.sequence,
+        "ordered_input_sequence": receipt.ordered_input_sequence,
+        "lease_generation": receipt.lease_generation,
+        "replayed": receipt.replayed,
+    });
+    match receipt.outcome {
+        TerminalOperationOutcome::InputApplied { encoded_bytes } => {
+            value["status"] = json!("applied");
+            value["encoded_bytes"] = json!(encoded_bytes);
+            value["lease_revoked"] = json!(false);
+        }
+        TerminalOperationOutcome::GeometryApplied { cols, rows, changed } => {
+            value["status"] = json!("applied");
+            value["cols"] = json!(cols);
+            value["rows"] = json!(rows);
+            value["changed"] = json!(changed);
+            value["lease_revoked"] = json!(false);
+        }
+        TerminalOperationOutcome::InputIndeterminate { diagnostic } => {
+            value["status"] = json!("indeterminate");
+            value["diagnostic"] = json!(diagnostic);
+            value["lease_revoked"] = json!(true);
+        }
+    }
+    value
+}
+
+enum PreparedTerminalInput {
+    Bytes {
+        bytes: Vec<u8>,
+        paste: bool,
+    },
+    Key(KeyInput),
+    Mouse {
+        action: MouseAction,
+        button: Option<MouseButton>,
+        modifiers: u16,
+        column: u16,
+        row: u16,
+        any_button_pressed: bool,
+        click_count: u8,
+        autoscroll: Option<MouseSelectionAutoscrollDirection>,
+    },
+}
+
+enum TerminalInputExecutionError {
+    Rejected(anyhow::Error),
+    Indeterminate(std::io::Error),
+}
+
+fn prepare_terminal_input(input: TerminalInputPayload) -> anyhow::Result<PreparedTerminalInput> {
+    match input {
+        TerminalInputPayload::Text { text, paste } => {
+            Ok(PreparedTerminalInput::Bytes { bytes: text.into_bytes(), paste })
+        }
+        TerminalInputPayload::Bytes { data, paste } => Ok(PreparedTerminalInput::Bytes {
+            bytes: base64::engine::general_purpose::STANDARD.decode(data)?,
+            paste,
+        }),
+        TerminalInputPayload::NamedKey { key } => {
+            if key.is_empty() {
+                anyhow::bail!("bad request: named terminal key must be non-empty");
+            }
+            if key.len() > TERMINAL_KEY_TEXT_MAX_BYTES {
+                anyhow::bail!(
+                    "bad request: named terminal key exceeds {TERMINAL_KEY_TEXT_MAX_BYTES} bytes"
+                );
+            }
+            let input =
+                key_input_from_chord(&key).ok_or_else(|| anyhow::anyhow!("unknown key {key}"))?;
+            Ok(PreparedTerminalInput::Key(input))
+        }
+        TerminalInputPayload::Key {
+            key,
+            modifiers,
+            consumed_modifiers,
+            text,
+            unshifted_codepoint,
+            action,
+        } => {
+            if key > ghostty_vt::sys::GHOSTTY_KEY_PASTE {
+                anyhow::bail!("bad request: unknown terminal key {key}");
+            }
+            if modifiers & !TERMINAL_KEY_MODIFIERS_MASK != 0
+                || consumed_modifiers & !TERMINAL_KEY_MODIFIERS_MASK != 0
+                || consumed_modifiers & !modifiers != 0
+            {
+                anyhow::bail!("bad request: invalid terminal key modifiers");
+            }
+            if text.len() > TERMINAL_KEY_TEXT_MAX_BYTES {
+                anyhow::bail!(
+                    "bad request: terminal key text exceeds {TERMINAL_KEY_TEXT_MAX_BYTES} bytes"
+                );
+            }
+            if text.chars().any(|character| character <= '\u{1f}' || character == '\u{7f}') {
+                anyhow::bail!("bad request: terminal key text contains a control character");
+            }
+            if unshifted_codepoint != 0 && char::from_u32(unshifted_codepoint).is_none() {
+                anyhow::bail!("bad request: invalid unshifted codepoint");
+            }
+            let action = match action.as_deref().unwrap_or("press") {
+                "press" => KeyAction::Press,
+                "release" => KeyAction::Release,
+                "repeat" => KeyAction::Repeat,
+                other => anyhow::bail!("bad request: unknown terminal key action {other:?}"),
+            };
+            Ok(PreparedTerminalInput::Key(KeyInput {
+                key,
+                mods: Mods(modifiers),
+                consumed_mods: Mods(consumed_modifiers),
+                utf8: text,
+                unshifted_codepoint,
+                action: Some(action),
+            }))
+        }
+        TerminalInputPayload::Mouse {
+            action,
+            button,
+            modifiers,
+            column,
+            row,
+            any_button_pressed,
+            click_count,
+            autoscroll,
+        } => {
+            if modifiers & !TERMINAL_KEY_MODIFIERS_MASK != 0 {
+                anyhow::bail!("bad request: invalid terminal mouse modifiers");
+            }
+            if !(1..=3).contains(&click_count) {
+                anyhow::bail!("bad request: terminal mouse click_count must be 1, 2, or 3");
+            }
+            let action = match action.as_str() {
+                "press" => MouseAction::Press,
+                "release" => MouseAction::Release,
+                "motion" => MouseAction::Motion,
+                other => anyhow::bail!("bad request: unknown terminal mouse action {other:?}"),
+            };
+            let button = match button.as_deref() {
+                None => None,
+                Some("left") => Some(MouseButton::Left),
+                Some("right") => Some(MouseButton::Right),
+                Some("middle") => Some(MouseButton::Middle),
+                Some("wheel-up") => Some(MouseButton::WheelUp),
+                Some("wheel-down") => Some(MouseButton::WheelDown),
+                Some("wheel-left") => Some(MouseButton::WheelLeft),
+                Some("wheel-right") => Some(MouseButton::WheelRight),
+                Some(other) => {
+                    anyhow::bail!("bad request: unknown terminal mouse button {other:?}")
+                }
+            };
+            if action != MouseAction::Motion && button.is_none() {
+                anyhow::bail!("bad request: terminal mouse press/release requires a button");
+            }
+            let autoscroll = match autoscroll.as_deref() {
+                None => None,
+                Some("up") if action == MouseAction::Motion && any_button_pressed => {
+                    Some(MouseSelectionAutoscrollDirection::Up)
+                }
+                Some("down") if action == MouseAction::Motion && any_button_pressed => {
+                    Some(MouseSelectionAutoscrollDirection::Down)
+                }
+                Some("up" | "down") => anyhow::bail!(
+                    "bad request: terminal mouse autoscroll requires an active motion"
+                ),
+                Some(other) => {
+                    anyhow::bail!("bad request: unknown terminal mouse autoscroll {other:?}")
+                }
+            };
+            Ok(PreparedTerminalInput::Mouse {
+                action,
+                button,
+                modifiers,
+                column,
+                row,
+                any_button_pressed,
+                click_count,
+                autoscroll,
+            })
+        }
+    }
+}
+
+fn execute_terminal_input(
+    surface: &Arc<crate::Surface>,
+    input: PreparedTerminalInput,
+) -> Result<usize, TerminalInputExecutionError> {
+    match input {
+        PreparedTerminalInput::Bytes { bytes, paste } => {
+            let result =
+                if paste { surface.write_paste(&bytes) } else { surface.write_bytes(&bytes) };
+            result.map(|()| bytes.len()).map_err(TerminalInputExecutionError::Indeterminate)
+        }
+        PreparedTerminalInput::Key(input) => {
+            let mut encoder = KeyEncoder::new()
+                .map_err(anyhow::Error::from)
+                .map_err(TerminalInputExecutionError::Rejected)?;
+            let mut encoded = Vec::new();
+            surface.scroll_to_bottom().map_err(TerminalInputExecutionError::Rejected)?;
+            surface
+                .try_with_terminal(|terminal| {
+                    encoder.sync_from_terminal(terminal);
+                    encoder.encode(&input, &mut encoded)
+                })
+                .map_err(TerminalInputExecutionError::Rejected)?
+                .map_err(anyhow::Error::from)
+                .map_err(TerminalInputExecutionError::Rejected)?;
+            if encoded.is_empty() {
+                return Ok(0);
+            }
+            surface
+                .write_bytes(&encoded)
+                .map(|()| encoded.len())
+                .map_err(TerminalInputExecutionError::Indeterminate)
+        }
+        PreparedTerminalInput::Mouse {
+            action,
+            button,
+            modifiers,
+            column,
+            row,
+            any_button_pressed,
+            click_count,
+            autoscroll,
+        } => {
+            let (cols, rows) = surface.size();
+            if column >= cols || row >= rows {
+                return Err(TerminalInputExecutionError::Rejected(anyhow::anyhow!(
+                    "bad request: terminal mouse cell is outside the leased geometry"
+                )));
+            }
+            let mouse_tracking = surface
+                .try_with_terminal(|terminal| terminal.mouse_tracking())
+                .map_err(TerminalInputExecutionError::Rejected)?;
+            if !mouse_tracking {
+                if matches!(button, Some(MouseButton::WheelUp | MouseButton::WheelDown)) {
+                    let delta = if button == Some(MouseButton::WheelUp) { -3 } else { 3 };
+                    surface.scroll_delta(delta).map_err(TerminalInputExecutionError::Rejected)?;
+                    return Ok(0);
+                }
+                let selects = button == Some(MouseButton::Left)
+                    || (action == MouseAction::Motion && any_button_pressed);
+                if selects {
+                    let current = surface
+                        .terminal_interaction_snapshot()
+                        .map_err(TerminalInputExecutionError::Rejected)?;
+                    let offset = current.viewport.map_or(0, |viewport| viewport.offset);
+                    let canonical_row =
+                        u32::try_from(offset.saturating_add(u64::from(row))).unwrap_or(u32::MAX);
+                    surface
+                        .terminal_mouse_selection(
+                            action,
+                            ghostty_vt::SelectionPoint { column, row: canonical_row },
+                            click_count,
+                            autoscroll,
+                        )
+                        .map_err(TerminalInputExecutionError::Rejected)?;
+                }
+                return Ok(0);
+            }
+            let input = MouseInput {
+                action,
+                button,
+                mods: Mods(modifiers),
+                position: (f32::from(column) + 0.5, f32::from(row) + 0.5),
+                screen_size: (u32::from(cols), u32::from(rows)),
+                cell_size: (1, 1),
+                any_button_pressed,
+            };
+            let mut encoded = Vec::new();
+            let result = if action == MouseAction::Release {
+                surface.encode_mouse_release(input, &mut encoded)
+            } else {
+                surface.encode_mouse(input, &mut encoded)
+            }
+            .ok_or_else(|| anyhow::anyhow!("terminal mouse encoder is busy"))
+            .map_err(TerminalInputExecutionError::Rejected)?;
+            result.map_err(anyhow::Error::from).map_err(TerminalInputExecutionError::Rejected)?;
+            if encoded.is_empty() {
+                return Ok(0);
+            }
+            surface
+                .write_bytes(&encoded)
+                .map(|()| encoded.len())
+                .map_err(TerminalInputExecutionError::Indeterminate)
+        }
+    }
+}
+
+fn projection_claimant(mux: &Mux, client: u64) -> anyhow::Result<ProjectionClaimant> {
+    let (client_uuid, process_instance_uuid, connection_id) =
+        mux.control_clients.protocol_identity(client, 9)?;
+    Ok(ProjectionClaimant { client_uuid, process_instance_uuid, connection_id })
+}
+
+fn projection_live_bindings(mux: &Mux) -> BTreeMap<WorkspaceUuid, BTreeSet<crate::ScreenUuid>> {
+    mux.with_state(|state| {
+        state
+            .workspaces
+            .iter()
+            .map(|workspace| {
+                (workspace.uuid, workspace.screens.iter().map(|screen| screen.uuid).collect())
+            })
+            .collect()
+    })
+}
+
+const MAX_ENSURE_COMMAND_BYTES: usize = 64 * 1024;
+
+fn ensure_terminal_request(spec: EnsureTerminalSpec) -> anyhow::Result<EnsureTerminalRequest> {
+    if spec.argv.is_some() && spec.command.is_some() {
+        anyhow::bail!("ensure-terminal argv and command are mutually exclusive");
+    }
+    let argv = match (spec.argv, spec.command) {
+        (Some(argv), None) => Some(argv),
+        (None, Some(command)) => {
+            if command.is_empty() {
+                anyhow::bail!("ensure-terminal command must be non-empty when supplied");
+            }
+            if command.len() > MAX_ENSURE_COMMAND_BYTES {
+                anyhow::bail!("ensure-terminal command exceeds {MAX_ENSURE_COMMAND_BYTES} bytes");
+            }
+            Some(vec![platform::default_shell(), "-lc".to_owned(), command])
+        }
+        (None, None) => None,
+        (Some(_), Some(_)) => unreachable!("mutual exclusion checked above"),
+    };
+    Ok(EnsureTerminalRequest {
+        workspace_uuid: spec.workspace_uuid,
+        surface_uuid: spec.surface_uuid,
+        cwd: spec.cwd,
+        argv,
+        env: spec.env.into_iter().map(|entry| (entry.name, entry.value)).collect(),
+        initial_input: spec.initial_input,
+        wait_after_command: spec.wait_after_command,
+        cols: spec.cols,
+        rows: spec.rows,
+    })
+}
+
+fn ensured_terminal_placement_json(placement: crate::mux::EnsureTerminalPlacement) -> Value {
+    json!({
+        "created": placement.created,
+        "workspace": placement.workspace,
+        "workspace_uuid": placement.workspace_uuid,
+        "screen": placement.screen,
+        "screen_uuid": placement.screen_uuid,
+        "pane": placement.pane,
+        "pane_uuid": placement.pane_uuid,
+        "surface": placement.surface,
+        "surface_uuid": placement.surface_uuid,
+    })
+}
+
 fn handle_command(
     mux: &Arc<Mux>,
     client: u64,
@@ -2772,7 +4327,7 @@ fn handle_command(
                 "version": env!("CARGO_PKG_VERSION"),
                 "protocol": PROTOCOL_VERSION,
                 "protocol_min": PROTOCOL_MIN_VERSION,
-                "protocol_max": PROTOCOL_VERSION,
+                "protocol_max": PROTOCOL_MAX_VERSION,
                 "capabilities": PROTOCOL_CAPABILITIES,
                 "session": mux.session,
                 "session_id": mux.session_id,
@@ -2780,6 +4335,7 @@ fn handle_command(
                 "topology_revision": topology_revision,
                 "canonical_topology_revision": canonical_topology_revision,
                 "pid": std::process::id(),
+                "connection_id": mux.control_clients.connection_id(client),
                 "renderer_workers": renderer_workers,
             }))
         }
@@ -2791,7 +4347,7 @@ fn handle_command(
                 "version": env!("CARGO_PKG_VERSION"),
                 "protocol": PROTOCOL_VERSION,
                 "protocol_min": PROTOCOL_MIN_VERSION,
-                "protocol_max": PROTOCOL_VERSION,
+                "protocol_max": PROTOCOL_MAX_VERSION,
                 "capabilities": PROTOCOL_CAPABILITIES,
                 "session": mux.session,
                 "session_id": mux.session_id,
@@ -2799,10 +4355,32 @@ fn handle_command(
                 "topology_revision": topology_revision,
                 "canonical_topology_revision": canonical_topology_revision,
                 "pid": std::process::id(),
+                "connection_id": mux.control_clients.connection_id(client),
                 "renderer_workers": renderer_workers,
             }))
         }
+        Command::RegisterClient {
+            protocol_min,
+            protocol_max,
+            client_uuid,
+            process_instance_uuid,
+        } => {
+            let (protocol, connection_id) = mux.control_clients.register_protocol(
+                client,
+                protocol_min,
+                protocol_max,
+                client_uuid,
+                process_instance_uuid,
+            )?;
+            Ok(json!({
+                "protocol": protocol,
+                "connection_id": connection_id,
+                "client_uuid": client_uuid,
+                "process_instance_uuid": process_instance_uuid,
+            }))
+        }
         Command::OpenPresentation { view, zoom, scroll } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
             if !mux.control_clients.contains(client) {
                 anyhow::bail!("unknown client {client}");
             }
@@ -2826,12 +4404,43 @@ fn handle_command(
             Ok(serde_json::to_value(presentation)?)
         }
         Command::ClosePresentation { presentation_id } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
             if !mux.control_clients.contains(client) {
                 anyhow::bail!("unknown client {client}");
             }
             mux.presentations.close(client, presentation_id)?;
+            mux.terminal_authority.revoke_presentation(presentation_id);
             mux.remove_renderer_presentation(presentation_id)?;
             Ok(json!({}))
+        }
+        Command::ActivateTerminalPresentation { presentation_id, expected_generation } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            let _ = mux.control_clients.protocol_identity(client, 9)?;
+            let presentation = mux.presentations.get_for_client(client, presentation_id)?;
+            if presentation.generation != expected_generation {
+                anyhow::bail!(
+                    "stale presentation generation {expected_generation}; current generation is {}",
+                    presentation.generation
+                );
+            }
+            let surface_uuid = presentation
+                .view
+                .surface_uuid
+                .ok_or_else(|| anyhow::anyhow!("terminal presentation has no selected surface"))?;
+            let surface = get_surface_by_uuid(mux, surface_uuid)?;
+            require_pty(&surface)?;
+            mux.terminal_authority.mark_presentation_visible(PresentationAuthority {
+                connection: client,
+                presentation_id,
+                presentation_generation: presentation.generation,
+                surface_uuid,
+            })?;
+            Ok(json!({
+                "presentation_id": presentation_id,
+                "presentation_generation": presentation.generation,
+                "surface_uuid": surface_uuid,
+            }))
         }
         Command::UpdatePresentation {
             presentation_id,
@@ -2840,6 +4449,7 @@ fn handle_command(
             zoom,
             scroll,
         } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
             if !mux.control_clients.contains(client) {
                 anyhow::bail!("unknown client {client}");
             }
@@ -2866,6 +4476,7 @@ fn handle_command(
                 )
             })?;
             if presentation.generation != expected_generation {
+                mux.terminal_authority.revoke_presentation(presentation.presentation_id);
                 mux.invalidate_renderer_presentation(presentation.presentation_id);
             }
             mux.set_renderer_presentation_workspace(
@@ -2879,6 +4490,60 @@ fn handle_command(
                 anyhow::bail!("unknown client {client}");
             }
             Ok(serde_json::to_value(mux.presentations.list_for_client(client))?)
+        }
+        Command::ClaimProjectionState { logical_presentation_id } => {
+            let claimant = projection_claimant(mux, client)?;
+            let live_bindings = projection_live_bindings(mux);
+            Ok(serde_json::to_value(mux.projection_states.claim(
+                claimant,
+                logical_presentation_id,
+                &live_bindings,
+            )?)?)
+        }
+        Command::UpdateProjectionState {
+            logical_presentation_id,
+            claim_id,
+            expected_generation,
+            workspaces,
+        } => {
+            let claimant = projection_claimant(mux, client)?;
+            let live_bindings = projection_live_bindings(mux);
+            Ok(serde_json::to_value(mux.projection_states.update(
+                claimant,
+                logical_presentation_id,
+                claim_id,
+                expected_generation,
+                workspaces,
+                &live_bindings,
+            )?)?)
+        }
+        Command::UpdateProjectionStates { projections } => {
+            let claimant = projection_claimant(mux, client)?;
+            let live_bindings = projection_live_bindings(mux);
+            Ok(serde_json::to_value(mux.projection_states.update_many(
+                claimant,
+                projections,
+                &live_bindings,
+            )?)?)
+        }
+        Command::ReleaseProjectionState {
+            logical_presentation_id,
+            claim_id,
+            expected_generation,
+        } => {
+            let claimant = projection_claimant(mux, client)?;
+            mux.projection_states.release(
+                claimant,
+                logical_presentation_id,
+                claim_id,
+                expected_generation,
+            )?;
+            Ok(json!({}))
+        }
+        Command::ListProjectionStates => {
+            let claimant = projection_claimant(mux, client)?;
+            let live_bindings = projection_live_bindings(mux);
+            Ok(serde_json::to_value(mux.projection_states.list(claimant, &live_bindings)?)?)
         }
         Command::EnsureTerminal {
             workspace_uuid,
@@ -2895,48 +4560,34 @@ fn handle_command(
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("ensure-terminal requires a trusted local connection");
             }
-            if argv.is_some() && command.is_some() {
-                anyhow::bail!("ensure-terminal argv and command are mutually exclusive");
-            }
-            const MAX_ENSURE_COMMAND_BYTES: usize = 64 * 1024;
-            let argv = match (argv, command) {
-                (Some(argv), None) => Some(argv),
-                (None, Some(command)) => {
-                    if command.is_empty() {
-                        anyhow::bail!("ensure-terminal command must be non-empty when supplied");
-                    }
-                    if command.len() > MAX_ENSURE_COMMAND_BYTES {
-                        anyhow::bail!(
-                            "ensure-terminal command exceeds {MAX_ENSURE_COMMAND_BYTES} bytes"
-                        );
-                    }
-                    Some(vec![platform::default_shell(), "-lc".to_owned(), command])
-                }
-                (None, None) => None,
-                (Some(_), Some(_)) => unreachable!("mutual exclusion checked above"),
-            };
-            let placement = mux.ensure_terminal(EnsureTerminalRequest {
+            let placement = mux.ensure_terminal(ensure_terminal_request(EnsureTerminalSpec {
                 workspace_uuid,
                 surface_uuid,
                 cwd,
                 argv,
-                env: env.into_iter().map(|entry| (entry.name, entry.value)).collect(),
+                command,
+                env,
                 initial_input,
                 wait_after_command,
                 cols,
                 rows,
-            })?;
-            Ok(json!({
-                "created": placement.created,
-                "workspace": placement.workspace,
-                "workspace_uuid": placement.workspace_uuid,
-                "screen": placement.screen,
-                "screen_uuid": placement.screen_uuid,
-                "pane": placement.pane,
-                "pane_uuid": placement.pane_uuid,
-                "surface": placement.surface,
-                "surface_uuid": placement.surface_uuid,
-            }))
+            })?)?;
+            Ok(ensured_terminal_placement_json(placement))
+        }
+        Command::EnsureTerminals { terminals } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("ensure-terminals requires a trusted local connection");
+            }
+            let requests = terminals
+                .into_iter()
+                .map(ensure_terminal_request)
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            Ok(Value::Array(
+                mux.ensure_terminals(requests)?
+                    .into_iter()
+                    .map(ensured_terminal_placement_json)
+                    .collect(),
+            ))
         }
         Command::ReparentTerminal { surface_uuid, workspace_uuid } => {
             if !mux.control_clients.is_unix(client) {
@@ -2984,7 +4635,11 @@ fn handle_command(
             focused,
             cursor_blink_visible,
             preedit,
+            preedit_selection_start_utf16,
+            preedit_selection_length_utf16,
+            preedit_caret_utf16,
         } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!(
                     "renderer presentation configuration requires a trusted local connection"
@@ -3006,7 +4661,12 @@ fn handle_command(
                     .decode(resolved_config)?,
                 focused,
                 cursor_blink_visible,
-                preedit,
+                preedit: parse_renderer_preedit(
+                    preedit,
+                    preedit_selection_start_utf16,
+                    preedit_selection_length_utf16,
+                    preedit_caret_utf16,
+                )?,
             };
             let receipt = mux.configure_renderer_presentation(
                 client,
@@ -3014,6 +4674,23 @@ fn handle_command(
                 expected_generation,
                 configuration,
             )?;
+            // A child-exit close can originate outside the control connection.
+            // Fence the final presentation lookup and visibility publication
+            // so canonical retirement cannot finish and then be followed by a
+            // stale visible-authority insertion.
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            let presentation = mux.presentations.get_for_client(client, presentation_id)?;
+            let surface_uuid = presentation
+                .view
+                .surface_uuid
+                .ok_or_else(|| anyhow::anyhow!("renderer presentation has no selected terminal"))?;
+            get_surface_by_uuid(mux, surface_uuid)?;
+            mux.terminal_authority.mark_presentation_visible(PresentationAuthority {
+                connection: client,
+                presentation_id,
+                presentation_generation: presentation.generation,
+                surface_uuid,
+            })?;
             let worker_ready = receipt.worker.state == crate::RendererWorkerState::Ready;
             let worker_pid = worker_ready.then_some(receipt.worker.pid).flatten();
             let worker_effective_user_id =
@@ -3043,13 +4720,22 @@ fn handle_command(
             }))
         }
         Command::DetachRendererPresentation { presentation_id, expected_generation } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("renderer presentation detach requires a trusted local connection");
             }
             mux.detach_renderer_presentation(client, presentation_id, expected_generation)?;
+            mux.terminal_authority.hide_presentation(client, presentation_id);
             Ok(json!({}))
         }
-        Command::TerminalPreedit { presentation_id, renderer_generation, text } => {
+        Command::TerminalPreedit {
+            presentation_id,
+            renderer_generation,
+            text,
+            selection_start_utf16,
+            selection_length_utf16,
+            caret_utf16,
+        } => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("terminal preedit requires a trusted local connection");
             }
@@ -3058,8 +4744,608 @@ fn handle_command(
                     "bad request: terminal preedit exceeds {TERMINAL_KEY_TEXT_MAX_BYTES} bytes"
                 );
             }
-            mux.set_renderer_preedit(client, presentation_id, renderer_generation, text)?;
+            let preedit = parse_renderer_preedit(
+                text,
+                selection_start_utf16,
+                selection_length_utf16,
+                caret_utf16,
+            )?;
+            mux.set_renderer_preedit(client, presentation_id, renderer_generation, preedit)?;
             Ok(json!({}))
+        }
+        Command::TerminalAccessibilitySnapshot {
+            presentation_id,
+            expected_generation,
+            expected_content_sequence,
+        } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("terminal accessibility requires a trusted local connection");
+            }
+            // Accessibility reads expose terminal contents. Require the
+            // protocol-v9 logical/process registration and an owned,
+            // generation-fenced presentation instead of accepting a numeric
+            // surface handle from any local socket client.
+            let _ = mux.control_clients.protocol_identity(client, 9)?;
+            let value = serde_json::to_value(mux.terminal_accessibility_snapshot(
+                client,
+                presentation_id,
+                expected_generation,
+                expected_content_sequence,
+            )?)?;
+            if serde_json::to_vec(&value)?.len() > crate::TERMINAL_ACCESSIBILITY_MAX_WIRE_BYTES {
+                anyhow::bail!("terminal accessibility response exceeds wire bound");
+            }
+            Ok(value)
+        }
+        Command::TerminalAccessibilityActivateLink {
+            presentation_id,
+            expected_generation,
+            terminal_revision,
+            content_revision,
+            viewport_revision,
+            link_id,
+        } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!(
+                    "terminal accessibility link activation requires a trusted local connection"
+                );
+            }
+            let _ = mux.control_clients.protocol_identity(client, 9)?;
+            if link_id.is_empty() || link_id.len() > 128 {
+                anyhow::bail!("bad request: invalid terminal accessibility link id");
+            }
+            let target = mux.activate_terminal_accessibility_link(
+                client,
+                presentation_id,
+                expected_generation,
+                terminal_revision,
+                content_revision,
+                viewport_revision,
+                &link_id,
+            )?;
+            Ok(json!({ "target": target }))
+        }
+        Command::TerminalLinkAtCell {
+            presentation_id,
+            expected_generation,
+            expected_content_sequence,
+            column,
+            row,
+        } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("terminal hyperlink activation requires a trusted local connection");
+            }
+            let _ = mux.control_clients.protocol_identity(client, 9)?;
+            let hit = mux.terminal_hyperlink_at_viewport_cell(
+                client,
+                presentation_id,
+                expected_generation,
+                expected_content_sequence,
+                column,
+                row,
+            )?;
+            Ok(json!({
+                "surface_uuid": hit.surface_uuid,
+                "presentation_id": hit.presentation_id,
+                "presentation_generation": hit.presentation_generation,
+                "content_sequence": hit.content_sequence,
+                "terminal_revision": hit.terminal_revision,
+                "content_revision": hit.content_revision,
+                "viewport_revision": hit.viewport_revision,
+                "column": hit.column,
+                "row": hit.row,
+                "target": hit.target,
+            }))
+        }
+        Command::AcquireTerminalControl {
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            ttl_ms,
+        } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
+            let (client_uuid, process_instance_uuid, _) =
+                mux.control_clients.protocol_identity(client, 9)?;
+            let surface = get_surface_by_uuid(mux, surface_uuid)?;
+            require_pty(&surface)?;
+            let presentation = mux.presentations.get_for_client(client, presentation_id)?;
+            if presentation.generation != presentation_generation {
+                anyhow::bail!(
+                    "stale presentation generation {presentation_generation}; current generation is {}",
+                    presentation.generation
+                );
+            }
+            if presentation.view.surface_uuid != Some(surface_uuid) {
+                anyhow::bail!("presentation does not display terminal {surface_uuid}");
+            }
+            // Compatibility alias for early v9 clients. New clients negotiate
+            // terminal-split-leases-v1 and use acquire-terminal-lease twice.
+            let lease = mux.acquire_terminal_lease(
+                surface.id,
+                TerminalLeaseKind::Input,
+                TerminalLeaseClaim {
+                    connection: client,
+                    client_uuid,
+                    process_instance_uuid,
+                    presentation_id,
+                    presentation_generation,
+                },
+                ttl_ms,
+            )?;
+            Ok(json!({
+                "surface_uuid": lease.surface_uuid,
+                "presentation_id": presentation_id,
+                "presentation_generation": presentation_generation,
+                "lease_id": lease.lease_id,
+                "lease_generation": lease.lease_generation,
+                "expires_at_ms": lease.expires_at_ms,
+                "next_input_sequence": lease.next_client_sequence,
+                "next_geometry_sequence": 1,
+                "migrated_from_legacy": lease.migrated_from_legacy,
+            }))
+        }
+        Command::AcquireTerminalLease {
+            kind,
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            ttl_ms,
+        } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
+            let kind = terminal_lease_kind(&kind)?;
+            let (client_uuid, process_instance_uuid, _) =
+                mux.control_clients.protocol_identity(client, 9)?;
+            let surface = get_surface_by_uuid(mux, surface_uuid)?;
+            require_pty(&surface)?;
+            let presentation = mux.presentations.get_for_client(client, presentation_id)?;
+            if presentation.generation != presentation_generation {
+                anyhow::bail!(
+                    "stale presentation generation {presentation_generation}; current generation is {}",
+                    presentation.generation
+                );
+            }
+            if presentation.view.surface_uuid != Some(surface_uuid) {
+                anyhow::bail!("presentation does not display terminal {surface_uuid}");
+            }
+            let lease = mux.acquire_terminal_lease(
+                surface.id,
+                kind,
+                TerminalLeaseClaim {
+                    connection: client,
+                    client_uuid,
+                    process_instance_uuid,
+                    presentation_id,
+                    presentation_generation,
+                },
+                ttl_ms,
+            )?;
+            Ok(terminal_lease_json(lease, presentation_id, presentation_generation))
+        }
+        Command::RenewTerminalLease {
+            kind,
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            lease_id,
+            lease_generation,
+            ttl_ms,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            let kind = terminal_lease_kind(&kind)?;
+            let reference = terminal_lease_reference(
+                mux,
+                client,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+            )?;
+            let lease = mux.terminal_authority.renew(surface_uuid, kind, reference, ttl_ms)?;
+            Ok(terminal_lease_json(lease, presentation_id, presentation_generation))
+        }
+        Command::ReleaseTerminalControl {
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            lease_id,
+            lease_generation,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            let reference = terminal_lease_reference(
+                mux,
+                client,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+            )?;
+            mux.terminal_authority.release(surface_uuid, TerminalLeaseKind::Input, reference)?;
+            Ok(json!({}))
+        }
+        Command::ReleaseTerminalLease {
+            kind,
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            lease_id,
+            lease_generation,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            let kind = terminal_lease_kind(&kind)?;
+            let reference = terminal_lease_reference(
+                mux,
+                client,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+            )?;
+            mux.terminal_authority.release(surface_uuid, kind, reference)?;
+            Ok(json!({}))
+        }
+        Command::TransferTerminalLease {
+            kind,
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            lease_id,
+            lease_generation,
+            target_client_uuid,
+            target_presentation_id,
+            target_presentation_generation,
+            ttl_ms,
+        } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            let kind = terminal_lease_kind(&kind)?;
+            let reference = terminal_lease_reference(
+                mux,
+                client,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+            )?;
+            let target_claim = mux.control_clients.unique_connection_claim(target_client_uuid)?;
+            let target_presentation = mux
+                .presentations
+                .get_for_client(target_claim.connection, target_presentation_id)?;
+            if target_presentation.generation != target_presentation_generation {
+                anyhow::bail!(
+                    "stale target presentation generation {target_presentation_generation}; current generation is {}",
+                    target_presentation.generation
+                );
+            }
+            if target_presentation.view.surface_uuid != Some(surface_uuid) {
+                anyhow::bail!("target presentation does not display terminal {surface_uuid}");
+            }
+            let lease = mux.terminal_authority.transfer(
+                surface_uuid,
+                kind,
+                reference,
+                TerminalLeaseClaim {
+                    connection: target_claim.connection,
+                    client_uuid: target_claim.client_uuid,
+                    process_instance_uuid: target_claim.process_instance_uuid,
+                    presentation_id: target_presentation_id,
+                    presentation_generation: target_presentation_generation,
+                },
+                ttl_ms,
+            )?;
+            Ok(terminal_lease_json(lease, target_presentation_id, target_presentation_generation))
+        }
+        Command::GrantTerminalInputDelegation {
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            lease_id,
+            lease_generation,
+            delegate_client_uuid,
+            ttl_ms,
+            scopes,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            let owner = terminal_lease_reference(
+                mux,
+                client,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+            )?;
+            let delegate = mux.control_clients.unique_connection_claim(delegate_client_uuid)?;
+            let delegation = mux.terminal_authority.grant_input_delegation(
+                surface_uuid,
+                owner,
+                delegate,
+                ttl_ms,
+                terminal_automation_scopes(scopes)?,
+            )?;
+            Ok(json!({
+                "surface_uuid": delegation.surface_uuid,
+                "delegation_id": delegation.delegation_id,
+                "delegation_generation": delegation.delegation_generation,
+                "owner_lease_generation": delegation.owner_lease_generation,
+                "delegate_client_uuid": delegation.delegate.client_uuid,
+                "delegate_process_instance_uuid": delegation.delegate.process_instance_uuid,
+                "expires_at_ms": delegation.expires_at_ms,
+                "scopes": delegation.scopes.into_iter().map(|scope| match scope {
+                    AutomationInputScope::Text => "text",
+                    AutomationInputScope::Key => "key",
+                    AutomationInputScope::Mouse => "mouse",
+                }).collect::<Vec<_>>(),
+                "next_sequence": delegation.next_client_sequence,
+            }))
+        }
+        Command::RevokeTerminalInputDelegation {
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            lease_id,
+            lease_generation,
+            delegation_id,
+            delegation_generation,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            let owner = terminal_lease_reference(
+                mux,
+                client,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+            )?;
+            mux.terminal_authority.revoke_input_delegation(
+                surface_uuid,
+                owner,
+                delegation_id,
+                delegation_generation,
+            )?;
+            Ok(json!({}))
+        }
+        Command::TerminalInput {
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            lease_id,
+            lease_generation,
+            sequence,
+            request_id,
+            input,
+            input_group_id,
+            input_group_index,
+            input_group_end,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            if request_id.is_nil() {
+                anyhow::bail!("bad request: terminal request_id must be a non-nil UUID");
+            }
+            let reference = terminal_lease_reference(
+                mux,
+                client,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+            )?;
+            let group = terminal_input_group(input_group_id, input_group_index, input_group_end)?;
+            let scope = terminal_input_scope(&input);
+            let fingerprint = terminal_request_fingerprint(&json!({
+                "kind": "input",
+                "sequence": sequence,
+                "input": &input,
+                "input_group": group.map(|group| json!({
+                    "id": group.id,
+                    "index": group.index,
+                    "end": group.end,
+                })),
+            }))?;
+            let prepared = prepare_terminal_input(input)?;
+            let surface = get_surface_by_uuid(mux, surface_uuid)?;
+            require_pty(&surface)?;
+            match mux.terminal_authority.begin_input_with_scope(
+                surface_uuid,
+                reference,
+                scope,
+                sequence,
+                request_id,
+                fingerprint,
+                group,
+            )? {
+                BeginTerminalOperation::Replay(receipt) => Ok(terminal_receipt_json(receipt)),
+                BeginTerminalOperation::Execute(permit) => {
+                    match execute_terminal_input(&surface, prepared) {
+                        Ok(encoded_bytes) => {
+                            let receipt = mux.terminal_authority.complete_operation(
+                                permit,
+                                TerminalOperationOutcome::InputApplied { encoded_bytes },
+                            )?;
+                            Ok(terminal_receipt_json(receipt))
+                        }
+                        Err(TerminalInputExecutionError::Rejected(error)) => {
+                            mux.terminal_authority.abort_operation(permit)?;
+                            Err(error)
+                        }
+                        Err(TerminalInputExecutionError::Indeterminate(error)) => {
+                            let receipt = mux.terminal_authority.complete_operation(
+                                permit,
+                                TerminalOperationOutcome::InputIndeterminate {
+                                    diagnostic: format!(
+                                        "PTY write failed after an unknown consumed prefix: {error}"
+                                    ),
+                                },
+                            )?;
+                            Ok(terminal_receipt_json(receipt))
+                        }
+                    }
+                }
+            }
+        }
+        Command::TerminalDelegatedInput {
+            surface_uuid,
+            delegation_id,
+            delegation_generation,
+            sequence,
+            request_id,
+            input,
+            input_group_id,
+            input_group_index,
+            input_group_end,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            if request_id.is_nil() {
+                anyhow::bail!("bad request: terminal request_id must be a non-nil UUID");
+            }
+            let (client_uuid, process_instance_uuid, _) =
+                mux.control_clients.protocol_identity(client, 9)?;
+            let reference = TerminalDelegationReference {
+                connection: client,
+                client_uuid,
+                process_instance_uuid,
+                delegation_id,
+                delegation_generation,
+            };
+            let group = terminal_input_group(input_group_id, input_group_index, input_group_end)?;
+            let scope = terminal_input_scope(&input);
+            let fingerprint = terminal_request_fingerprint(&json!({
+                "kind": "delegated-input",
+                "sequence": sequence,
+                "input": &input,
+                "input_group": group.map(|group| json!({
+                    "id": group.id,
+                    "index": group.index,
+                    "end": group.end,
+                })),
+            }))?;
+            let prepared = prepare_terminal_input(input)?;
+            let surface = get_surface_by_uuid(mux, surface_uuid)?;
+            require_pty(&surface)?;
+            match mux.terminal_authority.begin_delegated_input(
+                surface_uuid,
+                reference,
+                scope,
+                sequence,
+                request_id,
+                fingerprint,
+                group,
+            )? {
+                BeginTerminalOperation::Replay(receipt) => Ok(terminal_receipt_json(receipt)),
+                BeginTerminalOperation::Execute(permit) => {
+                    match execute_terminal_input(&surface, prepared) {
+                        Ok(encoded_bytes) => {
+                            let receipt = mux.terminal_authority.complete_operation(
+                                permit,
+                                TerminalOperationOutcome::InputApplied { encoded_bytes },
+                            )?;
+                            Ok(terminal_receipt_json(receipt))
+                        }
+                        Err(TerminalInputExecutionError::Rejected(error)) => {
+                            mux.terminal_authority.abort_operation(permit)?;
+                            Err(error)
+                        }
+                        Err(TerminalInputExecutionError::Indeterminate(error)) => {
+                            let receipt = mux.terminal_authority.complete_operation(
+                                permit,
+                                TerminalOperationOutcome::InputIndeterminate {
+                                    diagnostic: format!(
+                                        "PTY write failed after an unknown consumed prefix: {error}"
+                                    ),
+                                },
+                            )?;
+                            Ok(terminal_receipt_json(receipt))
+                        }
+                    }
+                }
+            }
+        }
+        Command::TerminalGeometry {
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            lease_id,
+            lease_generation,
+            sequence,
+            request_id,
+            cols,
+            rows,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let _terminal_lifecycle = mux.read_terminal_control_lifecycle();
+            if request_id.is_nil() {
+                anyhow::bail!("bad request: terminal request_id must be a non-nil UUID");
+            }
+            let reference = terminal_lease_reference(
+                mux,
+                client,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+            )?;
+            let (cols, rows) = clamp_terminal_size(cols, rows);
+            let fingerprint = terminal_request_fingerprint(&json!({
+                "kind": "geometry",
+                "sequence": sequence,
+                "cols": cols,
+                "rows": rows,
+            }))?;
+            let surface = get_surface_by_uuid(mux, surface_uuid)?;
+            require_pty(&surface)?;
+            match mux.terminal_authority.begin_geometry(
+                surface_uuid,
+                reference,
+                sequence,
+                request_id,
+                fingerprint,
+            )? {
+                BeginTerminalOperation::Replay(receipt) => Ok(terminal_receipt_json(receipt)),
+                BeginTerminalOperation::Execute(permit) => {
+                    let changed = match mux.resize_surface(surface.id, cols, rows) {
+                        Ok(changed) => changed,
+                        Err(error) => {
+                            mux.terminal_authority.abort_operation(permit)?;
+                            return Err(error);
+                        }
+                    };
+                    let (cols, rows) = surface.size();
+                    let receipt = mux.terminal_authority.complete_operation(
+                        permit,
+                        TerminalOperationOutcome::GeometryApplied { cols, rows, changed },
+                    )?;
+                    Ok(terminal_receipt_json(receipt))
+                }
+            }
+        }
+        Command::TerminalRequestStatus { surface_uuid, request_id } => {
+            let (client_uuid, _, _) = mux.control_clients.protocol_identity(client, 9)?;
+            Ok(match mux.terminal_authority.receipt(surface_uuid, client_uuid, request_id) {
+                Some(receipt) => terminal_receipt_json(receipt),
+                None => json!({
+                    "request_id": request_id,
+                    "status": "unknown",
+                }),
+            })
+        }
+        Command::AcknowledgeTerminalRequest { surface_uuid, request_id } => {
+            let (client_uuid, _, _) = mux.control_clients.protocol_identity(client, 9)?;
+            let surface = get_surface_by_uuid(mux, surface_uuid)?;
+            require_pty(&surface)?;
+            let acknowledged = mux.terminal_authority.acknowledge_receipt(
+                surface_uuid,
+                client_uuid,
+                request_id,
+            )?;
+            Ok(json!({
+                "request_id": request_id,
+                "acknowledged": acknowledged,
+            }))
         }
         Command::ReleaseRendererFrame {
             daemon_instance_id,
@@ -3151,8 +5437,24 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::TopologySnapshot => Ok(serde_json::to_value(mux.topology_snapshot())?),
+        Command::TerminalActivitySnapshot => {
+            let (reader_uuid, _, _) = mux.control_clients.protocol_identity(client, 9)?;
+            Ok(serde_json::to_value(mux.terminal_activity_snapshot(reader_uuid)?)?)
+        }
+        Command::MarkTerminalSeen { surface_uuid, activity_sequence } => {
+            let (reader_uuid, _, _) = mux.control_clients.protocol_identity(client, 9)?;
+            Ok(serde_json::to_value(mux.mark_terminal_seen(
+                reader_uuid,
+                surface_uuid,
+                activity_sequence,
+            )?)?)
+        }
         Command::ListWorkspaces => {
-            let notifications = mux.surface_notifications();
+            let reader_uuid = mux
+                .control_clients
+                .stable_reader_uuid(client)
+                .unwrap_or(LEGACY_TERMINAL_ACTIVITY_READER_UUID);
+            let notifications = mux.surface_notifications_for_reader(reader_uuid);
             let snapshot = mux.with_state_snapshot(|state| workspaces_json(state, &notifications));
             let mut data = snapshot.state;
             data["topology_revision"] = json!(snapshot.topology_revision);
@@ -3175,22 +5477,24 @@ fn handle_command(
         Command::Send { surface, text, bytes, paste } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            if paste {
-                let mut payload = text.unwrap_or_default().into_bytes();
-                if let Some(b64) = bytes {
-                    payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
+            mux.with_legacy_terminal_control(&surface, || {
+                if paste {
+                    let mut payload = text.unwrap_or_default().into_bytes();
+                    if let Some(b64) = bytes {
+                        payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
+                    }
+                    surface.write_paste(&payload)?;
+                } else {
+                    if let Some(text) = text {
+                        surface.write_bytes(text.as_bytes())?;
+                    }
+                    if let Some(b64) = bytes {
+                        let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
+                        surface.write_bytes(&raw)?;
+                    }
                 }
-                surface.write_paste(&payload)?;
-            } else {
-                if let Some(text) = text {
-                    surface.write_bytes(text.as_bytes())?;
-                }
-                if let Some(b64) = bytes {
-                    let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-                    surface.write_bytes(&raw)?;
-                }
-            }
-            Ok(json!({}))
+                Ok(json!({}))
+            })
         }
         Command::ReadScreen { surface } => {
             let surface = get_surface(mux, surface)?;
@@ -3312,21 +5616,23 @@ fn handle_command(
             if keys.is_empty() {
                 anyhow::bail!("bad request: keys must be non-empty");
             }
-            let mut encoder = KeyEncoder::new()?;
-            let mut encoded = Vec::new();
-            surface.scroll_to_bottom()?;
-            surface.try_with_terminal(|term| {
-                encoder.sync_from_terminal(term);
-                for key in &keys {
-                    let Some(input) = key_input_from_chord(key) else {
-                        return Err(anyhow::anyhow!("unknown key {key}"));
-                    };
-                    encoder.encode(&input, &mut encoded).map_err(anyhow::Error::from)?;
-                }
-                Ok::<(), anyhow::Error>(())
-            })??;
-            surface.write_bytes(&encoded)?;
-            Ok(json!({}))
+            mux.with_legacy_terminal_control(&surface, || {
+                let mut encoder = KeyEncoder::new()?;
+                let mut encoded = Vec::new();
+                surface.scroll_to_bottom()?;
+                surface.try_with_terminal(|term| {
+                    encoder.sync_from_terminal(term);
+                    for key in &keys {
+                        let Some(input) = key_input_from_chord(key) else {
+                            return Err(anyhow::anyhow!("unknown key {key}"));
+                        };
+                        encoder.encode(&input, &mut encoded).map_err(anyhow::Error::from)?;
+                    }
+                    Ok::<(), anyhow::Error>(())
+                })??;
+                surface.write_bytes(&encoded)?;
+                Ok(json!({}))
+            })
         }
         Command::TerminalKey {
             surface,
@@ -3374,17 +5680,19 @@ fn handle_command(
                 unshifted_codepoint,
                 action: Some(action),
             };
-            let mut encoder = KeyEncoder::new()?;
-            let mut encoded = Vec::new();
-            surface.scroll_to_bottom()?;
-            surface.try_with_terminal(|terminal| {
-                encoder.sync_from_terminal(terminal);
-                encoder.encode(&input, &mut encoded)
-            })??;
-            if !encoded.is_empty() {
-                surface.write_bytes(&encoded)?;
-            }
-            Ok(json!({ "encoded_bytes": encoded.len() }))
+            mux.with_legacy_terminal_control(&surface, || {
+                let mut encoder = KeyEncoder::new()?;
+                let mut encoded = Vec::new();
+                surface.scroll_to_bottom()?;
+                surface.try_with_terminal(|terminal| {
+                    encoder.sync_from_terminal(terminal);
+                    encoder.encode(&input, &mut encoded)
+                })??;
+                if !encoded.is_empty() {
+                    surface.write_bytes(&encoded)?;
+                }
+                Ok(json!({ "encoded_bytes": encoded.len() }))
+            })
         }
         Command::TerminalMouse {
             surface,
@@ -3447,79 +5755,94 @@ fn handle_command(
             if action != MouseAction::Motion && button.is_none() {
                 anyhow::bail!("bad request: terminal mouse press/release requires a button");
             }
-            let mouse_tracking = surface.try_with_terminal(|terminal| terminal.mouse_tracking())?;
-            if !mouse_tracking {
-                if matches!(button, Some(MouseButton::WheelUp | MouseButton::WheelDown)) {
-                    let delta = if button == Some(MouseButton::WheelUp) { -3 } else { 3 };
-                    surface.scroll_delta(delta)?;
-                    let snapshot = surface.terminal_interaction_snapshot()?;
-                    return Ok(json!({
-                        "encoded_bytes": 0,
-                        "route": "scrollback",
-                        "handled": true,
-                        "state": terminal_interaction_json(surface.uuid, &snapshot),
-                    }));
-                }
-                let selects = button == Some(MouseButton::Left)
-                    || (action == MouseAction::Motion && any_button_pressed);
-                let snapshot = if selects {
-                    let columns = surface.size().0.max(1);
-                    let rows = surface.size().1.max(1);
-                    let local_x = (x - padding_left as f32).max(0.0);
-                    let local_y = (y - padding_top as f32).max(0.0);
-                    let column = ((local_x / cell_width as f32).floor() as u16)
-                        .min(columns.saturating_sub(1));
-                    let viewport_row =
-                        ((local_y / cell_height as f32).floor() as u16).min(rows.saturating_sub(1));
-                    let current = surface.terminal_interaction_snapshot()?;
-                    let offset = current.viewport.map_or(0, |viewport| viewport.offset);
-                    let row = u32::try_from(offset.saturating_add(u64::from(viewport_row)))
-                        .unwrap_or(u32::MAX);
-                    let (handled, snapshot) = surface.terminal_mouse_selection(
-                        action,
-                        ghostty_vt::SelectionPoint { column, row },
-                        click_count,
-                    )?;
+            mux.with_legacy_terminal_control(&surface, || {
+                let mouse_tracking =
+                    surface.try_with_terminal(|terminal| terminal.mouse_tracking())?;
+                if !mouse_tracking {
+                    if matches!(button, Some(MouseButton::WheelUp | MouseButton::WheelDown)) {
+                        let delta = if button == Some(MouseButton::WheelUp) { -3 } else { 3 };
+                        surface.scroll_delta(delta)?;
+                        let snapshot = surface.terminal_interaction_snapshot()?;
+                        return Ok(json!({
+                            "encoded_bytes": 0,
+                            "route": "scrollback",
+                            "handled": true,
+                            "state": terminal_interaction_json(surface.uuid, &snapshot),
+                        }));
+                    }
+                    let selects = button == Some(MouseButton::Left)
+                        || (action == MouseAction::Motion && any_button_pressed);
+                    let snapshot = if selects {
+                        let columns = surface.size().0.max(1);
+                        let rows = surface.size().1.max(1);
+                        let local_x = (x - padding_left as f32).max(0.0);
+                        let local_y = (y - padding_top as f32).max(0.0);
+                        let column = ((local_x / cell_width as f32).floor() as u16)
+                            .min(columns.saturating_sub(1));
+                        let viewport_row = ((local_y / cell_height as f32).floor() as u16)
+                            .min(rows.saturating_sub(1));
+                        let current = surface.terminal_interaction_snapshot()?;
+                        let offset = current.viewport.map_or(0, |viewport| viewport.offset);
+                        let row = u32::try_from(offset.saturating_add(u64::from(viewport_row)))
+                            .unwrap_or(u32::MAX);
+                        let autoscroll = if action == MouseAction::Motion && any_button_pressed {
+                            if y < padding_top as f32 {
+                                Some(MouseSelectionAutoscrollDirection::Up)
+                            } else if y >= viewport_height.saturating_sub(padding_bottom) as f32 {
+                                Some(MouseSelectionAutoscrollDirection::Down)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        let (handled, snapshot) = surface.terminal_mouse_selection(
+                            action,
+                            ghostty_vt::SelectionPoint { column, row },
+                            click_count,
+                            autoscroll,
+                        )?;
+                        return Ok(json!({
+                            "encoded_bytes": 0,
+                            "route": "selection",
+                            "handled": handled,
+                            "state": terminal_interaction_json(surface.uuid, &snapshot),
+                        }));
+                    } else {
+                        surface.terminal_interaction_snapshot()?
+                    };
                     return Ok(json!({
                         "encoded_bytes": 0,
                         "route": "selection",
-                        "handled": handled,
+                        "handled": false,
                         "state": terminal_interaction_json(surface.uuid, &snapshot),
                     }));
-                } else {
-                    surface.terminal_interaction_snapshot()?
+                }
+                let input = MouseInput {
+                    action,
+                    button,
+                    mods: Mods(modifiers),
+                    position: (x - padding_left as f32, y - padding_top as f32),
+                    screen_size: (
+                        viewport_width - padding_left - padding_right,
+                        viewport_height - padding_top - padding_bottom,
+                    ),
+                    cell_size: (cell_width, cell_height),
+                    any_button_pressed,
                 };
-                return Ok(json!({
-                    "encoded_bytes": 0,
-                    "route": "selection",
-                    "handled": false,
-                    "state": terminal_interaction_json(surface.uuid, &snapshot),
-                }));
-            }
-            let input = MouseInput {
-                action,
-                button,
-                mods: Mods(modifiers),
-                position: (x - padding_left as f32, y - padding_top as f32),
-                screen_size: (
-                    viewport_width - padding_left - padding_right,
-                    viewport_height - padding_top - padding_bottom,
-                ),
-                cell_size: (cell_width, cell_height),
-                any_button_pressed,
-            };
-            let mut encoded = Vec::new();
-            let result = if action == MouseAction::Release {
-                surface.encode_mouse_release(input, &mut encoded)
-            } else {
-                surface.encode_mouse(input, &mut encoded)
-            }
-            .ok_or_else(|| anyhow::anyhow!("terminal mouse encoder is busy"))?;
-            result?;
-            if !encoded.is_empty() {
-                surface.write_bytes(&encoded)?;
-            }
-            Ok(json!({ "encoded_bytes": encoded.len(), "route": "application" }))
+                let mut encoded = Vec::new();
+                let result = if action == MouseAction::Release {
+                    surface.encode_mouse_release(input, &mut encoded)
+                } else {
+                    surface.encode_mouse(input, &mut encoded)
+                }
+                .ok_or_else(|| anyhow::anyhow!("terminal mouse encoder is busy"))?;
+                result?;
+                if !encoded.is_empty() {
+                    surface.write_bytes(&encoded)?;
+                }
+                Ok(json!({ "encoded_bytes": encoded.len(), "route": "application" }))
+            })
         }
         Command::TerminalState { surface_uuid } => {
             let surface = get_surface_by_uuid(mux, surface_uuid)?;
@@ -3736,7 +6059,7 @@ fn handle_command(
             if let Some(surface) = surface {
                 get_surface(mux, surface)?;
             }
-            let notification = mux.post_notification(title, body, level, surface);
+            let notification = mux.post_notification(title, body, level, surface)?;
             Ok(json!({ "notification": notification }))
         }
         Command::ListAgents { surface, state } => {
@@ -3989,11 +6312,13 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::CloseSurface { surface } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
             get_surface(mux, surface)?;
             mux.close_surface(surface);
             Ok(json!({}))
         }
         Command::ClosePane { pane } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
             if !mux.with_state(|s| s.panes.contains_key(&pane)) {
                 anyhow::bail!("unknown pane {pane}");
             }
@@ -4001,12 +6326,14 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::CloseScreen { screen } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
             if !mux.close_screen(screen) {
                 anyhow::bail!("unknown screen {screen}");
             }
             Ok(json!({}))
         }
         Command::CloseWorkspace { workspace } => {
+            let _client_lifecycle = mux.control_clients.lock_lifecycle();
             if !mux.close_workspace(workspace) {
                 anyhow::bail!("unknown workspace {workspace}");
             }
@@ -4051,20 +6378,23 @@ fn handle_command(
             Ok(json!({"accepted": accepted, "reservation_id": reservation_id}))
         }
         Command::ReleaseSurfaceSize { surface } => {
-            let attached = mux.control_clients.clear_size(client, surface);
-            let had_report = mux.client_surface_size(surface, client).is_some();
-            if had_report {
-                mux.remove_surface_size_client(surface, client);
-            }
-            let attached_changed = attached.as_ref().is_some_and(|(changed, _, _)| *changed);
-            if attached_changed || (attached.is_none() && had_report) {
-                let (name, kind) = attached
-                    .map(|(_, name, kind)| (name, kind))
-                    .or_else(|| mux.control_clients.client_info(client))
-                    .unwrap_or((None, None));
-                mux.emit(MuxEvent::ClientChanged { client, name, kind });
-            }
-            Ok(json!({}))
+            let surface_runtime = get_surface(mux, surface)?;
+            mux.with_legacy_terminal_control(&surface_runtime, || {
+                let attached = mux.control_clients.clear_size(client, surface);
+                let had_report = mux.client_surface_size(surface, client).is_some();
+                if had_report {
+                    mux.remove_surface_size_client(surface, client);
+                }
+                let attached_changed = attached.as_ref().is_some_and(|(changed, _, _)| *changed);
+                if attached_changed || (attached.is_none() && had_report) {
+                    let (name, kind) = attached
+                        .map(|(_, name, kind)| (name, kind))
+                        .or_else(|| mux.control_clients.client_info(client))
+                        .unwrap_or((None, None));
+                    mux.emit(MuxEvent::ClientChanged { client, name, kind });
+                }
+                Ok(json!({}))
+            })
         }
         Command::FocusPane { pane } => {
             if !mux.focus_pane(pane) {
@@ -4160,6 +6490,10 @@ fn handle_command(
             // and registers a mailbox. Otherwise repeated duplicate requests
             // can leave an unbounded list of dead weak subscribers.
             let permit = mux.control_clients.claim_topology_stream(client)?;
+            let activity_stream = mux
+                .control_clients
+                .stable_reader_uuid(client)
+                .map(|reader_uuid| (reader_uuid, mux.subscribe_terminal_activity()));
             match mux.subscribe_topology(daemon_instance_id, session_id, revision) {
                 TopologyResume::ResnapshotRequired(required) => {
                     mux.control_clients.cancel_topology_claim(client);
@@ -4195,6 +6529,18 @@ fn handle_command(
                         "current_revision": subscription.current_revision,
                         "replayed": subscription.replayed,
                     });
+                    if let Some((reader_uuid, activity_events)) = activity_stream {
+                        if let Err(error) = spawn_terminal_activity_stream(
+                            activity_events,
+                            reader_uuid,
+                            writer.clone(),
+                            outbound_stream.clone(),
+                        ) {
+                            mux.control_clients.cancel_topology_claim(client);
+                            drop(permit);
+                            return Err(error.into());
+                        }
+                    }
                     let writer = writer.clone();
                     let stream_mux = mux.clone();
                     let thread = std::thread::Builder::new().name("mux-topology-out".into()).spawn(
@@ -4499,6 +6845,20 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "level": notification.level.as_str(),
             "surface": notification.surface,
         }),
+        MuxEvent::TerminalActivity(fact) => json!({
+            "event": "terminal-activity",
+            "surface_uuid": fact.surface_uuid,
+            "sequence": fact.sequence,
+            "kind": fact.kind,
+            "notification": fact.notification,
+            "level": fact.level,
+        }),
+        MuxEvent::TerminalActivityReceipt(receipt) => json!({
+            "event": "terminal-activity-receipt",
+            "reader_uuid": receipt.reader_uuid,
+            "surface_uuid": receipt.surface_uuid,
+            "seen_sequence": receipt.seen_sequence,
+        }),
         MuxEvent::Status(message) => json!({"event": "status", "message": message}),
         MuxEvent::RendererWorkerChanged {
             workspace_uuid,
@@ -4641,6 +7001,70 @@ mod tests {
         })
     }
 
+    #[test]
+    fn renderer_preedit_preserves_japanese_utf16_selection_and_rejects_invalid_ranges() {
+        let preedit = parse_renderer_preedit(Some("日本語".into()), 1, 1, 2).unwrap().unwrap();
+        assert_eq!(preedit.text.as_str(), "日本語");
+        assert_eq!(preedit.selection_start_utf16, 1);
+        assert_eq!(preedit.selection_length_utf16, 1);
+        assert_eq!(preedit.caret_utf16, 2);
+
+        assert!(parse_renderer_preedit(Some("日本語".into()), 2, 2, 2).is_err());
+        assert!(parse_renderer_preedit(None, 0, 0, 1).is_err());
+    }
+
+    fn register_v9_client(mux: &Arc<Mux>, writer: &MessageWriter) -> (u64, uuid::Uuid) {
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let client_uuid = uuid::Uuid::new_v4();
+        let result = handle_command(
+            mux,
+            client,
+            Command::RegisterClient {
+                protocol_min: 8,
+                protocol_max: 9,
+                client_uuid,
+                process_instance_uuid: uuid::Uuid::new_v4(),
+            },
+            writer,
+        )
+        .unwrap();
+        assert_eq!(result["protocol"], 9);
+        uuid::Uuid::parse_str(result["connection_id"].as_str().unwrap()).unwrap();
+        (client, client_uuid)
+    }
+
+    fn open_visible_terminal_presentation(
+        mux: &Arc<Mux>,
+        writer: &MessageWriter,
+        client: u64,
+        surface_uuid: SurfaceUuid,
+    ) -> (PresentationId, u64) {
+        let opened = handle_command(
+            mux,
+            client,
+            Command::OpenPresentation {
+                view: PresentationView { surface_uuid: Some(surface_uuid), ..Default::default() },
+                zoom: PresentationZoom::default(),
+                scroll: PresentationScroll::default(),
+            },
+            writer,
+        )
+        .unwrap();
+        let presentation_id = opened["presentation_id"].as_str().unwrap().parse().unwrap();
+        let generation = opened["generation"].as_u64().unwrap();
+        handle_command(
+            mux,
+            client,
+            Command::ActivateTerminalPresentation {
+                presentation_id,
+                expected_generation: generation,
+            },
+            writer,
+        )
+        .unwrap();
+        (presentation_id, generation)
+    }
+
     #[derive(Debug, Deserialize)]
     struct ProcessInfoWireResponse {
         id: u64,
@@ -4729,6 +7153,221 @@ mod tests {
         assert_eq!(read_bounded_line(&mut reader, &mut line, 8).unwrap(), BoundedLineRead::TooLong);
         assert_eq!(line, b"12345678");
         assert!(line.len() <= 8);
+    }
+
+    #[test]
+    fn budgeted_line_reader_never_grows_past_the_shared_budget() {
+        let budget = InboundBudget::new(8);
+        let mut reader = BufReader::with_capacity(2, Cursor::new(b"123456789\n"));
+        let mut line = Vec::new();
+
+        let (status, permit) = read_budgeted_line(&mut reader, &mut line, 16, &budget).unwrap();
+        assert_eq!(status, BoundedLineRead::BudgetExceeded);
+        let permit = permit.unwrap();
+        assert_eq!(permit.bytes(), 8);
+        assert_eq!(line, b"12345678");
+        assert_eq!(budget.usage(), (8, 8));
+        drop(permit);
+        assert_eq!(budget.usage(), (0, 8));
+    }
+
+    #[test]
+    fn one_budget_caps_sixty_four_mixed_transport_connections_exactly() {
+        let registry = ClientRegistry::new();
+        let budget = registry.inbound_budget();
+        let bytes_per_connection = INBOUND_INFLIGHT_MAX_BYTES / MAX_SERVER_CONNECTIONS;
+        let mut permits = Vec::new();
+
+        for index in 0..MAX_SERVER_CONNECTIONS {
+            let transport =
+                if index % 2 == 0 { ClientTransport::Unix } else { ClientTransport::WebSocket };
+            registry.register(transport, test_writer());
+            permits.push(
+                budget
+                    .try_reserve(bytes_per_connection)
+                    .expect("the exact 64-connection budget must fit"),
+            );
+        }
+
+        assert_eq!(budget.usage(), (INBOUND_INFLIGHT_MAX_BYTES, INBOUND_INFLIGHT_MAX_BYTES));
+        assert!(budget.try_reserve(1).is_none());
+        permits.truncate(MAX_SERVER_CONNECTIONS / 2);
+        assert_eq!(budget.usage().0, INBOUND_INFLIGHT_MAX_BYTES / 2);
+        let replacement = budget.try_reserve(INBOUND_INFLIGHT_MAX_BYTES / 2).unwrap();
+        assert_eq!(budget.usage(), (INBOUND_INFLIGHT_MAX_BYTES, INBOUND_INFLIGHT_MAX_BYTES));
+        drop(replacement);
+        drop(permits);
+        assert_eq!(budget.usage(), (0, INBOUND_INFLIGHT_MAX_BYTES));
+    }
+
+    #[test]
+    fn unauthenticated_json_is_bounded_and_releases_every_reservation() {
+        let budget = InboundBudget::new(INBOUND_INFLIGHT_MAX_BYTES);
+        let malformed = format!("{}0{}", "[".repeat(256), "]".repeat(255));
+        let mut wire = budget.try_reserve(WEBSOCKET_AUTH_MAX_BYTES).unwrap();
+        wire.shrink_to(malformed.len());
+
+        let error = preflight_authentication_message(&malformed, wire)
+            .err()
+            .expect("malformed authentication JSON must fail");
+        assert!(error.to_string().contains("bad request"));
+        assert_eq!(budget.usage(), (0, WEBSOCKET_AUTH_MAX_BYTES));
+
+        let oversized = "x".repeat(WEBSOCKET_AUTH_MAX_BYTES + 1);
+        let wire = budget.try_reserve(WEBSOCKET_AUTH_MAX_BYTES).unwrap();
+        let error = preflight_authentication_message(&oversized, wire)
+            .err()
+            .expect("oversized authentication JSON must fail");
+        assert!(error.to_string().contains("authentication request exceeds"));
+        assert_eq!(budget.usage().0, 0);
+        assert_eq!(budget.usage().1, WEBSOCKET_AUTH_MAX_BYTES);
+    }
+
+    fn canonical_state_digest(mux: &Mux) -> [u8; 32] {
+        Sha256::digest(serde_json::to_vec(&mux.topology_snapshot()).unwrap()).into()
+    }
+
+    fn test_writer_and_outbound() -> (MessageWriter, Arc<BoundedOutbound>) {
+        let outbound = Arc::new(BoundedOutbound::default());
+        (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
+    }
+
+    fn assert_rejected_response(outbound: &BoundedOutbound, expected: &str) {
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], false);
+        assert!(
+            response["error"].as_str().unwrap().contains(expected),
+            "unexpected response: {response}"
+        );
+    }
+
+    #[test]
+    fn hostile_json_is_rejected_before_state_mutation_or_typed_tree_allocation() {
+        let mux = test_mux();
+        let (writer, outbound) = test_writer_and_outbound();
+        let (client, _) = register_v9_client(&mux, &writer);
+        let before = canonical_state_digest(&mux);
+
+        let tiny_values = std::iter::repeat_n("\"\"", 20_000).collect::<Vec<_>>().join(",");
+        let huge_array =
+            format!("{{\"id\":1,\"cmd\":\"send-key\",\"surface\":1,\"keys\":[{tiny_values}]}}");
+        assert_eq!(huge_array.len(), 60_046);
+        assert!(handle_message(&mux, client, &huge_array, &writer));
+        assert_rejected_response(&outbound, "decoded request exceeds");
+
+        let huge_string = format!(
+            "{{\"id\":2,\"cmd\":\"set-window-title\",\"title\":\"{}\"}}",
+            "x".repeat(STANDARD_COMMAND_MAX_BYTES)
+        );
+        assert!(handle_message(&mux, client, &huge_string, &writer));
+        assert_rejected_response(&outbound, "wire limit");
+
+        let malformed_nesting = format!(
+            "{{\"id\":3,\"cmd\":\"apply-layout\",\"layout\":{}0{}}}",
+            "[".repeat(256),
+            "]".repeat(255)
+        );
+        assert!(handle_message(&mux, client, &malformed_nesting, &writer));
+        assert_rejected_response(&outbound, "bad request");
+
+        assert_eq!(canonical_state_digest(&mux), before);
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert_eq!(
+            mux.control_clients.inbound_budget().usage(),
+            (0, huge_array.len() * 2),
+            "hostile structural traversal may reserve only wire plus scratch, never a typed tree"
+        );
+    }
+
+    #[test]
+    fn stale_protocol_and_remote_local_only_commands_fail_before_decode_admission() {
+        let mux = test_mux();
+        let (writer, outbound) = test_writer_and_outbound();
+        let stale = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            stale,
+            Command::RegisterClient {
+                protocol_min: 8,
+                protocol_max: 8,
+                client_uuid: uuid::Uuid::new_v4(),
+                process_instance_uuid: uuid::Uuid::new_v4(),
+            },
+            &writer,
+        )
+        .unwrap();
+        let before = canonical_state_digest(&mux);
+        let before_budget = mux.control_clients.inbound_budget().usage();
+        let stale_request = format!(
+            "{{\"cmd\":\"terminal-input\",\"input\":{{\"type\":\"text\",\"text\":\"{}\"}}}}",
+            "x".repeat(1024 * 1024)
+        );
+        assert!(handle_message(&mux, stale, &stale_request, &writer));
+        assert_rejected_response(&outbound, "registered protocol v9 capability");
+        assert_eq!(mux.control_clients.inbound_budget().usage(), before_budget);
+
+        let remote = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+        let remote_request = json!({"cmd": "ensure-terminals", "terminals": []}).to_string();
+        assert!(handle_message(&mux, remote, &remote_request, &writer));
+        assert_rejected_response(&outbound, "trusted local connection");
+        assert_eq!(mux.control_clients.inbound_budget().usage(), before_budget);
+        assert_eq!(canonical_state_digest(&mux), before);
+    }
+
+    #[test]
+    fn legitimate_max_initial_input_survives_all_admission_bounds() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer);
+        let message = json!({
+            "id": 1,
+            "cmd": "ensure-terminal",
+            "workspace_uuid": WorkspaceUuid::new(),
+            "surface_uuid": SurfaceUuid::new(),
+            "initial_input": "x".repeat(1024 * 1024),
+            "cols": 80,
+            "rows": 24,
+        })
+        .to_string();
+
+        let decoded_cost = account_json_decode(&message, BULK_COMMAND_DECODE_MAX_BYTES).unwrap();
+        assert_eq!(message.len(), 1_048_757);
+        assert_eq!(decoded_cost, 2_098_310);
+        let permit = preflight_request(&mux, client, &message, None).unwrap();
+        assert_eq!(permit.bytes(), 4_195_824);
+        assert!(permit.bytes() <= INBOUND_INFLIGHT_MAX_BYTES);
+        let request: Request = serde_json::from_str(&message).unwrap();
+        let Command::EnsureTerminal {
+            workspace_uuid,
+            surface_uuid,
+            cwd,
+            argv,
+            command,
+            env,
+            initial_input,
+            wait_after_command,
+            cols,
+            rows,
+        } = request.cmd
+        else {
+            panic!("wrong command");
+        };
+        let decoded = ensure_terminal_request(EnsureTerminalSpec {
+            workspace_uuid,
+            surface_uuid,
+            cwd,
+            argv,
+            command,
+            env,
+            initial_input,
+            wait_after_command,
+            cols,
+            rows,
+        })
+        .unwrap();
+        assert_eq!(decoded.initial_input.unwrap().len(), 1024 * 1024);
+        drop(permit);
+        assert_eq!(mux.control_clients.inbound_budget().usage().0, 0);
     }
 
     #[test]
@@ -4973,6 +7612,36 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_websocket_pipelining_remains_live_under_the_shared_budget() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client_stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, peer) = listener.accept().unwrap();
+        let mux = test_mux();
+        let server_mux = mux.clone();
+        let handler = std::thread::spawn(move || {
+            handle_websocket_connection(server_mux, server, peer, Some("secret"));
+        });
+        let (mut client, _) = tungstenite::client("ws://localhost/", client_stream).unwrap();
+
+        client
+            .send(Message::Text(json!({"auth": {"token": "secret"}}).to_string().into()))
+            .unwrap();
+        client.send(Message::Text(json!({"id": 7, "cmd": "ping"}).to_string().into())).unwrap();
+        let Message::Text(response) = client.read().unwrap() else {
+            panic!("expected text response");
+        };
+        let response: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["id"], 7);
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["app"], Value::Null);
+
+        client.close(None).unwrap();
+        drop(client);
+        handler.join().unwrap();
+        assert_eq!(mux.control_clients.inbound_budget().usage().0, 0);
+    }
+
+    #[test]
     fn global_pressure_terminates_the_stream_occupying_the_backlog() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
@@ -5162,7 +7831,7 @@ mod tests {
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(data["protocol_min"].as_u64(), Some(PROTOCOL_MIN_VERSION as u64));
-        assert_eq!(data["protocol_max"].as_u64(), Some(PROTOCOL_VERSION as u64));
+        assert_eq!(data["protocol_max"].as_u64(), Some(PROTOCOL_MAX_VERSION as u64));
         assert_eq!(data["capabilities"], serde_json::to_value(PROTOCOL_CAPABILITIES).unwrap());
         assert_eq!(data["session"], "named-session");
         assert_eq!(data["session_id"], session_id.to_string());
@@ -5187,7 +7856,7 @@ mod tests {
         assert_eq!(data["session"], "named-session");
         assert_eq!(data["pid"], std::process::id());
         assert_eq!(data["protocol_min"], PROTOCOL_MIN_VERSION);
-        assert_eq!(data["protocol_max"], PROTOCOL_VERSION);
+        assert_eq!(data["protocol_max"], PROTOCOL_MAX_VERSION);
         assert_eq!(data["capabilities"], serde_json::to_value(PROTOCOL_CAPABILITIES).unwrap());
         let encoded_session = data["session_id"].as_str().unwrap();
         let encoded_daemon = data["daemon_instance_id"].as_str().unwrap();
@@ -5229,6 +7898,7 @@ mod tests {
     fn protocol_v8_exposes_canonical_topology_capabilities_without_dropping_v7() {
         assert_eq!(PROTOCOL_VERSION, 8);
         assert_eq!(PROTOCOL_MIN_VERSION, 6);
+        assert_eq!(PROTOCOL_MAX_VERSION, 9);
         for capability in [
             "render-attach-v1",
             "presentation-registry-v1",
@@ -5237,6 +7907,7 @@ mod tests {
             "canonical-topology-snapshot-v1",
             "stable-entity-uuid-v1",
             "topology-resume-v1",
+            "terminal-accessibility-v1",
         ] {
             assert!(PROTOCOL_CAPABILITIES.contains(&capability));
         }
@@ -5244,6 +7915,803 @@ mod tests {
         let request: Request = serde_json::from_str(r#"{"id":7,"cmd":"subscribe"}"#).unwrap();
         assert_eq!(request.id, Some(json!(7)));
         assert!(matches!(request.cmd, Command::Subscribe { tree_events: None }));
+
+        let presentation_id = PresentationId::new();
+        let accessibility: Request = serde_json::from_value(json!({
+            "id": 8,
+            "cmd": "terminal-accessibility-activate-link",
+            "presentation_id": presentation_id,
+            "expected_generation": 7,
+            "terminal_revision": 11,
+            "content_revision": 9,
+            "viewport_revision": 3,
+            "link_id": "9:3:feedface",
+        }))
+        .unwrap();
+        assert!(matches!(
+            accessibility.cmd,
+            Command::TerminalAccessibilityActivateLink {
+                presentation_id: decoded_presentation,
+                expected_generation: 7,
+                terminal_revision: 11,
+                content_revision: 9,
+                viewport_revision: 3,
+                ref link_id,
+            } if decoded_presentation == presentation_id && link_id == "9:3:feedface"
+        ));
+    }
+
+    #[test]
+    fn terminal_accessibility_requires_unix_v9_registration_before_reading_content() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let error = handle_command(
+            &mux,
+            client,
+            Command::TerminalAccessibilitySnapshot {
+                presentation_id: PresentationId::new(),
+                expected_generation: 1,
+                expected_content_sequence: 1,
+            },
+            &writer,
+        )
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("protocol v9") || message.contains("requires register-client"),
+            "unexpected unregistered accessibility error: {message}"
+        );
+
+        let (registered, _) = register_v9_client(&mux, &writer);
+        let invalid_link = handle_command(
+            &mux,
+            registered,
+            Command::TerminalAccessibilityActivateLink {
+                presentation_id: PresentationId::new(),
+                expected_generation: 1,
+                terminal_revision: 1,
+                content_revision: 1,
+                viewport_revision: 1,
+                link_id: String::new(),
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(invalid_link.to_string().contains("invalid terminal accessibility link id"));
+    }
+
+    #[test]
+    fn protocol_v9_registration_is_explicit_single_use_and_rejects_identity_or_range_errors() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let nil_identity = handle_command(
+            &mux,
+            client,
+            Command::RegisterClient {
+                protocol_min: 8,
+                protocol_max: 9,
+                client_uuid: uuid::Uuid::nil(),
+                process_instance_uuid: uuid::Uuid::new_v4(),
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(nil_identity.to_string().contains("non-nil UUIDs"));
+
+        let client_uuid = uuid::Uuid::new_v4();
+        let registered = handle_command(
+            &mux,
+            client,
+            Command::RegisterClient {
+                protocol_min: 8,
+                protocol_max: 9,
+                client_uuid,
+                process_instance_uuid: uuid::Uuid::new_v4(),
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(registered["protocol"], 9);
+        assert_eq!(registered["client_uuid"], client_uuid.to_string());
+
+        let duplicate = handle_command(
+            &mux,
+            client,
+            Command::RegisterClient {
+                protocol_min: 9,
+                protocol_max: 9,
+                client_uuid,
+                process_instance_uuid: uuid::Uuid::new_v4(),
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(duplicate.to_string().contains("already registered"));
+
+        let incompatible_client =
+            mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let incompatible = handle_command(
+            &mux,
+            incompatible_client,
+            Command::RegisterClient {
+                protocol_min: 10,
+                protocol_max: 10,
+                client_uuid: uuid::Uuid::new_v4(),
+                process_instance_uuid: uuid::Uuid::new_v4(),
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(incompatible.to_string().contains("no compatible protocol version"));
+    }
+
+    #[test]
+    fn protocol_v9_named_key_wire_payload_decodes_to_the_typed_variant() {
+        let request: Request = serde_json::from_value(json!({
+            "id": 7,
+            "cmd": "terminal-input",
+            "surface_uuid": uuid::Uuid::new_v4(),
+            "presentation_id": uuid::Uuid::new_v4(),
+            "presentation_generation": 3,
+            "lease_id": uuid::Uuid::new_v4(),
+            "lease_generation": 4,
+            "sequence": 5,
+            "request_id": uuid::Uuid::new_v4(),
+            "input": {"type": "named-key", "key": "ctrl+shift+p"},
+        }))
+        .unwrap();
+
+        assert!(matches!(
+            request.cmd,
+            Command::TerminalInput {
+                input: TerminalInputPayload::NamedKey { ref key },
+                ..
+            } if key == "ctrl+shift+p"
+        ));
+    }
+
+    #[test]
+    fn protocol_v9_lease_orders_input_and_geometry_without_legacy_size_reduction() {
+        let mux = test_mux();
+        mux.new_workspace(Some("leased".into()), Some((80, 24))).unwrap();
+        let (surface_id, surface_uuid) = mux.with_state(|state| {
+            let surface_id = *state.panes.values().next().unwrap().tabs.first().unwrap();
+            (surface_id, state.surfaces[&surface_id].uuid)
+        });
+        let writer = test_writer();
+        let (client, _) = register_v9_client(&mux, &writer);
+        let (presentation_id, presentation_generation) =
+            open_visible_terminal_presentation(&mux, &writer, client, surface_uuid);
+
+        let lease = handle_command(
+            &mux,
+            client,
+            Command::AcquireTerminalLease {
+                kind: "input".into(),
+                surface_uuid,
+                presentation_id,
+                presentation_generation,
+                ttl_ms: 5_000,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(lease["migrated_from_legacy"], true);
+        let lease_id = lease["lease_id"].as_str().unwrap().parse().unwrap();
+        let lease_generation = lease["lease_generation"].as_u64().unwrap();
+
+        let geometry_lease = handle_command(
+            &mux,
+            client,
+            Command::AcquireTerminalLease {
+                kind: "geometry".into(),
+                surface_uuid,
+                presentation_id,
+                presentation_generation,
+                ttl_ms: 5_000,
+            },
+            &writer,
+        )
+        .unwrap();
+        let geometry_lease_id = geometry_lease["lease_id"].as_str().unwrap().parse().unwrap();
+        let geometry_lease_generation = geometry_lease["lease_generation"].as_u64().unwrap();
+
+        let geometry_request = uuid::Uuid::new_v4();
+        let geometry = handle_command(
+            &mux,
+            client,
+            Command::TerminalGeometry {
+                surface_uuid,
+                presentation_id,
+                presentation_generation,
+                lease_id: geometry_lease_id,
+                lease_generation: geometry_lease_generation,
+                sequence: 1,
+                request_id: geometry_request,
+                cols: 120,
+                rows: 40,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(geometry["status"], "applied");
+        assert_eq!(mux.surface(surface_id).unwrap().size(), (120, 40));
+        mux.apply_renderer_configuration_size(surface_id, client, 60, 20).unwrap();
+        assert_eq!(
+            mux.surface(surface_id).unwrap().size(),
+            (120, 40),
+            "v9 renderer reconfiguration must not re-enter the legacy size reducer"
+        );
+
+        let nil_request = handle_command(
+            &mux,
+            client,
+            Command::TerminalInput {
+                surface_uuid,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+                sequence: 1,
+                request_id: uuid::Uuid::nil(),
+                input: TerminalInputPayload::Text { text: "rejected".into(), paste: false },
+                input_group_id: None,
+                input_group_index: None,
+                input_group_end: None,
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(nil_request.to_string().contains("non-nil UUID"));
+
+        let input_request = uuid::Uuid::new_v4();
+        let input = || Command::TerminalInput {
+            surface_uuid,
+            presentation_id,
+            presentation_generation,
+            lease_id,
+            lease_generation,
+            sequence: 1,
+            request_id: input_request,
+            input: TerminalInputPayload::Text { text: "ordered".into(), paste: false },
+            input_group_id: None,
+            input_group_index: None,
+            input_group_end: None,
+        };
+        let applied = handle_command(&mux, client, input(), &writer).unwrap();
+        assert_eq!(applied["status"], "applied");
+        assert_eq!(applied["replayed"], false);
+        let replayed = handle_command(&mux, client, input(), &writer).unwrap();
+        assert_eq!(replayed["status"], "applied");
+        assert_eq!(replayed["replayed"], true);
+
+        let named_key = handle_command(
+            &mux,
+            client,
+            Command::TerminalInput {
+                surface_uuid,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+                sequence: 2,
+                request_id: uuid::Uuid::new_v4(),
+                input: TerminalInputPayload::NamedKey { key: "enter".into() },
+                input_group_id: None,
+                input_group_index: None,
+                input_group_end: None,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(named_key["status"], "applied");
+        assert_eq!(named_key["encoded_bytes"], 1);
+
+        let conflict = handle_command(
+            &mux,
+            client,
+            Command::TerminalInput {
+                surface_uuid,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+                sequence: 1,
+                request_id: input_request,
+                input: TerminalInputPayload::Text { text: "changed".into(), paste: false },
+                input_group_id: None,
+                input_group_index: None,
+                input_group_end: None,
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(conflict.to_string().contains("different payload"));
+
+        let recovered = handle_command(
+            &mux,
+            client,
+            Command::TerminalRequestStatus { surface_uuid, request_id: input_request },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(recovered["status"], "applied");
+        assert_eq!(recovered["replayed"], true);
+        let acknowledged = handle_command(
+            &mux,
+            client,
+            Command::AcknowledgeTerminalRequest { surface_uuid, request_id: input_request },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(acknowledged["acknowledged"], true);
+        let duplicate_ack = handle_command(
+            &mux,
+            client,
+            Command::AcknowledgeTerminalRequest { surface_uuid, request_id: input_request },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(duplicate_ack["acknowledged"], false);
+        let forgotten = handle_command(
+            &mux,
+            client,
+            Command::TerminalRequestStatus { surface_uuid, request_id: input_request },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(forgotten["status"], "unknown");
+
+        let legacy_resize = handle_command(
+            &mux,
+            client,
+            Command::ResizeSurface { surface: surface_id, cols: 60, rows: 20 },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(legacy_resize.to_string().contains("protocol-v9 leased control"));
+        assert_eq!(mux.surface(surface_id).unwrap().size(), (120, 40));
+    }
+
+    #[test]
+    fn protocol_v9_three_clients_have_total_input_order_atomic_groups_and_split_geometry() {
+        let mux = test_mux();
+        mux.new_workspace(Some("three-client".into()), Some((80, 24))).unwrap();
+        let (surface_id, surface_uuid) = mux.with_state(|state| {
+            let surface_id = *state.panes.values().next().unwrap().tabs.first().unwrap();
+            (surface_id, state.surfaces[&surface_id].uuid)
+        });
+        let gui_writer = test_writer();
+        let tui_writer = test_writer();
+        let automation_writer = test_writer();
+        let (gui, _) = register_v9_client(&mux, &gui_writer);
+        let (tui, tui_uuid) = register_v9_client(&mux, &tui_writer);
+        let (automation, automation_uuid) = register_v9_client(&mux, &automation_writer);
+        let (gui_presentation, gui_generation) =
+            open_visible_terminal_presentation(&mux, &gui_writer, gui, surface_uuid);
+        let (tui_presentation, tui_generation) =
+            open_visible_terminal_presentation(&mux, &tui_writer, tui, surface_uuid);
+
+        let gui_input = handle_command(
+            &mux,
+            gui,
+            Command::AcquireTerminalLease {
+                kind: "input".into(),
+                surface_uuid,
+                presentation_id: gui_presentation,
+                presentation_generation: gui_generation,
+                ttl_ms: 5_000,
+            },
+            &gui_writer,
+        )
+        .unwrap();
+        let gui_input_id = gui_input["lease_id"].as_str().unwrap().parse().unwrap();
+        let gui_input_generation = gui_input["lease_generation"].as_u64().unwrap();
+
+        let tui_geometry = handle_command(
+            &mux,
+            tui,
+            Command::AcquireTerminalLease {
+                kind: "geometry".into(),
+                surface_uuid,
+                presentation_id: tui_presentation,
+                presentation_generation: tui_generation,
+                ttl_ms: 5_000,
+            },
+            &tui_writer,
+        )
+        .unwrap();
+        let tui_geometry_id = tui_geometry["lease_id"].as_str().unwrap().parse().unwrap();
+        let tui_geometry_generation = tui_geometry["lease_generation"].as_u64().unwrap();
+
+        let wrong_geometry = handle_command(
+            &mux,
+            gui,
+            Command::TerminalGeometry {
+                surface_uuid,
+                presentation_id: gui_presentation,
+                presentation_generation: gui_generation,
+                lease_id: gui_input_id,
+                lease_generation: gui_input_generation,
+                sequence: 1,
+                request_id: uuid::Uuid::new_v4(),
+                cols: 200,
+                rows: 60,
+            },
+            &gui_writer,
+        )
+        .unwrap_err();
+        assert!(wrong_geometry.to_string().contains("Geometry lease"));
+        assert_eq!(mux.surface(surface_id).unwrap().size(), (80, 24));
+
+        let resized = handle_command(
+            &mux,
+            tui,
+            Command::TerminalGeometry {
+                surface_uuid,
+                presentation_id: tui_presentation,
+                presentation_generation: tui_generation,
+                lease_id: tui_geometry_id,
+                lease_generation: tui_geometry_generation,
+                sequence: 1,
+                request_id: uuid::Uuid::new_v4(),
+                cols: 120,
+                rows: 40,
+            },
+            &tui_writer,
+        )
+        .unwrap();
+        assert_eq!(resized["sequence"], 1);
+        assert_eq!(mux.surface(surface_id).unwrap().size(), (120, 40));
+
+        let delegation = handle_command(
+            &mux,
+            gui,
+            Command::GrantTerminalInputDelegation {
+                surface_uuid,
+                presentation_id: gui_presentation,
+                presentation_generation: gui_generation,
+                lease_id: gui_input_id,
+                lease_generation: gui_input_generation,
+                delegate_client_uuid: automation_uuid,
+                ttl_ms: 2_000,
+                scopes: vec!["text".into()],
+            },
+            &gui_writer,
+        )
+        .unwrap();
+        let delegation_id = delegation["delegation_id"].as_str().unwrap().parse().unwrap();
+        let delegation_generation = delegation["delegation_generation"].as_u64().unwrap();
+
+        let lifecycle_group = uuid::Uuid::new_v4();
+        let start = handle_command(
+            &mux,
+            gui,
+            Command::TerminalInput {
+                surface_uuid,
+                presentation_id: gui_presentation,
+                presentation_generation: gui_generation,
+                lease_id: gui_input_id,
+                lease_generation: gui_input_generation,
+                sequence: 1,
+                request_id: uuid::Uuid::new_v4(),
+                input: TerminalInputPayload::Text { text: "press".into(), paste: false },
+                input_group_id: Some(lifecycle_group),
+                input_group_index: Some(0),
+                input_group_end: Some(false),
+            },
+            &gui_writer,
+        )
+        .unwrap();
+        assert_eq!(start["ordered_input_sequence"], 1);
+
+        let split_attempt = handle_command(
+            &mux,
+            automation,
+            Command::TerminalDelegatedInput {
+                surface_uuid,
+                delegation_id,
+                delegation_generation,
+                sequence: 1,
+                request_id: uuid::Uuid::new_v4(),
+                input: TerminalInputPayload::Text { text: "split".into(), paste: false },
+                input_group_id: None,
+                input_group_index: None,
+                input_group_end: None,
+            },
+            &automation_writer,
+        )
+        .unwrap_err();
+        assert!(split_attempt.to_string().contains("input group"));
+
+        let end = handle_command(
+            &mux,
+            gui,
+            Command::TerminalInput {
+                surface_uuid,
+                presentation_id: gui_presentation,
+                presentation_generation: gui_generation,
+                lease_id: gui_input_id,
+                lease_generation: gui_input_generation,
+                sequence: 2,
+                request_id: uuid::Uuid::new_v4(),
+                input: TerminalInputPayload::Text { text: "release".into(), paste: false },
+                input_group_id: Some(lifecycle_group),
+                input_group_index: Some(1),
+                input_group_end: Some(true),
+            },
+            &gui_writer,
+        )
+        .unwrap();
+        assert_eq!(end["ordered_input_sequence"], 2);
+
+        let paste_request = uuid::Uuid::new_v4();
+        let paste_group = uuid::Uuid::new_v4();
+        let paste = || Command::TerminalInput {
+            surface_uuid,
+            presentation_id: gui_presentation,
+            presentation_generation: gui_generation,
+            lease_id: gui_input_id,
+            lease_generation: gui_input_generation,
+            sequence: 3,
+            request_id: paste_request,
+            input: TerminalInputPayload::Text { text: "one-paste".into(), paste: true },
+            input_group_id: Some(paste_group),
+            input_group_index: Some(0),
+            input_group_end: Some(true),
+        };
+        let first_paste = handle_command(&mux, gui, paste(), &gui_writer).unwrap();
+        let retry_paste = handle_command(&mux, gui, paste(), &gui_writer).unwrap();
+        assert_eq!(first_paste["ordered_input_sequence"], 3);
+        assert_eq!(first_paste["replayed"], false);
+        assert_eq!(retry_paste["ordered_input_sequence"], 3);
+        assert_eq!(retry_paste["replayed"], true, "retry must not write the PTY twice");
+
+        let delegated = handle_command(
+            &mux,
+            automation,
+            Command::TerminalDelegatedInput {
+                surface_uuid,
+                delegation_id,
+                delegation_generation,
+                sequence: 1,
+                request_id: uuid::Uuid::new_v4(),
+                input: TerminalInputPayload::Text { text: "automation".into(), paste: false },
+                input_group_id: None,
+                input_group_index: None,
+                input_group_end: None,
+            },
+            &automation_writer,
+        )
+        .unwrap();
+        assert_eq!(delegated["ordered_input_sequence"], 4);
+
+        let transferred = handle_command(
+            &mux,
+            gui,
+            Command::TransferTerminalLease {
+                kind: "input".into(),
+                surface_uuid,
+                presentation_id: gui_presentation,
+                presentation_generation: gui_generation,
+                lease_id: gui_input_id,
+                lease_generation: gui_input_generation,
+                target_client_uuid: tui_uuid,
+                target_presentation_id: tui_presentation,
+                target_presentation_generation: tui_generation,
+                ttl_ms: 5_000,
+            },
+            &gui_writer,
+        )
+        .unwrap();
+        let tui_input_id = transferred["lease_id"].as_str().unwrap().parse().unwrap();
+        let tui_input_generation = transferred["lease_generation"].as_u64().unwrap();
+        let tui_input = handle_command(
+            &mux,
+            tui,
+            Command::TerminalInput {
+                surface_uuid,
+                presentation_id: tui_presentation,
+                presentation_generation: tui_generation,
+                lease_id: tui_input_id,
+                lease_generation: tui_input_generation,
+                sequence: 1,
+                request_id: uuid::Uuid::new_v4(),
+                input: TerminalInputPayload::Text { text: "tui".into(), paste: false },
+                input_group_id: None,
+                input_group_index: None,
+                input_group_end: None,
+            },
+            &tui_writer,
+        )
+        .unwrap();
+        assert_eq!(tui_input["ordered_input_sequence"], 5);
+
+        let revoked_delegate = handle_command(
+            &mux,
+            automation,
+            Command::TerminalDelegatedInput {
+                surface_uuid,
+                delegation_id,
+                delegation_generation,
+                sequence: 2,
+                request_id: uuid::Uuid::new_v4(),
+                input: TerminalInputPayload::Text { text: "stale".into(), paste: false },
+                input_group_id: None,
+                input_group_index: None,
+                input_group_end: None,
+            },
+            &automation_writer,
+        )
+        .unwrap_err();
+        assert!(revoked_delegate.to_string().contains("delegation is missing"));
+
+        assert!(disconnect_client(&mux, tui, false));
+        let reconnect_writer = test_writer();
+        let reconnect =
+            mux.control_clients.register(ClientTransport::Unix, reconnect_writer.clone());
+        handle_command(
+            &mux,
+            reconnect,
+            Command::RegisterClient {
+                protocol_min: 9,
+                protocol_max: 9,
+                client_uuid: tui_uuid,
+                process_instance_uuid: uuid::Uuid::new_v4(),
+            },
+            &reconnect_writer,
+        )
+        .unwrap();
+        let stale_claim = handle_command(
+            &mux,
+            reconnect,
+            Command::TerminalInput {
+                surface_uuid,
+                presentation_id: tui_presentation,
+                presentation_generation: tui_generation,
+                lease_id: tui_input_id,
+                lease_generation: tui_input_generation,
+                sequence: 2,
+                request_id: uuid::Uuid::new_v4(),
+                input: TerminalInputPayload::Text { text: "reconnected".into(), paste: false },
+                input_group_id: None,
+                input_group_index: None,
+                input_group_end: None,
+            },
+            &reconnect_writer,
+        )
+        .unwrap_err();
+        assert!(stale_claim.to_string().contains("Input lease is missing"));
+    }
+
+    #[test]
+    fn protocol_v9_renderer_visibility_claims_neither_terminal_lane() {
+        let v8_mux = test_mux();
+        v8_mux.new_workspace(Some("legacy".into()), Some((80, 24))).unwrap();
+        let v8_surface =
+            v8_mux.with_state(|state| *state.panes.values().next().unwrap().tabs.first().unwrap());
+        let v8_writer = test_writer();
+        let v8_client = v8_mux.control_clients.register(ClientTransport::Unix, v8_writer.clone());
+        v8_mux.apply_renderer_configuration_size(v8_surface, v8_client, 100, 30).unwrap();
+        assert_eq!(v8_mux.surface(v8_surface).unwrap().size(), (100, 30));
+        assert_eq!(v8_mux.client_surface_size(v8_surface, v8_client), Some((100, 30)));
+
+        let v9_mux = test_mux();
+        v9_mux.new_workspace(Some("leased".into()), Some((80, 24))).unwrap();
+        let (v9_surface, v9_surface_uuid) = v9_mux.with_state(|state| {
+            let surface = *state.panes.values().next().unwrap().tabs.first().unwrap();
+            (surface, state.surfaces[&surface].uuid)
+        });
+        let v9_writer = test_writer();
+        let (v9_client, _) = register_v9_client(&v9_mux, &v9_writer);
+        let _ = open_visible_terminal_presentation(&v9_mux, &v9_writer, v9_client, v9_surface_uuid);
+        v9_mux.apply_renderer_configuration_size(v9_surface, v9_client, 120, 40).unwrap();
+
+        assert_eq!(v9_mux.surface(v9_surface).unwrap().size(), (80, 24));
+        assert_eq!(v9_mux.client_surface_size(v9_surface, v9_client), None);
+        assert_eq!(
+            v9_mux.terminal_authority.mode(v9_surface_uuid),
+            crate::terminal_authority::TerminalControlMode::LegacyShared
+        );
+    }
+
+    #[test]
+    fn protocol_v9_disconnect_revokes_exact_presentation_lease() {
+        let mux = test_mux();
+        mux.new_workspace(Some("leased".into()), Some((80, 24))).unwrap();
+        let (surface_id, surface_uuid) = mux.with_state(|state| {
+            let surface_id = *state.panes.values().next().unwrap().tabs.first().unwrap();
+            (surface_id, state.surfaces[&surface_id].uuid)
+        });
+        let first_writer = test_writer();
+        let (first, _) = register_v9_client(&mux, &first_writer);
+        let (first_presentation, first_generation) =
+            open_visible_terminal_presentation(&mux, &first_writer, first, surface_uuid);
+        let first_lease = handle_command(
+            &mux,
+            first,
+            Command::AcquireTerminalControl {
+                surface_uuid,
+                presentation_id: first_presentation,
+                presentation_generation: first_generation,
+                ttl_ms: 5_000,
+            },
+            &first_writer,
+        )
+        .unwrap();
+        assert!(disconnect_client(&mux, first, false));
+
+        let second_writer = test_writer();
+        let (second, _) = register_v9_client(&mux, &second_writer);
+        let (second_presentation, second_generation) =
+            open_visible_terminal_presentation(&mux, &second_writer, second, surface_uuid);
+        let second_lease = handle_command(
+            &mux,
+            second,
+            Command::AcquireTerminalControl {
+                surface_uuid,
+                presentation_id: second_presentation,
+                presentation_generation: second_generation,
+                ttl_ms: 5_000,
+            },
+            &second_writer,
+        )
+        .unwrap();
+        assert!(
+            second_lease["lease_generation"].as_u64().unwrap()
+                > first_lease["lease_generation"].as_u64().unwrap()
+        );
+        assert!(mux.surface(surface_id).is_some());
+    }
+
+    #[test]
+    fn canonical_surface_close_retires_v9_presentation_and_lease() {
+        let mux = test_mux();
+        mux.new_workspace(Some("leased".into()), Some((80, 24))).unwrap();
+        let (surface_id, surface_uuid) = mux.with_state(|state| {
+            let surface_id = *state.panes.values().next().unwrap().tabs.first().unwrap();
+            (surface_id, state.surfaces[&surface_id].uuid)
+        });
+        let writer = test_writer();
+        let (client, _) = register_v9_client(&mux, &writer);
+        let (presentation_id, presentation_generation) =
+            open_visible_terminal_presentation(&mux, &writer, client, surface_uuid);
+        let lease = handle_command(
+            &mux,
+            client,
+            Command::AcquireTerminalControl {
+                surface_uuid,
+                presentation_id,
+                presentation_generation,
+                ttl_ms: 5_000,
+            },
+            &writer,
+        )
+        .unwrap();
+        let lease_id = lease["lease_id"].as_str().unwrap().parse().unwrap();
+        let lease_generation = lease["lease_generation"].as_u64().unwrap();
+
+        handle_command(&mux, client, Command::CloseSurface { surface: surface_id }, &writer)
+            .unwrap();
+
+        assert!(mux.presentations.list_for_client(client).is_empty());
+        assert!(mux.surface(surface_id).is_none());
+        let release = handle_command(
+            &mux,
+            client,
+            Command::ReleaseTerminalControl {
+                surface_uuid,
+                presentation_id,
+                presentation_generation,
+                lease_id,
+                lease_generation,
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(release.to_string().contains("lease is missing"));
     }
 
     #[test]
@@ -5270,6 +8738,19 @@ mod tests {
         for excluded in ["presentation", "notification", "title", "size", "dead", "status"] {
             assert!(!encoded.contains(excluded), "canonical topology leaked {excluded}");
         }
+
+        let browser = mux.new_browser_tab("about:blank".to_owned(), None, None).unwrap();
+        let with_browser =
+            handle_command(&mux, 0, Command::TopologySnapshot, &test_writer()).unwrap();
+        let browser_tab = with_browser["topology"]["workspaces"][0]["screens"][0]["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|pane| pane["tabs"].as_array().unwrap())
+            .find(|tab| tab["uuid"] == browser.uuid.to_string())
+            .unwrap();
+        assert_eq!(browser_tab["browser_endpoint"]["transport"], "cmuxd-png-frame-stream-v1");
+        assert_eq!(browser_tab["browser_endpoint"]["frontend_projection"], "frontend-optional");
     }
 
     #[test]
@@ -5533,6 +9014,120 @@ mod tests {
     }
 
     #[test]
+    fn projection_state_survives_disconnect_while_live_presentations_do_not() {
+        let mux = test_mux();
+        mux.new_workspace(Some("durable-window".into()), None).unwrap();
+        let (workspace_uuid, screen_uuid) = mux.with_state(|state| {
+            let workspace = &state.workspaces[0];
+            (workspace.uuid, workspace.screens[0].uuid)
+        });
+        let topology_revision = mux.canonical_topology_revision();
+        let writer = test_writer();
+        let logical_client = uuid::Uuid::new_v4();
+        let logical_presentation_id = uuid::Uuid::new_v4();
+
+        let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            first,
+            Command::RegisterClient {
+                protocol_min: 9,
+                protocol_max: 9,
+                client_uuid: logical_client,
+                process_instance_uuid: uuid::Uuid::new_v4(),
+            },
+            &writer,
+        )
+        .unwrap();
+        let transient = handle_command(
+            &mux,
+            first,
+            Command::OpenPresentation {
+                view: PresentationView {
+                    workspace_uuid: Some(workspace_uuid),
+                    screen_uuid: Some(screen_uuid),
+                    ..Default::default()
+                },
+                zoom: Default::default(),
+                scroll: Default::default(),
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(mux.presentations.list_for_client(first).len(), 1);
+
+        let claimed = handle_command(
+            &mux,
+            first,
+            Command::ClaimProjectionState { logical_presentation_id },
+            &writer,
+        )
+        .unwrap();
+        let claim_id = claimed["claim_id"].as_str().unwrap().parse().unwrap();
+        let generation = claimed["generation"].as_u64().unwrap();
+        let updated = handle_command(
+            &mux,
+            first,
+            Command::UpdateProjectionState {
+                logical_presentation_id,
+                claim_id,
+                expected_generation: generation,
+                workspaces: vec![ProjectionWorkspaceState {
+                    workspace_uuid,
+                    selected_screen_uuid: screen_uuid,
+                }],
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(updated["workspaces"].as_array().unwrap().len(), 1);
+        assert_eq!(mux.canonical_topology_revision(), topology_revision);
+
+        assert!(disconnect_client(&mux, first, false));
+        assert!(mux.presentations.list_for_client(first).is_empty());
+        assert!(
+            mux.renderer_worker_statuses()
+                .iter()
+                .all(|worker| worker.visible_presentation_count == 0)
+        );
+
+        let second = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let second_process = uuid::Uuid::new_v4();
+        handle_command(
+            &mux,
+            second,
+            Command::RegisterClient {
+                protocol_min: 9,
+                protocol_max: 9,
+                client_uuid: logical_client,
+                process_instance_uuid: second_process,
+            },
+            &writer,
+        )
+        .unwrap();
+        let listed = handle_command(&mux, second, Command::ListProjectionStates, &writer).unwrap();
+        assert_eq!(listed.as_array().unwrap().len(), 1);
+        assert_eq!(listed[0]["logical_presentation_id"], logical_presentation_id.to_string());
+        assert!(listed[0]["claim_id"].is_null());
+        assert_eq!(listed[0]["workspaces"][0]["workspace_uuid"], workspace_uuid.to_string());
+
+        let reclaimed = handle_command(
+            &mux,
+            second,
+            Command::ClaimProjectionState { logical_presentation_id },
+            &writer,
+        )
+        .unwrap();
+        assert_ne!(reclaimed["claim_id"], claim_id.to_string());
+        assert_eq!(reclaimed["claimed_process_instance_uuid"], second_process.to_string());
+        assert!(
+            reclaimed["generation"].as_u64().unwrap() > updated["generation"].as_u64().unwrap()
+        );
+        assert_eq!(mux.canonical_topology_revision(), topology_revision);
+        assert!(!transient["presentation_id"].is_null());
+    }
+
+    #[test]
     fn presentation_updates_validate_ancestry_ownership_and_generation() {
         let mux = test_mux();
         mux.new_workspace(Some("first".into()), None).unwrap();
@@ -5686,6 +9281,120 @@ mod tests {
     }
 
     #[test]
+    fn terminal_activity_wire_is_registered_reader_specific_and_idempotent() {
+        let mux = test_mux();
+        let first = mux.new_workspace(Some("activity".to_string()), None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_tab(Some(pane), None, None).unwrap();
+        let unregistered_writer = test_writer();
+        let unregistered =
+            mux.control_clients.register(ClientTransport::Unix, unregistered_writer.clone());
+        let error = handle_command(
+            &mux,
+            unregistered,
+            Command::TerminalActivitySnapshot,
+            &unregistered_writer,
+        )
+        .unwrap_err();
+        let error = error.to_string();
+        assert!(error.contains("register-client") || error.contains("protocol v9"));
+
+        let reader_a_writer = test_writer();
+        let reader_b_writer = test_writer();
+        let (reader_a, reader_a_uuid) = register_v9_client(&mux, &reader_a_writer);
+        let (reader_b, reader_b_uuid) = register_v9_client(&mux, &reader_b_writer);
+        mux.post_notification(
+            "private title".to_string(),
+            "private body".to_string(),
+            NotificationLevel::Warning,
+            Some(first.id),
+        )
+        .unwrap();
+
+        let snapshot_a =
+            handle_command(&mux, reader_a, Command::TerminalActivitySnapshot, &reader_a_writer)
+                .unwrap();
+        let snapshot_b =
+            handle_command(&mux, reader_b, Command::TerminalActivitySnapshot, &reader_b_writer)
+                .unwrap();
+        assert_eq!(snapshot_a["reader_uuid"], reader_a_uuid.to_string());
+        assert_eq!(snapshot_b["reader_uuid"], reader_b_uuid.to_string());
+        assert!(snapshot_a["receipts"].as_array().unwrap().is_empty());
+        assert!(snapshot_b["receipts"].as_array().unwrap().is_empty());
+        let sequence = snapshot_a["facts"][0]["sequence"].as_u64().unwrap();
+        assert_eq!(snapshot_a["facts"], snapshot_b["facts"]);
+        let encoded = snapshot_a.to_string();
+        assert!(!encoded.contains("private title"));
+        assert!(!encoded.contains("private body"));
+
+        let first_receipt = handle_command(
+            &mux,
+            reader_a,
+            Command::MarkTerminalSeen { surface_uuid: first.uuid, activity_sequence: sequence },
+            &reader_a_writer,
+        )
+        .unwrap();
+        assert_eq!(first_receipt["reader_uuid"], reader_a_uuid.to_string());
+        assert_eq!(first_receipt["seen_sequence"], sequence);
+        let duplicate = handle_command(
+            &mux,
+            reader_a,
+            Command::MarkTerminalSeen { surface_uuid: first.uuid, activity_sequence: sequence },
+            &reader_a_writer,
+        )
+        .unwrap();
+        assert_eq!(duplicate, first_receipt);
+        let future = handle_command(
+            &mux,
+            reader_a,
+            Command::MarkTerminalSeen { surface_uuid: first.uuid, activity_sequence: sequence + 1 },
+            &reader_a_writer,
+        )
+        .unwrap_err();
+        assert!(future.to_string().contains("beyond current sequence"));
+
+        mux.post_notification(
+            "next title".to_string(),
+            "next body".to_string(),
+            NotificationLevel::Error,
+            Some(first.id),
+        )
+        .unwrap();
+        let latest =
+            handle_command(&mux, reader_a, Command::TerminalActivitySnapshot, &reader_a_writer)
+                .unwrap()["facts"][0]["sequence"]
+                .as_u64()
+                .unwrap();
+        assert_eq!(latest, sequence + 1);
+        handle_command(
+            &mux,
+            reader_a,
+            Command::MarkTerminalSeen { surface_uuid: first.uuid, activity_sequence: latest },
+            &reader_a_writer,
+        )
+        .unwrap();
+        let stale = handle_command(
+            &mux,
+            reader_a,
+            Command::MarkTerminalSeen { surface_uuid: first.uuid, activity_sequence: sequence },
+            &reader_a_writer,
+        )
+        .unwrap();
+        assert_eq!(stale["seen_sequence"], latest);
+
+        let listed_a =
+            handle_command(&mux, reader_a, Command::ListWorkspaces, &reader_a_writer).unwrap();
+        let listed_b =
+            handle_command(&mux, reader_b, Command::ListWorkspaces, &reader_b_writer).unwrap();
+        let first_tab_a = &listed_a["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0];
+        let first_tab_b = &listed_b["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0];
+        assert_eq!(first_tab_a["uuid"], first.uuid.to_string());
+        assert!(first_tab_a["notification"].is_null());
+        assert_eq!(first_tab_b["uuid"], first.uuid.to_string());
+        assert_eq!(first_tab_b["notification"]["unread"], true);
+    }
+
+    #[test]
     fn surface_creation_returns_its_complete_canonical_placement() {
         let mux = test_mux();
         let created = handle_command(
@@ -5711,6 +9420,76 @@ mod tests {
             );
             assert_eq!(created["workspace"], state.workspaces[workspace_index].id);
         });
+    }
+
+    #[test]
+    fn ensure_terminals_wire_maximum_batch_materializes_in_one_revision() {
+        const TERMINAL_COUNT: usize = 1_024;
+
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let identities = (0..TERMINAL_COUNT)
+            .map(|_| (WorkspaceUuid::new(), SurfaceUuid::new()))
+            .collect::<Vec<_>>();
+        let wire_request = json!({
+            "id": 1,
+            "cmd": "ensure-terminals",
+            "terminals": identities.iter().map(|(workspace_uuid, surface_uuid)| json!({
+                "workspace_uuid": workspace_uuid,
+                "surface_uuid": surface_uuid,
+                "cwd": "/tmp",
+                "argv": ["/bin/sh"],
+                "env": [{"name": "CMUX_BATCH_TEST", "value": "1"}],
+                "cols": 90,
+                "rows": 30,
+            })).collect::<Vec<_>>(),
+        });
+        let subscription = match mux.subscribe_topology(
+            mux.daemon_instance_id,
+            mux.session_id,
+            mux.canonical_topology_revision(),
+        ) {
+            TopologyResume::Subscribed(subscription) => subscription,
+            TopologyResume::ResnapshotRequired(required) => {
+                panic!("fresh topology subscription was rejected: {:?}", required.reason)
+            }
+        };
+
+        let encoded_wire_request = wire_request.to_string();
+        let decoded_cost =
+            account_json_decode(&encoded_wire_request, BULK_COMMAND_DECODE_MAX_BYTES).unwrap();
+        assert_eq!(encoded_wire_request.len(), 216_111);
+        assert_eq!(decoded_cost, 2_867_916);
+        let permit = preflight_request(&mux, client, &encoded_wire_request, None).unwrap();
+        assert_eq!(permit.bytes(), 3_300_138);
+        assert!(permit.bytes() <= INBOUND_INFLIGHT_MAX_BYTES);
+        drop(permit);
+
+        let request: Request = serde_json::from_value(wire_request.clone()).unwrap();
+        let placements = handle_command(&mux, client, request.cmd, &writer).unwrap();
+        let placements = placements.as_array().unwrap();
+        assert_eq!(placements.len(), TERMINAL_COUNT);
+        assert!(placements.iter().all(|placement| placement["created"] == true));
+        assert!(placements.iter().zip(&identities).all(
+            |(placement, (workspace_uuid, surface_uuid))| {
+                placement["workspace_uuid"] == workspace_uuid.to_string()
+                    && placement["surface_uuid"] == surface_uuid.to_string()
+            }
+        ));
+        let delta = subscription.receiver.recv().unwrap();
+        assert_eq!(delta.base_revision, 0);
+        assert_eq!(delta.revision, 1);
+        assert_eq!(delta.operation, crate::TopologyOperation::LayoutApplied);
+        assert_eq!(delta.targets.workspaces.len(), TERMINAL_COUNT);
+        assert_eq!(delta.targets.surfaces.len(), TERMINAL_COUNT);
+        assert!(matches!(subscription.receiver.try_recv(), Err(TryRecvError::Empty)));
+
+        let retry: Request = serde_json::from_value(wire_request).unwrap();
+        let retried = handle_command(&mux, client, retry.cmd, &writer).unwrap();
+        assert!(retried.as_array().unwrap().iter().all(|placement| placement["created"] == false));
+        assert_eq!(mux.canonical_topology_revision(), 1);
+        assert!(matches!(subscription.receiver.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[test]
@@ -6551,7 +10330,7 @@ mod tests {
         assert_eq!(searched["state"]["search"]["active"], true);
         assert_eq!(searched["state"]["search"]["total_matches"], 2);
         assert_eq!(searched["state"]["search"]["selected_match"], 0);
-        assert_eq!(searched["state"]["selection"]["text"], "alpha");
+        assert_eq!(searched["state"]["selection"]["text"], "alpha-one");
 
         let previous = handle_command(
             &mux,

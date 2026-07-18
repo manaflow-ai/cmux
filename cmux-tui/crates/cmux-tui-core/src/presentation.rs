@@ -223,6 +223,19 @@ impl PresentationRegistry {
         }
         removed
     }
+
+    pub(crate) fn remove_surface(&self, surface_uuid: SurfaceUuid) -> Vec<PresentationId> {
+        let mut presentations = self.presentations.lock().unwrap();
+        let removed = presentations
+            .values()
+            .filter(|presentation| presentation.view.surface_uuid == Some(surface_uuid))
+            .map(|presentation| presentation.presentation_id)
+            .collect::<Vec<_>>();
+        for presentation_id in &removed {
+            presentations.remove(presentation_id);
+        }
+        removed
+    }
 }
 
 /// Resolve protocol-v7 numeric handles and protocol-v8 UUIDs to one canonical

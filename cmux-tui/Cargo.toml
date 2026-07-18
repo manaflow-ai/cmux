@@ -33,6 +33,7 @@ cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 toml = "0.8"
 portable-pty = "0.9"
 crossterm = "0.29"

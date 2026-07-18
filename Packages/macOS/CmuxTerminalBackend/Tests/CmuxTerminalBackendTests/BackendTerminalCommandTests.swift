@@ -75,6 +75,64 @@ struct BackendTerminalCommandTests {
         await client.close()
     }
 
+    @Test("ensure terminals sends one ordered bounded batch command")
+    func ensureTerminalsBatch() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+        let workspaceIDs = [
+            WorkspaceID(rawValue: UUID()),
+            WorkspaceID(rawValue: UUID()),
+        ]
+        let surfaceIDs = [
+            SurfaceID(rawValue: UUID()),
+            SurfaceID(rawValue: UUID()),
+        ]
+        let task = Task {
+            try await client.ensureTerminals(zip(workspaceIDs, surfaceIDs).map { identity in
+                BackendEnsureTerminalRequest(
+                    workspaceID: identity.0,
+                    surfaceID: identity.1,
+                    arguments: ["/bin/sh"],
+                    columns: 90,
+                    rows: 30
+                )
+            })
+        }
+        let request = try requestObject(await transport.nextSent())
+        #expect(request["cmd"] as? String == "ensure-terminals")
+        let terminals = try #require(request["terminals"] as? [[String: Any]])
+        #expect(terminals.count == 2)
+        #expect(terminals[0]["workspace_uuid"] as? String == workspaceIDs[0].description)
+        #expect(terminals[0]["surface_uuid"] as? String == surfaceIDs[0].description)
+        #expect(terminals[1]["workspace_uuid"] as? String == workspaceIDs[1].description)
+        #expect(terminals[1]["surface_uuid"] as? String == surfaceIDs[1].description)
+
+        let data = zip(workspaceIDs, surfaceIDs).enumerated().map { entry in
+            let (index, identity) = entry
+            return [
+                "created": true,
+                "workspace": 10 + index,
+                "workspace_uuid": identity.0.description,
+                "screen": 20 + index,
+                "screen_uuid": UUID().uuidString,
+                "pane": 30 + index,
+                "pane_uuid": UUID().uuidString,
+                "surface": 40 + index,
+                "surface_uuid": identity.1.description,
+            ] as [String: Any]
+        }
+        await transport.enqueue(try response(to: request, data: data))
+
+        let placements = try await task.value
+        #expect(placements.count == 2)
+        #expect(placements[0].workspaceID == workspaceIDs[0])
+        #expect(placements[0].surfaceID == surfaceIDs[0])
+        #expect(placements[1].workspaceID == workspaceIDs[1])
+        #expect(placements[1].surfaceID == surfaceIDs[1])
+        await client.close()
+    }
+
     @Test("reparent terminal preserves stable surface identity and returns full placement")
     func reparentTerminalStableIdentity() async throws {
         let transport = ScriptedBackendTransport()
@@ -333,11 +391,141 @@ struct BackendTerminalCommandTests {
         await client.close()
     }
 
+    @Test("terminal accessibility preserves UTF-16 mappings and revision-fenced links")
+    func terminalAccessibilityCommands() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+        let presentationID = PresentationID(
+            rawValue: try #require(UUID(uuidString: "88888888-8888-4888-8888-888888888888"))
+        )
+        let surfaceID = SurfaceID(
+            rawValue: try #require(UUID(uuidString: "22222222-2222-4222-8222-222222222222"))
+        )
+
+        let snapshotTask = Task {
+            try await client.terminalAccessibilitySnapshot(
+                presentationID: presentationID,
+                expectedGeneration: 7,
+                expectedContentSequence: 13
+            )
+        }
+        let snapshotRequest = try requestObject(await transport.nextSent())
+        #expect(snapshotRequest["cmd"] as? String == "terminal-accessibility-snapshot")
+        #expect(snapshotRequest["presentation_id"] as? String == presentationID.description)
+        #expect(try uint64(snapshotRequest, "expected_generation") == 7)
+        #expect(try uint64(snapshotRequest, "expected_content_sequence") == 13)
+        await transport.enqueue(try response(to: snapshotRequest, data: [
+            "schema_version": 1,
+            "surface_uuid": surfaceID.description,
+            "presentation_id": presentationID.description,
+            "presentation_generation": 7,
+            "content_sequence": 13,
+            "terminal_revision": 11,
+            "content_revision": 9,
+            "viewport_revision": 3,
+            "viewport_offset": 40,
+            "columns": 8,
+            "rows": 2,
+            "text": "🙂e\u{301}界\nlink",
+            "lines": [
+                [
+                    "row": 40,
+                    "utf16_range": ["location": 0, "length": 5],
+                    "cells": [
+                        [
+                            "column": 0,
+                            "column_span": 2,
+                            "utf16_range": ["location": 0, "length": 2],
+                        ],
+                        [
+                            "column": 2,
+                            "column_span": 1,
+                            "utf16_range": ["location": 2, "length": 2],
+                        ],
+                        [
+                            "column": 3,
+                            "column_span": 2,
+                            "utf16_range": ["location": 4, "length": 1],
+                        ],
+                    ],
+                ],
+                [
+                    "row": 41,
+                    "utf16_range": ["location": 6, "length": 4],
+                    "cells": (0 ..< 4).map { column in
+                        [
+                            "column": column,
+                            "column_span": 1,
+                            "utf16_range": ["location": 6 + column, "length": 1],
+                        ]
+                    },
+                ],
+            ],
+            "cursor": [
+                "column": 2,
+                "row": 40,
+                "insertion_range": ["location": 2, "length": 0],
+                "line": 0,
+            ],
+            "selections": [[
+                "text": "e\u{301}界\nlink",
+                "utf16_ranges": [
+                    ["location": 2, "length": 3],
+                    ["location": 6, "length": 4],
+                ],
+            ]],
+            "links": [[
+                "id": "9:3:feedface",
+                "target": "https://example.com/a",
+                "utf16_range": ["location": 6, "length": 4],
+                "row": 41,
+                "start_column": 0,
+                "end_column": 3,
+            ]],
+            "focused": true,
+        ]))
+
+        let snapshot = try await snapshotTask.value
+        #expect(snapshot.contentSequence == 13)
+        #expect(snapshot.text == "🙂e\u{301}界\nlink")
+        #expect(snapshot.lines[0].cells[0].utf16Range.length == 2)
+        #expect(snapshot.lines[0].cells[1].utf16Range.length == 2)
+        #expect(snapshot.lines[1].utf16Range.location == 6)
+        #expect(snapshot.selections[0].utf16Ranges.count == 2)
+        #expect(snapshot.cursor?.insertionRange.location == 2)
+        #expect(snapshot.links[0].id == "9:3:feedface")
+        #expect(snapshot.focused)
+
+        let activationTask = Task {
+            try await client.activateTerminalAccessibilityLink(
+                presentationID: presentationID,
+                expectedGeneration: 7,
+                terminalRevision: 11,
+                contentRevision: 9,
+                viewportRevision: 3,
+                linkID: "9:3:feedface"
+            )
+        }
+        let activationRequest = try requestObject(await transport.nextSent())
+        #expect(activationRequest["cmd"] as? String == "terminal-accessibility-activate-link")
+        #expect(try uint64(activationRequest, "terminal_revision") == 11)
+        #expect(try uint64(activationRequest, "content_revision") == 9)
+        #expect(try uint64(activationRequest, "viewport_revision") == 3)
+        #expect(activationRequest["link_id"] as? String == "9:3:feedface")
+        await transport.enqueue(try response(
+            to: activationRequest,
+            data: ["target": "https://example.com/a"]
+        ))
+        #expect(try await activationTask.value.target == "https://example.com/a")
+        await client.close()
+    }
+
     private func requestObject(_ data: Data) throws -> [String: Any] {
         try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    private func response(to request: [String: Any], data: [String: Any]) throws -> Data {
+    private func response(to request: [String: Any], data: Any) throws -> Data {
         try encodedJSON([
             "id": try uint64(request, "id"),
             "ok": true,

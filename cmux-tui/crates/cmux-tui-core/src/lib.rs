@@ -8,6 +8,7 @@
 //! [`MuxEvent`]s and read surface state; they never own terminal state
 //! themselves, which is what makes the backend attachable.
 
+mod accessibility;
 mod browser;
 mod event_bus;
 mod identity;
@@ -15,12 +16,15 @@ mod model;
 mod mux;
 mod pairing;
 mod presentation;
+mod projection_state;
 pub mod renderer_control;
 pub mod renderer_supervisor;
 mod semantic_scene;
 mod short_id;
 mod state_store;
 mod surface;
+mod terminal_activity;
+mod terminal_authority;
 mod topology;
 
 pub mod layout;
@@ -40,7 +44,7 @@ pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CanonicalSnapshot,
     CellPixelUpdate, CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
-    NotificationEvent, NotificationLevel, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
+    NotificationEvent, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
     SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
@@ -62,6 +66,10 @@ pub use surface::{
     BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, RenderAttachFrame,
     RenderAttachStream, Surface, SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors,
 };
+pub use terminal_activity::{
+    LEGACY_TERMINAL_ACTIVITY_READER_UUID, NotificationLevel, TerminalActivityFact,
+    TerminalActivityKind, TerminalActivityReadReceipt, TerminalActivitySnapshot,
+};
 pub use topology::{
     ResnapshotReason, ResnapshotRequired, TopologyDelta, TopologyDeltaReceiver, TopologyLimits,
     TopologyOperation, TopologyResume, TopologySnapshot, TopologySubscription, TopologyTargets,
@@ -82,3 +90,11 @@ pub enum SplitDir {
     /// Split into top/bottom rows.
     Down,
 }
+pub use accessibility::{
+    TERMINAL_ACCESSIBILITY_MAX_CELLS, TERMINAL_ACCESSIBILITY_MAX_LINKS,
+    TERMINAL_ACCESSIBILITY_MAX_ROWS, TERMINAL_ACCESSIBILITY_MAX_TEXT_BYTES,
+    TERMINAL_ACCESSIBILITY_MAX_UTF16_UNITS, TERMINAL_ACCESSIBILITY_MAX_WIRE_BYTES,
+    TERMINAL_ACCESSIBILITY_SCHEMA_VERSION, TerminalAccessibilityCell, TerminalAccessibilityCursor,
+    TerminalAccessibilityLine, TerminalAccessibilityLink, TerminalAccessibilityRange,
+    TerminalAccessibilitySelection, TerminalAccessibilitySnapshot,
+};

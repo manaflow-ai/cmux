@@ -69,7 +69,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
     /// during startup is retried with bounded backoff. A trust, protocol, user,
     /// session, or authority error fails immediately.
     ///
-    /// - Returns: Identity and revision evidence from the running daemon.
+    /// - Returns: Identity, compatibility, and revision evidence from the running daemon.
     /// - Throws: A transport, protocol, identity, or deadline error.
     public func checkReadiness() async throws -> BackendServiceReadiness {
         let clock = ContinuousClock()
@@ -134,7 +134,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
                     }
                     let peerTrust = try await verifyPeerTrust(peer)
                     let identify = try await client.identify()
-                    try policy.validate(identify)
+                    let compatibility = try policy.validate(identify)
                     guard identify.processID == peer.processID else {
                         throw BackendServiceReadinessError.reportedProcessMismatch(
                             kernel: peer.processID,
@@ -171,7 +171,8 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
                         userID: peer.userID,
                         peerIdentity: peer,
                         peerTrust: peerTrust,
-                        topologyRevision: health.canonicalTopologyRevision
+                        topologyRevision: health.canonicalTopologyRevision,
+                        compatibility: compatibility
                     )
                     guard await deadline.complete(
                         clock: clock,

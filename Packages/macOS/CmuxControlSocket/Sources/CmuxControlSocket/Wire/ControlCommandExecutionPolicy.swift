@@ -141,6 +141,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // v2MainSync). Running on .mainActor would deadlock the UI for the
         // entire simulation, defeating the profiling workload.
         "debug.sidebar.simulate_drag",
+        // Process-scoped renderer evidence is already protected by bounded
+        // locks. Snapshot and JSON serialization stay off the main actor.
+        "debug.terminal_backend",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a

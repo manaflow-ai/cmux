@@ -3,6 +3,24 @@ import Foundation
 import Testing
 
 actor ScriptedBackendTransport: BackendPeerIdentityTransport {
+    private static let statePreservingCommands: Set<String> = [
+        "identify",
+        "list-presentations",
+        "list-projection-states",
+        "list-workspaces",
+        "ping",
+        "process-info",
+        "read-screen",
+        "renderer-workers",
+        "subscribe-topology",
+        "terminal-accessibility-activate-link",
+        "terminal-accessibility-snapshot",
+        "terminal-activity-snapshot",
+        "terminal-request-status",
+        "terminal-state",
+        "topology-snapshot",
+    ]
+
     private var connected = false
     private var closed = false
     private var inbound: [Data] = []
@@ -11,6 +29,8 @@ actor ScriptedBackendTransport: BackendPeerIdentityTransport {
     private var sendWaiters: [CheckedContinuation<Data, Never>] = []
     private var closeWaiters: [CheckedContinuation<Void, Never>] = []
     private var failNextSend = false
+    private var sentCommandLog: [String] = []
+    private var simulatedStateDigest: UInt64 = 0xcbf2_9ce4_8422_2325
     private var beforeNextReceiveReturns: (@Sendable () -> Void)?
     private var scriptedPeerIdentity = BackendPeerIdentity(
         processID: 42,
@@ -40,6 +60,16 @@ actor ScriptedBackendTransport: BackendPeerIdentityTransport {
         if failNextSend {
             failNextSend = false
             throw BackendProtocolError.connectionClosed
+        }
+        if let object = try? JSONSerialization.jsonObject(with: message) as? [String: Any],
+           let command = object["cmd"] as? String {
+            sentCommandLog.append(command)
+            if !Self.statePreservingCommands.contains(command) {
+                for byte in message {
+                    simulatedStateDigest = (simulatedStateDigest ^ UInt64(byte))
+                        &* 0x0000_0100_0000_01b3
+                }
+            }
         }
         if let waiter = sendWaiters.first {
             sendWaiters.removeFirst()
@@ -105,6 +135,16 @@ actor ScriptedBackendTransport: BackendPeerIdentityTransport {
 
     func sentCount() -> Int {
         outbound.count
+    }
+
+    /// Complete command history, including requests consumed by `nextSent()`.
+    func commandLog() -> [String] {
+        sentCommandLog
+    }
+
+    /// Deterministic fake-server digest changed only by dispatched mutations.
+    func stateDigest() -> UInt64 {
+        simulatedStateDigest
     }
 
     func waitUntilClosed() async {

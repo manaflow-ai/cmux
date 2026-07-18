@@ -21,14 +21,21 @@ extension GhosttyApp: TerminalEngineHosting {
 
 // MARK: Views
 
-/// Creates the concrete `GhosttyNSView` + `GhosttySurfaceScrollView` pair the
-/// surface model historically constructed in its initializer.
+/// Creates the concrete terminal interaction view and pane host while keeping
+/// embedded and external renderer ownership structurally separate.
 struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
     @MainActor
     func makeSurfaceViews(
-        initialFrame: NSRect
+        initialFrame: NSRect,
+        renderOwnership: TerminalSurfaceRenderOwnership
     ) -> (surfaceView: any TerminalSurfaceNativeViewing, paneHost: any TerminalSurfacePaneHosting) {
-        let view = GhosttyNSView(frame: initialFrame)
+        let view: GhosttyNSView
+        switch renderOwnership {
+        case .embeddedGhostty:
+            view = GhosttyNSView(frame: initialFrame)
+        case .externalCompositor:
+            view = ExternalTerminalHostNSView(frame: initialFrame)
+        }
         return (view, GhosttySurfaceScrollView(surfaceView: view))
     }
 }

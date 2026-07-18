@@ -1320,6 +1320,24 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.terminal_backend":
+            guard request.params["reset"] == nil
+                    || v2Bool(request.params, "reset") != nil else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.debug.terminalBackendDiagnostics.error.invalidReset",
+                        defaultValue: "reset must be true or false"
+                    )
+                )
+            }
+            return v2Ok(
+                id: request.id,
+                result: TerminalBackendRenderDiagnostics.shared.payload(
+                    reset: v2Bool(request.params, "reset") ?? false
+                )
+            )
 #endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
@@ -1333,7 +1351,8 @@ class TerminalController {
             // its worker case above is compiled out; the Release main lane
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
-            if request.method == "debug.sidebar.simulate_drag" {
+            if request.method == "debug.sidebar.simulate_drag"
+                || request.method == "debug.terminal_backend" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -11737,15 +11756,17 @@ class TerminalController {
         var ok = false
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
-                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
-                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
+            guard let app = AppDelegate.shared,
+                  let dstTM = app.tabManagerFor(windowId: windowId),
+                  app.moveWorkspaceToWindow(
+                      workspaceId: wsId,
+                      windowId: windowId,
+                      focus: focus
+                  ) else {
                 ok = false
                 return
             }
-            dstTM.attachWorkspace(ws, select: focus)
             if focus {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
                 setActiveTabManager(dstTM)
             }
             ok = true

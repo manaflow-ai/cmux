@@ -60,6 +60,9 @@ public enum RendererPresentationEngineError: Error, Equatable, Sendable {
 public protocol RendererPresentationEngine: AnyObject, Sendable {
     func apply(scene: RendererSemanticScene) throws
     func metrics() throws -> RendererPresentationGeometry
+    /// Returns whether resolved renderer policy wants another frame while the
+    /// presentation remains attached and visible in this worker.
+    func shouldAnimate(visible: Bool) throws -> Bool
     func render() throws -> RendererFrameLease
     func publish(
         lease: RendererFrameLease,
@@ -67,6 +70,10 @@ public protocol RendererPresentationEngine: AnyObject, Sendable {
     ) async throws -> RendererFramePublishDisposition
     func release(lease: RendererFrameLease) throws
     func close() async throws
+}
+
+public extension RendererPresentationEngine {
+    func shouldAnimate(visible _: Bool) throws -> Bool { false }
 }
 
 /// Immutable resources required to create one standalone presentation engine.

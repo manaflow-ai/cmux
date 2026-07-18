@@ -43,4 +43,10 @@ public enum BackendProtocolError: Error, Equatable, Sendable {
 
     /// The backend identified itself as an unexpected application.
     case unexpectedApplication(String)
+
+    /// A mutation was rejected locally because this connection is diagnostic-only.
+    case mutationUnavailableInReadOnlyMode(
+        command: String,
+        compatibility: BackendReadOnlyCompatibility
+    )
 }

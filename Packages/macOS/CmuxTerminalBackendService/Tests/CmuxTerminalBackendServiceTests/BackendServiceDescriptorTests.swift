@@ -14,6 +14,10 @@ struct BackendServiceDescriptorTests {
         #expect(descriptor.sessionName == "cmux")
         #expect(descriptor.socketFileName == "cmux.sock")
         #expect(descriptor.stateNamespace == "cmux")
+        #expect(
+            descriptor.terminalClientUUID.uuidString.lowercased()
+                == "73149cb2-e047-5bbb-a769-3658299fdf10"
+        )
     }
 
     @Test("each tagged development bundle gets an isolated identity")
@@ -34,6 +38,7 @@ struct BackendServiceDescriptorTests {
         #expect(first.sessionName != second.sessionName)
         #expect(first.socketFileName != second.socketFileName)
         #expect(first.stateNamespace != second.stateNamespace)
+        #expect(first.terminalClientUUID != second.terminalClientUUID)
     }
 
     @Test("Swift identity derivation matches the packaging contract vectors")

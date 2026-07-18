@@ -170,6 +170,8 @@ extension RemoteTmuxController {
 
     /// Consolidates an existing host mirror into a newly created dedicated window.
     private func moveExistingMirrors(for host: RemoteTmuxHost, into targetManager: TabManager) {
+        guard let app = AppDelegate.shared,
+              let targetWindowID = app.windowId(for: targetManager) else { return }
         let hostWorkspaceIds = Set(sessionMirrors.values.compactMap { mirror -> UUID? in
             guard mirror.host.connectionHash == host.connectionHash else { return nil }
             return mirror.mirroredWorkspaceId
@@ -187,8 +189,11 @@ extension RemoteTmuxController {
         for sourceManager in sourceManagers {
             let workspaces = sourceManager.tabs.filter { hostWorkspaceIds.contains($0.id) }
             for workspace in workspaces {
-                guard let detached = sourceManager.detachWorkspace(tabId: workspace.id) else { continue }
-                targetManager.attachWorkspace(detached, select: false)
+                _ = app.moveWorkspaceToWindow(
+                    workspaceId: workspace.id,
+                    windowId: targetWindowID,
+                    focus: false
+                )
             }
         }
     }

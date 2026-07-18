@@ -7,6 +7,27 @@ public actor BackendProtocolClient {
     /// The maximum number of server events buffered before the connection closes.
     public static let defaultEventCapacity = 256
 
+    /// Commands whose wire contract is observational. Read-only compatibility
+    /// denies every command not named here, so new mutations fail closed until
+    /// they are classified deliberately.
+    private static let readOnlyCommands: Set<String> = [
+        "identify",
+        "list-presentations",
+        "list-projection-states",
+        "list-workspaces",
+        "ping",
+        "process-info",
+        "read-screen",
+        "renderer-workers",
+        "subscribe-topology",
+        "terminal-accessibility-activate-link",
+        "terminal-accessibility-snapshot",
+        "terminal-activity-snapshot",
+        "terminal-request-status",
+        "terminal-state",
+        "topology-snapshot",
+    ]
+
     private let transport: any BackendMessageTransport
     private let eventCapacity: Int
     private let eventStream: AsyncThrowingStream<BackendServerEvent, any Error>
@@ -16,6 +37,7 @@ public actor BackendProtocolClient {
     private var receiveTask: Task<Void, Never>?
     private var connected = false
     private var finished = false
+    private var compatibility: BackendCompatibilityResult?
 
     /// Creates a protocol client over a message transport.
     ///
@@ -57,6 +79,19 @@ public actor BackendProtocolClient {
     /// - Returns: The event stream shared by this client.
     public func events() -> AsyncThrowingStream<BackendServerEvent, any Error> {
         eventStream
+    }
+
+    /// Installs the result of the identify-first compatibility handshake.
+    ///
+    /// A direct protocol client remains unconstrained until its owner performs
+    /// identification. Canonical production sessions call this exactly once
+    /// before any post-identify command.
+    public func installCompatibility(_ result: BackendCompatibilityResult) throws {
+        if let compatibility {
+            guard compatibility == result else { throw BackendProtocolError.malformedMessage }
+            return
+        }
+        compatibility = result
     }
 
     /// Closes the transport and finishes pending requests and the event stream.
@@ -204,6 +239,7 @@ public actor BackendProtocolClient {
     ) async throws -> Payload {
         try Task.checkCancellation()
         guard connected, !finished else { throw BackendProtocolError.notConnected }
+        try authorize(command: command, parameters: parameters)
         guard nextRequestID != UInt64.max else {
             throw BackendProtocolError.requestIDExhausted
         }
@@ -239,6 +275,21 @@ public actor BackendProtocolClient {
             throw BackendProtocolError.malformedMessage
         }
         return payload
+    }
+
+    private func authorize(
+        command: String,
+        parameters: [String: BackendJSONValue]
+    ) throws {
+        guard case .readOnly(let diagnostic) = compatibility else { return }
+        let selectionRead = command == "terminal-selection"
+            && parameters["operation"] == .string("read")
+        guard Self.readOnlyCommands.contains(command) || selectionRead else {
+            throw BackendProtocolError.mutationUnavailableInReadOnlyMode(
+                command: command,
+                compatibility: diagnostic
+            )
+        }
     }
 
     private func send(_ data: Data, requestID: UInt64) async {

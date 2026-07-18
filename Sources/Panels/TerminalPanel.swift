@@ -307,6 +307,27 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.updateWorkspaceId(newWorkspaceId)
     }
 
+    /// Installs a daemon-committed placement without echoing a second reparent
+    /// mutation back to the backend.
+    func installCanonicalWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+        surface.installCanonicalWorkspaceId(newWorkspaceId)
+    }
+
+    /// Updates Swift-only ownership while the process-wide projection remains
+    /// rollbackable. The external renderer and backend binding adopt on finalize.
+    func stageCanonicalWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+        surface.stageCanonicalWorkspaceId(newWorkspaceId)
+    }
+
+    /// Makes a staged process-wide topology placement visible to the external
+    /// runtime only after every Swift window has committed successfully.
+    func finalizeStagedCanonicalWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+        surface.finalizeStagedCanonicalWorkspaceId(newWorkspaceId)
+    }
+
     func updateTmuxLayoutReport(_ report: TmuxPaneLayoutReport?) {
         guard tmuxLayoutReport != report else { return }
         tmuxLayoutReport = report

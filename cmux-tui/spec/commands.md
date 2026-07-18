@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v8 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies the preferred protocol-v8 JSON command contract. The server also implements the opt-in protocol-v9 registration and terminal-mutation commands specified in `terminal-control-v9.md`; their implementation is in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -57,11 +57,16 @@ CanonicalPane = object{
   id:Id,uuid:Uuid,name:string|null,tabs:array<CanonicalTab>
 }
 CanonicalTab = object{
-  id:Id,uuid:Uuid,kind:"pty"|"browser",name:string|null
+  id:Id,uuid:Uuid,kind:"pty"|"browser",name:string|null,
+  browser_endpoint?:object{
+    transport:"cmuxd-png-frame-stream-v1",
+    source:"external"|"launched"|null,
+    frontend_projection:"required"|"frontend-optional"
+  }
 }
 ```
 
-The zero-workspace topology is valid and is exactly `{"workspaces":[]}`. Every screen layout names exactly its nested panes, and every pane has at least one tab. Active workspace, screen, pane, tab, zoom, and scroll state is presentation state and never appears in this structural snapshot.
+`browser_endpoint` is present only for browser tabs. Its identity is the snapshot's `daemon_instance_id` and `session_id` plus the tab's numeric `id`, stable `uuid`, and transport. A stable surface UUID alone does not prove browser content continuity because durable restore preserves browser placement but starts a new browser runtime. `frontend_projection:"frontend-optional"` lets a frontend that does not implement this transport omit that browser and collapse its now-empty pane while continuing to project sibling terminals. The browser remains in canonical daemon topology and its UUID remains reserved, so a client-owned browser overlay cannot impersonate it. Missing `frontend_projection` means `"required"` and must fail closed. The zero-workspace topology is valid and is exactly `{"workspaces":[]}`. Every screen layout names exactly its nested panes, and every pane has at least one tab. Active workspace, screen, pane, tab, zoom, and scroll state is presentation state and never appears in this structural snapshot.
 
 `Presentation`:
 
@@ -203,7 +208,8 @@ object{
 ```
 
 `protocol` is currently `8`. The inclusive range is `protocol_min:6` through
-`protocol_max:8`. `session_id` identifies the
+`protocol_max:9`. Protocol v8 remains preferred until `register-client`
+negotiates v9. `session_id` identifies the
 logical session and is reloaded from the versioned daemon state store.
 `daemon_instance_id` is fresh for each server process lifetime.
 `topology_revision` preserves the protocol-v7 legacy tree contract, including
@@ -231,7 +237,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":8,"capabilities":["durable-session-identity-v1","canonical-topology-snapshot-v1","presentation-registry-v1","render-attach-v1","stable-entity-uuid-v1","topology-resume-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":9,"capabilities":["durable-session-identity-v1","canonical-topology-snapshot-v1","presentation-registry-v1","projection-state-reconnect-v1","render-attach-v1","stable-entity-uuid-v1","terminal-control-lease-v1","terminal-input-idempotency-v1","terminal-ordered-input-v1","topology-resume-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
 ```
 
 ### ping
@@ -280,7 +286,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":8,"capabilities":["durable-session-identity-v1","canonical-topology-snapshot-v1","presentation-registry-v1","render-attach-v1","stable-entity-uuid-v1","topology-resume-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":9,"capabilities":["durable-session-identity-v1","canonical-topology-snapshot-v1","presentation-registry-v1","projection-state-reconnect-v1","render-attach-v1","stable-entity-uuid-v1","terminal-control-lease-v1","terminal-input-idempotency-v1","terminal-ordered-input-v1","topology-resume-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
 ```
 
 ### open-presentation
@@ -413,6 +419,80 @@ Errors: `unknown client <id>` when the requesting connection was already
 removed; `bad request: ...` for a malformed envelope.
 
 CLI mapping: none.
+
+### claim-projection-state
+
+| Field | Value |
+| --- | --- |
+| name | `claim-projection-state` |
+| status | implemented |
+| since | protocol 9 capability `projection-state-reconnect-v1` |
+
+Claims one stable logical frontend window for the registered client and current process connection. Repeating the claim from the same connection is idempotent. A new claimant increments the generation, creates a new claim UUID, and fences the prior claimant. The daemon permits 64 records per registered client and 1,024 globally.
+
+Params: `object{logical_presentation_id:Uuid}` with a non-nil stable window UUID.
+
+Result:
+
+```text
+ProjectionState = object{
+  logical_presentation_id:Uuid,
+  generation:uint64,
+  claim_id:Uuid|null,
+  claimed_process_instance_uuid:Uuid|null,
+  workspaces:array<object{workspace_uuid:Uuid,selected_screen_uuid:Uuid}>
+}
+```
+
+Claim fields are visible only to the current claimant. Errors include missing protocol-v9 registration, invalid identity, capacity exhaustion, and generation exhaustion. CLI mapping: none.
+
+### update-projection-state
+
+| Field | Value |
+| --- | --- |
+| name | `update-projection-state` |
+| status | implemented |
+| since | protocol 9 capability `projection-state-reconnect-v1` |
+
+Atomically replaces one claimed window's complete workspace mapping. `claim_id` and `expected_generation` must match the current fence. Each workspace and selected screen must exist in canonical topology, and the screen must belong to that workspace. A changed replacement increments generation once; an exact replacement is a no-op.
+
+Params: `object{logical_presentation_id:Uuid,claim_id:Uuid,expected_generation:uint64,workspaces:array<object{workspace_uuid:Uuid,selected_screen_uuid:Uuid}>}`. Result: `ProjectionState`. Errors include invalid topology references, duplicate workspace, duplicate ownership by another logical window for the same client, stale generation, stale or foreign claim, capacity exhaustion, and generation exhaustion. CLI mapping: none.
+
+### update-projection-states
+
+| Field | Value |
+| --- | --- |
+| name | `update-projection-states` |
+| status | implemented |
+| since | protocol 9 capability `projection-state-reconnect-v1` |
+
+Atomically replaces several claimed windows. The full request validates before mutation, so a workspace move includes both source and destination and cannot become half-persisted.
+
+Params: `object{projections:array<object{logical_presentation_id:Uuid,claim_id:Uuid,expected_generation:uint64,workspaces:array<object{workspace_uuid:Uuid,selected_screen_uuid:Uuid}>}>}` with 1 through 64 unique logical window UUIDs. Result: `array<ProjectionState>` in request order. Errors are the single-update errors plus empty, duplicate-window, and oversized batch errors. CLI mapping: none.
+
+### release-projection-state
+
+| Field | Value |
+| --- | --- |
+| name | `release-projection-state` |
+| status | implemented |
+| since | protocol 9 capability `projection-state-reconnect-v1` |
+
+Deletes one claimed mapping after an explicit frontend window close. It requires the current claim UUID and generation. Generic disconnect must not call this command.
+
+Params: `object{logical_presentation_id:Uuid,claim_id:Uuid,expected_generation:uint64}`. Result: `object{}`. Errors include unknown window, stale generation, and stale or foreign claim. CLI mapping: none.
+
+### list-projection-states
+
+| Field | Value |
+| --- | --- |
+| name | `list-projection-states` |
+| status | implemented |
+| since | protocol 9 capability `projection-state-reconnect-v1` |
+
+Returns every daemon-lifetime mapping for the registered stable client in logical-window UUID order. It prunes bindings missing from canonical topology and increments each changed record generation once. It does not claim records, and claim fields are returned only for this exact process connection.
+
+Params: none. Result: `array<ProjectionState>`. Errors include missing protocol-v9 registration and generation exhaustion during pruning. CLI mapping: none.
 
 ### set-client-info
 
@@ -669,6 +749,38 @@ Example:
 {"id":6,"ok":true,"data":{"daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","revision":0,"topology":{"workspaces":[]}}}
 ```
 
+### terminal-activity-snapshot
+
+| Field | Value |
+| --- | --- |
+| name | `terminal-activity-snapshot` |
+| status | implemented |
+| since | protocol 9, capability `terminal-activity-v1` |
+
+Returns the latest persisted activity fact per live terminal plus receipts for the connection's registered `client_uuid`. Facts contain only `surface_uuid`, a globally monotonic nonzero `sequence`, `kind`, notification id, and level. Titles, bodies, terminal content, and PTY state are excluded. An unregistered connection is rejected.
+
+Params: none.
+
+Result:
+
+```text
+object{reader_uuid:Uuid,latest_sequence:uint64,facts:array<object{surface_uuid:Uuid,sequence:uint64,kind:"notification",notification:Id,level:"info"|"warning"|"error"}>,receipts:array<object{reader_uuid:Uuid,surface_uuid:Uuid,seen_sequence:uint64}>}
+```
+
+### mark-terminal-seen
+
+| Field | Value |
+| --- | --- |
+| name | `mark-terminal-seen` |
+| status | implemented |
+| since | protocol 9, capability `terminal-activity-v1` |
+
+Durably advances the registered reader's receipt for `surface_uuid`. Duplicate and stale sequences return the current receipt without mutation. Zero, unknown, and future sequences are rejected. Success is acknowledged only after the receipt journal record is synced.
+
+Params: `surface_uuid:Uuid`, `activity_sequence:uint64`.
+
+Result: `object{reader_uuid:Uuid,surface_uuid:Uuid,seen_sequence:uint64}`.
+
 ### list-workspaces
 
 | Field | Value |
@@ -677,7 +789,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags. `topology_revision` and the tree are captured under one canonical-state lock. This legacy revision advances for structural changes and for successful legacy focus, selection, zoom, and tree-event transactions. Protocol-v8 structural consumers use `topology-snapshot.revision` instead.
+Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags. A registered protocol-v9 connection derives each tab's notification field from its own durable activity receipt. Older clients and the in-process TUI use the reserved legacy reader. `topology_revision` and the tree are captured under one canonical-state lock. This legacy revision advances for structural changes and for successful legacy focus, selection, zoom, and tree-event transactions. Protocol-v8 structural consumers use `topology-snapshot.revision` instead.
 
 Params: none.
 
@@ -1154,6 +1266,48 @@ object{created:boolean,workspace:Id,workspace_uuid:UUID,screen:Id,screen_uuid:UU
 Errors include untrusted transport, zero or malformed UUIDs, invalid creation
 arguments, a surface UUID owned by a browser or another workspace, missing
 canonical topology, PTY spawn failure, and `bad request: ...`.
+
+There is no public CLI verb. This command is a control-plane primitive for
+frontends and SDK clients.
+
+### ensure-terminals
+
+| Field | Value |
+| --- | --- |
+| name | `ensure-terminals` |
+| status | implemented |
+| since | protocol 8 with capability `ensure-terminals-v1` |
+
+Resolves or creates an ordered set of daemon-owned PTYs using the
+`ensure-terminal` request and result schemas. The command is available only on
+a trusted local Unix connection. Clients must fall back to ordered singular
+`ensure-terminal` calls when the server does not advertise
+`ensure-terminals-v1`.
+
+Params:
+
+```text
+object{terminals:array<ensure-terminal params>}
+```
+
+`terminals` may contain at most 1,024 entries and must not repeat a
+`surface_uuid`. An empty array returns an empty result without changing
+topology. The server validates the full array before spawning and keeps new
+runtimes private until every spawn and topology precondition succeeds. A
+concurrent topology revision, failed spawn, invalid request, duplicate UUID, or
+tombstoned identity aborts publication of the entire batch.
+
+Result:
+
+```text
+array<ensure-terminal result>
+```
+
+Results preserve request order. A successful batch that creates at least one
+terminal publishes one `layout-applied` canonical delta and one persisted
+replacement snapshot, regardless of batch size. Retrying the same identities
+returns `created:false` entries without advancing topology or replaying startup
+input.
 
 There is no public CLI verb. This command is a control-plane primitive for
 frontends and SDK clients.

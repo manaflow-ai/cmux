@@ -75,12 +75,11 @@ final class DockSplitStore: BonsplitDelegate {
     init(
         workspaceId: UUID,
         scope: DockScope = .workspace,
-        terminalClientComposition: TerminalClientComposition? = nil,
+        terminalClientComposition: TerminalClientComposition,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
     ) {
-        let terminalClientComposition = terminalClientComposition ?? .embedded()
         self.workspaceId = workspaceId
         self.scope = scope
         self.terminalClientComposition = terminalClientComposition

@@ -1,11 +1,11 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
@@ -17,6 +17,7 @@ use crate::layout::{Rect, layout_screen};
 use crate::model::{ChangeState, Node, Pane, Screen, State, Workspace};
 use crate::pairing::PairingBroker;
 use crate::presentation::PresentationRegistry;
+use crate::projection_state::ProjectionStateRegistry;
 use crate::renderer_control::{
     RendererColorSpace, RendererControlDirection, RendererControlEncoder, RendererControlMessage,
     RendererFrameRelease, RendererPixelFormat, RendererPresentationAttachment,
@@ -28,8 +29,8 @@ use crate::renderer_supervisor::{
 };
 use crate::semantic_scene::{
     SemanticSceneAttachmentOptions, SemanticSceneCaptureOptions, SemanticSceneControl,
-    SemanticSceneEvent, SemanticSceneFrame, SemanticScenePresentationIdentity,
-    SemanticSceneReceiver,
+    SemanticSceneEvent, SemanticSceneFrame, SemanticScenePreedit,
+    SemanticScenePresentationIdentity, SemanticSceneReceiver,
 };
 use crate::state_store::{
     DurableSession, MAX_PERSISTED_IDEMPOTENCY_RESULTS, MAX_PERSISTED_TOMBSTONES,
@@ -38,6 +39,13 @@ use crate::state_store::{
     PersistedSurface, PersistedSurfaceKind, PersistedTombstone, PersistedWorkspace, StateStore,
 };
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
+use crate::terminal_activity::{
+    LEGACY_TERMINAL_ACTIVITY_READER_UUID, NotificationLevel, TerminalActivityFact,
+    TerminalActivityReadReceipt, TerminalActivitySnapshot, TerminalActivityState,
+};
+use crate::terminal_authority::{
+    TerminalAuthorityRegistry, TerminalLease, TerminalLeaseClaim, TerminalLeaseKind,
+};
 use crate::topology::{TopologyJournal, topology_json};
 use crate::{
     DaemonInstanceId, PairingChallenge, PairingDecision, PairingError, PaneId, PaneUuid, ScreenId,
@@ -95,6 +103,10 @@ pub enum MuxEvent {
     },
     Bell(SurfaceId),
     Notification(NotificationEvent),
+    /// One canonical persisted terminal activity fact.
+    TerminalActivity(TerminalActivityFact),
+    /// One canonical persisted per-reader read receipt.
+    TerminalActivityReceipt(TerminalActivityReadReceipt),
     Status(String),
     /// One per-workspace renderer process changed lifetime or readiness.
     RendererWorkerChanged {
@@ -208,23 +220,6 @@ pub struct TreeDelta {
     pub entity: Value,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NotificationLevel {
-    Info,
-    Warning,
-    Error,
-}
-
-impl NotificationLevel {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NotificationLevel::Info => "info",
-            NotificationLevel::Warning => "warning",
-            NotificationLevel::Error => "error",
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct NotificationEvent {
     pub notification: u64,
@@ -334,6 +329,7 @@ pub struct RunPlacement {
     pub workspace: WorkspaceId,
 }
 
+#[derive(Clone)]
 pub(crate) struct EnsureTerminalRequest {
     pub workspace_uuid: WorkspaceUuid,
     pub surface_uuid: SurfaceUuid,
@@ -344,6 +340,38 @@ pub(crate) struct EnsureTerminalRequest {
     pub wait_after_command: bool,
     pub cols: u16,
     pub rows: u16,
+}
+
+const MAX_ENSURE_TERMINAL_BATCH_SIZE: usize = 1_024;
+const MAX_ENSURE_TERMINAL_INITIAL_INPUT_BYTES: usize = 1024 * 1024;
+
+fn validate_ensure_terminal_request(request: &EnsureTerminalRequest) -> anyhow::Result<()> {
+    if request.workspace_uuid.as_uuid().is_nil() || request.surface_uuid.as_uuid().is_nil() {
+        anyhow::bail!("ensure-terminal UUIDs must be nonzero");
+    }
+    if request.cols == 0 || request.rows == 0 {
+        anyhow::bail!("ensure-terminal columns and rows must be nonzero");
+    }
+    if request.argv.as_ref().is_some_and(Vec::is_empty) {
+        anyhow::bail!("ensure-terminal argv must be non-empty when supplied");
+    }
+    if request
+        .env
+        .iter()
+        .any(|(name, value)| name.is_empty() || name.contains(['=', '\0']) || value.contains('\0'))
+    {
+        anyhow::bail!("ensure-terminal environment contains an invalid name or value");
+    }
+    if request
+        .initial_input
+        .as_ref()
+        .is_some_and(|input| input.len() > MAX_ENSURE_TERMINAL_INITIAL_INPUT_BYTES)
+    {
+        anyhow::bail!(
+            "ensure-terminal initial_input exceeds {MAX_ENSURE_TERMINAL_INITIAL_INPUT_BYTES} bytes"
+        );
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -357,6 +385,16 @@ pub(crate) struct EnsureTerminalPlacement {
     pub pane_uuid: PaneUuid,
     pub surface: SurfaceId,
     pub surface_uuid: SurfaceUuid,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct EnsureTerminalWorkspaceLocation {
+    workspace: WorkspaceId,
+    screen: ScreenId,
+    screen_uuid: ScreenUuid,
+    pane: PaneId,
+    pane_uuid: PaneUuid,
+    new_workspace: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -510,8 +548,109 @@ struct ClosedTree {
     delta: Option<TreeDelta>,
 }
 
+#[cfg(test)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct CanonicalTopologyIndexBuildCounts {
+    workspace_visits: usize,
+    screen_visits: usize,
+    pane_visits: usize,
+    surface_visits: usize,
+    tab_visits: usize,
+}
+
+#[derive(Default)]
+struct CanonicalTopologyIndex {
+    workspace_index_by_uuid: HashMap<WorkspaceUuid, usize>,
+    screen_location_by_pane: HashMap<PaneId, (usize, usize)>,
+    pane_by_surface: HashMap<SurfaceId, PaneId>,
+    surface_id_by_uuid: HashMap<SurfaceUuid, SurfaceId>,
+    #[cfg(test)]
+    build_counts: CanonicalTopologyIndexBuildCounts,
+}
+
+impl CanonicalTopologyIndex {
+    fn build(state: &State) -> anyhow::Result<Self> {
+        let mut index = Self::default();
+        let mut workspace_ids = HashSet::new();
+        let mut screen_ids = HashSet::new();
+        let mut screen_uuids = HashSet::new();
+        let mut pane_uuids = HashSet::new();
+
+        for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
+            #[cfg(test)]
+            {
+                index.build_counts.workspace_visits += 1;
+            }
+            if !workspace_ids.insert(workspace.id)
+                || index.workspace_index_by_uuid.insert(workspace.uuid, workspace_index).is_some()
+            {
+                anyhow::bail!("canonical topology contains a duplicate workspace identity");
+            }
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                #[cfg(test)]
+                {
+                    index.build_counts.screen_visits += 1;
+                }
+                if !screen_ids.insert(screen.id) || !screen_uuids.insert(screen.uuid) {
+                    anyhow::bail!("canonical topology contains a duplicate screen identity");
+                }
+                let mut pane_ids = Vec::new();
+                screen.root.pane_ids(&mut pane_ids);
+                for pane_id in pane_ids {
+                    if !state.panes.contains_key(&pane_id) {
+                        anyhow::bail!("canonical screen references missing pane {pane_id}");
+                    }
+                    if index
+                        .screen_location_by_pane
+                        .insert(pane_id, (workspace_index, screen_index))
+                        .is_some()
+                    {
+                        anyhow::bail!("canonical pane {pane_id} appears in multiple screens");
+                    }
+                }
+            }
+        }
+
+        for (pane_id, pane) in &state.panes {
+            #[cfg(test)]
+            {
+                index.build_counts.pane_visits += 1;
+            }
+            if *pane_id != pane.id || !pane_uuids.insert(pane.uuid) {
+                anyhow::bail!("canonical topology contains a duplicate pane identity");
+            }
+            for surface_id in &pane.tabs {
+                #[cfg(test)]
+                {
+                    index.build_counts.tab_visits += 1;
+                }
+                if !state.surfaces.contains_key(surface_id) {
+                    anyhow::bail!("canonical pane references missing surface {surface_id}");
+                }
+                if index.pane_by_surface.insert(*surface_id, *pane_id).is_some() {
+                    anyhow::bail!("canonical surface {surface_id} appears in multiple panes");
+                }
+            }
+        }
+
+        for (surface_id, surface) in &state.surfaces {
+            #[cfg(test)]
+            {
+                index.build_counts.surface_visits += 1;
+            }
+            if *surface_id != surface.id
+                || index.surface_id_by_uuid.insert(surface.uuid, *surface_id).is_some()
+            {
+                anyhow::bail!("canonical topology contains a duplicate surface identity");
+            }
+        }
+        Ok(index)
+    }
+}
+
 struct CanonicalState {
     value: State,
+    topology_index: CanonicalTopologyIndex,
     /// Protocol-v7 revision for the complete legacy `list-workspaces` tree,
     /// including global focus, selection, and zoom state.
     legacy_topology_revision: u64,
@@ -519,7 +658,16 @@ struct CanonicalState {
     launch_recipes: HashMap<SurfaceUuid, PersistedLaunchRecipe>,
     tombstones: VecDeque<PersistedTombstone>,
     idempotency_results: VecDeque<PersistedIdempotencyResult>,
+    terminal_activity: TerminalActivityState,
     durable: Option<DurableSession>,
+    #[cfg(test)]
+    topology_commit_count: u64,
+    #[cfg(test)]
+    topology_replacement_serialization_count: u64,
+    #[cfg(test)]
+    persisted_snapshot_count: u64,
+    #[cfg(test)]
+    topology_index_rebuild_count: u64,
 }
 
 impl CanonicalState {
@@ -530,8 +678,11 @@ impl CanonicalState {
         limits: TopologyLimits,
         topology_revision: u64,
     ) -> Self {
+        let topology_index = CanonicalTopologyIndex::build(&value)
+            .expect("initial canonical topology must have valid lookup indexes");
         Self {
             value,
+            topology_index,
             legacy_topology_revision: 0,
             topology: if topology_revision == 0 {
                 TopologyJournal::new(daemon_instance_id, session_id, limits)
@@ -546,8 +697,42 @@ impl CanonicalState {
             launch_recipes: HashMap::new(),
             tombstones: VecDeque::new(),
             idempotency_results: VecDeque::new(),
+            terminal_activity: TerminalActivityState::default(),
             durable: None,
+            #[cfg(test)]
+            topology_commit_count: 0,
+            #[cfg(test)]
+            topology_replacement_serialization_count: 0,
+            #[cfg(test)]
+            persisted_snapshot_count: 0,
+            #[cfg(test)]
+            topology_index_rebuild_count: 1,
         }
+    }
+
+    fn rebuild_topology_index(&mut self) -> anyhow::Result<()> {
+        self.topology_index = CanonicalTopologyIndex::build(&self.value)?;
+        #[cfg(test)]
+        {
+            self.topology_index_rebuild_count += 1;
+        }
+        Ok(())
+    }
+
+    fn indexed_workspace_index_by_uuid(&self, uuid: WorkspaceUuid) -> Option<usize> {
+        self.topology_index.workspace_index_by_uuid.get(&uuid).copied()
+    }
+
+    fn indexed_surface_id_by_uuid(&self, uuid: SurfaceUuid) -> Option<SurfaceId> {
+        self.topology_index.surface_id_by_uuid.get(&uuid).copied()
+    }
+
+    fn indexed_pane_of(&self, surface: SurfaceId) -> Option<PaneId> {
+        self.topology_index.pane_by_surface.get(&surface).copied()
+    }
+
+    fn indexed_screen_of(&self, pane: PaneId) -> Option<(usize, usize)> {
+        self.topology_index.screen_location_by_pane.get(&pane).copied()
     }
 
     fn commit_legacy_topology(&mut self) -> u64 {
@@ -582,13 +767,19 @@ impl CanonicalState {
         targets: TopologyTargets,
         key: String,
     ) -> Arc<crate::TopologyDelta> {
+        self.rebuild_topology_index()
+            .expect("committed canonical topology must have valid lookup indexes");
+        #[cfg(test)]
+        {
+            self.topology_commit_count += 1;
+        }
         let live_terminals = self
             .value
             .surfaces
             .values()
             .filter(|surface| surface.kind() == crate::SurfaceKind::Pty)
             .map(|surface| surface.uuid)
-            .collect::<std::collections::BTreeSet<_>>();
+            .collect::<BTreeSet<_>>();
         self.launch_recipes.retain(|uuid, _| live_terminals.contains(uuid));
         self.legacy_topology_revision = self
             .legacy_topology_revision
@@ -610,6 +801,10 @@ impl CanonicalState {
             self.idempotency_results.pop_front();
         }
         self.persist(revision, key, Some(result));
+        #[cfg(test)]
+        {
+            self.topology_replacement_serialization_count += 1;
+        }
         let replacement = topology_json(&self.value);
         self.topology.commit(replacement, operation, targets)
     }
@@ -622,6 +817,10 @@ impl CanonicalState {
     ) {
         if self.durable.is_none() {
             return;
+        }
+        #[cfg(test)]
+        {
+            self.persisted_snapshot_count += 1;
         }
         let snapshot = self
             .persisted_snapshot(topology_revision)
@@ -693,10 +892,22 @@ impl CanonicalState {
         persisted_snapshot(self, topology_revision)
     }
 
+    fn persist_terminal_activity(&mut self, key: &str) {
+        self.persist(
+            self.topology.revision(),
+            format!("terminal-activity:{key}:{}", uuid::Uuid::new_v4()),
+            None,
+        );
+    }
+
     fn discard_surface_runtime(&mut self, id: SurfaceId) -> Option<Arc<Surface>> {
         let removed = self.value.surfaces.remove(&id);
         if let Some(surface) = &removed {
             self.launch_recipes.remove(&surface.uuid);
+            if self.topology_index.surface_id_by_uuid.get(&surface.uuid) == Some(&id) {
+                self.topology_index.surface_id_by_uuid.remove(&surface.uuid);
+            }
+            self.topology_index.pane_by_surface.remove(&id);
         }
         removed
     }
@@ -719,7 +930,7 @@ fn persisted_snapshot(
         )
     };
     let mut pane_order = Vec::new();
-    let mut seen_panes = std::collections::BTreeSet::new();
+    let mut seen_panes = BTreeSet::new();
     let mut workspaces = Vec::with_capacity(state.workspaces.len());
     for workspace in &state.workspaces {
         if workspace.screens.is_empty() || workspace.active_screen >= workspace.screens.len() {
@@ -759,7 +970,7 @@ fn persisted_snapshot(
 
     let mut panes = Vec::with_capacity(pane_order.len());
     let mut surface_order = Vec::new();
-    let mut seen_surfaces = std::collections::BTreeSet::new();
+    let mut seen_surfaces = BTreeSet::new();
     for pane_id in pane_order {
         let pane = state
             .panes
@@ -817,6 +1028,9 @@ fn persisted_snapshot(
         surfaces,
         tombstones: canonical.tombstones.iter().cloned().collect(),
         idempotency_results: canonical.idempotency_results.iter().cloned().collect(),
+        activity_sequence: canonical.terminal_activity.latest_sequence(),
+        activity_facts: canonical.terminal_activity.persisted_facts(),
+        activity_receipts: canonical.terminal_activity.persisted_receipts(),
     })
 }
 
@@ -824,7 +1038,7 @@ fn collect_persisted_pane_order(
     node: &Node,
     state: &State,
     order: &mut Vec<PaneId>,
-    seen: &mut std::collections::BTreeSet<PaneUuid>,
+    seen: &mut BTreeSet<PaneUuid>,
 ) -> anyhow::Result<()> {
     match node {
         Node::Leaf(pane_id) => {
@@ -923,7 +1137,26 @@ pub(crate) struct RendererPresentationConfiguration {
     pub resolved_config: Vec<u8>,
     pub focused: bool,
     pub cursor_blink_visible: bool,
-    pub preedit: Option<String>,
+    pub preedit: Option<RendererPreedit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RendererPreedit {
+    pub text: String,
+    pub selection_start_utf16: u32,
+    pub selection_length_utf16: u32,
+    pub caret_utf16: u32,
+}
+
+impl RendererPreedit {
+    fn semantic(&self) -> SemanticScenePreedit {
+        SemanticScenePreedit {
+            text: Arc::<str>::from(self.text.clone()),
+            selection_start_utf16: self.selection_start_utf16,
+            selection_length_utf16: self.selection_length_utf16,
+            caret_utf16: self.caret_utf16,
+        }
+    }
 }
 
 pub(crate) struct RendererPresentationReceipt {
@@ -956,8 +1189,166 @@ struct RendererPresentationRuntime {
     surface: Arc<Surface>,
     attachment: RendererPresentationAttachment,
     capture: SemanticSceneCaptureOptions,
-    preedit: Mutex<Option<String>>,
+    preedit: Mutex<Option<RendererPreedit>>,
     scene: Mutex<RendererSceneBinding>,
+    bound_renderer_epoch: Mutex<u64>,
+}
+
+impl RendererPresentationRuntime {
+    /// Linearizes the configure path with an asynchronous WorkerReady event.
+    /// Exactly one caller may bind a presentation to a given worker epoch.
+    fn claim_renderer_epoch(&self, renderer_epoch: u64) -> Option<MutexGuard<'_, u64>> {
+        claim_new_renderer_epoch(&self.bound_renderer_epoch, renderer_epoch)
+    }
+}
+
+fn claim_new_renderer_epoch(
+    bound_renderer_epoch: &Mutex<u64>,
+    renderer_epoch: u64,
+) -> Option<MutexGuard<'_, u64>> {
+    if renderer_epoch == 0 {
+        return None;
+    }
+    let mut current = bound_renderer_epoch.lock().unwrap();
+    if *current >= renderer_epoch {
+        return None;
+    }
+    *current = renderer_epoch;
+    Some(current)
+}
+
+#[derive(Default)]
+struct RendererPresentationWorkspaceIndex {
+    presentation_ids: BTreeMap<WorkspaceUuid, BTreeSet<crate::PresentationId>>,
+    #[cfg(test)]
+    rehydration_presentation_visits: usize,
+}
+
+impl RendererPresentationWorkspaceIndex {
+    fn insert(&mut self, workspace_uuid: WorkspaceUuid, presentation_id: crate::PresentationId) {
+        self.presentation_ids.entry(workspace_uuid).or_default().insert(presentation_id);
+    }
+
+    fn remove(&mut self, workspace_uuid: WorkspaceUuid, presentation_id: crate::PresentationId) {
+        let remove_workspace =
+            self.presentation_ids.get_mut(&workspace_uuid).is_some_and(|presentations| {
+                presentations.remove(&presentation_id);
+                presentations.is_empty()
+            });
+        if remove_workspace {
+            self.presentation_ids.remove(&workspace_uuid);
+        }
+    }
+
+    fn get(&self, workspace_uuid: WorkspaceUuid) -> Option<&BTreeSet<crate::PresentationId>> {
+        self.presentation_ids.get(&workspace_uuid)
+    }
+
+    fn presentation_ids_for_rehydration(
+        &mut self,
+        workspace_uuid: WorkspaceUuid,
+    ) -> Vec<crate::PresentationId> {
+        let presentation_ids = self
+            .presentation_ids
+            .get(&workspace_uuid)
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>();
+        #[cfg(test)]
+        {
+            self.rehydration_presentation_visits += presentation_ids.len();
+        }
+        presentation_ids
+    }
+
+    fn clear(&mut self) {
+        self.presentation_ids.clear();
+    }
+}
+
+#[derive(Default)]
+struct RendererPresentationRuntimes {
+    by_id: BTreeMap<crate::PresentationId, Arc<RendererPresentationRuntime>>,
+    by_workspace: RendererPresentationWorkspaceIndex,
+}
+
+impl RendererPresentationRuntimes {
+    fn insert(
+        &mut self,
+        presentation_id: crate::PresentationId,
+        runtime: Arc<RendererPresentationRuntime>,
+    ) -> Option<Arc<RendererPresentationRuntime>> {
+        let previous = self.by_id.insert(presentation_id, runtime.clone());
+        if let Some(previous) = &previous {
+            self.by_workspace.remove(previous.workspace_uuid, presentation_id);
+        }
+        self.by_workspace.insert(runtime.workspace_uuid, presentation_id);
+        self.debug_assert_consistent();
+        previous
+    }
+
+    fn get(
+        &self,
+        presentation_id: &crate::PresentationId,
+    ) -> Option<&Arc<RendererPresentationRuntime>> {
+        self.by_id.get(presentation_id)
+    }
+
+    fn remove(
+        &mut self,
+        presentation_id: &crate::PresentationId,
+    ) -> Option<Arc<RendererPresentationRuntime>> {
+        let runtime = self.by_id.remove(presentation_id)?;
+        self.by_workspace.remove(runtime.workspace_uuid, *presentation_id);
+        self.debug_assert_consistent();
+        Some(runtime)
+    }
+
+    fn remove_if_current(
+        &mut self,
+        presentation_id: crate::PresentationId,
+        runtime: &Arc<RendererPresentationRuntime>,
+    ) -> Option<Arc<RendererPresentationRuntime>> {
+        if !self.by_id.get(&presentation_id).is_some_and(|current| Arc::ptr_eq(current, runtime)) {
+            return None;
+        }
+        self.remove(&presentation_id)
+    }
+
+    fn runtimes_for_workspace(
+        &mut self,
+        workspace_uuid: WorkspaceUuid,
+    ) -> Vec<Arc<RendererPresentationRuntime>> {
+        self.by_workspace
+            .presentation_ids_for_rehydration(workspace_uuid)
+            .into_iter()
+            .filter_map(|presentation_id| self.by_id.get(&presentation_id).cloned())
+            .collect()
+    }
+
+    fn take_all(&mut self) -> Vec<Arc<RendererPresentationRuntime>> {
+        self.by_workspace.clear();
+        std::mem::take(&mut self.by_id).into_values().collect()
+    }
+
+    fn iter(
+        &self,
+    ) -> impl Iterator<Item = (&crate::PresentationId, &Arc<RendererPresentationRuntime>)> {
+        self.by_id.iter()
+    }
+
+    fn debug_assert_consistent(&self) {
+        debug_assert_eq!(
+            self.by_id.len(),
+            self.by_workspace.presentation_ids.values().map(BTreeSet::len).sum::<usize>()
+        );
+        debug_assert!(self.by_id.iter().all(|(presentation_id, runtime)| {
+            self.by_workspace
+                .get(runtime.workspace_uuid)
+                .is_some_and(|presentations| presentations.contains(presentation_id))
+        }));
+    }
 }
 
 const MAX_RENDERER_RELEASE_ROUTES: usize = 8_192;
@@ -1017,13 +1408,30 @@ fn renderer_semantic_scene(frame: &SemanticSceneFrame) -> RendererSemanticScene 
     }
 }
 
+fn resolved_custom_shader_count(config: &[u8]) -> anyhow::Result<u32> {
+    let text = std::str::from_utf8(config)
+        .map_err(|error| anyhow::anyhow!("resolved renderer config is not UTF-8: {error}"))?;
+    let count = text
+        .lines()
+        .filter(|line| {
+            line.split_once('=').is_some_and(|(key, value)| {
+                key.trim() == "custom-shader" && !value.trim().is_empty()
+            })
+        })
+        .count();
+    u32::try_from(count)
+        .map_err(|_| anyhow::anyhow!("resolved renderer config has too many custom shaders"))
+}
+
 fn ensure_terminal_placement_for_surface(
-    state: &State,
+    state: &CanonicalState,
     workspace_uuid: WorkspaceUuid,
     surface_uuid: SurfaceUuid,
     created: bool,
 ) -> anyhow::Result<Option<EnsureTerminalPlacement>> {
-    let Some(surface_id) = state.surface_id_by_uuid(surface_uuid) else { return Ok(None) };
+    let Some(surface_id) = state.indexed_surface_id_by_uuid(surface_uuid) else {
+        return Ok(None);
+    };
     let surface = state
         .surfaces
         .get(&surface_id)
@@ -1032,14 +1440,14 @@ fn ensure_terminal_placement_for_surface(
         anyhow::bail!("ensure-terminal surface UUID belongs to a browser");
     }
     let pane_id = state
-        .pane_of(surface_id)
+        .indexed_pane_of(surface_id)
         .ok_or_else(|| anyhow::anyhow!("ensure-terminal surface is outside canonical topology"))?;
     let pane = state
         .panes
         .get(&pane_id)
         .ok_or_else(|| anyhow::anyhow!("ensure-terminal pane is missing"))?;
     let (workspace_index, screen_index) = state
-        .screen_of(pane_id)
+        .indexed_screen_of(pane_id)
         .ok_or_else(|| anyhow::anyhow!("ensure-terminal pane is outside canonical topology"))?;
     let workspace = &state.workspaces[workspace_index];
     if workspace.uuid != workspace_uuid {
@@ -1063,6 +1471,32 @@ fn ensure_terminal_placement_for_surface(
     }))
 }
 
+fn ensure_terminal_workspace_location(
+    state: &CanonicalState,
+    workspace_uuid: WorkspaceUuid,
+) -> anyhow::Result<Option<EnsureTerminalWorkspaceLocation>> {
+    let Some(workspace_index) = state.indexed_workspace_index_by_uuid(workspace_uuid) else {
+        return Ok(None);
+    };
+    let workspace = &state.workspaces[workspace_index];
+    let screen = workspace
+        .screens
+        .get(workspace.active_screen)
+        .ok_or_else(|| anyhow::anyhow!("ensure-terminal workspace has no active screen"))?;
+    let pane = state
+        .panes
+        .get(&screen.active_pane)
+        .ok_or_else(|| anyhow::anyhow!("ensure-terminal active pane is missing"))?;
+    Ok(Some(EnsureTerminalWorkspaceLocation {
+        workspace: workspace.id,
+        screen: screen.id,
+        screen_uuid: screen.uuid,
+        pane: pane.id,
+        pane_uuid: pane.uuid,
+        new_workspace: false,
+    }))
+}
+
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     state: Mutex<CanonicalState>,
@@ -1072,6 +1506,7 @@ pub struct Mux {
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<LatestClientSize>,
+    terminal_control_lifecycle: RwLock<()>,
     client_sizing_lifecycle: Mutex<()>,
     client_sizing: Mutex<ClientSizingState>,
     #[cfg(test)]
@@ -1081,12 +1516,12 @@ pub struct Mux {
     default_colors: Mutex<(u64, DefaultColors)>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
-    surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
     pub(crate) presentations: PresentationRegistry,
+    pub(crate) projection_states: ProjectionStateRegistry,
+    pub(crate) terminal_authority: TerminalAuthorityRegistry,
     renderer_supervisor: Mutex<Option<Arc<RendererSupervisor>>>,
-    renderer_presentations:
-        Mutex<BTreeMap<crate::PresentationId, Arc<RendererPresentationRuntime>>>,
+    renderer_presentations: Mutex<RendererPresentationRuntimes>,
     renderer_presentation_generations: Mutex<BTreeMap<crate::PresentationId, u64>>,
     renderer_release_routes: Mutex<RendererReleaseRoutes>,
     ensure_terminal_lock: Mutex<()>,
@@ -1098,6 +1533,10 @@ pub struct Mux {
         Mutex<Option<(Arc<std::sync::Barrier>, Arc<std::sync::Barrier>)>>,
     #[cfg(test)]
     ensure_terminal_initial_writes: AtomicU64,
+    #[cfg(test)]
+    ensure_terminal_batch_fail_spawn_at: AtomicU64,
+    #[cfg(test)]
+    ensure_terminal_batch_before_publish: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     pub session: String,
     pub daemon_instance_id: DaemonInstanceId,
     pub session_id: SessionId,
@@ -1228,6 +1667,7 @@ impl Mux {
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(LatestClientSize::default()),
+            terminal_control_lifecycle: RwLock::new(()),
             client_sizing_lifecycle: Mutex::new(()),
             client_sizing: Mutex::new(ClientSizingState::default()),
             #[cfg(test)]
@@ -1237,11 +1677,12 @@ impl Mux {
             default_colors: Mutex::new((0, DefaultColors::default())),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
-            surface_notifications: Mutex::new(HashMap::new()),
             control_clients: crate::server::ClientRegistry::new(),
             presentations: PresentationRegistry::new(),
+            projection_states: ProjectionStateRegistry::new(),
+            terminal_authority: TerminalAuthorityRegistry::new(),
             renderer_supervisor: Mutex::new(None),
-            renderer_presentations: Mutex::new(BTreeMap::new()),
+            renderer_presentations: Mutex::new(RendererPresentationRuntimes::default()),
             renderer_presentation_generations: Mutex::new(BTreeMap::new()),
             renderer_release_routes: Mutex::new(RendererReleaseRoutes::default()),
             ensure_terminal_lock: Mutex::new(()),
@@ -1252,6 +1693,10 @@ impl Mux {
             test_surface_registered_barriers: Mutex::new(None),
             #[cfg(test)]
             ensure_terminal_initial_writes: AtomicU64::new(0),
+            #[cfg(test)]
+            ensure_terminal_batch_fail_spawn_at: AtomicU64::new(0),
+            #[cfg(test)]
+            ensure_terminal_batch_before_publish: Mutex::new(None),
             session,
             daemon_instance_id,
             session_id,
@@ -1397,15 +1842,31 @@ impl Mux {
             None => anyhow::bail!("nonempty persisted topology has no active workspace"),
         };
 
+        let next_notification_id = snapshot
+            .activity_facts
+            .iter()
+            .map(|fact| fact.notification)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+            .max(1);
+        let terminal_activity = TerminalActivityState::restore(
+            snapshot.activity_sequence,
+            snapshot.activity_facts,
+            snapshot.activity_receipts,
+        )?;
         let restored_surfaces = {
             let mut state = self.state.lock().unwrap();
             let restored_surfaces = std::mem::take(&mut state.value.surfaces);
             state.value =
                 State { workspaces, active_workspace, panes, surfaces: restored_surfaces.clone() };
+            state.rebuild_topology_index()?;
             state.tombstones = snapshot.tombstones.into();
             state.idempotency_results = snapshot.idempotency_results.into();
+            state.terminal_activity = terminal_activity;
             restored_surfaces
         };
+        self.next_notification_id.store(next_notification_id, Ordering::Relaxed);
         self.next_active_at.store(next_active_at, Ordering::Relaxed);
         for surface in spawned {
             if restored_surfaces.contains_key(&surface.id) {
@@ -1512,8 +1973,10 @@ impl Mux {
         self.next_active_at.fetch_add(1, Ordering::Relaxed)
     }
 
-    fn next_notification_id(&self) -> u64 {
-        self.next_notification_id.fetch_add(1, Ordering::Relaxed)
+    fn next_notification_id(&self) -> anyhow::Result<u64> {
+        self.next_notification_id
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| next.checked_add(1))
+            .map_err(|_| anyhow::anyhow!("notification id sequence exhausted"))
     }
 
     pub fn subscribe(&self) -> MuxEventReceiver {
@@ -1522,6 +1985,10 @@ impl Mux {
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
         self.subscribers.subscribe_attached_surface(surface)
+    }
+
+    pub fn subscribe_terminal_activity(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_terminal_activity()
     }
 
     pub fn emit(&self, event: MuxEvent) {
@@ -1602,6 +2069,44 @@ impl Mux {
         size: Option<(u16, u16)>,
         scrollback: Option<usize>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let (surface, launch) = self.create_surface_with_allocated_identity(
+            id,
+            uuid,
+            cwd,
+            command,
+            extra_env,
+            wait_after_command,
+            size,
+            scrollback,
+        )?;
+        let mut state = self.state.lock().unwrap();
+        state.launch_recipes.insert(uuid, launch);
+        state.surfaces.insert(id, surface.clone());
+        drop(state);
+        #[cfg(test)]
+        if let Some((registered, resume)) =
+            self.test_surface_registered_barriers.lock().unwrap().take()
+        {
+            registered.wait();
+            resume.wait();
+        }
+        Ok(surface)
+    }
+
+    /// Spawn one terminal without publishing it into canonical state. Batch
+    /// materialization uses this seam so a partial spawn failure cannot leak
+    /// runtimes or an incomplete topology to readers.
+    fn create_surface_with_allocated_identity(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        uuid: SurfaceUuid,
+        cwd: Option<String>,
+        command: Option<Vec<String>>,
+        extra_env: Vec<(String, String)>,
+        wait_after_command: Option<bool>,
+        size: Option<(u16, u16)>,
+        scrollback: Option<usize>,
+    ) -> anyhow::Result<(Arc<Surface>, PersistedLaunchRecipe)> {
         let mut opts = self.surface_options.lock().unwrap().clone();
         if cwd.is_some() {
             opts.cwd = cwd;
@@ -1647,18 +2152,7 @@ impl Mux {
             persisted_scrollback,
             surface.wait_after_command(),
         );
-        let mut state = self.state.lock().unwrap();
-        state.launch_recipes.insert(uuid, launch);
-        state.surfaces.insert(id, surface.clone());
-        drop(state);
-        #[cfg(test)]
-        if let Some((registered, resume)) =
-            self.test_surface_registered_barriers.lock().unwrap().take()
-        {
-            registered.wait();
-            resume.wait();
-        }
-        Ok(surface)
+        Ok((surface, launch))
     }
 
     fn spawn_surface(
@@ -1745,6 +2239,63 @@ impl Mux {
         size
     }
 
+    /// Execute one legacy terminal mutation while excluding the one-way v9
+    /// lease migration. The closure may write to the PTY, so this lifecycle
+    /// lock is intentionally separate from canonical state and sizing locks.
+    pub fn with_legacy_terminal_control<R>(
+        &self,
+        surface: &Surface,
+        operation: impl FnOnce() -> anyhow::Result<R>,
+    ) -> anyhow::Result<R> {
+        let _lifecycle = self.terminal_control_lifecycle.read().unwrap();
+        self.terminal_authority.require_legacy(surface.uuid)?;
+        operation()
+    }
+
+    /// Keep canonical terminal retirement from invalidating an accepted v9
+    /// operation before its receipt is committed. Readers can execute across
+    /// independent terminals concurrently; migration and close take the
+    /// exclusive side of this fence.
+    pub(crate) fn read_terminal_control_lifecycle(&self) -> RwLockReadGuard<'_, ()> {
+        self.terminal_control_lifecycle.read().unwrap()
+    }
+
+    /// Atomically migrate a terminal out of legacy shared control and acquire
+    /// one connection/presentation-bound v9 input or geometry lease.
+    pub(crate) fn acquire_terminal_lease(
+        &self,
+        surface: SurfaceId,
+        kind: TerminalLeaseKind,
+        claim: TerminalLeaseClaim,
+        ttl_ms: u64,
+    ) -> anyhow::Result<TerminalLease> {
+        let _lifecycle = self.terminal_control_lifecycle.write().unwrap();
+        let surface_runtime =
+            self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+        // Take the sizing reducer lock before changing authority mode. Every
+        // legacy report/removal applies its resulting PTY resize while holding
+        // this lock, so migration cannot overtake an already-computed legacy
+        // resize and let it land after the terminal becomes leased.
+        let mut sizing = self.client_sizing.lock().unwrap();
+        let lease = self.terminal_authority.acquire(surface_runtime.uuid, kind, claim, ttl_ms)?;
+        if lease.migrated_from_legacy {
+            // A leased presentation is the sole geometry authority. Remove
+            // every old `(surface, client)` report before releasing the
+            // migration fence so a later v8 detach cannot reapply a stale
+            // smallest-viewer result.
+            sizing.surfaces.remove(&surface);
+            sizing.report_order.retain(|(reported_surface, _), _| *reported_surface != surface);
+            let changed_clients = self.control_clients.clear_surface_sizes(surface);
+            let attached_clients = self.control_clients.attached_client_ids();
+            self.reconcile_latest_client_size(&sizing, &attached_clients);
+            drop(sizing);
+            self.emit_client_sizing_changes(changed_clients);
+        } else {
+            drop(sizing);
+        }
+        Ok(lease)
+    }
+
     fn reconcile_latest_client_size(
         &self,
         sizing: &ClientSizingState,
@@ -1780,6 +2331,9 @@ impl Mux {
         cols: u16,
         rows: u16,
     ) -> anyhow::Result<(bool, Option<u64>)> {
+        let _lifecycle = self.terminal_control_lifecycle.read().unwrap();
+        let surface = self.surface(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))?;
+        self.terminal_authority.require_legacy(surface.uuid)?;
         let requested = clamp_terminal_size(cols, rows);
         // Serialize the report and its application. Otherwise an older
         // effective size can reach the PTY after a newer shared minimum.
@@ -1804,6 +2358,9 @@ impl Mux {
         cols: u16,
         rows: u16,
     ) -> anyhow::Result<(bool, Option<u64>, Option<crate::server::ClientSizeUpdate>)> {
+        let _lifecycle = self.terminal_control_lifecycle.read().unwrap();
+        let surface = self.surface(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))?;
+        self.terminal_authority.require_legacy(surface.uuid)?;
         let requested = clamp_terminal_size(cols, rows);
         // Keep registration, report insertion, and reducer insertion in one
         // critical section. Disconnect and final stream detach remove their
@@ -2264,15 +2821,37 @@ impl Mux {
     }
 
     pub fn surface_notification(&self, surface: SurfaceId) -> Option<SurfaceNotification> {
-        self.surface_notifications.lock().unwrap().get(&surface).copied()
+        self.surface_notifications_for_reader(LEGACY_TERMINAL_ACTIVITY_READER_UUID).remove(&surface)
     }
 
     pub fn surface_notifications(&self) -> HashMap<SurfaceId, SurfaceNotification> {
-        self.surface_notifications.lock().unwrap().clone()
+        self.surface_notifications_for_reader(LEGACY_TERMINAL_ACTIVITY_READER_UUID)
+    }
+
+    pub(crate) fn surface_notifications_for_reader(
+        &self,
+        reader_uuid: uuid::Uuid,
+    ) -> HashMap<SurfaceId, SurfaceNotification> {
+        let state = self.state.lock().unwrap();
+        state
+            .surfaces
+            .iter()
+            .filter_map(|(surface_id, surface)| {
+                let fact = state.terminal_activity.fact(surface.uuid)?;
+                state.terminal_activity.is_unread(reader_uuid, surface.uuid).then_some((
+                    *surface_id,
+                    SurfaceNotification {
+                        notification: fact.notification,
+                        level: fact.level,
+                        unread: true,
+                    },
+                ))
+            })
+            .collect()
     }
 
     pub fn clear_surface_notification(&self, surface: SurfaceId) -> bool {
-        let cleared = self.surface_notifications.lock().unwrap().remove(&surface).is_some();
+        let cleared = self.mark_legacy_surface_seen(Some(surface));
         if cleared {
             self.emit(MuxEvent::TreeChanged);
         }
@@ -2289,9 +2868,27 @@ impl Mux {
     }
 
     fn clear_viewed_notification(&self, surface: Option<SurfaceId>) {
-        if let Some(surface) = surface {
-            let _ = self.surface_notifications.lock().unwrap().remove(&surface);
+        let _ = self.mark_legacy_surface_seen(surface);
+    }
+
+    fn mark_legacy_surface_seen(&self, surface: Option<SurfaceId>) -> bool {
+        let Some(surface) = surface else { return false };
+        let mut state = self.state.lock().unwrap();
+        let Some(surface_uuid) = state.surfaces.get(&surface).map(|surface| surface.uuid) else {
+            return false;
+        };
+        let changed = state
+            .terminal_activity
+            .mark_latest_seen(LEGACY_TERMINAL_ACTIVITY_READER_UUID, surface_uuid)
+            .unwrap_or_else(|error| {
+                eprintln!("cmux-tui: legacy activity receipt rejected: {error}");
+                None
+            })
+            .is_some_and(|(_, changed)| changed);
+        if changed {
+            state.persist_terminal_activity("legacy-seen");
         }
+        changed
     }
 
     pub fn post_notification(
@@ -2300,29 +2897,75 @@ impl Mux {
         body: String,
         level: NotificationLevel,
         surface: Option<SurfaceId>,
-    ) -> u64 {
-        let id = self.next_notification_id();
-        let mut unread_changed = false;
-        if let Some(surface) = surface
-            && self.active_surface() != Some(surface)
-        {
-            self.surface_notifications
-                .lock()
-                .unwrap()
-                .insert(surface, SurfaceNotification { notification: id, level, unread: true });
-            unread_changed = true;
+    ) -> anyhow::Result<u64> {
+        let id = self.next_notification_id()?;
+        let mut has_activity = false;
+        if let Some(surface) = surface {
+            let mut state = self.state.lock().unwrap();
+            let surface_uuid = state
+                .surfaces
+                .get(&surface)
+                .map(|surface| surface.uuid)
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+            let fact = state.terminal_activity.record_notification(surface_uuid, id, level)?;
+            if Self::active_surface_in_state(&state) == Some(surface) {
+                state.terminal_activity.mark_seen(
+                    LEGACY_TERMINAL_ACTIVITY_READER_UUID,
+                    surface_uuid,
+                    fact.sequence,
+                )?;
+            }
+            state.persist_terminal_activity("notification");
+            // Publish while the canonical lock still establishes mutation
+            // order. A later receipt can never overtake its activity fact.
+            self.emit(MuxEvent::TerminalActivity(fact));
+            has_activity = true;
         }
         self.emit(MuxEvent::Notification(NotificationEvent {
             notification: id,
             title,
             body,
             level,
-            surface,
+            surface: surface.clone(),
         }));
-        if unread_changed {
+        if has_activity {
             self.emit(MuxEvent::TreeChanged);
         }
-        id
+        Ok(id)
+    }
+
+    pub fn terminal_activity_snapshot(
+        &self,
+        reader_uuid: uuid::Uuid,
+    ) -> anyhow::Result<TerminalActivitySnapshot> {
+        if reader_uuid.is_nil() {
+            anyhow::bail!("terminal activity reader must be a non-nil UUID");
+        }
+        Ok(self.state.lock().unwrap().terminal_activity.snapshot(reader_uuid))
+    }
+
+    pub fn mark_terminal_seen(
+        &self,
+        reader_uuid: uuid::Uuid,
+        surface_uuid: SurfaceUuid,
+        activity_sequence: u64,
+    ) -> anyhow::Result<TerminalActivityReadReceipt> {
+        let receipt = {
+            let mut state = self.state.lock().unwrap();
+            if state.indexed_surface_id_by_uuid(surface_uuid).is_none() {
+                anyhow::bail!("unknown surface UUID {surface_uuid}");
+            }
+            let (receipt, changed) =
+                state.terminal_activity.mark_seen(reader_uuid, surface_uuid, activity_sequence)?;
+            if changed {
+                state.persist_terminal_activity("seen");
+                // Keep receipt delivery ordered behind the persisted fact and
+                // any earlier receipt serialized by this same state lock.
+                self.emit(MuxEvent::TerminalActivityReceipt(receipt));
+            }
+            receipt
+        };
+        Ok(receipt)
     }
 
     pub fn report_agent(
@@ -2350,7 +2993,6 @@ impl Mux {
     /// surfaces as live agents.
     fn purge_surface_side_tables(&self, surface: SurfaceId) {
         self.agent_records.lock().unwrap().remove(&surface);
-        self.surface_notifications.lock().unwrap().remove(&surface);
         let mut sizing = self.client_sizing.lock().unwrap();
         sizing.surfaces.remove(&surface);
         sizing.report_order.retain(|(reported_surface, _), _| *reported_surface != surface);
@@ -2373,9 +3015,7 @@ impl Mux {
     }
 
     pub fn shutdown(&self) {
-        for runtime in
-            std::mem::take(&mut *self.renderer_presentations.lock().unwrap()).into_values()
-        {
+        for runtime in self.renderer_presentations.lock().unwrap().take_all() {
             let scene = runtime.scene.lock().unwrap();
             scene.canceled.store(true, Ordering::Release);
             scene.control.detach();
@@ -2448,6 +3088,17 @@ impl Mux {
             .unwrap_or_default()
     }
 
+    pub fn renderer_worker_status(
+        &self,
+        workspace_uuid: WorkspaceUuid,
+    ) -> Result<Option<RendererWorkerStatus>, RendererSupervisorError> {
+        let supervisor = self.renderer_supervisor.lock().unwrap().clone();
+        match supervisor {
+            Some(supervisor) => supervisor.workspace_status(workspace_uuid),
+            None => Ok(None),
+        }
+    }
+
     pub(crate) fn configure_renderer_presentation(
         self: &Arc<Self>,
         client: u64,
@@ -2465,7 +3116,8 @@ impl Mux {
                 presentation.generation
             );
         }
-        let (workspace_uuid, surface_id, surface) = self.with_state(|state| {
+        let (workspace_uuid, surface_id, surface) = {
+            let state = self.state.lock().unwrap();
             let workspace_id = presentation
                 .view
                 .workspace
@@ -2475,10 +3127,10 @@ impl Mux {
                 .tab
                 .ok_or_else(|| anyhow::anyhow!("renderer presentation requires a surface"))?;
             let pane_id = state
-                .pane_of(surface_id)
+                .indexed_pane_of(surface_id)
                 .ok_or_else(|| anyhow::anyhow!("renderer surface is outside canonical topology"))?;
             let (workspace_index, _) = state
-                .screen_of(pane_id)
+                .indexed_screen_of(pane_id)
                 .ok_or_else(|| anyhow::anyhow!("renderer pane is outside canonical topology"))?;
             let workspace = &state.workspaces[workspace_index];
             if workspace.id != workspace_id
@@ -2493,7 +3145,7 @@ impl Mux {
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("unknown renderer surface {surface_id}"))?;
             Ok::<_, anyhow::Error>((workspace.uuid, surface_id, surface))
-        })?;
+        }?;
         let terminal = surface
             .semantic_scene_terminal_identity()
             .ok_or_else(|| anyhow::anyhow!("browser surfaces have no terminal renderer"))?;
@@ -2509,7 +3161,7 @@ impl Mux {
             .workspace_status(workspace_uuid)?
             .ok_or_else(|| anyhow::anyhow!("renderer worker was not created"))?;
 
-        self.resize_surface_for_client(
+        self.apply_renderer_configuration_size(
             surface_id,
             client,
             configuration.columns,
@@ -2544,9 +3196,11 @@ impl Mux {
         let mut validator = RendererControlEncoder::new(RendererControlDirection::DaemonToWorker);
         validator.encode(RendererControlMessage::UpsertPresentation(attachment.clone()))?;
 
+        let custom_shader_count = resolved_custom_shader_count(&configuration.resolved_config)?;
         let capture = SemanticSceneCaptureOptions {
             focused: configuration.focused,
             cursor_blink_visible: configuration.cursor_blink_visible,
+            custom_shader_count,
             ..SemanticSceneCaptureOptions::default()
         };
         let mut scene_options = SemanticSceneAttachmentOptions::new(
@@ -2554,7 +3208,7 @@ impl Mux {
             SemanticScenePresentationIdentity { presentation_id, generation: renderer_generation },
         );
         scene_options.capture = capture;
-        scene_options.preedit = configuration.preedit.clone().map(Arc::<str>::from);
+        scene_options.preedit = configuration.preedit.as_ref().map(RendererPreedit::semantic);
         let scene_attachment = surface.attach_semantic_scene(scene_options)?;
         let minimum_content_sequence = scene_attachment.initial.content_sequence;
         let initial = renderer_semantic_scene(&scene_attachment.initial);
@@ -2562,7 +3216,7 @@ impl Mux {
         let runtime = Arc::new(RendererPresentationRuntime {
             client,
             workspace_uuid,
-            surface,
+            surface: surface.clone(),
             attachment: attachment.clone(),
             capture,
             preedit: Mutex::new(configuration.preedit),
@@ -2571,6 +3225,7 @@ impl Mux {
                 canceled: canceled.clone(),
                 renderer_epoch: worker.renderer_epoch,
             }),
+            bound_renderer_epoch: Mutex::new(0),
         });
 
         // Recheck connection ownership after the potentially expensive full
@@ -2581,6 +3236,12 @@ impl Mux {
         }
         let previous =
             self.renderer_presentations.lock().unwrap().insert(presentation_id, runtime.clone());
+        let focus_changed = previous.as_ref().map_or(configuration.focused, |previous| {
+            previous.capture.focused != configuration.focused
+        });
+        if focus_changed {
+            surface.terminal_accessibility_focus_changed();
+        }
         self.renderer_presentation_generations
             .lock()
             .unwrap()
@@ -2588,20 +3249,38 @@ impl Mux {
         if let Some(previous) = previous {
             self.retire_renderer_runtime(&previous);
         }
-        self.remember_renderer_release_route(&runtime, worker.renderer_epoch);
-
-        if worker.state == RendererWorkerState::Ready
-            && let Err(error) = supervisor.send_if_epoch(
-                workspace_uuid,
-                worker.renderer_epoch,
-                vec![
-                    RendererControlMessage::UpsertPresentation(attachment),
-                    RendererControlMessage::SemanticScene(initial),
-                ],
-            )
-        {
-            self.remove_renderer_runtime_if_current(&runtime);
-            return Err(error.into());
+        // Re-read worker state only after publishing the runtime. WorkerReady
+        // may race anywhere in this interval, but claim_renderer_epoch makes
+        // either this path or rehydrate_renderer_workspace the sole binder for
+        // the observed epoch. A Ready event that ran before insertion is
+        // recovered by this exact coordinator snapshot.
+        let worker = match supervisor.workspace_status(workspace_uuid) {
+            Ok(Some(worker)) => worker,
+            Ok(None) => {
+                self.remove_renderer_runtime_if_current(&runtime);
+                anyhow::bail!("renderer worker disappeared while attaching");
+            }
+            Err(error) => {
+                self.remove_renderer_runtime_if_current(&runtime);
+                return Err(error.into());
+            }
+        };
+        if worker.state == RendererWorkerState::Ready {
+            if let Some(_epoch_claim) = runtime.claim_renderer_epoch(worker.renderer_epoch) {
+                runtime.scene.lock().unwrap().renderer_epoch = worker.renderer_epoch;
+                self.remember_renderer_release_route(&runtime, worker.renderer_epoch);
+                if let Err(error) = supervisor.send_if_epoch(
+                    workspace_uuid,
+                    worker.renderer_epoch,
+                    vec![
+                        RendererControlMessage::UpsertPresentation(attachment),
+                        RendererControlMessage::SemanticScene(initial),
+                    ],
+                ) {
+                    self.remove_renderer_runtime_if_current(&runtime);
+                    return Err(error.into());
+                }
+            }
         }
         self.spawn_renderer_scene_pump(runtime, scene_attachment.events, canceled);
 
@@ -2624,12 +3303,177 @@ impl Mux {
         })
     }
 
+    pub(crate) fn terminal_accessibility_snapshot(
+        &self,
+        client: u64,
+        presentation_id: crate::PresentationId,
+        expected_generation: u64,
+        expected_content_sequence: u64,
+    ) -> anyhow::Result<crate::TerminalAccessibilitySnapshot> {
+        let presentation = self.presentations.get_for_client(client, presentation_id)?;
+        if presentation.generation != expected_generation {
+            anyhow::bail!(
+                "stale presentation generation {expected_generation}; current generation is {}",
+                presentation.generation
+            );
+        }
+        let surface_uuid = presentation
+            .view
+            .surface_uuid
+            .ok_or_else(|| anyhow::anyhow!("accessibility presentation requires a terminal"))?;
+        let surface = self.with_state(|state| {
+            let surface_id = state
+                .surface_id_by_uuid(surface_uuid)
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface_uuid}"))?;
+            state
+                .surfaces
+                .get(&surface_id)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface_uuid}"))
+        })?;
+        let runtime = self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&presentation_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("accessibility presentation is not rendered"))?;
+        if runtime.client != client || runtime.surface.uuid != surface_uuid {
+            anyhow::bail!("accessibility presentation authority changed");
+        }
+        surface.terminal_accessibility_snapshot_at(
+            presentation_id,
+            presentation.generation,
+            runtime.capture.focused,
+            expected_content_sequence,
+        )
+    }
+
+    pub(crate) fn activate_terminal_accessibility_link(
+        &self,
+        client: u64,
+        presentation_id: crate::PresentationId,
+        expected_generation: u64,
+        terminal_revision: u64,
+        content_revision: u64,
+        viewport_revision: u64,
+        link_id: &str,
+    ) -> anyhow::Result<String> {
+        let presentation = self.presentations.get_for_client(client, presentation_id)?;
+        if presentation.generation != expected_generation {
+            anyhow::bail!(
+                "stale presentation generation {expected_generation}; current generation is {}",
+                presentation.generation
+            );
+        }
+        let surface_uuid = presentation
+            .view
+            .surface_uuid
+            .ok_or_else(|| anyhow::anyhow!("accessibility presentation requires a terminal"))?;
+        let surface = self.with_state(|state| {
+            let surface_id = state
+                .surface_id_by_uuid(surface_uuid)
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface_uuid}"))?;
+            state
+                .surfaces
+                .get(&surface_id)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface_uuid}"))
+        })?;
+        let runtime = self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&presentation_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("accessibility presentation is not rendered"))?;
+        if runtime.client != client || runtime.surface.uuid != surface_uuid {
+            anyhow::bail!("accessibility presentation authority changed");
+        }
+        surface.activate_terminal_accessibility_link(
+            presentation_id,
+            presentation.generation,
+            runtime.capture.focused,
+            terminal_revision,
+            content_revision,
+            viewport_revision,
+            link_id,
+        )
+    }
+
+    pub(crate) fn terminal_hyperlink_at_viewport_cell(
+        &self,
+        client: u64,
+        presentation_id: crate::PresentationId,
+        expected_generation: u64,
+        expected_content_sequence: u64,
+        column: u16,
+        row: u16,
+    ) -> anyhow::Result<crate::surface::TerminalHyperlinkHit> {
+        let presentation = self.presentations.get_for_client(client, presentation_id)?;
+        if presentation.generation != expected_generation {
+            anyhow::bail!(
+                "stale presentation generation {expected_generation}; current generation is {}",
+                presentation.generation
+            );
+        }
+        let surface_uuid = presentation
+            .view
+            .surface_uuid
+            .ok_or_else(|| anyhow::anyhow!("hyperlink presentation requires a terminal"))?;
+        let surface = self.with_state(|state| {
+            let surface_id = state
+                .surface_id_by_uuid(surface_uuid)
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface_uuid}"))?;
+            state
+                .surfaces
+                .get(&surface_id)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface_uuid}"))
+        })?;
+        let runtime = self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&presentation_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("hyperlink presentation is not rendered"))?;
+        if runtime.client != client || runtime.surface.uuid != surface_uuid {
+            anyhow::bail!("hyperlink presentation authority changed");
+        }
+        surface.terminal_hyperlink_at_viewport_cell(
+            presentation_id,
+            presentation.generation,
+            runtime.capture.focused,
+            expected_content_sequence,
+            column,
+            row,
+        )
+    }
+
+    /// Protocol v9 sends geometry only after acquiring terminal control. A
+    /// renderer configuration makes the presentation visible, but does not
+    /// itself authorize a PTY resize. Protocol v8 retains the legacy
+    /// smallest-viewer report exactly as before.
+    pub(crate) fn apply_renderer_configuration_size(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        columns: u16,
+        rows: u16,
+    ) -> anyhow::Result<()> {
+        if self.control_clients.negotiated_protocol(client)? < 9 {
+            self.resize_surface_for_client(surface, client, columns, rows)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn set_renderer_preedit(
         &self,
         client: u64,
         presentation_id: crate::PresentationId,
         renderer_generation: u64,
-        preedit: Option<String>,
+        preedit: Option<RendererPreedit>,
     ) -> anyhow::Result<()> {
         let runtime = self
             .renderer_presentations
@@ -2648,7 +3492,12 @@ impl Mux {
             );
         }
         *runtime.preedit.lock().unwrap() = preedit.clone();
-        runtime.scene.lock().unwrap().control.set_preedit(preedit);
+        runtime
+            .scene
+            .lock()
+            .unwrap()
+            .control
+            .set_preedit_state(preedit.as_ref().map(RendererPreedit::semantic));
         Ok(())
     }
 
@@ -2753,14 +3602,10 @@ impl Mux {
     fn remove_renderer_runtime_if_current(&self, runtime: &Arc<RendererPresentationRuntime>) {
         let removed = {
             let mut runtimes = self.renderer_presentations.lock().unwrap();
-            if runtimes
-                .get(&presentation_id_from_uuid(runtime.attachment.presentation_id))
-                .is_some_and(|current| Arc::ptr_eq(current, runtime))
-            {
-                runtimes.remove(&presentation_id_from_uuid(runtime.attachment.presentation_id))
-            } else {
-                None
-            }
+            runtimes.remove_if_current(
+                presentation_id_from_uuid(runtime.attachment.presentation_id),
+                runtime,
+            )
         };
         if let Some(removed) = removed {
             self.retire_renderer_runtime(&removed);
@@ -2861,10 +3706,7 @@ impl Mux {
                 process_id,
                 ..
             } => {
-                let status = self
-                    .renderer_worker_statuses()
-                    .into_iter()
-                    .find(|status| status.workspace_uuid == workspace_uuid);
+                let status = self.renderer_worker_status(workspace_uuid).ok().flatten();
                 self.emit(MuxEvent::RendererWorkerChanged {
                     workspace_uuid,
                     prior_renderer_epoch: renderer_epoch,
@@ -2895,10 +3737,7 @@ impl Mux {
                 process_id,
                 reason,
             } => {
-                let status = self
-                    .renderer_worker_statuses()
-                    .into_iter()
-                    .find(|status| status.workspace_uuid == workspace_uuid);
+                let status = self.renderer_worker_status(workspace_uuid).ok().flatten();
                 self.emit(MuxEvent::RendererWorkerChanged {
                     workspace_uuid,
                     prior_renderer_epoch: renderer_epoch,
@@ -2925,12 +3764,13 @@ impl Mux {
                 {
                     return;
                 }
-                let Some(status) = self.renderer_worker_statuses().into_iter().find(|status| {
-                    status.workspace_uuid == workspace_uuid
-                        && status.renderer_epoch == renderer_epoch
-                        && status.state == RendererWorkerState::Ready
-                        && status.pid == Some(process_id)
-                }) else {
+                let Some(status) =
+                    self.renderer_worker_status(workspace_uuid).ok().flatten().filter(|status| {
+                        status.renderer_epoch == renderer_epoch
+                            && status.state == RendererWorkerState::Ready
+                            && status.pid == Some(process_id)
+                    })
+                else {
                     return;
                 };
                 let Some(effective_user_id) = status.effective_user_id else { return };
@@ -2950,15 +3790,10 @@ impl Mux {
         workspace_uuid: WorkspaceUuid,
         renderer_epoch: u64,
     ) {
-        let runtimes = self
-            .renderer_presentations
-            .lock()
-            .unwrap()
-            .values()
-            .filter(|runtime| runtime.workspace_uuid == workspace_uuid)
-            .cloned()
-            .collect::<Vec<_>>();
+        let runtimes =
+            self.renderer_presentations.lock().unwrap().runtimes_for_workspace(workspace_uuid);
         for runtime in runtimes {
+            let Some(_epoch_claim) = runtime.claim_renderer_epoch(renderer_epoch) else { continue };
             let terminal = runtime.surface.semantic_scene_terminal_identity();
             let Some(terminal) = terminal else {
                 self.remove_renderer_runtime_if_current(&runtime);
@@ -2972,7 +3807,8 @@ impl Mux {
                 },
             );
             options.capture = runtime.capture;
-            options.preedit = runtime.preedit.lock().unwrap().clone().map(Arc::<str>::from);
+            options.preedit =
+                runtime.preedit.lock().unwrap().as_ref().map(RendererPreedit::semantic);
             let Ok(attachment) = runtime.surface.attach_semantic_scene(options) else {
                 self.remove_renderer_runtime_if_current(&runtime);
                 continue;
@@ -3017,17 +3853,13 @@ impl Mux {
                 self.remove_renderer_runtime_if_current(&runtime);
                 continue;
             }
-            self.spawn_renderer_scene_pump(runtime, attachment.events, canceled);
+            self.spawn_renderer_scene_pump(runtime.clone(), attachment.events, canceled);
         }
     }
 
     fn reconcile_renderer_workspaces(&self) {
         let live = self.with_state(|state| {
-            state
-                .workspaces
-                .iter()
-                .map(|workspace| workspace.uuid)
-                .collect::<std::collections::BTreeSet<_>>()
+            state.workspaces.iter().map(|workspace| workspace.uuid).collect::<BTreeSet<_>>()
         });
         let retired = self
             .renderer_presentations
@@ -3079,7 +3911,7 @@ impl Mux {
             runtime.surface.take()
         };
         if let Some(surface) =
-            old_surface.and_then(|id| self.state.lock().unwrap().surfaces.remove(&id))
+            old_surface.and_then(|id| self.state.lock().unwrap().discard_surface_runtime(id))
         {
             surface.kill();
             self.emit(MuxEvent::SurfaceExited(surface.id));
@@ -3260,26 +4092,7 @@ impl Mux {
         self: &Arc<Self>,
         request: EnsureTerminalRequest,
     ) -> anyhow::Result<EnsureTerminalPlacement> {
-        const MAX_INITIAL_INPUT_BYTES: usize = 1024 * 1024;
-
-        if request.workspace_uuid.as_uuid().is_nil() || request.surface_uuid.as_uuid().is_nil() {
-            anyhow::bail!("ensure-terminal UUIDs must be nonzero");
-        }
-        if request.cols == 0 || request.rows == 0 {
-            anyhow::bail!("ensure-terminal columns and rows must be nonzero");
-        }
-        if request.argv.as_ref().is_some_and(Vec::is_empty) {
-            anyhow::bail!("ensure-terminal argv must be non-empty when supplied");
-        }
-        if request.env.iter().any(|(name, value)| {
-            name.is_empty() || name.contains(['=', '\0']) || value.contains('\0')
-        }) {
-            anyhow::bail!("ensure-terminal environment contains an invalid name or value");
-        }
-        if request.initial_input.as_ref().is_some_and(|input| input.len() > MAX_INITIAL_INPUT_BYTES)
-        {
-            anyhow::bail!("ensure-terminal initial_input exceeds {MAX_INITIAL_INPUT_BYTES} bytes");
-        }
+        validate_ensure_terminal_request(&request)?;
 
         let _creation = self.ensure_terminal_lock.lock().unwrap();
         {
@@ -3297,14 +4110,15 @@ impl Mux {
                 );
             }
         }
-        if let Some(existing) = self.with_state(|state| {
+        if let Some(existing) = {
+            let state = self.state.lock().unwrap();
             ensure_terminal_placement_for_surface(
-                state,
+                &state,
                 request.workspace_uuid,
                 request.surface_uuid,
                 false,
             )
-        })? {
+        }? {
             return Ok(existing);
         }
 
@@ -3322,18 +4136,17 @@ impl Mux {
         let notifications = self.surface_notifications();
         let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
-            if state.surfaces.values().any(|candidate| {
-                candidate.uuid == request.surface_uuid && candidate.id != surface.id
-            }) {
+            if state
+                .indexed_surface_id_by_uuid(request.surface_uuid)
+                .is_some_and(|existing| existing != surface.id)
+            {
                 state.discard_surface_runtime(surface.id);
                 surface.kill();
                 anyhow::bail!("ensure-terminal surface UUID was created concurrently");
             }
 
-            if let Some(workspace_index) = state
-                .workspaces
-                .iter()
-                .position(|workspace| workspace.uuid == request.workspace_uuid)
+            if let Some(workspace_index) =
+                state.indexed_workspace_index_by_uuid(request.workspace_uuid)
             {
                 let screen_index = state.workspaces[workspace_index].active_screen;
                 let screen =
@@ -3462,6 +4275,371 @@ impl Mux {
         Ok(placement)
     }
 
+    /// Resolve or materialize a cold set of app-owned terminals in one
+    /// canonical transaction. Runtimes remain private until every spawn and
+    /// topology precondition succeeds, so readers never observe a partial
+    /// restore and persistence records one replacement snapshot.
+    pub(crate) fn ensure_terminals(
+        self: &Arc<Self>,
+        requests: Vec<EnsureTerminalRequest>,
+    ) -> anyhow::Result<Vec<EnsureTerminalPlacement>> {
+        if requests.len() > MAX_ENSURE_TERMINAL_BATCH_SIZE {
+            anyhow::bail!(
+                "ensure-terminal batch exceeds {MAX_ENSURE_TERMINAL_BATCH_SIZE} requests"
+            );
+        }
+        let mut surface_uuids = HashSet::with_capacity(requests.len());
+        for request in &requests {
+            validate_ensure_terminal_request(request)?;
+            if !surface_uuids.insert(request.surface_uuid) {
+                anyhow::bail!(
+                    "ensure-terminal batch contains duplicate surface UUID {}",
+                    request.surface_uuid
+                );
+            }
+        }
+        if requests.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let _creation = self.ensure_terminal_lock.lock().unwrap();
+        let mut placements = vec![None; requests.len()];
+        let mut missing = Vec::new();
+        let expected_topology_revision = {
+            let state = self.state.lock().unwrap();
+            let tombstoned_workspaces = state
+                .tombstones
+                .iter()
+                .filter_map(|tombstone| {
+                    (tombstone.kind == PersistedEntityKind::Workspace).then_some(tombstone.uuid)
+                })
+                .collect::<HashSet<_>>();
+            let tombstoned_surfaces = state
+                .tombstones
+                .iter()
+                .filter_map(|tombstone| {
+                    (tombstone.kind == PersistedEntityKind::Surface).then_some(tombstone.uuid)
+                })
+                .collect::<HashSet<_>>();
+            let mut unresolved_workspaces = HashSet::new();
+            for (index, request) in requests.iter().enumerate() {
+                if tombstoned_workspaces.contains(&request.workspace_uuid.as_uuid())
+                    || tombstoned_surfaces.contains(&request.surface_uuid.as_uuid())
+                {
+                    anyhow::bail!(
+                        "ensure-terminal identity is tombstoned and cannot be recreated: workspace {}, surface {}",
+                        request.workspace_uuid,
+                        request.surface_uuid
+                    );
+                }
+                match ensure_terminal_placement_for_surface(
+                    &state,
+                    request.workspace_uuid,
+                    request.surface_uuid,
+                    false,
+                )? {
+                    Some(placement) => placements[index] = Some(placement),
+                    None => {
+                        missing.push(index);
+                        unresolved_workspaces.insert(request.workspace_uuid);
+                    }
+                }
+            }
+            // Validate existing workspace destinations before spending work
+            // on any process spawn. New workspace identities resolve to None.
+            for workspace_uuid in unresolved_workspaces {
+                let _ = ensure_terminal_workspace_location(&state, workspace_uuid)?;
+            }
+            state.topology.revision()
+        };
+        if missing.is_empty() {
+            return Ok(placements
+                .into_iter()
+                .map(|placement| placement.expect("every terminal resolved"))
+                .collect());
+        }
+
+        struct SpawnedTerminal {
+            request_index: usize,
+            surface: Arc<Surface>,
+            launch: Option<PersistedLaunchRecipe>,
+        }
+
+        let mut spawned: Vec<SpawnedTerminal> = Vec::with_capacity(missing.len());
+        let mut spawned_position_by_request = vec![None; requests.len()];
+        for request_index in missing.iter().copied() {
+            let request = &requests[request_index];
+            #[cfg(test)]
+            if self.ensure_terminal_batch_fail_spawn_at.load(Ordering::Relaxed)
+                == spawned.len() as u64 + 1
+            {
+                for spawned in &spawned {
+                    spawned.surface.kill();
+                }
+                anyhow::bail!("injected ensure-terminal batch spawn failure");
+            }
+            let (surface_id, _) = self.entity_ids.surface();
+            let created = self.create_surface_with_allocated_identity(
+                surface_id,
+                request.surface_uuid,
+                request.cwd.clone(),
+                request.argv.clone(),
+                request.env.clone(),
+                Some(request.wait_after_command),
+                Some((request.cols, request.rows)),
+                None,
+            );
+            let (surface, launch) = match created {
+                Ok(created) => created,
+                Err(error) => {
+                    for spawned in &spawned {
+                        spawned.surface.kill();
+                    }
+                    return Err(error);
+                }
+            };
+            spawned_position_by_request[request_index] = Some(spawned.len());
+            spawned.push(SpawnedTerminal { request_index, surface, launch: Some(launch) });
+        }
+
+        #[cfg(test)]
+        if let Some(before_publish) =
+            self.ensure_terminal_batch_before_publish.lock().unwrap().clone()
+        {
+            before_publish();
+        }
+
+        let transaction = (|| -> anyhow::Result<()> {
+            let mut state = self.state.lock().unwrap();
+            if state.topology.revision() != expected_topology_revision {
+                anyhow::bail!("ensure-terminal topology changed during batch materialization");
+            }
+
+            // Existing resolutions must remain identical across the private
+            // spawn window. Any concurrent topology change aborts before the
+            // new runtimes are published.
+            for (index, placement) in placements.iter_mut().enumerate() {
+                let Some(previous) = *placement else { continue };
+                let current = ensure_terminal_placement_for_surface(
+                    &state,
+                    requests[index].workspace_uuid,
+                    requests[index].surface_uuid,
+                    false,
+                )?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("ensure-terminal topology changed during batch materialization")
+                })?;
+                if current.surface != previous.surface
+                    || current.workspace != previous.workspace
+                    || current.pane != previous.pane
+                {
+                    anyhow::bail!("ensure-terminal topology changed during batch materialization");
+                }
+                *placement = Some(current);
+            }
+
+            let tombstoned_workspaces = state
+                .tombstones
+                .iter()
+                .filter_map(|tombstone| {
+                    (tombstone.kind == PersistedEntityKind::Workspace).then_some(tombstone.uuid)
+                })
+                .collect::<HashSet<_>>();
+            let tombstoned_surfaces = state
+                .tombstones
+                .iter()
+                .filter_map(|tombstone| {
+                    (tombstone.kind == PersistedEntityKind::Surface).then_some(tombstone.uuid)
+                })
+                .collect::<HashSet<_>>();
+
+            let mut workspace_order = Vec::new();
+            let mut request_indices_by_workspace =
+                HashMap::<WorkspaceUuid, Vec<usize>>::with_capacity(missing.len());
+            for request_index in missing.iter().copied() {
+                let request = &requests[request_index];
+                if tombstoned_workspaces.contains(&request.workspace_uuid.as_uuid())
+                    || tombstoned_surfaces.contains(&request.surface_uuid.as_uuid())
+                {
+                    anyhow::bail!(
+                        "ensure-terminal identity was tombstoned during batch materialization"
+                    );
+                }
+                if ensure_terminal_placement_for_surface(
+                    &state,
+                    request.workspace_uuid,
+                    request.surface_uuid,
+                    false,
+                )?
+                .is_some()
+                {
+                    anyhow::bail!(
+                        "ensure-terminal surface was created during batch materialization"
+                    );
+                }
+                if !request_indices_by_workspace.contains_key(&request.workspace_uuid) {
+                    workspace_order.push(request.workspace_uuid);
+                }
+                request_indices_by_workspace
+                    .entry(request.workspace_uuid)
+                    .or_default()
+                    .push(request_index);
+            }
+
+            let mut locations = HashMap::with_capacity(workspace_order.len());
+            for workspace_uuid in workspace_order.iter().copied() {
+                let location = match ensure_terminal_workspace_location(&state, workspace_uuid)? {
+                    Some(location) => location,
+                    None => {
+                        let (pane, pane_uuid) = self.entity_ids.pane();
+                        let (screen, screen_uuid) = self.entity_ids.screen();
+                        let (workspace, _) = self.entity_ids.workspace();
+                        EnsureTerminalWorkspaceLocation {
+                            workspace,
+                            screen,
+                            screen_uuid,
+                            pane,
+                            pane_uuid,
+                            new_workspace: true,
+                        }
+                    }
+                };
+                locations.insert(workspace_uuid, location);
+            }
+
+            let targets = TopologyTargets {
+                workspaces: workspace_order.clone(),
+                screens: workspace_order
+                    .iter()
+                    .map(|workspace_uuid| locations[workspace_uuid].screen_uuid)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+                panes: workspace_order
+                    .iter()
+                    .map(|workspace_uuid| locations[workspace_uuid].pane_uuid)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+                surfaces: missing.iter().map(|index| requests[*index].surface_uuid).collect(),
+            };
+
+            // All fallible planning is complete. Publish runtimes, attach
+            // them to panes, and commit one revision while holding the state
+            // lock so readers see either the old topology or the full batch.
+            for terminal in &mut spawned {
+                let request = &requests[terminal.request_index];
+                let previous_surface =
+                    state.surfaces.insert(terminal.surface.id, terminal.surface.clone());
+                debug_assert!(previous_surface.is_none());
+                let previous_launch = state.launch_recipes.insert(
+                    request.surface_uuid,
+                    terminal.launch.take().expect("unpublished terminal has launch recipe"),
+                );
+                debug_assert!(previous_launch.is_none());
+            }
+
+            for workspace_uuid in workspace_order.iter().copied() {
+                let location = locations[&workspace_uuid];
+                let request_indices = &request_indices_by_workspace[&workspace_uuid];
+                let tabs = request_indices
+                    .iter()
+                    .map(|request_index| {
+                        let position = spawned_position_by_request[*request_index]
+                            .expect("missing request has spawned runtime");
+                        spawned[position].surface.id
+                    })
+                    .collect::<Vec<_>>();
+                if location.new_workspace {
+                    state.panes.insert(
+                        location.pane,
+                        Pane {
+                            id: location.pane,
+                            uuid: location.pane_uuid,
+                            name: None,
+                            active_tab: tabs.len() - 1,
+                            tabs,
+                            active_at: self.next_active_at(),
+                        },
+                    );
+                    let name = format!("{}", state.workspaces.len() + 1);
+                    state.workspaces.push(Workspace {
+                        id: location.workspace,
+                        uuid: workspace_uuid,
+                        name,
+                        screens: vec![Screen {
+                            id: location.screen,
+                            uuid: location.screen_uuid,
+                            name: None,
+                            root: Node::Leaf(location.pane),
+                            active_pane: location.pane,
+                            zoomed_pane: None,
+                        }],
+                        active_screen: 0,
+                    });
+                    state.active_workspace = state.workspaces.len() - 1;
+                } else {
+                    let pane = state
+                        .panes
+                        .get_mut(&location.pane)
+                        .expect("validated ensure-terminal pane remains present");
+                    pane.tabs.extend(tabs);
+                    pane.active_tab = pane.tabs.len() - 1;
+                    pane.active_at = self.next_active_at();
+                }
+                for request_index in request_indices {
+                    let position = spawned_position_by_request[*request_index]
+                        .expect("missing request has spawned runtime");
+                    let surface = &spawned[position].surface;
+                    placements[*request_index] = Some(EnsureTerminalPlacement {
+                        created: true,
+                        workspace: location.workspace,
+                        workspace_uuid,
+                        screen: location.screen,
+                        screen_uuid: location.screen_uuid,
+                        pane: location.pane,
+                        pane_uuid: location.pane_uuid,
+                        surface: surface.id,
+                        surface_uuid: surface.uuid,
+                    });
+                }
+            }
+            state.commit_topology(TopologyOperation::LayoutApplied, targets);
+            Ok(())
+        })();
+
+        if let Err(error) = transaction {
+            for terminal in &spawned {
+                terminal.surface.kill();
+            }
+            return Err(error);
+        }
+
+        self.emit(MuxEvent::TreeChanged);
+        let mut input_error = None;
+        for terminal in &spawned {
+            self.reap_if_dead(&terminal.surface);
+            if let Some(initial_input) = requests[terminal.request_index]
+                .initial_input
+                .as_ref()
+                .filter(|input| !input.is_empty())
+            {
+                #[cfg(test)]
+                self.ensure_terminal_initial_writes.fetch_add(1, Ordering::Relaxed);
+                if let Err(error) = terminal.surface.write_bytes(initial_input.as_bytes()) {
+                    input_error.get_or_insert(error);
+                }
+            }
+        }
+        if let Some(error) = input_error {
+            return Err(error.into());
+        }
+        Ok(placements
+            .into_iter()
+            .map(|placement| placement.expect("every terminal resolved or materialized"))
+            .collect())
+    }
+
     /// Move one stable terminal identity into the target workspace's active
     /// pane without replacing its runtime. The topology mutation commits once
     /// and retries are no-ops after the terminal reaches the target workspace.
@@ -3478,7 +4656,7 @@ impl Mux {
         let (placement, renderer_presentations) = {
             let mut state = self.state.lock().unwrap();
             let surface_id = state
-                .surface_id_by_uuid(surface_uuid)
+                .indexed_surface_id_by_uuid(surface_uuid)
                 .ok_or_else(|| anyhow::anyhow!("unknown terminal surface {surface_uuid}"))?;
             let surface = state
                 .surfaces
@@ -3489,15 +4667,13 @@ impl Mux {
                 anyhow::bail!("surface {surface_uuid} is not a terminal");
             }
             let source_pane = state
-                .pane_of(surface_id)
+                .indexed_pane_of(surface_id)
                 .ok_or_else(|| anyhow::anyhow!("terminal surface is outside canonical topology"))?;
             let (source_workspace_index, _) = state
-                .screen_of(source_pane)
+                .indexed_screen_of(source_pane)
                 .ok_or_else(|| anyhow::anyhow!("terminal pane is outside canonical topology"))?;
             let target_workspace_index = state
-                .workspaces
-                .iter()
-                .position(|workspace| workspace.uuid == workspace_uuid)
+                .indexed_workspace_index_by_uuid(workspace_uuid)
                 .ok_or_else(|| anyhow::anyhow!("unknown target workspace {workspace_uuid}"))?;
 
             if source_workspace_index == target_workspace_index {
@@ -4309,6 +5485,7 @@ impl Mux {
     /// Close one tab. When it was the pane's last tab, the pane collapses
     /// out of its split tree (and emptied screens/workspaces are removed).
     pub fn close_surface(&self, target: SurfaceId) {
+        let _terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let notifications = self.surface_notifications();
         if let Some(closed) =
             self.close_tree_transaction(CloseTreeTarget::Surface(target), &notifications)
@@ -4323,6 +5500,7 @@ impl Mux {
 
     /// Close a pane and every tab in it.
     pub fn close_pane(&self, target: PaneId) {
+        let _terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let notifications = self.surface_notifications();
         if let Some(closed) =
             self.close_tree_transaction(CloseTreeTarget::Pane(target), &notifications)
@@ -4333,6 +5511,7 @@ impl Mux {
 
     /// Close a screen and every pane/tab in it.
     pub fn close_screen(&self, target: ScreenId) -> bool {
+        let _terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let notifications = self.surface_notifications();
         let Some(closed) =
             self.close_tree_transaction(CloseTreeTarget::Screen(target), &notifications)
@@ -4345,6 +5524,7 @@ impl Mux {
 
     /// Close a workspace and every screen/pane/tab in it.
     pub fn close_workspace(&self, target: WorkspaceId) -> bool {
+        let _terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let notifications = self.surface_notifications();
         let Some(closed) =
             self.close_tree_transaction(CloseTreeTarget::Workspace(target), &notifications)
@@ -4433,6 +5613,11 @@ impl Mux {
             self.purge_surface_side_tables(surface);
         }
         for surface in closed.removed {
+            self.terminal_authority.retire_terminal(surface.uuid);
+            for presentation_id in self.presentations.remove_surface(surface.uuid) {
+                self.terminal_authority.revoke_presentation(presentation_id);
+                let _ = self.remove_renderer_presentation(presentation_id);
+            }
             surface.kill();
         }
         match closed.delta {
@@ -4668,11 +5853,7 @@ impl Mux {
         runtime.last_error = Some("sidebar plugin exited".to_string());
         runtime.retry_at = Some(Instant::now() + delay);
         drop(runtime);
-        let mut state = self.state.lock().unwrap();
-        if let Some(uuid) = state.surfaces.get(&id).map(|surface| surface.uuid) {
-            state.launch_recipes.remove(&uuid);
-        }
-        state.surfaces.remove(&id);
+        self.state.lock().unwrap().discard_surface_runtime(id);
         true
     }
 
@@ -5460,8 +6641,11 @@ fn close_workspace_delta(
 /// Remove one surface from the state: detach it from its
 /// pane, and collapse emptied panes/screens/workspaces. Returns whether
 /// anything was removed. Runs under the state lock.
-fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> {
-    let removed = state.surfaces.remove(&target);
+fn remove_surface(state: &mut CanonicalState, target: SurfaceId) -> Option<Arc<Surface>> {
+    let removed = state.discard_surface_runtime(target);
+    if let Some(surface) = &removed {
+        state.terminal_activity.remove_surface(surface.uuid);
+    }
     let Some(pane_id) = state.pane_of(target) else {
         return removed;
     };
@@ -5648,6 +6832,69 @@ mod tests {
                 panic!("unexpected resnapshot requirement: {:?}", required.reason)
             }
         }
+    }
+
+    #[test]
+    fn resolved_custom_shader_count_uses_exact_nonempty_config_entries() {
+        assert_eq!(
+            resolved_custom_shader_count(
+                b"font-size = 13\ncustom-shader = one.glsl\n custom-shader=two.glsl\ncustom-shader = \n"
+            )
+            .unwrap(),
+            2
+        );
+        assert_eq!(resolved_custom_shader_count(b"").unwrap(), 0);
+        assert!(resolved_custom_shader_count(&[0xff]).is_err());
+    }
+
+    #[test]
+    fn renderer_epoch_binding_has_one_winner_and_advances_monotonically() {
+        let bound = Arc::new(Mutex::new(0));
+        let contenders = (0..32)
+            .map(|_| {
+                let bound = bound.clone();
+                std::thread::spawn(move || claim_new_renderer_epoch(&bound, 7).is_some())
+            })
+            .collect::<Vec<_>>();
+
+        let winners = contenders
+            .into_iter()
+            .map(|contender| contender.join().unwrap())
+            .filter(|won| *won)
+            .count();
+        assert_eq!(winners, 1);
+        assert_eq!(*bound.lock().unwrap(), 7);
+        assert!(claim_new_renderer_epoch(&bound, 0).is_none());
+        assert!(claim_new_renderer_epoch(&bound, 6).is_none());
+        assert!(claim_new_renderer_epoch(&bound, 7).is_none());
+        assert!(claim_new_renderer_epoch(&bound, 8).is_some());
+        assert_eq!(*bound.lock().unwrap(), 8);
+    }
+
+    #[test]
+    fn renderer_rehydrate_index_visits_only_presentations_in_the_ready_workspace() {
+        let mut index = RendererPresentationWorkspaceIndex::default();
+        for _ in 0..1_000 {
+            index.insert(WorkspaceUuid::new(), crate::PresentationId::new());
+        }
+        let ready_workspace = WorkspaceUuid::new();
+        let mut ready_presentations =
+            (0..3).map(|_| crate::PresentationId::new()).collect::<Vec<_>>();
+        ready_presentations.sort_unstable();
+        for presentation_id in &ready_presentations {
+            index.insert(ready_workspace, *presentation_id);
+        }
+
+        let selected = index.presentation_ids_for_rehydration(ready_workspace);
+        assert_eq!(selected, ready_presentations);
+        assert_eq!(index.rehydration_presentation_visits, 3);
+
+        assert!(index.presentation_ids_for_rehydration(WorkspaceUuid::new()).is_empty());
+        assert_eq!(index.rehydration_presentation_visits, 3);
+        for presentation_id in ready_presentations {
+            index.remove(ready_workspace, presentation_id);
+        }
+        assert!(index.get(ready_workspace).is_none());
     }
 
     #[test]
@@ -5960,6 +7207,128 @@ mod tests {
     }
 
     #[test]
+    fn terminal_lease_migration_cannot_overtake_a_legacy_resize_already_in_flight() {
+        use crate::terminal_authority::{
+            PresentationAuthority, TerminalControlMode, TerminalLeaseClaim,
+        };
+
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface_id = surface.id;
+        let surface_uuid = surface.uuid;
+        mux.resize_surface_for_client(surface_id, 1, 80, 24).unwrap();
+        mux.resize_surface_for_client(surface_id, 2, 120, 50).unwrap();
+
+        let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let hook_release = release.clone();
+        mux.set_client_resize_before_apply(Some(Arc::new(move || {
+            reached_tx.send(()).unwrap();
+            let (lock, ready) = &*hook_release;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = ready.wait(released).unwrap();
+            }
+        })));
+
+        let remove_mux = mux.clone();
+        let remove = std::thread::spawn(move || {
+            remove_mux.remove_surface_size_client(surface_id, 1);
+        });
+        reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let presentation_id = crate::PresentationId::new();
+        let claim = TerminalLeaseClaim {
+            connection: 7,
+            client_uuid: uuid::Uuid::new_v4(),
+            process_instance_uuid: uuid::Uuid::new_v4(),
+            presentation_id,
+            presentation_generation: 1,
+        };
+        mux.terminal_authority
+            .mark_presentation_visible(PresentationAuthority {
+                connection: claim.connection,
+                presentation_id,
+                presentation_generation: claim.presentation_generation,
+                surface_uuid,
+            })
+            .unwrap();
+
+        let acquire_mux = mux.clone();
+        let (acquired_tx, acquired_rx) = std::sync::mpsc::sync_channel(1);
+        let acquire = std::thread::spawn(move || {
+            let lease = acquire_mux
+                .acquire_terminal_lease(surface_id, TerminalLeaseKind::Input, claim, 5_000)
+                .unwrap();
+            acquired_tx.send(lease).unwrap();
+        });
+
+        assert!(acquired_rx.recv_timeout(Duration::from_millis(250)).is_err());
+        assert_eq!(mux.terminal_authority.mode(surface_uuid), TerminalControlMode::LegacyShared);
+
+        let (lock, ready) = &*release;
+        *lock.lock().unwrap() = true;
+        ready.notify_all();
+        remove.join().unwrap();
+        let lease = acquired_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        acquire.join().unwrap();
+
+        assert!(lease.migrated_from_legacy);
+        assert_eq!(mux.terminal_authority.mode(surface_uuid), TerminalControlMode::Leased);
+        assert_eq!(mux.client_surface_size(surface_id, 2), None);
+        let surface = mux.surface(surface_id).unwrap();
+        let legacy = mux.with_legacy_terminal_control(&surface, || Ok(()));
+        assert!(legacy.unwrap_err().to_string().contains("protocol-v9 leased control"));
+    }
+
+    #[test]
+    fn canonical_terminal_close_waits_for_an_accepted_v9_operation_fence() {
+        use crate::terminal_authority::{PresentationAuthority, TerminalLeaseClaim};
+
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface_id = surface.id;
+        let presentation_id = crate::PresentationId::new();
+        let claim = TerminalLeaseClaim {
+            connection: 7,
+            client_uuid: uuid::Uuid::new_v4(),
+            process_instance_uuid: uuid::Uuid::new_v4(),
+            presentation_id,
+            presentation_generation: 1,
+        };
+        mux.terminal_authority
+            .mark_presentation_visible(PresentationAuthority {
+                connection: claim.connection,
+                presentation_id,
+                presentation_generation: claim.presentation_generation,
+                surface_uuid: surface.uuid,
+            })
+            .unwrap();
+        mux.acquire_terminal_lease(surface_id, TerminalLeaseKind::Input, claim, 5_000).unwrap();
+
+        let operation = mux.read_terminal_control_lifecycle();
+        let close_mux = mux.clone();
+        let (closed_tx, closed_rx) = std::sync::mpsc::sync_channel(1);
+        let close = std::thread::spawn(move || {
+            close_mux.close_surface(surface_id);
+            closed_tx.send(()).unwrap();
+        });
+
+        assert!(closed_rx.recv_timeout(Duration::from_millis(250)).is_err());
+        assert!(mux.surface(surface_id).is_some());
+        drop(operation);
+
+        closed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        close.join().unwrap();
+        assert!(mux.surface(surface_id).is_none());
+        assert_eq!(
+            mux.terminal_authority.mode(surface.uuid),
+            crate::terminal_authority::TerminalControlMode::LegacyShared,
+            "terminal authority state is retired with canonical closure"
+        );
+    }
+
+    #[test]
     fn randomized_multi_surface_sizing_settles_to_the_model() {
         let mux = test_mux();
         let surfaces =
@@ -6091,6 +7460,7 @@ mod tests {
     #[test]
     fn closing_a_surface_purges_agent_and_notification_side_tables() {
         let mux = test_mux();
+        let reader = uuid::Uuid::new_v4();
         let first = mux.new_workspace(None, None).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         // A second tab keeps the workspace alive after `first` closes, so we
@@ -6108,9 +7478,13 @@ mod tests {
             "ok".to_string(),
             NotificationLevel::Warning,
             Some(first.id),
-        );
+        )
+        .unwrap();
         assert_eq!(mux.list_agents(Some(first.id), None).len(), 1);
         assert!(mux.surface_notification(first.id).is_some());
+        let activity = mux.terminal_activity_snapshot(reader).unwrap();
+        let fact = *activity.facts.iter().find(|fact| fact.surface_uuid == first.uuid).unwrap();
+        mux.mark_terminal_seen(reader, first.uuid, fact.sequence).unwrap();
 
         mux.close_surface(first.id);
 
@@ -6118,6 +7492,10 @@ mod tests {
         assert!(mux.list_agents(Some(first.id), None).is_empty());
         assert!(mux.list_agents(None, None).is_empty());
         assert!(mux.surface_notification(first.id).is_none());
+        let activity = mux.terminal_activity_snapshot(reader).unwrap();
+        assert_eq!(activity.latest_sequence, fact.sequence);
+        assert!(activity.facts.iter().all(|candidate| candidate.surface_uuid != first.uuid));
+        assert!(activity.receipts.iter().all(|candidate| candidate.surface_uuid != first.uuid));
         assert!(mux.with_state(|state| state.surfaces.contains_key(&second.id)));
     }
 
@@ -6153,12 +7531,14 @@ mod tests {
         let first = mux.new_workspace(None, None).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         let second = mux.new_tab(Some(pane), None, None).unwrap();
-        let notification = mux.post_notification(
-            "Build".to_string(),
-            "ok".to_string(),
-            NotificationLevel::Warning,
-            Some(first.id),
-        );
+        let notification = mux
+            .post_notification(
+                "Build".to_string(),
+                "ok".to_string(),
+                NotificationLevel::Warning,
+                Some(first.id),
+            )
+            .unwrap();
 
         let state = mux.surface_notification(first.id).unwrap();
         assert_eq!(state.notification, notification);
@@ -6176,17 +7556,21 @@ mod tests {
     fn notification_to_active_surface_does_not_set_unread() {
         let mux = test_mux();
         let events = mux.subscribe();
+        let stable_reader = uuid::Uuid::new_v4();
         let surface = mux.new_workspace(None, None).unwrap();
         assert_eq!(mux.active_surface(), Some(surface.id));
 
-        let notification = mux.post_notification(
-            "Build".to_string(),
-            "ok".to_string(),
-            NotificationLevel::Info,
-            Some(surface.id),
-        );
+        let notification = mux
+            .post_notification(
+                "Build".to_string(),
+                "ok".to_string(),
+                NotificationLevel::Info,
+                Some(surface.id),
+            )
+            .unwrap();
 
         assert!(mux.surface_notification(surface.id).is_none());
+        assert!(mux.terminal_activity_snapshot(stable_reader).unwrap().is_unread(surface.uuid));
         assert!(events.try_iter().any(|event| {
             matches!(
                 event,
@@ -6196,9 +7580,74 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn terminal_activity_receipts_are_per_reader_idempotent_and_future_safe() {
+        let mux = test_mux();
+        let activity_events = mux.subscribe_terminal_activity();
+        let first = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_tab(Some(pane), None, None).unwrap();
+        let reader_a = uuid::Uuid::new_v4();
+        let reader_b = uuid::Uuid::new_v4();
+
+        mux.post_notification(
+            "Build".to_string(),
+            "private output".to_string(),
+            NotificationLevel::Warning,
+            Some(first.id),
+        )
+        .unwrap();
+        let first_fact = mux
+            .terminal_activity_snapshot(reader_a)
+            .unwrap()
+            .facts
+            .into_iter()
+            .find(|fact| fact.surface_uuid == first.uuid)
+            .unwrap();
+        assert!(mux.terminal_activity_snapshot(reader_a).unwrap().is_unread(first.uuid));
+        assert!(mux.terminal_activity_snapshot(reader_b).unwrap().is_unread(first.uuid));
+        assert!(matches!(
+            activity_events.recv().unwrap(),
+            MuxEvent::TerminalActivity(fact) if fact == first_fact
+        ));
+
+        let receipt = mux.mark_terminal_seen(reader_a, first.uuid, first_fact.sequence).unwrap();
+        assert!(!mux.terminal_activity_snapshot(reader_a).unwrap().is_unread(first.uuid));
+        assert!(mux.terminal_activity_snapshot(reader_b).unwrap().is_unread(first.uuid));
+        assert!(matches!(
+            activity_events.recv().unwrap(),
+            MuxEvent::TerminalActivityReceipt(event) if event == receipt
+        ));
+        assert_eq!(
+            mux.mark_terminal_seen(reader_a, first.uuid, first_fact.sequence).unwrap(),
+            receipt
+        );
+        assert!(activity_events.try_iter().next().is_none());
+        assert!(mux.mark_terminal_seen(reader_a, first.uuid, first_fact.sequence + 1).is_err());
+
+        mux.post_notification(
+            "Build again".to_string(),
+            "new private output".to_string(),
+            NotificationLevel::Error,
+            Some(first.id),
+        )
+        .unwrap();
+        let second_fact = mux
+            .terminal_activity_snapshot(reader_a)
+            .unwrap()
+            .facts
+            .into_iter()
+            .find(|fact| fact.surface_uuid == first.uuid)
+            .unwrap();
+        assert_eq!(second_fact.sequence, first_fact.sequence + 1);
+        assert!(mux.terminal_activity_snapshot(reader_a).unwrap().is_unread(first.uuid));
+        assert!(mux.terminal_activity_snapshot(reader_b).unwrap().is_unread(first.uuid));
+    }
+
     fn seed_split_ratio_tree(mux: &Mux) -> (PaneId, PaneId, PaneId) {
         let (p1, p2, p3) = (1, 2, 3);
-        mux.state.lock().unwrap().value = State {
+        let mut state = mux.state.lock().unwrap();
+        state.value = State {
             workspaces: vec![Workspace {
                 id: 1,
                 uuid: WorkspaceUuid::new(),
@@ -6231,7 +7680,7 @@ mod tests {
                         id: p1,
                         uuid: PaneUuid::new(),
                         name: None,
-                        tabs: vec![1],
+                        tabs: Vec::new(),
                         active_tab: 0,
                         active_at: 1,
                     },
@@ -6242,7 +7691,7 @@ mod tests {
                         id: p2,
                         uuid: PaneUuid::new(),
                         name: None,
-                        tabs: vec![2],
+                        tabs: Vec::new(),
                         active_tab: 0,
                         active_at: 2,
                     },
@@ -6253,7 +7702,7 @@ mod tests {
                         id: p3,
                         uuid: PaneUuid::new(),
                         name: None,
-                        tabs: vec![3],
+                        tabs: Vec::new(),
                         active_tab: 0,
                         active_at: 3,
                     },
@@ -6261,6 +7710,7 @@ mod tests {
             ]),
             surfaces: HashMap::new(),
         };
+        state.rebuild_topology_index().unwrap();
         (p1, p2, p3)
     }
 
@@ -7650,6 +9100,73 @@ mod tests {
         assert!(!journal.windows(old_tty.len()).any(|window| window == old_tty.as_bytes()));
     }
 
+    #[test]
+    fn daemon_restart_restores_activity_and_independent_reader_receipts() {
+        let directory = PersistenceTestDirectory::new("activity-restart");
+        let store = StateStore::new(&directory.0);
+        let workspace_uuid = WorkspaceUuid::new();
+        let surface_uuid = SurfaceUuid::new();
+        let reader_a = uuid::Uuid::new_v4();
+        let reader_b = uuid::Uuid::new_v4();
+        let first =
+            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+                .unwrap();
+        let placement =
+            first.ensure_terminal(ensure_request(workspace_uuid, surface_uuid, "")).unwrap();
+        let notification = first
+            .post_notification(
+                "private title".to_string(),
+                "private body".to_string(),
+                NotificationLevel::Warning,
+                Some(placement.surface),
+            )
+            .unwrap();
+        let fact = first
+            .terminal_activity_snapshot(reader_a)
+            .unwrap()
+            .facts
+            .into_iter()
+            .find(|fact| fact.surface_uuid == surface_uuid)
+            .unwrap();
+        assert_eq!(fact.notification, notification);
+        first.mark_terminal_seen(reader_a, surface_uuid, fact.sequence).unwrap();
+        assert!(!first.terminal_activity_snapshot(reader_a).unwrap().is_unread(surface_uuid));
+        assert!(first.terminal_activity_snapshot(reader_b).unwrap().is_unread(surface_uuid));
+        drop(first);
+
+        let restored =
+            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+                .unwrap();
+        assert!(!restored.terminal_activity_snapshot(reader_a).unwrap().is_unread(surface_uuid));
+        assert!(restored.terminal_activity_snapshot(reader_b).unwrap().is_unread(surface_uuid));
+        let restored_surface =
+            restored.with_state(|state| state.surface_id_by_uuid(surface_uuid)).unwrap();
+        let next_notification = restored
+            .post_notification(
+                "new private title".to_string(),
+                "new private body".to_string(),
+                NotificationLevel::Error,
+                Some(restored_surface),
+            )
+            .unwrap();
+        let next_fact = restored
+            .terminal_activity_snapshot(reader_a)
+            .unwrap()
+            .facts
+            .into_iter()
+            .find(|candidate| candidate.surface_uuid == surface_uuid)
+            .unwrap();
+        assert_eq!(next_notification, notification + 1);
+        assert_eq!(next_fact.sequence, fact.sequence + 1);
+        assert!(restored.terminal_activity_snapshot(reader_a).unwrap().is_unread(surface_uuid));
+        assert!(restored.terminal_activity_snapshot(reader_b).unwrap().is_unread(surface_uuid));
+
+        let journal = std::fs::read(store.journal_path("main")).unwrap();
+        for secret in ["private title", "private body", "new private title", "new private body"] {
+            assert!(!journal.windows(secret.len()).any(|window| window == secret.as_bytes()));
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn restored_child_exit_is_tombstoned_before_a_second_restart() {
@@ -7844,6 +9361,162 @@ mod tests {
         assert_eq!(canonical.tombstones.len(), MAX_PERSISTED_TOMBSTONES);
         assert!(!canonical.tombstones.iter().any(|entry| entry.uuid == uuid::Uuid::from_u128(1)));
         assert!(canonical.tombstones.iter().any(|entry| entry.uuid == surface.uuid.as_uuid()));
+    }
+
+    #[test]
+    fn ensure_terminal_batch_rejects_duplicate_surface_identity_before_spawning() {
+        let mux = test_mux();
+        let surface_uuid = SurfaceUuid::new();
+        let before_revisions = mux.topology_revisions();
+        let error = mux
+            .ensure_terminals(vec![
+                ensure_request(WorkspaceUuid::new(), surface_uuid, "first\n"),
+                ensure_request(WorkspaceUuid::new(), surface_uuid, "second\n"),
+            ])
+            .unwrap_err();
+
+        assert!(error.to_string().contains("duplicate surface UUID"));
+        assert_eq!(mux.topology_revisions(), before_revisions);
+        let state = mux.state.lock().unwrap();
+        assert!(state.surfaces.is_empty());
+        assert!(state.workspaces.is_empty());
+        assert!(state.launch_recipes.is_empty());
+        assert_eq!(state.topology_commit_count, 0);
+        assert_eq!(mux.ensure_terminal_initial_writes.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn ensure_terminal_batch_spawn_failure_leaves_no_runtime_or_topology_state() {
+        let mux = test_mux();
+        mux.ensure_terminal_batch_fail_spawn_at.store(3, Ordering::Relaxed);
+        let before_revisions = mux.topology_revisions();
+        let requests = (0..5)
+            .map(|_| ensure_request(WorkspaceUuid::new(), SurfaceUuid::new(), "must-not-run\n"))
+            .collect::<Vec<_>>();
+
+        let error = mux.ensure_terminals(requests).unwrap_err();
+        assert!(error.to_string().contains("injected ensure-terminal batch spawn failure"));
+        assert_eq!(mux.topology_revisions(), before_revisions);
+        let state = mux.state.lock().unwrap();
+        assert!(state.surfaces.is_empty());
+        assert!(state.workspaces.is_empty());
+        assert!(state.launch_recipes.is_empty());
+        assert_eq!(state.topology_commit_count, 0);
+        assert_eq!(state.topology_replacement_serialization_count, 0);
+        assert_eq!(mux.ensure_terminal_initial_writes.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn ensure_terminal_batch_aborts_when_topology_changes_during_private_spawns() {
+        let mux = test_mux();
+        let workspace_uuid = WorkspaceUuid::new();
+        let existing =
+            mux.ensure_terminal(ensure_request(workspace_uuid, SurfaceUuid::new(), "")).unwrap();
+        let new_surface_uuid = SurfaceUuid::new();
+        let before_revisions = mux.topology_revisions();
+        let weak_mux = Arc::downgrade(&mux);
+        *mux.ensure_terminal_batch_before_publish.lock().unwrap() = Some(Arc::new(move || {
+            let mux = weak_mux.upgrade().expect("test mux remains alive");
+            assert!(mux.rename_workspace(existing.workspace, "changed-during-spawn".to_owned()));
+        }));
+
+        let error = mux
+            .ensure_terminals(vec![ensure_request(workspace_uuid, new_surface_uuid, "")])
+            .unwrap_err();
+        *mux.ensure_terminal_batch_before_publish.lock().unwrap() = None;
+
+        assert!(error.to_string().contains("topology changed during batch materialization"));
+        assert_eq!(mux.topology_revisions(), (before_revisions.0 + 1, before_revisions.1 + 1));
+        let state = mux.state.lock().unwrap();
+        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.workspaces[0].name, "changed-during-spawn");
+        assert_eq!(state.surfaces.len(), 1);
+        assert!(state.indexed_surface_id_by_uuid(new_surface_uuid).is_none());
+        assert_eq!(state.launch_recipes.len(), 1);
+    }
+
+    #[test]
+    fn one_thousand_terminals_materialize_in_one_durable_canonical_transaction() {
+        const TERMINAL_COUNT: usize = 1_000;
+
+        let directory = PersistenceTestDirectory::new("batch-1000");
+        let store = StateStore::new(&directory.0);
+        let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+            .unwrap();
+        let requests = (0..TERMINAL_COUNT)
+            .map(|_| ensure_request(WorkspaceUuid::new(), SurfaceUuid::new(), ""))
+            .collect::<Vec<_>>();
+        let before_revision = mux.canonical_topology_revision();
+        let subscription = topology_subscription(&mux, before_revision);
+        let before_counts = {
+            let state = mux.state.lock().unwrap();
+            (
+                state.topology_commit_count,
+                state.topology_replacement_serialization_count,
+                state.persisted_snapshot_count,
+                state.topology_index_rebuild_count,
+            )
+        };
+
+        let placements = mux.ensure_terminals(requests.clone()).unwrap();
+        assert_eq!(placements.len(), TERMINAL_COUNT);
+        assert!(placements.iter().all(|placement| placement.created));
+        assert!(placements.iter().zip(&requests).all(|(placement, request)| {
+            placement.workspace_uuid == request.workspace_uuid
+                && placement.surface_uuid == request.surface_uuid
+        }));
+        let delta = subscription.receiver.recv().unwrap();
+        assert_eq!(delta.operation, TopologyOperation::LayoutApplied);
+        assert_eq!(delta.base_revision, before_revision);
+        assert_eq!(delta.revision, before_revision + 1);
+        assert_eq!(delta.targets.workspaces.len(), TERMINAL_COUNT);
+        assert_eq!(delta.targets.screens.len(), TERMINAL_COUNT);
+        assert_eq!(delta.targets.panes.len(), TERMINAL_COUNT);
+        assert_eq!(delta.targets.surfaces.len(), TERMINAL_COUNT);
+        assert!(matches!(subscription.receiver.try_recv(), Err(TryRecvError::Empty)));
+
+        let after_counts = {
+            let state = mux.state.lock().unwrap();
+            assert_eq!(state.workspaces.len(), TERMINAL_COUNT);
+            assert_eq!(state.panes.len(), TERMINAL_COUNT);
+            assert_eq!(state.surfaces.len(), TERMINAL_COUNT);
+            assert_eq!(
+                state.topology_index.build_counts,
+                CanonicalTopologyIndexBuildCounts {
+                    workspace_visits: TERMINAL_COUNT,
+                    screen_visits: TERMINAL_COUNT,
+                    pane_visits: TERMINAL_COUNT,
+                    surface_visits: TERMINAL_COUNT,
+                    tab_visits: TERMINAL_COUNT,
+                }
+            );
+            (
+                state.topology_commit_count,
+                state.topology_replacement_serialization_count,
+                state.persisted_snapshot_count,
+                state.topology_index_rebuild_count,
+            )
+        };
+        assert_eq!(
+            after_counts,
+            (before_counts.0 + 1, before_counts.1 + 1, before_counts.2 + 1, before_counts.3 + 1,)
+        );
+        assert_eq!(mux.ensure_terminal_initial_writes.load(Ordering::Relaxed), 0);
+
+        let retried = mux.ensure_terminals(requests).unwrap();
+        assert!(retried.iter().all(|placement| !placement.created));
+        let retry_counts = {
+            let state = mux.state.lock().unwrap();
+            (
+                state.topology_commit_count,
+                state.topology_replacement_serialization_count,
+                state.persisted_snapshot_count,
+                state.topology_index_rebuild_count,
+            )
+        };
+        assert_eq!(retry_counts, after_counts);
+        assert!(matches!(subscription.receiver.try_recv(), Err(TryRecvError::Empty)));
+        assert_eq!(mux.ensure_terminal_initial_writes.load(Ordering::Relaxed), 0);
     }
 
     #[test]

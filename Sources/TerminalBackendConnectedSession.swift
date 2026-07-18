@@ -5,5 +5,5 @@ import CmuxTerminalBackendService
 struct TerminalBackendConnectedSession: Sendable {
     let readiness: BackendServiceReadiness
     let session: any TerminalBackendSessionServing
-    let snapshot: TopologySnapshot
+    let snapshot: TopologySnapshot?
 }

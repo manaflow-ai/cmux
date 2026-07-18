@@ -35,6 +35,10 @@ use serde::Serialize;
 const DEFAULT_HELPER_NAME: &str = "cmux-terminal-renderer";
 const CONTROL_FD: i32 = 198;
 const CHILD_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const WORKER_RETIREMENT_DEADLINE: Duration = Duration::from_millis(250);
+const COORDINATOR_RETIREMENT_DEADLINE: Duration = Duration::ZERO;
+const WORKER_REAP_POLL_INTERVAL: Duration = Duration::from_millis(2);
+const BACKGROUND_REAP_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const MAXIMUM_COMMAND_QUEUE_LENGTH: usize = 1_024;
 const MAXIMUM_COMMAND_QUEUE_BYTES: usize = 72 * 1_024 * 1_024;
 const COMMAND_QUEUE_RECOVERY_RESERVE_BYTES: usize = 1_024;
@@ -44,6 +48,7 @@ const MAXIMUM_WORKER_OUTBOX_BYTES: usize = 72 * 1_024 * 1_024;
 const MAXIMUM_WORKER_OUTBOX_ALLOCATED_SLOTS: usize = MAXIMUM_WORKER_OUTBOX_LENGTH * 2;
 const MAXIMUM_WORKER_RECEIVE_BATCH_BYTES: usize = 1_024 * 1_024;
 const MAXIMUM_RENDERER_WORKERS: usize = 1_024;
+const MAXIMUM_DESIRED_PRESENTATIONS: usize = 1_024;
 const MAXIMUM_SUPERVISOR_QUEUED_MESSAGES: usize = 4_096;
 const MAXIMUM_SUPERVISOR_QUEUED_BYTES: usize = 256 * 1_024 * 1_024;
 const SUPERVISOR_RECOVERY_RESERVE_MESSAGES: usize = 1;
@@ -266,14 +271,32 @@ impl RendererSupervisor {
         presentation_id: PresentationId,
         workspace_uuid: Option<WorkspaceUuid>,
     ) -> Result<(), RendererSupervisorError> {
-        self.enqueue(CoordinatorCommand::SetPresentation { presentation_id, workspace_uuid })
+        let state = self.shared.state.lock().unwrap();
+        if state.stopping {
+            return Err(RendererSupervisorError::Stopped);
+        }
+        let mut desired = self.shared.desired_presentations.lock().unwrap();
+        if workspace_uuid.is_some()
+            && !desired.values.contains_key(&presentation_id)
+            && desired.values.len() >= MAXIMUM_DESIRED_PRESENTATIONS
+        {
+            return Err(RendererSupervisorError::QueueFull);
+        }
+        let changed = desired.set(presentation_id, workspace_uuid);
+        if !changed {
+            return Ok(());
+        }
+        drop(desired);
+        drop(state);
+        self.shared.changed.notify_one();
+        Ok(())
     }
 
     pub fn remove_presentation(
         &self,
         presentation_id: PresentationId,
     ) -> Result<(), RendererSupervisorError> {
-        self.enqueue(CoordinatorCommand::RemovePresentation { presentation_id })
+        self.set_presentation_workspace(presentation_id, None)
     }
 
     /// Drop visibility for workspaces removed from canonical mux topology.
@@ -281,9 +304,29 @@ impl RendererSupervisor {
         &self,
         workspace_uuids: BTreeSet<WorkspaceUuid>,
     ) -> Result<(), RendererSupervisorError> {
-        let mut workspace_uuids = workspace_uuids.into_iter().collect::<Vec<_>>();
-        workspace_uuids.shrink_to_fit();
-        self.enqueue(CoordinatorCommand::RetainWorkspaces { workspace_uuids })
+        let state = self.shared.state.lock().unwrap();
+        if state.stopping {
+            return Err(RendererSupervisorError::Stopped);
+        }
+        let mut desired = self.shared.desired_presentations.lock().unwrap();
+        let removed = desired
+            .values
+            .iter()
+            .filter_map(|(presentation_id, workspace_uuid)| {
+                (!workspace_uuids.contains(workspace_uuid)).then_some(*presentation_id)
+            })
+            .collect::<Vec<_>>();
+        if removed.is_empty() {
+            return Ok(());
+        }
+        for presentation_id in removed {
+            let removed = desired.set(presentation_id, None);
+            debug_assert!(removed);
+        }
+        drop(desired);
+        drop(state);
+        self.shared.changed.notify_one();
+        Ok(())
     }
 
     /// Queue one daemon-to-worker control message. Messages accepted before
@@ -383,6 +426,7 @@ impl Drop for RendererSupervisor {
 
 struct Shared {
     state: Mutex<CoordinatorState>,
+    desired_presentations: Mutex<DesiredPresentations>,
     statuses: Mutex<Vec<RendererWorkerStatus>>,
     event_handler: Mutex<Option<RendererSupervisorEventHandler>>,
     changed: Condvar,
@@ -392,12 +436,79 @@ impl Shared {
     fn new(queue_budget: Arc<SupervisorQueueBudget>) -> Self {
         Self {
             state: Mutex::new(CoordinatorState::new(queue_budget)),
+            desired_presentations: Mutex::new(DesiredPresentations::default()),
             statuses: Mutex::new(Vec::new()),
             event_handler: Mutex::new(None),
             changed: Condvar::new(),
         }
     }
 }
+
+#[derive(Default)]
+struct DesiredPresentations {
+    revision: u64,
+    values: BTreeMap<PresentationId, WorkspaceUuid>,
+    pending_changes: BTreeMap<PresentationId, CoalescedPresentationChange>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CoalescedPresentationChange {
+    before: Option<WorkspaceUuid>,
+    after: Option<WorkspaceUuid>,
+}
+
+impl DesiredPresentations {
+    fn set(
+        &mut self,
+        presentation_id: PresentationId,
+        workspace_uuid: Option<WorkspaceUuid>,
+    ) -> bool {
+        let before = self.values.get(&presentation_id).copied();
+        let changed = match workspace_uuid {
+            Some(workspace_uuid) => {
+                self.values.insert(presentation_id, workspace_uuid) != Some(workspace_uuid)
+            }
+            None => self.values.remove(&presentation_id).is_some(),
+        };
+        if changed {
+            // This side lane is authoritative and coalescing. A presentation
+            // that moves repeatedly before the coordinator wakes contributes
+            // one keyed update instead of cloning the complete desired map.
+            if let Some(pending) = self.pending_changes.get_mut(&presentation_id) {
+                pending.after = workspace_uuid;
+                if pending.after == pending.before {
+                    self.pending_changes.remove(&presentation_id);
+                }
+            } else {
+                self.pending_changes.insert(
+                    presentation_id,
+                    CoalescedPresentationChange { before, after: workspace_uuid },
+                );
+            }
+            self.advance_revision();
+        }
+        changed
+    }
+
+    fn advance_revision(&mut self) {
+        self.revision = self.revision.wrapping_add(1).max(1);
+    }
+
+    fn take_pending_changes(&mut self, reconciled_revision: &mut u64) -> Option<PendingChanges> {
+        if self.revision == *reconciled_revision {
+            return None;
+        }
+        *reconciled_revision = self.revision;
+        Some(
+            std::mem::take(&mut self.pending_changes)
+                .into_iter()
+                .map(|(presentation_id, change)| (presentation_id, change.after))
+                .collect(),
+        )
+    }
+}
+
+type PendingChanges = BTreeMap<PresentationId, Option<WorkspaceUuid>>;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct SupervisorQueueUsage {
@@ -492,15 +603,10 @@ struct AccountedCoordinatorCommand {
 }
 
 enum CoordinatorCommand {
+    #[cfg(test)]
     SetPresentation {
         presentation_id: PresentationId,
         workspace_uuid: Option<WorkspaceUuid>,
-    },
-    RemovePresentation {
-        presentation_id: PresentationId,
-    },
-    RetainWorkspaces {
-        workspace_uuids: Vec<WorkspaceUuid>,
     },
     Send {
         workspace_uuid: WorkspaceUuid,
@@ -664,21 +770,18 @@ impl CoordinatorCommand {
             Self::Send { workspace_uuid, .. } | Self::SendIfEpoch { workspace_uuid, .. } => {
                 Some(*workspace_uuid)
             }
-            Self::SetPresentation { .. }
-            | Self::RemovePresentation { .. }
-            | Self::RetainWorkspaces { .. }
-            | Self::WorkspaceStatus { .. }
-            | Self::RecoverWorkspaceOverflow { .. } => None,
+            #[cfg(test)]
+            Self::SetPresentation { .. } => None,
+            Self::WorkspaceStatus { .. } | Self::RecoverWorkspaceOverflow { .. } => None,
         }
     }
 
     fn retained_message_count(&self) -> usize {
         match self {
             Self::SendIfEpoch { messages, .. } => messages.len(),
-            Self::SetPresentation { .. }
-            | Self::RemovePresentation { .. }
-            | Self::RetainWorkspaces { .. }
-            | Self::Send { .. }
+            #[cfg(test)]
+            Self::SetPresentation { .. } => 1,
+            Self::Send { .. }
             | Self::WorkspaceStatus { .. }
             | Self::RecoverWorkspaceOverflow { .. } => 1,
         }
@@ -686,9 +789,6 @@ impl CoordinatorCommand {
 
     fn dynamic_retained_byte_count(&self) -> usize {
         match self {
-            Self::RetainWorkspaces { workspace_uuids } => {
-                workspace_uuids.capacity().saturating_mul(size_of::<WorkspaceUuid>())
-            }
             Self::Send { message, .. } => message.dynamic_retained_byte_count(),
             Self::SendIfEpoch { messages, .. } => messages
                 .capacity()
@@ -699,10 +799,9 @@ impl CoordinatorCommand {
                         .map(RendererControlMessage::dynamic_retained_byte_count)
                         .fold(0_usize, usize::saturating_add),
                 ),
-            Self::SetPresentation { .. }
-            | Self::RemovePresentation { .. }
-            | Self::WorkspaceStatus { .. }
-            | Self::RecoverWorkspaceOverflow { .. } => 0,
+            #[cfg(test)]
+            Self::SetPresentation { .. } => 0,
+            Self::WorkspaceStatus { .. } | Self::RecoverWorkspaceOverflow { .. } => 0,
         }
     }
 }
@@ -712,6 +811,7 @@ where
     S: RendererSpawner,
     C: SupervisorClock,
 {
+    let mut desired_presentation_revision = 0;
     loop {
         let command = {
             let mut state = shared.state.lock().unwrap();
@@ -730,14 +830,9 @@ where
 
         if let Some(command) = command {
             match command {
+                #[cfg(test)]
                 CoordinatorCommand::SetPresentation { presentation_id, workspace_uuid } => {
                     core.set_presentation_workspace(presentation_id, workspace_uuid);
-                }
-                CoordinatorCommand::RemovePresentation { presentation_id } => {
-                    core.remove_presentation(presentation_id);
-                }
-                CoordinatorCommand::RetainWorkspaces { workspace_uuids } => {
-                    core.retain_workspaces(&workspace_uuids);
                 }
                 CoordinatorCommand::Send { workspace_uuid, message } => {
                     if let Err(error) = core.send(workspace_uuid, message) {
@@ -748,11 +843,17 @@ where
                     core.send_if_epoch(workspace_uuid, renderer_epoch, messages);
                 }
                 CoordinatorCommand::WorkspaceStatus { workspace_uuid, reply } => {
-                    let status = core
-                        .statuses()
-                        .into_iter()
-                        .find(|status| status.workspace_uuid == workspace_uuid);
-                    let _ = reply.send(status);
+                    // Desired presentation changes use a coalescing side lane
+                    // so visibility teardown cannot be blocked by a saturated
+                    // command queue. Reconcile that lane before answering the
+                    // ordered status query, otherwise the first attach can see
+                    // `None` even though its visibility update completed first.
+                    reconcile_desired_presentations(
+                        shared,
+                        core,
+                        &mut desired_presentation_revision,
+                    );
+                    let _ = reply.send(core.workspace_status(workspace_uuid));
                 }
                 CoordinatorCommand::RecoverWorkspaceOverflow { workspace_uuid } => {
                     core.worker_failed(
@@ -762,6 +863,7 @@ where
                 }
             }
         }
+        reconcile_desired_presentations(shared, core, &mut desired_presentation_revision);
         core.tick();
         *shared.statuses.lock().unwrap() = core.statuses();
         for event in core.take_events() {
@@ -770,6 +872,23 @@ where
                 handler(event);
             }
         }
+    }
+}
+
+fn reconcile_desired_presentations<S, C>(
+    shared: &Shared,
+    core: &mut SupervisorCore<S, C>,
+    reconciled_revision: &mut u64,
+) where
+    S: RendererSpawner,
+    C: SupervisorClock,
+{
+    let pending_changes = {
+        let mut desired = shared.desired_presentations.lock().unwrap();
+        desired.take_pending_changes(reconciled_revision)
+    };
+    if let Some(pending_changes) = pending_changes {
+        core.apply_presentation_changes(pending_changes);
     }
 }
 
@@ -800,12 +919,17 @@ struct SpawnRequest {
     renderer_epoch: u64,
 }
 
-trait RendererProcess: Send {
+trait RendererProcess: Send + 'static {
     fn pid(&self) -> u32;
     fn send(&mut self, bytes: &[u8]) -> io::Result<()>;
     fn receive(&mut self, destination: &mut Vec<u8>) -> io::Result<ReceiveResult>;
     fn try_wait(&mut self) -> io::Result<Option<ExitStatus>>;
-    fn terminate_and_wait(&mut self) -> io::Result<()>;
+    /// Close the daemon endpoint before termination so no retired worker can
+    /// retain a live control capability while the coordinator has forgotten
+    /// its identity.
+    fn close_control(&mut self);
+    /// Request termination without waiting for process exit.
+    fn terminate(&mut self) -> io::Result<()>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -928,6 +1052,9 @@ impl Drop for BoundedWorkerOutbox {
 struct Worker<P> {
     process: Option<P>,
     epoch: u64,
+    // Maintained by keyed presentation deltas. Statuses are published every
+    // coordinator tick, so they never rescan presentations per worker.
+    visible_presentation_count: usize,
     restart_count: u64,
     failure_streak: u32,
     state: RendererWorkerState,
@@ -941,6 +1068,123 @@ struct Worker<P> {
     scene_capabilities: Option<RendererSceneCapabilities>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RendererWorkerIdentity {
+    workspace_uuid: WorkspaceUuid,
+    renderer_epoch: u64,
+    process_id: Option<u32>,
+}
+
+impl RendererWorkerIdentity {
+    fn from_worker<P: RendererProcess>(workspace_uuid: WorkspaceUuid, worker: &Worker<P>) -> Self {
+        Self {
+            workspace_uuid,
+            renderer_epoch: worker.epoch,
+            process_id: worker.process.as_ref().map(RendererProcess::pid),
+        }
+    }
+}
+
+struct RetiredRendererProcess<P> {
+    identity: RendererWorkerIdentity,
+    process: P,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct RendererRetirementReport {
+    unreaped: Vec<RendererWorkerIdentity>,
+}
+
+/// Retire a batch with one deadline for the batch, never one timeout per PID.
+/// All control descriptors close first, then all termination requests are
+/// issued, then nonblocking wait probes reap the children collectively. Any
+/// survivor moves to an isolated background reaper so the coordinator owns no
+/// forgotten child and cannot block past `deadline_after`.
+fn retire_renderer_processes<P: RendererProcess>(
+    mut retired: Vec<RetiredRendererProcess<P>>,
+    deadline_after: Duration,
+) -> RendererRetirementReport {
+    if retired.is_empty() {
+        return RendererRetirementReport::default();
+    }
+
+    for retired_process in &mut retired {
+        retired_process.process.close_control();
+    }
+    for retired_process in &mut retired {
+        if let Err(error) = retired_process.process.terminate() {
+            eprintln!(
+                "failed to terminate renderer worker {:?}: {error}",
+                retired_process.identity
+            );
+        }
+    }
+
+    let deadline = Instant::now().checked_add(deadline_after).unwrap_or_else(Instant::now);
+    reap_ready_processes(&mut retired);
+    while !retired.is_empty() {
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        thread::sleep(WORKER_REAP_POLL_INTERVAL.min(deadline.saturating_duration_since(now)));
+        reap_ready_processes(&mut retired);
+    }
+
+    let unreaped = retired.iter().map(|entry| entry.identity).collect::<Vec<_>>();
+    if !retired.is_empty() {
+        let unreaped_for_diagnostic = unreaped.clone();
+        if let Err(error) = thread::Builder::new()
+            .name("cmux-renderer-reaper".to_owned())
+            .spawn(move || background_reap_renderer_processes(retired))
+        {
+            eprintln!(
+                "failed to start renderer background reaper for {:?}: {error}",
+                unreaped_for_diagnostic
+            );
+        }
+    }
+    RendererRetirementReport { unreaped }
+}
+
+fn reap_ready_processes<P: RendererProcess>(retired: &mut Vec<RetiredRendererProcess<P>>) {
+    let mut index = 0;
+    while index < retired.len() {
+        match retired[index].process.try_wait() {
+            Ok(Some(_)) => {
+                retired.swap_remove(index);
+            }
+            Ok(None) => index += 1,
+            Err(error) => {
+                eprintln!(
+                    "failed to poll retired renderer worker {:?}: {error}",
+                    retired[index].identity
+                );
+                index += 1;
+            }
+        }
+    }
+}
+
+fn background_reap_renderer_processes<P: RendererProcess>(
+    mut retired: Vec<RetiredRendererProcess<P>>,
+) {
+    while !retired.is_empty() {
+        reap_ready_processes(&mut retired);
+        if !retired.is_empty() {
+            thread::sleep(BACKGROUND_REAP_POLL_INTERVAL);
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ReconciliationOperationCounts {
+    presentation_visits: usize,
+    existing_worker_visits: usize,
+    desired_workspace_visits: usize,
+}
+
 struct SupervisorCore<S, C>
 where
     S: RendererSpawner,
@@ -952,10 +1196,13 @@ where
     initial_restart_delay: Duration,
     maximum_restart_delay: Duration,
     presentations: BTreeMap<PresentationId, WorkspaceUuid>,
+    presentation_counts: BTreeMap<WorkspaceUuid, usize>,
     workers: BTreeMap<WorkspaceUuid, Worker<S::Process>>,
     queue_budget: Arc<SupervisorQueueBudget>,
     next_epoch: Option<u64>,
     events: VecDeque<RendererSupervisorEvent>,
+    #[cfg(test)]
+    last_reconciliation_operations: ReconciliationOperationCounts,
 }
 
 impl<S, C> SupervisorCore<S, C>
@@ -978,69 +1225,149 @@ where
             initial_restart_delay,
             maximum_restart_delay,
             presentations: BTreeMap::new(),
+            presentation_counts: BTreeMap::new(),
             workers: BTreeMap::new(),
             queue_budget,
             next_epoch: Some(1),
             events: VecDeque::new(),
+            #[cfg(test)]
+            last_reconciliation_operations: ReconciliationOperationCounts::default(),
         }
     }
 
+    #[cfg(test)]
     fn set_presentation_workspace(
         &mut self,
         presentation_id: PresentationId,
         workspace_uuid: Option<WorkspaceUuid>,
     ) {
-        match workspace_uuid {
-            Some(workspace_uuid) => {
-                self.presentations.insert(presentation_id, workspace_uuid);
-            }
-            None => {
-                self.presentations.remove(&presentation_id);
-            }
-        }
-        self.reconcile();
+        self.apply_presentation_changes(BTreeMap::from([(presentation_id, workspace_uuid)]));
     }
 
+    #[cfg(test)]
     fn remove_presentation(&mut self, presentation_id: PresentationId) {
-        self.presentations.remove(&presentation_id);
-        self.reconcile();
+        self.apply_presentation_changes(BTreeMap::from([(presentation_id, None)]));
     }
 
-    fn retain_workspaces(&mut self, workspace_uuids: &[WorkspaceUuid]) {
-        self.presentations.retain(|_, workspace_uuid| workspace_uuids.contains(workspace_uuid));
-        self.reconcile();
-    }
-
-    fn visible_workspaces(&self) -> BTreeSet<WorkspaceUuid> {
-        self.presentations.values().copied().collect()
-    }
-
-    fn reconcile(&mut self) {
-        let desired = self.visible_workspaces();
-        let dormant = self
-            .workers
+    #[cfg(test)]
+    fn replace_presentations(&mut self, presentations: BTreeMap<PresentationId, WorkspaceUuid>) {
+        let mut changes = self
+            .presentations
             .keys()
-            .filter(|workspace| !desired.contains(workspace))
-            .copied()
-            .collect::<Vec<_>>();
-        for workspace in dormant {
-            if let Some(mut worker) = self.workers.remove(&workspace) {
-                self.events.push_back(RendererSupervisorEvent::WorkerUnavailable {
-                    workspace_uuid: workspace,
-                    renderer_epoch: worker.epoch,
-                    process_id: worker.process.as_ref().map(RendererProcess::pid),
-                    reason: "workspace is no longer visible".to_owned(),
-                });
-                stop_worker(&mut worker);
+            .filter(|presentation_id| !presentations.contains_key(presentation_id))
+            .map(|presentation_id| (*presentation_id, None))
+            .collect::<PendingChanges>();
+        changes.extend(
+            presentations
+                .into_iter()
+                .map(|(presentation_id, workspace_uuid)| (presentation_id, Some(workspace_uuid))),
+        );
+        self.apply_presentation_changes(changes);
+    }
+
+    #[cfg(test)]
+    fn retain_workspaces(&mut self, workspace_uuids: &BTreeSet<WorkspaceUuid>) {
+        let changes = self
+            .presentations
+            .iter()
+            .filter_map(|(presentation_id, workspace_uuid)| {
+                (!workspace_uuids.contains(workspace_uuid)).then_some((*presentation_id, None))
+            })
+            .collect();
+        self.apply_presentation_changes(changes);
+    }
+
+    fn apply_presentation_changes(&mut self, changes: PendingChanges) {
+        #[cfg(test)]
+        let mut operations = ReconciliationOperationCounts::default();
+        let mut touched_workspaces = BTreeSet::new();
+        for (presentation_id, next_workspace) in changes {
+            #[cfg(test)]
+            {
+                operations.presentation_visits += 1;
+            }
+            let previous_workspace = self.presentations.get(&presentation_id).copied();
+            if previous_workspace == next_workspace {
+                continue;
+            }
+            if let Some(previous_workspace) = previous_workspace {
+                self.presentations.remove(&presentation_id);
+                touched_workspaces.insert(previous_workspace);
+                let count = self
+                    .presentation_counts
+                    .get_mut(&previous_workspace)
+                    .expect("presentation count must exist for mapped presentation");
+                *count = count.checked_sub(1).expect("presentation count cannot underflow");
+                if *count == 0 {
+                    self.presentation_counts.remove(&previous_workspace);
+                }
+            }
+            if let Some(next_workspace) = next_workspace {
+                self.presentations.insert(presentation_id, next_workspace);
+                touched_workspaces.insert(next_workspace);
+                *self.presentation_counts.entry(next_workspace).or_insert(0) += 1;
             }
         }
-        for workspace in desired {
-            if !self.workers.contains_key(&workspace) {
-                if self.workers.len() >= MAXIMUM_RENDERER_WORKERS {
-                    continue;
+
+        let mut retired = Vec::new();
+        let mut unavailable = Vec::new();
+        // Free every dormant slot before admitting new desired workers. This
+        // makes a move at the worker cap independent of UUID sort order.
+        for workspace in touched_workspaces
+            .iter()
+            .copied()
+            .filter(|workspace| !self.presentation_counts.contains_key(workspace))
+        {
+            if let Some(mut worker) = self.workers.remove(&workspace) {
+                #[cfg(test)]
+                {
+                    operations.existing_worker_visits += 1;
                 }
-                self.spawn_initial(workspace);
+                let identity = RendererWorkerIdentity::from_worker(workspace, &worker);
+                if let Some(process) = worker.process.take() {
+                    retired.push(RetiredRendererProcess { identity, process });
+                }
+                unavailable.push(identity);
             }
+        }
+        let desired_touched_workspaces = touched_workspaces
+            .into_iter()
+            .filter(|workspace| self.presentation_counts.contains_key(workspace))
+            .collect::<Vec<_>>();
+        for workspace in desired_touched_workspaces {
+            let visible_presentation_count = self.presentation_counts[&workspace];
+            #[cfg(test)]
+            {
+                operations.desired_workspace_visits += 1;
+            }
+            if let Some(worker) = self.workers.get_mut(&workspace) {
+                #[cfg(test)]
+                {
+                    operations.existing_worker_visits += 1;
+                }
+                worker.visible_presentation_count = visible_presentation_count;
+            } else if self.workers.len() < MAXIMUM_RENDERER_WORKERS {
+                self.spawn_initial(workspace, visible_presentation_count);
+            }
+        }
+        // Every retired identity is absent from `workers` before the first
+        // control descriptor is closed or process is signalled.
+        let retirement = retire_renderer_processes(retired, COORDINATOR_RETIREMENT_DEADLINE);
+        for identity in unavailable {
+            let mut reason = "workspace is no longer visible".to_owned();
+            if retirement.unreaped.contains(&identity) {
+                reason.push_str("; renderer reap deferred after global retirement deadline");
+            }
+            self.events.push_back(RendererSupervisorEvent::WorkerUnavailable {
+                workspace_uuid: identity.workspace_uuid,
+                renderer_epoch: identity.renderer_epoch,
+                process_id: identity.process_id,
+                reason,
+            });
+        }
+        #[cfg(test)]
+        {
+            self.last_reconciliation_operations = operations;
         }
     }
 
@@ -1050,11 +1377,12 @@ where
         Ok(epoch)
     }
 
-    fn spawn_initial(&mut self, workspace_uuid: WorkspaceUuid) {
+    fn spawn_initial(&mut self, workspace_uuid: WorkspaceUuid, visible_presentation_count: usize) {
         match self.allocate_epoch() {
             Ok(epoch) => {
                 let outbox = BoundedWorkerOutbox::new(self.queue_budget.clone());
-                let worker = self.spawn_worker(workspace_uuid, epoch, 0, 0, outbox);
+                let mut worker = self.spawn_worker(workspace_uuid, epoch, 0, 0, outbox);
+                worker.visible_presentation_count = visible_presentation_count;
                 self.workers.insert(workspace_uuid, worker);
             }
             Err(error) => {
@@ -1063,6 +1391,7 @@ where
                     Worker {
                         process: None,
                         epoch: u64::MAX,
+                        visible_presentation_count,
                         restart_count: 0,
                         failure_streak: 1,
                         state: RendererWorkerState::Backoff,
@@ -1116,6 +1445,7 @@ where
                     Ok(()) => Worker {
                         process: Some(process),
                         epoch,
+                        visible_presentation_count: 0,
                         restart_count,
                         failure_streak,
                         state: RendererWorkerState::Starting,
@@ -1131,13 +1461,29 @@ where
                         scene_capabilities: None,
                     },
                     Err(error) => {
-                        let _ = process.terminate_and_wait();
+                        let identity = RendererWorkerIdentity {
+                            workspace_uuid,
+                            renderer_epoch: epoch,
+                            process_id: Some(process.pid()),
+                        };
+                        let retirement = retire_renderer_processes(
+                            vec![RetiredRendererProcess { identity, process }],
+                            COORDINATOR_RETIREMENT_DEADLINE,
+                        );
+                        let diagnostic = if retirement.unreaped.contains(&identity) {
+                            format!(
+                                "{}; renderer reap deferred after global retirement deadline",
+                                error
+                            )
+                        } else {
+                            error.to_string()
+                        };
                         self.backoff_worker(
                             workspace_uuid,
                             epoch,
                             restart_count.saturating_add(1),
                             failure_streak.saturating_add(1),
-                            error.to_string(),
+                            diagnostic,
                             outbox,
                         )
                     }
@@ -1172,6 +1518,7 @@ where
         Worker {
             process: None,
             epoch,
+            visible_presentation_count: 0,
             restart_count,
             failure_streak,
             state: RendererWorkerState::Backoff,
@@ -1231,9 +1578,13 @@ where
 
     fn tick(&mut self) {
         let workspaces = self.workers.keys().copied().collect::<Vec<_>>();
+        let mut failures = Vec::new();
         for workspace_uuid in workspaces {
-            self.poll_worker(workspace_uuid);
+            if let Some(error) = self.poll_worker(workspace_uuid) {
+                failures.push((workspace_uuid, error));
+            }
         }
+        self.workers_failed(failures);
         let now = self.clock.now();
         let due = self
             .workers
@@ -1249,11 +1600,11 @@ where
         }
     }
 
-    fn poll_worker(&mut self, workspace_uuid: WorkspaceUuid) {
+    fn poll_worker(&mut self, workspace_uuid: WorkspaceUuid) -> Option<String> {
         let mut received = Vec::new();
         let outcome = {
-            let Some(worker) = self.workers.get_mut(&workspace_uuid) else { return };
-            let Some(process) = worker.process.as_mut() else { return };
+            let worker = self.workers.get_mut(&workspace_uuid)?;
+            let process = worker.process.as_mut()?;
             match process.try_wait() {
                 Ok(Some(status)) => Err(format!("worker exited with {status}")),
                 Err(error) => Err(format!("failed to poll worker: {error}")),
@@ -1265,11 +1616,10 @@ where
             }
         };
         if let Err(error) = outcome {
-            self.worker_failed(workspace_uuid, error);
-            return;
+            return Some(error);
         }
         if received.is_empty() {
-            return;
+            return None;
         }
         let envelopes = {
             let worker = self.workers.get_mut(&workspace_uuid).unwrap();
@@ -1285,12 +1635,12 @@ where
                     if let Err(error) =
                         self.accept_worker_envelope(workspace_uuid, epoch, pid, envelope)
                     {
-                        self.worker_failed(workspace_uuid, error.to_string());
-                        break;
+                        return Some(error.to_string());
                     }
                 }
+                None
             }
-            Err(error) => self.worker_failed(workspace_uuid, error.to_string()),
+            Err(error) => Some(error.to_string()),
         }
     }
 
@@ -1380,27 +1730,45 @@ where
     }
 
     fn worker_failed(&mut self, workspace_uuid: WorkspaceUuid, error: String) {
-        let Some(mut previous) = self.workers.remove(&workspace_uuid) else { return };
-        self.events.push_back(RendererSupervisorEvent::WorkerUnavailable {
-            workspace_uuid,
-            renderer_epoch: previous.epoch,
-            process_id: previous.process.as_ref().map(RendererProcess::pid),
-            reason: error.clone(),
-        });
-        if let Some(process) = previous.process.as_mut() {
-            let _ = process.terminate_and_wait();
+        self.workers_failed(vec![(workspace_uuid, error)]);
+    }
+
+    fn workers_failed(&mut self, failures: Vec<(WorkspaceUuid, String)>) {
+        let mut retired = Vec::new();
+        let mut unavailable = Vec::new();
+        for (workspace_uuid, error) in failures {
+            let Some(mut previous) = self.workers.remove(&workspace_uuid) else {
+                continue;
+            };
+            let identity = RendererWorkerIdentity::from_worker(workspace_uuid, &previous);
+            if let Some(process) = previous.process.take() {
+                retired.push(RetiredRendererProcess { identity, process });
+            }
+            let outbox = BoundedWorkerOutbox::new(self.queue_budget.clone());
+            let mut backoff = self.backoff_worker(
+                workspace_uuid,
+                previous.epoch,
+                previous.restart_count.saturating_add(1),
+                previous.failure_streak.saturating_add(1),
+                error.clone(),
+                outbox,
+            );
+            backoff.visible_presentation_count = previous.visible_presentation_count;
+            self.workers.insert(workspace_uuid, backoff);
+            unavailable.push((identity, error));
         }
-        previous.process = None;
-        let outbox = BoundedWorkerOutbox::new(self.queue_budget.clone());
-        let backoff = self.backoff_worker(
-            workspace_uuid,
-            previous.epoch,
-            previous.restart_count.saturating_add(1),
-            previous.failure_streak.saturating_add(1),
-            error,
-            outbox,
-        );
-        self.workers.insert(workspace_uuid, backoff);
+        let retirement = retire_renderer_processes(retired, COORDINATOR_RETIREMENT_DEADLINE);
+        for (identity, mut reason) in unavailable {
+            if retirement.unreaped.contains(&identity) {
+                reason.push_str("; renderer reap deferred after global retirement deadline");
+            }
+            self.events.push_back(RendererSupervisorEvent::WorkerUnavailable {
+                workspace_uuid: identity.workspace_uuid,
+                renderer_epoch: identity.renderer_epoch,
+                process_id: identity.process_id,
+                reason,
+            });
+        }
     }
 
     fn restart_worker(&mut self, workspace_uuid: WorkspaceUuid) {
@@ -1409,28 +1777,28 @@ where
             Ok(epoch) => epoch,
             Err(error) => {
                 let outbox = BoundedWorkerOutbox::new(self.queue_budget.clone());
-                self.workers.insert(
+                let mut worker = self.backoff_worker(
                     workspace_uuid,
-                    self.backoff_worker(
-                        workspace_uuid,
-                        previous.epoch,
-                        previous.restart_count,
-                        previous.failure_streak,
-                        error.to_string(),
-                        outbox,
-                    ),
+                    previous.epoch,
+                    previous.restart_count,
+                    previous.failure_streak,
+                    error.to_string(),
+                    outbox,
                 );
+                worker.visible_presentation_count = previous.visible_presentation_count;
+                self.workers.insert(workspace_uuid, worker);
                 return;
             }
         };
         let outbox = BoundedWorkerOutbox::new(self.queue_budget.clone());
-        let worker = self.spawn_worker(
+        let mut worker = self.spawn_worker(
             workspace_uuid,
             epoch,
             previous.restart_count,
             previous.failure_streak,
             outbox,
         );
+        worker.visible_presentation_count = previous.visible_presentation_count;
         self.workers.insert(workspace_uuid, worker);
     }
 
@@ -1445,36 +1813,67 @@ where
     }
 
     fn statuses(&self) -> Vec<RendererWorkerStatus> {
+        self.status_snapshot().0
+    }
+
+    fn workspace_status(&self, workspace_uuid: WorkspaceUuid) -> Option<RendererWorkerStatus> {
+        let worker = self.workers.get(&workspace_uuid)?;
+        Some(Self::worker_status_at(workspace_uuid, worker, self.clock.now()))
+    }
+
+    fn status_snapshot(&self) -> (Vec<RendererWorkerStatus>, usize) {
         let now = self.clock.now();
-        self.workers
+        let mut worker_visits = 0;
+        let statuses = self
+            .workers
             .iter()
-            .map(|(workspace_uuid, worker)| RendererWorkerStatus {
-                workspace_uuid: *workspace_uuid,
-                renderer_epoch: worker.epoch,
-                pid: worker.process.as_ref().map(RendererProcess::pid),
-                restart_count: worker.restart_count,
-                visible_presentation_count: self
-                    .presentations
-                    .values()
-                    .filter(|workspace| *workspace == workspace_uuid)
-                    .count(),
-                state: worker.state,
-                retry_after_milliseconds: worker
-                    .retry_at
-                    .map(|retry_at| duration_milliseconds(retry_at.saturating_sub(now))),
-                last_error: worker.last_error.clone(),
-                effective_user_id: worker.effective_user_id,
-                scene_capabilities: worker.scene_capabilities.map(|value| value.bits()),
+            .map(|(workspace_uuid, worker)| {
+                worker_visits += 1;
+                Self::worker_status_at(*workspace_uuid, worker, now)
             })
-            .collect()
+            .collect();
+        (statuses, worker_visits)
+    }
+
+    fn worker_status_at(
+        workspace_uuid: WorkspaceUuid,
+        worker: &Worker<S::Process>,
+        now: Duration,
+    ) -> RendererWorkerStatus {
+        RendererWorkerStatus {
+            workspace_uuid,
+            renderer_epoch: worker.epoch,
+            pid: worker.process.as_ref().map(RendererProcess::pid),
+            restart_count: worker.restart_count,
+            visible_presentation_count: worker.visible_presentation_count,
+            state: worker.state,
+            retry_after_milliseconds: worker
+                .retry_at
+                .map(|retry_at| duration_milliseconds(retry_at.saturating_sub(now))),
+            last_error: worker.last_error.clone(),
+            effective_user_id: worker.effective_user_id,
+            scene_capabilities: worker.scene_capabilities.map(|value| value.bits()),
+        }
     }
 
     fn shutdown(&mut self) {
-        for worker in self.workers.values_mut() {
-            stop_worker(worker);
-        }
-        self.workers.clear();
+        let workers = std::mem::take(&mut self.workers);
         self.presentations.clear();
+        self.presentation_counts.clear();
+        let retired = workers
+            .into_iter()
+            .filter_map(|(workspace_uuid, mut worker)| {
+                let identity = RendererWorkerIdentity::from_worker(workspace_uuid, &worker);
+                worker.process.take().map(|process| RetiredRendererProcess { identity, process })
+            })
+            .collect();
+        let retirement = retire_renderer_processes(retired, WORKER_RETIREMENT_DEADLINE);
+        for identity in retirement.unreaped {
+            eprintln!(
+                "cmux renderer worker {} epoch {} pid {:?} exceeded the global reap deadline; background reaper owns it",
+                identity.workspace_uuid, identity.renderer_epoch, identity.process_id
+            );
+        }
     }
 }
 
@@ -1496,16 +1895,6 @@ fn flush_worker_outbox<P: RendererProcess>(
         send_control_message(worker, message)?;
     }
     Ok(())
-}
-
-fn stop_worker<P: RendererProcess>(worker: &mut Worker<P>) {
-    if worker.process.is_some() && worker.encoder.is_some() && worker.session.is_some() {
-        let _ = send_control_message(worker, RendererControlMessage::Shutdown);
-    }
-    if let Some(process) = worker.process.as_mut() {
-        let _ = process.terminate_and_wait();
-    }
-    worker.process = None;
 }
 
 fn restart_delay(
@@ -1601,7 +1990,7 @@ impl RendererSpawner for CommandRendererSpawner {
         drop(worker_fd);
         let stream = std::os::unix::net::UnixStream::from(daemon_fd);
         stream.set_write_timeout(Some(Duration::from_millis(250)))?;
-        Ok(CommandRendererProcess { child, stream })
+        Ok(CommandRendererProcess { child, stream: Some(stream) })
     }
 }
 
@@ -1630,7 +2019,7 @@ impl RendererSpawner for CommandRendererSpawner {
 #[cfg(unix)]
 struct CommandRendererProcess {
     child: Child,
-    stream: std::os::unix::net::UnixStream,
+    stream: Option<std::os::unix::net::UnixStream>,
 }
 
 #[cfg(unix)]
@@ -1640,7 +2029,10 @@ impl RendererProcess for CommandRendererProcess {
     }
 
     fn send(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.stream.write_all(bytes)
+        self.stream
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "renderer control closed"))?
+            .write_all(bytes)
     }
 
     fn receive(&mut self, destination: &mut Vec<u8>) -> io::Result<ReceiveResult> {
@@ -1652,7 +2044,12 @@ impl RendererProcess for CommandRendererProcess {
             let receive_length = remaining.min(buffer.len());
             let count = unsafe {
                 libc::recv(
-                    self.stream.as_raw_fd(),
+                    self.stream
+                        .as_ref()
+                        .ok_or_else(|| {
+                            io::Error::new(io::ErrorKind::BrokenPipe, "renderer control closed")
+                        })?
+                        .as_raw_fd(),
                     buffer.as_mut_ptr().cast(),
                     receive_length,
                     libc::MSG_DONTWAIT,
@@ -1678,11 +2075,15 @@ impl RendererProcess for CommandRendererProcess {
         self.child.try_wait()
     }
 
-    fn terminate_and_wait(&mut self) -> io::Result<()> {
+    fn close_control(&mut self) {
+        self.stream.take();
+    }
+
+    fn terminate(&mut self) -> io::Result<()> {
         if self.child.try_wait()?.is_none() {
             self.child.kill()?;
         }
-        self.child.wait().map(|_| ())
+        Ok(())
     }
 }
 
@@ -1703,7 +2104,8 @@ impl RendererProcess for UnsupportedRendererProcess {
     fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         Err(io::Error::new(io::ErrorKind::Unsupported, "unsupported"))
     }
-    fn terminate_and_wait(&mut self) -> io::Result<()> {
+    fn close_control(&mut self) {}
+    fn terminate(&mut self) -> io::Result<()> {
         Ok(())
     }
 }
@@ -1782,8 +2184,11 @@ mod tests {
     #[derive(Debug, Default)]
     struct FakeProcessRecord {
         crashed: bool,
+        control_closed: bool,
         terminated: bool,
         reaped: bool,
+        terminated_at: Option<Instant>,
+        reap_delay: Duration,
         sent_frames: Vec<Vec<u8>>,
     }
 
@@ -1810,6 +2215,14 @@ mod tests {
             let state = self.0.lock().unwrap();
             let record = state.processes.get(&pid).unwrap();
             (record.terminated, record.reaped, record.sent_frames.len())
+        }
+
+        fn control_closed(&self, pid: u32) -> bool {
+            self.0.lock().unwrap().processes[&pid].control_closed
+        }
+
+        fn set_reap_delay(&self, pid: u32, reap_delay: Duration) {
+            self.0.lock().unwrap().processes.get_mut(&pid).unwrap().reap_delay = reap_delay;
         }
 
         fn all_reaped(&self) -> bool {
@@ -1858,14 +2271,30 @@ mod tests {
                 record.reaped = true;
                 return Ok(Some(ExitStatus::from_raw(1 << 8)));
             }
+            if record.terminated
+                && record
+                    .terminated_at
+                    .is_some_and(|terminated_at| terminated_at.elapsed() >= record.reap_delay)
+            {
+                record.reaped = true;
+                return Ok(Some(ExitStatus::from_raw(9)));
+            }
             Ok(None)
         }
 
-        fn terminate_and_wait(&mut self) -> io::Result<()> {
+        fn close_control(&mut self) {
+            self.state.lock().unwrap().processes.get_mut(&self.pid).unwrap().control_closed = true;
+        }
+
+        fn terminate(&mut self) -> io::Result<()> {
             let mut state = self.state.lock().unwrap();
             let record = state.processes.get_mut(&self.pid).unwrap();
+            assert!(
+                record.control_closed,
+                "renderer control capability must close before process termination"
+            );
             record.terminated = true;
-            record.reaped = true;
+            record.terminated_at = Some(Instant::now());
             Ok(())
         }
     }
@@ -2229,8 +2658,7 @@ mod tests {
         }));
         assert_eq!(queue_budget.snapshot(), baseline);
 
-        core.presentations.clear();
-        core.reconcile();
+        core.replace_presentations(BTreeMap::new());
         assert!(core.workers.is_empty());
         assert_eq!(queue_budget.snapshot(), baseline);
         core.set_presentation_workspace(PresentationId::new(), Some(WorkspaceUuid::new()));
@@ -2427,6 +2855,109 @@ mod tests {
     }
 
     #[test]
+    fn desired_presentation_removal_bypasses_a_saturated_command_queue() {
+        let queue_budget = Arc::new(SupervisorQueueBudget::default());
+        let shared = Arc::new(Shared::new(queue_budget));
+        let supervisor = RendererSupervisor { shared: shared.clone(), coordinator: None };
+        let presentation_id = PresentationId::new();
+        supervisor.set_presentation_workspace(presentation_id, Some(WorkspaceUuid::new())).unwrap();
+
+        let mut state = shared.state.lock().unwrap();
+        for _ in 0..MAXIMUM_COMMAND_QUEUE_LENGTH - 1 {
+            state
+                .enqueue(CoordinatorCommand::SetPresentation {
+                    presentation_id: PresentationId::new(),
+                    workspace_uuid: Some(WorkspaceUuid::new()),
+                })
+                .unwrap();
+        }
+        assert_eq!(state.commands.len(), MAXIMUM_COMMAND_QUEUE_LENGTH - 1);
+        drop(state);
+
+        supervisor.remove_presentation(presentation_id).unwrap();
+        assert!(
+            !shared.desired_presentations.lock().unwrap().values.contains_key(&presentation_id)
+        );
+        assert_eq!(
+            shared.state.lock().unwrap().commands.len(),
+            MAXIMUM_COMMAND_QUEUE_LENGTH - 1,
+            "desired-state removal must not consume the bounded message lane"
+        );
+    }
+
+    #[test]
+    fn status_query_reconciles_a_prior_side_lane_visibility_update() {
+        let queue_budget = Arc::new(SupervisorQueueBudget::default());
+        let shared = Arc::new(Shared::new(queue_budget.clone()));
+        let workspace_uuid = WorkspaceUuid::new();
+        let presentation_id = PresentationId::new();
+        {
+            let mut desired = shared.desired_presentations.lock().unwrap();
+            assert!(desired.set(presentation_id, Some(workspace_uuid)));
+        }
+        let (reply, response) = sync_channel(1);
+        shared
+            .state
+            .lock()
+            .unwrap()
+            .enqueue(CoordinatorCommand::WorkspaceStatus { workspace_uuid, reply })
+            .unwrap();
+
+        let coordinator_shared = shared.clone();
+        let mut core =
+            new_core_with_budget(FakeSpawner::default(), ManualClock::default(), queue_budget);
+        let coordinator = thread::spawn(move || {
+            coordinator_loop(&coordinator_shared, &mut core);
+        });
+
+        let status = response.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        assert_eq!(status.workspace_uuid, workspace_uuid);
+        assert_eq!(status.state, RendererWorkerState::Starting);
+
+        {
+            let mut state = shared.state.lock().unwrap();
+            state.stopping = true;
+        }
+        shared.changed.notify_all();
+        coordinator.join().unwrap();
+    }
+
+    #[test]
+    fn idempotent_desired_presentation_updates_do_not_schedule_full_reconciliation() {
+        let shared = Arc::new(Shared::new(Arc::new(SupervisorQueueBudget::default())));
+        let supervisor = RendererSupervisor { shared: shared.clone(), coordinator: None };
+        let presentation_id = PresentationId::new();
+        let workspace_uuid = WorkspaceUuid::new();
+
+        supervisor.set_presentation_workspace(presentation_id, Some(workspace_uuid)).unwrap();
+        assert_eq!(shared.desired_presentations.lock().unwrap().revision, 1);
+        assert_eq!(shared.desired_presentations.lock().unwrap().pending_changes.len(), 1);
+
+        supervisor.set_presentation_workspace(presentation_id, Some(workspace_uuid)).unwrap();
+        supervisor.retain_workspaces(BTreeSet::from([workspace_uuid])).unwrap();
+        supervisor.remove_presentation(PresentationId::new()).unwrap();
+
+        assert_eq!(shared.desired_presentations.lock().unwrap().revision, 1);
+        assert_eq!(shared.desired_presentations.lock().unwrap().pending_changes.len(), 1);
+    }
+
+    #[test]
+    fn add_remove_churn_before_reconciliation_does_not_accumulate_tombstones() {
+        let mut desired = DesiredPresentations::default();
+
+        for _ in 0..10_000 {
+            let presentation_id = PresentationId::new();
+            assert!(desired.set(presentation_id, Some(WorkspaceUuid::new())));
+            assert!(desired.set(presentation_id, None));
+        }
+
+        assert!(desired.values.is_empty());
+        assert!(desired.pending_changes.is_empty());
+        let mut revision = 0;
+        assert!(desired.take_pending_changes(&mut revision).unwrap().is_empty());
+    }
+
+    #[test]
     fn starting_worker_saturation_restarts_only_that_workspace_and_drops_stale_scenes() {
         let spawner = FakeSpawner::default();
         let clock = ManualClock::default();
@@ -2577,7 +3108,182 @@ mod tests {
         assert_eq!(core.statuses()[0].pid, Some(pid));
         core.remove_presentation(second);
         assert!(core.statuses().is_empty());
-        assert_eq!(spawner.record(pid), (true, true, 2));
+        assert_eq!(spawner.record(pid), (true, true, 1));
+        assert!(spawner.control_closed(pid));
+    }
+
+    #[test]
+    fn one_thousand_dormant_canonical_workspaces_create_no_renderer_state() {
+        const WORKSPACE_COUNT: usize = 1_000;
+
+        let spawner = FakeSpawner::default();
+        let queue_budget = Arc::new(SupervisorQueueBudget::default());
+        let baseline = queue_budget.snapshot();
+        let mut core =
+            new_core_with_budget(spawner.clone(), ManualClock::default(), queue_budget.clone());
+        let canonical_workspaces =
+            (0..WORKSPACE_COUNT).map(|_| WorkspaceUuid::new()).collect::<BTreeSet<_>>();
+
+        // Canonical existence is only a retention fence. Without a visible
+        // presentation, no workspace enters the renderer's desired set.
+        core.retain_workspaces(&canonical_workspaces);
+
+        assert_eq!(canonical_workspaces.len(), WORKSPACE_COUNT);
+        assert!(core.presentations.is_empty());
+        assert!(core.workers.is_empty());
+        assert_eq!(spawner.spawn_count(), 0);
+        assert_eq!(core.last_reconciliation_operations, ReconciliationOperationCounts::default());
+        let (statuses, worker_visits) = core.status_snapshot();
+        assert!(statuses.is_empty());
+        assert_eq!(worker_visits, 0);
+        assert_eq!(queue_budget.snapshot(), baseline);
+    }
+
+    #[test]
+    fn one_thousand_visible_workspaces_create_exactly_one_worker_each_in_linear_visits() {
+        const WORKSPACE_COUNT: usize = 1_000;
+
+        let spawner = FakeSpawner::default();
+        let queue_budget = Arc::new(SupervisorQueueBudget::default());
+        let baseline = queue_budget.snapshot();
+        let mut core =
+            new_core_with_budget(spawner.clone(), ManualClock::default(), queue_budget.clone());
+        let desired = (0..WORKSPACE_COUNT)
+            .map(|_| (PresentationId::new(), WorkspaceUuid::new()))
+            .collect::<BTreeMap<_, _>>();
+        let one_workspace = *desired.values().next().unwrap();
+
+        core.replace_presentations(desired.clone());
+
+        assert_eq!(core.workers.len(), WORKSPACE_COUNT);
+        assert_eq!(spawner.spawn_count(), WORKSPACE_COUNT);
+        assert_eq!(
+            core.last_reconciliation_operations,
+            ReconciliationOperationCounts {
+                presentation_visits: WORKSPACE_COUNT,
+                existing_worker_visits: 0,
+                desired_workspace_visits: WORKSPACE_COUNT,
+            }
+        );
+        let (statuses, worker_visits) = core.status_snapshot();
+        assert_eq!(worker_visits, WORKSPACE_COUNT);
+        assert_eq!(statuses.len(), WORKSPACE_COUNT);
+        assert!(statuses.iter().all(|status| status.visible_presentation_count == 1));
+        assert_eq!(
+            core.workspace_status(one_workspace).unwrap().workspace_uuid,
+            one_workspace,
+            "a single-workspace query must use the keyed worker path"
+        );
+        assert!(core.workers.values().all(|worker| {
+            worker.outbox.messages.capacity() <= MAXIMUM_WORKER_OUTBOX_ALLOCATED_SLOTS
+        }));
+        assert_eq!(queue_budget.snapshot(), baseline);
+
+        // The compatibility full-snapshot helper validates each supplied key,
+        // but unchanged keys touch no worker and spawn no duplicate process.
+        core.replace_presentations(desired);
+        assert_eq!(spawner.spawn_count(), WORKSPACE_COUNT);
+        assert_eq!(
+            core.last_reconciliation_operations,
+            ReconciliationOperationCounts {
+                presentation_visits: WORKSPACE_COUNT,
+                existing_worker_visits: 0,
+                desired_workspace_visits: 0,
+            }
+        );
+        let (_, repeated_status_worker_visits) = core.status_snapshot();
+        assert_eq!(repeated_status_worker_visits, WORKSPACE_COUNT);
+    }
+
+    #[test]
+    fn one_thousand_presentations_of_one_workspace_share_one_worker() {
+        const PRESENTATION_COUNT: usize = 1_000;
+
+        let spawner = FakeSpawner::default();
+        let mut core = new_core(spawner.clone(), ManualClock::default());
+        let workspace_uuid = WorkspaceUuid::new();
+        let desired = (0..PRESENTATION_COUNT)
+            .map(|_| (PresentationId::new(), workspace_uuid))
+            .collect::<BTreeMap<_, _>>();
+
+        core.replace_presentations(desired);
+
+        assert_eq!(core.workers.len(), 1);
+        assert_eq!(spawner.spawn_count(), 1);
+        assert_eq!(
+            core.last_reconciliation_operations,
+            ReconciliationOperationCounts {
+                presentation_visits: PRESENTATION_COUNT,
+                existing_worker_visits: 0,
+                desired_workspace_visits: 1,
+            }
+        );
+        let (statuses, worker_visits) = core.status_snapshot();
+        assert_eq!(worker_visits, 1);
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].workspace_uuid, workspace_uuid);
+        assert_eq!(statuses[0].visible_presentation_count, PRESENTATION_COUNT);
+    }
+
+    #[test]
+    fn one_changed_presentation_at_thousand_workspace_scale_reconciles_only_touched_keys() {
+        const WORKSPACE_COUNT: usize = 1_000;
+
+        let spawner = FakeSpawner::default();
+        let mut core = new_core(spawner.clone(), ManualClock::default());
+        let mut desired = DesiredPresentations::default();
+        let entries = (0..WORKSPACE_COUNT)
+            .map(|_| (PresentationId::new(), WorkspaceUuid::new()))
+            .collect::<Vec<_>>();
+        for (presentation_id, workspace_uuid) in &entries {
+            assert!(desired.set(*presentation_id, Some(*workspace_uuid)));
+        }
+        let mut revision = 0;
+        core.apply_presentation_changes(desired.take_pending_changes(&mut revision).unwrap());
+        assert_eq!(core.workers.len(), WORKSPACE_COUNT);
+
+        let moved_presentation = entries[0].0;
+        let previous_workspace = entries[0].1;
+        let next_workspace = WorkspaceUuid::new();
+        assert!(desired.set(moved_presentation, Some(next_workspace)));
+        let pending = desired.take_pending_changes(&mut revision).unwrap();
+        assert_eq!(pending.len(), 1, "the side lane must not clone all desired presentations");
+
+        core.apply_presentation_changes(pending);
+
+        assert_eq!(core.workers.len(), WORKSPACE_COUNT);
+        assert!(!core.workers.contains_key(&previous_workspace));
+        assert!(core.workers.contains_key(&next_workspace));
+        assert_eq!(
+            core.last_reconciliation_operations,
+            ReconciliationOperationCounts {
+                presentation_visits: 1,
+                existing_worker_visits: 1,
+                desired_workspace_visits: 1,
+            }
+        );
+        assert_eq!(spawner.spawn_count(), WORKSPACE_COUNT + 1);
+    }
+
+    #[test]
+    fn presentation_move_at_worker_cap_frees_old_slot_before_admitting_new_workspace() {
+        let spawner = FakeSpawner::default();
+        let mut core = new_core(spawner.clone(), ManualClock::default());
+        let moved_presentation = PresentationId::new();
+        let previous_workspace = workspace("f0000000-0000-4000-8000-000000000001");
+        let next_workspace = workspace("10000000-0000-4000-8000-000000000001");
+        core.set_presentation_workspace(moved_presentation, Some(previous_workspace));
+        for _ in 1..MAXIMUM_RENDERER_WORKERS {
+            core.set_presentation_workspace(PresentationId::new(), Some(WorkspaceUuid::new()));
+        }
+        assert_eq!(core.workers.len(), MAXIMUM_RENDERER_WORKERS);
+
+        core.set_presentation_workspace(moved_presentation, Some(next_workspace));
+
+        assert_eq!(core.workers.len(), MAXIMUM_RENDERER_WORKERS);
+        assert!(!core.workers.contains_key(&previous_workspace));
+        assert!(core.workers.contains_key(&next_workspace));
+        assert_eq!(spawner.spawn_count(), MAXIMUM_RENDERER_WORKERS + 1);
     }
 
     #[test]
@@ -2876,6 +3582,96 @@ mod tests {
     }
 
     #[test]
+    fn many_worker_shutdown_closes_controls_and_reaps_under_one_global_deadline() {
+        const WORKER_COUNT: usize = 96;
+
+        let spawner = FakeSpawner::default();
+        let mut core = new_core(spawner.clone(), ManualClock::default());
+        for _ in 0..WORKER_COUNT {
+            core.set_presentation_workspace(PresentationId::new(), Some(WorkspaceUuid::new()));
+        }
+        let pids =
+            core.statuses().into_iter().map(|status| status.pid.unwrap()).collect::<Vec<_>>();
+        for pid in &pids {
+            spawner.set_reap_delay(*pid, Duration::from_millis(30));
+        }
+
+        let started = Instant::now();
+        core.shutdown();
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < Duration::from_millis(400),
+            "96 workers must share one retirement deadline, elapsed {elapsed:?}"
+        );
+        assert!(core.statuses().is_empty());
+        assert!(spawner.all_reaped());
+        assert!(pids.into_iter().all(|pid| spawner.control_closed(pid)));
+    }
+
+    #[test]
+    fn retirement_reports_unreaped_identity_without_waiting_past_batch_deadline() {
+        let mut spawner = FakeSpawner::default();
+        let workspace_uuid = WorkspaceUuid::new();
+        let process = spawner
+            .spawn(&SpawnRequest {
+                daemon_instance_id: daemon(),
+                workspace_uuid,
+                renderer_epoch: 77,
+            })
+            .unwrap();
+        let pid = process.pid();
+        spawner.set_reap_delay(pid, Duration::from_millis(100));
+        let identity =
+            RendererWorkerIdentity { workspace_uuid, renderer_epoch: 77, process_id: Some(pid) };
+
+        let started = Instant::now();
+        let report = retire_renderer_processes(
+            vec![RetiredRendererProcess { identity, process }],
+            Duration::from_millis(10),
+        );
+
+        assert!(started.elapsed() < Duration::from_millis(80));
+        assert_eq!(report.unreaped, vec![identity]);
+        assert!(spawner.control_closed(pid));
+        assert!(spawner.record(pid).0, "termination must be requested before reporting");
+        assert!(!spawner.record(pid).1, "the background reaper still owns this process");
+    }
+
+    #[test]
+    fn command_process_retirement_closes_control_fd_and_reaps_real_pid() {
+        use std::io::Read;
+
+        let child = Command::new("/bin/sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let (stream, mut peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let identity = RendererWorkerIdentity {
+            workspace_uuid: WorkspaceUuid::new(),
+            renderer_epoch: 1,
+            process_id: Some(pid),
+        };
+        let process = CommandRendererProcess { child, stream: Some(stream) };
+
+        let report = retire_renderer_processes(
+            vec![RetiredRendererProcess { identity, process }],
+            Duration::from_secs(1),
+        );
+
+        assert!(report.unreaped.is_empty());
+        let mut byte = [0_u8; 1];
+        assert_eq!(peer.read(&mut byte).unwrap(), 0, "daemon control endpoint must be closed");
+        assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
+        assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+    }
+
+    #[test]
     fn canonical_workspace_deletion_stops_a_stale_presentations_worker() {
         let spawner = FakeSpawner::default();
         let mut core = new_core(spawner.clone(), ManualClock::default());
@@ -2897,7 +3693,7 @@ mod tests {
             .pid
             .unwrap();
 
-        core.retain_workspaces(&[retained]);
+        core.retain_workspaces(&BTreeSet::from([retained]));
 
         assert_eq!(core.statuses().len(), 1);
         assert_eq!(core.statuses()[0].workspace_uuid, retained);

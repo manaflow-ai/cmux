@@ -13516,6 +13516,9 @@ struct VerticalTabsSidebar: View, Equatable {
             resolvedShiftAnchorIndex: shiftAnchorIndex,
             clickedIndex: index
         )
+        if !wasSelected {
+            SidebarProfilingSignposts.beginSelectionLatency(workspaceID: workspace.id)
+        }
         tabManager.selectTab(workspace)
         if wasSelected, !isCommand, !isShift {
             tabManager.dismissNotificationOnDirectInteraction(
@@ -13761,6 +13764,10 @@ struct VerticalTabsSidebar: View, Equatable {
             inferredTaskStatus: tab.inferredTaskStatus,
             activeTodoOverride: activeTodoOverride,
             isTodoStatusHidden: tab.todoState.statusHidden
+        )
+        SidebarProfilingSignposts.endSelectionLatencyIfVisible(
+            workspaceID: tab.id,
+            isSelected: result.isActive
         )
         return result
     }

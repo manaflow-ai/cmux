@@ -218,7 +218,13 @@ struct BackendServiceBootstrapCoordinatorTests {
             executableURL: URL(fileURLWithPath: "/Applications/cmux.app/backend"),
             processIDVersion: 1
         ),
-        topologyRevision: 7
+        topologyRevision: 7,
+        compatibility: .readWrite(BackendReadWriteCompatibility(
+            clientProtocolRange: 8 ... 9,
+            serverProtocolRange: 8 ... 9,
+            negotiatedProtocol: 9,
+            requiredCapabilities: BackendHandshakePolicy.terminalAuthorityV1.requiredCapabilities
+        ))
     )
 }
 

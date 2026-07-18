@@ -38,6 +38,163 @@ public struct TerminalExternalProcessMetadata: Equatable, Sendable {
     }
 }
 
+/// A daemon-projected range in AppKit's UTF-16 coordinate space.
+public struct TerminalAccessibilityRange: Equatable, Sendable {
+    public let location: Int
+    public let length: Int
+
+    public init(location: Int, length: Int) {
+        self.location = location
+        self.length = length
+    }
+}
+
+/// One terminal grid cell mapped to flattened accessibility text.
+public struct TerminalAccessibilityCell: Equatable, Sendable {
+    public let column: Int
+    public let columnSpan: Int
+    public let utf16Range: TerminalAccessibilityRange
+
+    public init(column: Int, columnSpan: Int, utf16Range: TerminalAccessibilityRange) {
+        self.column = column
+        self.columnSpan = columnSpan
+        self.utf16Range = utf16Range
+    }
+}
+
+/// One visible terminal row with exact cell and UTF-16 coordinates.
+public struct TerminalAccessibilityLine: Equatable, Sendable {
+    public let row: UInt64
+    public let utf16Range: TerminalAccessibilityRange
+    public let cells: [TerminalAccessibilityCell]
+
+    public init(
+        row: UInt64,
+        utf16Range: TerminalAccessibilityRange,
+        cells: [TerminalAccessibilityCell]
+    ) {
+        self.row = row
+        self.utf16Range = utf16Range
+        self.cells = cells
+    }
+}
+
+/// Canonical cursor and insertion position inside the visible value.
+public struct TerminalAccessibilityCursor: Equatable, Sendable {
+    public let column: Int
+    public let row: UInt64
+    public let insertionRange: TerminalAccessibilityRange
+    public let line: Int
+
+    public init(
+        column: Int,
+        row: UInt64,
+        insertionRange: TerminalAccessibilityRange,
+        line: Int
+    ) {
+        self.column = column
+        self.row = row
+        self.insertionRange = insertionRange
+        self.line = line
+    }
+}
+
+/// Canonical selection text and visible range intersections.
+public struct TerminalAccessibilitySelection: Equatable, Sendable {
+    public let text: String
+    public let utf16Ranges: [TerminalAccessibilityRange]
+
+    public init(text: String, utf16Ranges: [TerminalAccessibilityRange]) {
+        self.text = text
+        self.utf16Ranges = utf16Ranges
+    }
+}
+
+/// A revision-fenced OSC 8 link exposed as an AX link child.
+public struct TerminalAccessibilityLink: Equatable, Sendable {
+    public let id: String
+    public let target: String
+    public let utf16Range: TerminalAccessibilityRange
+    public let row: UInt64
+    public let startColumn: Int
+    public let endColumn: Int
+
+    public init(
+        id: String,
+        target: String,
+        utf16Range: TerminalAccessibilityRange,
+        row: UInt64,
+        startColumn: Int,
+        endColumn: Int
+    ) {
+        self.id = id
+        self.target = target
+        self.utf16Range = utf16Range
+        self.row = row
+        self.startColumn = startColumn
+        self.endColumn = endColumn
+    }
+}
+
+/// Revisioned daemon-owned accessibility state for one rendered presentation.
+public struct TerminalAccessibilitySnapshot: Equatable, Sendable {
+    public let schemaVersion: UInt32
+    public let surfaceID: UUID
+    public let presentationID: UUID
+    public let presentationGeneration: UInt64
+    public let contentSequence: UInt64
+    public let terminalRevision: UInt64
+    public let contentRevision: UInt64
+    public let viewportRevision: UInt64
+    public let viewportOffset: UInt64
+    public let columns: Int
+    public let rows: Int
+    public let text: String
+    public let lines: [TerminalAccessibilityLine]
+    public let cursor: TerminalAccessibilityCursor?
+    public let selections: [TerminalAccessibilitySelection]
+    public let links: [TerminalAccessibilityLink]
+    public let focused: Bool
+
+    public init(
+        schemaVersion: UInt32,
+        surfaceID: UUID,
+        presentationID: UUID,
+        presentationGeneration: UInt64,
+        contentSequence: UInt64,
+        terminalRevision: UInt64,
+        contentRevision: UInt64,
+        viewportRevision: UInt64,
+        viewportOffset: UInt64,
+        columns: Int,
+        rows: Int,
+        text: String,
+        lines: [TerminalAccessibilityLine],
+        cursor: TerminalAccessibilityCursor?,
+        selections: [TerminalAccessibilitySelection],
+        links: [TerminalAccessibilityLink],
+        focused: Bool
+    ) {
+        self.schemaVersion = schemaVersion
+        self.surfaceID = surfaceID
+        self.presentationID = presentationID
+        self.presentationGeneration = presentationGeneration
+        self.contentSequence = contentSequence
+        self.terminalRevision = terminalRevision
+        self.contentRevision = contentRevision
+        self.viewportRevision = viewportRevision
+        self.viewportOffset = viewportOffset
+        self.columns = columns
+        self.rows = rows
+        self.text = text
+        self.lines = lines
+        self.cursor = cursor
+        self.selections = selections
+        self.links = links
+        self.focused = focused
+    }
+}
+
 /// Cached grid and glyph metrics supplied by the out-of-process renderer.
 public struct TerminalExternalCellMetrics: Equatable, Sendable {
     public let columns: Int
@@ -81,6 +238,7 @@ public struct TerminalExternalRuntimeSnapshot: Equatable, Sendable {
     public let selection: TerminalExternalSelection?
     public let search: TerminalExternalSearchState?
     public let viewportState: TerminalExternalViewportState?
+    public let accessibility: TerminalAccessibilitySnapshot?
 
     public init(
         lifecycle: TerminalExternalRuntimeLifecycle,
@@ -94,7 +252,8 @@ public struct TerminalExternalRuntimeSnapshot: Equatable, Sendable {
         cursor: TerminalExternalCursorState? = nil,
         selection: TerminalExternalSelection? = nil,
         search: TerminalExternalSearchState? = nil,
-        viewportState: TerminalExternalViewportState? = nil
+        viewportState: TerminalExternalViewportState? = nil,
+        accessibility: TerminalAccessibilitySnapshot? = nil
     ) {
         self.lifecycle = lifecycle
         self.visibleText = visibleText
@@ -108,6 +267,7 @@ public struct TerminalExternalRuntimeSnapshot: Equatable, Sendable {
         self.selection = selection
         self.search = search
         self.viewportState = viewportState
+        self.accessibility = accessibility
     }
 }
 
@@ -350,11 +510,65 @@ public struct TerminalExternalMouseEvent: Equatable, Sendable {
     }
 }
 
+/// A daemon-resolved OSC 8 target tied to the exact frame and presentation
+/// used for pointer hit testing.
+public struct TerminalExternalHyperlinkHit: Equatable, Sendable {
+    public let target: String
+    public let contentSequence: UInt64
+    public let presentationGeneration: UInt64
+    public let column: UInt16
+    public let row: UInt64
+
+    public init(
+        target: String,
+        contentSequence: UInt64,
+        presentationGeneration: UInt64,
+        column: UInt16,
+        row: UInt64
+    ) {
+        self.target = target
+        self.contentSequence = contentSequence
+        self.presentationGeneration = presentationGeneration
+        self.column = column
+        self.row = row
+    }
+}
+
+/// AppKit IME state. All offsets use UTF-16 code units.
+public struct TerminalExternalPreedit: Equatable, Sendable {
+    public let text: String
+    public let selectionStartUTF16: UInt32
+    public let selectionLengthUTF16: UInt32
+    public let caretUTF16: UInt32
+
+    public init(
+        text: String,
+        selectionStartUTF16: UInt32,
+        selectionLengthUTF16: UInt32,
+        caretUTF16: UInt32
+    ) {
+        self.text = text
+        self.selectionStartUTF16 = selectionStartUTF16
+        self.selectionLengthUTF16 = selectionLengthUTF16
+        self.caretUTF16 = caretUTF16
+    }
+
+    public static func collapsedAtEnd(_ text: String) -> Self {
+        let end = UInt32(clamping: text.utf16.count)
+        return Self(
+            text: text,
+            selectionStartUTF16: end,
+            selectionLengthUTF16: 0,
+            caretUTF16: end
+        )
+    }
+}
+
 /// Every state-changing operation crosses one FIFO ingress.
 public enum TerminalExternalRuntimeMutation: Equatable, Sendable {
     case input(TerminalExternalInput)
     /// Visual-only IME marked text. `nil` clears it and never writes to the PTY.
-    case preedit(String?)
+    case preedit(TerminalExternalPreedit?)
     case mouse(TerminalExternalMouseEvent)
     case focus(Bool)
     case visibility(Bool)
@@ -443,6 +657,11 @@ public protocol TerminalExternalRuntime: AnyObject {
         _ presentation: TerminalExternalPresentation
     ) -> any TerminalExternalPresentationLease
 
+    /// Adopts a daemon-committed placement without issuing a second topology
+    /// mutation. Implementations must invalidate presentation state tied to the
+    /// previous workspace before rendering or accepting geometry again.
+    func adoptCanonicalPlacement(workspaceID: UUID)
+
     @discardableResult
     func enqueue(_ mutation: TerminalExternalRuntimeMutation) -> TerminalExternalIngressResult
 
@@ -450,4 +669,47 @@ public protocol TerminalExternalRuntime: AnyObject {
 
     /// Reads and refreshes the backend-owned selection without blocking AppKit.
     func readSelection() async -> TerminalExternalSelection?
+
+    /// Enables demand-driven semantic accessibility reads for this presentation.
+    func enableAccessibility()
+
+    /// Streams only snapshots whose revision tuple changed.
+    func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot>
+
+    /// Revalidates a link against the daemon before returning its target.
+    func activateAccessibilityLink(
+        _ link: TerminalAccessibilityLink,
+        snapshot: TerminalAccessibilitySnapshot
+    ) async -> String?
+
+    /// Resolves a pointer cell against the last admitted renderer frame.
+    func activateHyperlink(at event: TerminalExternalMouseEvent) async
+        -> TerminalExternalHyperlinkHit?
+}
+
+public extension TerminalExternalRuntime {
+    func adoptCanonicalPlacement(workspaceID: UUID) {
+        _ = workspaceID
+    }
+
+    func enableAccessibility() {}
+
+    func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
+        AsyncStream { $0.finish() }
+    }
+
+    func activateAccessibilityLink(
+        _ link: TerminalAccessibilityLink,
+        snapshot: TerminalAccessibilitySnapshot
+    ) async -> String? {
+        _ = link
+        _ = snapshot
+        return nil
+    }
+
+    func activateHyperlink(at event: TerminalExternalMouseEvent) async
+        -> TerminalExternalHyperlinkHit? {
+        _ = event
+        return nil
+    }
 }

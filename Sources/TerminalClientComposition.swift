@@ -10,19 +10,23 @@ final class TerminalClientComposition {
     let terminalPresentationRegistry: TerminalBackendPresentationRegistry?
     let terminalBackendTopologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate?
     let terminalBackendTopologyMutationCoordinator: TerminalBackendTopologyMutationCoordinator?
+    let browserEndpointFactory: any TerminalBackendBrowserEndpointCreating
 
     init(
         terminalPanelFactory: any TerminalPanelCreating,
         terminalBackendClient: (any TerminalBackendClient)? = nil,
         terminalPresentationRegistry: TerminalBackendPresentationRegistry? = nil,
         terminalBackendTopologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate? = nil,
-        terminalBackendTopologyMutationCoordinator: TerminalBackendTopologyMutationCoordinator? = nil
+        terminalBackendTopologyMutationCoordinator: TerminalBackendTopologyMutationCoordinator? = nil,
+        browserEndpointFactory: (any TerminalBackendBrowserEndpointCreating)? = nil
     ) {
         self.terminalPanelFactory = terminalPanelFactory
         self.terminalBackendClient = terminalBackendClient
         self.terminalPresentationRegistry = terminalPresentationRegistry
         self.terminalBackendTopologyAuthorizationGate = terminalBackendTopologyAuthorizationGate
         self.terminalBackendTopologyMutationCoordinator = terminalBackendTopologyMutationCoordinator
+        self.browserEndpointFactory = browserEndpointFactory
+            ?? UnsupportedTerminalBackendBrowserEndpointFactory()
     }
 
     static func embedded() -> TerminalClientComposition {
@@ -66,5 +70,16 @@ final class TerminalClientComposition {
     /// Authoritative snapshots used to import daemon terminals missing from Swift restore state.
     func canonicalSnapshots() async throws -> AsyncStream<TopologySnapshot>? {
         try await terminalBackendClient?.canonicalSnapshots()
+    }
+
+    /// Canonical topology changes with explicit connection loss and original
+    /// transaction metadata retained for minimal UI reconciliation.
+    func canonicalTopologyEvents() async throws -> AsyncStream<TerminalBackendTopologyStreamEvent>? {
+        try await terminalBackendClient?.canonicalTopologyEvents()
+    }
+
+    /// Reader-specific daemon activity used to derive sidebar unread state.
+    func terminalActivitySnapshots() async -> AsyncStream<BackendTerminalActivitySnapshot>? {
+        await terminalBackendClient?.terminalActivitySnapshots()
     }
 }

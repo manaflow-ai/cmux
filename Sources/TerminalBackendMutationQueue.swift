@@ -13,6 +13,10 @@ struct TerminalBackendMutationQueue {
     }
 
     var isEmpty: Bool { count == 0 }
+    var first: TerminalBackendQueuedMutation? {
+        guard count > 0 else { return nil }
+        return storage[head]
+    }
 
     mutating func append(_ mutation: TerminalBackendQueuedMutation) -> Bool {
         guard count < capacity else { return false }
@@ -22,7 +26,8 @@ struct TerminalBackendMutationQueue {
         return true
     }
 
-    mutating func popFirst() -> TerminalBackendQueuedMutation? {
+    @discardableResult
+    mutating func removeFirst() -> TerminalBackendQueuedMutation? {
         guard count > 0 else { return nil }
         let value = storage[head]
         storage[head] = nil

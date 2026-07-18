@@ -1605,7 +1605,8 @@ extension Workspace {
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration,
-                transparentBackground: snapshot.browser?.transparentBackground ?? false
+                transparentBackground: snapshot.browser?.transparentBackground ?? false,
+                restoredSurfaceId: snapshot.id
             ) else {
                 return nil
             }
@@ -2925,15 +2926,17 @@ final class Workspace: Identifiable, ObservableObject {
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
+        initialCanonicalBrowserPanel: BrowserPanel? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
-        terminalClientComposition: TerminalClientComposition? = nil,
+        terminalClientComposition: TerminalClientComposition,
         initialTerminalSurfaceID: UUID? = nil,
-        initialTerminalPaneID: UUID? = nil
+        initialTerminalPaneID: UUID? = nil,
+        isCanonicalTopologyProjection: Bool = false
     ) {
-        let terminalClientComposition = terminalClientComposition ?? .embedded()
         self.id = id
         self.terminalClientComposition = terminalClientComposition
+        self.isApplyingCanonicalTopologyProjection = isCanonicalTopologyProjection
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -3001,9 +3004,40 @@ final class Workspace: Identifiable, ObservableObject {
         var initialTabId: TabID?
         if let initialDetachedSurface {
             if let initialPaneId = bonsplitController.allPaneIds.first,
-               attachDetachedSurface(initialDetachedSurface, inPane: initialPaneId, focus: false) != nil {
+               attachDetachedSurface(
+                   initialDetachedSurface,
+                   inPane: initialPaneId,
+                   focus: false,
+                   publishLifecycleEvent: !isCanonicalTopologyProjection,
+                   adoptCanonicalTerminalPlacement: !isCanonicalTopologyProjection
+               ) != nil {
                 initialTabId = surfaceIdFromPanelId(initialDetachedSurface.panelId)
             }
+        } else if let browserPanel = initialCanonicalBrowserPanel {
+            guard case .backend(let endpoint) = browserPanel.endpointProvenance else {
+                preconditionFailure("canonical browser workspace requires backend provenance")
+            }
+            precondition(endpoint.surfaceID.rawValue == browserPanel.id)
+            precondition(browserPanel.workspaceId == id)
+            configureBrowserPanel(browserPanel)
+            panels[browserPanel.id] = browserPanel
+            panelTitles[browserPanel.id] = browserPanel.displayTitle
+            if let tabId = bonsplitController.createTab(
+                title: browserPanel.displayTitle,
+                tabID: TabID(uuid: browserPanel.id),
+                icon: browserPanel.displayIcon,
+                kind: SurfaceKind.browser.rawValue,
+                isDirty: browserPanel.isDirty,
+                isLoading: browserPanel.isLoading,
+                isAudioMuted: browserPanel.isMuted,
+                isAudioPlaying: browserPanel.isPlayingAudio,
+                isPinned: false
+            ) {
+                bindSurface(tabId, toPanelId: browserPanel.id)
+                initialTabId = tabId
+            }
+            installBrowserPanelSubscription(browserPanel)
+            browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
         } else if initialSurface == .browser {
             // Create the initial browser panel in its default new-tab state.
             // Mirrors the minimal terminal branch below plus the browser panel
@@ -3085,6 +3119,7 @@ final class Workspace: Identifiable, ObservableObject {
             // Create initial tab in bonsplit and store the mapping
             if let tabId = bonsplitController.createTab(
                 title: title,
+                tabID: initialTerminalSurfaceID.map(TabID.init(uuid:)),
                 icon: "terminal.fill",
                 kind: SurfaceKind.terminal.rawValue,
                 isDirty: false,
@@ -4113,7 +4148,7 @@ final class Workspace: Identifiable, ObservableObject {
             guard previous != trimmed else {
                 // Same text: a user write still claims ownership so a later
                 // auto write cannot replace a title the user re-confirmed.
-                if source == .user { panelCustomTitleSources[panelId] = .user }
+                if source != .auto { panelCustomTitleSources[panelId] = source }
                 return true
             }
             panelCustomTitles[panelId] = trimmed
@@ -7271,7 +7306,8 @@ final class Workspace: Identifiable, ObservableObject {
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true,
-        creationOrigin: TerminalPanelCreationRequest.Origin = .workspaceTab
+        creationOrigin: TerminalPanelCreationRequest.Origin = .workspaceTab,
+        publishLifecycleEvent: Bool = true
     ) -> TerminalPanel? {
         return newTerminalSurfaceOutcome(
             inPane: paneId,
@@ -7290,7 +7326,8 @@ final class Workspace: Identifiable, ObservableObject {
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
-            creationOrigin: creationOrigin
+            creationOrigin: creationOrigin,
+            publishLifecycleEvent: publishLifecycleEvent
         ).panel
     }
 
@@ -7314,7 +7351,8 @@ final class Workspace: Identifiable, ObservableObject {
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true,
-        creationOrigin: TerminalPanelCreationRequest.Origin = .workspaceTab
+        creationOrigin: TerminalPanelCreationRequest.Origin = .workspaceTab,
+        publishLifecycleEvent: Bool = true
     ) -> TerminalPanelCreationOutcome {
         if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil,
            !isApplyingCanonicalTopologyProjection {
@@ -7368,7 +7406,8 @@ final class Workspace: Identifiable, ObservableObject {
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
-            creationOrigin: creationOrigin
+            creationOrigin: creationOrigin,
+            publishLifecycleEvent: publishLifecycleEvent
         ) else { return .failed }
         return .created(panel)
     }
@@ -7390,7 +7429,8 @@ final class Workspace: Identifiable, ObservableObject {
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
         allowTextBoxFocusDefault: Bool,
-        creationOrigin: TerminalPanelCreationRequest.Origin
+        creationOrigin: TerminalPanelCreationRequest.Origin,
+        publishLifecycleEvent: Bool
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -7471,6 +7511,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Create tab in bonsplit
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
+            tabID: restoredSurfaceId.map(TabID.init(uuid:)),
             icon: newPanel.displayIcon,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
@@ -7489,7 +7530,15 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         bindSurface(newTabId, toPanelId: newPanel.id)
-        publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "terminal_tab", focused: shouldFocusNewTab)
+        if publishLifecycleEvent {
+            publishCmuxSurfaceCreated(
+                newPanel.id,
+                paneId: paneId,
+                kind: "terminal",
+                origin: "terminal_tab",
+                focused: shouldFocusNewTab
+            )
+        }
 
         // bonsplit's createTab may not reliably emit didSelectTab, and its internal selection
         // updates can be deferred. Force a deterministic selection + focus path so the new
@@ -8029,7 +8078,8 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
-        bypassRemoteProxy: Bool = false
+        bypassRemoteProxy: Bool = false,
+        restoredSurfaceId: UUID? = nil
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
@@ -8050,6 +8100,7 @@ final class Workspace: Identifiable, ObservableObject {
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         let browserPanel = BrowserPanel(
+            id: restoredSurfaceId ?? UUID(),
             workspaceId: id,
             profileID: resolvedNewBrowserProfileID(
                 preferredProfileID: preferredProfileID,
@@ -8118,6 +8169,47 @@ final class Workspace: Identifiable, ObservableObject {
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
+        return browserPanel
+    }
+
+    /// Installs a factory-produced presentation for one exact daemon browser
+    /// endpoint without constructing or navigating a local replacement tab.
+    @discardableResult
+    func attachCanonicalBrowserEndpointPanel(
+        _ browserPanel: BrowserPanel,
+        inPane paneId: PaneID
+    ) -> BrowserPanel? {
+        guard isApplyingCanonicalTopologyProjection,
+              bonsplitController.allPaneIds.contains(paneId),
+              panels[browserPanel.id] == nil,
+              browserPanel.workspaceId == id,
+              case .backend(let endpoint) = browserPanel.endpointProvenance,
+              endpoint.surfaceID.rawValue == browserPanel.id else {
+            return nil
+        }
+
+        configureBrowserPanel(browserPanel)
+        panels[browserPanel.id] = browserPanel
+        panelTitles[browserPanel.id] = browserPanel.displayTitle
+        guard let tabID = bonsplitController.createTab(
+            title: browserPanel.displayTitle,
+            tabID: TabID(uuid: browserPanel.id),
+            icon: browserPanel.displayIcon,
+            kind: SurfaceKind.browser.rawValue,
+            isDirty: browserPanel.isDirty,
+            isLoading: browserPanel.isLoading,
+            isAudioMuted: browserPanel.isMuted,
+            isAudioPlaying: browserPanel.isPlayingAudio,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: browserPanel.id)
+            panelTitles.removeValue(forKey: browserPanel.id)
+            return nil
+        }
+        bindSurface(tabID, toPanelId: browserPanel.id)
+        installBrowserPanelSubscription(browserPanel)
+        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
         return browserPanel
     }
 
@@ -9161,10 +9253,16 @@ final class Workspace: Identifiable, ObservableObject {
         return moveSurface(panelId: panelId, toPane: targetPaneId, focus: true)
     }
 
-    func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
+    func detachSurface(
+        panelId: UUID,
+        publishLifecycleEvent: Bool = true
+    ) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
         let sourcePaneId = paneId(forPanelId: panelId)
+        let sourceIndex = sourcePaneId.flatMap { paneId in
+            bonsplitController.tabs(inPane: paneId).firstIndex { $0.id == tabId }
+        }
         let shouldSkipControlMasterCleanupAfterDetach =
             activeRemoteTerminalSurfaceIds.contains(panelId)
             && activeRemoteTerminalSurfaceIds.count == 1
@@ -9194,13 +9292,27 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         var detached = splitLayout.takeDetachedTransfer(tabId)
+        if let detachedTransfer = detached {
+            detached = detachedTransfer.withSourcePlacement(
+                tabId: tabId,
+                paneId: sourcePaneId,
+                index: sourceIndex
+            )
+        }
         if shouldSkipControlMasterCleanupAfterDetach, let detachedTransfer = detached, detachedTransfer.isRemoteTerminal {
             skipControlMasterCleanupAfterDetachedRemoteTransfer = true
             if detachedTransfer.remoteCleanupConfiguration == nil {
                 detached = detachedTransfer.withRemoteCleanupConfiguration(remoteConfiguration)
             }
         }
-        publishCmuxSurfaceClosed(panelId, paneId: sourcePaneId, panel: sourcePanel, origin: detached == nil ? "detach_lost" : "detach")
+        if publishLifecycleEvent {
+            publishCmuxSurfaceClosed(
+                panelId,
+                paneId: sourcePaneId,
+                panel: sourcePanel,
+                origin: detached == nil ? "detach_lost" : "detach"
+            )
+        }
 #if DEBUG
         cmuxDebugLog(
             "split.detach.end ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
@@ -9217,7 +9329,9 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         atIndex index: Int? = nil,
         focus: Bool = true,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        publishLifecycleEvent: Bool = true,
+        adoptCanonicalTerminalPlacement: Bool = true
     ) -> UUID? {
 #if DEBUG
         let attachStart = ProcessInfo.processInfo.systemUptime
@@ -9288,6 +9402,7 @@ final class Workspace: Identifiable, ObservableObject {
         let detachedIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
+            tabID: detached.sourceTabId,
             hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
             iconImageData: detachedIconImageData,
@@ -9332,7 +9447,15 @@ final class Workspace: Identifiable, ObservableObject {
         bindSurface(newTabId, toPanelId: detached.panelId)
         panels[detached.panelId] = detached.panel
         if let terminalPanel = detached.panel as? TerminalPanel {
-            terminalPanel.updateWorkspaceId(id)
+            if isApplyingCanonicalTopologyProjection {
+                if adoptCanonicalTerminalPlacement {
+                    terminalPanel.installCanonicalWorkspaceId(id)
+                } else {
+                    terminalPanel.stageCanonicalWorkspaceId(id)
+                }
+            } else if !isApplyingCanonicalTopologyProjection {
+                terminalPanel.updateWorkspaceId(id)
+            }
             configureTerminalPanel(terminalPanel)
         } else if let browserPanel = detached.panel as? BrowserPanel {
             browserPanel.reattachToWorkspace(
@@ -9349,11 +9472,13 @@ final class Workspace: Identifiable, ObservableObject {
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
             customSidebarPanel.reattach(to: self)
         }
-        AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
-            fromTabId: detached.sourceWorkspaceId,
-            toTabId: id,
-            surfaceId: detached.panelId
-        )
+        if publishLifecycleEvent {
+            AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
+                fromTabId: detached.sourceWorkspaceId,
+                toTabId: id,
+                surfaceId: detached.panelId
+            )
+        }
         seedDetachedRestoredAgentState(from: detached)
         if let resumeSessionWorkingDirectory = detached.restoredResumeSessionWorkingDirectory {
             restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = resumeSessionWorkingDirectory
@@ -9416,7 +9541,15 @@ final class Workspace: Identifiable, ObservableObject {
         syncPinnedStateForTab(newTabId, panelId: detached.panelId)
         syncUnreadBadgeStateForPanel(detached.panelId)
         normalizePinnedTabs(in: paneId)
-        publishCmuxSurfaceCreated(detached.panelId, paneId: paneId, kind: Self.cmuxEventSurfaceKind(detached.panel), origin: "detach_attach", focused: focus)
+        if publishLifecycleEvent {
+            publishCmuxSurfaceCreated(
+                detached.panelId,
+                paneId: paneId,
+                kind: Self.cmuxEventSurfaceKind(detached.panel),
+                origin: "detach_attach",
+                focused: focus
+            )
+        }
 
         if focus {
             bonsplitController.focusPane(paneId)
@@ -12133,6 +12266,9 @@ extension Workspace: BonsplitDelegate {
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
             let panelDirectory = panelDirectories[panelId]
             splitLayout.storeDetachedTransfer(DetachedSurfaceTransfer(
+                sourceTabId: nil,
+                sourcePaneId: nil,
+                sourceIndex: nil,
                 sourceWorkspaceId: id,
                 panelId: panelId,
                 panel: panel,
@@ -12180,7 +12316,7 @@ extension Workspace: BonsplitDelegate {
             panel: panel,
             origin: "tab_close",
             closePanel: !isDetaching,
-            publishSurfaceClosedEvent: !isDetaching,
+            publishSurfaceClosedEvent: !isDetaching && !isApplyingCanonicalTopologyProjection,
             clearSurfaceNotifications: !preservesSurfaceForDetach,
             requestTransferredRemoteCleanup: false,
             cleanupControllerSurfaceState: !isDetaching
@@ -12357,7 +12493,9 @@ extension Workspace: BonsplitDelegate {
         let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
-        publishCmuxPaneClosed(paneId, closedPanelIds: closedPanelIds, origin: "pane_close")
+        if !isApplyingCanonicalTopologyProjection {
+            publishCmuxPaneClosed(paneId, closedPanelIds: closedPanelIds, origin: "pane_close")
+        }
         if !closedPanelIds.isEmpty {
             if !isDetachingCloseTransaction && !suppressClosedPanelHistory {
                 for entry in closedHistoryEntries {
@@ -12374,7 +12512,7 @@ extension Workspace: BonsplitDelegate {
                     panel: panel,
                     origin: "pane_close",
                     closePanel: true,
-                    publishSurfaceClosedEvent: true,
+                    publishSurfaceClosedEvent: !isApplyingCanonicalTopologyProjection,
                     clearSurfaceNotifications: true,
                     requestTransferredRemoteCleanup: true,
                     cleanupControllerSurfaceState: !isDetachingCloseTransaction

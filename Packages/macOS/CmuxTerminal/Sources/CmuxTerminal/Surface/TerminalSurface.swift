@@ -238,6 +238,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// through ``TerminalSurfaceViewProviding``).
     public let paneHost: any TerminalSurfacePaneHosting
     let surfaceView: any TerminalSurfaceNativeViewing
+
+    /// The interaction view that receives the backend compositor when this
+    /// surface is externally rendered.
+    ///
+    /// Keeping this seam on the surface avoids app-side mounting code reaching
+    /// through the concrete pane-host implementation.
+    @MainActor
+    public var compositorHostView: NSView { surfaceView }
+
     var lastPixelWidth: UInt32 = 0
     var lastPixelHeight: UInt32 = 0
     var lastUncappedPixelWidth: UInt32 = 0
@@ -536,8 +545,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
+        let renderOwnership: TerminalSurfaceRenderOwnership = externalRuntime == nil
+            ? .embeddedGhostty
+            : .externalCompositor
         let views = dependencies.viewProvider.makeSurfaceViews(
-            initialFrame: NSRect(x: 0, y: 0, width: 800, height: 600)
+            initialFrame: NSRect(x: 0, y: 0, width: 800, height: 600),
+            renderOwnership: renderOwnership
+        )
+        precondition(
+            views.surfaceView.renderOwnership == renderOwnership,
+            "Terminal surface view factory returned a renderer with mismatched ownership"
         )
         self.surfaceView = views.surfaceView
         self.paneHost = views.paneHost
@@ -581,15 +598,45 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Rebinds the surface (and its views) to a new owning workspace id.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
-        if tabId != newTabId {
-            portalLifecycleGeneration &+= 1
-        }
-        tabId = newTabId
-        attachedView?.tabId = newTabId
-        surfaceView.tabId = newTabId
+        installCanonicalWorkspaceId(newTabId)
         if externalRuntime != nil {
             _ = externalRuntime?.enqueue(.reparent(workspaceID: newTabId))
         }
+    }
+
+    /// Installs a backend-authoritative workspace identity without echoing a
+    /// second reparent mutation to the backend.
+    @MainActor
+    public func installCanonicalWorkspaceId(_ newTabId: UUID) {
+        externalRuntime?.adoptCanonicalPlacement(workspaceID: newTabId)
+        if tabId != newTabId {
+            portalLifecycleGeneration &+= 1
+        }
+        setPresentedWorkspaceId(newTabId)
+    }
+
+    /// Updates only Swift presentation identity during an all-or-nothing
+    /// topology transaction. External runtime adoption is deferred until the
+    /// process-wide transaction finalizes.
+    @MainActor
+    public func stageCanonicalWorkspaceId(_ newTabId: UUID) {
+        setPresentedWorkspaceId(newTabId)
+    }
+
+    /// Commits a previously staged placement after every window projector has
+    /// accepted the same topology revision.
+    @MainActor
+    public func finalizeStagedCanonicalWorkspaceId(_ newTabId: UUID) {
+        externalRuntime?.adoptCanonicalPlacement(workspaceID: newTabId)
+        portalLifecycleGeneration &+= 1
+        setPresentedWorkspaceId(newTabId)
+    }
+
+    @MainActor
+    private func setPresentedWorkspaceId(_ newTabId: UUID) {
+        tabId = newTabId
+        attachedView?.tabId = newTabId
+        surfaceView.tabId = newTabId
     }
 
     /// Requests an authoritative cross-workspace move without mutating Swift topology first.

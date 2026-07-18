@@ -172,6 +172,22 @@ private final class GhosttyPresentationEngine: RendererPresentationEngine, @unch
         )
     }
 
+    func shouldAnimate(visible: Bool) throws -> Bool {
+        guard let renderer, !closed else {
+            throw RendererPresentationEngineError.invariantViolation
+        }
+        var result = false
+        let status = ghostty_scene_renderer_should_animate(
+            renderer,
+            visible,
+            &result
+        )
+        guard status == GHOSTTY_SCENE_RENDERER_SUCCESS else {
+            throw Self.error(for: status)
+        }
+        return result
+    }
+
     func render() throws -> RendererFrameLease {
         guard let renderer, !closed else {
             throw RendererPresentationEngineError.invariantViolation

@@ -16,11 +16,11 @@ Default socket path, using `XDG_RUNTIME_DIR`, then `TMPDIR`, then `/tmp`:
 
 On Darwin, an oversized environment runtime root falls back to the private mode-`0700` directory `/tmp/cmux-tui-<uid>`. Filesystem socket paths accept 103 bytes and reject 104 bytes; paths are never truncated.
 
-`identify` reports the protocol version:
+`identify` reports protocol v8 as the preferred version and v9 as the opt-in maximum:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":8,"protocol_min":6,"protocol_max":8,"capabilities":["canonical-topology-snapshot-v1","stable-entity-uuid-v1","topology-resume-v1"],"session":"main","session_id":"<uuid>","daemon_instance_id":"<uuid>","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":8,"protocol_min":6,"protocol_max":9,"capabilities":["canonical-topology-snapshot-v1","projection-state-reconnect-v1","stable-entity-uuid-v1","terminal-activity-v1","terminal-control-lease-v1","terminal-input-idempotency-v1","terminal-ordered-input-v1","topology-resume-v1"],"session":"main","session_id":"<uuid>","daemon_instance_id":"<uuid>","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
 ```
 
 `ping` returns the same session, daemon, process, and revision authority fields
@@ -49,6 +49,11 @@ open-presentation
 update-presentation
 close-presentation
 list-presentations
+claim-projection-state
+update-projection-state
+update-projection-states
+release-projection-state
+list-projection-states
 topology-snapshot
 list-workspaces
 send
@@ -110,6 +115,8 @@ Resume from that exact daemon, session, and revision on a persistent connection:
 ```
 
 Every successful structural topology transaction produces one delta. Failed and no-op requests produce none. Focus, selection, zoom, and scroll are presentation state, so legacy navigation commands keep their legacy events and advance only legacy `topology_revision`, not this canonical revision. Capability-v1 carries a complete replacement so clients can apply it deterministically. Replacement construction and wire bandwidth scale with the full topology, so this bootstrap does not make mutation cost independent of dormant workspaces. A follow-up capability can add typed patches without weakening the cursor and recovery contract. The retained history and each subscriber queue are bounded by count and serialized bytes. A stale daemon, stale session, future revision, history gap, oversized replay, or slow consumer requires a fresh snapshot. One connection may open one topology stream; the daemon permits 256 live streams. Duplicate and excess subscriptions fail before allocating a journal mailbox. Presentations, terminal content and geometry, titles, process status, notifications, agent records, PTY bytes, and render frames are outside this stream.
+
+`projection-state-reconnect-v1` stores only stable logical-window to workspace and selected-screen mappings in daemon memory. Registered protocol-v9 frontends claim each stable window UUID, atomically update affected windows after local projection succeeds, and release a record when the user explicitly closes that window. Disconnect preserves mappings while releasing claims, renderer resources, and terminal-control leases. These mappings do not advance canonical topology revision and do not survive daemon restart.
 
 Canonical protocol-v8 objects retain numeric IDs as current-daemon handles for legacy commands. Their parallel UUID fields are the daemon-owned identities and remain stable through rename, reorder, and move operations. Protocol-v7 tree payloads stay numeric and have no UUID guarantee. A recreated entity receives a new UUID. A daemon restart changes `daemon_instance_id`, so a client cannot resume against a replacement process even when `session_id` is unchanged.
 
@@ -177,7 +184,7 @@ Then it sends ordered stream frames:
 
 The `resized` attach frame carries the new cell size and a fresh VT replay captured at that size. It is delivered in the same attach stream as output frames, so a client can reset its local terminal, apply the replay, and continue consuming later output in order.
 
-For browser surfaces, the server first sends `browser-state` with URL, title, size, status, stalled-frame state, and the latest PNG frame if one exists. Later updates send `browser-state` and `frame` events. Frame payloads are base64 PNG data and slow clients skip older frames rather than buffering unboundedly.
+For browser surfaces, the server first sends `browser-state` with URL, title, size, status, stalled-frame state, and the latest PNG frame if one exists. Later updates send `browser-state` and `frame` events. Frame payloads are base64 PNG data and slow clients skip older frames rather than buffering unboundedly. Canonical browser endpoints advertise `frontend_projection:"frontend-optional"`, so a frontend without this PNG consumer can omit only the browser presentation while retaining sibling terminal convergence. The daemon identity remains reserved and cannot be reused by a local browser overlay.
 
 When the stream ends, it sends:
 
@@ -188,6 +195,8 @@ When the stream ends, it sends:
 ## Client Compatibility
 
 The remote TUI accepts protocol v7 and v8. It uses the retained legacy attach and event contract in both versions and refuses older or unknown newer versions.
+
+The external renderer backend can negotiate protocol v9 with `register-client`. V9 moves each terminal one-way from shared legacy mutation to independent connection-and-presentation-bound input and geometry leases. It adds lane transfer, bounded automation input delegation, atomic input groups, one daemon-assigned input order per canonical terminal, and acknowledged idempotent retry receipts. The complete contract is in `../spec/terminal-control-v9.md`.
 
 Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
 

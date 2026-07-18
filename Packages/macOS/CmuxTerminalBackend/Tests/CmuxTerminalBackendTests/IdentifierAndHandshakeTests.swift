@@ -23,19 +23,31 @@ struct IdentifierAndHandshakeTests {
             supportedRange: 8 ... 10,
             requiredCapabilities: ["stable-identities", "topology-deltas"]
         )
-        #expect(try policy.validate(response) == 9)
+        guard case .readWrite(let compatibility) = try policy.validate(response) else {
+            Issue.record("expected read-write compatibility")
+            return
+        }
+        #expect(compatibility.negotiatedProtocol == 9)
+        #expect(compatibility.clientProtocolRange == 8 ... 10)
+        #expect(compatibility.serverProtocolRange == 7 ... 9)
     }
 
-    @Test("missing capability is rejected before state mutation")
+    @Test("missing capability yields an actionable read-only diagnostic")
     func missingCapability() throws {
         let response = try identify(minimum: 8, maximum: 8, capabilities: ["stable-identities"])
         let policy = BackendHandshakePolicy(
             supportedRange: 8 ... 8,
             requiredCapabilities: ["stable-identities", "topology-deltas"]
         )
-        #expect(throws: BackendProtocolError.missingCapabilities(["topology-deltas"])) {
-            try policy.validate(response)
+        guard case .readOnly(let diagnostic) = try policy.validate(response) else {
+            Issue.record("expected read-only compatibility")
+            return
         }
+        #expect(diagnostic.negotiatedProtocol == 8)
+        #expect(diagnostic.missingCapabilities == ["topology-deltas"])
+        #expect(diagnostic.reasons == [.missingCapabilities])
+        #expect(diagnostic.upgradeAction == .updateCmux)
+        #expect(!diagnostic.upgradeAction.localizedTitle.isEmpty)
     }
 
     @Test("descending server protocol range is rejected without trapping")

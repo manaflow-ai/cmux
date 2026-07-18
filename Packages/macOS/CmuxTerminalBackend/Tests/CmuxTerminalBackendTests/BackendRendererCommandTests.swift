@@ -30,7 +30,10 @@ struct BackendRendererCommandTests {
             resolvedConfig: Data("font-family = Menlo".utf8),
             focused: true,
             cursorBlinkVisible: false,
-            preedit: "入力"
+            preedit: "日本語",
+            preeditSelectionStartUTF16: 1,
+            preeditSelectionLengthUTF16: 1,
+            preeditCaretUTF16: 2
         )
 
         let task = Task {
@@ -52,7 +55,10 @@ struct BackendRendererCommandTests {
         #expect(request["frame_endpoint_capability"] as? String == capability.base64EncodedString())
         #expect(request["resolved_config"] as? String == Data("font-family = Menlo".utf8).base64EncodedString())
         #expect(request["cursor_blink_visible"] as? Bool == false)
-        #expect(request["preedit"] as? String == "入力")
+        #expect(request["preedit"] as? String == "日本語")
+        #expect(try uint64(request, "preedit_selection_start_utf16") == 1)
+        #expect(try uint64(request, "preedit_selection_length_utf16") == 1)
+        #expect(try uint64(request, "preedit_caret_utf16") == 2)
 
         await transport.enqueue(try response(to: request, data: [
             "daemon_instance_id": daemonUUID,
@@ -103,13 +109,20 @@ struct BackendRendererCommandTests {
             try await client.setTerminalPreedit(
                 presentationID: presentationID,
                 rendererGeneration: 8,
-                text: nil
+                preedit: BackendTerminalPreedit(
+                    text: "日本語",
+                    selectionStartUTF16: 1,
+                    selectionLengthUTF16: 1,
+                    caretUTF16: 2
+                )
             )
         }
         let preedit = try requestObject(await transport.nextSent())
         #expect(preedit["cmd"] as? String == "terminal-preedit")
-        #expect(preedit.keys.contains("text"))
-        #expect(preedit["text"] is NSNull)
+        #expect(preedit["text"] as? String == "日本語")
+        #expect(try uint64(preedit, "selection_start_utf16") == 1)
+        #expect(try uint64(preedit, "selection_length_utf16") == 1)
+        #expect(try uint64(preedit, "caret_utf16") == 2)
         await transport.enqueue(try response(to: preedit, data: [:]))
         try await preeditTask.value
 
@@ -192,6 +205,12 @@ struct BackendRendererCommandTests {
         let mouseResponse = try await mouseTask.value
         #expect(mouseResponse.encodedBytes == 6)
         #expect(mouseResponse.route == .selection)
+
+        let scrollbackResponse = try JSONDecoder().decode(
+            BackendTerminalMouseResponse.self,
+            from: Data(#"{"encoded_bytes":0,"route":"scrollback"}"#.utf8)
+        )
+        #expect(scrollbackResponse.route == .scrollback)
 
         let detachTask = Task {
             try await client.detachRendererPresentation(id: presentationID, expectedGeneration: 7)

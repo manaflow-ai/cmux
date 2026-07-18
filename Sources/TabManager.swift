@@ -470,7 +470,7 @@ class TabManager: ObservableObject {
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
-        terminalClientComposition: TerminalClientComposition? = nil,
+        terminalClientComposition: TerminalClientComposition,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
         pullRequestProbeService: PullRequestProbeService? = nil,
@@ -481,7 +481,6 @@ class TabManager: ObservableObject {
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
-        let terminalClientComposition = terminalClientComposition ?? .embedded()
         self.terminalClientComposition = terminalClientComposition
         self.settings = settings
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
@@ -2121,7 +2120,10 @@ class TabManager: ObservableObject {
     /// Detach a workspace from this window without closing its panels.
     /// Used by the socket API for cross-window moves.
     @discardableResult
-    func detachWorkspace(tabId: UUID) -> Workspace? {
+    func detachWorkspace(
+        tabId: UUID,
+        provisionReplacementIfEmpty: Bool = true
+    ) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         panelTitleUpdateCoalescer.flushNow()
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: tabId)
@@ -2143,8 +2145,14 @@ class TabManager: ObservableObject {
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
 
         if tabs.isEmpty {
-            // The UI assumes each window always has at least one workspace.
-            _ = addWorkspace()
+            if provisionReplacementIfEmpty {
+                // Standalone callers preserve the legacy nonempty-window invariant.
+                _ = addWorkspace()
+            } else {
+                // AppDelegate closes the empty source window only after the
+                // process-wide ownership transfer has committed.
+                selectedTabId = nil
+            }
             return removed
         }
 

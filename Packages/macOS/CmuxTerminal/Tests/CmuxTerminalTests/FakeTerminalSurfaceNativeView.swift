@@ -3,6 +3,7 @@ import CmuxTerminalCore
 @testable import CmuxTerminal
 
 final class FakeTerminalSurfaceNativeView: NSView {
+    var renderOwnership: TerminalSurfaceRenderOwnership = .embeddedGhostty
     var tabId: UUID?
     var hostedTabId: UUID? { tabId }
     weak var attachedController: (any TerminalSurfaceControlling)?

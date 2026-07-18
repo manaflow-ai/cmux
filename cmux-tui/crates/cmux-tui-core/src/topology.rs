@@ -565,12 +565,7 @@ pub(crate) fn topology_json(state: &State) -> Value {
                                 "name": pane.name,
                                 "tabs": pane.tabs.iter().filter_map(|surface_id| {
                                     let surface = state.surfaces.get(surface_id)?;
-                                    Some(json!({
-                                        "id": surface.id,
-                                        "uuid": surface.uuid,
-                                        "kind": surface.kind().as_str(),
-                                        "name": surface.name(),
-                                    }))
+                                    Some(surface_json(surface))
                                 }).collect::<Vec<_>>(),
                             }))
                         }).collect::<Vec<_>>(),
@@ -579,6 +574,26 @@ pub(crate) fn topology_json(state: &State) -> Value {
             })
         }).collect::<Vec<_>>(),
     })
+}
+
+fn surface_json(surface: &crate::Surface) -> Value {
+    let mut value = json!({
+        "id": surface.id,
+        "uuid": surface.uuid,
+        "kind": surface.kind().as_str(),
+        "name": surface.name(),
+    });
+    if surface.kind() == crate::SurfaceKind::Browser {
+        value["browser_endpoint"] = json!({
+            "transport": "cmuxd-png-frame-stream-v1",
+            "source": surface.browser_source().map(|source| source.as_str()),
+            // The endpoint remains daemon-owned. Frontends that do not consume
+            // this transport may omit only this surface from their local
+            // presentation graph while continuing to project sibling PTYs.
+            "frontend_projection": "frontend-optional",
+        });
+    }
+    value
 }
 
 fn node_json(state: &State, node: &Node) -> Value {

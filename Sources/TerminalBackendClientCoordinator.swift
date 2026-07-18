@@ -6,14 +6,24 @@ import Darwin
 import Foundation
 
 /// Process-wide owner of trusted backend connection replacement and terminal commands.
-actor TerminalBackendClientCoordinator: TerminalBackendClient {
+actor TerminalBackendClientCoordinator:
+    TerminalBackendClient,
+    TerminalBackendProjectionStateServing
+{
     typealias ReadinessProvider = @Sendable () async throws -> BackendServiceBootstrapResult
     typealias SessionFactory = @Sendable (BackendServiceReadiness) -> any TerminalBackendSessionServing
+    typealias CompatibilityReporter = @Sendable (BackendCompatibilityResult?) async -> Void
 
     private let readinessProvider: ReadinessProvider
     private let sessionFactory: SessionFactory
     private let reconnectPolicy: TerminalBackendReconnectPolicy
+    private let compatibilityReporter: CompatibilityReporter
     private let screenTextLimiter = TerminalBackendScreenTextLimiter()
+
+    private struct PendingTerminalReceiptAcknowledgement: Hashable, Sendable {
+        let surfaceID: SurfaceID
+        let requestID: UUID
+    }
 
     private struct RendererPresentationRecord: Sendable {
         let binding: TerminalBackendTerminalBinding
@@ -24,8 +34,16 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         var ready: BackendRendererPresentationReady?
     }
 
+    private struct PendingTerminalEnsure {
+        let request: TerminalBackendTerminalRequest
+        let continuation: CheckedContinuation<TerminalBackendTerminalBinding, any Error>
+    }
+
     private var connected: TerminalBackendConnectedSession?
     private var latestSnapshot: TopologySnapshot?
+    private var latestActivitySnapshot: BackendTerminalActivitySnapshot?
+    private var connectionSupervisorTask: Task<Void, Never>?
+    private var connectionSupervisorID = UUID()
     private var connectionTask: Task<TerminalBackendConnectedSession, any Error>?
     private var connectionAttemptID = UUID()
     private var eventTask: Task<Void, Never>?
@@ -34,11 +52,24 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         UUID: AsyncStream<TerminalBackendRendererEvent>.Continuation
     ] = [:]
     private var snapshotContinuations: [UUID: AsyncStream<TopologySnapshot>.Continuation] = [:]
+    private var topologyContinuations: [
+        UUID: AsyncStream<TerminalBackendTopologyStreamEvent>.Continuation
+    ] = [:]
+    private var activityContinuations: [
+        UUID: AsyncStream<BackendTerminalActivitySnapshot>.Continuation
+    ] = [:]
+    private var pendingTerminalEnsures: [PendingTerminalEnsure] = []
+    private var terminalEnsureFlushScheduled = false
+    private var terminalRequestsAwaitingRecovery: Set<UUID> = []
+    private var pendingTerminalReceiptAcknowledgements:
+        Set<PendingTerminalReceiptAcknowledgement> = []
 
     init(
         bootstrapCoordinator: BackendServiceBootstrapCoordinator,
         runtimePaths: BackendServiceRuntimePaths,
-        reconnectPolicy: TerminalBackendReconnectPolicy = .appStartup
+        registrationIdentity: BackendClientRegistrationIdentity,
+        reconnectPolicy: TerminalBackendReconnectPolicy = .appStartup,
+        compatibilityReporter: @escaping CompatibilityReporter = { _ in }
     ) {
         readinessProvider = {
             try await bootstrapCoordinator.ensureRegistered()
@@ -51,32 +82,38 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
                     authority: readiness.authority,
                     processID: readiness.processID,
                     peerIdentity: readiness.peerIdentity
-                )
+                ),
+                registrationIdentity: registrationIdentity
             )
         }
         self.reconnectPolicy = reconnectPolicy
+        self.compatibilityReporter = compatibilityReporter
     }
 
     init(
         readinessProvider: @escaping ReadinessProvider,
         sessionFactory: @escaping SessionFactory,
-        reconnectPolicy: TerminalBackendReconnectPolicy = .immediate
+        reconnectPolicy: TerminalBackendReconnectPolicy = .immediate,
+        compatibilityReporter: @escaping CompatibilityReporter = { _ in }
     ) {
         self.readinessProvider = readinessProvider
         self.sessionFactory = sessionFactory
         self.reconnectPolicy = reconnectPolicy
+        self.compatibilityReporter = compatibilityReporter
     }
 
     deinit {
+        connectionSupervisorTask?.cancel()
         connectionTask?.cancel()
         eventTask?.cancel()
     }
 
     func start() async {
-        _ = try? await connectedSession()
+        ensureConnectionSupervisor()
     }
 
     func rendererEvents() -> AsyncStream<TerminalBackendRendererEvent> {
+        ensureConnectionSupervisor()
         let identifier = UUID()
         return AsyncStream(bufferingPolicy: .bufferingOldest(64)) { continuation in
             rendererContinuations[identifier] = continuation
@@ -87,7 +124,7 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
     }
 
     func canonicalSnapshots() async throws -> AsyncStream<TopologySnapshot> {
-        _ = try await connectedSession()
+        ensureConnectionSupervisor()
         let identifier = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(8)) { continuation in
             snapshotContinuations[identifier] = continuation
@@ -100,7 +137,41 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         }
     }
 
+    func canonicalTopologyEvents() async throws -> AsyncStream<TerminalBackendTopologyStreamEvent> {
+        ensureConnectionSupervisor()
+        let identifier = UUID()
+        // Every delta carries a complete replacement topology, so retaining the
+        // newest state is sufficient and prevents a slow main actor from
+        // permanently losing topology observation during a mutation burst.
+        return AsyncStream(bufferingPolicy: .bufferingNewest(2)) { continuation in
+            topologyContinuations[identifier] = continuation
+            if let latestSnapshot {
+                continuation.yield(.snapshot(latestSnapshot))
+            }
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeTopologyContinuation(identifier) }
+            }
+        }
+    }
+
+    func terminalActivitySnapshots() -> AsyncStream<BackendTerminalActivitySnapshot> {
+        ensureConnectionSupervisor()
+        let identifier = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            activityContinuations[identifier] = continuation
+            if let latestActivitySnapshot {
+                continuation.yield(latestActivitySnapshot)
+            }
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeActivityContinuation(identifier) }
+            }
+        }
+    }
+
     func disconnectFrontend() async {
+        connectionSupervisorID = UUID()
+        connectionSupervisorTask?.cancel()
+        connectionSupervisorTask = nil
         connectionAttemptID = UUID()
         connectionTask?.cancel()
         connectionTask = nil
@@ -110,46 +181,135 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         latestSnapshot = nil
         let previous = connected
         connected = nil
+        if let authority = previous?.readiness.authority {
+            publishTopology(.disconnected(authority))
+        }
+        await compatibilityReporter(nil)
         await previous?.session.close()
+    }
+
+    func claimProjectionState(
+        logicalPresentationID: UUID
+    ) async throws -> BackendProjectionState {
+        let connection = try await connectedSession()
+        return try await connection.session.claimProjectionState(
+            logicalPresentationID: logicalPresentationID
+        )
+    }
+
+    func updateProjectionStates(
+        _ projections: [BackendProjectionStateUpdate]
+    ) async throws -> [BackendProjectionState] {
+        let connection = try await connectedSession()
+        return try await connection.session.updateProjectionStates(projections)
+    }
+
+    func releaseProjectionState(
+        logicalPresentationID: UUID,
+        claimID: UUID,
+        expectedGeneration: UInt64
+    ) async throws {
+        let connection = try await connectedSession()
+        try await connection.session.releaseProjectionState(
+            logicalPresentationID: logicalPresentationID,
+            claimID: claimID,
+            expectedGeneration: expectedGeneration
+        )
+    }
+
+    func listProjectionStates() async throws -> [BackendProjectionState] {
+        let connection = try await connectedSession()
+        return try await connection.session.listProjectionStates()
     }
 
     func ensureTerminal(
         _ request: TerminalBackendTerminalRequest
     ) async throws -> TerminalBackendTerminalBinding {
-        let connection = try await connectedSession()
-        let placement = try await connection.session.ensureTerminal(
-            workspaceID: WorkspaceID(rawValue: request.appWorkspaceID),
-            surfaceID: SurfaceID(rawValue: request.appSurfaceID),
-            workingDirectory: request.workingDirectory,
-            command: request.command,
-            arguments: request.arguments,
-            environment: request.environment,
-            initialInput: request.initialInput,
-            waitAfterCommand: request.waitAfterCommand,
-            columns: request.columns,
-            rows: request.rows
-        )
-        guard placement.workspaceID.rawValue == request.appWorkspaceID,
-              placement.surfaceID.rawValue == request.appSurfaceID else {
-            await invalidate(connection)
-            throw BackendProtocolError.peerIdentityMismatch
+        try await withCheckedThrowingContinuation { continuation in
+            pendingTerminalEnsures.append(PendingTerminalEnsure(
+                request: request,
+                continuation: continuation
+            ))
+            guard !terminalEnsureFlushScheduled else { return }
+            terminalEnsureFlushScheduled = true
+            Task {
+                await Task.yield()
+                await self.flushPendingTerminalEnsures()
+            }
         }
-        return TerminalBackendTerminalBinding(
-            authority: connection.readiness.authority,
-            appWorkspaceID: request.appWorkspaceID,
-            appSurfaceID: request.appSurfaceID,
-            workspaceHandle: placement.workspace,
-            workspaceID: placement.workspaceID,
-            surfaceHandle: placement.surface,
-            surfaceID: placement.surfaceID,
-            columns: request.columns,
-            rows: request.rows,
-            created: placement.created
-        )
+    }
+
+    private func flushPendingTerminalEnsures() async {
+        let maximumBatchSize = 1_024
+        while !pendingTerminalEnsures.isEmpty {
+            let pending = pendingTerminalEnsures
+            pendingTerminalEnsures.removeAll(keepingCapacity: true)
+            for lowerBound in stride(from: 0, to: pending.count, by: maximumBatchSize) {
+                let upperBound = min(lowerBound + maximumBatchSize, pending.count)
+                await executeTerminalEnsureBatch(Array(pending[lowerBound ..< upperBound]))
+            }
+        }
+        terminalEnsureFlushScheduled = false
+    }
+
+    private func executeTerminalEnsureBatch(_ pending: [PendingTerminalEnsure]) async {
+        do {
+            let connection = try await connectedSession()
+            let requests = pending.map { item in
+                let request = item.request
+                return BackendEnsureTerminalRequest(
+                    workspaceID: WorkspaceID(rawValue: request.appWorkspaceID),
+                    surfaceID: SurfaceID(rawValue: request.appSurfaceID),
+                    workingDirectory: request.workingDirectory,
+                    command: request.command,
+                    arguments: request.arguments,
+                    environment: request.environment,
+                    initialInput: request.initialInput,
+                    waitAfterCommand: request.waitAfterCommand,
+                    columns: request.columns,
+                    rows: request.rows
+                )
+            }
+            let placements = try await connection.session.ensureTerminals(requests)
+            guard placements.count == pending.count else {
+                await invalidate(connection)
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            var bindings: [TerminalBackendTerminalBinding] = []
+            bindings.reserveCapacity(pending.count)
+            for (item, placement) in zip(pending, placements) {
+                let request = item.request
+                guard placement.workspaceID.rawValue == request.appWorkspaceID,
+                      placement.surfaceID.rawValue == request.appSurfaceID else {
+                    await invalidate(connection)
+                    throw BackendProtocolError.peerIdentityMismatch
+                }
+                bindings.append(TerminalBackendTerminalBinding(
+                    authority: connection.readiness.authority,
+                    appWorkspaceID: request.appWorkspaceID,
+                    appSurfaceID: request.appSurfaceID,
+                    workspaceHandle: placement.workspace,
+                    workspaceID: placement.workspaceID,
+                    surfaceHandle: placement.surface,
+                    surfaceID: placement.surfaceID,
+                    columns: request.columns,
+                    rows: request.rows,
+                    created: placement.created
+                ))
+            }
+            for (item, binding) in zip(pending, bindings) {
+                item.continuation.resume(returning: binding)
+            }
+        } catch {
+            for item in pending {
+                item.continuation.resume(throwing: error)
+            }
+        }
     }
 
     func apply(
         _ mutation: TerminalExternalRuntimeMutation,
+        requestID: UUID,
         to binding: TerminalBackendTerminalBinding,
         presentation: TerminalBackendPresentationDescriptor?
     ) async throws -> TerminalBackendMutationOutcome {
@@ -157,58 +317,121 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         var outcome = TerminalBackendMutationOutcome()
         switch mutation {
         case .input(.text(let input)):
-            try await connection.session.sendTerminalText(
-                surface: binding.surfaceHandle,
-                text: input.text,
-                paste: input.kind == .paste
-            )
-        case .input(.key(let key)):
-            _ = try await connection.session.sendTerminalKey(
-                surface: binding.surfaceHandle,
-                event: BackendTerminalKeyEvent(
-                    key: key.key,
-                    modifiers: key.modifiers.rawValue,
-                    consumedModifiers: key.consumedModifiers.rawValue,
-                    text: key.text ?? "",
-                    unshiftedCodepoint: key.unshiftedCodepoint,
-                    action: key.action.backendAction
+            switch try await connection.session.terminalControlProtocol() {
+            case .legacyV8:
+                try await connection.session.sendTerminalText(
+                    surface: binding.surfaceHandle,
+                    text: input.text,
+                    paste: input.kind == .paste
                 )
+            case .leasedV9:
+                _ = try await sendLeasedTerminalInput(
+                    requestID: requestID,
+                    input: .text(input.text, paste: input.kind == .paste),
+                    presentation: presentation,
+                    binding: binding,
+                    connection: connection
+                )
+            }
+        case .input(.key(let key)):
+            let event = BackendTerminalKeyEvent(
+                key: key.key,
+                modifiers: key.modifiers.rawValue,
+                consumedModifiers: key.consumedModifiers.rawValue,
+                text: key.text ?? "",
+                unshiftedCodepoint: key.unshiftedCodepoint,
+                action: key.action.backendAction
             )
+            switch try await connection.session.terminalControlProtocol() {
+            case .legacyV8:
+                _ = try await connection.session.sendTerminalKey(
+                    surface: binding.surfaceHandle,
+                    event: event
+                )
+            case .leasedV9:
+                _ = try await sendLeasedTerminalInput(
+                    requestID: requestID,
+                    input: .key(event),
+                    presentation: presentation,
+                    binding: binding,
+                    connection: connection
+                )
+            }
         case .input(.namedKey(let key)):
-            try await connection.session.sendTerminalNamedKey(
-                surface: binding.surfaceHandle,
-                key: key
-            )
+            switch try await connection.session.terminalControlProtocol() {
+            case .legacyV8:
+                try await connection.session.sendTerminalNamedKey(
+                    surface: binding.surfaceHandle,
+                    key: key
+                )
+            case .leasedV9:
+                _ = try await sendLeasedTerminalInput(
+                    requestID: requestID,
+                    input: .namedKey(key),
+                    presentation: presentation,
+                    binding: binding,
+                    connection: connection
+                )
+            }
         case .mouse(let mouse):
-            guard let presentation,
-                  let record = rendererPresentations[presentation.presentationID],
-                  let receipt = record.receipt,
+            let record = try rendererControlRecord(
+                presentation: presentation,
+                binding: binding
+            )
+            guard let receipt = record.receipt,
                   let geometry = rendererGeometry(record) else {
                 throw TerminalBackendClientError.rendererNotReady
             }
-            _ = try await connection.session.sendTerminalMouse(
-                surface: binding.surfaceHandle,
-                event: BackendTerminalMouseEvent(
+            switch try await connection.session.terminalControlProtocol() {
+            case .legacyV8:
+                _ = try await connection.session.sendTerminalMouse(
+                    surface: binding.surfaceHandle,
+                    event: BackendTerminalMouseEvent(
+                        action: mouse.action.backendAction,
+                        button: mouse.button?.backendButton,
+                        modifiers: mouse.modifiers.rawValue,
+                        x: mouse.xPixels,
+                        y: mouse.yPixels,
+                        viewportWidth: receipt.width,
+                        viewportHeight: receipt.height,
+                        cellWidth: geometry.cellWidth,
+                        cellHeight: geometry.cellHeight,
+                        padding: geometry.padding,
+                        anyButtonPressed: mouse.anyButtonPressed,
+                        clickCount: mouse.clickCount
+                    )
+                )
+            case .leasedV9:
+                guard let cellEvent = BackendTerminalCellMouseEvent(
                     action: mouse.action.backendAction,
                     button: mouse.button?.backendButton,
                     modifiers: mouse.modifiers.rawValue,
                     x: mouse.xPixels,
                     y: mouse.yPixels,
-                    viewportWidth: receipt.width,
-                    viewportHeight: receipt.height,
+                    columns: geometry.columns,
+                    rows: geometry.rows,
                     cellWidth: geometry.cellWidth,
                     cellHeight: geometry.cellHeight,
                     padding: geometry.padding,
                     anyButtonPressed: mouse.anyButtonPressed,
                     clickCount: mouse.clickCount
+                ) else {
+                    throw TerminalBackendClientError.rendererNotReady
+                }
+                _ = try await sendLeasedTerminalInput(
+                    requestID: requestID,
+                    input: .mouse(cellEvent),
+                    presentation: presentation,
+                    binding: binding,
+                    connection: connection
                 )
-            )
+            }
             if mouse.action == .release {
                 outcome.install(
                     try await connection.session.terminalState(surfaceID: binding.surfaceID).state
                 )
             }
-        case .preedit(let text):
+        case .preedit(let preedit):
             guard let presentation else {
                 throw TerminalBackendClientError.presentationUnavailable
             }
@@ -216,10 +439,17 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
                 try await connection.session.setTerminalPreedit(
                     presentationID: receipt.presentationID,
                     rendererGeneration: receipt.rendererGeneration,
-                    text: text
+                    preedit: preedit.map {
+                        BackendTerminalPreedit(
+                            text: $0.text,
+                            selectionStartUTF16: $0.selectionStartUTF16,
+                            selectionLengthUTF16: $0.selectionLengthUTF16,
+                            caretUTF16: $0.caretUTF16
+                        )
+                    }
                 )
             }
-        case .focus:
+        case .focus(let focused):
             if let presentation,
                rendererPresentations[presentation.presentationID] != nil,
                presentation.visible {
@@ -228,6 +458,12 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
                     binding: binding,
                     connection: connection
                 )
+                if focused {
+                    try await markLatestTerminalActivitySeen(
+                        binding: binding,
+                        connection: connection
+                    )
+                }
             }
             outcome.processMetadata = try await processMetadata(
                 for: binding,
@@ -254,13 +490,27 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
                 connection: connection
             )
         case .resize(let viewport):
+            let controlProtocol = try await connection.session.terminalControlProtocol()
             if let presentation, presentation.visible {
                 outcome.rendererAttachment = try await configureRenderer(
                     presentation,
                     binding: binding,
                     connection: connection
                 )
-            } else if let columns = viewport.proposedColumns.flatMap(UInt16.init(exactly:)),
+                if controlProtocol == .leasedV9,
+                   let columns = viewport.proposedColumns.flatMap(UInt16.init(exactly:)),
+                   let rows = viewport.proposedRows.flatMap(UInt16.init(exactly:)) {
+                    _ = try await sendLeasedTerminalGeometry(
+                        requestID: requestID,
+                        columns: columns,
+                        rows: rows,
+                        presentation: presentation,
+                        binding: binding,
+                        connection: connection
+                    )
+                }
+            } else if controlProtocol == .legacyV8,
+                      let columns = viewport.proposedColumns.flatMap(UInt16.init(exactly:)),
                       let rows = viewport.proposedRows.flatMap(UInt16.init(exactly:)) {
                 _ = try await connection.session.resizeTerminal(
                     surface: binding.surfaceHandle,
@@ -358,6 +608,29 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         return outcome
     }
 
+    private func markLatestTerminalActivitySeen(
+        binding: TerminalBackendTerminalBinding,
+        connection: TerminalBackendConnectedSession
+    ) async throws {
+        guard let snapshot = await connection.session.currentTerminalActivitySnapshot(),
+              let fact = snapshot.facts.first(where: {
+                  $0.surfaceID == binding.surfaceID
+              }),
+              snapshot.isUnread(surfaceID: binding.surfaceID) else {
+            return
+        }
+        let receipt = try await connection.session.markTerminalSeen(
+            surfaceID: binding.surfaceID,
+            activitySequence: fact.sequence
+        )
+        guard receipt.readerUUID == snapshot.readerUUID,
+              receipt.surfaceID == binding.surfaceID,
+              receipt.seenSequence == fact.sequence else {
+            await invalidate(connection)
+            throw BackendProtocolError.peerIdentityMismatch
+        }
+    }
+
     func readScreenText(
         _ request: TerminalExternalScreenTextRequest,
         from binding: TerminalBackendTerminalBinding
@@ -397,6 +670,111 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
             try await connection.session.terminalState(surfaceID: binding.surfaceID).state
         )
         return outcome
+    }
+
+    func readAccessibilitySnapshot(
+        presentationID: UUID,
+        expectedContentSequence: UInt64,
+        from binding: TerminalBackendTerminalBinding
+    ) async throws -> TerminalAccessibilitySnapshot {
+        let connection = try await connectedSession(for: binding)
+        guard let record = rendererPresentations[presentationID],
+              record.binding.appSurfaceID == binding.appSurfaceID else {
+            throw TerminalBackendClientError.presentationUnavailable
+        }
+        let backend = try await connection.session.terminalAccessibilitySnapshot(
+            presentationID: record.backendID,
+            expectedGeneration: record.canonicalGeneration,
+            expectedContentSequence: expectedContentSequence
+        )
+        guard backend.surfaceID == binding.surfaceID,
+              backend.presentationID == record.backendID,
+              backend.presentationGeneration == record.canonicalGeneration,
+              backend.contentSequence == expectedContentSequence else {
+            await invalidate(connection)
+            throw BackendProtocolError.peerIdentityMismatch
+        }
+        do {
+            return try backend.externalSnapshot(
+                appSurfaceID: binding.appSurfaceID,
+                appPresentationID: presentationID
+            )
+        } catch {
+            await invalidate(connection)
+            throw error
+        }
+    }
+
+    func activateAccessibilityLink(
+        _ link: TerminalAccessibilityLink,
+        snapshot: TerminalAccessibilitySnapshot,
+        from binding: TerminalBackendTerminalBinding
+    ) async throws -> String {
+        let connection = try await connectedSession(for: binding)
+        guard snapshot.surfaceID == binding.appSurfaceID,
+              let record = rendererPresentations[snapshot.presentationID],
+              record.binding.appSurfaceID == binding.appSurfaceID,
+              snapshot.presentationID == record.descriptor.presentationID else {
+            throw TerminalBackendClientError.presentationUnavailable
+        }
+        return try await connection.session.activateTerminalAccessibilityLink(
+            presentationID: record.backendID,
+            expectedGeneration: record.canonicalGeneration,
+            terminalRevision: snapshot.terminalRevision,
+            contentRevision: snapshot.contentRevision,
+            viewportRevision: snapshot.viewportRevision,
+            linkID: link.id
+        ).target
+    }
+
+    func activateHyperlink(
+        at event: TerminalExternalMouseEvent,
+        contentSequence: UInt64,
+        presentationID: UUID,
+        from binding: TerminalBackendTerminalBinding
+    ) async throws -> TerminalExternalHyperlinkHit {
+        let connection = try await connectedSession(for: binding)
+        guard event.action == .release,
+              let record = rendererPresentations[presentationID],
+              record.binding.appSurfaceID == binding.appSurfaceID,
+              let geometry = rendererGeometry(record),
+              let cell = BackendTerminalCellMouseEvent(
+                action: event.action.backendAction,
+                button: event.button?.backendButton,
+                modifiers: event.modifiers.rawValue,
+                x: event.xPixels,
+                y: event.yPixels,
+                columns: geometry.columns,
+                rows: geometry.rows,
+                cellWidth: geometry.cellWidth,
+                cellHeight: geometry.cellHeight,
+                padding: geometry.padding,
+                anyButtonPressed: event.anyButtonPressed,
+                clickCount: event.clickCount
+              ) else {
+            throw TerminalBackendClientError.presentationUnavailable
+        }
+        let hit = try await connection.session.terminalHyperlinkAtCell(
+            presentationID: record.backendID,
+            expectedGeneration: record.canonicalGeneration,
+            expectedContentSequence: contentSequence,
+            column: cell.column,
+            row: cell.row
+        )
+        guard hit.surfaceID == binding.surfaceID,
+              hit.presentationID == record.backendID,
+              hit.presentationGeneration == record.canonicalGeneration,
+              hit.contentSequence == contentSequence else {
+            await invalidate(connection)
+            throw BackendProtocolError.peerIdentityMismatch
+        }
+        return TerminalExternalHyperlinkHit(
+            target: hit.target,
+            contentSequence: hit.contentSequence,
+            presentationGeneration: hit.presentationGeneration,
+            column: hit.column,
+            row: hit.row
+        )
     }
 
     func detachPresentation(
@@ -508,7 +886,10 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
                     resolvedConfig: descriptor.resolvedConfig,
                     focused: descriptor.focused,
                     cursorBlinkVisible: descriptor.focused && descriptor.visible,
-                    preedit: descriptor.preedit
+                    preedit: descriptor.preedit?.text,
+                    preeditSelectionStartUTF16: descriptor.preedit?.selectionStartUTF16 ?? 0,
+                    preeditSelectionLengthUTF16: descriptor.preedit?.selectionLengthUTF16 ?? 0,
+                    preeditCaretUTF16: descriptor.preedit?.caretUTF16 ?? 0
                 )
             )
         } catch {
@@ -531,6 +912,14 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
     ) async {
         guard let record = rendererPresentations.removeValue(forKey: presentationID) else {
             return
+        }
+        if record.receipt != nil,
+           (try? await connection.session.terminalControlProtocol()) == .leasedV9 {
+            try? await connection.session.releaseTerminalControl(
+                surfaceID: record.binding.surfaceID,
+                presentationID: record.backendID,
+                presentationGeneration: record.canonicalGeneration
+            )
         }
         if record.receipt != nil {
             try? await connection.session.detachRendererPresentation(
@@ -620,12 +1009,414 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
 
     private func rendererGeometry(
         _ record: RendererPresentationRecord
-    ) -> (cellWidth: UInt32, cellHeight: UInt32, padding: BackendRendererPadding)? {
+    ) -> (
+        columns: UInt16,
+        rows: UInt16,
+        cellWidth: UInt32,
+        cellHeight: UInt32,
+        padding: BackendRendererPadding
+    )? {
         if let ready = record.ready {
-            return (ready.cellWidth, ready.cellHeight, ready.padding)
+            return (
+                ready.columns,
+                ready.rows,
+                ready.cellWidth,
+                ready.cellHeight,
+                ready.padding
+            )
         }
         guard let metrics = record.receipt?.metrics else { return nil }
-        return (metrics.cellWidth, metrics.cellHeight, metrics.padding)
+        return (
+            metrics.columns,
+            metrics.rows,
+            metrics.cellWidth,
+            metrics.cellHeight,
+            metrics.padding
+        )
+    }
+
+    private func sendLeasedTerminalInput(
+        requestID: UUID,
+        input: BackendTerminalControlInput,
+        presentation: TerminalBackendPresentationDescriptor?,
+        binding: TerminalBackendTerminalBinding,
+        connection: TerminalBackendConnectedSession
+    ) async throws -> BackendTerminalOperationReceipt {
+        if terminalRequestsAwaitingRecovery.contains(requestID) {
+            return try await recoverLeasedTerminalInput(
+                requestID: requestID,
+                input: input,
+                presentation: presentation,
+                binding: binding,
+                startingWith: connection
+            )
+        }
+        terminalRequestsAwaitingRecovery.insert(requestID)
+        do {
+            let record = try await rendererControlRecordEnsuringConfigured(
+                presentation: presentation,
+                binding: binding,
+                connection: connection
+            )
+            _ = try await connection.session.acquireTerminalLease(
+                kind: .input,
+                surfaceID: binding.surfaceID,
+                presentationID: record.backendID,
+                presentationGeneration: record.canonicalGeneration,
+                ttlMilliseconds: 5_000
+            )
+            let receipt = try await connection.session.sendTerminalInput(
+                surfaceID: binding.surfaceID,
+                presentationID: record.backendID,
+                presentationGeneration: record.canonicalGeneration,
+                requestID: requestID,
+                input: input
+            )
+            return try await finishTerminalReceipt(
+                receipt,
+                expectedKind: .input,
+                requestID: requestID,
+                surfaceID: binding.surfaceID,
+                connection: connection
+            )
+        } catch {
+            if let terminalError = error as? BackendTerminalControlError,
+               case .indeterminate = terminalError {
+                return try await recoverLeasedTerminalInput(
+                    requestID: requestID,
+                    input: input,
+                    presentation: presentation,
+                    binding: binding,
+                    startingWith: connection
+                )
+            }
+            guard Self.shouldRetry(error) else {
+                terminalRequestsAwaitingRecovery.remove(requestID)
+                throw error
+            }
+            await invalidate(connection)
+            let replacement = try await connectedSession(for: binding)
+            return try await recoverLeasedTerminalInput(
+                requestID: requestID,
+                input: input,
+                presentation: presentation,
+                binding: binding,
+                startingWith: replacement
+            )
+        }
+    }
+
+    private func recoverLeasedTerminalInput(
+        requestID: UUID,
+        input: BackendTerminalControlInput,
+        presentation: TerminalBackendPresentationDescriptor?,
+        binding: TerminalBackendTerminalBinding,
+        startingWith initialConnection: TerminalBackendConnectedSession
+    ) async throws -> BackendTerminalOperationReceipt {
+        var connection = initialConnection
+        var lastError: (any Error)?
+        for attempt in 0 ..< 2 {
+            do {
+                let status = try await connection.session.terminalRequestStatus(
+                    surfaceID: binding.surfaceID,
+                    requestID: requestID
+                )
+                if status.status != .unknown {
+                    return try await finishTerminalReceipt(
+                        status,
+                        expectedKind: .input,
+                        requestID: requestID,
+                        surfaceID: binding.surfaceID,
+                        connection: connection
+                    )
+                }
+
+                let record = try await rendererControlRecordEnsuringConfigured(
+                    presentation: presentation,
+                    binding: binding,
+                    connection: connection
+                )
+                _ = try await connection.session.acquireTerminalLease(
+                    kind: .input,
+                    surfaceID: binding.surfaceID,
+                    presentationID: record.backendID,
+                    presentationGeneration: record.canonicalGeneration,
+                    ttlMilliseconds: 5_000
+                )
+                let receipt = try await connection.session.sendTerminalInput(
+                    surfaceID: binding.surfaceID,
+                    presentationID: record.backendID,
+                    presentationGeneration: record.canonicalGeneration,
+                    requestID: requestID,
+                    input: input
+                )
+                return try await finishTerminalReceipt(
+                    receipt,
+                    expectedKind: .input,
+                    requestID: requestID,
+                    surfaceID: binding.surfaceID,
+                    connection: connection
+                )
+            } catch {
+                if let terminalError = error as? BackendTerminalControlError,
+                   case .indeterminate = terminalError {
+                    terminalRequestsAwaitingRecovery.remove(requestID)
+                    throw error
+                }
+                guard Self.shouldRetry(error) else {
+                    terminalRequestsAwaitingRecovery.remove(requestID)
+                    throw error
+                }
+                lastError = error
+                guard attempt == 0 else { break }
+                await invalidate(connection)
+                connection = try await connectedSession(for: binding)
+            }
+        }
+        throw lastError ?? TerminalBackendClientError.unavailable
+    }
+
+    private func sendLeasedTerminalGeometry(
+        requestID: UUID,
+        columns: UInt16,
+        rows: UInt16,
+        presentation: TerminalBackendPresentationDescriptor,
+        binding: TerminalBackendTerminalBinding,
+        connection: TerminalBackendConnectedSession
+    ) async throws -> BackendTerminalOperationReceipt {
+        if terminalRequestsAwaitingRecovery.contains(requestID) {
+            return try await recoverLeasedTerminalGeometry(
+                requestID: requestID,
+                columns: columns,
+                rows: rows,
+                presentation: presentation,
+                binding: binding,
+                startingWith: connection
+            )
+        }
+        terminalRequestsAwaitingRecovery.insert(requestID)
+        do {
+            let record = try await rendererControlRecordEnsuringConfigured(
+                presentation: presentation,
+                binding: binding,
+                connection: connection
+            )
+            _ = try await connection.session.acquireTerminalLease(
+                kind: .geometry,
+                surfaceID: binding.surfaceID,
+                presentationID: record.backendID,
+                presentationGeneration: record.canonicalGeneration,
+                ttlMilliseconds: 5_000
+            )
+            let receipt = try await connection.session.sendTerminalGeometry(
+                surfaceID: binding.surfaceID,
+                presentationID: record.backendID,
+                presentationGeneration: record.canonicalGeneration,
+                requestID: requestID,
+                columns: columns,
+                rows: rows
+            )
+            return try await finishTerminalReceipt(
+                receipt,
+                expectedKind: .geometry,
+                requestID: requestID,
+                surfaceID: binding.surfaceID,
+                connection: connection
+            )
+        } catch {
+            guard Self.shouldRetry(error) else {
+                terminalRequestsAwaitingRecovery.remove(requestID)
+                throw error
+            }
+            await invalidate(connection)
+            let replacement = try await connectedSession(for: binding)
+            return try await recoverLeasedTerminalGeometry(
+                requestID: requestID,
+                columns: columns,
+                rows: rows,
+                presentation: presentation,
+                binding: binding,
+                startingWith: replacement
+            )
+        }
+    }
+
+    private func recoverLeasedTerminalGeometry(
+        requestID: UUID,
+        columns: UInt16,
+        rows: UInt16,
+        presentation: TerminalBackendPresentationDescriptor,
+        binding: TerminalBackendTerminalBinding,
+        startingWith initialConnection: TerminalBackendConnectedSession
+    ) async throws -> BackendTerminalOperationReceipt {
+        var connection = initialConnection
+        var lastError: (any Error)?
+        for attempt in 0 ..< 2 {
+            do {
+                let status = try await connection.session.terminalRequestStatus(
+                    surfaceID: binding.surfaceID,
+                    requestID: requestID
+                )
+                if status.status != .unknown {
+                    return try await finishTerminalReceipt(
+                        status,
+                        expectedKind: .geometry,
+                        requestID: requestID,
+                        surfaceID: binding.surfaceID,
+                        connection: connection
+                    )
+                }
+
+                let record = try await rendererControlRecordEnsuringConfigured(
+                    presentation: presentation,
+                    binding: binding,
+                    connection: connection
+                )
+                _ = try await connection.session.acquireTerminalLease(
+                    kind: .geometry,
+                    surfaceID: binding.surfaceID,
+                    presentationID: record.backendID,
+                    presentationGeneration: record.canonicalGeneration,
+                    ttlMilliseconds: 5_000
+                )
+                let receipt = try await connection.session.sendTerminalGeometry(
+                    surfaceID: binding.surfaceID,
+                    presentationID: record.backendID,
+                    presentationGeneration: record.canonicalGeneration,
+                    requestID: requestID,
+                    columns: columns,
+                    rows: rows
+                )
+                return try await finishTerminalReceipt(
+                    receipt,
+                    expectedKind: .geometry,
+                    requestID: requestID,
+                    surfaceID: binding.surfaceID,
+                    connection: connection
+                )
+            } catch {
+                guard Self.shouldRetry(error) else {
+                    terminalRequestsAwaitingRecovery.remove(requestID)
+                    throw error
+                }
+                lastError = error
+                guard attempt == 0 else { break }
+                await invalidate(connection)
+                connection = try await connectedSession(for: binding)
+            }
+        }
+        throw lastError ?? TerminalBackendClientError.unavailable
+    }
+
+    private func rendererControlRecordEnsuringConfigured(
+        presentation: TerminalBackendPresentationDescriptor?,
+        binding: TerminalBackendTerminalBinding,
+        connection: TerminalBackendConnectedSession
+    ) async throws -> RendererPresentationRecord {
+        if let record = try? rendererControlRecord(
+            presentation: presentation,
+            binding: binding
+        ) {
+            return record
+        }
+        guard let presentation, presentation.visible else {
+            throw TerminalBackendClientError.rendererNotReady
+        }
+        _ = try await configureRenderer(
+            presentation,
+            binding: binding,
+            connection: connection
+        )
+        return try rendererControlRecord(
+            presentation: presentation,
+            binding: binding
+        )
+    }
+
+    private func finishTerminalReceipt(
+        _ receipt: BackendTerminalOperationReceipt,
+        expectedKind: BackendTerminalOperationKind,
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        connection: TerminalBackendConnectedSession
+    ) async throws -> BackendTerminalOperationReceipt {
+        guard receipt.requestID == requestID,
+              receipt.kind == expectedKind,
+              receipt.sequence != nil,
+              receipt.leaseGeneration != nil else {
+            throw BackendProtocolError.malformedMessage
+        }
+        terminalRequestsAwaitingRecovery.remove(requestID)
+        await acknowledgeTerminalReceipt(
+            surfaceID: surfaceID,
+            requestID: requestID,
+            on: connection
+        )
+        switch receipt.status {
+        case .applied:
+            return receipt
+        case .indeterminate:
+            throw BackendTerminalControlError.indeterminate(
+                requestID: requestID,
+                diagnostic: receipt.diagnostic ?? "indeterminate PTY write"
+            )
+        case .unknown:
+            throw BackendProtocolError.malformedMessage
+        }
+    }
+
+    private func acknowledgeTerminalReceipt(
+        surfaceID: SurfaceID,
+        requestID: UUID,
+        on connection: TerminalBackendConnectedSession
+    ) async {
+        let acknowledgement = PendingTerminalReceiptAcknowledgement(
+            surfaceID: surfaceID,
+            requestID: requestID
+        )
+        pendingTerminalReceiptAcknowledgements.insert(acknowledgement)
+        do {
+            _ = try await connection.session.acknowledgeTerminalRequest(
+                surfaceID: surfaceID,
+                requestID: requestID
+            )
+            pendingTerminalReceiptAcknowledgements.remove(acknowledgement)
+        } catch {
+            // The applied receipt is already definitive. A later connection
+            // retries this idempotent acknowledgement without resending input.
+        }
+    }
+
+    private func flushTerminalReceiptAcknowledgements(
+        on connection: TerminalBackendConnectedSession
+    ) async {
+        for acknowledgement in Array(pendingTerminalReceiptAcknowledgements) {
+            do {
+                _ = try await connection.session.acknowledgeTerminalRequest(
+                    surfaceID: acknowledgement.surfaceID,
+                    requestID: acknowledgement.requestID
+                )
+                pendingTerminalReceiptAcknowledgements.remove(acknowledgement)
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func rendererControlRecord(
+        presentation: TerminalBackendPresentationDescriptor?,
+        binding: TerminalBackendTerminalBinding
+    ) throws -> RendererPresentationRecord {
+        guard let presentation,
+              presentation.visible,
+              let record = rendererPresentations[presentation.presentationID],
+              record.binding.appSurfaceID == binding.appSurfaceID,
+              record.binding.surfaceID == binding.surfaceID,
+              record.descriptor.visible,
+              record.receipt != nil else {
+            throw TerminalBackendClientError.rendererNotReady
+        }
+        return record
     }
 
     private func processMetadata(
@@ -639,6 +1430,85 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
             foregroundProcessID: process.processID.map(Int.init),
             controllingTTYName: process.controllingTTYName
         )
+    }
+
+    private enum ConnectionSupervisorStep: Sendable {
+        case observe(Task<Void, Never>)
+        case retry
+        case stop
+    }
+
+    /// Starts one process-lifetime recovery loop. A cycle performs the bounded
+    /// connection policy, then waits for that exact session's observation task
+    /// to finish before replacing it. The task never owns a session while the
+    /// coordinator is explicitly disconnected.
+    private func ensureConnectionSupervisor() {
+        guard connectionSupervisorTask == nil else { return }
+        let supervisorID = UUID()
+        connectionSupervisorID = supervisorID
+        let recoveryCycleDelay = reconnectPolicy.recoveryCycleDelay
+        connectionSupervisorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let step = await self?.beginConnectionSupervisorCycle(
+                    supervisorID: supervisorID
+                ) else { return }
+                switch step {
+                case .observe(let observationTask):
+                    await observationTask.value
+                case .retry:
+                    do {
+                        if recoveryCycleDelay > .zero {
+                            try await ContinuousClock().sleep(for: recoveryCycleDelay)
+                        } else {
+                            await Task.yield()
+                        }
+                    } catch is CancellationError {
+                        await self?.connectionSupervisorDidFinish(
+                            supervisorID: supervisorID
+                        )
+                        return
+                    } catch {
+                        await self?.connectionSupervisorDidFinish(
+                            supervisorID: supervisorID
+                        )
+                        return
+                    }
+                case .stop:
+                    await self?.connectionSupervisorDidFinish(
+                        supervisorID: supervisorID
+                    )
+                    return
+                }
+            }
+            await self?.connectionSupervisorDidFinish(supervisorID: supervisorID)
+        }
+    }
+
+    private func beginConnectionSupervisorCycle(
+        supervisorID: UUID
+    ) async -> ConnectionSupervisorStep {
+        guard connectionSupervisorID == supervisorID, !Task.isCancelled else {
+            return .stop
+        }
+        do {
+            _ = try await connectedSession()
+            guard connectionSupervisorID == supervisorID, !Task.isCancelled else {
+                return .stop
+            }
+            guard let eventTask else {
+                return .retry
+            }
+            return .observe(eventTask)
+        } catch is CancellationError {
+            return .stop
+        } catch {
+            return Self.shouldContinueSupervising(after: error) ? .retry : .stop
+        }
+    }
+
+    private func connectionSupervisorDidFinish(supervisorID: UUID) {
+        guard connectionSupervisorID == supervisorID else { return }
+        connectionSupervisorTask = nil
     }
 
     private func connectedSession(
@@ -655,6 +1525,7 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
     }
 
     private func connectedSession() async throws -> TerminalBackendConnectedSession {
+        ensureConnectionSupervisor()
         if let connected { return connected }
         if let connectionTask { return try await connectionTask.value }
 
@@ -677,14 +1548,40 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
                 await result.session.close()
                 throw CancellationError()
             }
+            let compatibility: BackendCompatibilityResult
+            do {
+                compatibility = try await result.session.backendCompatibility()
+            } catch {
+                await result.session.close()
+                throw error
+            }
+            guard connectionAttemptID == attemptID else {
+                await result.session.close()
+                throw CancellationError()
+            }
             connectionTask = nil
             connected = result
-            latestSnapshot = result.snapshot
-            publishSnapshot(result.snapshot)
+            await compatibilityReporter(compatibility)
+            guard connectionAttemptID == attemptID,
+                  connected?.readiness == result.readiness else {
+                await result.session.close()
+                throw CancellationError()
+            }
+            if let snapshot = result.snapshot {
+                latestSnapshot = snapshot
+                publishSnapshot(snapshot)
+                publishTopology(.snapshot(snapshot))
+            } else {
+                latestSnapshot = nil
+                latestActivitySnapshot = nil
+            }
             observe(result, attemptID: attemptID)
-            if let workers = try? await result.session.rendererWorkers(),
-               connected?.readiness == result.readiness {
-                publishRenderer(.reconnected(workers))
+            if case .readWrite = compatibility {
+                await flushTerminalReceiptAcknowledgements(on: result)
+                if let workers = try? await result.session.rendererWorkers(),
+                   connected?.readiness == result.readiness {
+                    publishRenderer(.reconnected(workers))
+                }
             }
             guard connected?.readiness == result.readiness else {
                 return try await connectedSession()
@@ -712,6 +1609,12 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
                     await self.receivedSnapshot(snapshot, from: connection)
                 case .delta(let delta):
                     await self.receivedDelta(delta, from: connection)
+                case .terminalActivitySnapshot(let snapshot):
+                    await self.receivedActivitySnapshot(snapshot, from: connection)
+                case .terminalActivity, .terminalActivityReceipt:
+                    if let snapshot = await connection.session.currentTerminalActivitySnapshot() {
+                        await self.receivedActivitySnapshot(snapshot, from: connection)
+                    }
                 case .rendererWorkerChanged(let changed):
                     await self.receivedWorkerChanged(changed, from: connection)
                 case .rendererPresentationReady(let ready):
@@ -732,6 +1635,7 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         guard connected?.readiness == connection.readiness else { return }
         latestSnapshot = snapshot
         publishSnapshot(snapshot)
+        publishTopology(.snapshot(snapshot))
     }
 
     private func receivedDelta(
@@ -746,6 +1650,7 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         )
         latestSnapshot = snapshot
         publishSnapshot(snapshot)
+        publishTopology(.delta(delta))
     }
 
     private func receivedPresentationReady(
@@ -774,6 +1679,15 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         )
     }
 
+    private func receivedActivitySnapshot(
+        _ snapshot: BackendTerminalActivitySnapshot,
+        from connection: TerminalBackendConnectedSession
+    ) {
+        guard connected?.readiness == connection.readiness else { return }
+        latestActivitySnapshot = snapshot
+        publishActivity(snapshot)
+    }
+
     private func receivedWorkerChanged(
         _ changed: BackendRendererWorkerChanged,
         from connection: TerminalBackendConnectedSession
@@ -798,18 +1712,30 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         latestSnapshot = nil
         rendererPresentations.removeAll()
         publishRenderer(.connectionLost(connection.readiness.authority))
+        publishTopology(.disconnected(connection.readiness.authority))
+        await compatibilityReporter(nil)
         eventTask = nil
         connectionAttemptID = UUID()
-        // Reconnection is finite and uses an intended cancellable backoff.
-        _ = try? await connectedSession()
+        // The old protocol client must release its socket before the supervisor
+        // starts another bounded recovery cycle.
+        await connection.session.close()
     }
 
     private func invalidate(_ connection: TerminalBackendConnectedSession) async {
         guard connected?.readiness == connection.readiness else { return }
+        // A semantic or identity violation is fail-closed. Stop background
+        // recovery so it cannot silently trust a replacement session after the
+        // caller has rejected the current authority. A later explicit client
+        // operation may start a fresh supervisor.
+        connectionSupervisorID = UUID()
+        connectionSupervisorTask?.cancel()
+        connectionSupervisorTask = nil
         connected = nil
         latestSnapshot = nil
         rendererPresentations.removeAll()
         publishRenderer(.connectionLost(connection.readiness.authority))
+        publishTopology(.disconnected(connection.readiness.authority))
+        await compatibilityReporter(nil)
         eventTask?.cancel()
         eventTask = nil
         connectionAttemptID = UUID()
@@ -835,12 +1761,34 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         }
     }
 
+    private func publishTopology(_ event: TerminalBackendTopologyStreamEvent) {
+        for continuation in topologyContinuations.values {
+            // A dropped older element is intentional coalescing. The newest
+            // snapshot/delta is self-contained and the stream must stay alive.
+            continuation.yield(event)
+        }
+    }
+
+    private func publishActivity(_ snapshot: BackendTerminalActivitySnapshot) {
+        for continuation in activityContinuations.values {
+            continuation.yield(snapshot)
+        }
+    }
+
     private func removeRendererContinuation(_ identifier: UUID) {
         rendererContinuations.removeValue(forKey: identifier)
     }
 
     private func removeSnapshotContinuation(_ identifier: UUID) {
         snapshotContinuations.removeValue(forKey: identifier)
+    }
+
+    private func removeTopologyContinuation(_ identifier: UUID) {
+        topologyContinuations.removeValue(forKey: identifier)
+    }
+
+    private func removeActivityContinuation(_ identifier: UUID) {
+        activityContinuations.removeValue(forKey: identifier)
     }
 
     private static func connect(
@@ -855,10 +1803,11 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
                 let session = sessionFactory(readiness)
                 do {
                     let snapshot = try await session.connect()
-                    guard snapshot.authority == readiness.authority,
-                          snapshot.revision >= readiness.topologyRevision else {
-                        await session.close()
-                        throw BackendProtocolError.peerIdentityMismatch
+                    if let snapshot {
+                        guard snapshot.authority == readiness.authority,
+                              snapshot.revision >= readiness.topologyRevision else {
+                            throw BackendProtocolError.peerIdentityMismatch
+                        }
                     }
                     return TerminalBackendConnectedSession(
                         readiness: readiness,
@@ -870,8 +1819,10 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
                     throw error
                 }
             } catch {
-                guard shouldRetry(error),
-                      nextDelayIndex < reconnectPolicy.delays.count else {
+                guard shouldRetry(error) else {
+                    throw error
+                }
+                guard nextDelayIndex < reconnectPolicy.delays.count else {
                     if error is TerminalBackendClientError { throw error }
                     throw TerminalBackendClientError.reconnectExhausted(
                         String(describing: error)
@@ -904,6 +1855,19 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         case .backendUnavailable:
             throw TerminalBackendClientError.unavailable
         }
+    }
+
+    private static func shouldContinueSupervising(after error: any Error) -> Bool {
+        if let clientError = error as? TerminalBackendClientError {
+            switch clientError {
+            case .unavailable, .reconnectExhausted, .requiresApproval, .serviceNotFound:
+                return true
+            case .disabled, .missingBundleItem, .authorityChanged, .unsupportedMutation,
+                 .presentationUnavailable, .rendererNotReady:
+                return false
+            }
+        }
+        return shouldRetry(error)
     }
 
     private static func shouldRetry(_ error: any Error) -> Bool {
@@ -1127,5 +2091,197 @@ private extension BackendRendererColorSpace {
         case .displayP3: .displayP3
         case .extendedLinearSRGB: .extendedLinearSRGB
         }
+    }
+}
+
+private let terminalAccessibilitySchemaVersion: UInt32 = 1
+private let terminalAccessibilityMaximumRows = 4_096
+private let terminalAccessibilityMaximumCells = 65_536
+private let terminalAccessibilityMaximumUTF16Units = 1_048_576
+private let terminalAccessibilityMaximumTextBytes = 1_048_576
+private let terminalAccessibilityMaximumLinks = 1_024
+
+extension BackendTerminalAccessibilitySnapshot {
+    func externalSnapshot(
+        appSurfaceID: UUID,
+        appPresentationID: UUID
+    ) throws -> TerminalAccessibilitySnapshot {
+        guard schemaVersion == terminalAccessibilitySchemaVersion,
+              contentSequence > 0,
+              columns > 0,
+              rows > 0,
+              text.utf8.count <= terminalAccessibilityMaximumTextBytes,
+              text.utf16.count <= terminalAccessibilityMaximumUTF16Units,
+              lines.count <= terminalAccessibilityMaximumRows,
+              links.count <= terminalAccessibilityMaximumLinks,
+              Int(rows) == lines.count else {
+            throw BackendProtocolError.malformedMessage
+        }
+        let utf16Count = text.utf16.count
+        let utf16Text = text as NSString
+        var totalCells = 0
+        var previousLineEnd = 0
+        let externalLines = try lines.enumerated().map { index, line in
+            let range = try line.utf16Range.externalRange(maximum: utf16Count)
+            let expectedLocation = index == 0 ? 0 : previousLineEnd + 1
+            let expectedRow = viewportOffset.addingReportingOverflow(UInt64(index))
+            guard !expectedRow.overflow,
+                  line.row == expectedRow.partialValue,
+                  range.location == expectedLocation,
+                  range.length > 0 else {
+                throw BackendProtocolError.malformedMessage
+            }
+            previousLineEnd = range.location + range.length
+            if index + 1 < lines.count {
+                guard previousLineEnd < utf16Count,
+                      utf16Text.character(at: previousLineEnd) == 0x0A else {
+                    throw BackendProtocolError.malformedMessage
+                }
+            } else if previousLineEnd != utf16Count {
+                throw BackendProtocolError.malformedMessage
+            }
+            totalCells += line.cells.count
+            guard totalCells <= terminalAccessibilityMaximumCells else {
+                throw BackendProtocolError.malformedMessage
+            }
+            var expectedColumn = 0
+            var expectedCellLocation = range.location
+            let cells = try line.cells.map { cell in
+                let column = Int(cell.column)
+                let span = Int(cell.columnSpan)
+                let cellRange = try cell.utf16Range.externalRange(maximum: utf16Count)
+                guard span > 0,
+                      column == expectedColumn,
+                      column + span <= Int(columns),
+                      cellRange.location == expectedCellLocation,
+                      cellRange.length > 0,
+                      cellRange.location + cellRange.length <= previousLineEnd else {
+                    throw BackendProtocolError.malformedMessage
+                }
+                expectedColumn = column + span
+                expectedCellLocation = cellRange.location + cellRange.length
+                return TerminalAccessibilityCell(
+                    column: column,
+                    columnSpan: span,
+                    utf16Range: cellRange
+                )
+            }
+            guard expectedColumn == Int(columns), expectedCellLocation == previousLineEnd else {
+                throw BackendProtocolError.malformedMessage
+            }
+            return TerminalAccessibilityLine(row: line.row, utf16Range: range, cells: cells)
+        }
+        var selectionTextBytes = 0
+        let externalSelections = try selections.map { selection in
+            selectionTextBytes += selection.text.utf8.count
+            guard selectionTextBytes <= terminalAccessibilityMaximumTextBytes,
+                  selection.text.utf16.count <= terminalAccessibilityMaximumUTF16Units else {
+                throw BackendProtocolError.malformedMessage
+            }
+            var previousRangeEnd = 0
+            let ranges = try selection.utf16Ranges.map {
+                let range = try $0.externalRange(maximum: utf16Count)
+                guard range.length > 0, range.location >= previousRangeEnd else {
+                    throw BackendProtocolError.malformedMessage
+                }
+                previousRangeEnd = range.location + range.length
+                return range
+            }
+            return TerminalAccessibilitySelection(
+                text: selection.text,
+                utf16Ranges: ranges
+            )
+        }
+        var linkIDs = Set<String>()
+        var linkTargetBytes = 0
+        let externalLinks = try links.map { link in
+            linkTargetBytes += link.target.utf8.count
+            guard !link.id.isEmpty, link.id.utf8.count <= 128,
+                  !link.target.isEmpty, link.target.utf8.count <= 4_096,
+                  linkTargetBytes <= terminalAccessibilityMaximumLinks * 4_096,
+                  linkIDs.insert(link.id).inserted,
+                  link.startColumn <= link.endColumn,
+                  Int(link.endColumn) < Int(columns),
+                  let line = externalLines.first(where: { $0.row == link.row }),
+                  let first = line.cells.first(where: {
+                    Int(link.startColumn) >= $0.column
+                        && Int(link.startColumn) < $0.column + $0.columnSpan
+                  }),
+                  let last = line.cells.first(where: {
+                    Int(link.endColumn) >= $0.column
+                        && Int(link.endColumn) < $0.column + $0.columnSpan
+                  }) else {
+                throw BackendProtocolError.malformedMessage
+            }
+            let range = try link.utf16Range.externalRange(maximum: utf16Count)
+            let expectedEnd = last.utf16Range.location + last.utf16Range.length
+            guard range.length > 0,
+                  range.location == first.utf16Range.location,
+                  range.location + range.length == expectedEnd else {
+                throw BackendProtocolError.malformedMessage
+            }
+            return TerminalAccessibilityLink(
+                id: link.id,
+                target: link.target,
+                utf16Range: range,
+                row: link.row,
+                startColumn: Int(link.startColumn),
+                endColumn: Int(link.endColumn)
+            )
+        }
+        let externalCursor: TerminalAccessibilityCursor?
+        if let cursor {
+            let lineIndex = Int(cursor.line)
+            let column = Int(cursor.column)
+            let insertionRange = try cursor.insertionRange.externalRange(maximum: utf16Count)
+            guard externalLines.indices.contains(lineIndex),
+                  externalLines[lineIndex].row == cursor.row,
+                  column < Int(columns),
+                  insertionRange.length == 0,
+                  let cell = externalLines[lineIndex].cells.first(where: {
+                    column >= $0.column && column < $0.column + $0.columnSpan
+                  }),
+                  insertionRange.location == cell.utf16Range.location else {
+                throw BackendProtocolError.malformedMessage
+            }
+            externalCursor = TerminalAccessibilityCursor(
+                column: column,
+                row: cursor.row,
+                insertionRange: insertionRange,
+                line: lineIndex
+            )
+        } else {
+            externalCursor = nil
+        }
+        return TerminalAccessibilitySnapshot(
+            schemaVersion: schemaVersion,
+            surfaceID: appSurfaceID,
+            presentationID: appPresentationID,
+            presentationGeneration: presentationGeneration,
+            contentSequence: contentSequence,
+            terminalRevision: terminalRevision,
+            contentRevision: contentRevision,
+            viewportRevision: viewportRevision,
+            viewportOffset: viewportOffset,
+            columns: Int(columns),
+            rows: Int(rows),
+            text: text,
+            lines: externalLines,
+            cursor: externalCursor,
+            selections: externalSelections,
+            links: externalLinks,
+            focused: focused
+        )
+    }
+}
+
+private extension BackendTerminalAccessibilityRange {
+    func externalRange(maximum: Int) throws -> TerminalAccessibilityRange {
+        let location = Int(self.location)
+        let length = Int(self.length)
+        guard location <= maximum, length <= maximum - location else {
+            throw BackendProtocolError.malformedMessage
+        }
+        return TerminalAccessibilityRange(location: location, length: length)
     }
 }

@@ -667,6 +667,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     private(set) var terminalClientComposition: TerminalClientComposition?
     private var terminalBackendServiceModel: TerminalBackendServiceModel?
+    private var terminalBackendTopologyProjectionRegistry:
+        TerminalBackendTopologyProjectionRegistry?
     private var terminalBackendTopologyCoordinator: TerminalBackendTopologyCoordinator?
 
     /// Notification jump/open navigation, extracted into `CmuxNotifications`. `AppDelegate` is the
@@ -2075,13 +2077,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition,
-        terminalClientComposition: TerminalClientComposition? = nil,
+        terminalClientComposition: TerminalClientComposition,
         terminalBackendServiceModel: TerminalBackendServiceModel? = nil,
+        terminalBackendTopologyProjectionRegistry: TerminalBackendTopologyProjectionRegistry? = nil,
         terminalBackendTopologyCoordinator: TerminalBackendTopologyCoordinator? = nil
     ) {
+        precondition(
+            tabManager.terminalClientComposition === terminalClientComposition,
+            "AppDelegate and its primary TabManager must share one terminal composition"
+        )
         self.tabManager = tabManager
-        self.terminalClientComposition = terminalClientComposition ?? tabManager.terminalClientComposition
+        self.terminalClientComposition = terminalClientComposition
         self.terminalBackendServiceModel = terminalBackendServiceModel
+        self.terminalBackendTopologyProjectionRegistry =
+            terminalBackendTopologyProjectionRegistry
         self.terminalBackendTopologyCoordinator = terminalBackendTopologyCoordinator
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
@@ -4559,6 +4568,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
         if let existing = mainWindowContexts[key] {
+            guard existing.tabManager === tabManager else {
+                terminalBackendServiceModel?.reportTopologyFailure(String(
+                    localized: "terminalBackend.topology.projectionFailed",
+                    defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+                ))
+                return
+            }
             tabManager.window = window
             tabManager.windowId = existing.windowId
             existing.window = window
@@ -4576,6 +4592,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            guard existing.tabManager === tabManager else {
+                terminalBackendServiceModel?.reportTopologyFailure(String(
+                    localized: "terminalBackend.topology.projectionFailed",
+                    defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+                ))
+                return
+            }
             if let existingWindow = existing.window,
                existingWindow !== window,
                existingWindow.isVisible || existingWindow.isMiniaturized {
@@ -4637,6 +4660,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         ensureSocketListenerIfEnabled(tabManager: tabManager, source: "mainWindow.register")
         ensureMobileWorkspaceListObserver(for: tabManager)
+        let terminalProjectionRegistrationChanged = terminalBackendTopologyProjectionRegistry?.register(
+            tabManager,
+            presentationID: windowId,
+            isPrimary: tabManager === self.tabManager
+        ) ?? false
+        if terminalProjectionRegistrationChanged {
+            terminalBackendTopologyCoordinator?.projectorsDidChange()
+        }
         notifyMainWindowContextsDidChange()
         if window.isKeyWindow {
             setActiveMainWindow(window)
@@ -4644,6 +4675,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
         if tabManager === self.tabManager, !isApplyingSessionRestore {
+            terminalBackendTopologyProjectionRegistry?.startupRestoreDidFinish()
             terminalBackendTopologyCoordinator?.startupRestoreDidFinish()
         }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
@@ -4751,13 +4783,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
+        guard !destinationManager.tabs.contains(where: { $0.id == workspaceId }) else {
+            terminalBackendServiceModel?.reportTopologyFailure(String(
+                localized: "terminalBackend.topology.projectionFailed",
+                defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+            ))
+            return false
+        }
 
-        guard let workspace = sourceManager.detachWorkspace(tabId: workspaceId) else { return false }
+        let ownershipTransfer: TerminalBackendTopologyWorkspaceOwnershipTransfer?
+        do {
+            ownershipTransfer = try terminalBackendTopologyProjectionRegistry?
+                .prepareWorkspaceOwnershipTransfer(
+                    workspaceID: workspaceId,
+                    from: sourceManager,
+                    to: destinationManager
+                )
+        } catch {
+            terminalBackendServiceModel?.reportTopologyFailure(String(
+                localized: "terminalBackend.topology.projectionFailed",
+                defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+            ))
+            return false
+        }
+
+        guard sourceManager.tabs.contains(where: { $0.id == workspaceId }) else {
+            return false
+        }
+        do {
+            try ownershipTransfer?.commit()
+        } catch {
+            terminalBackendServiceModel?.reportTopologyFailure(String(
+                localized: "terminalBackend.topology.projectionFailed",
+                defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+            ))
+            return false
+        }
+
+        // Both operations are synchronous on MainActor and non-failable after
+        // this presence check. Commit daemon-presentation ownership first so a
+        // rejected transfer cannot leak detach/group/selection side effects.
+        guard let workspace = sourceManager.detachWorkspace(
+            tabId: workspaceId,
+            provisionReplacementIfEmpty: false
+        ) else {
+            ownershipTransfer?.rollback()
+            return false
+        }
         destinationManager.attachWorkspace(workspace, at: atIndex, select: focus)
+        terminalBackendTopologyCoordinator?.projectorsDidChange()
 
         if focus {
             _ = focusMainWindow(windowId: windowId)
             TerminalController.shared.setActiveTabManager(destinationManager)
+        }
+
+        if sourceManager.tabs.isEmpty {
+            let sourceWindowId = self.windowId(for: sourceManager) ?? sourceManager.windowId
+            if let sourceWindowId, sourceWindowId != windowId,
+               closeMainWindow(windowId: sourceWindowId, recordHistory: false) {
+                // Window teardown retires the now-empty presentation registry entry.
+            } else {
+                // A failed window close must not fabricate a backend-unowned
+                // terminal. The empty presentation remains fail-closed.
+                terminalBackendServiceModel?.reportTopologyFailure(String(
+                    localized: "terminalBackend.topology.projectionFailed",
+                    defaultValue: "cmux could not safely project the terminal backend layout. The local layout was left unchanged."
+                ))
+            }
         }
         return true
     }
@@ -5955,6 +6048,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
+        terminalBackendTopologyProjectionRegistry?.unregister(context.tabManager)
+        terminalBackendTopologyCoordinator?.projectorsDidChange()
         notifyMainWindowContextsDidChange()
 
         commandPaletteWindowStore.removeWindow(context.windowId)
@@ -8624,6 +8719,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
+        guard let terminalClientComposition else {
+            preconditionFailure(
+                "AppDelegate must be configured by cmuxApp before creating a main window"
+            )
+        }
         let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
         let windowId = availableWindowIdForNewMainWindow(preferredWindowId: requestedWindowId) ?? UUID()
         let tabManager = TabManager(
@@ -8631,9 +8731,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
-            terminalClientComposition: terminalClientComposition
-                ?? self.tabManager?.terminalClientComposition
-                ?? .embedded(),
+            terminalClientComposition: terminalClientComposition,
             pullRequestProbeService: self.tabManager?.pullRequestProbeService
         )
         tabManager.windowId = windowId
@@ -16232,6 +16330,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowVisibilityController.discardClosedWindow(window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        if !isTerminatingApp {
+            terminalBackendTopologyProjectionRegistry?.closeProjection(
+                presentationID: removed.windowId
+            )
+        }
+        terminalBackendTopologyProjectionRegistry?.unregister(removed.tabManager)
+        terminalBackendTopologyCoordinator?.projectorsDidChange()
         windowConfigFrames.removeValue(forKey: removed.windowId)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteWindowStore.removeWindow(removed.windowId)

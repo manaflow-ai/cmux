@@ -4,6 +4,7 @@ import CmuxWorkspaces
 import Darwin
 import CmuxNotifications
 import CmuxSidebar
+import Bonsplit
 
 extension Workspace {
     struct DetachedAgentRuntimeState {
@@ -18,6 +19,9 @@ extension Workspace {
     }
 
     struct DetachedSurfaceTransfer {
+        var sourceTabId: TabID? = nil
+        var sourcePaneId: PaneID? = nil
+        var sourceIndex: Int? = nil
         let sourceWorkspaceId: UUID
         let panelId: UUID
         let panel: any Panel
@@ -50,6 +54,9 @@ extension Workspace {
 
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
             Self(
+                sourceTabId: sourceTabId,
+                sourcePaneId: sourcePaneId,
+                sourceIndex: sourceIndex,
                 sourceWorkspaceId: sourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
@@ -79,6 +86,47 @@ extension Workspace {
                 remoteRelayPort: remoteRelayPort,
                 remotePTYSessionID: remotePTYSessionID,
                 remoteCleanupConfiguration: configuration
+            )
+        }
+
+        func withSourcePlacement(
+            tabId: TabID,
+            paneId: PaneID?,
+            index: Int?
+        ) -> Self {
+            Self(
+                sourceTabId: tabId,
+                sourcePaneId: paneId,
+                sourceIndex: index,
+                sourceWorkspaceId: sourceWorkspaceId,
+                panelId: panelId,
+                panel: panel,
+                title: title,
+                icon: icon,
+                iconImageData: iconImageData,
+                kind: kind,
+                isLoading: isLoading,
+                isPinned: isPinned,
+                directory: directory,
+                directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
+                directoryDisplayLabel: directoryDisplayLabel,
+                ttyName: ttyName,
+                cachedTitle: cachedTitle,
+                customTitle: customTitle,
+                customTitleSource: customTitleSource,
+                manuallyUnread: manuallyUnread,
+                restoredUnreadIndicator: restoredUnreadIndicator,
+                restorableAgent: restorableAgent,
+                restorableAgentResumeState: restorableAgentResumeState,
+                restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
+                shellActivityState: shellActivityState,
+                restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+                resumeBinding: resumeBinding,
+                agentRuntime: agentRuntime,
+                isRemoteTerminal: isRemoteTerminal,
+                remoteRelayPort: remoteRelayPort,
+                remotePTYSessionID: remotePTYSessionID,
+                remoteCleanupConfiguration: remoteCleanupConfiguration
             )
         }
     }

@@ -68,6 +68,9 @@ public struct BackendRendererPresentationConfiguration: Equatable, Sendable {
     public let focused: Bool
     public let cursorBlinkVisible: Bool
     public let preedit: String?
+    public let preeditSelectionStartUTF16: UInt32
+    public let preeditSelectionLengthUTF16: UInt32
+    public let preeditCaretUTF16: UInt32
 
     public init(
         width: UInt32,
@@ -83,7 +86,10 @@ public struct BackendRendererPresentationConfiguration: Equatable, Sendable {
         resolvedConfig: Data = Data(),
         focused: Bool = true,
         cursorBlinkVisible: Bool = true,
-        preedit: String? = nil
+        preedit: String? = nil,
+        preeditSelectionStartUTF16: UInt32 = 0,
+        preeditSelectionLengthUTF16: UInt32 = 0,
+        preeditCaretUTF16: UInt32 = 0
     ) {
         self.width = width
         self.height = height
@@ -99,6 +105,9 @@ public struct BackendRendererPresentationConfiguration: Equatable, Sendable {
         self.focused = focused
         self.cursorBlinkVisible = cursorBlinkVisible
         self.preedit = preedit
+        self.preeditSelectionStartUTF16 = preeditSelectionStartUTF16
+        self.preeditSelectionLengthUTF16 = preeditSelectionLengthUTF16
+        self.preeditCaretUTF16 = preeditCaretUTF16
     }
 
     internal var jsonParameters: [String: BackendJSONValue] {
@@ -118,7 +127,34 @@ public struct BackendRendererPresentationConfiguration: Equatable, Sendable {
             "cursor_blink_visible": .bool(cursorBlinkVisible),
         ]
         parameters["preedit"] = preedit.map(BackendJSONValue.string) ?? .null
+        parameters["preedit_selection_start_utf16"] = .unsignedInteger(
+            UInt64(preeditSelectionStartUTF16)
+        )
+        parameters["preedit_selection_length_utf16"] = .unsignedInteger(
+            UInt64(preeditSelectionLengthUTF16)
+        )
+        parameters["preedit_caret_utf16"] = .unsignedInteger(UInt64(preeditCaretUTF16))
         return parameters
+    }
+}
+
+/// Typed IME marked text sent to the daemon-owned semantic scene.
+public struct BackendTerminalPreedit: Equatable, Sendable {
+    public let text: String
+    public let selectionStartUTF16: UInt32
+    public let selectionLengthUTF16: UInt32
+    public let caretUTF16: UInt32
+
+    public init(
+        text: String,
+        selectionStartUTF16: UInt32,
+        selectionLengthUTF16: UInt32,
+        caretUTF16: UInt32
+    ) {
+        self.text = text
+        self.selectionStartUTF16 = selectionStartUTF16
+        self.selectionLengthUTF16 = selectionLengthUTF16
+        self.caretUTF16 = caretUTF16
     }
 }
 

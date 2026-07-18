@@ -1,12 +1,12 @@
 /// Mouse lifecycle action encoded against canonical terminal modes.
-public enum BackendTerminalMouseAction: String, Sendable {
+public enum BackendTerminalMouseAction: String, Equatable, Sendable {
     case press
     case release
     case motion
 }
 
 /// Ghostty terminal mouse button and wheel identities.
-public enum BackendTerminalMouseButton: String, Sendable {
+public enum BackendTerminalMouseButton: String, Equatable, Sendable {
     case left
     case right
     case middle
@@ -74,4 +74,6 @@ public struct BackendTerminalMouseResponse: Decodable, Equatable, Sendable {
 public enum BackendTerminalMouseRoute: String, Decodable, Equatable, Sendable {
     case application
     case selection
+    case scrollback
+    case link
 }

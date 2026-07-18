@@ -1,10 +1,17 @@
 import CmuxTerminalBackend
+import Foundation
 
 /// Test seam over one exact credential-fenced canonical daemon connection.
 protocol TerminalBackendSessionServing: Sendable {
+    func backendCompatibility() async throws -> BackendCompatibilityResult
     func events() async -> AsyncStream<BackendCanonicalSessionEvent>
-    func connect() async throws -> TopologySnapshot
+    func connect() async throws -> TopologySnapshot?
     func close() async
+    func currentTerminalActivitySnapshot() async -> BackendTerminalActivitySnapshot?
+    func markTerminalSeen(
+        surfaceID: SurfaceID,
+        activitySequence: UInt64
+    ) async throws -> BackendTerminalActivityReceipt
 
     func ensureTerminal(
         workspaceID: WorkspaceID,
@@ -18,6 +25,9 @@ protocol TerminalBackendSessionServing: Sendable {
         columns: UInt16,
         rows: UInt16
     ) async throws -> BackendEnsuredTerminalPlacement
+    func ensureTerminals(
+        _ requests: [BackendEnsureTerminalRequest]
+    ) async throws -> [BackendEnsuredTerminalPlacement]
     func reparentTerminal(
         surfaceID: SurfaceID,
         workspaceID: WorkspaceID
@@ -43,10 +53,82 @@ protocol TerminalBackendSessionServing: Sendable {
         rendererGeneration: UInt64,
         text: String?
     ) async throws
+    func setTerminalPreedit(
+        presentationID: PresentationID,
+        rendererGeneration: UInt64,
+        preedit: BackendTerminalPreedit?
+    ) async throws
     func releaseRendererFrame(
         _ release: BackendRendererFrameRelease
     ) async throws -> BackendRendererFrameReleaseResponse
     func rendererWorkers() async throws -> BackendRendererWorkersResponse
+    func claimProjectionState(
+        logicalPresentationID: UUID
+    ) async throws -> BackendProjectionState
+    func updateProjectionState(
+        logicalPresentationID: UUID,
+        claimID: UUID,
+        expectedGeneration: UInt64,
+        workspaces: [BackendProjectionWorkspaceState]
+    ) async throws -> BackendProjectionState
+    func updateProjectionStates(
+        _ projections: [BackendProjectionStateUpdate]
+    ) async throws -> [BackendProjectionState]
+    func releaseProjectionState(
+        logicalPresentationID: UUID,
+        claimID: UUID,
+        expectedGeneration: UInt64
+    ) async throws
+    func listProjectionStates() async throws -> [BackendProjectionState]
+
+    func terminalControlProtocol() async throws -> BackendTerminalControlProtocol
+    func acquireTerminalControl(
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64,
+        ttlMilliseconds: UInt64
+    ) async throws -> BackendTerminalControlLease
+    func acquireTerminalLease(
+        kind: BackendTerminalLeaseKind,
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64,
+        ttlMilliseconds: UInt64
+    ) async throws -> BackendTerminalLease
+    func releaseTerminalLease(
+        kind: BackendTerminalLeaseKind,
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64
+    ) async throws
+    func releaseTerminalControl(
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64
+    ) async throws
+    func sendTerminalInput(
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64,
+        requestID: UUID,
+        input: BackendTerminalControlInput
+    ) async throws -> BackendTerminalOperationReceipt
+    func sendTerminalGeometry(
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64,
+        requestID: UUID,
+        columns: UInt16,
+        rows: UInt16
+    ) async throws -> BackendTerminalOperationReceipt
+    func terminalRequestStatus(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> BackendTerminalOperationReceipt
+    func acknowledgeTerminalRequest(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> Bool
 
     func sendTerminalKey(
         surface: UInt64,
@@ -59,6 +141,26 @@ protocol TerminalBackendSessionServing: Sendable {
     ) async throws -> BackendTerminalMouseResponse
     func sendTerminalText(surface: UInt64, text: String, paste: Bool) async throws
     func terminalState(surfaceID: SurfaceID) async throws -> BackendTerminalStateResponse
+    func terminalAccessibilitySnapshot(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        expectedContentSequence: UInt64
+    ) async throws -> BackendTerminalAccessibilitySnapshot
+    func activateTerminalAccessibilityLink(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        terminalRevision: UInt64,
+        contentRevision: UInt64,
+        viewportRevision: UInt64,
+        linkID: String
+    ) async throws -> BackendTerminalAccessibilityLinkActivation
+    func terminalHyperlinkAtCell(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        expectedContentSequence: UInt64,
+        column: UInt16,
+        row: UInt16
+    ) async throws -> BackendTerminalHyperlinkHit
     func performTerminalBindingAction(
         surfaceID: SurfaceID,
         action: String,
@@ -92,6 +194,150 @@ protocol TerminalBackendSessionServing: Sendable {
     func readTerminalScreen(surface: UInt64) async throws -> BackendScreenText
     func terminalProcessInfo(surface: UInt64) async throws -> BackendProcessInfo
     func closeTerminal(surface: UInt64) async throws
+}
+
+extension TerminalBackendSessionServing {
+    func backendCompatibility() async throws -> BackendCompatibilityResult {
+        throw BackendProtocolError.notConnected
+    }
+
+    func currentTerminalActivitySnapshot() async -> BackendTerminalActivitySnapshot? {
+        nil
+    }
+
+    func markTerminalSeen(
+        surfaceID: SurfaceID,
+        activitySequence: UInt64
+    ) async throws -> BackendTerminalActivityReceipt {
+        _ = surfaceID
+        _ = activitySequence
+        throw BackendProtocolError.notConnected
+    }
+
+    func acquireTerminalLease(
+        kind: BackendTerminalLeaseKind,
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64,
+        ttlMilliseconds: UInt64
+    ) async throws -> BackendTerminalLease {
+        _ = kind
+        _ = surfaceID
+        _ = presentationID
+        _ = presentationGeneration
+        _ = ttlMilliseconds
+        throw BackendProtocolError.notConnected
+    }
+
+    func releaseTerminalLease(
+        kind: BackendTerminalLeaseKind,
+        surfaceID: SurfaceID,
+        presentationID: PresentationID,
+        presentationGeneration: UInt64
+    ) async throws {
+        _ = kind
+        _ = surfaceID
+        _ = presentationID
+        _ = presentationGeneration
+        throw BackendProtocolError.notConnected
+    }
+
+    func terminalRequestStatus(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> BackendTerminalOperationReceipt {
+        _ = surfaceID
+        _ = requestID
+        throw BackendProtocolError.notConnected
+    }
+
+    func acknowledgeTerminalRequest(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> Bool {
+        _ = surfaceID
+        _ = requestID
+        throw BackendProtocolError.notConnected
+    }
+
+    func setTerminalPreedit(
+        presentationID: PresentationID,
+        rendererGeneration: UInt64,
+        preedit: BackendTerminalPreedit?
+    ) async throws {
+        try await setTerminalPreedit(
+            presentationID: presentationID,
+            rendererGeneration: rendererGeneration,
+            text: preedit?.text
+        )
+    }
+
+    /// Compatibility path for focused session doubles. The production
+    /// `BackendCanonicalSession` supplies the single-command batch witness.
+    func ensureTerminals(
+        _ requests: [BackendEnsureTerminalRequest]
+    ) async throws -> [BackendEnsuredTerminalPlacement] {
+        var placements: [BackendEnsuredTerminalPlacement] = []
+        placements.reserveCapacity(requests.count)
+        for request in requests {
+            placements.append(try await ensureTerminal(
+                workspaceID: request.workspaceID,
+                surfaceID: request.surfaceID,
+                workingDirectory: request.workingDirectory,
+                command: request.command,
+                arguments: request.arguments,
+                environment: request.environment,
+                initialInput: request.initialInput,
+                waitAfterCommand: request.waitAfterCommand,
+                columns: request.columns,
+                rows: request.rows
+            ))
+        }
+        return placements
+    }
+
+    func terminalAccessibilitySnapshot(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        expectedContentSequence: UInt64
+    ) async throws -> BackendTerminalAccessibilitySnapshot {
+        _ = presentationID
+        _ = expectedGeneration
+        _ = expectedContentSequence
+        throw BackendProtocolError.notConnected
+    }
+
+    func activateTerminalAccessibilityLink(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        terminalRevision: UInt64,
+        contentRevision: UInt64,
+        viewportRevision: UInt64,
+        linkID: String
+    ) async throws -> BackendTerminalAccessibilityLinkActivation {
+        _ = presentationID
+        _ = expectedGeneration
+        _ = terminalRevision
+        _ = contentRevision
+        _ = viewportRevision
+        _ = linkID
+        throw BackendProtocolError.notConnected
+    }
+
+    func terminalHyperlinkAtCell(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        expectedContentSequence: UInt64,
+        column: UInt16,
+        row: UInt16
+    ) async throws -> BackendTerminalHyperlinkHit {
+        _ = presentationID
+        _ = expectedGeneration
+        _ = expectedContentSequence
+        _ = column
+        _ = row
+        throw BackendProtocolError.notConnected
+    }
 }
 
 extension BackendCanonicalSession: TerminalBackendSessionServing {}

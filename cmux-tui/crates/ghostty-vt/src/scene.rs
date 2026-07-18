@@ -17,6 +17,32 @@ pub enum SceneSectionKind {
     Delta,
 }
 
+/// Presentation-local highlight type rendered with Ghostty's search palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderSceneHighlightKind {
+    SearchMatch,
+    SearchMatchSelected,
+}
+
+/// One inclusive search range in retained terminal row coordinates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderSceneHighlight {
+    pub start_row: u64,
+    pub start_column: u32,
+    pub end_row: u64,
+    pub end_column: u32,
+    pub kind: RenderSceneHighlightKind,
+}
+
+/// Presentation-local IME marked text and AppKit UTF-16 caret semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderScenePreedit<'a> {
+    pub text: &'a str,
+    pub selection_start_utf16: u32,
+    pub selection_length_utf16: u32,
+    pub caret_utf16: u32,
+}
+
 impl SceneSectionKind {
     fn raw(self) -> sys::GhosttyRenderSceneSectionKind {
         match self {
@@ -40,6 +66,10 @@ pub struct RenderSceneLimits {
     pub max_preedit_codepoints: usize,
     pub max_highlights: usize,
     pub max_overlay_features: usize,
+    pub max_kitty_resources: usize,
+    pub max_kitty_frames: usize,
+    pub max_kitty_placements: usize,
+    pub max_kitty_resource_bytes: usize,
 }
 
 impl Default for RenderSceneLimits {
@@ -55,6 +85,10 @@ impl Default for RenderSceneLimits {
             max_preedit_codepoints: 4096,
             max_highlights: 1024 * 1024,
             max_overlay_features: 16,
+            max_kitty_resources: 4096,
+            max_kitty_frames: 64 * 1024,
+            max_kitty_placements: 64 * 1024,
+            max_kitty_resource_bytes: 64 * 1024 * 1024,
         }
     }
 }
@@ -73,6 +107,10 @@ impl RenderSceneLimits {
             max_preedit_codepoints: self.max_preedit_codepoints,
             max_highlights: self.max_highlights,
             max_overlay_features: self.max_overlay_features,
+            max_kitty_resources: self.max_kitty_resources,
+            max_kitty_frames: self.max_kitty_frames,
+            max_kitty_placements: self.max_kitty_placements,
+            max_kitty_resource_bytes: self.max_kitty_resource_bytes,
         }
     }
 }
@@ -89,17 +127,29 @@ pub struct RenderSceneOptions<'a> {
     pub canonical_kind: SceneSectionKind,
     pub focused: bool,
     pub cursor_blink_visible: bool,
-    /// Nonzero rejects capture because custom shader state is not semantic.
+    /// Number of resolved renderer-config shaders required by this presentation.
+    /// Shader sources remain renderer resources and are never copied into the
+    /// canonical terminal section.
     pub custom_shader_count: u32,
     /// Borrowed IME marked text rendered at the scene cursor anchor.
-    pub preedit: Option<&'a str>,
+    pub preedit: Option<RenderScenePreedit<'a>>,
+    /// Daemon-derived visible search candidates.
+    pub highlights: &'a [RenderSceneHighlight],
     pub limits: RenderSceneLimits,
 }
 
 impl RenderSceneOptions<'_> {
-    fn raw(self) -> sys::GhosttyRenderSceneOptions {
+    fn raw(
+        self,
+        raw_highlights: &[sys::GhosttyRenderSceneHighlight],
+    ) -> sys::GhosttyRenderSceneOptions {
         let (preedit_utf8, preedit_utf8_len) =
-            self.preedit.map_or((ptr::null(), 0), |value| (value.as_ptr(), value.len()));
+            self.preedit.map_or((ptr::null(), 0), |value| (value.text.as_ptr(), value.text.len()));
+        let preedit_selection_start_utf16 =
+            self.preedit.map_or(0, |value| value.selection_start_utf16);
+        let preedit_selection_length_utf16 =
+            self.preedit.map_or(0, |value| value.selection_length_utf16);
+        let preedit_caret_utf16 = self.preedit.map_or(0, |value| value.caret_utf16);
         sys::GhosttyRenderSceneOptions {
             size: size_of::<sys::GhosttyRenderSceneOptions>(),
             terminal_id: self.terminal_id,
@@ -114,6 +164,11 @@ impl RenderSceneOptions<'_> {
             custom_shader_count: self.custom_shader_count,
             preedit_utf8,
             preedit_utf8_len,
+            preedit_selection_start_utf16,
+            preedit_selection_length_utf16,
+            preedit_caret_utf16,
+            presentation_highlights: raw_highlights.as_ptr(),
+            presentation_highlights_len: raw_highlights.len(),
             limits: self.limits.raw(),
         }
     }
@@ -139,7 +194,7 @@ impl fmt::Display for RenderSceneError {
             Self::OutOfMemory => write!(f, "semantic render-scene allocation failed"),
             Self::LimitExceeded => write!(f, "semantic render-scene limit exceeded"),
             Self::UnsupportedKittyImages => {
-                write!(f, "live Kitty image state cannot be captured semantically")
+                write!(f, "the Kitty scene requires an unsupported capability")
             }
             Self::UnsupportedCustomShaders => {
                 write!(f, "custom shader state cannot be captured semantically")
@@ -184,7 +239,25 @@ impl RenderSceneEncoder {
         terminal: &mut Terminal,
         options: RenderSceneOptions<'_>,
     ) -> Result<EncodedRenderScene, RenderSceneError> {
-        let raw_options = options.raw();
+        let raw_highlights = options
+            .highlights
+            .iter()
+            .map(|highlight| sys::GhosttyRenderSceneHighlight {
+                start_row: highlight.start_row,
+                start_column: highlight.start_column,
+                end_row: highlight.end_row,
+                end_column: highlight.end_column,
+                kind: match highlight.kind {
+                    RenderSceneHighlightKind::SearchMatch => {
+                        sys::GHOSTTY_RENDER_SCENE_HIGHLIGHT_SEARCH_MATCH
+                    }
+                    RenderSceneHighlightKind::SearchMatchSelected => {
+                        sys::GHOSTTY_RENDER_SCENE_HIGHLIGHT_SEARCH_MATCH_SELECTED
+                    }
+                },
+            })
+            .collect::<Vec<_>>();
+        let raw_options = options.raw(&raw_highlights);
         let mut raw_buffer: sys::GhosttyRenderSceneBuffer = ptr::null_mut();
         let status = unsafe {
             sys::ghostty_render_scene_encode(

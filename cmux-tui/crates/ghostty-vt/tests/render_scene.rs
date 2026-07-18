@@ -1,6 +1,7 @@
 use ghostty_vt::{
-    Callbacks, EncodedRenderScene, RenderSceneEncoder, RenderSceneError, RenderSceneLimits,
-    RenderSceneOptions, SceneSectionKind, Terminal,
+    Callbacks, EncodedRenderScene, RenderSceneEncoder, RenderSceneError, RenderSceneHighlight,
+    RenderSceneHighlightKind, RenderSceneLimits, RenderSceneOptions, RenderScenePreedit,
+    SceneSectionKind, Terminal,
 };
 
 const TERMINAL_ID: [u8; 16] = [
@@ -23,6 +24,7 @@ fn options() -> RenderSceneOptions<'static> {
         cursor_blink_visible: true,
         custom_shader_count: 0,
         preedit: None,
+        highlights: &[],
         limits: RenderSceneLimits::default(),
     }
 }
@@ -43,7 +45,7 @@ fn full_scene_preserves_exact_caller_identity_and_sequence_header() {
     let bytes = scene.as_bytes();
 
     assert_eq!(&bytes[0..4], b"GSCN");
-    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 1);
+    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 5);
     assert_eq!(bytes[16], 1);
     assert_eq!(&bytes[24..40], &TERMINAL_ID);
     assert_eq!(u64::from_le_bytes(bytes[40..48].try_into().unwrap()), 7);
@@ -103,7 +105,7 @@ fn scene_buffer_remains_valid_after_encoder_drop() {
 }
 
 #[test]
-fn limits_and_unsupported_state_fail_closed() {
+fn limits_fail_closed_and_custom_shaders_are_negotiated() {
     let mut terminal = terminal();
     let mut encoder = RenderSceneEncoder::new().unwrap();
     let mut value = options();
@@ -116,10 +118,8 @@ fn limits_and_unsupported_state_fail_closed() {
 
     value = options();
     value.custom_shader_count = 1;
-    assert_eq!(
-        encoder.encode(&mut terminal, value).unwrap_err(),
-        RenderSceneError::UnsupportedCustomShaders
-    );
+    let scene = encoder.encode(&mut terminal, value).unwrap();
+    assert!(!scene.as_bytes().is_empty());
 
     value = options();
     value.terminal_id = [0; 16];
@@ -127,12 +127,100 @@ fn limits_and_unsupported_state_fail_closed() {
 }
 
 #[test]
-fn live_kitty_image_state_is_rejected() {
+fn static_kitty_image_state_is_content_addressed_and_bounded() {
     let mut terminal = terminal();
-    terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2,c=10,r=1;////////\x1b\\");
+    terminal.resize(8, 2, 10, 20).unwrap();
+    terminal.vt_write(b"\x1b_Ga=T,t=d,f=32,i=1,p=1,s=1,v=1,c=1,r=1,z=1;/wAA/w==\x1b\\");
     let mut encoder = RenderSceneEncoder::new().unwrap();
+    let scene = encoder.encode(&mut terminal, options()).unwrap();
+    assert!(!scene.as_bytes().is_empty());
+
+    let mut limited = options();
+    limited.content_sequence += 1;
+    limited.presentation_sequence += 1;
+    limited.limits.max_kitty_resource_bytes = 3;
     assert_eq!(
-        encoder.encode(&mut terminal, options()).unwrap_err(),
-        RenderSceneError::UnsupportedKittyImages
+        encoder.encode(&mut terminal, limited).unwrap_err(),
+        RenderSceneError::LimitExceeded
+    );
+}
+
+#[test]
+fn animated_kitty_scene_is_deterministic_capability_gated_and_bounded() {
+    let mut terminal = terminal();
+    terminal.resize(8, 2, 10, 20).unwrap();
+    terminal.vt_write(
+        b"\x1b_Ga=T,t=d,f=32,i=1,p=1,s=1,v=1,c=1,r=1;/wAA/w==\x1b\\\
+          \x1b_Ga=f,t=d,f=32,i=1,s=1,v=1,c=1,z=25,X=1;AP8AgA==\x1b\\\
+          \x1b_Ga=a,i=1,s=3,c=1,v=2;\x1b\\",
+    );
+
+    let first = RenderSceneEncoder::new().unwrap().encode(&mut terminal, options()).unwrap();
+    let second = RenderSceneEncoder::new().unwrap().encode(&mut terminal, options()).unwrap();
+    assert_eq!(first.as_bytes(), second.as_bytes());
+    assert_eq!(u16::from_le_bytes(first.as_bytes()[4..6].try_into().unwrap()), 5);
+    let capabilities = u64::from_le_bytes(first.as_bytes()[8..16].try_into().unwrap());
+    assert_ne!(capabilities & (1 << 4), 0);
+    assert_ne!(capabilities & (1 << 6), 0);
+    assert_ne!(capabilities & (1 << 7), 0);
+
+    let mut limited = options();
+    limited.limits.max_kitty_frames = 1;
+    assert_eq!(
+        RenderSceneEncoder::new().unwrap().encode(&mut terminal, limited).unwrap_err(),
+        RenderSceneError::LimitExceeded
+    );
+}
+
+#[test]
+fn rich_preedit_and_search_highlights_are_encoded_and_validated() {
+    let mut terminal = terminal();
+    terminal.vt_write(b"match");
+
+    let baseline = RenderSceneEncoder::new().unwrap().encode(&mut terminal, options()).unwrap();
+
+    let mut rich = options();
+    rich.preedit = Some(RenderScenePreedit {
+        text: "\u{65e5}\u{672c}",
+        selection_start_utf16: 0,
+        selection_length_utf16: 1,
+        caret_utf16: 1,
+    });
+    let highlights = [RenderSceneHighlight {
+        start_row: 0,
+        start_column: 0,
+        end_row: 0,
+        end_column: 4,
+        kind: RenderSceneHighlightKind::SearchMatchSelected,
+    }];
+    rich.highlights = &highlights;
+    let encoded = RenderSceneEncoder::new().unwrap().encode(&mut terminal, rich).unwrap();
+    assert_ne!(encoded.as_bytes(), baseline.as_bytes());
+    assert_eq!(u16::from_le_bytes(encoded.as_bytes()[4..6].try_into().unwrap()), 5);
+
+    let mut invalid_preedit = options();
+    invalid_preedit.preedit = Some(RenderScenePreedit {
+        text: "\u{65e5}",
+        selection_start_utf16: 1,
+        selection_length_utf16: 1,
+        caret_utf16: 1,
+    });
+    assert_eq!(
+        RenderSceneEncoder::new().unwrap().encode(&mut terminal, invalid_preedit).unwrap_err(),
+        RenderSceneError::InvalidValue
+    );
+
+    let invalid_highlights = [RenderSceneHighlight {
+        start_row: 0,
+        start_column: 8,
+        end_row: 0,
+        end_column: 8,
+        kind: RenderSceneHighlightKind::SearchMatch,
+    }];
+    let mut invalid_highlight = options();
+    invalid_highlight.highlights = &invalid_highlights;
+    assert_eq!(
+        RenderSceneEncoder::new().unwrap().encode(&mut terminal, invalid_highlight).unwrap_err(),
+        RenderSceneError::InvalidValue
     );
 }

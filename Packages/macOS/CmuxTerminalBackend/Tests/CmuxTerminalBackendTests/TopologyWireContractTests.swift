@@ -15,6 +15,36 @@ struct TopologyWireContractTests {
         ))
     }
 
+    @Test("browser endpoint descriptor decodes the cmuxd frame transport")
+    func browserEndpointContract() throws {
+        let payload = """
+        {"id":41,"uuid":"55555555-5555-4555-8555-555555555555","kind":"browser","name":null,"browser_endpoint":{"transport":"cmuxd-png-frame-stream-v1","source":"launched","frontend_projection":"frontend-optional"}}
+        """
+        let surface = try JSONDecoder().decode(
+            CanonicalSurface.self,
+            from: Data(payload.utf8)
+        )
+
+        #expect(surface.browserEndpoint == CanonicalBrowserEndpoint(
+            transport: .cmuxdPNGFrameStreamV1,
+            source: .launched,
+            frontendProjection: .frontendOptional
+        ))
+    }
+
+    @Test("browser endpoint without a projection policy remains required")
+    func legacyBrowserEndpointFailsClosed() throws {
+        let payload = """
+        {"id":41,"uuid":"55555555-5555-4555-8555-555555555555","kind":"browser","name":null,"browser_endpoint":{"transport":"cmuxd-png-frame-stream-v1","source":"launched"}}
+        """
+        let surface = try JSONDecoder().decode(
+            CanonicalSurface.self,
+            from: Data(payload.utf8)
+        )
+
+        #expect(surface.browserEndpoint?.frontendProjection == .required)
+    }
+
     @Test("delta event decodes typed targets and complete replacement")
     func deltaContract() throws {
         let event = try JSONDecoder().decode(BackendServerEvent.self, from: Data(deltaJSON.utf8))

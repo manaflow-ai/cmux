@@ -11,6 +11,8 @@ struct TerminalSurfaceExternalRuntimeTests {
         defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
 
         #expect(fixture.surface.isExternallyManaged)
+        #expect(fixture.surface.surfaceView.renderOwnership == .externalCompositor)
+        #expect(fixture.surface.compositorHostView === fixture.surface.surfaceView)
         #expect(fixture.surface.hasLiveSurface)
         #expect(fixture.surface.surface == nil)
         #expect(fixture.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
@@ -71,7 +73,7 @@ struct TerminalSurfaceExternalRuntimeTests {
             text: "a",
             unshiftedCodepoint: 97
         ))))
-        #expect(fixture.runtime.mutations[3] == .preedit("かな"))
+        #expect(fixture.runtime.mutations[3] == .preedit(.collapsedAtEnd("かな")))
         #expect(fixture.runtime.mutations[4] == .mouse(mouse))
         #expect(fixture.runtime.mutations[5] == .focus(true))
         #expect(fixture.runtime.mutations[6] == .visibility(false))
@@ -132,6 +134,18 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(fixture.runtime.screenRequests == [.vtTail(maxRows: 20, maxBytes: 4096)])
     }
 
+    @Test func canonicalWorkspaceInstallDoesNotEchoBackendReparent() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+        let workspaceID = UUID()
+
+        fixture.surface.installCanonicalWorkspaceId(workspaceID)
+
+        #expect(fixture.surface.tabId == workspaceID)
+        #expect(fixture.surface.surfaceView.tabId == workspaceID)
+        #expect(fixture.runtime.mutations.isEmpty)
+    }
+
     private static let liveSnapshot = TerminalExternalRuntimeSnapshot(
         lifecycle: .live,
         visibleText: "visible",
@@ -161,6 +175,7 @@ struct TerminalSurfaceExternalRuntimeTests {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
+        nativeView.renderOwnership = .externalCompositor
         let paneHost = FakeTerminalSurfacePaneHost(
             surfaceView: nativeView,
             attachesThroughSurfaceModel: true

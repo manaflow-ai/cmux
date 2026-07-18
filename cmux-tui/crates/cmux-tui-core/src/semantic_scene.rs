@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
-    EncodedRenderScene, RenderSceneEncoder, RenderSceneError, RenderSceneLimits,
-    RenderSceneOptions, SceneSectionKind, Terminal,
+    EncodedRenderScene, RenderSceneEncoder, RenderSceneError, RenderSceneHighlight,
+    RenderSceneLimits, RenderSceneOptions, RenderScenePreedit, SceneSectionKind, Terminal,
 };
 
 use crate::{PresentationId, SurfaceUuid};
@@ -128,8 +128,25 @@ pub struct SemanticSceneAttachmentOptions {
     pub presentation: SemanticScenePresentationIdentity,
     pub capture: SemanticSceneCaptureOptions,
     /// Initial visual IME marked text. It is never written to the PTY.
-    pub preedit: Option<Arc<str>>,
+    pub preedit: Option<SemanticScenePreedit>,
     pub event_capacity: usize,
+}
+
+/// Presentation-local IME state. Offsets use AppKit's UTF-16 convention.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticScenePreedit {
+    pub text: Arc<str>,
+    pub selection_start_utf16: u32,
+    pub selection_length_utf16: u32,
+    pub caret_utf16: u32,
+}
+
+impl SemanticScenePreedit {
+    pub fn collapsed_at_end(text: impl Into<Arc<str>>) -> Self {
+        let text = text.into();
+        let end = u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX);
+        Self { text, selection_start_utf16: end, selection_length_utf16: 0, caret_utf16: end }
+    }
 }
 
 impl SemanticSceneAttachmentOptions {
@@ -181,8 +198,12 @@ impl fmt::Display for SemanticSceneFailure {
             Self::InvalidInput => "invalid semantic scene input",
             Self::OutOfMemory => "semantic scene allocation failed",
             Self::LimitExceeded => "semantic scene resource limit exceeded",
-            Self::UnsupportedKittyImages => "live Kitty images are unsupported",
-            Self::UnsupportedCustomShaders => "custom shaders are unsupported",
+            Self::UnsupportedKittyImages => {
+                "the renderer did not negotiate the Kitty image capabilities required by the scene"
+            }
+            Self::UnsupportedCustomShaders => {
+                "the renderer custom-shader configuration does not match the scene"
+            }
             Self::RequiresFullSnapshot => "a full semantic scene is required",
             Self::Internal => "semantic scene capture failed",
             Self::Unknown(_) => "unknown semantic scene capture failure",
@@ -279,7 +300,7 @@ struct SemanticSceneLifecycleState {
     force_full: AtomicBool,
     needs_full: AtomicBool,
     presentation_dirty: AtomicBool,
-    preedit: Mutex<Option<Arc<str>>>,
+    preedit: Mutex<Option<SemanticScenePreedit>>,
     queued_events: AtomicUsize,
     event_capacity: usize,
     fallback_failure: Mutex<Option<SemanticSceneFailure>>,
@@ -292,7 +313,11 @@ struct SemanticSceneLifecycle {
 }
 
 impl SemanticSceneLifecycle {
-    fn new(wake: SyncSender<u64>, event_capacity: usize, preedit: Option<Arc<str>>) -> Self {
+    fn new(
+        wake: SyncSender<u64>,
+        event_capacity: usize,
+        preedit: Option<SemanticScenePreedit>,
+    ) -> Self {
         Self {
             state: Arc::new(SemanticSceneLifecycleState {
                 canceled: AtomicBool::new(false),
@@ -338,7 +363,7 @@ impl SemanticSceneLifecycle {
         self.state.needs_full.load(Ordering::Acquire)
     }
 
-    fn set_preedit(&self, preedit: Option<Arc<str>>) {
+    fn set_preedit(&self, preedit: Option<SemanticScenePreedit>) {
         let mut current = self.state.preedit.lock().unwrap();
         if *current == preedit {
             return;
@@ -349,7 +374,7 @@ impl SemanticSceneLifecycle {
         self.wake_producer();
     }
 
-    fn preedit(&self) -> Option<Arc<str>> {
+    fn preedit(&self) -> Option<SemanticScenePreedit> {
         self.state.preedit.lock().unwrap().clone()
     }
 
@@ -430,7 +455,12 @@ impl SemanticSceneControl {
 
     /// Replace visual IME marked text without writing bytes to the PTY.
     pub fn set_preedit(&self, preedit: Option<String>) {
-        self.lifecycle.set_preedit(preedit.map(Arc::<str>::from));
+        self.lifecycle.set_preedit(preedit.map(SemanticScenePreedit::collapsed_at_end));
+    }
+
+    /// Replace rich visual IME state without writing bytes to the PTY.
+    pub fn set_preedit_state(&self, preedit: Option<SemanticScenePreedit>) {
+        self.lifecycle.set_preedit(preedit);
     }
 }
 
@@ -536,9 +566,39 @@ struct SemanticSceneTap {
 pub(crate) struct SemanticSceneHub {
     attachments: Vec<SemanticSceneTap>,
     capture_timing: SemanticSceneCaptureTiming,
+    presentation_highlights: Vec<RenderSceneHighlight>,
 }
 
 impl SemanticSceneHub {
+    pub(crate) fn set_presentation_highlights_locked(
+        &mut self,
+        highlights: Vec<RenderSceneHighlight>,
+    ) {
+        if self.presentation_highlights == highlights {
+            return;
+        }
+        self.presentation_highlights = highlights;
+        for attachment in &self.attachments {
+            attachment.lifecycle.state.presentation_dirty.store(true, Ordering::Release);
+            attachment.lifecycle.wake_producer();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn presentation_highlights_for_test(&self) -> &[RenderSceneHighlight] {
+        &self.presentation_highlights
+    }
+
+    /// Invalidates every attachment's private canonical cache. The next
+    /// admitted capture is therefore a full scene for every renderer.
+    pub(crate) fn force_full_locked(&mut self) {
+        for attachment in &mut self.attachments {
+            attachment.encoder.reset();
+            attachment.needs_full = true;
+            attachment.lifecycle.mark_needs_full();
+        }
+    }
+
     pub(crate) fn attach_locked(
         &mut self,
         terminal: &mut Terminal,
@@ -564,7 +624,8 @@ impl SemanticSceneHub {
                     presentation_sequence,
                     SceneSectionKind::Full,
                     options.capture,
-                    options.preedit.as_deref(),
+                    options.preedit.as_ref(),
+                    &self.presentation_highlights,
                 ),
             )
             .map_err(SemanticSceneFailure::from)
@@ -672,7 +733,8 @@ impl SemanticSceneHub {
                     attachment.next_presentation_sequence,
                     canonical_kind,
                     attachment.capture,
-                    preedit.as_deref(),
+                    preedit.as_ref(),
+                    &self.presentation_highlights,
                 ),
             ) {
                 Ok(encoded) => encoded,
@@ -690,7 +752,8 @@ impl SemanticSceneHub {
                             attachment.next_presentation_sequence,
                             canonical_kind,
                             attachment.capture,
-                            preedit.as_deref(),
+                            preedit.as_ref(),
+                            &self.presentation_highlights,
                         ),
                     ) {
                         Ok(encoded) => encoded,
@@ -813,15 +876,16 @@ impl SemanticSceneHub {
         Ok(())
     }
 
-    fn encode_options(
+    fn encode_options<'a>(
         terminal: SemanticSceneTerminalIdentity,
         content_sequence: u64,
         presentation: SemanticScenePresentationIdentity,
         presentation_sequence: u64,
         canonical_kind: SceneSectionKind,
         capture: SemanticSceneCaptureOptions,
-        preedit: Option<&str>,
-    ) -> RenderSceneOptions<'_> {
+        preedit: Option<&'a SemanticScenePreedit>,
+        highlights: &'a [RenderSceneHighlight],
+    ) -> RenderSceneOptions<'a> {
         RenderSceneOptions {
             terminal_id: *terminal.terminal_id.as_uuid().as_bytes(),
             terminal_epoch: terminal.runtime_epoch,
@@ -833,7 +897,13 @@ impl SemanticSceneHub {
             focused: capture.focused,
             cursor_blink_visible: capture.cursor_blink_visible,
             custom_shader_count: capture.custom_shader_count,
-            preedit,
+            preedit: preedit.map(|value| RenderScenePreedit {
+                text: &value.text,
+                selection_start_utf16: value.selection_start_utf16,
+                selection_length_utf16: value.selection_length_utf16,
+                caret_utf16: value.caret_utf16,
+            }),
+            highlights,
             limits: capture.limits,
         }
     }

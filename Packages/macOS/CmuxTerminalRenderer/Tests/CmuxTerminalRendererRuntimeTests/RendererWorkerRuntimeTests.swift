@@ -183,7 +183,94 @@ struct RendererWorkerRuntimeTests {
         #expect(request.lastCanonicalSequence == 0)
     }
 
-    private func makeRuntime() throws -> (RendererWorkerRuntime, FakeEngineFactory) {
+    @Test("animation clock stops at three leases and resumes after exact release")
+    func animationLeaseBackpressure() async throws {
+        let scheduler = ManualAnimationScheduler()
+        let (runtime, factory) = try makeRuntime(animationScheduler: scheduler)
+        try await activate(runtime)
+        _ = await runtime.handle(.upsertPresentation(try makeAttachment(generation: 1)))
+        let engine = try #require(factory.engines[presentationID])
+        engine.animationEnabled = true
+
+        _ = await runtime.handle(.semanticScene(try makeScene(
+            generation: 1,
+            canonical: 11,
+            presentation: 2
+        )))
+        #expect(engine.publishedMetadata.count == 1)
+        #expect(scheduler.activeCount == 1)
+
+        await scheduler.fireNext()
+        #expect(engine.publishedMetadata.count == 2)
+        #expect(scheduler.activeCount == 1)
+        await scheduler.fireNext()
+        #expect(engine.publishedMetadata.count == 3)
+        #expect(scheduler.activeCount == 0)
+
+        let first = try #require(engine.publishedMetadata.first)
+        _ = await runtime.handle(.frameRelease(try release(
+            metadata: first,
+            surfaceID: 901
+        )))
+        #expect(scheduler.activeCount == 1)
+        await scheduler.fireNext()
+        #expect(engine.publishedMetadata.count == 4)
+        #expect(engine.releasedLeases.map(\.frameSequence) == [1])
+        #expect(scheduler.activeCount == 0)
+    }
+
+    @Test("inactive and visibility-detached presentations schedule zero animation work")
+    func dormantAnimationClock() async throws {
+        let inactiveScheduler = ManualAnimationScheduler()
+        let (inactiveRuntime, inactiveFactory) = try makeRuntime(
+            animationScheduler: inactiveScheduler
+        )
+        try await activate(inactiveRuntime)
+        _ = await inactiveRuntime.handle(.upsertPresentation(
+            try makeAttachment(generation: 1)
+        ))
+        let inactiveEngine = try #require(inactiveFactory.engines[presentationID])
+        inactiveEngine.animationEnabled = false
+        _ = await inactiveRuntime.handle(.semanticScene(try makeScene(
+            generation: 1,
+            canonical: 21,
+            presentation: 1
+        )))
+        #expect(inactiveScheduler.activeCount == 0)
+
+        let detachedScheduler = ManualAnimationScheduler()
+        let (detachedRuntime, detachedFactory) = try makeRuntime(
+            animationScheduler: detachedScheduler
+        )
+        try await activate(detachedRuntime)
+        _ = await detachedRuntime.handle(.upsertPresentation(
+            try makeAttachment(generation: 1)
+        ))
+        let detachedEngine = try #require(detachedFactory.engines[presentationID])
+        detachedEngine.animationEnabled = true
+        _ = await detachedRuntime.handle(.semanticScene(try makeScene(
+            generation: 1,
+            canonical: 22,
+            presentation: 1
+        )))
+        #expect(detachedScheduler.activeCount == 1)
+        _ = await detachedRuntime.handle(.removePresentation(
+            try RendererPresentationRemoval(
+                terminalID: terminalID,
+                terminalEpoch: 4,
+                presentationID: presentationID,
+                presentationGeneration: 1
+            )
+        ))
+        #expect(detachedScheduler.activeCount == 0)
+        await detachedScheduler.fireNext()
+        #expect(detachedEngine.publishedMetadata.count == 1)
+    }
+
+    private func makeRuntime(
+        animationScheduler: any RendererAnimationScheduling =
+            RendererDisplayAnimationScheduler()
+    ) throws -> (RendererWorkerRuntime, FakeEngineFactory) {
         let factory = FakeEngineFactory()
         let ready = try RendererWorkerReady(
             processID: 7_777,
@@ -198,7 +285,8 @@ struct RendererWorkerRuntimeTests {
                     rendererEpoch: 9
                 ),
                 ready: ready,
-                engineFactory: factory
+                engineFactory: factory,
+                animationScheduler: animationScheduler
             ),
             factory
         )
@@ -293,6 +381,7 @@ private final class FakeEngine: RendererPresentationEngine, @unchecked Sendable 
     var nextTerminalSequence: UInt64 = 1
     var nextPresentationSequence: UInt64 = 1
     var closed = false
+    var animationEnabled = false
 
     init(context: RendererPresentationEngineContext) {
         self.context = context
@@ -316,6 +405,10 @@ private final class FakeEngine: RendererPresentationEngine, @unchecked Sendable 
             paddingBottom: 6,
             paddingLeft: 7
         )
+    }
+
+    func shouldAnimate(visible: Bool) throws -> Bool {
+        animationEnabled && visible
     }
 
     func render() throws -> RendererFrameLease {
@@ -351,5 +444,66 @@ private final class FakeEngine: RendererPresentationEngine, @unchecked Sendable 
 
     func close() async throws {
         closed = true
+    }
+}
+
+private final class ManualAnimationScheduler:
+    RendererAnimationScheduling,
+    @unchecked Sendable
+{
+    private struct Entry: Sendable {
+        let cancellation: ManualAnimationCancellation
+        let operation: @Sendable () async -> Void
+    }
+
+    private let lock = NSLock()
+    private var entries: [Entry] = []
+
+    var activeCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries.lazy.filter { !$0.cancellation.isCancelled }.count
+    }
+
+    func schedule(
+        _ operation: @escaping @Sendable () async -> Void
+    ) -> any RendererAnimationCancellation {
+        let cancellation = ManualAnimationCancellation()
+        lock.lock()
+        entries.append(Entry(cancellation: cancellation, operation: operation))
+        lock.unlock()
+        return cancellation
+    }
+
+    func fireNext() async {
+        guard let entry = popNext(), !entry.cancellation.isCancelled else { return }
+        await entry.operation()
+    }
+
+    private func popNext() -> Entry? {
+        lock.lock()
+        defer { lock.unlock() }
+        let entry = entries.isEmpty ? nil : entries.removeFirst()
+        return entry
+    }
+}
+
+private final class ManualAnimationCancellation:
+    RendererAnimationCancellation,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
     }
 }

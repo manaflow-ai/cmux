@@ -306,7 +306,11 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     let result = if args.headless {
         run_headless(&mux, &socket_path)
     } else {
-        run_tui(Session::Local(mux.clone()), args.session)
+        // The embedded frontend uses the same protocol-v9 authority path as
+        // an attached TUI. This prevents in-process PTY writes or legacy
+        // smallest-viewer resizes from bypassing daemon leases after migration.
+        let remote = RemoteSession::connect(&socket_path)?;
+        run_tui(Session::Remote(remote), args.session)
     };
     drop(websocket_server);
     mux.shutdown();

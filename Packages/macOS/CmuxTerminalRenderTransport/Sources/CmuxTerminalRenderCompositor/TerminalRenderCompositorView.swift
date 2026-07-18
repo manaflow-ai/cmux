@@ -15,16 +15,14 @@ public final class TerminalRenderCompositorView: NSView {
     private let device: any MTLDevice
     private var metalLayer: CAMetalLayer
     private var metalLayerHandle: TerminalRenderMetalLayerHandle
-    private let blitter: TerminalRenderMetalBlitter
-    private let frameReleaseHandler: @Sendable (TerminalRenderFrameRelease) -> Void
-    private var admission: TerminalRenderCompositorAdmission
+    /// Sendable ingress used by renderer receive tasks without entering the main actor.
+    public nonisolated let frameIngress: TerminalRenderCompositorIngress
     private var submissionEpoch: UInt64 = 1
-    private var admittedFrames: UInt64 = 0
-    private var metadataRejectedFrames: UInt64 = 0
+    private var retired = false
 
     /// Current exact presentation contract.
     public var fence: TerminalRenderPresentationFence {
-        admission.fence
+        frameIngress.fence
     }
 
     /// Creates a compositor bound to one exact presentation generation.
@@ -33,6 +31,9 @@ public final class TerminalRenderCompositorView: NSView {
         frameReleaseHandler: @escaping @Sendable (
             TerminalRenderFrameRelease
         ) -> Void,
+        frameDispositionHandler: TerminalRenderFrameDispositionHandler? = nil,
+        metricEventHandler: TerminalRenderCompositorMetricEventHandler? = nil,
+        framePresentedHandler: TerminalRenderFramePresentedHandler? = nil,
         device: (any MTLDevice)? = MTLCreateSystemDefaultDevice()
     ) throws {
         guard let device else {
@@ -42,18 +43,19 @@ public final class TerminalRenderCompositorView: NSView {
             throw TerminalRenderCompositorError.commandQueueUnavailable
         }
         self.device = device
-        self.frameReleaseHandler = frameReleaseHandler
-        self.admission = TerminalRenderCompositorAdmission(fence: fence)
         let metalLayer = Self.makeLayer(device: device, fence: fence)
         let metalLayerHandle = TerminalRenderMetalLayerHandle(metalLayer)
         self.metalLayer = metalLayer
         self.metalLayerHandle = metalLayerHandle
-        self.blitter = TerminalRenderMetalBlitter(
+        self.frameIngress = TerminalRenderCompositorIngress(
             device: device,
             commandQueue: commandQueue,
-            initialEpoch: 1,
+            fence: fence,
             initialLayer: metalLayerHandle,
-            releaseHandler: frameReleaseHandler
+            frameReleaseHandler: frameReleaseHandler,
+            frameDispositionHandler: frameDispositionHandler,
+            metricEventHandler: metricEventHandler,
+            framePresentedHandler: framePresentedHandler
         )
         super.init(frame: .zero)
         wantsLayer = true
@@ -67,10 +69,7 @@ public final class TerminalRenderCompositorView: NSView {
     }
 
     deinit {
-        let blitter = blitter
-        Task {
-            await blitter.stop()
-        }
+        frameIngress.stop()
     }
 
     /// Installs a new generation on a new CAMetalLayer.
@@ -79,10 +78,10 @@ public final class TerminalRenderCompositorView: NSView {
     /// generation present only to a detached layer, preventing cross-terminal
     /// or cross-generation pixels from becoming visible.
     public func updateFence(_ fence: TerminalRenderPresentationFence) {
+        guard !retired else { return }
         // This is a lifetime fence, so wrapping would make an ancient
         // completion indistinguishable from the current layer.
         submissionEpoch += 1
-        admission.reset(fence: fence)
         let replacement = Self.makeLayer(device: device, fence: fence)
         let replacementHandle = TerminalRenderMetalLayerHandle(replacement)
         metalLayer = replacement
@@ -90,9 +89,7 @@ public final class TerminalRenderCompositorView: NSView {
         layer = replacement
         needsDisplay = true
         let epoch = submissionEpoch
-        Task {
-            await blitter.register(epoch: epoch, layer: replacementHandle)
-        }
+        frameIngress.updateFence(fence, epoch: epoch, layer: replacementHandle)
     }
 
     /// Admits a frame and submits, coalesces, or defers its single Metal blit.
@@ -100,25 +97,26 @@ public final class TerminalRenderCompositorView: NSView {
     public func enqueue(
         _ frame: TerminalRenderFrame
     ) async -> TerminalRenderCompositorEnqueueResult {
-        if let rejection = admission.accept(frame.metadata) {
-            metadataRejectedFrames &+= 1
-            frameReleaseHandler(TerminalRenderFrameRelease(frame: frame))
-            return .rejected(rejection)
-        }
-        admittedFrames &+= 1
-        return await blitter.enqueue(
-            frame,
-            epoch: submissionEpoch,
-            layer: metalLayerHandle
-        )
+        await frameIngress.enqueue(frame)
     }
 
     /// Snapshot of bounded admission and off-main blit counters.
     public func metricsSnapshot() async -> TerminalRenderCompositorMetrics {
-        var result = await blitter.metrics()
-        result.admittedFrames = admittedFrames
-        result.rejectedFrames &+= metadataRejectedFrames
-        return result
+        await frameIngress.metricsSnapshot()
+    }
+
+    /// Synchronously detaches the drawable generation before an asynchronously
+    /// received old-worker frame can re-enter the main actor during a move.
+    public func retire() {
+        guard !retired else { return }
+        retired = true
+        submissionEpoch += 1
+        let replacement = Self.makeLayer(device: device, fence: frameIngress.fence)
+        let replacementHandle = TerminalRenderMetalLayerHandle(replacement)
+        metalLayer = replacement
+        metalLayerHandle = replacementHandle
+        layer = replacement
+        frameIngress.retire(epoch: submissionEpoch, layer: replacementHandle)
     }
 
     public override func viewDidMoveToWindow() {
@@ -132,10 +130,9 @@ public final class TerminalRenderCompositorView: NSView {
     }
 
     private func retryPendingFrame() {
-        let epoch = submissionEpoch
-        let layer = metalLayerHandle
-        Task {
-            await blitter.retry(epoch: epoch, layer: layer)
+        let frameIngress = frameIngress
+        Task.detached {
+            await frameIngress.retry()
         }
     }
 
@@ -145,7 +142,9 @@ public final class TerminalRenderCompositorView: NSView {
     ) -> CAMetalLayer {
         let layer = CAMetalLayer()
         layer.device = device
-        layer.framebufferOnly = true
+        // The host writes the drawable with MTLBlitCommandEncoder. Metal
+        // forbids framebuffer-only textures from being used by a blit encoder.
+        layer.framebufferOnly = false
         layer.maximumDrawableCount = 3
         layer.allowsNextDrawableTimeout = true
         layer.pixelFormat = metalPixelFormat(fence.pixelFormat)

@@ -1,4 +1,11 @@
 extension TerminalSurface {
+    /// Reads the canonical visible text for accessibility projection.
+    @MainActor
+    public func visibleScreenText() async -> String? {
+        guard let externalRuntime else { return nil }
+        return await externalRuntime.readScreenText(.visible)
+    }
+
     /// Reads a byte-bounded VT reconstruction of the newest physical terminal rows.
     ///
     /// Ghostty selects the history suffix and formats it into a fixed-size buffer
