@@ -383,6 +383,13 @@ fn clients_list_identify_resize_and_detach_across_transports() {
     let unix_id = unix_client["client"].as_u64().unwrap();
     let ws_id = ws_client["client"].as_u64().unwrap();
 
+    writeln!(
+        unix_writer,
+        r#"{{"id":60,"cmd":"resize-surface","surface":{surface},"cols":120,"rows":40}}"#
+    )
+    .unwrap();
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 60)["ok"], true);
+
     send_json(
         &mut websocket,
         json!({"id": 6, "cmd": "resize-surface", "surface": surface, "cols": 101, "rows": 37}),
@@ -397,6 +404,7 @@ fn clients_list_identify_resize_and_detach_across_transports() {
         .find(|client| client["client"] == ws_id)
         .unwrap();
     assert_eq!(ws_client["sizes"], json!([{"surface": surface, "cols": 101, "rows": 37}]));
+    assert_eq!(mux.surface(surface).unwrap().size(), (101, 37));
 
     writeln!(unix_writer, r#"{{"id":8,"cmd":"detach-client","client":{ws_id}}}"#).unwrap();
     assert_eq!(
@@ -422,6 +430,7 @@ fn clients_list_identify_resize_and_detach_across_transports() {
             saw_response = true;
         }
     }
+    assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
 
     writeln!(unix_writer, r#"{{"id":9,"cmd":"detach-client","client":{unix_id}}}"#).unwrap();
     assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 9)["ok"], true);
