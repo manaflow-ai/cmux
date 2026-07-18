@@ -300,6 +300,50 @@ struct ClaudeHookLiveDeliveryTargetTests {
         #expect(resumeBinding["surface_id"] as? String == Self.liveSurfaceId)
     }
 
+    /// A pane can move after Codex inherited its cmux environment. The live
+    /// process binding is one atomic workspace/surface identity, so it must
+    /// replace both stale environment fields instead of correcting only the
+    /// surface inside the old workspace.
+    @Test func codexSessionStartFollowsMovedPaneAcrossWorkspacesDespiteStaleEnvironment() throws {
+        let context = try Harness.makeContext(name: "codex-moved-live-pid")
+        defer { context.cleanup() }
+        let sessionId = "codex-moved-live-pid-session"
+        let codexPID = 43_215
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.liveWorkspaceId: [Self.fallbackSurfaceId],
+                Self.otherWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: (workspaceId: Self.otherWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CODEX_PID"] = "\(codexPID)"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let resumeBinding = try #require(Harness.resumeBindingParams(in: context).last)
+        #expect(resumeBinding["workspace_id"] as? String == Self.otherWorkspaceId)
+        #expect(resumeBinding["surface_id"] as? String == Self.liveSurfaceId)
+        let storedRecord = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        let record = try #require(storedRecord)
+        #expect(record["workspaceId"] as? String == Self.otherWorkspaceId)
+        #expect(record["surfaceId"] as? String == Self.liveSurfaceId)
+    }
+
     /// A new CLI can still drive an older app during a rolling upgrade. Only
     /// `method_not_found` may fall back to the legacy global snapshot.
     @Test func codexSessionStartFallsBackToLegacySnapshotForOlderApp() throws {
