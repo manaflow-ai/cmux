@@ -749,6 +749,9 @@ fn find_claude_transcript_with_limit(
         let entry = entry.ok()?;
         let candidate = entry.path().join(&filename);
         if candidate.is_file() {
+            if found.is_some() {
+                return None;
+            }
             found = Some(candidate);
         }
     }
@@ -2273,6 +2276,34 @@ mod environment_tests {
         cancellation.cancel();
         assert!(
             find_claude_transcript_with_limit(&projects, "session", &cancellation, 8).is_none()
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn claude_fallback_scan_fails_closed_for_duplicate_session_transcripts() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-claude-duplicate-session-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let projects = root.join("projects");
+        for project in ["project-a", "project-b"] {
+            let directory = projects.join(project);
+            std::fs::create_dir_all(&directory).expect("create project directory");
+            std::fs::write(directory.join("session.jsonl"), b"{}\n")
+                .expect("write duplicate transcript");
+        }
+
+        assert!(
+            find_claude_transcript_with_limit(
+                &projects,
+                "session",
+                &TrajectoryCancellation::default(),
+                8,
+            )
+            .is_none()
         );
 
         let _ = std::fs::remove_dir_all(root);
