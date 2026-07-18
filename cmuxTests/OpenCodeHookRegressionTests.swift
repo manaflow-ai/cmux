@@ -94,10 +94,10 @@ final class OpenCodeHookRegressionTests: XCTestCase {
     func testOpenCodeLifecycleHooksStayOrderedPerSessionWhileOtherSessionsDispatch() throws {
         let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
             "payload=\"$(cat)\"",
-            "printf '%s|%s\\n' \"$*\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+            "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
             "case \"$payload\" in",
             "  *session-ordered*)",
-            "    if [ \"$3\" = \"session-start\" ]; then cat \"$TEST_HOOK_RELEASE_FIFO\" >/dev/null; fi",
+            "    cat \"$TEST_HOOK_RELEASE_FIFO\" >/dev/null",
             "    ;;",
             "esac",
         ])
@@ -109,7 +109,6 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         var environment = fixture.environment
         environment["TEST_HOOK_CAPTURE"] = capture.path
         environment["TEST_HOOK_RELEASE_FIFO"] = releaseFIFO.path
-        environment["CMUX_OPENCODE_HOOK_TESTING"] = "1"
 
         let harness = fixture.root.appendingPathComponent("ordered.mjs", isDirectory: false)
         try """
@@ -119,9 +118,11 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         const hooks = await plugin({ directory: process.cwd() });
         const orderedInfo = { id: "session-ordered", directory: process.cwd() };
         const otherInfo = { id: "session-other", directory: process.cwd() };
-        const waitForCapture = (needle) => new Promise((resolve, reject) => {
-          const ready = () => fs.existsSync(process.env.TEST_HOOK_CAPTURE)
-            && fs.readFileSync(process.env.TEST_HOOK_CAPTURE, "utf8").includes(needle);
+        const captureLines = () => fs.existsSync(process.env.TEST_HOOK_CAPTURE)
+          ? fs.readFileSync(process.env.TEST_HOOK_CAPTURE, "utf8").trim().split("\\n").filter(Boolean)
+          : [];
+        const waitForLineCount = (count) => new Promise((resolve, reject) => {
+          const ready = () => captureLines().length >= count;
           if (ready()) return resolve();
           const watcher = fs.watch(\(javaScriptString(fixture.root.path)), () => {
             if (!ready()) return;
@@ -131,22 +132,39 @@ final class OpenCodeHookRegressionTests: XCTestCase {
           });
           const timeout = setTimeout(() => {
             watcher.close();
-            reject(new Error(`hook capture did not contain ${needle}`));
+            reject(new Error(`hook capture did not reach ${count} lines`));
           }, 2000);
         });
+        const records = () => captureLines().map((line) => {
+          const separator = line.indexOf("|");
+          const payload = JSON.parse(line.slice(separator + 1));
+          return { subcommand: line.slice(0, separator), sessionId: payload.session_id };
+        });
+        const releaseOrderedHook = () => fs.writeFileSync(
+          process.env.TEST_HOOK_RELEASE_FIFO,
+          "release\\n"
+        );
 
         await hooks.event({ event: { type: "session.created", properties: { info: orderedInfo } } });
-        await waitForCapture("session-ordered");
+        await waitForLineCount(1);
 
         await hooks.event({ event: { type: "session.idle", properties: { info: orderedInfo } } });
         await hooks.event({ event: { type: "session.idle", properties: { info: orderedInfo } } });
         await hooks.event({ event: { type: "session.deleted", properties: { info: orderedInfo } } });
         await hooks.event({ event: { type: "session.created", properties: { info: orderedInfo } } });
         await hooks.event({ event: { type: "session.created", properties: { info: otherInfo } } });
-        await waitForCapture("session-other");
+        await waitForLineCount(2);
 
-        console.log(JSON.stringify(hooks.cmuxHookDispatcherSnapshot()));
-        fs.writeFileSync(process.env.TEST_HOOK_RELEASE_FIFO, "release");
+        const beforeRelease = records();
+        releaseOrderedHook();
+        await waitForLineCount(3);
+        releaseOrderedHook();
+        await waitForLineCount(4);
+        releaseOrderedHook();
+        await waitForLineCount(5);
+        const afterRelease = records();
+        releaseOrderedHook();
+        console.log(JSON.stringify({ beforeRelease, afterRelease }));
         """.write(to: harness, atomically: true, encoding: .utf8)
 
         let result = runProcess(
@@ -161,10 +179,112 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let snapshot = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
         )
-        XCTAssertEqual(snapshot["activeSessionIds"] as? [String], ["session-ordered"])
-        let pending = try XCTUnwrap(snapshot["pending"] as? [[String: String]])
-        XCTAssertEqual(pending.compactMap { $0["sessionId"] }, ["session-ordered", "session-ordered", "session-ordered"])
-        XCTAssertEqual(pending.compactMap { $0["subcommand"] }, ["stop", "session-end", "session-start"])
+        let beforeRelease = try XCTUnwrap(snapshot["beforeRelease"] as? [[String: String]])
+        XCTAssertEqual(beforeRelease.compactMap { $0["sessionId"] }.sorted(), ["session-ordered", "session-other"])
+        XCTAssertEqual(beforeRelease.compactMap { $0["subcommand"] }, ["session-start", "session-start"])
+
+        let afterRelease = try XCTUnwrap(snapshot["afterRelease"] as? [[String: String]])
+        let orderedCommands = afterRelease
+            .filter { $0["sessionId"] == "session-ordered" }
+            .compactMap { $0["subcommand"] }
+        XCTAssertEqual(orderedCommands, ["session-start", "stop", "session-end", "session-start"])
+    }
+
+    func testOpenCodeQueueOverloadPreservesEveryAcceptedStartEndPair() throws {
+        let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
+            "payload=\"$(cat)\"",
+            "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+            "if [ \"$3\" = \"session-start\" ]; then IFS= read -r _ < \"$TEST_HOOK_RELEASE_FIFO\"; fi",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
+        let releaseFIFO = fixture.root.appendingPathComponent("release.fifo", isDirectory: false)
+        XCTAssertEqual(mkfifo(releaseFIFO.path, S_IRUSR | S_IWUSR), 0)
+        var environment = fixture.environment
+        environment["TEST_HOOK_CAPTURE"] = capture.path
+        environment["TEST_HOOK_RELEASE_FIFO"] = releaseFIFO.path
+
+        let harness = fixture.root.appendingPathComponent("overload.mjs", isDirectory: false)
+        try """
+        import fs from "node:fs";
+        import { spawn } from "node:child_process";
+        import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
+
+        const hooks = await plugin({ directory: process.cwd() });
+        const captureLines = () => fs.existsSync(process.env.TEST_HOOK_CAPTURE)
+          ? fs.readFileSync(process.env.TEST_HOOK_CAPTURE, "utf8").trim().split("\\n").filter(Boolean)
+          : [];
+        const records = () => captureLines().map((line) => {
+          const separator = line.indexOf("|");
+          const payload = JSON.parse(line.slice(separator + 1));
+          return { subcommand: line.slice(0, separator), sessionId: payload.session_id };
+        });
+        const waitFor = (description, predicate) => new Promise((resolve, reject) => {
+          if (predicate()) return resolve();
+          const watcher = fs.watch(\(javaScriptString(fixture.root.path)), () => {
+            if (!predicate()) return;
+            watcher.close();
+            clearTimeout(timeout);
+            resolve();
+          });
+          const timeout = setTimeout(() => {
+            watcher.close();
+            reject(new Error(`timed out waiting for ${description}`));
+          }, 6000);
+        });
+
+        const sessionIds = [
+          "session-terminal-reservation",
+          ...Array.from({ length: 300 }, (_, index) => `session-overload-${index}`),
+        ];
+        for (const sessionId of sessionIds) {
+          const info = { id: sessionId, directory: process.cwd() };
+          await hooks.event({ event: { type: "session.created", properties: { info } } });
+        }
+        for (const sessionId of sessionIds.slice(1)) {
+          const info = { id: sessionId, directory: process.cwd() };
+          await hooks.event({ event: { type: "session.deleted", properties: { info } } });
+        }
+        const terminalInfo = { id: sessionIds[0], directory: process.cwd() };
+        await hooks.event({ event: { type: "session.deleted", properties: { info: terminalInfo } } });
+
+        await waitFor("four blocked session starts", () => records().length >= 4);
+        const fifoWriter = fs.openSync(process.env.TEST_HOOK_RELEASE_FIFO, "w");
+        const releaser = spawn("/usr/bin/yes", ["release"], {
+          stdio: ["ignore", fifoWriter, "ignore"],
+        });
+        fs.closeSync(fifoWriter);
+        await waitFor(
+          "the terminal hook reserved while the queue was full",
+          () => records().some((record) =>
+            record.sessionId === "session-terminal-reservation"
+              && record.subcommand === "session-end"
+          )
+        );
+        releaser.kill("SIGKILL");
+        console.log(JSON.stringify(records()));
+        """.write(to: harness, atomically: true, encoding: .utf8)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["node", harness.path],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let records = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [[String: String]]
+        )
+        let starts = records.filter { $0["subcommand"] == "session-start" }
+        let ends = records.filter { $0["subcommand"] == "session-end" }
+        XCTAssertGreaterThan(starts.count, 100, "fixture did not saturate the 256-slot queue")
+        XCTAssertLessThan(starts.count, 301, "the bounded queue admitted every overload session")
+        XCTAssertEqual(Set(starts.compactMap { $0["sessionId"] }), Set(ends.compactMap { $0["sessionId"] }))
+        XCTAssertEqual(starts.count, ends.count)
+        XCTAssertTrue(ends.contains { $0["sessionId"] == "session-terminal-reservation" })
     }
 
     func testOpenCodeInstallHooksIsIdempotentForLegacySetupAlias() throws {
