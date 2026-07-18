@@ -83,8 +83,15 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// command to the wrong server.
     var connectionHash: String {
         let fingerprint = "\(destination)\u{1f}\(port.map(String.init) ?? "")\u{1f}\(identityFile ?? "")"
+        return Self.fnv1a64Hex(fingerprint)
+    }
+
+    /// FNV-1a 64-bit hex digest — a stable, dependency-free short hash used to derive
+    /// collision-resistant identifiers from a string (the host ``connectionHash`` and
+    /// the multiplexed view-session owner hash both build on it).
+    static func fnv1a64Hex(_ string: String) -> String {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
-        for byte in fingerprint.utf8 {
+        for byte in string.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 0x0000_0100_0000_01b3 // FNV prime
         }
