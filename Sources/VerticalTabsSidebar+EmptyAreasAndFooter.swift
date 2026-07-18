@@ -14,6 +14,13 @@ struct SidebarFooterIconButtonStyle: ButtonStyle {
     }
 }
 
+#if DEBUG
+enum SidebarFooterIconButtonDebugSettings {
+    static let hoverOpacityKey = "debug.sidebarFooterIconButton.hoverOpacity"
+    static let defaultHoverOpacity = 0.08
+}
+#endif
+
 struct SidebarAccountMenuButton: View {
     private let accountFlow: HostAccountFlow? = AppDelegate.shared?.auth?.accountFlow
     private let title = String(localized: "settings.section.account", defaultValue: "Account")
@@ -216,11 +223,23 @@ private struct SidebarFooterIconButtonStyleBody: View {
 
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
+#if DEBUG
+    @AppStorage(SidebarFooterIconButtonDebugSettings.hoverOpacityKey)
+    private var debugHoverOpacity = SidebarFooterIconButtonDebugSettings.defaultHoverOpacity
+#endif
+
+    private var hoverOpacity: Double {
+#if DEBUG
+        debugHoverOpacity
+#else
+        0.08
+#endif
+    }
 
     private var backgroundOpacity: Double {
         guard isEnabled else { return 0.0 }
         if configuration.isPressed { return 0.16 }
-        if isHovered { return 0.08 }
+        if isHovered { return hoverOpacity }
         return 0.0
     }
 
