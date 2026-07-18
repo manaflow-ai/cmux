@@ -455,24 +455,15 @@ final class SimulatorHIDTransport {
             }
         }
         if holdsAtEnd {
-            for _ in 0..<5 {
-                succeeded = send(
-                    SimulatorPointerEvent(
-                        phase: .moved,
-                        primary: SimulatorPoint(x: 0.5, y: endY),
-                        edge: edge
-                    )
-                ) && succeeded
-                do {
-                    try await sleeper.sleep(for: .milliseconds(80))
-                } catch {
-                    _ = send(SimulatorPointerEvent(
-                        phase: .cancelled,
-                        primary: SimulatorPoint(x: 0.5, y: endY),
-                        edge: edge
-                    ))
-                    return false
-                }
+            do {
+                try await sleeper.sleep(for: .milliseconds(500))
+            } catch {
+                _ = send(SimulatorPointerEvent(
+                    phase: .cancelled,
+                    primary: SimulatorPoint(x: 0.5, y: endY),
+                    edge: edge
+                ))
+                return false
             }
         }
         return send(
