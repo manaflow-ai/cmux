@@ -193,7 +193,7 @@ extension RemoteTmuxController {
         }
     }
 
-    private func selectFirstMirrorWorkspace(for host: RemoteTmuxHost, in tabManager: TabManager) {
+    func selectFirstMirrorWorkspace(for host: RemoteTmuxHost, in tabManager: TabManager) {
         let hostWorkspaceIds = Set(sessionMirrors.values.compactMap { mirror -> UUID? in
             guard mirror.host.connectionHash == host.connectionHash else { return nil }
             return mirror.mirroredWorkspaceId
