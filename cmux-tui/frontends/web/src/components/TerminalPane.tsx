@@ -387,8 +387,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   return (
     <div className={`pane-group ${node.direction}`} style={style}>
       <LayoutNode {...actions} node={node.first} screen={screen} basis={firstPercent} />
-      {target && (
-        <div
+      <div
           aria-orientation={node.direction === "row" ? "vertical" : "horizontal"}
           className="split-divider"
           role="separator"
@@ -458,7 +457,6 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
             setPreviewRatio(null);
           }}
         />
-      )}
       <LayoutNode {...actions} node={node.second} screen={screen} basis={secondPercent} />
     </div>
   );

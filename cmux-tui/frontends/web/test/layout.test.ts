@@ -48,6 +48,7 @@ describe("layoutToViewModel", () => {
   it("renders only the zoomed pane without rewriting the source layout", () => {
     const layout: Layout = {
       type: "split",
+      split: 12,
       dir: "right",
       ratio: 0.5,
       a: { type: "leaf", pane: 1 },
@@ -55,6 +56,16 @@ describe("layoutToViewModel", () => {
     };
     expect(layoutToViewModel(layout, 2)).toEqual({ type: "pane", pane: 2 });
     expect(layout.type).toBe("split");
+  });
+
+  it("rejects split snapshots without stable split IDs", () => {
+    expect(() => layoutToViewModel({
+      type: "split",
+      dir: "right",
+      ratio: 0.5,
+      a: { type: "leaf", pane: 1 },
+      b: { type: "leaf", pane: 2 },
+    })).toThrow("invalid split layout");
   });
 
   it("preserves Zellij stack order and the expanded pane", () => {
@@ -103,7 +114,7 @@ describe("split drag", () => {
     expect(clampSplitRatio(2)).toBe(0.95);
   });
 
-  it("maps nested dividers to a pane whose deepest matching split is the group", () => {
+  it("maps nested dividers to their exact protocol-8 split IDs", () => {
     const view = layoutToViewModel({
       type: "split",
       split: 20,
