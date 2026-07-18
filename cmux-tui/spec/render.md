@@ -6,7 +6,7 @@ The schema notation and common types in [`commands.md`](commands.md#notation) ap
 
 | Field | Value |
 | --- | --- |
-| status | proposed |
+| status | implemented |
 | since | protocol 7 |
 | attach command | `attach-surface` with `mode:"render"` |
 
