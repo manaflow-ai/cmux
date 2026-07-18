@@ -1985,93 +1985,65 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func sharedForkProbeActiveWaitPreservesLaterQueuedValidationBatches() async throws {
+    func sharedForkProbeOverlappingWaiterCancellationDoesNotStartBackgroundReload() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
-            .appendingPathComponent("cmux-pending-active-wait-batches-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-overlapping-active-waits-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: root) }
         try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
         let executable = root.appendingPathComponent("opencode", isDirectory: false)
         try writeExecutableFixture(at: executable)
 
-        let firstWorkspaceId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000041"))
-        let firstPanelId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000051"))
-        let firstPanelKey = RestorableAgentSessionIndex.PanelKey(
-            workspaceId: firstWorkspaceId,
-            panelId: firstPanelId
-        )
-        let secondWorkspaceId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000042"))
-        let secondPanelId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000052"))
-        let secondPanelKey = RestorableAgentSessionIndex.PanelKey(
-            workspaceId: secondWorkspaceId,
-            panelId: secondPanelId
-        )
-        let firstSnapshot = makeProbeRequiredOpenCodeSnapshot(
-            sessionId: "first-active-wait-batch",
-            workingDirectory: root.path,
-            executablePath: executable.path
-        )
-        let secondSnapshot = makeProbeRequiredOpenCodeSnapshot(
-            sessionId: "second-active-wait-batch",
-            workingDirectory: root.path,
-            executablePath: executable.path
-        )
+        let workspaceId = UUID()
+        let firstPanelId = UUID()
+        let secondPanelId = UUID()
+        let snapshots = ["active-a", "cancelled-a", "active-b", "z-cancelled-b", "surviving-b"].map {
+            makeProbeRequiredOpenCodeSnapshot(
+                sessionId: $0,
+                workingDirectory: root.path,
+                executablePath: executable.path
+            )
+        }
         let loaderCallCount = OSAllocatedUnfairLock(initialState: 0)
-        let blockedLoaderCount = OSAllocatedUnfairLock(initialState: 0)
-        let releaseBlockedLoaders = DispatchSemaphore(value: 0)
-        let activeProviderRelease = OSAllocatedUnfairLock(initialState: false)
-        let firstProviderBlockCount = OSAllocatedUnfairLock(initialState: 0)
         let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
+        let activeAStarted = ForkProbeTestLatch()
+        let activeARelease = ForkProbeTestLatch()
+        let activeBStarted = ForkProbeTestLatch()
+        let activeBRelease = ForkProbeTestLatch()
+        let (survivingBStarted, survivingBRelease) = (ForkProbeTestLatch(), ForkProbeTestLatch())
+        let (waiterEntries, waiterEntryContinuation) = AsyncStream<String>.makeStream(
+            bufferingPolicy: .bufferingOldest(3)
+        )
+        defer { waiterEntryContinuation.finish() }
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
-                let call = loaderCallCount.withLock { count in
-                    count += 1
-                    return count
-                }
-                if call > 1 {
-                    blockedLoaderCount.withLock { $0 += 1 }
-                    releaseBlockedLoaders.wait()
-                }
-                let index = RestorableAgentSessionIndex.load(
-                    homeDirectory: root.path,
-                    fileManager: fm,
-                    registry: CmuxVaultAgentRegistry(registrations: []),
-                    detectedSnapshots: [
-                        firstPanelKey: (
-                            snapshot: firstSnapshot,
-                            updatedAt: 0,
-                            processIDs: [],
-                            agentProcessIDs: [],
-                            sessionIDSource: .explicit
-                        ),
-                        secondPanelKey: (
-                            snapshot: secondSnapshot,
-                            updatedAt: 0,
-                            processIDs: [],
-                            agentProcessIDs: [],
-                            sessionIDSource: .explicit
-                        ),
-                    ]
-                )
+                loaderCallCount.withLock { $0 += 1 }
                 return (
-                    index: index,
+                    index: RestorableAgentSessionIndex.load(
+                        homeDirectory: root.path,
+                        fileManager: fm,
+                        registry: CmuxVaultAgentRegistry(registrations: []),
+                        detectedSnapshots: [:]
+                    ),
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [],
-                    forkValidatedPanels: [firstPanelKey, secondPanelKey]
+                    forkValidatedPanels: []
                 )
             },
             forkSupportProvider: { snapshot, _ in
                 probedSessionIds.withLock { $0.append(snapshot.sessionId) }
-                if snapshot.sessionId == "first-active-wait-batch" {
-                    let blockCount = firstProviderBlockCount.withLock { count in
-                        count += 1
-                        return count
-                    }
-                    if blockCount == 1 {
-                        while !Task.isCancelled && !activeProviderRelease.withLock({ $0 }) {
-                            await Task.yield()
-                        }
-                    }
+                switch snapshot.sessionId {
+                case "active-a":
+                    await activeAStarted.signal()
+                    await activeARelease.wait()
+                case "active-b":
+                    await activeBStarted.signal()
+                    await activeBRelease.wait()
+                case "surviving-b":
+                    await survivingBStarted.signal()
+                    await survivingBRelease.wait()
+                default:
+                    break
                 }
                 return true
             },
@@ -2080,56 +2052,84 @@ struct WorkspaceForkConversationContextMenuTests {
             }
         )
 
-        let activeRefresh = Task {
+        let activeARefresh = Task { @MainActor in
             await sharedIndex.refreshForkAvailabilityNow(
-                workspaceId: firstWorkspaceId,
-                panelId: firstPanelId
+                workspaceId: workspaceId,
+                panelId: firstPanelId,
+                fallbackSnapshot: snapshots[0]
             )
         }
-        for _ in 0..<1000 where probedSessionIds.withLock({ $0 }) != ["first-active-wait-batch"] {
-            await Task.yield()
-        }
-        #expect(probedSessionIds.withLock { $0 } == ["first-active-wait-batch"])
-
-        let collidingRefresh = Task {
+        await activeAStarted.wait()
+        let activeBRefresh = Task { @MainActor in
             await sharedIndex.refreshForkAvailabilityNow(
-                workspaceId: firstWorkspaceId,
-                panelId: firstPanelId
+                workspaceId: workspaceId,
+                panelId: secondPanelId,
+                fallbackSnapshot: snapshots[2]
             )
         }
-        for _ in 0..<1000 where blockedLoaderCount.withLock({ $0 }) < 1 {
-            await Task.yield()
-        }
-        let laterRefresh = Task {
+        await activeBStarted.wait()
+
+        var waiterEntryIterator = waiterEntries.makeAsyncIterator()
+        let cancelledARefresh = Task { @MainActor in
+            _ = waiterEntryContinuation.yield("cancelled-a")
             await sharedIndex.refreshForkAvailabilityNow(
-                workspaceId: secondWorkspaceId,
-                panelId: secondPanelId
+                workspaceId: workspaceId,
+                panelId: firstPanelId,
+                fallbackSnapshot: snapshots[1]
             )
         }
-        for _ in 0..<1000 where blockedLoaderCount.withLock({ $0 }) < 2 {
-            await Task.yield()
+        #expect(await waiterEntryIterator.next() == "cancelled-a")
+        await Task { @MainActor in }.value
+        let queuedBRefresh = Task { @MainActor in
+            _ = waiterEntryContinuation.yield("queued-b")
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: workspaceId,
+                panelId: secondPanelId,
+                fallbackSnapshot: snapshots[3]
+            )
         }
-        releaseBlockedLoaders.signal()
-        releaseBlockedLoaders.signal()
+        #expect(await waiterEntryIterator.next() == "queued-b")
+        await Task { @MainActor in }.value
+        #expect(probedSessionIds.withLock { $0 } == ["active-a", "active-b"])
 
-        for _ in 0..<1000 where firstProviderBlockCount.withLock({ $0 }) < 1 {
-            await Task.yield()
+        cancelledARefresh.cancel()
+        queuedBRefresh.cancel()
+        await activeARelease.signal()
+        await activeARefresh.value
+        await cancelledARefresh.value
+        #expect(!sharedIndex.isForkAvailabilityRefreshInFlight)
+        #expect(loaderCallCount.withLock { $0 } == 0)
+        #expect(probedSessionIds.withLock { $0 } == ["active-a", "active-b"])
+
+        let survivingBRefresh = Task { @MainActor in
+            _ = waiterEntryContinuation.yield("surviving-b")
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: workspaceId,
+                panelId: secondPanelId,
+                fallbackSnapshot: snapshots[4]
+            )
         }
-        #expect(probedSessionIds.withLock { $0 } == ["first-active-wait-batch"])
-
-        activeProviderRelease.withLock { $0 = true }
-        await activeRefresh.value
-        await collidingRefresh.value
-        await laterRefresh.value
-
-        #expect(probedSessionIds.withLock { $0 }.contains("second-active-wait-batch"))
-        #expect(
-            sharedIndex.snapshotForForkAvailability(
-                workspaceId: secondWorkspaceId,
-                panelId: secondPanelId
-            )?.sessionId == "second-active-wait-batch",
-            "Waiting on an active first batch must not drop later queued validation batches."
-        )
+        #expect(await waiterEntryIterator.next() == "surviving-b")
+        await Task { @MainActor in }.value
+        #expect(probedSessionIds.withLock { $0 } == ["active-a", "active-b"])
+        await activeBRelease.signal()
+        await activeBRefresh.value
+        await survivingBStarted.wait()
+        await queuedBRefresh.value
+        #expect(probedSessionIds.withLock { $0 } == ["active-a", "active-b", "surviving-b"])
+        await survivingBRelease.signal()
+        await survivingBRefresh.value
+        #expect(loaderCallCount.withLock { $0 } == 0)
+        #expect(sharedIndex.forkSupportProbeAccepted(
+            workspaceId: workspaceId,
+            panelId: secondPanelId,
+            fallbackSnapshot: snapshots[4]
+        ))
+        #expect(!sharedIndex.forkSupportProbeAccepted(
+            workspaceId: workspaceId,
+            panelId: secondPanelId,
+            fallbackSnapshot: snapshots[3]
+        ))
         #expect(forkValidationCancellationTombstoneCount(in: sharedIndex) == 0)
     }
 
