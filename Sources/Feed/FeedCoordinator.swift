@@ -97,15 +97,23 @@ final class FeedCoordinator: @unchecked Sendable {
         waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
         guard let requestId = event.requestId, waitTimeout > 0 else {
-            DispatchQueue.main.async {
+            let itemIdSlot = UnsafeItemIdSlot()
+            let ingest = {
                 MainActor.assumeIsolated {
-                    FeedCoordinator.shared.store.ingest(event)
+                    guard let store = FeedCoordinator.shared.store else { return }
+                    itemIdSlot.value = store.ingest(event)
                     if let ppid = event.ppid, ppid > 0 {
                         FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                     }
                 }
             }
-            return .acknowledged(itemId: nil)
+            if Thread.isMainThread {
+                ingest()
+            } else {
+                DispatchQueue.main.sync(execute: ingest)
+            }
+            guard let itemId = itemIdSlot.value else { return .unavailable }
+            return .acknowledged(itemId: itemId)
         }
 
         let semaphore = DispatchSemaphore(value: 0)
@@ -282,6 +290,7 @@ final class FeedCoordinator: @unchecked Sendable {
         case acknowledged(itemId: UUID?)
         case resolved(itemId: UUID?, decision: WorkstreamDecision)
         case timedOut(itemId: UUID?)
+        case unavailable
     }
 }
 
@@ -1111,6 +1120,8 @@ enum FeedSocketEncoding {
             var dict: [String: Any] = ["status": "timed_out"]
             if let itemId { dict["item_id"] = itemId.uuidString }
             return dict
+        case .unavailable:
+            return ["status": "unavailable"]
         }
     }
 

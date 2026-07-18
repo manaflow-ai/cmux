@@ -5663,12 +5663,20 @@ class TerminalController {
             event: event,
             waitTimeout: waitTimeout
         )
+        let resultPayload = FeedSocketEncoding.payload(for: result)
         CmuxEventBus.shared.publishWorkstreamEvent(
             event,
             phase: "completed",
-            result: FeedSocketEncoding.payload(for: result)
+            result: resultPayload
         )
-        return .ok(FeedSocketEncoding.payload(for: result))
+        if case .unavailable = result {
+            return .err(
+                code: "feed_unavailable",
+                message: "Feed store is unavailable; retry after cmux finishes starting.",
+                data: nil
+            )
+        }
+        return .ok(resultPayload)
     }
 
     private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {

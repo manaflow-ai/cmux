@@ -30422,9 +30422,10 @@ export default CMUXSessionRestore;
                 client: client
             )
         }
-        func sendAgentFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) {
+        @discardableResult
+        func sendAgentFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) -> Error? {
             didSendFeedTelemetry = true
-            sendFeedTelemetry(
+            return sendFeedTelemetry(
                 client: client,
                 source: def.name,
                 subcommand: subcommand,
@@ -30446,11 +30447,16 @@ export default CMUXSessionRestore;
             }
             return def.feedHookEvents.contains(event)
         }
-        func sendAgentFeedTelemetryUnlessSuppressed(workspaceId: String? = nil, surfaceId: String? = nil) {
+        @discardableResult
+        func sendAgentFeedTelemetryUnlessSuppressed(
+            workspaceId: String? = nil,
+            surfaceId: String? = nil
+        ) -> Error? {
             if shouldSuppressGenericFeedTelemetry() {
                 didSendFeedTelemetry = true
+                return nil
             } else {
-                sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+                return sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
         }
         func notificationDedupeFingerprint(
@@ -30687,7 +30693,12 @@ export default CMUXSessionRestore;
                 print("{}")
                 return
             }
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+            if let feedError = sendAgentFeedTelemetryUnlessSuppressed(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            ) {
+                throw feedError
+            }
             if !suppressVisibleMutations {
                 if codexSessionStartWentStaleAfterAccept() {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
@@ -30951,7 +30962,12 @@ export default CMUXSessionRestore;
                 stopStaleCodexPromptSubmit()
                 return
             }
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+            if let feedError = sendAgentFeedTelemetryUnlessSuppressed(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            ) {
+                throw feedError
+            }
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 let acceptedRunningUpdate: Bool
                 if def.name == "codex" {
@@ -31099,7 +31115,9 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            if let feedError = sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId) {
+                throw feedError
+            }
             let pid = mapped?.pid ?? inferredPID
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
@@ -31870,6 +31888,45 @@ export default CMUXSessionRestore;
         }
     }
 
+    private func sendAcknowledgedFeedPush(
+        params: [String: Any],
+        client: SocketClient? = nil,
+        socketPath: String? = nil,
+        socketPassword: String? = nil
+    ) throws {
+        var ownedClient: SocketClient?
+        defer { ownedClient?.close() }
+
+        let activeClient: SocketClient
+        if let client {
+            activeClient = client
+        } else if let socketPath {
+            let feedClient = SocketClient(path: socketPath)
+            do {
+                try feedClient.connect()
+                try authenticateClientIfNeeded(
+                    feedClient,
+                    explicitPassword: socketPassword,
+                    socketPath: socketPath
+                )
+            } catch {
+                feedClient.close()
+                throw error
+            }
+            ownedClient = feedClient
+            activeClient = feedClient
+        } else {
+            throw CLIError(message: "Queued feed delivery requires a cmux socket")
+        }
+
+        _ = try activeClient.sendV2(
+            method: "feed.push",
+            params: params,
+            responseTimeout: 10
+        )
+    }
+
+    @discardableResult
     private func sendFeedTelemetry(
         client: SocketClient,
         source: String,
@@ -31878,9 +31935,9 @@ export default CMUXSessionRestore;
         workspaceId: String? = nil,
         surfaceId: String? = nil,
         socketPassword: String? = nil
-    ) {
+    ) -> Error? {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
-        guard !hookEventName.isEmpty else { return }
+        guard !hookEventName.isEmpty else { return nil }
         let promptText = hookEventName == "UserPromptSubmit"
             ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
             : nil
@@ -31934,17 +31991,28 @@ export default CMUXSessionRestore;
         event["_opencode_request_id"] = deliveryId
             ?? "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
+        let params: [String: Any] = [
+            "event": event,
+            "wait_timeout_seconds": 0,
+        ]
+        if deliveryId != nil {
+            do {
+                try sendAcknowledgedFeedPush(params: params, client: client)
+                return nil
+            } catch {
+                return error
+            }
+        }
+
         let frame: [String: Any] = [
             "method": "feed.push",
-            "params": [
-                "event": event,
-                "wait_timeout_seconds": 0,
-            ],
+            "params": params,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
-        else { return }
+        else { return nil }
         sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
+        return nil
     }
 
     private func feedContextForEvent(
@@ -33980,12 +34048,12 @@ export default CMUXSessionRestore;
         let payloadRequestId = stdinObj["_opencode_request_id"] as? String
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
         let generatedRequestId = "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let deliveryId = env["CMUX_AGENT_HOOK_DELIVERY_ID"]
+            .flatMap { $0.isEmpty ? nil : $0 }
         let requestId: String
         if isActionable {
             requestId = payloadRequestId ?? generatedRequestId
         } else {
-            let deliveryId = env["CMUX_AGENT_HOOK_DELIVERY_ID"]
-                .flatMap { $0.isEmpty ? nil : $0 }
             requestId = deliveryId ?? payloadRequestId ?? generatedRequestId
         }
         eventDict["_opencode_request_id"] = requestId
@@ -34017,7 +34085,14 @@ export default CMUXSessionRestore;
         let line = String(data: payload, encoding: .utf8) ?? "{}"
 
         if waitTimeout == 0 {
-            if let client {
+            if deliveryId != nil {
+                try sendAcknowledgedFeedPush(
+                    params: params,
+                    client: client,
+                    socketPath: socketPath,
+                    socketPassword: socketPassword
+                )
+            } else if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
                 sendBestEffortFeedTelemetry(
