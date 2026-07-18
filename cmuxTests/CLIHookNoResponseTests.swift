@@ -1,6 +1,14 @@
 import Darwin
+import CmuxControlSocket
 import Foundation
 import Testing
+
+@_silgen_name("shm_open")
+private func cmuxTestShmOpen(
+    _ name: UnsafePointer<CChar>,
+    _ flags: Int32,
+    _ mode: mode_t
+) -> Int32
 
 @Suite("CLI hook no-response telemetry")
 struct CLIHookNoResponseTests {
@@ -62,6 +70,11 @@ struct CLIHookNoResponseTests {
         let event: String
         let toolName: String
         let pidKey: String
+    }
+
+    struct OutboxRecord {
+        let marker: Data
+        let message: Data
     }
 
     @Test func nonActionableFeedHooksDoNotWaitForSocketResponseAcrossAgents() throws {
@@ -264,7 +277,7 @@ struct CLIHookNoResponseTests {
         #expect(result.stdout == "{}\n")
     }
 
-    @Test func nativeCodexAdmissionReturnsAfterCompleteUnacknowledgedHandoff() throws {
+    @Test func nativeCodexAdmissionPublishesAuthenticatedOutboxWithoutSocketOrWorker() throws {
         let cliPath = try Self.bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-native-admission-deadline-\(UUID().uuidString)", isDirectory: true)
@@ -276,12 +289,20 @@ struct CLIHookNoResponseTests {
         let fallbackArgs = root.appendingPathComponent("fallback-args.txt", isDirectory: false)
         let leaderPIDFile = root.appendingPathComponent("fallback-leader-pid.txt", isDirectory: false)
         let descendantPIDFile = root.appendingPathComponent("fallback-descendant-pid.txt", isDirectory: false)
+        let outboxDirectory = root.appendingPathComponent("hook-outbox", isDirectory: true)
         let socketPath = Self.makeSocketPath("native-admission")
         let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 8)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outboxDirectory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outboxDirectory.path)
+        let capability = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x51, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox"
+        ).issueCapability()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            Self.removeOutboxSharedMemory(at: outboxDirectory)
             for pidFile in [leaderPIDFile, descendantPIDFile] {
                 if let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
                    let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -313,7 +334,14 @@ struct CLIHookNoResponseTests {
             "trap 'exit 143' TERM",
             "while :; do :; done",
         ])
-        let server = Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 2)
+        let socketRequests = MockSocketServerState()
+        _ = Self.startMultiConnectionMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: socketRequests,
+            connectionLimit: 1,
+            fulfillWhen: { _ in true }
+        ) { _ in nil }
+        let payload = #"{"session_id":"deadline-session","hook_event_name":"SessionStart"}"#
         let started = ContinuousClock().now
         let result = runCodexHookProcess(
             executablePath: hookPath.path,
@@ -323,8 +351,9 @@ struct CLIHookNoResponseTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_SOCKET_CAPABILITY": capability,
                 "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
+                "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_AGENT_HOOK_DELIVERY_ID": "native-admission-deadline",
@@ -332,20 +361,28 @@ struct CLIHookNoResponseTests {
                 "CMUX_TEST_LEADER_PID": leaderPIDFile.path,
                 "CMUX_TEST_DESCENDANT_PID": descendantPIDFile.path,
             ],
-            standardInput: #"{"session_id":"deadline-session","hook_event_name":"SessionStart"}"#,
+            standardInput: payload,
             timeout: 0.35
         )
         let elapsed = started.duration(to: .now)
 
-        #expect(server.wait(timeout: 5), "Native helper did not reach the live socket")
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         #expect(elapsed < .seconds(0.15), "Hook admission took \(elapsed)")
-        // A complete write transfers the event to the app-side socket even
-        // when its durable ack is late. Do not amplify overload by forking a
-        // second delivery process for every unacknowledged handoff.
-        Thread.sleep(forTimeInterval: 0.9)
+        #expect(waitForCondition(timeout: 1) {
+            Self.outboxReadyMarkers(at: outboxDirectory).count == 1
+        })
+        let record = try #require(Self.readOutboxRecords(at: outboxDirectory).first)
+        let request = try #require(codexHookJSONObject(String(decoding: record.message, as: UTF8.self)))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["method"] as? String == "agent.hook.enqueue")
+        #expect(params["delivery_id"] as? String == "native-admission-deadline")
+        let encodedPayload = try #require(params["payload_b64"] as? String)
+        #expect(Data(base64Encoded: encodedPayload) == Data(payload.utf8))
+        #expect(!String(decoding: record.marker, as: UTF8.self).contains(capability))
+        Thread.sleep(forTimeInterval: 0.1)
+        #expect(socketRequests.snapshot().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fallbackArgs.path))
         #expect(!FileManager.default.fileExists(atPath: leaderPIDFile.path))
         #expect(!FileManager.default.fileExists(atPath: descendantPIDFile.path))
@@ -442,13 +479,21 @@ struct CLIHookNoResponseTests {
             .appendingPathComponent("cmux-native-admission-burst-\(UUID().uuidString)", isDirectory: true)
         let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
         let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        let outboxDirectory = root.appendingPathComponent("hook-outbox", isDirectory: true)
         let socketPath = Self.makeSocketPath("native-burst")
         let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 256)
         let state = MockSocketServerState()
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outboxDirectory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outboxDirectory.path)
+        let capability = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x62, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox-burst"
+        ).issueCapability()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            Self.removeOutboxSharedMemory(at: outboxDirectory)
             try? FileManager.default.removeItem(at: root)
         }
 
@@ -464,7 +509,7 @@ struct CLIHookNoResponseTests {
                 .contentsOfDirectory(at: hooksDirectory, includingPropertiesForKeys: nil)
                 .first { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
         )
-        let server = Self.startMultiConnectionMockServerAllowingNoResponse(
+        _ = Self.startMultiConnectionMockServerAllowingNoResponse(
             listenerFD: listenerFD,
             state: state,
             connectionLimit: 64,
@@ -486,8 +531,9 @@ struct CLIHookNoResponseTests {
                     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                     "CMUX_SURFACE_ID": "surface-\(index)",
                     "CMUX_SOCKET_PATH": socketPath,
-                    "CMUX_SOCKET_CAPABILITY": "test-capability",
+                    "CMUX_SOCKET_CAPABILITY": capability,
                     "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
+                    "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
                     "CMUX_BUNDLED_CLI_PATH": "/usr/bin/false",
                     "CMUX_CODEX_PID": "\(50_000 + index)",
                     "CMUX_AGENT_HOOK_DELIVERY_ID": "native-burst-\(index)",
@@ -498,7 +544,6 @@ struct CLIHookNoResponseTests {
             results.append(duration: started.duration(to: .now), result: result)
         }
 
-        #expect(server.wait(timeout: 5), "Burst server did not receive native admission")
         let snapshot = results.snapshot()
         #expect(snapshot.count == 64)
         #expect(snapshot.allSatisfy { !$0.result.timedOut && $0.result.status == 0 })
@@ -506,10 +551,18 @@ struct CLIHookNoResponseTests {
         let maximum = try #require(snapshot.map(\.duration).max())
         #expect(maximum < .seconds(0.15), "64-way native admission max was \(maximum)")
         #expect(waitForCondition(timeout: 2) {
-            state.snapshot().filter {
-                codexHookJSONObject($0)?["method"] as? String == "agent.hook.enqueue"
-            }.count == 64
+            Self.outboxReadyMarkers(at: outboxDirectory).count == 64
         })
+        let records = try Self.readOutboxRecords(at: outboxDirectory)
+        let deliveryIDs = Set(records.compactMap { record -> String? in
+            guard let request = codexHookJSONObject(String(decoding: record.message, as: UTF8.self)),
+                  let params = request["params"] as? [String: Any] else {
+                return nil
+            }
+            return params["delivery_id"] as? String
+        })
+        #expect(deliveryIDs == Set((0..<64).map { "native-burst-\($0)" }))
+        #expect(state.snapshot().isEmpty)
     }
 
     @Test func nativeCodexAdmissionFallsBackToLegacyCommandForOlderApp() throws {
@@ -895,6 +948,74 @@ struct CLIHookNoResponseTests {
 
     private static func base64NULSeparated(_ values: [String]) -> String {
         values.joined(separator: "\0").data(using: .utf8)?.base64EncodedString() ?? ""
+    }
+
+    private static func outboxReadyMarkers(at directory: URL) -> [URL] {
+        (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("ready-") }) ?? []
+    }
+
+    private static func readOutboxRecords(at directory: URL) throws -> [OutboxRecord] {
+        try outboxReadyMarkers(at: directory).sorted {
+            $0.lastPathComponent < $1.lastPathComponent
+        }.map { markerURL in
+            let marker = try Data(contentsOf: markerURL)
+            let fields = String(decoding: marker, as: UTF8.self)
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .map { String($0) }
+            guard fields.count == 4,
+                  fields[0].hasPrefix("/ch"),
+                  Data(base64Encoded: fields[2])?.count == 32,
+                  let expectedCount = Int(fields[3]),
+                  expectedCount >= 0 else {
+                throw NSError(domain: "cmux.tests", code: 90, userInfo: [
+                    NSLocalizedDescriptionKey: "Invalid hook outbox marker: \(markerURL.path)",
+                ])
+            }
+            let descriptor = fields[0].withCString { cmuxTestShmOpen($0, O_RDONLY, 0) }
+            guard descriptor >= 0 else { throw posixError("open hook outbox shared memory") }
+            defer { Darwin.close(descriptor) }
+
+            var message = Data(count: expectedCount)
+            let readSucceeded = message.withUnsafeMutableBytes { rawBuffer -> Bool in
+                guard let baseAddress = rawBuffer.baseAddress else { return expectedCount == 0 }
+                var offset = 0
+                while offset < expectedCount {
+                    let count = Darwin.pread(
+                        descriptor,
+                        baseAddress.advanced(by: offset),
+                        expectedCount - offset,
+                        off_t(offset)
+                    )
+                    if count > 0 {
+                        offset += count
+                    } else if count < 0, errno == EINTR {
+                        continue
+                    } else {
+                        return false
+                    }
+                }
+                return true
+            }
+            guard readSucceeded else { throw posixError("read hook outbox shared memory") }
+            return OutboxRecord(marker: marker, message: message)
+        }
+    }
+
+    private static func removeOutboxSharedMemory(at directory: URL) {
+        let markers = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        for markerURL in markers {
+            guard let marker = try? String(contentsOf: markerURL, encoding: .utf8),
+                  let name = marker.split(separator: "\n").first else {
+                continue
+            }
+            _ = String(name).withCString { shm_unlink($0) }
+        }
     }
 
     private static func runProcess(
