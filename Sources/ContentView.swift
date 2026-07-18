@@ -14314,7 +14314,7 @@ enum SidebarFooterHelpIconDebugSettings {
     static let sizeKey = "debug.sidebarFooterHelpIcon.size"
     static let weightKey = "debug.sidebarFooterHelpIcon.weight"
     static let defaultSize = 15.0
-    static let defaultWeight = SidebarFooterHelpIconDebugWeight.regular
+    static let defaultWeight = SidebarFooterHelpIconDebugWeight.medium
 }
 #endif
 
@@ -14348,9 +14348,9 @@ private struct SidebarHelpMenuButton: View {
 
     private var iconWeight: Font.Weight {
 #if DEBUG
-        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight ?? .regular
+        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight ?? .medium
 #else
-        .regular
+        .medium
 #endif
     }
 
@@ -14363,7 +14363,7 @@ private struct SidebarHelpMenuButton: View {
         Button {
             isPopoverPresented.toggle()
         } label: {
-            CmuxSystemSymbolImage(systemName: "questionmark.circle", pointSize: iconSize, weight: iconWeight)
+            CmuxSystemSymbolImage(systemName: "questionmark", pointSize: iconSize, weight: iconWeight)
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
         }

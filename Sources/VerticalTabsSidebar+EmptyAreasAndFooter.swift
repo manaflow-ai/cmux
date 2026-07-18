@@ -130,7 +130,7 @@ struct SidebarAccountAvatar: View {
             )
         } else {
             CmuxSystemSymbolImage(
-                systemName: "person.circle",
+                systemName: "person",
                 pointSize: max(11, size - 2),
                 weight: .medium
             )

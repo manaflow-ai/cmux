@@ -2662,7 +2662,7 @@ private struct SidebarFooterHelpIconReference: View {
 
     var body: some View {
         CmuxSystemSymbolImage(
-            systemName: "questionmark.circle",
+            systemName: "questionmark",
             pointSize: CGFloat(variant.pointSize),
             weight: variant.weight.fontWeight
         )
