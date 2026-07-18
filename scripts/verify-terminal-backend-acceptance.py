@@ -38,6 +38,9 @@ BACKEND_ONLY_XCODE_TARGET = "cmux-backend-only"
 SCHEMA_VERSION = 1
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+BACKEND_ONLY_LINK_MAP_NAME_PATTERN = re.compile(
+    r"^cmux-backend-only-(?:arm64|x86_64)\.map$"
+)
 
 LINKAGE_AUDIT_SCHEMA = "cmux-terminal-linkage-fixed-roots-v1"
 LINKAGE_AUDIT_SOURCE_ROOTS = (
@@ -3096,7 +3099,7 @@ def _backend_only_product_report(
     app_bundle: pathlib.Path,
     link_map: pathlib.Path,
 ) -> dict[str, Any]:
-    """Recompute the frontend product graph and recursive host Mach-O audit."""
+    """Recompute the backend-host product graph and recursive host Mach-O audit."""
     rendered = run(
         [
             sys.executable,
@@ -3104,7 +3107,7 @@ def _backend_only_product_report(
             "--package-path",
             str(TERMINAL_FRONTEND_PACKAGE),
             "--product",
-            "CmuxTerminalFrontend",
+            "CmuxTerminalBackendHost",
             "--app-bundle",
             str(app_bundle),
             "--xcode-project",
@@ -3143,6 +3146,7 @@ def _derive_host_backend_only_attestation_metrics(
         "xcode_project_path",
         "xcode_project_sha256",
         "xcode_target",
+        "link_map_build_path",
         "link_map_path",
         "link_map_sha256",
     }
@@ -3170,22 +3174,39 @@ def _derive_host_backend_only_attestation_metrics(
         raise AcceptanceError(f"{label} Xcode project hash changed")
     if context.get("xcode_target") != BACKEND_ONLY_XCODE_TARGET:
         raise AcceptanceError(f"{label} does not bind the exact backend-only Xcode target")
-    link_map_relative = _raw_string(
+    link_map_evidence_relative = _raw_string(
         context.get("link_map_path"), f"{label} link map path"
     )
-    link_map = resolve_evidence_path(artifact_path.parent, link_map_relative)
-    if not link_map.is_file():
-        raise AcceptanceError(f"{label} link map must be a file")
+    link_map_evidence = resolve_evidence_path(
+        artifact_path.parent, link_map_evidence_relative
+    )
+    if not link_map_evidence.is_file():
+        raise AcceptanceError(f"{label} evidence link map must be a file")
+    link_map_build_relative = _raw_string(
+        context.get("link_map_build_path"), f"{label} build link map path"
+    )
+    link_map_build = (resolved_app / link_map_build_relative).resolve()
+    expected_link_map_parent = (resolved_app / "Contents/Resources").resolve()
+    if (
+        link_map_build.parent != expected_link_map_parent
+        or BACKEND_ONLY_LINK_MAP_NAME_PATTERN.fullmatch(link_map_build.name) is None
+        or not link_map_build.is_file()
+    ):
+        raise AcceptanceError(
+            f"{label} build link map is not the packaged backend-only link map"
+        )
     link_map_sha256 = _raw_string(
         context.get("link_map_sha256"), f"{label} link map hash"
     )
     expect_sha256(link_map_sha256, f"{label} link map hash")
-    if sha256_file(link_map) != link_map_sha256:
-        raise AcceptanceError(f"{label} link map hash changed")
+    if sha256_file(link_map_evidence) != link_map_sha256:
+        raise AcceptanceError(f"{label} evidence link map hash changed")
+    if sha256_file(link_map_build) != link_map_sha256:
+        raise AcceptanceError(f"{label} packaged link map hash changed")
     if len(records) != 1 or not isinstance(records[0], dict):
         raise AcceptanceError(f"{label} needs exactly one verifier report")
 
-    report = _backend_only_product_report(resolved_app, link_map)
+    report = _backend_only_product_report(resolved_app, link_map_build)
     if records[0] != report:
         raise AcceptanceError(
             f"{label} does not match a fresh backend-only product and host audit"
@@ -3223,13 +3244,21 @@ def _derive_host_backend_only_attestation_metrics(
     )
     if frontend_target_count != 1:
         raise AcceptanceError(f"{label} needs exactly one frontend product target")
+    host_target_count = sum(
+        isinstance(node, dict) and node.get("target") == "CmuxTerminalBackendHost"
+        for node in nodes
+    )
+    if host_target_count != 1:
+        raise AcceptanceError(f"{label} needs exactly one backend-host product target")
     host = _raw_dict(report.get("host_artifact"), f"{label} host artifact")
+    if host.get("code_signature_verified") is not True:
+        raise AcceptanceError(f"{label} does not verify the app resource seal")
     link_map_report = _raw_dict(host.get("link_map"), f"{label} host link map")
     if (
-        link_map_report.get("path") != link_map.name
+        link_map_report.get("path") != link_map_build.name
         or link_map_report.get("sha256") != link_map_sha256
     ):
-        raise AcceptanceError(f"{label} host artifact does not bind the evidence link map")
+        raise AcceptanceError(f"{label} host artifact does not bind the packaged link map")
     attestation_sha256 = _raw_string(
         host.get("attestation_sha256"), f"{label} host attestation hash"
     )
@@ -5472,6 +5501,14 @@ def collect_host_backend_only_attestation(arguments: argparse.Namespace) -> path
         raise AcceptanceError(f"host attestation link map is unavailable: {error}") from error
     if not source_link_map.is_file():
         raise AcceptanceError("host attestation link map must be a file")
+    packaged_link_map_parent = (app / "Contents/Resources").resolve()
+    if (
+        source_link_map.parent != packaged_link_map_parent
+        or BACKEND_ONLY_LINK_MAP_NAME_PATTERN.fullmatch(source_link_map.name) is None
+    ):
+        raise AcceptanceError(
+            "host attestation link map must be the app's packaged backend-only link map"
+        )
     link_map_copy = output.with_name(f"{output.stem}.linkmap.txt")
     if link_map_copy.exists() and not arguments.replace:
         raise AcceptanceError(
@@ -5491,9 +5528,7 @@ def collect_host_backend_only_attestation(arguments: argparse.Namespace) -> path
         ):
             raise AcceptanceError("host attestation link map changed while it was copied")
 
-        # The staged and durable names are identical, so the verifier's report
-        # remains byte-for-byte reproducible after the atomic move.
-        report = _backend_only_product_report(app, staged_link_map)
+        report = _backend_only_product_report(app, source_link_map)
         payload = {
             "schema_version": 1,
             "artifact_kind": "host-backend-only-attestation",
@@ -5505,6 +5540,7 @@ def collect_host_backend_only_attestation(arguments: argparse.Namespace) -> path
                 "xcode_project_path": str(BACKEND_ONLY_XCODE_PROJECT.resolve()),
                 "xcode_project_sha256": sha256_file(BACKEND_ONLY_XCODE_PROJECT),
                 "xcode_target": BACKEND_ONLY_XCODE_TARGET,
+                "link_map_build_path": source_link_map.relative_to(app).as_posix(),
                 "link_map_path": link_map_copy.name,
                 "link_map_sha256": source_link_map_sha256,
             },

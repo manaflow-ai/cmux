@@ -832,8 +832,13 @@ class AcceptanceToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             app = root / "cmux.app"
+            packaged_link_map = (
+                app / "Contents/Resources/cmux-backend-only-arm64.map"
+            )
+            packaged_link_map.parent.mkdir(parents=True)
+            packaged_link_map.write_text("fixture link map\n", encoding="utf-8")
             link_map = root / "host-attestation-LinkMap.txt"
-            link_map.write_text("fixture link map\n", encoding="utf-8")
+            link_map.write_text(packaged_link_map.read_text(encoding="utf-8"), encoding="utf-8")
             graph_binding_sha256 = acceptance.sha256_json(
                 {
                     "swiftpm_graph_sha256": "a" * 64,
@@ -848,13 +853,14 @@ class AcceptanceToolTests(unittest.TestCase):
                     "nodes": [
                         {"package": "CmuxTerminal", "target": "CmuxTerminalDomain"},
                         {"package": "CmuxTerminal", "target": "CmuxTerminalFrontend"},
+                        {"package": "CmuxTerminal", "target": "CmuxTerminalBackendHost"},
                     ],
                     "edges": [],
                 },
                 "source_roots": [],
                 "root_product": {
                     "package": "CmuxTerminal",
-                    "product": "CmuxTerminalFrontend",
+                    "product": "CmuxTerminalBackendHost",
                 },
                 "xcode_target": {
                     "target": acceptance.BACKEND_ONLY_XCODE_TARGET,
@@ -862,6 +868,7 @@ class AcceptanceToolTests(unittest.TestCase):
                 },
                 "host_artifact": {
                     "executable": "Contents/MacOS/cmux",
+                    "code_signature_verified": True,
                     "load_closure": [
                         {"path": "Contents/MacOS/cmux", "sha256": "b" * 64}
                     ],
@@ -870,7 +877,7 @@ class AcceptanceToolTests(unittest.TestCase):
                         acceptance.BACKEND_ONLY_LINKAGE_AUDITOR
                     ),
                     "link_map": {
-                        "path": link_map.name,
+                        "path": packaged_link_map.name,
                         "sha256": acceptance.sha256_file(link_map),
                     },
                     "attestation_sha256": "c" * 64,
@@ -898,6 +905,9 @@ class AcceptanceToolTests(unittest.TestCase):
                                 acceptance.BACKEND_ONLY_XCODE_PROJECT
                             ),
                             "xcode_target": acceptance.BACKEND_ONLY_XCODE_TARGET,
+                            "link_map_build_path": (
+                                "Contents/Resources/cmux-backend-only-arm64.map"
+                            ),
                             "link_map_path": link_map.name,
                             "link_map_sha256": acceptance.sha256_file(link_map),
                         },
@@ -919,7 +929,7 @@ class AcceptanceToolTests(unittest.TestCase):
                     source_commit="d" * 40,
                     app_bundle=app,
                 )
-            verifier.assert_called_once_with(app.resolve(), link_map.resolve())
+            verifier.assert_called_once_with(app.resolve(), packaged_link_map.resolve())
             self.assertEqual(
                 metrics,
                 {

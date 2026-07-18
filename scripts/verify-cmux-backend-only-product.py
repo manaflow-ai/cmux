@@ -31,6 +31,21 @@ FORBIDDEN_TARGETS = frozenset(
     }
 )
 SOURCE_POLICIES = {
+    "CmuxTerminalBackendHost": frozenset(
+        {
+            "AppKit",
+            "CmuxTerminalBackend",
+            "CmuxTerminalBackendService",
+            "CmuxTerminalFrontend",
+            "CmuxTerminalRenderCompositor",
+            "CmuxTerminalRenderProtocol",
+            "CmuxTerminalRenderTransport",
+            "Darwin",
+            "Dispatch",
+            "Foundation",
+            "SwiftUI",
+        }
+    ),
     "CmuxTerminalDomain": frozenset({"Foundation"}),
     "CmuxTerminalFrontend": frozenset(
         {
@@ -91,7 +106,7 @@ DYNAMIC_LOAD_SYMBOLS = frozenset(
         "_dlsym",
     }
 )
-ALLOWED_HOST_DYNAMIC_SYMBOLS = frozenset({"_dlclose", "_dlopen", "_dlsym"})
+ALLOWED_HOST_DYNAMIC_SYMBOLS = frozenset()
 ALLOWED_DYNAMIC_LOAD_SOURCES = {
     "Sources/SystemCommandRunner.swift": (
         "89de1b38b36ff54cc8090b00567f24e5564c827e38fa759a81db850205727bff"
@@ -107,7 +122,8 @@ DYNAMIC_LOAD_SOURCE_PATTERN = re.compile(
     r"\b(?:Bundle|NSBundle)(?:\s*\([^\n]*\)|\.[A-Za-z_][A-Za-z0-9_]*)?"
     r"\s*\.\s*(?:load|loadAndReturnError|preflightAndReturnError|unload)\s*\("
 )
-SANCTIONED_DYNAMIC_LOADS = (
+SANCTIONED_DYNAMIC_LOADS: tuple[str, ...] = ()
+FORBIDDEN_BACKEND_ONLY_ARTIFACTS = (
     "Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib",
 )
 FORBIDDEN_XCODE_PRODUCTS = frozenset(
@@ -115,6 +131,7 @@ FORBIDDEN_XCODE_PRODUCTS = frozenset(
 )
 REQUIRED_XCODE_PRODUCTS = frozenset(
     {
+        "CmuxTerminalBackendHost",
         "CmuxTerminalBackend",
         "CmuxTerminalBackendService",
         "CmuxTerminalFrontend",
@@ -123,6 +140,15 @@ REQUIRED_XCODE_PRODUCTS = frozenset(
         "CmuxTerminalRenderTransport",
     }
 )
+REQUIRED_XCODE_PRODUCT_PACKAGES = {
+    "CmuxTerminalBackendHost": "Packages/macOS/CmuxTerminal",
+    "CmuxTerminalFrontend": "Packages/macOS/CmuxTerminal",
+    "CmuxTerminalBackend": "Packages/macOS/CmuxTerminalBackend",
+    "CmuxTerminalBackendService": "Packages/macOS/CmuxTerminalBackendService",
+    "CmuxTerminalRenderCompositor": "Packages/macOS/CmuxTerminalRenderTransport",
+    "CmuxTerminalRenderProtocol": "Packages/macOS/CmuxTerminalRenderTransport",
+    "CmuxTerminalRenderTransport": "Packages/macOS/CmuxTerminalRenderTransport",
+}
 FORBIDDEN_XCODE_SOURCE_PATTERNS = (
     (
         "legacy terminal identity",
@@ -153,6 +179,11 @@ ALLOWED_EXTERNAL_LOAD_PREFIXES = (
     "/usr/lib/",
     "/Library/Apple/System/Library/",
 )
+PACKAGED_LINK_MAP_PATH = (
+    "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/"
+    "cmux-backend-only-$(CURRENT_ARCH).map"
+)
+PACKAGED_LINK_MAP_NAME = re.compile(r"^cmux-backend-only-(arm64|x86_64)\.map$")
 
 
 class VerificationError(RuntimeError):
@@ -411,7 +442,7 @@ def verify_source_roots(
                 "files": file_reports,
             }
         )
-    required = set(SOURCE_POLICIES)
+    required = {node.target for node in nodes if node.target in SOURCE_POLICIES}
     observed = {report["target"] for report in reports}
     missing = required - observed
     if missing:
@@ -554,17 +585,64 @@ def canonical_xcode_link_name(value: str) -> str:
     return name
 
 
+def xcode_local_package_origin(
+    *,
+    target_name: str,
+    product_identifier: str,
+    product: dict[str, Any],
+    objects: dict[str, dict[str, Any]],
+    source_root: Path,
+) -> str:
+    package_identifier = product.get("package")
+    if not isinstance(package_identifier, str) or not package_identifier:
+        raise VerificationError(
+            f"Xcode target {target_name} package product {product_identifier} "
+            "has no package reference"
+        )
+    package = objects.get(package_identifier)
+    if not isinstance(package, dict) or package.get("isa") != "XCLocalSwiftPackageReference":
+        raise VerificationError(
+            f"Xcode target {target_name} package product {product_identifier} "
+            "does not bind a local package reference"
+        )
+    relative_path = package.get("relativePath")
+    if not isinstance(relative_path, str) or not relative_path:
+        raise VerificationError(
+            f"Xcode target {target_name} local package {package_identifier} has no path"
+        )
+    raw_path = Path(relative_path)
+    if raw_path.is_absolute():
+        raise VerificationError(
+            f"Xcode target {target_name} local package is absolute: {relative_path}"
+        )
+    resolved_root = source_root.resolve(strict=True)
+    resolved_package = (resolved_root / raw_path).resolve(strict=False)
+    try:
+        repository_relative = resolved_package.relative_to(resolved_root)
+    except ValueError as error:
+        raise VerificationError(
+            f"Xcode target {target_name} local package escapes repository: {relative_path}"
+        ) from error
+    if not (resolved_package / "Package.swift").is_file():
+        raise VerificationError(
+            f"Xcode target {target_name} local package is missing: {resolved_package}"
+        )
+    return repository_relative.as_posix()
+
+
 def xcode_framework_links(
     *,
     target_name: str,
     target: dict[str, Any],
     objects: dict[str, dict[str, Any]],
-) -> tuple[list[dict[str, Any]], set[str], set[str]]:
+    source_root: Path,
+) -> tuple[list[dict[str, Any]], set[str], set[str], dict[str, set[str]]]:
     """Return exact Frameworks-phase links and the package products they link."""
 
     records: list[dict[str, Any]] = []
     linked_names: set[str] = set()
     linked_package_products: set[str] = set()
+    linked_package_origins: dict[str, set[str]] = {}
     for phase_identifier in target.get("buildPhases", []):
         phase = objects.get(phase_identifier, {})
         if phase.get("isa") != "PBXFrameworksBuildPhase":
@@ -620,6 +698,16 @@ def xcode_framework_links(
                         f"{reference_identifier} has no productName"
                     )
                 linked_package_products.add(product_name)
+                package_origin = xcode_local_package_origin(
+                    target_name=target_name,
+                    product_identifier=reference_identifier,
+                    product=reference,
+                    objects=objects,
+                    source_root=source_root,
+                )
+                linked_package_origins.setdefault(product_name, set()).add(package_origin)
+            else:
+                package_origin = None
             records.append(
                 {
                     "build_file_id": str(build_file_identifier),
@@ -628,12 +716,14 @@ def xcode_framework_links(
                     "reference_isa": str(reference.get("isa", "")),
                     "names": raw_names,
                     "normalized_names": normalized_names,
+                    "package_origin": package_origin,
                 }
             )
     return (
         sorted(records, key=lambda item: item["build_file_id"]),
         linked_names,
         linked_package_products,
+        linked_package_origins,
     )
 
 
@@ -673,10 +763,16 @@ def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
             )
         product_names.add(product_name)
 
-    framework_links, linked_names, linked_package_products = xcode_framework_links(
+    (
+        framework_links,
+        linked_names,
+        linked_package_products,
+        linked_package_origins,
+    ) = xcode_framework_links(
         target_name=target_name,
         target=target,
         objects=objects,
+        source_root=source_root,
     )
     forbidden_products = sorted(
         (product_names | linked_names | linked_package_products) & FORBIDDEN_XCODE_PRODUCTS
@@ -692,6 +788,16 @@ def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
             f"Xcode target {target_name} does not link backend products: "
             + ", ".join(missing_products)
         )
+    if set(REQUIRED_XCODE_PRODUCT_PACKAGES) != set(REQUIRED_XCODE_PRODUCTS):
+        raise VerificationError("backend product package policy is incomplete")
+    for product_name, expected_origin in REQUIRED_XCODE_PRODUCT_PACKAGES.items():
+        actual_origins = linked_package_origins.get(product_name, set())
+        if actual_origins != {expected_origin}:
+            rendered = ", ".join(sorted(actual_origins)) or "none"
+            raise VerificationError(
+                f"Xcode target {target_name} links {product_name} from {rendered}; "
+                f"expected {expected_origin}"
+            )
 
     source_records: list[dict[str, str]] = []
     source_paths: set[Path] = set()
@@ -741,6 +847,7 @@ def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
         enabled = str(settings.get("CMUX_TERMINAL_BACKEND_ENABLED", "")).upper()
         ownership = str(settings.get("CMUX_TERMINAL_RUNTIME_OWNERSHIP", ""))
         link_map_enabled = str(settings.get("LD_GENERATE_MAP_FILE", "")).upper()
+        link_map_path = str(settings.get("LD_MAP_FILE_PATH", ""))
         if enabled not in {"1", "YES", "TRUE"}:
             raise VerificationError(
                 f"Xcode target {target_name} configuration {name} does not enable backend service"
@@ -753,12 +860,17 @@ def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
             raise VerificationError(
                 f"Xcode target {target_name} configuration {name} does not generate a link map"
             )
+        if link_map_path != PACKAGED_LINK_MAP_PATH:
+            raise VerificationError(
+                f"Xcode target {target_name} configuration {name} does not package its link map"
+            )
         configuration_records.append(
             {
                 "name": str(name),
                 "backend_enabled": enabled,
                 "runtime_ownership": ownership,
                 "link_map_enabled": link_map_enabled,
+                "link_map_path": link_map_path,
             }
         )
     if not configuration_records:
@@ -770,6 +882,10 @@ def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
         "products": sorted(product_names),
         "linked_products": sorted(linked_names),
         "linked_package_products": sorted(linked_package_products),
+        "linked_package_origins": {
+            product: sorted(origins)
+            for product, origins in sorted(linked_package_origins.items())
+        },
         "framework_links": framework_links,
         "sources": source_records,
         "configurations": sorted(configuration_records, key=lambda item: item["name"]),
@@ -778,9 +894,23 @@ def xcode_target_report(project_file: Path, target_name: str) -> dict[str, Any]:
     return report
 
 
-def verify_link_map(link_map: Path, *, artifact_basenames: set[str]) -> dict[str, Any]:
+def verify_link_map(
+    link_map: Path,
+    *,
+    artifact_basenames: set[str],
+    expected_architecture: str | None = None,
+) -> dict[str, Any]:
     resolved = link_map.resolve(strict=True)
     contents = resolved.read_text(encoding="utf-8", errors="replace")
+    architecture_match = re.search(r"(?m)^# Arch:\s+([^\s]+)\s*$", contents)
+    if not architecture_match:
+        raise VerificationError(f"link map has no architecture: {resolved}")
+    architecture = architecture_match.group(1)
+    if expected_architecture is not None and architecture != expected_architecture:
+        raise VerificationError(
+            f"link map architecture {architecture} does not match "
+            f"packaged name architecture {expected_architecture}"
+        )
     linked_path_match = re.search(r"(?m)^# Path:\s+(.+?)\s*$", contents)
     if not linked_path_match:
         raise VerificationError(f"link map has no output path: {resolved}")
@@ -810,8 +940,11 @@ def verify_link_map(link_map: Path, *, artifact_basenames: set[str]) -> dict[str
                 )
     if not any("CmuxTerminalFrontend.build/" in path for path in object_paths):
         raise VerificationError("link map does not contain CmuxTerminalFrontend objects")
+    if not any("CmuxTerminalBackendHost.build/" in path for path in object_paths):
+        raise VerificationError("link map does not contain CmuxTerminalBackendHost objects")
     return {
         "path": resolved.name,
+        "architecture": architecture,
         "linked_output": linked_basename,
         "sha256": sha256_file(resolved),
         "object_count": len(object_paths),
@@ -826,6 +959,30 @@ def run_tool(arguments: list[str]) -> str:
             f"command failed ({' '.join(arguments)}): {process.stderr.strip()}"
         )
     return process.stdout
+
+
+def macho_architectures(binary: Path) -> set[str]:
+    architectures = set(run_tool(["lipo", "-archs", str(binary)]).split())
+    if not architectures:
+        raise VerificationError(f"Mach-O binary has no architectures: {binary}")
+    return architectures
+
+
+def packaged_link_map(
+    app_bundle: Path,
+    link_map: Path,
+) -> tuple[Path, str]:
+    bundle_root = app_bundle.resolve(strict=True)
+    resources = (bundle_root / "Contents/Resources").resolve(strict=True)
+    resolved = link_map.resolve(strict=True)
+    if resolved.parent != resources:
+        raise VerificationError(
+            f"link map is not the app's packaged build artifact: {resolved}"
+        )
+    match = PACKAGED_LINK_MAP_NAME.fullmatch(resolved.name)
+    if match is None:
+        raise VerificationError(f"packaged link map has an invalid name: {resolved.name}")
+    return resolved, match.group(1)
 
 
 def verify_dynamic_load_source_policy() -> list[dict[str, str]]:
@@ -997,6 +1154,12 @@ def verify_host_artifact(
         raise VerificationError(audit.stderr.strip() or audit.stdout.strip())
 
     dynamic_load_sources = verify_dynamic_load_source_policy()
+    for relative in FORBIDDEN_BACKEND_ONLY_ARTIFACTS:
+        forbidden_artifact = (bundle_root / relative).resolve(strict=False)
+        if forbidden_artifact.exists():
+            raise VerificationError(
+                f"backend-only app bundles forbidden dynamic-load artifact: {relative}"
+            )
     initial = [executable]
     initial.extend(sorted(executable.parent.glob("*.debug.dylib")))
     sanctioned_dynamic_paths: set[Path] = set()
@@ -1083,9 +1246,19 @@ def verify_host_artifact(
         "linkage_auditor_sha256": sha256_file(MACHO_AUDITOR),
     }
     if link_map is not None:
+        run_tool(["/usr/bin/codesign", "--verify", "--strict", str(bundle_root)])
+        artifact["code_signature_verified"] = True
+        resolved_link_map, link_map_architecture = packaged_link_map(bundle_root, link_map)
+        executable_architectures = macho_architectures(executable)
+        if link_map_architecture not in executable_architectures:
+            raise VerificationError(
+                f"packaged link map architecture {link_map_architecture} is absent from "
+                f"host executable ({', '.join(sorted(executable_architectures))})"
+            )
         artifact["link_map"] = verify_link_map(
-            link_map,
+            resolved_link_map,
             artifact_basenames={Path(item["path"]).name for item in closure},
+            expected_architecture=link_map_architecture,
         )
     artifact["attestation_sha256"] = sha256_bytes(
         canonical_json({"graph_sha256": graph_sha256, "host_artifact": artifact})
@@ -1123,6 +1296,8 @@ def main(arguments: list[str] | None = None) -> int:
             raise VerificationError(
                 "--xcode-project, --xcode-target, and --link-map must be supplied together"
             )
+        if options.link_map is not None and options.app_bundle is None:
+            raise VerificationError("--link-map requires --app-bundle for provenance")
         graph_binding_sha256 = str(report["graph_sha256"])
         if options.xcode_project is not None and options.xcode_target is not None:
             xcode_report = xcode_target_report(
