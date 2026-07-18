@@ -54,6 +54,11 @@ struct RemoteTmuxMultiplexFuzzTests {
         for step in 1...250 {
             try harness.runStep(step)
         }
+        // After all the churn, tearing every host down must free every mirror and
+        // channel the run ever created — a retain cycle (a mirror closure capturing
+        // self, an un-removed shared-stream observer) would keep them alive even
+        // though the count invariants passed. Catches leaks the count checks can't.
+        harness.assertNoLeaks()
     }
 
     // MARK: - Pure linked-view planner fuzz
@@ -263,6 +268,16 @@ private final class FuzzHostModel {
     }
 }
 
+/// Weak handle to a mirror/channel created during the run, so end-of-run teardown
+/// can prove they actually deallocate (no retain cycle).
+@MainActor
+private final class LeakProbe {
+    let sessionName: String
+    weak var mirror: RemoteTmuxSessionMirror?
+    weak var channel: RemoteTmuxSessionChannel?
+    init(sessionName: String) { self.sessionName = sessionName }
+}
+
 /// Drives one seeded fuzz run: owns the controller/manager fixture, two host models
 /// with overlapping names, and the invariant checks.
 @MainActor
@@ -274,6 +289,10 @@ private final class MultiplexFuzzHarness {
     private let initialLocalCount: Int
     private var rng: SplitMix64
     private var hosts: [FuzzHostModel] = []
+    /// Weak probes for every distinct mirror seen, keyed by object identity so each
+    /// is tracked once. Drives ``assertNoLeaks``.
+    private var leakProbes: [LeakProbe] = []
+    private var seenMirrorIDs: Set<ObjectIdentifier> = []
 
     private let seedLabel: String
     private var step = 0
@@ -560,6 +579,34 @@ private final class MultiplexFuzzHarness {
             host: host.host, manager: manager, workspaces: workspaces, shared: host.shared)
         if controller.multiplexedViewsByHost[host.host.connectionHash] == nil {
             host.hostStopped = true
+        }
+        trackMirrorsForLeakCheck()
+    }
+
+    /// Records a weak probe for each new mirror so ``assertNoLeaks`` can confirm it
+    /// deallocates once its host is torn down.
+    private func trackMirrorsForLeakCheck() {
+        for mirror in controller.sessionMirrors.values {
+            guard seenMirrorIDs.insert(ObjectIdentifier(mirror)).inserted else { continue }
+            let probe = LeakProbe(sessionName: mirror.sessionName)
+            probe.mirror = mirror
+            probe.channel = mirror.connection as? RemoteTmuxSessionChannel
+            leakProbes.append(probe)
+        }
+    }
+
+    /// Tears every host down and asserts every mirror/channel the run created has
+    /// deallocated. A survivor is a retain cycle — the count invariants can't catch
+    /// it because the object is already out of `sessionMirrors`/`channelsByHostSession`.
+    func assertNoLeaks() {
+        for host in hosts { _ = controller.stopMultiplexedHost(host: host.host) }
+        // Let any run-loop-coalesced release (deferred Tasks, observer teardown) run.
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        #expect(controller.sessionMirrors.isEmpty, "all mirrors removed after teardown \(seedLabel)")
+        #expect(controller.channelsByHostSession.isEmpty, "all channels removed after teardown \(seedLabel)")
+        for probe in leakProbes {
+            #expect(probe.mirror == nil, "mirror \(probe.sessionName) leaked (retain cycle) \(seedLabel)")
+            #expect(probe.channel == nil, "channel \(probe.sessionName) leaked (retain cycle) \(seedLabel)")
         }
     }
 
