@@ -3919,6 +3919,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.designModeController.webViewWillNavigate()
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
+                self.reconcileDiffViewerLoadingOverlayAfterNavigationCommit(to: webView.url)
                 self.isMainFrameProvisionalNavigationActive = false
                 self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
                 // An about:blank placeholder leaves the restore-stall detector armed.
@@ -4007,6 +4008,15 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
             }
         }
+    }
+
+    func reconcileDiffViewerLoadingOverlayAfterNavigationCommit(to url: URL?) {
+        guard diffViewerLoadingOverlay != nil,
+              url != DiffViewerLoadingPage.url,
+              !browserIsTemporaryHistoryURL(url) else {
+            return
+        }
+        closeDiffViewerLoadingOverlay()
     }
 
     private func publishCommittedURL(from webView: WKWebView) {
