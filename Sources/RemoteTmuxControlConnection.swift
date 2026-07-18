@@ -931,6 +931,12 @@ final class RemoteTmuxControlConnection {
                     #endif
                     requestWindows()
                 }
+            } else if name == Self.sessionDigestSubscriptionName, isSharedViewStream {
+                // Host-wide session create/kill/rename digest. GA per-session clients
+                // also see other sessions here, so only the shared view stream uses it
+                // to re-list and rebuild multiplexed mirrors (coalesced by the view
+                // coordinator's in-flight reconcile guard).
+                observers.notifyTopologyChanged()
             }
         case let .commandResult(_, lines, isError):
             // The first block on each control stream is the attach command's own —
@@ -938,6 +944,7 @@ final class RemoteTmuxControlConnection {
             // the positional FIFO (see ``attachBlockDrained``).
             if !attachBlockDrained {
                 attachBlockDrained = true
+                if isSharedViewStream { subscribeSessionDigest() }
                 requestWindows()
             } else {
                 handleCommandResult(lines: lines, isError: isError)

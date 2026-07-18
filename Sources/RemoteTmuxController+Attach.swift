@@ -8,6 +8,14 @@ extension RemoteTmuxController {
         windowTarget: RemoteTmuxAttachWindowTarget,
         activate: Bool
     ) async throws -> RemoteTmuxAttachOutcome {
+        // Multiplexer mode: mirror the host's sessions over ONE shared `-CC` view
+        // stream. Hosts limited to a single concurrent connection can't run the
+        // per-session attach burst below — the first attach occupies the only
+        // channel and every later one falls back to a connection the host refuses.
+        if Self.isMultiplexerEnabled {
+            return try await attachHostMultiplexed(
+                host: host, windowTarget: windowTarget, activate: activate)
+        }
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
