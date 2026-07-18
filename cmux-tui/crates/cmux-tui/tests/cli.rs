@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -49,6 +49,96 @@ impl Drop for HeadlessServer {
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+fn wait_for_socket_path(path: &std::path::Path) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline {
+        if transport::connect(path).is_ok() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    panic!("server did not accept connections at {}", path.display());
+}
+
+fn json_socket_request(path: &std::path::Path, request: serde_json::Value) -> serde_json::Value {
+    let stream = transport::connect(path).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{request}").unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "request failed: {response}");
+    response["data"].clone()
+}
+
+#[test]
+fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
+    let dir = unique_temp_dir("durable-restart");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let second_socket = dir.join("second.sock");
+    let state = dir.join("state");
+    let spawn = |socket: &std::path::Path| {
+        Command::new(bin())
+            .args(["--headless", "--session", "durable", "--socket"])
+            .arg(socket)
+            .arg("--state")
+            .arg(&state)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+
+    let mut first = spawn(&socket);
+    wait_for_socket_path(&socket);
+    let identify = json_socket_request(&socket, serde_json::json!({"id":1,"cmd":"identify"}));
+    let registry_id = identify["registry_id"].as_str().unwrap().to_string();
+    let generation = identify["generation"].as_str().unwrap().to_string();
+    let created = json_socket_request(
+        &socket,
+        serde_json::json!({
+            "id":2,
+            "cmd":"create-workspace",
+            "name":"survivor",
+            "key":"durable-key",
+            "origin":"process-test",
+            "mutation_id":"create-durable",
+            "expected_revision":0,
+        }),
+    );
+    assert_eq!(created["workspace_revision"], 1);
+
+    let mut second = spawn(&second_socket);
+    let second_status = second.wait().unwrap();
+    assert!(!second_status.success());
+    let mut second_stderr = String::new();
+    second.stderr.take().unwrap().read_to_string(&mut second_stderr).unwrap();
+    assert!(second_stderr.contains("already owned by another daemon"), "{second_stderr}");
+
+    // Child::kill is SIGKILL on Unix, intentionally bypassing graceful
+    // cleanup and leaving the old socket behind.
+    first.kill().unwrap();
+    first.wait().unwrap();
+    let _ = fs::remove_file(&socket);
+
+    let mut restarted = spawn(&socket);
+    wait_for_socket_path(&socket);
+    let recovered =
+        json_socket_request(&socket, serde_json::json!({"id":3,"cmd":"list-workspaces"}));
+    assert_eq!(recovered["registry_id"], registry_id);
+    assert_ne!(recovered["generation"], generation);
+    assert_eq!(recovered["workspace_revision"], 1);
+    assert_eq!(recovered["workspaces"][0]["key"], "durable-key");
+    assert_eq!(recovered["workspaces"][0]["name"], "survivor");
+    assert!(recovered["workspaces"][0]["screens"].as_array().unwrap().is_empty());
+
+    restarted.kill().unwrap();
+    restarted.wait().unwrap();
+    let _ = fs::remove_dir_all(dir);
 }
 
 #[test]

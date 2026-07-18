@@ -133,6 +133,43 @@ pub fn runtime_dir() -> PathBuf {
     runtime_base_dir().join(format!("cmux-tui-{}", user_id_component()))
 }
 
+/// Default root for durable workspace/session state. Runtime sockets stay in
+/// the short-lived runtime directory; canonical identities and mutation
+/// ledgers live here across daemon and machine reboots.
+pub fn workspace_state_dir() -> Option<PathBuf> {
+    if let Some(path) = env_path("CMUX_TUI_STATE_DIR") {
+        return Some(path);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return home_dir().map(|home| {
+            home.join("Library").join("Application Support").join("cmux-tui").join("sessions")
+        });
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return env_path("XDG_STATE_HOME")
+            .map(|state| state.join("cmux-tui").join("sessions"))
+            .or_else(|| {
+                home_dir()
+                    .map(|home| home.join(".local").join("state").join("cmux-tui").join("sessions"))
+            });
+    }
+    #[cfg(windows)]
+    {
+        return env_path("LOCALAPPDATA").map(|dir| dir.join("cmux-tui").join("sessions"));
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(windows)))]
+    {
+        env_path("XDG_STATE_HOME").map(|state| state.join("cmux-tui").join("sessions")).or_else(
+            || {
+                home_dir()
+                    .map(|home| home.join(".local").join("state").join("cmux-tui").join("sessions"))
+            },
+        )
+    }
+}
+
 /// User config file path, honoring explicit env overrides before the default
 /// cmux config directory. `cmux-tui.json` is preferred, with `mux.json`
 /// retained as a compatibility fallback for existing installs.

@@ -63,6 +63,8 @@ USAGE:
 OPTIONS:
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
+  --state <path>     Durable session-state root (default: platform state dir).
+  --ephemeral        Keep workspace state in memory for this run only.
   --headless         Run only the control socket, no TUI.
   --ws <addr>        Also listen for WebSocket clients (default: off).
   --ws-token <token> Allow a static-token bypass for interactive pairing.
@@ -120,6 +122,8 @@ struct Args {
     attach: bool,
     session: String,
     socket: Option<PathBuf>,
+    state: Option<PathBuf>,
+    ephemeral: bool,
     headless: bool,
     ws: Option<String>,
     ws_token: Option<String>,
@@ -132,6 +136,8 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
         attach: false,
         session: "main".to_string(),
         socket: None,
+        state: None,
+        ephemeral: false,
         headless: false,
         ws: None,
         ws_token: None,
@@ -153,6 +159,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
                     args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into(),
                 );
             }
+            "--state" => {
+                out.state =
+                    Some(args.next().unwrap_or_else(|| usage_exit("--state needs a value")).into());
+            }
+            "--ephemeral" => out.ephemeral = true,
             "--headless" => out.headless = true,
             "--ws" => {
                 out.ws = Some(args.next().unwrap_or_else(|| usage_exit("--ws needs a value")));
@@ -222,6 +233,9 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
+    if args.ephemeral && args.state.is_some() {
+        anyhow::bail!("--ephemeral and --state are mutually exclusive");
+    }
     let mut surface_options = SurfaceOptions::default();
     let config = config::load();
     let ws_addr = args.ws.or(config.server.ws.clone());
@@ -231,12 +245,23 @@ fn run_server(args: Args) -> anyhow::Result<()> {
         surface_options.term = term;
     }
     // Compute the socket path up front so surface children inherit it.
+    let explicit_socket = args.socket.is_some();
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
-    let mux = Mux::new(args.session.clone(), surface_options);
+    let mux = if args.ephemeral {
+        Mux::new(args.session.clone(), surface_options)
+    } else {
+        let state_root = match args.state {
+            Some(path) => path,
+            None if explicit_socket => socket_path.with_extension("state"),
+            None => cmux_tui_core::platform::workspace_state_dir()
+                .ok_or_else(|| anyhow::anyhow!("cannot determine durable state directory"))?,
+        };
+        Mux::open_persistent(args.session.clone(), surface_options, &state_root)?
+    };
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.set_default_colors(config.terminal_defaults);
