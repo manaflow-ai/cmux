@@ -3136,7 +3136,7 @@ fn handle_command(
                             "replay": base64::engine::general_purpose::STANDARD.encode(replay),
                         }),
                         AttachFrame::ColorsChanged(colors) => {
-                            let mut value = terminal_colors_json(colors);
+                            let mut value = terminal_colors_json(*colors);
                             value["event"] = json!("colors-changed");
                             value["surface"] = json!(surface_id);
                             value

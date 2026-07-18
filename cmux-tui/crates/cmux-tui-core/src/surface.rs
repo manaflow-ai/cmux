@@ -198,7 +198,7 @@ pub struct AttachStream {
 pub enum AttachFrame {
     Output(Vec<u8>),
     Resized { cols: u16, rows: u16, replay: Vec<u8> },
-    ColorsChanged(TerminalColors),
+    ColorsChanged(Box<TerminalColors>),
 }
 
 const ATTACH_STREAM_CAPACITY: usize = 256;
@@ -240,7 +240,7 @@ impl AttachFrame {
             + match self {
                 Self::Output(bytes) => bytes.capacity(),
                 Self::Resized { replay, .. } => replay.capacity(),
-                Self::ColorsChanged(_) => 0,
+                Self::ColorsChanged(_) => size_of::<TerminalColors>(),
             }
     }
 }
@@ -871,7 +871,7 @@ impl Surface {
             let colors = TerminalColors::from_terminal(&mut term, colors);
             let mut taps = pty.taps.lock().unwrap();
             if !taps.is_empty() {
-                taps.retain(|tap| tap.try_send(AttachFrame::ColorsChanged(colors)));
+                taps.retain(|tap| tap.try_send(AttachFrame::ColorsChanged(Box::new(colors))));
             }
             drop(taps);
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
