@@ -271,16 +271,24 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
 }
 
 extension BrowserPanel {
+    private var diffViewerLoadingOwnershipURL: URL? {
+        DiffViewerLoadingPage.ownershipURL(
+            committedURL: webView.url ?? currentURL,
+            provisionalURL: navigationDelegate?.lastAttemptedURL,
+            isProvisionalNavigationActive: isMainFrameProvisionalNavigationActive
+        )
+    }
+
     func hasCurrentURL(_ expectedURL: String) -> Bool {
-        (webView.url ?? currentURL)?.absoluteString == expectedURL
+        diffViewerLoadingOwnershipURL?.absoluteString == expectedURL
     }
 
     func isShowingDiffViewerLoadingState(expectedURL: String) -> Bool {
-        DiffViewerLoadingPage.owns(url: webView.url ?? currentURL, expectedURL: expectedURL)
+        DiffViewerLoadingPage.owns(url: diffViewerLoadingOwnershipURL, expectedURL: expectedURL)
     }
 
     func isShowingPendingDiffViewerLoadingState(expectedURL: String) -> Bool {
-        let visibleURL = webView.url ?? currentURL
+        let visibleURL = diffViewerLoadingOwnershipURL
         let openingDocumentHasPendingMarker = visibleURL.flatMap {
             CmuxDiffViewerURLSchemeHandler.shared.documentHasPendingMarker(for: $0)
         } ?? false

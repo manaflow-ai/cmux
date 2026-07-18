@@ -221,6 +221,14 @@ enum DiffViewerLoadingPage {
             .hasSuffix("-opening.html") == true
     }
 
+    static func ownershipURL(
+        committedURL: URL?,
+        provisionalURL: URL?,
+        isProvisionalNavigationActive: Bool
+    ) -> URL? {
+        isProvisionalNavigationActive ? provisionalURL : committedURL
+    }
+
     static func isPending(
         url currentURL: URL?,
         expectedURL: String,

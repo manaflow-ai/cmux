@@ -79,6 +79,20 @@ struct AppState {
 type TrajectoryScanResult = Result<ResolvedTurnPatch, TrajectoryError>;
 type TrajectoryScans = HashMap<AgentTurnIdentity, watch::Sender<Option<TrajectoryScanResult>>>;
 
+fn remove_trajectory_scan_if_current(
+    scans: &mut TrajectoryScans,
+    identity: &AgentTurnIdentity,
+    sender: &watch::Sender<Option<TrajectoryScanResult>>,
+) -> bool {
+    let is_current = scans
+        .get(identity)
+        .is_some_and(|current| current.same_channel(sender));
+    if is_current {
+        scans.remove(identity);
+    }
+    is_current
+}
+
 #[derive(Clone)]
 struct CachedManifest {
     fingerprint: ManifestFingerprint,
@@ -669,9 +683,10 @@ async fn resolve_agent_turn_coalesced(
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
     let (mut receiver, producer) = {
         let mut scans = state.trajectory_scans.lock().await;
-        if let Some(sender) = scans.get(&identity) {
+        if let Some(sender) = scans.get(&identity).filter(|sender| !sender.is_closed()) {
             (sender.subscribe(), None)
         } else {
+            scans.remove(&identity);
             let (sender, receiver) = watch::channel(None);
             scans.insert(identity.clone(), sender.clone());
             (receiver, Some(sender))
@@ -686,8 +701,17 @@ async fn resolve_agent_turn_coalesced(
             let cancellation = TrajectoryCancellation::default();
             let cancellation_monitor = cancellation.clone();
             let closed_sender = sender.clone();
+            let closed_scans = Arc::clone(&scans);
+            let closed_identity = map_identity.clone();
             let monitor = tokio::spawn(async move {
                 closed_sender.closed().await;
+                let mut active_scans = closed_scans.lock().await;
+                remove_trajectory_scan_if_current(
+                    &mut active_scans,
+                    &closed_identity,
+                    &closed_sender,
+                );
+                drop(active_scans);
                 cancellation_monitor.cancel();
             });
             let worker_identity = map_identity.clone();
@@ -705,7 +729,8 @@ async fn resolve_agent_turn_coalesced(
             };
             monitor.abort();
             sender.send_replace(Some(result));
-            scans.lock().await.remove(&map_identity);
+            let mut active_scans = scans.lock().await;
+            remove_trajectory_scan_if_current(&mut active_scans, &map_identity, &sender);
         });
     }
 
@@ -2221,8 +2246,8 @@ mod tests {
         AllowedFile, DiffSource, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
         TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
         prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
-        reserve_session_owner, run_git_patch_with_limit, session_lease_lock_is_active,
-        valid_group_id,
+        remove_trajectory_scan_if_current, reserve_session_owner, run_git_patch_with_limit,
+        session_lease_lock_is_active, valid_group_id,
     };
 
     #[test]
