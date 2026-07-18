@@ -291,4 +291,77 @@ struct AgentLaunchCaptureTrustTests {
             )
         )
     }
+
+    @Test func liveProcessLaunchRestorabilityUsesTheSharedProviderPolicies() {
+        #expect(
+            AgentLaunchSanitizer.processLaunchIsRestorable(
+                processName: "codex",
+                arguments: ["/opt/homebrew/bin/codex", "exec", "fix this"],
+                kind: "codex"
+            ) == false
+        )
+        #expect(
+            AgentLaunchSanitizer.processLaunchIsRestorable(
+                processName: "codex",
+                arguments: ["/opt/homebrew/bin/codex", "--model", "o3"],
+                kind: "codex"
+            ) == true
+        )
+        #expect(
+            AgentLaunchSanitizer.processLaunchIsRestorable(
+                processName: "sleep",
+                arguments: ["/bin/sleep", "30"],
+                kind: "codex"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.processLaunchIsRestorable(
+                processName: "acme-agent",
+                arguments: ["/usr/local/bin/acme-agent", "--print", "fix this"],
+                kind: "acme-agent"
+            ) == nil
+        )
+    }
+
+    @Test func interpreterHostedLaunchRestorabilityStartsAfterTheAgentEntrypoint() {
+        #expect(
+            AgentLaunchSanitizer.processLaunchIsRestorable(
+                processName: "node",
+                arguments: [
+                    "node",
+                    "--use-system-ca",
+                    "/Users/alice/.npm/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                    "--print",
+                    "fix this",
+                ],
+                kind: "claude"
+            ) == false
+        )
+        #expect(
+            AgentLaunchSanitizer.processLaunchIsRestorable(
+                processName: "bun",
+                arguments: [
+                    "bun",
+                    "/Users/alice/.bun/install/global/node_modules/opencode-ai/bin/cli.js",
+                    "run",
+                    "fix this",
+                ],
+                kind: "opencode"
+            ) == false
+        )
+        #expect(
+            AgentLaunchSanitizer.processLaunchIsRestorable(
+                processName: "deno",
+                arguments: [
+                    "deno",
+                    "run",
+                    "-A",
+                    "/Users/alice/campfire/packages/session/bin/campfire.ts",
+                    "--print",
+                    "fix this",
+                ],
+                kind: "campfire"
+            ) == false
+        )
+    }
 }
