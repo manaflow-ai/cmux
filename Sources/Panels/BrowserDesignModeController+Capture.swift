@@ -110,7 +110,11 @@ extension BrowserDesignModeController {
                 viewBounds: capture.viewBounds
             )
             let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
-            let screenshotURL = try await screenshotStore.save(pngData, surfaceID: surfaceID)
+            let screenshotURL = try await screenshotStore.save(
+                pngData,
+                surfaceID: surfaceID,
+                retention: .liveContext
+            )
             unregisteredScreenshotURL = screenshotURL
             guard operation == operationRevision else {
                 await screenshotStore.remove(screenshotURL)

@@ -581,7 +581,17 @@ final class BrowserDesignModeController {
         guard next.revision >= (snapshot?.revision ?? -1) else { return }
         snapshot = next
         let liveSelectors = Set(next.selections.map(\.selector))
+        let releasedPaths = annotationScreenshotPaths.compactMap { selector, path in
+            liveSelectors.contains(selector) ? nil : path
+        }
         annotationScreenshotPaths = annotationScreenshotPaths.filter { liveSelectors.contains($0.key) }
+        if !releasedPaths.isEmpty {
+            Task { [screenshotStore] in
+                for path in releasedPaths {
+                    await screenshotStore.release(URL(fileURLWithPath: path))
+                }
+            }
+        }
         if case .captured(_, let selector)? = phase.annotation,
            !liveSelectors.contains(selector) {
             phase = .active(annotation: .idle)
@@ -631,7 +641,15 @@ final class BrowserDesignModeController {
         annotationCaptureTask?.cancel()
         annotationCaptureTask = nil
         annotationCaptureTaskID = nil
+        let releasedPaths = Array(annotationScreenshotPaths.values)
         annotationScreenshotPaths.removeAll()
+        if !releasedPaths.isEmpty {
+            Task { [screenshotStore] in
+                for path in releasedPaths {
+                    await screenshotStore.release(URL(fileURLWithPath: path))
+                }
+            }
+        }
     }
 
     private func beginOperation() -> UInt {
