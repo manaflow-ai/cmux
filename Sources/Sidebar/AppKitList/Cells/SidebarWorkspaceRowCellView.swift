@@ -55,6 +55,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var contextMenuDidOpen: (() -> Void)?
     private var contextMenuDidClose: (() -> Void)?
     private var pumpCancellables: [AnyCancellable] = []
+    private var customTitleSignalEffect: SignalEffect?
     private lazy var renamePhaseEffect = renameField.observePhase { [weak self] phase in
         guard let self else { return }
         let isEditing = phase.isEditing
@@ -71,6 +72,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         rebuild: @escaping @MainActor () -> Void
     ) {
         pumpCancellables.removeAll()
+        customTitleSignalEffect?.dispose()
+        customTitleSignalEffect = workspace.observeSidebarCustomTitle { _ in
+            rebuild()
+        }
         workspace.sidebarImmediateObservationPublisher
             .receive(on: RunLoop.main)
             .sink { _ in

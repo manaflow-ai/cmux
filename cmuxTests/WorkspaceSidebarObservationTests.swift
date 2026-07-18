@@ -118,21 +118,21 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func sidebarImmediateObservationPublisherDeliversManualTitleChangeSynchronously() {
+    @Test func sidebarCustomTitleSignalDeliversManualTitleChangeSynchronously() {
         let workspace = Workspace()
 
         var publishCount = 0
-        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+        let effect = workspace.observeSidebarCustomTitle { _ in
             publishCount += 1
         }
-        defer { cancellable.cancel() }
+        defer { effect.dispose() }
         publishCount = 0
 
         workspace.setCustomTitle("User Edit")
 
         #expect(
             publishCount == 1,
-            "The first immediate-field change after subscribing must reach the sidebar in the same run-loop turn; coalescing may only defer the tail of a burst."
+            "A custom-title change must reach the sidebar signal once in the same main-actor turn."
         )
     }
 
@@ -144,7 +144,7 @@ struct WorkspaceSidebarObservationTests {
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
 
         var observedTitles: [String] = []
-        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+        let effect = workspace.observeSidebarCustomTitle { _ in
             observedTitles.append(
                 SidebarWorkspaceSnapshotFactory(
                     workspace: workspace,
@@ -153,7 +153,7 @@ struct WorkspaceSidebarObservationTests {
                 ).makeSnapshot().title
             )
         }
-        defer { cancellable.cancel() }
+        defer { effect.dispose() }
         observedTitles.removeAll()
 
         workspace.setCustomTitle("After Rename")
@@ -161,6 +161,24 @@ struct WorkspaceSidebarObservationTests {
         #expect(
             observedTitles == ["After Rename"],
             "The synchronous sidebar rename event must expose the committed display title, never the pre-rename title from an intermediate model state."
+        )
+    }
+
+    @Test func sidebarCustomTitleSignalPublishesOneAtomicRenameState() {
+        let workspace = Workspace(title: "Before Rename")
+        var observedStates: [Workspace.SidebarCustomTitleState] = []
+        let effect = workspace.observeSidebarCustomTitle { state in
+            observedStates.append(state)
+        }
+        defer { effect.dispose() }
+        observedStates.removeAll()
+
+        workspace.setCustomTitle("After Rename")
+
+        #expect(
+            observedStates == [
+                Workspace.SidebarCustomTitleState(title: "After Rename", source: .user)
+            ]
         )
     }
 

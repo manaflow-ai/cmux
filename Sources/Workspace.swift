@@ -1976,6 +1976,10 @@ final class Workspace: Identifiable, ObservableObject {
     let createdAt = Date()
     @Published var title: String
     @Published var customTitle: String?
+    let sidebarCustomTitleSignalGraph = SignalGraph()
+    lazy var sidebarCustomTitleSignal = sidebarCustomTitleSignalGraph.createSignal(
+        SidebarCustomTitleState(title: customTitle, source: effectiveCustomTitleSource)
+    )
     /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
     /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
     /// custom title is set. A present title with absent provenance is

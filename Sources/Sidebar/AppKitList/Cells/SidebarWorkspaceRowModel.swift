@@ -43,6 +43,34 @@ struct SidebarWorkspaceRowModel: Equatable {
     func scaled(_ base: CGFloat) -> CGFloat {
         GlobalFontMagnification.scaledSize(base * fontScale, percent: globalFontMagnificationPercent)
     }
+
+    func replacingSnapshot(_ snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot) -> Self {
+        Self(
+            workspaceId: workspaceId,
+            index: index,
+            snapshot: snapshot,
+            settings: settings,
+            isActive: isActive,
+            isMultiSelected: isMultiSelected,
+            canCloseWorkspace: canCloseWorkspace,
+            accessibilityWorkspaceCount: accessibilityWorkspaceCount,
+            unreadCount: unreadCount,
+            latestNotificationText: latestNotificationText,
+            showsAgentActivity: showsAgentActivity,
+            rowSpacing: rowSpacing,
+            isBeingDragged: isBeingDragged,
+            topDropIndicatorVisible: topDropIndicatorVisible,
+            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+            isGrouped: isGrouped,
+            isFirstRow: isFirstRow,
+            shortcutHintText: shortcutHintText,
+            showsShortcutHints: showsShortcutHints,
+            colorSchemeIsDark: colorSchemeIsDark,
+            globalFontMagnificationPercent: globalFontMagnificationPercent,
+            isChecklistExpanded: isChecklistExpanded,
+            checklistAddFieldActivationToken: checklistAddFieldActivationToken
+        )
+    }
 }
 
 /// Behavior bundle for the row view; excluded from model equality.

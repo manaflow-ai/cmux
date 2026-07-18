@@ -77,7 +77,7 @@ struct SidebarWorkspaceSnapshotFactory {
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
-            title: workspace.title,
+            title: workspace.sidebarDisplayTitle,
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
             customColorHex: workspace.customColor,
@@ -141,7 +141,7 @@ struct SidebarWorkspaceSnapshotFactory {
 
     private var visibleCustomDescription: String? {
         guard let description = workspace.customDescription else { return nil }
-        if workspace.title.hasPrefix("vm:"),
+        if workspace.sidebarDisplayTitle.hasPrefix("vm:"),
            description.trimmingCharacters(in: .whitespacesAndNewlines)
             == Self.legacyVMWebSocketDescription {
             return nil
