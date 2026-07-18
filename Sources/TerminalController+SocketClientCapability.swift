@@ -37,6 +37,8 @@ extension TerminalController {
             environment[AgentHookOutbox.environmentKey] = agentHookOutbox.directoryURL.path
             environment[AgentHookOutbox.capabilityEnvironmentKey] =
                 agentHookOutbox.issueCapability()
+            environment[AgentHookOutbox.generationEnvironmentKey] =
+                agentHookOutbox.generationToken
         }
         return environment
     }

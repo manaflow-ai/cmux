@@ -558,24 +558,11 @@ struct CLIHookNoResponseTests {
         let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 8)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         let audience = "com.cmuxterm.test.outbox"
-        let deliveryQueue = AgentHookDeliveryQueue(
-            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
-            executableURLProvider: { nil },
-            retryBaseDelay: 60,
-            retryMaximumDelay: 60
-        )
-        let outbox = try #require(AgentHookOutbox.prepare(
-            directoryURL: outboxDirectory,
-            audience: audience,
-            deliveryQueue: deliveryQueue
-        ))
-        let outboxSecret = try Data(contentsOf: outbox.capabilitySecretURL)
-        let capabilityAuthority = SocketClientCapabilityAuthority(
-            secret: outboxSecret,
-            audience: audience
-        )
-        let capability = outbox.issueCapability()
+        var deliveryQueue: AgentHookDeliveryQueue?
+        var outbox: AgentHookOutbox?
         defer {
+            outbox = nil
+            deliveryQueue = nil
             Darwin.close(listenerFD)
             unlink(socketPath)
             Self.removeOutboxSharedMemory(at: outboxDirectory)
@@ -587,6 +574,27 @@ struct CLIHookNoResponseTests {
             }
             try? FileManager.default.removeItem(at: root)
         }
+        deliveryQueue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        outbox = deliveryQueue.flatMap {
+            AgentHookOutbox.prepare(
+                directoryURL: outboxDirectory,
+                audience: audience,
+                deliveryQueue: $0
+            )
+        }
+        try #require(outbox != nil)
+        let outboxSecret = try Data(contentsOf: #require(outbox?.capabilitySecretURL))
+        let capabilityAuthority = SocketClientCapabilityAuthority(
+            secret: outboxSecret,
+            audience: audience
+        )
+        let capability = try #require(outbox?.issueCapability())
+        let outboxGeneration = try #require(outbox?.generationToken)
 
         let inject = runCodexHookProcess(
             executablePath: cliPath,
@@ -629,6 +637,7 @@ struct CLIHookNoResponseTests {
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_SOCKET_CAPABILITY": capability,
                 "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY": capability,
+                "CMUX_AGENT_HOOK_OUTBOX_GENERATION": outboxGeneration,
                 "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                 "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
@@ -666,7 +675,7 @@ struct CLIHookNoResponseTests {
         let markerFields = String(decoding: record.marker, as: UTF8.self)
             .split(separator: "\n")
             .map { String($0) }
-        let markerNonce = try #require((markerFields.count == 4 || markerFields.count == 5) ? markerFields[1] : nil)
+        let markerNonce = try #require((markerFields.count == 5 || markerFields.count == 6) ? markerFields[1] : nil)
         let markerCode = try #require(Data(base64Encoded: markerFields[2]))
         #expect(!String(decoding: record.marker, as: UTF8.self).contains(capability))
         #expect(capabilityAuthority.verifiesOutboxMessage(
@@ -918,29 +927,9 @@ struct CLIHookNoResponseTests {
         let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 4)
         let socketRequests = CodexHookCapturedSocketCommands()
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
-
-        let queue = AgentHookDeliveryQueue(
-            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
-            executableURLProvider: { nil },
-            retryBaseDelay: 60,
-            retryMaximumDelay: 60
-        )
-        let outbox = try #require(AgentHookOutbox.prepare(
-            directoryURL: outboxDirectory,
-            audience: "com.cmuxterm.test.outbox-busy-lock",
-            deliveryQueue: queue
-        ))
-        let outboxGeneration = try Self.outboxGeneration(at: outboxDirectory)
-        let outboxCapability = outbox.issueCapability()
-        let socketCapability = SocketClientCapabilityAuthority(
-            secret: Data(repeating: 0x7c, count: SocketClientCapabilityAuthority.secureByteCount),
-            audience: "com.cmuxterm.test.outbox-busy-lock.socket"
-        ).issueCapability()
-        let budgetDescriptor = Darwin.open(
-            outboxDirectory.appendingPathComponent(".quota-v1").path,
-            O_RDWR | O_NOFOLLOW | O_CLOEXEC
-        )
-        try #require(budgetDescriptor >= 0)
+        var queue: AgentHookDeliveryQueue?
+        var outbox: AgentHookOutbox?
+        var budgetDescriptor: Int32 = -1
         var budgetLocked = false
         var publisher: Process?
         defer {
@@ -952,12 +941,41 @@ struct CLIHookNoResponseTests {
             if budgetLocked {
                 _ = flock(budgetDescriptor, LOCK_UN)
             }
-            Darwin.close(budgetDescriptor)
+            if budgetDescriptor >= 0 {
+                Darwin.close(budgetDescriptor)
+            }
+            outbox = nil
+            queue = nil
             Darwin.close(listenerFD)
             unlink(socketPath)
             Self.removeOutboxSharedMemory(at: outboxDirectory)
             try? FileManager.default.removeItem(at: root)
         }
+        queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        outbox = queue.flatMap {
+            AgentHookOutbox.prepare(
+                directoryURL: outboxDirectory,
+                audience: "com.cmuxterm.test.outbox-busy-lock",
+                deliveryQueue: $0
+            )
+        }
+        try #require(outbox != nil)
+        let outboxGeneration = try Self.outboxGeneration(at: outboxDirectory)
+        let outboxCapability = try #require(outbox?.issueCapability())
+        let socketCapability = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x7c, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox-busy-lock.socket"
+        ).issueCapability()
+        budgetDescriptor = Darwin.open(
+            outboxDirectory.appendingPathComponent(".quota-v1").path,
+            O_RDWR | O_NOFOLLOW | O_CLOEXEC
+        )
+        try #require(budgetDescriptor >= 0)
 
         let inject = runCodexHookProcess(
             executablePath: cliPath,
@@ -1298,6 +1316,7 @@ struct CLIHookNoResponseTests {
                     "CMUX_SOCKET_PATH": socketPath,
                     "CMUX_SOCKET_CAPABILITY": capability,
                     "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY": capability,
+                    "CMUX_AGENT_HOOK_OUTBOX_GENERATION": outbox.generationToken,
                     "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                     "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
                     "CMUX_BUNDLED_CLI_PATH": "/usr/bin/false",
@@ -1343,7 +1362,7 @@ struct CLIHookNoResponseTests {
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outboxDirectory, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outboxDirectory.path)
-        try Self.installOutboxBudgetFixture(
+        let generation = try Self.installOutboxBudgetFixture(
             at: outboxDirectory,
             slotCount: 2,
             maximumBytes: 1_048_576
@@ -1381,6 +1400,7 @@ struct CLIHookNoResponseTests {
             "CMUX_SOCKET_PATH": "/tmp/cmux-native-outbox-budget-missing.sock",
             "CMUX_SOCKET_CAPABILITY": capability,
             "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY": capability,
+            "CMUX_AGENT_HOOK_OUTBOX_GENERATION": generation,
             "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
             "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
             "CMUX_BUNDLED_CLI_PATH": fallbackCLI.path,
@@ -1451,9 +1471,11 @@ struct CLIHookNoResponseTests {
             let fields = String(decoding: record.marker, as: UTF8.self)
                 .split(separator: "\n")
                 .map(String.init)
-            #expect(fields.count == 5)
-            #expect(fields.last?.count == 16)
-            #expect(fields.last?.allSatisfy { $0.isHexDigit && !$0.isUppercase } == true)
+            #expect(fields.count == 6)
+            #expect(fields[4].count == 16)
+            #expect(fields[4].allSatisfy { $0.isHexDigit && !$0.isUppercase })
+            #expect(fields[5].count == 32)
+            #expect(fields[5].allSatisfy { $0.isHexDigit && !$0.isUppercase })
         }
     }
 
@@ -2022,15 +2044,19 @@ struct CLIHookNoResponseTests {
         at directory: URL,
         slotCount: UInt32,
         maximumBytes: UInt64
-    ) throws {
-        var data = Data("CMUXHQ01".utf8)
-        appendLittleEndian(UInt32(1), to: &data)
+    ) throws -> String {
+        let generation = Data(repeating: 0x5a, count: 16)
+        var data = Data("CMUXHQ02".utf8)
+        appendLittleEndian(UInt32(2), to: &data)
         appendLittleEndian(slotCount, to: &data)
         appendLittleEndian(maximumBytes, to: &data)
         appendLittleEndian(UInt32(0), to: &data)
         appendLittleEndian(UInt32(0), to: &data)
         appendLittleEndian(UInt64(0), to: &data)
-        data.append(Data(repeating: 0, count: 24 + Int(slotCount) * 32))
+        data.append(generation)
+        appendLittleEndian(UInt32(1), to: &data)
+        appendLittleEndian(UInt32(0), to: &data)
+        data.append(Data(repeating: 0, count: Int(slotCount) * 32))
         guard data.count == 64 + Int(slotCount) * 32,
               FileManager.default.createFile(
                 atPath: directory.appendingPathComponent(".quota-v1").path,
@@ -2041,6 +2067,7 @@ struct CLIHookNoResponseTests {
                 NSLocalizedDescriptionKey: "Could not install hook outbox budget fixture",
             ])
         }
+        return generation.map { String(format: "%02x", $0) }.joined()
     }
 
     private static func appendLittleEndian<T: FixedWidthInteger>(
@@ -2061,7 +2088,7 @@ struct CLIHookNoResponseTests {
             let fields = String(decoding: marker, as: UTF8.self)
                 .split(separator: "\n", omittingEmptySubsequences: true)
                 .map { String($0) }
-            guard (fields.count == 4 || fields.count == 5),
+            guard (fields.count == 5 || fields.count == 6),
                   fields[0].hasPrefix("/ch"),
                   Data(base64Encoded: fields[2])?.count == 32,
                   let expectedCount = Int(fields[3]),

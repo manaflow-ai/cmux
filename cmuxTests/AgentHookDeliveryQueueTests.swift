@@ -53,6 +53,7 @@ struct AgentHookDeliveryQueueTests {
             reconciliationInterval: 60
         ))
         let capability = publisherOutbox.issueCapability()
+        let generation = publisherOutbox.generationToken
         let message = try outboxMessage(
             deliveryID: "outbox-recovery",
             payload: Data([0x00, 0xff, 0x0a]),
@@ -90,6 +91,7 @@ struct AgentHookDeliveryQueueTests {
             reconciliationInterval: 60
         ))
         #expect(try Data(contentsOf: recoveringOutbox.capabilitySecretURL) == persistedMasterSecret)
+        #expect(recoveringOutbox.generationToken == generation)
 
         await recoveringOutbox.start()
         #expect(try await queue.diagnosticStatus(for: "outbox-recovery")?["state"] == "pending")
@@ -106,6 +108,111 @@ struct AgentHookDeliveryQueueTests {
             #expect(bytes.range(of: Data("outbox-memory-only-secret".utf8)) == nil)
         }
         await recoveringOutbox.stop()
+    }
+
+    @Test func authenticatedLegacyReadyMarkersMigrateBeforeV2LedgerInitialization() async throws {
+        let root = try temporaryDirectory(named: "outbox-v1-migration")
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let budgetURL = outboxURL.appendingPathComponent(".quota-v1")
+        let audience = "com.cmuxterm.test.outbox-v1-migration"
+        var queue: AgentHookDeliveryQueue?
+        var publisher: AgentHookOutbox?
+        var recovering: AgentHookOutbox?
+        var sharedMemoryNames: [String] = []
+        defer {
+            recovering = nil
+            publisher = nil
+            queue = nil
+            for name in sharedMemoryNames { shm_unlink(name) }
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        publisher = queue.flatMap {
+            AgentHookOutbox.prepare(
+                directoryURL: outboxURL,
+                audience: audience,
+                deliveryQueue: $0,
+                reconciliationInterval: 60
+            )
+        }
+        try #require(publisher != nil)
+        let capability = try #require(publisher?.issueCapability())
+        let persistedSecret = try Data(contentsOf: #require(publisher?.capabilitySecretURL))
+
+        let validRecord = try publishOutboxRecord(
+            message: outboxMessage(
+                deliveryID: "legacy-valid",
+                payload: Data("valid".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: capability,
+            directoryURL: outboxURL,
+            order: 1,
+            includeGeneration: false
+        )
+        sharedMemoryNames.append(validRecord.sharedMemoryName)
+        let unauthenticatedRecord = try publishOutboxRecord(
+            message: outboxMessage(
+                deliveryID: "legacy-unauthenticated",
+                payload: Data("unauthenticated".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            authenticating: Data("different-message".utf8),
+            capability: capability,
+            directoryURL: outboxURL,
+            order: 2,
+            includeGeneration: false
+        )
+        sharedMemoryNames.append(unauthenticatedRecord.sharedMemoryName)
+        let malformedRecord = try publishOutboxRecord(
+            message: outboxMessage(
+                deliveryID: "legacy-malformed",
+                payload: Data("malformed".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: capability,
+            directoryURL: outboxURL,
+            order: 3,
+            includeGeneration: false
+        )
+        sharedMemoryNames.append(malformedRecord.sharedMemoryName)
+        try Data("\(malformedRecord.sharedMemoryName)\nmalformed\n".utf8).write(
+            to: malformedRecord.markerURL,
+            options: .atomic
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: malformedRecord.markerURL.path
+        )
+
+        await publisher?.stop()
+        try installLegacyOutboxBudget(at: budgetURL)
+        recovering = queue.flatMap {
+            AgentHookOutbox.prepare(
+                directoryURL: outboxURL,
+                audience: audience,
+                deliveryQueue: $0,
+                reconciliationInterval: 60
+            )
+        }
+        try #require(recovering != nil)
+
+        #expect(try Data(contentsOf: #require(recovering?.capabilitySecretURL)) == persistedSecret)
+        #expect(try storedDeliveryIDs(databaseURL: databaseURL) == ["legacy-valid"])
+        for record in [validRecord, unauthenticatedRecord, malformedRecord] {
+            #expect(!FileManager.default.fileExists(atPath: record.markerURL.path))
+            #expect(sharedMemoryIsMissing(record.sharedMemoryName))
+        }
+        let migratedBudget = try Data(contentsOf: budgetURL)
+        #expect(Array(migratedBudget.prefix(8)) == Array("CMUXHQ02".utf8))
+        await recovering?.stop()
     }
 
     @Test func outboxRejectsWrongAudienceAndTamperedMessage() async throws {
@@ -540,6 +647,9 @@ struct AgentHookDeliveryQueueTests {
             audience: "com.cmuxterm.test.outbox-invalid-secret",
             deliveryQueue: queue
         ) == nil)
+        let revokedBudget = try Data(contentsOf: outboxURL.appendingPathComponent(".quota-v1"))
+        #expect(revokedBudget.count >= 60)
+        #expect(revokedBudget[56] == 2)
     }
 
     @Test func encodedEventPreservesExactPayloadAndValidatedEnvironment() throws {
@@ -615,22 +725,35 @@ struct AgentHookDeliveryQueueTests {
 
     @Test func transientSecretReadFailurePreservesActiveAuthorityForRecovery() async throws {
         let root = try temporaryDirectory(named: "outbox-transient-secret-read")
-        defer { try? FileManager.default.removeItem(at: root) }
+        var queue: AgentHookDeliveryQueue?
+        var original: AgentHookOutbox?
+        var recovered: AgentHookOutbox?
+        var postLockRecovery: AgentHookOutbox?
+        defer {
+            postLockRecovery = nil
+            recovered = nil
+            original = nil
+            queue = nil
+            try? FileManager.default.removeItem(at: root)
+        }
         let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
         let budgetURL = outboxURL.appendingPathComponent(".quota-v1")
-        let queue = AgentHookDeliveryQueue(
+        queue = AgentHookDeliveryQueue(
             databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
             executableURLProvider: { nil },
             retryBaseDelay: 60,
             retryMaximumDelay: 60
         )
         let audience = "com.cmuxterm.test.outbox-transient-secret-read"
-        let original = try #require(AgentHookOutbox.prepare(
-            directoryURL: outboxURL,
-            audience: audience,
-            deliveryQueue: queue
-        ))
-        await original.stop()
+        original = queue.flatMap {
+            AgentHookOutbox.prepare(
+                directoryURL: outboxURL,
+                audience: audience,
+                deliveryQueue: $0
+            )
+        }
+        try #require(original != nil)
+        await original?.stop()
         let originalBudget = try Data(contentsOf: budgetURL)
         let originalGeneration = originalBudget.subdata(in: 40..<56)
 
@@ -643,7 +766,7 @@ struct AgentHookDeliveryQueueTests {
         #expect(AgentHookOutbox.prepare(
             directoryURL: outboxURL,
             audience: audience,
-            deliveryQueue: queue
+            deliveryQueue: try #require(queue)
         ) == nil)
         let budgetAfterFailure = try Data(contentsOf: budgetURL)
         #expect(budgetAfterFailure.subdata(in: 40..<56) == originalGeneration)
@@ -651,15 +774,51 @@ struct AgentHookDeliveryQueueTests {
 
         unsetenv(injectionKey)
         injectionInstalled = false
-        let recovered = try #require(AgentHookOutbox.prepare(
-            directoryURL: outboxURL,
-            audience: audience,
-            deliveryQueue: queue
-        ))
+        recovered = queue.flatMap {
+            AgentHookOutbox.prepare(
+                directoryURL: outboxURL,
+                audience: audience,
+                deliveryQueue: $0
+            )
+        }
+        try #require(recovered != nil)
         let recoveredBudget = try Data(contentsOf: budgetURL)
         #expect(recoveredBudget.subdata(in: 40..<56) == originalGeneration)
         #expect(recoveredBudget[56] == 1)
-        await recovered.stop()
+        await recovered?.stop()
+
+        let lockDescriptor = Darwin.open(budgetURL.path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
+        try #require(lockDescriptor >= 0)
+        var lockHeld = false
+        defer {
+            if lockHeld { _ = flock(lockDescriptor, LOCK_UN) }
+            Darwin.close(lockDescriptor)
+        }
+        try #require(flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0)
+        lockHeld = true
+        let lockStarted = ContinuousClock().now
+        #expect(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: audience,
+            deliveryQueue: try #require(queue)
+        ) == nil)
+        let lockElapsed = lockStarted.duration(to: .now)
+        #expect(lockElapsed < .seconds(0.15), "Busy app-side quota lock took \(lockElapsed)")
+        let budgetAfterLock = try Data(contentsOf: budgetURL)
+        #expect(budgetAfterLock.subdata(in: 40..<56) == originalGeneration)
+        #expect(budgetAfterLock[56] == 1)
+        try #require(flock(lockDescriptor, LOCK_UN) == 0)
+        lockHeld = false
+
+        postLockRecovery = queue.flatMap {
+            AgentHookOutbox.prepare(
+                directoryURL: outboxURL,
+                audience: audience,
+                deliveryQueue: $0
+            )
+        }
+        try #require(postLockRecovery != nil)
+        await postLockRecovery?.stop()
     }
 
     @Test func pendingQueueHasFixedRowAndByteAdmissionBounds() async throws {
@@ -2279,7 +2438,8 @@ struct AgentHookDeliveryQueueTests {
         capability: String,
         directoryURL: URL,
         order: UInt64,
-        markerPrefix: String = "ready"
+        markerPrefix: String = "ready",
+        includeGeneration: Bool = true
     ) throws -> OutboxTestRecord {
         let authenticatedMessage = authenticatedMessage ?? message
         let authentication = try #require(
@@ -2321,13 +2481,20 @@ struct AgentHookDeliveryQueueTests {
         message.copyBytes(to: mapping!.assumingMemoryBound(to: UInt8.self), count: message.count)
         munmap(mapping, message.count)
 
-        let marker = """
-        \(sharedMemoryName)
-        \(authentication.nonce)
-        \(authentication.code.base64EncodedString())
-        \(message.count)
-
-        """
+        var markerFields = [
+            sharedMemoryName,
+            authentication.nonce,
+            authentication.code.base64EncodedString(),
+            String(message.count),
+        ]
+        if includeGeneration {
+            let budget = try Data(contentsOf: directoryURL.appendingPathComponent(".quota-v1"))
+            let generation = try #require(budget.count >= 56 ? budget[40..<56] : nil)
+                .map { String(format: "%02x", $0) }
+                .joined()
+            markerFields.append(generation)
+        }
+        let marker = markerFields.joined(separator: "\n") + "\n"
         let markerURL = directoryURL.appendingPathComponent(
             String(format: "\(markerPrefix)-%016llx-%016llx", order, random),
             isDirectory: false
@@ -2341,6 +2508,26 @@ struct AgentHookDeliveryQueueTests {
         return OutboxTestRecord(
             markerURL: markerURL,
             sharedMemoryName: sharedMemoryName
+        )
+    }
+
+    private func installLegacyOutboxBudget(at url: URL, slotCount: UInt32 = 1_024) throws {
+        func append<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
+            var littleEndian = value.littleEndian
+            Swift.withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+        }
+        var data = Data("CMUXHQ01".utf8)
+        append(UInt32(1), to: &data)
+        append(slotCount, to: &data)
+        append(UInt64(256 * 1_024 * 1_024), to: &data)
+        append(UInt32(0), to: &data)
+        append(UInt32(0), to: &data)
+        append(UInt64(0), to: &data)
+        data.append(Data(repeating: 0, count: 24 + Int(slotCount) * 32))
+        try data.write(to: url, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: url.path
         )
     }
 

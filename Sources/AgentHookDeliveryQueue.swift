@@ -1,6 +1,7 @@
 import Darwin
 import CMUXAgentLaunch
 import CmuxControlSocket
+import CryptoKit
 import Dispatch
 import Foundation
 import OSLog
@@ -69,6 +70,7 @@ private final class AgentHookEphemeralEnvironmentStore: @unchecked Sendable {
 actor AgentHookOutbox {
     static let environmentKey = "CMUX_AGENT_HOOK_OUTBOX_DIR"
     static let capabilityEnvironmentKey = "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY"
+    static let generationEnvironmentKey = "CMUX_AGENT_HOOK_OUTBOX_GENERATION"
 
     private static let maximumMarkerBytes = 512
     private static let maximumMessageBytes = 12 * 1024 * 1024
@@ -76,12 +78,17 @@ actor AgentHookOutbox {
     private static let pendingMarkerPrefix = "pending-"
     private static let capabilitySecretName = ".capability-secret-v1"
     private static let budgetFileName = ".quota-v1"
-    private static let budgetMagic = Array("CMUXHQ01".utf8)
-    private static let budgetVersion: UInt32 = 1
+    private static let legacyBudgetMagic = Array("CMUXHQ01".utf8)
+    private static let legacyBudgetVersion: UInt32 = 1
+    private static let budgetMagic = Array("CMUXHQ02".utf8)
+    private static let budgetVersion: UInt32 = 2
     private static let budgetHeaderBytes = 64
     private static let budgetRecordBytes = 32
     private static let maximumBudgetRecords = 1_024
     private static let maximumBudgetBytes: UInt64 = 256 * 1024 * 1024
+    private static let generationBytes = 16
+    private static let budgetAuthorityActive: UInt32 = 1
+    private static let budgetAuthorityRevoked: UInt32 = 2
     private static let budgetStateReserved: UInt32 = 1
     private static let budgetStatePublished: UInt32 = 2
 
@@ -96,7 +103,14 @@ actor AgentHookOutbox {
     private struct BudgetLedger: Sendable {
         let slotCount: Int
         let maximumBytes: UInt64
+        let generation: Data
+        var authorityState: UInt32
         var records: [BudgetRecord?]
+    }
+
+    private struct BudgetPreparation: Sendable {
+        let descriptor: Int32
+        let acceptsLegacyMarkers: Bool
     }
 
     private struct Marker: Sendable {
@@ -105,6 +119,7 @@ actor AgentHookOutbox {
         let code: Data
         let byteCount: Int
         let reservationToken: UInt64
+        let generation: Data?
     }
 
     private enum MarkerReadResult: Sendable {
@@ -117,6 +132,12 @@ actor AgentHookOutbox {
     private enum FileReadResult: Sendable {
         case data(Data)
         case malformed
+        case retryable
+    }
+
+    private enum CapabilitySecretLoadResult: Sendable {
+        case loaded(Data)
+        case invalid
         case retryable
     }
 
@@ -152,8 +173,11 @@ actor AgentHookOutbox {
 
     nonisolated let directoryURL: URL
     nonisolated let capabilitySecretURL: URL
+    nonisolated let generationToken: String
+    private nonisolated let generation: Data
     private let directoryDescriptor: Int32
     private let budgetDescriptor: Int32
+    private let acceptsLegacyMarkers: Bool
     private nonisolated let capabilityAuthority: SocketClientCapabilityAuthority
     private let deliveryQueue: AgentHookDeliveryQueue
     private let reconciliationInterval: TimeInterval
@@ -170,6 +194,8 @@ actor AgentHookOutbox {
         capabilitySecretURL: URL,
         directoryDescriptor: Int32,
         budgetDescriptor: Int32,
+        acceptsLegacyMarkers: Bool,
+        generation: Data,
         capabilityAuthority: SocketClientCapabilityAuthority,
         deliveryQueue: AgentHookDeliveryQueue,
         reconciliationInterval: TimeInterval,
@@ -180,6 +206,9 @@ actor AgentHookOutbox {
         self.capabilitySecretURL = capabilitySecretURL
         self.directoryDescriptor = directoryDescriptor
         self.budgetDescriptor = budgetDescriptor
+        self.acceptsLegacyMarkers = acceptsLegacyMarkers
+        self.generation = generation
+        self.generationToken = generation.map { String(format: "%02x", $0) }.joined()
         self.capabilityAuthority = capabilityAuthority
         self.deliveryQueue = deliveryQueue
         self.reconciliationInterval = max(0.05, reconciliationInterval)
@@ -265,26 +294,41 @@ actor AgentHookOutbox {
             return nil
         }
 
-        guard let secret = loadOrCreateCapabilitySecret(
-            directoryDescriptor: descriptor
-        ) else {
+        let normalizedAudience = audience.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveAudience = normalizedAudience.isEmpty ? "com.cmuxterm.app" : normalizedAudience
+        let secret: Data
+        switch loadOrCreateCapabilitySecret(
+            directoryDescriptor: descriptor,
+            forceTransientReadFailure: transientSecretReadFailureRequested(for: directoryURL)
+        ) {
+        case .loaded(let loadedSecret):
+            secret = loadedSecret
+        case .invalid:
+            revokeBudget(directoryDescriptor: descriptor)
             Darwin.close(descriptor)
-            agentHookDeliveryLogger.error("Could not load private hook outbox credential")
+            agentHookDeliveryLogger.error("Private hook outbox credential is invalid")
+            return nil
+        case .retryable:
+            Darwin.close(descriptor)
+            agentHookDeliveryLogger.error("Could not read private hook outbox credential")
             return nil
         }
-        guard let budgetDescriptor = prepareBudget(
-            directoryDescriptor: descriptor
+        let generation = authorityGeneration(secret: secret, audience: effectiveAudience)
+        let capabilityAuthority = SocketClientCapabilityAuthority(
+            secret: secret,
+            audience: effectiveAudience
+        )
+        guard let budgetPreparation = prepareBudget(
+            directoryDescriptor: descriptor,
+            generation: generation,
+            capabilityAuthority: capabilityAuthority,
+            deliveryQueue: deliveryQueue
         ) else {
             Darwin.close(descriptor)
             agentHookDeliveryLogger.error("Could not prepare bounded hook outbox quota")
             return nil
         }
         sweepStaleCapabilityTemporaryFiles(directoryDescriptor: descriptor)
-        let normalizedAudience = audience.trimmingCharacters(in: .whitespacesAndNewlines)
-        let capabilityAuthority = SocketClientCapabilityAuthority(
-            secret: secret,
-            audience: normalizedAudience.isEmpty ? "com.cmuxterm.app" : normalizedAudience
-        )
 
         return AgentHookOutbox(
             directoryURL: directoryURL,
@@ -293,13 +337,24 @@ actor AgentHookOutbox {
                 isDirectory: false
             ),
             directoryDescriptor: descriptor,
-            budgetDescriptor: budgetDescriptor,
+            budgetDescriptor: budgetPreparation.descriptor,
+            acceptsLegacyMarkers: budgetPreparation.acceptsLegacyMarkers,
+            generation: generation,
             capabilityAuthority: capabilityAuthority,
             deliveryQueue: deliveryQueue,
             reconciliationInterval: reconciliationInterval,
             pendingRecoveryGrace: pendingRecoveryGrace,
             sharedMemoryReadErrorForTesting: sharedMemoryReadErrorForTesting
         )
+    }
+
+    private nonisolated static func authorityGeneration(
+        secret: Data,
+        audience: String
+    ) -> Data {
+        let key = SymmetricKey(data: secret)
+        let message = Data("cmux.agent-hook-outbox.generation.v1\0\(audience)".utf8)
+        return Data(HMAC<SHA256>.authenticationCode(for: message, using: key).prefix(generationBytes))
     }
 
     /// Each terminal gets a distinct bearer token. Only its public nonce and
@@ -312,8 +367,9 @@ actor AgentHookOutbox {
     /// processes either install one complete file or read the winner; the
     /// canonical path is never visible with partial contents.
     private nonisolated static func loadOrCreateCapabilitySecret(
-        directoryDescriptor: Int32
-    ) -> Data? {
+        directoryDescriptor: Int32,
+        forceTransientReadFailure: Bool
+    ) -> CapabilitySecretLoadResult {
         var status = stat()
         if fstatat(
             directoryDescriptor,
@@ -321,9 +377,18 @@ actor AgentHookOutbox {
             &status,
             AT_SYMLINK_NOFOLLOW
         ) == 0 {
-            return readCapabilitySecret(directoryDescriptor: directoryDescriptor)
+            guard (status.st_mode & S_IFMT) == S_IFREG,
+                  status.st_uid == geteuid(),
+                  (status.st_mode & 0o777) == 0o600,
+                  status.st_size == off_t(SocketClientCapabilityAuthority.secureByteCount) else {
+                return .invalid
+            }
+            return readCapabilitySecret(
+                directoryDescriptor: directoryDescriptor,
+                forceTransientFailure: forceTransientReadFailure
+            )
         }
-        guard errno == ENOENT else { return nil }
+        guard errno == ENOENT else { return .retryable }
 
         var generator = SystemRandomNumberGenerator()
         let secret = Data((0..<SocketClientCapabilityAuthority.secureByteCount).map { _ in
@@ -341,7 +406,10 @@ actor AgentHookOutbox {
             O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
             0o600
         )
-        guard temporaryDescriptor >= 0 else { return nil }
+        // Failure to create a replacement does not prove the prior authority
+        // invalid. Keep its ACTIVE generation so a resource shortage cannot
+        // permanently revoke a healthy same-secret restart.
+        guard temporaryDescriptor >= 0 else { return .retryable }
         var keepTemporaryFile = true
         defer {
             Darwin.close(temporaryDescriptor)
@@ -358,7 +426,7 @@ actor AgentHookOutbox {
               (temporaryStatus.st_mode & 0o777) == 0o600,
               writeRegularFile(descriptor: temporaryDescriptor, data: secret),
               fsync(temporaryDescriptor) == 0 else {
-            return nil
+            return .retryable
         }
 
         let linkStatus = linkat(
@@ -371,36 +439,64 @@ actor AgentHookOutbox {
         let linkError = errno
         _ = unlinkat(directoryDescriptor, temporaryName, 0)
         keepTemporaryFile = false
-        guard linkStatus == 0 || linkError == EEXIST else { return nil }
+        guard linkStatus == 0 || linkError == EEXIST else { return .retryable }
         if linkStatus == 0, fsync(directoryDescriptor) != 0 {
-            return nil
+            return .retryable
         }
-        return readCapabilitySecret(directoryDescriptor: directoryDescriptor)
+        if linkStatus == 0 {
+            return .loaded(secret)
+        }
+        return readCapabilitySecret(
+            directoryDescriptor: directoryDescriptor,
+            forceTransientFailure: forceTransientReadFailure
+        )
     }
 
     private nonisolated static func readCapabilitySecret(
-        directoryDescriptor: Int32
-    ) -> Data? {
+        directoryDescriptor: Int32,
+        forceTransientFailure: Bool
+    ) -> CapabilitySecretLoadResult {
+        if forceTransientFailure {
+            return .retryable
+        }
         let descriptor = openat(
             directoryDescriptor,
             capabilitySecretName,
             O_RDONLY | O_NOFOLLOW | O_CLOEXEC
         )
-        guard descriptor >= 0 else { return nil }
+        guard descriptor >= 0 else { return .retryable }
         defer { Darwin.close(descriptor) }
         var status = stat()
-        guard fstat(descriptor, &status) == 0,
-              (status.st_mode & S_IFMT) == S_IFREG,
+        guard fstat(descriptor, &status) == 0 else { return .retryable }
+        guard (status.st_mode & S_IFMT) == S_IFREG,
               status.st_uid == geteuid(),
               (status.st_mode & 0o777) == 0o600,
               status.st_size == off_t(SocketClientCapabilityAuthority.secureByteCount) else {
-            return nil
+            return .invalid
         }
-        guard case .data(let secret) = readRegularFile(
+        switch readRegularFile(
             descriptor: descriptor,
             count: SocketClientCapabilityAuthority.secureByteCount
-        ) else { return nil }
-        return secret
+        ) {
+        case .data(let secret):
+            return .loaded(secret)
+        case .malformed:
+            return .invalid
+        case .retryable:
+            return .retryable
+        }
+    }
+
+    private nonisolated static func transientSecretReadFailureRequested(
+        for directoryURL: URL
+    ) -> Bool {
+#if DEBUG
+        let key = "CMUX_TEST_AGENT_HOOK_OUTBOX_SECRET_READ_FAILURE_PATH"
+        guard let rawPath = getenv(key) else { return false }
+        return String(cString: rawPath) == directoryURL.path
+#else
+        return false
+#endif
     }
 
     private nonisolated static func sweepStaleCapabilityTemporaryFiles(
@@ -496,12 +592,280 @@ actor AgentHookOutbox {
         }
     }
 
+    private nonisolated static func revokeBudget(directoryDescriptor: Int32) {
+        let descriptor = openat(
+            directoryDescriptor,
+            budgetFileName,
+            O_RDWR | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else { return }
+        defer { Darwin.close(descriptor) }
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_uid == geteuid(),
+              (status.st_mode & 0o777) == 0o600,
+              lockBudget(descriptor) else { return }
+        defer { unlockBudget(descriptor) }
+        guard var ledger = readBudgetLedger(descriptor: descriptor) else { return }
+        ledger.authorityState = budgetAuthorityRevoked
+        guard pwriteData(
+            descriptor: descriptor,
+            data: budgetHeaderData(ledger),
+            offset: 0
+        ), fsync(descriptor) == 0 else { return }
+        discardOutboxRecords(directoryDescriptor: directoryDescriptor, ledger: ledger)
+    }
+
+    private nonisolated static func initializeBudget(
+        descriptor: Int32,
+        generation: Data
+    ) -> Bool {
+        let fileBytes = budgetHeaderBytes + maximumBudgetRecords * budgetRecordBytes
+        let ledger = BudgetLedger(
+            slotCount: maximumBudgetRecords,
+            maximumBytes: maximumBudgetBytes,
+            generation: generation,
+            authorityState: budgetAuthorityActive,
+            records: Array(repeating: nil, count: maximumBudgetRecords)
+        )
+        // Invalidate the previous header before clearing slots. Any crash before
+        // the ACTIVE header is written leaves native publishers failing closed.
+        return pwriteData(
+            descriptor: descriptor,
+            data: Data(count: budgetHeaderBytes),
+            offset: 0
+        )
+            && ftruncate(descriptor, 0) == 0
+            && ftruncate(descriptor, off_t(fileBytes)) == 0
+            && pwriteData(
+                descriptor: descriptor,
+                data: budgetHeaderData(ledger),
+                offset: 0
+            )
+            && fsync(descriptor) == 0
+    }
+
+    private nonisolated static func discardOutboxRecords(
+        directoryDescriptor: Int32,
+        ledger: BudgetLedger?
+    ) {
+        for record in ledger?.records.compactMap({ $0 }) ?? [] {
+            unlinkSharedMemory(token: record.token)
+        }
+        let scanDescriptor = openat(
+            directoryDescriptor,
+            ".",
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard scanDescriptor >= 0, let directory = fdopendir(scanDescriptor) else {
+            if scanDescriptor >= 0 { Darwin.close(scanDescriptor) }
+            return
+        }
+        defer { closedir(directory) }
+        while let entry = readdir(directory) {
+            let name = withUnsafePointer(to: entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN)) {
+                    String(cString: $0)
+                }
+            }
+            guard publicationKey(markerName: name, prefix: readyMarkerPrefix) != nil
+                    || publicationKey(markerName: name, prefix: pendingMarkerPrefix) != nil else {
+                continue
+            }
+            let markerDescriptor = openat(
+                directoryDescriptor,
+                name,
+                O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+            )
+            if markerDescriptor >= 0 {
+                var markerStatus = stat()
+                if fstat(markerDescriptor, &markerStatus) == 0,
+                   markerStatus.st_size > 0,
+                   markerStatus.st_size <= off_t(maximumMarkerBytes),
+                   case .data(let markerData) = readRegularFile(
+                    descriptor: markerDescriptor,
+                    count: Int(markerStatus.st_size)
+                   ), let sharedMemoryName = recoverSharedMemoryName(markerData) {
+                    _ = shm_unlink(sharedMemoryName)
+                }
+                Darwin.close(markerDescriptor)
+            }
+            _ = unlinkat(directoryDescriptor, name, 0)
+        }
+        _ = fsync(directoryDescriptor)
+    }
+
+    private nonisolated static func legacyBudgetIsValid(descriptor: Int32) -> Bool {
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              status.st_size >= off_t(budgetHeaderBytes),
+              status.st_size <= off_t(budgetHeaderBytes + maximumBudgetRecords * budgetRecordBytes),
+              let data = preadData(descriptor: descriptor, count: Int(status.st_size), offset: 0),
+              Array(data.prefix(8)) == legacyBudgetMagic,
+              readUInt32(data, offset: 8) == legacyBudgetVersion else {
+            return false
+        }
+        let slotCount = Int(readUInt32(data, offset: 12))
+        let maximumBytes = readUInt64(data, offset: 16)
+        let recordedCount = Int(readUInt32(data, offset: 24))
+        let nextSlot = Int(readUInt32(data, offset: 28))
+        let recordedBytes = readUInt64(data, offset: 32)
+        guard slotCount > 0, slotCount <= maximumBudgetRecords,
+              maximumBytes > 0, maximumBytes <= maximumBudgetBytes,
+              recordedCount >= 0, recordedCount <= slotCount,
+              nextSlot >= 0, nextSlot < slotCount,
+              recordedBytes <= maximumBytes,
+              data[40..<64].allSatisfy({ $0 == 0 }),
+              data.count == budgetHeaderBytes + slotCount * budgetRecordBytes else {
+            return false
+        }
+
+        var tokens: Set<UInt64> = []
+        var actualCount = 0
+        var actualBytes: UInt64 = 0
+        for index in 0..<slotCount {
+            let offset = budgetHeaderBytes + index * budgetRecordBytes
+            let token = readUInt64(data, offset: offset)
+            let reservedBytes = readUInt64(data, offset: offset + 8)
+            let created = readUInt64(data, offset: offset + 16)
+            let ownerPID = Int32(bitPattern: readUInt32(data, offset: offset + 24))
+            let state = readUInt32(data, offset: offset + 28)
+            if state == 0 {
+                guard token == 0, reservedBytes == 0, created == 0, ownerPID == 0 else {
+                    return false
+                }
+                continue
+            }
+            guard token != 0,
+                  reservedBytes > 0,
+                  reservedBytes <= maximumBytes,
+                  state == budgetStateReserved || state == budgetStatePublished,
+                  tokens.insert(token).inserted,
+                  actualBytes <= maximumBytes - reservedBytes else {
+                return false
+            }
+            actualCount += 1
+            actualBytes += reservedBytes
+        }
+        return actualCount == recordedCount && actualBytes == recordedBytes
+    }
+
+    /// Imports authenticated v1 ready records before replacing their ledger.
+    /// Pending records stay discoverable and use the existing grace/recovery
+    /// path after v2 initialization. Invalid records are never migrated.
+    private nonisolated static func importLegacyReadyMarkers(
+        directoryDescriptor: Int32,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        deliveryQueue: AgentHookDeliveryQueue
+    ) -> Bool {
+        let scanDescriptor = openat(
+            directoryDescriptor,
+            ".",
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard scanDescriptor >= 0, let directory = fdopendir(scanDescriptor) else {
+            if scanDescriptor >= 0 { Darwin.close(scanDescriptor) }
+            return false
+        }
+        var candidates: [(name: String, publicationKey: String)] = []
+        while let entry = readdir(directory) {
+            let name = withUnsafePointer(to: entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN)) {
+                    String(cString: $0)
+                }
+            }
+            if let publicationKey = publicationKey(
+                markerName: name,
+                prefix: readyMarkerPrefix
+            ) {
+                candidates.append((name, publicationKey))
+            }
+        }
+        closedir(directory)
+        candidates.sort { $0.publicationKey < $1.publicationKey }
+
+        func discard(markerName: String, sharedMemoryName: String?) -> Bool {
+            if let sharedMemoryName, isSharedMemoryName(sharedMemoryName) {
+                _ = shm_unlink(sharedMemoryName)
+            }
+            if unlinkat(directoryDescriptor, markerName, 0) == 0 || errno == ENOENT {
+                return true
+            }
+            return false
+        }
+
+        for candidate in candidates {
+            let marker: Marker
+            switch readMarker(
+                named: candidate.name,
+                directoryDescriptor: directoryDescriptor
+            ) {
+            case .valid(let validMarker):
+                // Generation-bearing markers belong to v2 reconciliation.
+                guard validMarker.generation == nil else { continue }
+                marker = validMarker
+            case .malformed(let sharedMemoryName):
+                guard discard(
+                    markerName: candidate.name,
+                    sharedMemoryName: sharedMemoryName
+                ) else { return false }
+                continue
+            case .missing:
+                continue
+            case .retryable:
+                return false
+            }
+
+            let message: Data
+            switch readSharedMemory(marker, injectedErrorProvider: nil) {
+            case .data(let data):
+                message = data
+            case .invalid:
+                guard discard(
+                    markerName: candidate.name,
+                    sharedMemoryName: marker.sharedMemoryName
+                ) else { return false }
+                continue
+            case .retryable:
+                return false
+            }
+            guard capabilityAuthority.verifiesOutboxMessage(
+                nonce: marker.nonce,
+                code: marker.code,
+                message: message
+            ), let event = event(from: message) else {
+                agentHookDeliveryLogger.error("Rejected unauthenticated legacy hook outbox record")
+                guard discard(
+                    markerName: candidate.name,
+                    sharedMemoryName: marker.sharedMemoryName
+                ) else { return false }
+                continue
+            }
+            do {
+                try deliveryQueue.enqueue(event)
+            } catch {
+                return false
+            }
+            guard discard(
+                markerName: candidate.name,
+                sharedMemoryName: marker.sharedMemoryName
+            ) else { return false }
+        }
+        return fsync(directoryDescriptor) == 0
+    }
+
     /// Rebuilds the fixed reservation ledger from discoverable markers while
     /// holding the same cross-process lock used by native publishers. A corrupt
     /// ledger therefore fails closed in helpers until the app can recompute it.
     private nonisolated static func prepareBudget(
-        directoryDescriptor: Int32
-    ) -> Int32? {
+        directoryDescriptor: Int32,
+        generation: Data,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        deliveryQueue: AgentHookDeliveryQueue
+    ) -> BudgetPreparation? {
+        guard generation.count == generationBytes,
+              generation.contains(where: { $0 != 0 }) else { return nil }
         let descriptor = openat(
             directoryDescriptor,
             budgetFileName,
@@ -524,12 +888,70 @@ actor AgentHookOutbox {
         }
         defer { unlockBudget(descriptor) }
 
+        var existingLedger = readBudgetLedger(descriptor: descriptor)
+        let isLegacyBudget = existingLedger == nil
+            && legacyBudgetIsValid(descriptor: descriptor)
+        if isLegacyBudget,
+           !importLegacyReadyMarkers(
+            directoryDescriptor: directoryDescriptor,
+            capabilityAuthority: capabilityAuthority,
+            deliveryQueue: deliveryQueue
+           ) {
+            return nil
+        }
+        if let existingLedger,
+           existingLedger.generation == generation,
+           existingLedger.authorityState == budgetAuthorityRevoked {
+            // A revoked generation is terminal. Reusing it would let a helper
+            // suspended before revocation publish into a later authority epoch.
+            discardOutboxRecords(
+                directoryDescriptor: directoryDescriptor,
+                ledger: existingLedger
+            )
+            return nil
+        }
+        if let existingLedger,
+           existingLedger.generation != generation {
+            var revoked = existingLedger
+            revoked.authorityState = budgetAuthorityRevoked
+            guard pwriteData(
+                descriptor: descriptor,
+                data: budgetHeaderData(revoked),
+                offset: 0
+            ), fsync(descriptor) == 0 else { return nil }
+            discardOutboxRecords(
+                directoryDescriptor: directoryDescriptor,
+                ledger: existingLedger
+            )
+            existingLedger = nil
+        } else if existingLedger == nil, !isLegacyBudget {
+            discardOutboxRecords(directoryDescriptor: directoryDescriptor, ledger: nil)
+        }
+
+        if existingLedger == nil {
+            guard initializeBudget(descriptor: descriptor, generation: generation) else {
+                return nil
+            }
+            existingLedger = readBudgetLedger(descriptor: descriptor)
+        }
+        if isLegacyBudget,
+           !importLegacyReadyMarkers(
+            directoryDescriptor: directoryDescriptor,
+            capabilityAuthority: capabilityAuthority,
+            deliveryQueue: deliveryQueue
+           ) {
+            return nil
+        }
+        guard let existingLedger,
+              existingLedger.generation == generation,
+              existingLedger.authorityState == budgetAuthorityActive else { return nil }
         guard let markerReservations = budgetMarkerReservations(
-            directoryDescriptor: directoryDescriptor
+            directoryDescriptor: directoryDescriptor,
+            generation: generation,
+            acceptsLegacyMarkers: isLegacyBudget
         ) else { return nil }
-        let existingLedger = readBudgetLedger(descriptor: descriptor)
         let existingByToken = Dictionary(
-            uniqueKeysWithValues: (existingLedger?.records.compactMap { $0 } ?? []).map {
+            uniqueKeysWithValues: existingLedger.records.compactMap { $0 }.map {
                 ($0.token, $0)
             }
         )
@@ -553,20 +975,18 @@ actor AgentHookOutbox {
             retainedTokens.insert(token)
         }
 
-        if let existingLedger {
-            for record in existingLedger.records.compactMap({ $0 })
-                where !retainedTokens.contains(record.token) {
-                if processExists(record.ownerPID) {
-                    guard retained.count < maximumBudgetRecords,
-                          totalBytes <= maximumBudgetBytes - record.reservedBytes else {
-                        return nil
-                    }
-                    retained.append(record)
-                    retainedTokens.insert(record.token)
-                    totalBytes += record.reservedBytes
-                } else {
-                    unlinkSharedMemory(token: record.token)
+        for record in existingLedger.records.compactMap({ $0 })
+            where !retainedTokens.contains(record.token) {
+            if processExists(record.ownerPID) {
+                guard retained.count < maximumBudgetRecords,
+                      totalBytes <= maximumBudgetBytes - record.reservedBytes else {
+                    return nil
                 }
+                retained.append(record)
+                retainedTokens.insert(record.token)
+                totalBytes += record.reservedBytes
+            } else {
+                unlinkSharedMemory(token: record.token)
             }
         }
         guard retained.count <= maximumBudgetRecords else { return nil }
@@ -574,13 +994,18 @@ actor AgentHookOutbox {
             retained,
             existingLedger: existingLedger,
             descriptor: descriptor
-        ) else { return nil }
+        ), fsync(descriptor) == 0 else { return nil }
         keepDescriptor = true
-        return descriptor
+        return BudgetPreparation(
+            descriptor: descriptor,
+            acceptsLegacyMarkers: isLegacyBudget
+        )
     }
 
     private nonisolated static func budgetMarkerReservations(
-        directoryDescriptor: Int32
+        directoryDescriptor: Int32,
+        generation: Data,
+        acceptsLegacyMarkers: Bool
     ) -> [UInt64: UInt64]? {
         let scanDescriptor = openat(
             directoryDescriptor,
@@ -634,7 +1059,9 @@ actor AgentHookOutbox {
             Darwin.close(markerDescriptor)
             guard let parsed = budgetReservation(
                 markerData: markerData,
-                markerName: name
+                markerName: name,
+                generation: generation,
+                acceptsLegacyMarkers: acceptsLegacyMarkers
             ) else {
                 if let sharedMemoryName = recoverSharedMemoryName(markerData) {
                     _ = shm_unlink(sharedMemoryName)
@@ -652,11 +1079,13 @@ actor AgentHookOutbox {
 
     private nonisolated static func budgetReservation(
         markerData: Data,
-        markerName: String
+        markerName: String,
+        generation: Data,
+        acceptsLegacyMarkers: Bool
     ) -> (token: UInt64, reservedBytes: UInt64)? {
         guard let text = String(data: markerData, encoding: .utf8) else { return nil }
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        guard (lines.count == 5 || lines.count == 6), lines.last?.isEmpty == true,
+        guard (5...7).contains(lines.count), lines.last?.isEmpty == true,
               isSharedMemoryName(String(lines[0])),
               let byteCount = UInt64(lines[3]),
               byteCount > 0,
@@ -664,14 +1093,32 @@ actor AgentHookOutbox {
               let sharedMemoryToken = token(sharedMemoryName: String(lines[0])) else {
             return nil
         }
+        let hasExplicitToken = lines.count == 7
+            || (lines.count == 6 && lines[4].count == 16)
         let reservationToken: UInt64
-        if lines.count == 6 {
+        if hasExplicitToken {
             guard lines[4].count == 16,
                   let explicitToken = UInt64(lines[4], radix: 16),
                   explicitToken == sharedMemoryToken else { return nil }
             reservationToken = explicitToken
         } else {
             reservationToken = sharedMemoryToken
+        }
+        let generationIndex: Int?
+        if lines.count == 7 {
+            generationIndex = 5
+        } else if lines.count == 6, !hasExplicitToken {
+            generationIndex = 4
+        } else {
+            // A v1 marker has no generation. Once the v2 header is installed,
+            // old helpers reject the ledger, so only already-published records
+            // can enter through this one-window compatibility path.
+            generationIndex = nil
+        }
+        if let generationIndex {
+            guard decodeGenerationToken(lines[generationIndex]) == generation else { return nil }
+        } else if !acceptsLegacyMarkers {
+            return nil
         }
         guard markerName.hasSuffix(String(format: "%016llx", reservationToken)) else {
             return nil
@@ -709,14 +1156,20 @@ actor AgentHookOutbox {
     }
 
     private nonisolated static func lockBudget(_ descriptor: Int32) -> Bool {
-        while flock(descriptor, LOCK_EX) != 0 {
+        // A helper can be stopped at any instruction while holding this
+        // cross-process lock. App startup and reconciliation must degrade to
+        // authenticated socket admission instead of waiting on that process.
+        for _ in 0..<8 {
+            if flock(descriptor, LOCK_EX | LOCK_NB) == 0 { return true }
             if errno != EINTR { return false }
         }
-        return true
+        return false
     }
 
     private nonisolated static func unlockBudget(_ descriptor: Int32) {
-        while flock(descriptor, LOCK_UN) != 0, errno == EINTR {}
+        for _ in 0..<8 {
+            if flock(descriptor, LOCK_UN) == 0 || errno != EINTR { return }
+        }
     }
 
     private nonisolated static func readBudgetLedger(
@@ -736,11 +1189,19 @@ actor AgentHookOutbox {
         let recordedCount = Int(readUInt32(data, offset: 24))
         let nextSlot = Int(readUInt32(data, offset: 28))
         let recordedBytes = readUInt64(data, offset: 32)
+        let generation = data.subdata(in: 40..<56)
+        let authorityState = readUInt32(data, offset: 56)
+        let reserved = readUInt32(data, offset: 60)
         guard slotCount > 0, slotCount <= maximumBudgetRecords,
               maximumBytes > 0, maximumBytes <= maximumBudgetBytes,
               recordedCount >= 0, recordedCount <= slotCount,
               nextSlot >= 0, nextSlot < slotCount,
               recordedBytes <= maximumBytes,
+              generation.count == generationBytes,
+              generation.contains(where: { $0 != 0 }),
+              authorityState == budgetAuthorityActive
+                || authorityState == budgetAuthorityRevoked,
+              reserved == 0,
               data.count == budgetHeaderBytes + slotCount * budgetRecordBytes else {
             return nil
         }
@@ -779,7 +1240,13 @@ actor AgentHookOutbox {
         guard actualRecords.count == recordedCount, actualBytes == recordedBytes else {
             return nil
         }
-        return BudgetLedger(slotCount: slotCount, maximumBytes: maximumBytes, records: records)
+        return BudgetLedger(
+            slotCount: slotCount,
+            maximumBytes: maximumBytes,
+            generation: generation,
+            authorityState: authorityState,
+            records: records
+        )
     }
 
     private nonisolated static func budgetHeaderData(_ ledger: BudgetLedger) -> Data {
@@ -800,6 +1267,8 @@ actor AgentHookOutbox {
             to: &data,
             offset: 32
         )
+        data.replaceSubrange(40..<56, with: ledger.generation)
+        writeUInt32(ledger.authorityState, to: &data, offset: 56)
         return data
     }
 
@@ -820,7 +1289,7 @@ actor AgentHookOutbox {
 
     private nonisolated static func persistBudgetRecords(
         _ desiredRecords: [BudgetRecord],
-        existingLedger: BudgetLedger?,
+        existingLedger: BudgetLedger,
         descriptor: Int32
     ) -> Bool {
         guard desiredRecords.count <= maximumBudgetRecords else { return false }
@@ -834,38 +1303,7 @@ actor AgentHookOutbox {
             desiredBytes += record.reservedBytes
         }
 
-        guard existingLedger != nil else {
-            // Make the old header unconditionally invalid before rebuilding
-            // slots. A crash before the final header therefore fails closed.
-            guard pwriteData(
-                descriptor: descriptor,
-                data: Data(count: budgetHeaderBytes),
-                offset: 0
-            ), ftruncate(descriptor, 0) == 0 else { return false }
-            let fileBytes = budgetHeaderBytes + maximumBudgetRecords * budgetRecordBytes
-            guard ftruncate(descriptor, off_t(fileBytes)) == 0 else { return false }
-            var working = BudgetLedger(
-                slotCount: maximumBudgetRecords,
-                maximumBytes: maximumBudgetBytes,
-                records: Array(repeating: nil, count: maximumBudgetRecords)
-            )
-            for record in desiredRecords {
-                guard let index = working.records.firstIndex(where: { $0 == nil }),
-                      pwriteData(
-                        descriptor: descriptor,
-                        data: budgetRecordData(record),
-                        offset: budgetRecordOffset(index)
-                      ) else { return false }
-                working.records[index] = record
-            }
-            return pwriteData(
-                descriptor: descriptor,
-                data: budgetHeaderData(working),
-                offset: 0
-            )
-        }
-
-        guard var working = existingLedger else { return false }
+        var working = existingLedger
 
         guard desiredRecords.count <= working.slotCount,
               desiredBytes <= working.maximumBytes else { return false }
@@ -1097,7 +1535,9 @@ actor AgentHookOutbox {
     private func reconcileBudgetReservations(markerTokens: Set<UInt64>) {
         guard Self.lockBudget(budgetDescriptor) else { return }
         defer { Self.unlockBudget(budgetDescriptor) }
-        guard let existingLedger = Self.readBudgetLedger(descriptor: budgetDescriptor) else {
+        guard let existingLedger = Self.readBudgetLedger(descriptor: budgetDescriptor),
+              existingLedger.generation == generation,
+              existingLedger.authorityState == Self.budgetAuthorityActive else {
             // Native publishers also reject a corrupt ledger. The next app
             // preparation recomputes it from markers before exporting access.
             return
@@ -1237,6 +1677,15 @@ actor AgentHookOutbox {
         name: String,
         now: TimeInterval
     ) -> PendingMarkerState {
+        if case .valid(let marker) = readMarker(named: name),
+           !markerBelongsToCurrentAuthority(marker) {
+            cleanup(
+                markerName: name,
+                sharedMemoryName: marker.sharedMemoryName,
+                reservationToken: marker.reservationToken
+            )
+            return .missing
+        }
         var status = stat()
         guard fstatat(
             directoryDescriptor,
@@ -1275,6 +1724,14 @@ actor AgentHookOutbox {
             return .advanced
         case .missing, .retryable:
             return .blocked
+        }
+        guard markerBelongsToCurrentAuthority(marker) else {
+            cleanup(
+                markerName: markerName,
+                sharedMemoryName: marker.sharedMemoryName,
+                reservationToken: marker.reservationToken
+            )
+            return .advanced
         }
         let message: Data
         switch readSharedMemory(marker) {
@@ -1322,7 +1779,21 @@ actor AgentHookOutbox {
         return .advanced
     }
 
+    private func markerBelongsToCurrentAuthority(_ marker: Marker) -> Bool {
+        if let markerGeneration = marker.generation {
+            return markerGeneration == generation
+        }
+        return acceptsLegacyMarkers
+    }
+
     private func readMarker(named name: String) -> MarkerReadResult {
+        Self.readMarker(named: name, directoryDescriptor: directoryDescriptor)
+    }
+
+    private nonisolated static func readMarker(
+        named name: String,
+        directoryDescriptor: Int32
+    ) -> MarkerReadResult {
         let descriptor = openat(
             directoryDescriptor,
             name,
@@ -1366,7 +1837,7 @@ actor AgentHookOutbox {
         let sharedMemoryName = lines.first.map(String.init).flatMap {
             Self.isSharedMemoryName($0) ? $0 : nil
         }
-        guard (lines.count == 5 || lines.count == 6),
+        guard (5...7).contains(lines.count),
               lines.last?.isEmpty == true,
               let sharedMemoryName,
               !lines[1].isEmpty,
@@ -1381,8 +1852,10 @@ actor AgentHookOutbox {
         guard let sharedMemoryToken = Self.token(sharedMemoryName: sharedMemoryName) else {
             return .malformed(sharedMemoryName: sharedMemoryName)
         }
+        let hasExplicitToken = lines.count == 7
+            || (lines.count == 6 && lines[4].count == 16)
         let reservationToken: UInt64
-        if lines.count == 6 {
+        if hasExplicitToken {
             guard lines[4].count == 16,
                   let explicitToken = UInt64(lines[4], radix: 16),
                   explicitToken == sharedMemoryToken,
@@ -1393,13 +1866,42 @@ actor AgentHookOutbox {
         } else {
             reservationToken = sharedMemoryToken
         }
+        let markerGeneration: Data?
+        if lines.count == 7 {
+            guard let decoded = Self.decodeGenerationToken(lines[5]) else {
+                return .malformed(sharedMemoryName: sharedMemoryName)
+            }
+            markerGeneration = decoded
+        } else if lines.count == 6, !hasExplicitToken {
+            guard let decoded = Self.decodeGenerationToken(lines[4]) else {
+                return .malformed(sharedMemoryName: sharedMemoryName)
+            }
+            markerGeneration = decoded
+        } else {
+            markerGeneration = nil
+        }
         return .valid(Marker(
             sharedMemoryName: sharedMemoryName,
             nonce: String(lines[1]),
             code: code,
             byteCount: byteCount,
-            reservationToken: reservationToken
+            reservationToken: reservationToken,
+            generation: markerGeneration
         ))
+    }
+
+    private nonisolated static func decodeGenerationToken(_ value: Substring) -> Data? {
+        guard value.count == generationBytes * 2,
+              value.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) else { return nil }
+        var result = Data(capacity: generationBytes)
+        var cursor = value.startIndex
+        for _ in 0..<generationBytes {
+            let next = value.index(cursor, offsetBy: 2)
+            guard let byte = UInt8(value[cursor..<next], radix: 16) else { return nil }
+            result.append(byte)
+            cursor = next
+        }
+        return result
     }
 
     private static func isSharedMemoryName(_ name: String) -> Bool {
@@ -1408,7 +1910,17 @@ actor AgentHookOutbox {
     }
 
     private func readSharedMemory(_ marker: Marker) -> SharedMemoryReadResult {
-        if let injectedError = sharedMemoryReadErrorForTesting?() {
+        Self.readSharedMemory(
+            marker,
+            injectedErrorProvider: sharedMemoryReadErrorForTesting
+        )
+    }
+
+    private nonisolated static func readSharedMemory(
+        _ marker: Marker,
+        injectedErrorProvider: (@Sendable () -> Int32?)?
+    ) -> SharedMemoryReadResult {
+        if let injectedError = injectedErrorProvider?() {
             return Self.isRetryableIOError(injectedError) ? .retryable : .invalid
         }
         let descriptor = marker.sharedMemoryName.withCString {
@@ -1514,7 +2026,9 @@ actor AgentHookOutbox {
     private func releaseBudgetReservation(token: UInt64) {
         guard Self.lockBudget(budgetDescriptor) else { return }
         defer { Self.unlockBudget(budgetDescriptor) }
-        guard let existingLedger = Self.readBudgetLedger(descriptor: budgetDescriptor) else {
+        guard let existingLedger = Self.readBudgetLedger(descriptor: budgetDescriptor),
+              existingLedger.generation == generation,
+              existingLedger.authorityState == Self.budgetAuthorityActive else {
             return
         }
         var ledger = existingLedger

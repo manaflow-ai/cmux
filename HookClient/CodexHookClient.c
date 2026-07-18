@@ -39,14 +39,19 @@ enum {
     CMUX_HOOK_OUTBOX_MAX_RECORDS = 1024,
     CMUX_HOOK_OUTBOX_MAX_BYTES = 256 * 1024 * 1024,
     CMUX_HOOK_FALLBACK_MAX_WORKERS = 32,
-    CMUX_HOOK_OUTBOX_BUDGET_VERSION = 1,
+    CMUX_HOOK_OUTBOX_BUDGET_VERSION = 2,
+    CMUX_HOOK_OUTBOX_GENERATION_BYTES = 16,
+    CMUX_HOOK_OUTBOX_AUTHORITY_ACTIVE = 1,
+    CMUX_HOOK_OUTBOX_AUTHORITY_REVOKED = 2,
     CMUX_HOOK_OUTBOX_RESERVATION_RESERVED = 1,
     CMUX_HOOK_OUTBOX_RESERVATION_PUBLISHED = 2,
+    CMUX_HOOK_OUTBOX_LOCK_RETRY_COUNT = 250,
+    CMUX_HOOK_OUTBOX_LOCK_RETRY_NANOSECONDS = 100 * 1000,
 };
 
 static const char cmux_hook_outbox_budget_name[] = ".quota-v1";
 static const unsigned char cmux_hook_outbox_budget_magic[8] = {
-    'C', 'M', 'U', 'X', 'H', 'Q', '0', '1',
+    'C', 'M', 'U', 'X', 'H', 'Q', '0', '2',
 };
 
 typedef struct {
@@ -57,7 +62,9 @@ typedef struct {
     uint32_t occupied_records;
     uint32_t next_slot;
     uint64_t occupied_bytes;
-    unsigned char reserved[24];
+    unsigned char generation[CMUX_HOOK_OUTBOX_GENERATION_BYTES];
+    uint32_t authority_state;
+    uint32_t reserved;
 } CMUXHookOutboxBudgetHeader;
 
 typedef struct {
@@ -72,6 +79,7 @@ typedef struct {
     int descriptor;
     uint32_t slot_index;
     CMUXHookOutboxReservationRecord record;
+    unsigned char generation[CMUX_HOOK_OUTBOX_GENERATION_BYTES];
     bool active;
 } CMUXHookOutboxReservation;
 
@@ -100,11 +108,22 @@ static void cmux_secure_zero(void *bytes, size_t count) {
     }
 }
 
-static const char *const cmux_hook_environment_keys[] = {
+// Keep this selected-key shape aligned with
+// AgentHookTransportEnvironmentPolicy. The Swift decoder remains the authority
+// for value normalization and durable/ephemeral credential partitioning.
+static const char *const cmux_hook_environment_exact_keys[] = {
     "HOME",
     "PATH",
     "PWD",
     "TMPDIR",
+    "TMP",
+    "TEMP",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
     "CODEX_HOME",
     "CMUX_AGENT_HOOK_STATE_DIR",
     "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
@@ -121,6 +140,96 @@ static const char *const cmux_hook_environment_keys[] = {
     "CMUX_TAG",
     "CMUX_WORKSPACE_ID",
     "CMUX_SOCKET_PATH",
+    "ALL_PROXY",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "all_proxy",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+    "CURL_CA_BUNDLE",
+    "REQUESTS_CA_BUNDLE",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "AMP_LOG_FILE",
+    "AMP_LOG_LEVEL",
+    "AMP_SETTINGS_FILE",
+    "AMP_URL",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_MODEL",
+    "CAMPFIRE_CODING_AGENT_DIR",
+    "CAMPFIRE_CODING_AGENT_SESSION_DIR",
+    "CAMPFIRE_RELAY_URL",
+    "CLAUDE_CONFIG_DIR",
+    "CMUX_ROVODEV_SESSIONS_DIR",
+    "CODEBUDDY_BASE_URL",
+    "CODEBUDDY_CONFIG_DIR",
+    "CODEBUDDY_ENV_FILE",
+    "CODEBUDDY_INTERNET_ENVIRONMENT",
+    "CODEBUDDY_MODEL",
+    "CODEBUDDY_SMALL_FAST_MODEL",
+    "COPILOT_GH_HOST",
+    "COPILOT_HOME",
+    "COPILOT_MODEL",
+    "COPILOT_OFFLINE",
+    "COPILOT_PROVIDER_BASE_URL",
+    "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS",
+    "COPILOT_PROVIDER_MAX_PROMPT_TOKENS",
+    "COPILOT_PROVIDER_MODEL_ID",
+    "COPILOT_PROVIDER_TYPE",
+    "COPILOT_PROVIDER_WIRE_API",
+    "COPILOT_PROVIDER_WIRE_MODEL",
+    "CUSTOM_BASE_URL",
+    "GEMINI_CLI_HOME",
+    "GH_HOST",
+    "GROK_HOME",
+    "GROK_SANDBOX",
+    "HERMES_CODEX_BASE_URL",
+    "HERMES_HOME",
+    "KIRO_HOME",
+    "KIRO_LOG_LEVEL",
+    "KIRO_LOG_NO_COLOR",
+    "NODE_OPTIONS",
+    "OPENCODE_CONFIG_DIR",
+    "OLLAMA_EDITOR",
+    "OLLAMA_HOST",
+    "OLLAMA_NOHISTORY",
+    "PI_CACHE_RETENTION",
+    "PI_CONFIG_DIR",
+    "PI_CODING_AGENT_DIR",
+    "PI_CODING_AGENT_SESSION_DIR",
+    "PI_OFFLINE",
+    "PI_PACKAGE_DIR",
+    "PI_SKIP_VERSION_CHECK",
+    "QODER_CONFIG_DIR",
+    "USE_BUILTIN_RIPGREP",
+    NULL,
+};
+
+static const char *const cmux_hook_environment_prefixes[] = {
+    "ANTHROPIC_",
+    "AWS_",
+    "CLOUD_ML_",
+    "GCLOUD_",
+    "GEMINI_",
+    "GOOGLE_",
+    "OPENAI_",
+    "OPENROUTER_",
+    "XAI_",
+    NULL,
+};
+
+static const char *const cmux_hook_environment_suffixes[] = {
+    "_ACCESS_TOKEN",
+    "_API_KEY",
+    "_AUTH_TOKEN",
+    "_CLIENT_SECRET",
+    "_API_URL",
+    "_BASE_URL",
+    "_MODEL",
     NULL,
 };
 
@@ -389,15 +498,24 @@ static const char *cmux_resolve_delivery_id(
 }
 
 static bool cmux_hook_environment_key_is_allowed(const char *key, size_t key_count) {
-    if (key_count < 5 || strncmp(key, "CMUX_", 5) != 0) {
-        // The app-side shared policy admits only selected provider and launch
-        // variables. Forwarding non-CMUX values here lets that policy evolve
-        // without duplicating every provider key in this C client.
-        return true;
-    }
-    for (size_t index = 0; cmux_hook_environment_keys[index] != NULL; index += 1) {
-        const char *allowed = cmux_hook_environment_keys[index];
+    for (size_t index = 0; cmux_hook_environment_exact_keys[index] != NULL; index += 1) {
+        const char *allowed = cmux_hook_environment_exact_keys[index];
         if (strlen(allowed) == key_count && memcmp(key, allowed, key_count) == 0) {
+            return true;
+        }
+    }
+    for (size_t index = 0; cmux_hook_environment_prefixes[index] != NULL; index += 1) {
+        const char *prefix = cmux_hook_environment_prefixes[index];
+        const size_t prefix_count = strlen(prefix);
+        if (key_count >= prefix_count && memcmp(key, prefix, prefix_count) == 0) {
+            return true;
+        }
+    }
+    for (size_t index = 0; cmux_hook_environment_suffixes[index] != NULL; index += 1) {
+        const char *suffix = cmux_hook_environment_suffixes[index];
+        const size_t suffix_count = strlen(suffix);
+        if (key_count >= suffix_count
+            && memcmp(key + key_count - suffix_count, suffix, suffix_count) == 0) {
             return true;
         }
     }
@@ -446,6 +564,37 @@ static bool cmux_capability_is_valid(const char *capability) {
         }
     }
     return true;
+}
+
+static int cmux_lowercase_hex_digit(unsigned char byte) {
+    if (byte >= '0' && byte <= '9') {
+        return byte - '0';
+    }
+    if (byte >= 'a' && byte <= 'f') {
+        return byte - 'a' + 10;
+    }
+    return -1;
+}
+
+static bool cmux_decode_outbox_generation(
+    const char *encoded,
+    unsigned char generation[CMUX_HOOK_OUTBOX_GENERATION_BYTES]
+) {
+    if (encoded == NULL
+        || strlen(encoded) != CMUX_HOOK_OUTBOX_GENERATION_BYTES * 2) {
+        return false;
+    }
+    bool any_nonzero = false;
+    for (size_t index = 0; index < CMUX_HOOK_OUTBOX_GENERATION_BYTES; index += 1) {
+        const int high = cmux_lowercase_hex_digit((unsigned char)encoded[index * 2]);
+        const int low = cmux_lowercase_hex_digit((unsigned char)encoded[index * 2 + 1]);
+        if (high < 0 || low < 0) {
+            return false;
+        }
+        generation[index] = (unsigned char)((high << 4) | low);
+        any_nonzero = any_nonzero || generation[index] != 0;
+    }
+    return any_nonzero;
 }
 
 static bool cmux_build_command(
@@ -700,12 +849,45 @@ static bool cmux_pwrite_all_at(
 }
 
 static bool cmux_flock(int descriptor, int operation) {
-    while (flock(descriptor, operation) != 0) {
-        if (errno != EINTR) {
+    if (operation != LOCK_EX) {
+        for (int attempt = 0; attempt < 8; attempt += 1) {
+            if (flock(descriptor, operation) == 0) {
+                return true;
+            }
+            if (errno != EINTR) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    const uint64_t started = cmux_monotonic_nanoseconds();
+    const uint64_t deadline = started == 0
+        ? 0
+        : started + (uint64_t)CMUX_HOOK_OUTBOX_LOCK_RETRY_COUNT
+            * (uint64_t)CMUX_HOOK_OUTBOX_LOCK_RETRY_NANOSECONDS;
+    // Hook admission is a foreground latency boundary. A stopped process may
+    // retain this advisory lock indefinitely, so contention must fall through
+    // after a strict deadline. The short retry window still lets ordinary
+    // concurrent publishers serialize instead of needlessly abandoning the
+    // durable outbox during a burst.
+    for (int attempt = 0; attempt < CMUX_HOOK_OUTBOX_LOCK_RETRY_COUNT; attempt += 1) {
+        if (flock(descriptor, LOCK_EX | LOCK_NB) == 0) {
+            return true;
+        }
+        if (errno != EINTR && errno != EWOULDBLOCK && errno != EAGAIN) {
             return false;
         }
+        if (deadline != 0 && cmux_monotonic_nanoseconds() >= deadline) {
+            return false;
+        }
+        const struct timespec pause = {
+            .tv_sec = 0,
+            .tv_nsec = CMUX_HOOK_OUTBOX_LOCK_RETRY_NANOSECONDS,
+        };
+        (void)nanosleep(&pause, NULL);
     }
-    return true;
+    return false;
 }
 
 static uint64_t cmux_debug_limit(
@@ -822,6 +1004,17 @@ static off_t cmux_outbox_reservation_offset(uint32_t slot_index) {
         + (off_t)slot_index * (off_t)sizeof(CMUXHookOutboxReservationRecord);
 }
 
+static bool cmux_outbox_generation_is_valid(
+    const unsigned char generation[CMUX_HOOK_OUTBOX_GENERATION_BYTES]
+) {
+    for (size_t index = 0; index < CMUX_HOOK_OUTBOX_GENERATION_BYTES; index += 1) {
+        if (generation[index] != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool cmux_outbox_budget_header_is_valid(
     const CMUXHookOutboxBudgetHeader *header,
     off_t file_size
@@ -834,7 +1027,11 @@ static bool cmux_outbox_budget_header_is_valid(
         || header->maximum_bytes > CMUX_HOOK_OUTBOX_MAX_BYTES
         || header->occupied_records > header->slot_count
         || header->next_slot >= header->slot_count
-        || header->occupied_bytes > header->maximum_bytes) {
+        || header->occupied_bytes > header->maximum_bytes
+        || !cmux_outbox_generation_is_valid(header->generation)
+        || (header->authority_state != CMUX_HOOK_OUTBOX_AUTHORITY_ACTIVE
+            && header->authority_state != CMUX_HOOK_OUTBOX_AUTHORITY_REVOKED)
+        || header->reserved != 0) {
         return false;
     }
     const off_t expected_size = (off_t)sizeof(*header)
@@ -984,13 +1181,16 @@ static bool cmux_reconcile_outbox_budget_locked(
 
 static bool cmux_reserve_outbox_budget(
     int directory,
+    const unsigned char generation[CMUX_HOOK_OUTBOX_GENERATION_BYTES],
     uint64_t token,
     size_t message_bytes,
     CMUXHookOutboxReservation *reservation
 ) {
     memset(reservation, 0, sizeof(*reservation));
     reservation->descriptor = -1;
-    if (token == 0 || message_bytes == 0) {
+    if (!cmux_outbox_generation_is_valid(generation)
+        || token == 0
+        || message_bytes == 0) {
         return false;
     }
     const int page_size = getpagesize();
@@ -1013,7 +1213,9 @@ static bool cmux_reserve_outbox_budget(
     if (!cmux_read_outbox_budget(descriptor, &header)) {
         goto done;
     }
-    if (rounded_bytes > header.maximum_bytes) {
+    if (header.authority_state != CMUX_HOOK_OUTBOX_AUTHORITY_ACTIVE
+        || memcmp(header.generation, generation, sizeof(header.generation)) != 0
+        || rounded_bytes > header.maximum_bytes) {
         goto done;
     }
     if (header.occupied_records >= header.slot_count
@@ -1072,7 +1274,7 @@ static bool cmux_reserve_outbox_budget(
         .reserved_bytes = rounded_bytes,
         .created_nanoseconds = cmux_monotonic_nanoseconds(),
         .owner_pid = getpid(),
-        .state = CMUX_HOOK_OUTBOX_RESERVATION_PUBLISHED,
+        .state = CMUX_HOOK_OUTBOX_RESERVATION_RESERVED,
     };
     header.occupied_records += 1;
     header.occupied_bytes += rounded_bytes;
@@ -1091,6 +1293,7 @@ static bool cmux_reserve_outbox_budget(
     reservation->descriptor = descriptor;
     reservation->slot_index = available_slot;
     reservation->record = record;
+    memcpy(reservation->generation, generation, sizeof(reservation->generation));
     reservation->active = true;
     succeeded = true;
 
@@ -1116,15 +1319,12 @@ static void cmux_release_outbox_reservation(CMUXHookOutboxReservation *reservati
             && stored.token == reservation->record.token) {
             CMUXHookOutboxReservationRecord empty = {0};
             CMUXHookOutboxBudgetHeader header = {0};
-            if (cmux_pread_all_at(
-                    reservation->descriptor,
-                    &header,
-                    sizeof(header),
-                    0)
-                && cmux_outbox_budget_header_is_valid(
-                    &header,
-                    (off_t)sizeof(header)
-                        + (off_t)header.slot_count * (off_t)sizeof(stored))
+            if (cmux_read_outbox_budget(reservation->descriptor, &header)
+                && memcmp(
+                    header.generation,
+                    reservation->generation,
+                    sizeof(header.generation)
+                ) == 0
                 && header.occupied_records > 0
                 && header.occupied_bytes >= stored.reserved_bytes
                 && cmux_pwrite_all_at(
@@ -1150,23 +1350,111 @@ static void cmux_release_outbox_reservation(CMUXHookOutboxReservation *reservati
     reservation->active = false;
 }
 
-static void cmux_close_published_outbox_reservation(CMUXHookOutboxReservation *reservation) {
-    if (reservation == NULL || !reservation->active || reservation->descriptor < 0) {
-        return;
+static bool cmux_commit_outbox_reservation(
+    CMUXHookOutboxReservation *reservation,
+    int directory,
+    const char *pending_name,
+    const char *ready_name
+) {
+    if (reservation == NULL
+        || !reservation->active
+        || reservation->descriptor < 0
+        || pending_name == NULL
+        || ready_name == NULL
+        || !cmux_flock(reservation->descriptor, LOCK_EX)) {
+        return false;
     }
-    close(reservation->descriptor);
-    reservation->descriptor = -1;
-    reservation->active = false;
+
+    bool committed = false;
+    CMUXHookOutboxBudgetHeader header = {0};
+    CMUXHookOutboxReservationRecord stored = {0};
+    if (cmux_read_outbox_budget(reservation->descriptor, &header)
+        && header.authority_state == CMUX_HOOK_OUTBOX_AUTHORITY_ACTIVE
+        && memcmp(
+            header.generation,
+            reservation->generation,
+            sizeof(header.generation)
+        ) == 0
+        && cmux_pread_all_at(
+            reservation->descriptor,
+            &stored,
+            sizeof(stored),
+            cmux_outbox_reservation_offset(reservation->slot_index))
+        && stored.token == reservation->record.token
+        && stored.state == CMUX_HOOK_OUTBOX_RESERVATION_RESERVED
+        && renameat(directory, pending_name, directory, ready_name) == 0) {
+        stored.state = CMUX_HOOK_OUTBOX_RESERVATION_PUBLISHED;
+        // The ready rename is the durable publication point. If this diagnostic
+        // state write fails, reconciliation still retains the marker-backed slot.
+        (void)cmux_pwrite_all_at(
+            reservation->descriptor,
+            &stored,
+            sizeof(stored),
+            cmux_outbox_reservation_offset(reservation->slot_index)
+        );
+        committed = true;
+    }
+    (void)cmux_flock(reservation->descriptor, LOCK_UN);
+    if (committed) {
+        close(reservation->descriptor);
+        reservation->descriptor = -1;
+        reservation->active = false;
+    }
+    return committed;
 }
+
+#if defined(DEBUG)
+static bool cmux_debug_stop_after_outbox_reserve(uint64_t token) {
+    const char *path = getenv("CMUX_TEST_HOOK_OUTBOX_STOP_AFTER_RESERVE_FILE");
+    if (path == NULL || path[0] == '\0') {
+        return true;
+    }
+    char signal[64];
+    const int signal_count = snprintf(
+        signal,
+        sizeof(signal),
+        "reserved %016llx\n",
+        (unsigned long long)token
+    );
+    if (path[0] != '/'
+        || signal_count <= 0
+        || (size_t)signal_count >= sizeof(signal)) {
+        return false;
+    }
+    const int descriptor = open(
+        path,
+        O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+        0600
+    );
+    if (descriptor < 0) {
+        return false;
+    }
+    const bool signaled = fchmod(descriptor, 0600) == 0
+        && cmux_pwrite_all(
+            descriptor,
+            (const unsigned char *)signal,
+            (size_t)signal_count
+        )
+        && fsync(descriptor) == 0;
+    close(descriptor);
+    if (!signaled) {
+        return false;
+    }
+    return raise(SIGSTOP) == 0;
+}
+#endif
 
 static bool cmux_publish_outbox(
     const char *directory_path,
     const char *capability,
+    const char *encoded_generation,
     const CMUXBuffer *command
 ) {
+    unsigned char generation[CMUX_HOOK_OUTBOX_GENERATION_BYTES] = {0};
     char nonce[65] = {0};
     unsigned char code[CC_SHA256_DIGEST_LENGTH] = {0};
-    if (!cmux_outbox_authentication(capability, command, nonce, code)) {
+    if (!cmux_decode_outbox_generation(encoded_generation, generation)
+        || !cmux_outbox_authentication(capability, command, nonce, code)) {
         return false;
     }
     char *encoded_code = cmux_base64_encode(code, sizeof(code));
@@ -1191,6 +1479,7 @@ static bool cmux_publish_outbox(
         CMUXHookOutboxReservation reservation = { .descriptor = -1 };
         if (!cmux_reserve_outbox_budget(
                 directory,
+                generation,
                 random,
                 command->count,
                 &reservation)) {
@@ -1200,6 +1489,10 @@ static bool cmux_publish_outbox(
         const char *crash_after_reserve = getenv("CMUX_TEST_HOOK_OUTBOX_CRASH_AFTER_RESERVE");
         if (crash_after_reserve != NULL && strcmp(crash_after_reserve, "1") == 0) {
             _exit(86);
+        }
+        if (!cmux_debug_stop_after_outbox_reserve(random)) {
+            cmux_release_outbox_reservation(&reservation);
+            break;
         }
 #endif
         const uint64_t timestamp = cmux_monotonic_nanoseconds();
@@ -1231,12 +1524,13 @@ static bool cmux_publish_outbox(
         const int marker_count = snprintf(
             marker,
             sizeof(marker),
-            "%s\n%s\n%s\n%zu\n%016llx\n",
+            "%s\n%s\n%s\n%zu\n%016llx\n%s\n",
             shared_memory_name,
             nonce,
             encoded_code,
             command->count,
-            (unsigned long long)random
+            (unsigned long long)random,
+            encoded_generation
         );
         if (marker_count <= 0 || (size_t)marker_count >= sizeof(marker)) {
             shm_unlink(shared_memory_name);
@@ -1288,13 +1582,17 @@ static bool cmux_publish_outbox(
             && cmux_store_shared_memory(shared_memory, command->bytes, command->count);
         close(shared_memory);
         if (!record_ready
-            || renameat(directory, pending_name, directory, ready_name) != 0) {
+            || !cmux_commit_outbox_reservation(
+                &reservation,
+                directory,
+                pending_name,
+                ready_name
+            )) {
             unlinkat(directory, pending_name, 0);
             shm_unlink(shared_memory_name);
             cmux_release_outbox_reservation(&reservation);
             continue;
         }
-        cmux_close_published_outbox_reservation(&reservation);
         published = true;
     }
 
@@ -2060,6 +2358,7 @@ int main(int argument_count, char **arguments) {
     const char *socket_path = getenv("CMUX_SOCKET_PATH");
     const char *capability = getenv("CMUX_SOCKET_CAPABILITY");
     const char *outbox_capability = getenv("CMUX_AGENT_HOOK_OUTBOX_CAPABILITY");
+    const char *outbox_generation = getenv("CMUX_AGENT_HOOK_OUTBOX_GENERATION");
     const char *queue_protocol = getenv("CMUX_AGENT_HOOK_ENQUEUE_V1");
     const char *outbox_directory = getenv("CMUX_AGENT_HOOK_OUTBOX_DIR");
     const bool queue_protocol_advertised = queue_protocol != NULL
@@ -2086,7 +2385,12 @@ int main(int argument_count, char **arguments) {
         && cmux_capability_is_valid(outbox_capability)
         && outbox_directory != NULL
         && outbox_directory[0] != '\0'
-        && cmux_publish_outbox(outbox_directory, outbox_capability, &command)) {
+        && cmux_publish_outbox(
+            outbox_directory,
+            outbox_capability,
+            outbox_generation,
+            &command
+        )) {
         submission = CMUX_SUBMISSION_QUEUED;
     } else if (queue_protocol_advertised
         && command_built

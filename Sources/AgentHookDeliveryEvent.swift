@@ -172,9 +172,10 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
             totalBytes += key.utf8.count + value.utf8.count + 2
             guard totalBytes <= maximumEnvironmentBytes else { return nil }
         }
-        // Unknown variables are ignored rather than rejecting the whole hook:
-        // the native sender deliberately forwards its ambient environment so
-        // this shared policy remains the sole admission source of truth.
+        // Unknown variables are ignored rather than rejecting the whole hook.
+        // Native senders prefilter the same selected-key shape to keep ambient
+        // data outside the transport budget; this decoder remains authoritative
+        // for normalization and durable/ephemeral credential partitioning.
         return AgentHookTransportEnvironmentPolicy().partitionedEnvironment(
             from: environment,
             hookAgentKind: hookAgentKind
