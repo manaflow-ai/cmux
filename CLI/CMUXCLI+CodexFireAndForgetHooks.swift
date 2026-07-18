@@ -314,7 +314,7 @@ extension CMUXCLI {
         }
         let processEnvironment = ProcessInfo.processInfo.environment
         var environment = AgentHookTransportEnvironmentPolicy()
-            .selectedEnvironment(from: processEnvironment)
+            .selectedEnvironment(from: processEnvironment, hookAgentKind: "codex")
         environment["CMUX_SOCKET_PATH"] = client.socketPath
         let payload = FileHandle.standardInput.readDataToEndOfFile()
         _ = try client.sendV2(
