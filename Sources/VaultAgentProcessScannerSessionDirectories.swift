@@ -11,9 +11,114 @@ struct PiSessionDirectoryIndex {
     }
 
     private struct DirectorySnapshot {
-        let candidates: [Candidate]
         let newest: Candidate?
         let exactByBasename: [String: Candidate]
+        let prefixLookup: PrefixLookupIndex
+    }
+
+    /// Pi accepts a prefix of its UUID session ID. Session filenames add
+    /// a timestamp before that UUID, so both the basename and UUID suffix are
+    /// searchable keys. A range-max tree keeps ambiguous-prefix resolution on
+    /// the existing newest-file policy without scanning every candidate.
+    private struct PrefixLookupIndex {
+        private struct Entry {
+            let key: String
+            let candidate: Candidate
+        }
+
+        private let entries: [Entry]
+        private let leafBase: Int
+        private let preferredByTreeNode: [Candidate?]
+
+        init(candidates: [Candidate]) {
+            var entries: [Entry] = []
+            entries.reserveCapacity(candidates.count * 2)
+            for candidate in candidates {
+                let basename = candidate.url.deletingPathExtension().lastPathComponent
+                entries.append(Entry(key: basename, candidate: candidate))
+                if let sessionID = Self.uuidSuffix(in: basename) {
+                    entries.append(Entry(key: sessionID, candidate: candidate))
+                }
+            }
+            entries.sort { lhs, rhs in
+                if lhs.key != rhs.key { return lhs.key < rhs.key }
+                return lhs.candidate.url.path < rhs.candidate.url.path
+            }
+            self.entries = entries
+
+            var leafBase = 1
+            while leafBase < entries.count { leafBase *= 2 }
+            self.leafBase = leafBase
+            var tree = [Candidate?](repeating: nil, count: leafBase * 2)
+            for (index, entry) in entries.enumerated() {
+                tree[leafBase + index] = entry.candidate
+            }
+            if leafBase > 1 {
+                for index in stride(from: leafBase - 1, through: 1, by: -1) {
+                    tree[index] = Self.preferred(tree[index * 2], tree[index * 2 + 1])
+                }
+            }
+            self.preferredByTreeNode = tree
+        }
+
+        func preferredCandidate(forPrefix prefix: String) -> (candidate: Candidate?, visitCount: Int) {
+            var lower = 0
+            var upper = entries.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if entries[middle].key < prefix {
+                    lower = middle + 1
+                } else {
+                    upper = middle
+                }
+            }
+            guard lower < entries.count, entries[lower].key.hasPrefix(prefix) else {
+                return (nil, 0)
+            }
+
+            let rangeStart = lower
+            upper = entries.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if entries[middle].key.hasPrefix(prefix) {
+                    lower = middle + 1
+                } else {
+                    upper = middle
+                }
+            }
+
+            var left = leafBase + rangeStart
+            var right = leafBase + lower
+            var preferred: Candidate?
+            var visitCount = 0
+            while left < right {
+                if left % 2 == 1 {
+                    preferred = Self.preferred(preferred, preferredByTreeNode[left])
+                    visitCount += 1
+                    left += 1
+                }
+                if right % 2 == 1 {
+                    right -= 1
+                    preferred = Self.preferred(preferred, preferredByTreeNode[right])
+                    visitCount += 1
+                }
+                left /= 2
+                right /= 2
+            }
+            return (preferred, visitCount)
+        }
+
+        private static func uuidSuffix(in basename: String) -> String? {
+            guard let separator = basename.lastIndex(of: "_") else { return nil }
+            let suffix = String(basename[basename.index(after: separator)...])
+            return UUID(uuidString: suffix) == nil ? nil : suffix
+        }
+
+        private static func preferred(_ lhs: Candidate?, _ rhs: Candidate?) -> Candidate? {
+            guard let lhs else { return rhs }
+            guard let rhs else { return lhs }
+            return PiSessionDirectoryIndex.isPreferred(lhs, over: rhs) ? lhs : rhs
+        }
     }
 
     private enum CachedDirectory {
@@ -40,16 +145,9 @@ struct PiSessionDirectoryIndex {
             return exact.url.path
         }
 
-        var partialNewest: Candidate?
-        for candidate in snapshot.candidates {
-            candidateQueryVisitCount += 1
-            let basename = candidate.url.deletingPathExtension().lastPathComponent
-            guard basename.contains(session) else { continue }
-            if Self.isPreferred(candidate, over: partialNewest) {
-                partialNewest = candidate
-            }
-        }
-        return partialNewest?.url.path
+        let lookup = snapshot.prefixLookup.preferredCandidate(forPrefix: session)
+        candidateQueryVisitCount += lookup.visitCount
+        return lookup.candidate?.url.path
     }
 
     private mutating func directorySnapshot(in directory: String) -> DirectorySnapshot? {
@@ -98,9 +196,9 @@ struct PiSessionDirectoryIndex {
             }
         }
         let snapshot = DirectorySnapshot(
-            candidates: candidates,
             newest: newest,
-            exactByBasename: exactByBasename
+            exactByBasename: exactByBasename,
+            prefixLookup: PrefixLookupIndex(candidates: candidates)
         )
         cachedDirectories[standardizedDirectory] = .files(snapshot)
         return snapshot
