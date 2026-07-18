@@ -2114,8 +2114,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         let savedObject = try #require(
             JSONSerialization.jsonObject(with: savedRecord.json) as? [String: Any]
         )
-        #expect(savedObject["sessionState"] as? String == "ended")
-        #expect(savedObject["restoreAuthority"] as? Bool == false)
+        #expect(savedObject["sessionState"] as? String == "hibernated")
+        #expect(savedObject["restoreAuthority"] as? Bool != false)
+        #expect(savedObject["cmuxHibernationDetached"] as? Bool == true)
         #expect(saved.activeSlots.isEmpty)
     }
 
