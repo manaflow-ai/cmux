@@ -12,6 +12,17 @@ extension CmuxAgentSessionRegistry {
     /// Largest compatibility projection that inspection readers can scan.
     public static let maximumHookLegacyProjectionRecords = 20_000
 
+    /// One currently open terminal panel used to select hibernation owners.
+    public struct HookHibernationPanelContext: Hashable, Sendable {
+        public var workspaceID: String
+        public var surfaceID: String
+
+        public init(workspaceID: String, surfaceID: String) {
+            self.workspaceID = workspaceID
+            self.surfaceID = surfaceID
+        }
+    }
+
     /// A canonical hook write exceeded a durable storage boundary.
     public struct HookStorageLimitError: Error, Equatable, Sendable {
         /// Storage resource that exceeded its boundary.
@@ -817,6 +828,99 @@ extension CmuxAgentSessionRegistry {
                     records.count,
                     slots.count
                 )
+            }
+        }
+    }
+
+    /// Reads only active owners for open panels plus exact process-detected
+    /// sessions. History size does not affect row or blob materialization.
+    public func hookHibernationSnapshot(
+        provider: String,
+        panelContexts: Set<HookHibernationPanelContext>,
+        exactSessionIDs: Set<String>,
+        maximumRecords: Int,
+        maximumBytes: Int64
+    ) throws -> Snapshot {
+        let maximumRecords = max(0, maximumRecords)
+        let maximumBytes = max(0, maximumBytes)
+        return try withDatabase { database in
+            try ensureHookHotPathSchema(database)
+            return try readTransaction(database) {
+                var materializedBytes: Int64 = 0
+                func include(_ data: Data, sessionID: String? = nil) throws {
+                    let next = materializedBytes.addingReportingOverflow(Int64(data.count))
+                    guard !next.overflow, next.partialValue <= maximumBytes else {
+                        throw HookSnapshotLimitError(
+                            scope: .providerBytes,
+                            provider: provider,
+                            sessionID: sessionID,
+                            observed: next.overflow ? .max : next.partialValue,
+                            maximum: maximumBytes
+                        )
+                    }
+                    materializedBytes = next.partialValue
+                }
+
+                var slotsByKey: [ActiveSlotKey: ActiveSlot] = [:]
+                var sessionIDs = exactSessionIDs
+                let orderedContexts = panelContexts.sorted {
+                    if $0.workspaceID != $1.workspaceID {
+                        return $0.workspaceID < $1.workspaceID
+                    }
+                    return $0.surfaceID < $1.surfaceID
+                }
+                for context in orderedContexts {
+                    for key in [
+                        ActiveSlotKey(scope: .workspace, scopeID: context.workspaceID),
+                        ActiveSlotKey(scope: .surface, scopeID: context.surfaceID),
+                    ] {
+                        guard slotsByKey[key] == nil,
+                              let slot = try readSlot(
+                                  database: database,
+                                  provider: provider,
+                                  scope: key.scope,
+                                  scopeID: key.scopeID
+                              ) else {
+                            continue
+                        }
+                        try include(slot.json, sessionID: slot.sessionID)
+                        slotsByKey[key] = slot
+                        sessionIDs.insert(slot.sessionID)
+                    }
+                }
+
+                guard sessionIDs.count <= maximumRecords else {
+                    throw HookSnapshotLimitError(
+                        scope: .records,
+                        provider: provider,
+                        observed: Int64(sessionIDs.count),
+                        maximum: Int64(maximumRecords)
+                    )
+                }
+                var records: [Record] = []
+                records.reserveCapacity(sessionIDs.count)
+                for sessionID in sessionIDs.sorted() {
+                    guard let record = try readRecord(
+                        database: database,
+                        provider: provider,
+                        sessionID: sessionID
+                    ) else {
+                        continue
+                    }
+                    try include(record.json, sessionID: sessionID)
+                    records.append(record)
+                }
+                records.sort {
+                    if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
+                    return $0.sessionID < $1.sessionID
+                }
+                let slots = slotsByKey.values.sorted {
+                    if $0.scope.rawValue != $1.scope.rawValue {
+                        return $0.scope.rawValue < $1.scope.rawValue
+                    }
+                    return $0.scopeID < $1.scopeID
+                }
+                return Snapshot(records: records, activeSlots: slots)
             }
         }
     }
