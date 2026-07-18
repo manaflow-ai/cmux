@@ -9324,23 +9324,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func routeFeedFocus(workspaceId: String, surfaceId: String) -> Bool {
-        guard let claimedWorkspaceID = UUID(uuidString: workspaceId),
-              let claimedSurfaceID = UUID(uuidString: surfaceId),
+    func routeFeedFocus(workspaceId _: String, surfaceId: String) -> Bool {
+        guard let claimedSurfaceID = UUID(uuidString: surfaceId),
               let located = locateBonsplitSurface(tabId: claimedSurfaceID)
         else {
             return false
         }
-        // Workspace IDs can change when a persisted terminal surface is
-        // restored. A dormant manager may still retain the old workspace, so
-        // the stable surface's live owner wins across managers. Within one
-        // manager, keep rejecting a mismatched workspace/surface pair so a
-        // stale card cannot redirect into a sibling workspace.
-        if located.workspaceId != claimedWorkspaceID,
-           let claimedManager = tabManagerFor(tabId: claimedWorkspaceID),
-           claimedManager === located.tabManager {
-            return false
-        }
+        // Workspace IDs are placement metadata and change during restoration
+        // or moves. Surface IDs are stable and globally identify the terminal,
+        // so its current live owner is the navigation authority.
         let targetWorkspaceID = located.workspaceId
         guard let workspace = located.tabManager.tabs.first(where: {
             $0.id == targetWorkspaceID
