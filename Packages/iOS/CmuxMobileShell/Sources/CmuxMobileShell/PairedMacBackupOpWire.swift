@@ -3,6 +3,7 @@ import Foundation
 /// `{ macDeviceID, deleted?, record? }` matching the server's parse.
 struct PairedMacBackupOpWire: Encodable {
     let macDeviceID: String
+    let instanceTag: String?
     let deleted: Bool?
     let reviveDeleted: Bool?
     let record: PairedMacBackupRecordWire?
@@ -11,6 +12,7 @@ struct PairedMacBackupOpWire: Encodable {
         switch op {
         case .upsert(let record, let instanceAuthority):
             self.macDeviceID = record.macDeviceID
+            self.instanceTag = record.instanceTag
             self.deleted = nil
             self.reviveDeleted = nil
             self.record = PairedMacBackupRecordWire(
@@ -21,6 +23,7 @@ struct PairedMacBackupOpWire: Encodable {
             )
         case .upsertPreservingCustomizations(let record, let instanceAuthority):
             self.macDeviceID = record.macDeviceID
+            self.instanceTag = record.instanceTag
             self.deleted = nil
             self.reviveDeleted = nil
             self.record = PairedMacBackupRecordWire(
@@ -31,6 +34,7 @@ struct PairedMacBackupOpWire: Encodable {
             )
         case .revive(let record, let instanceAuthority):
             self.macDeviceID = record.macDeviceID
+            self.instanceTag = record.instanceTag
             self.deleted = nil
             self.reviveDeleted = true
             self.record = PairedMacBackupRecordWire(
@@ -41,6 +45,7 @@ struct PairedMacBackupOpWire: Encodable {
             )
         case .revivePreservingCustomizations(let record, let instanceAuthority):
             self.macDeviceID = record.macDeviceID
+            self.instanceTag = record.instanceTag
             self.deleted = nil
             self.reviveDeleted = true
             self.record = PairedMacBackupRecordWire(
@@ -51,6 +56,13 @@ struct PairedMacBackupOpWire: Encodable {
             )
         case .delete(let macDeviceID):
             self.macDeviceID = macDeviceID
+            self.instanceTag = nil
+            self.deleted = true
+            self.reviveDeleted = nil
+            self.record = nil
+        case .deleteInstance(let macDeviceID, let instanceTag):
+            self.macDeviceID = macDeviceID
+            self.instanceTag = instanceTag
             self.deleted = true
             self.reviveDeleted = nil
             self.record = nil

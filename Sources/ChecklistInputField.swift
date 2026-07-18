@@ -70,6 +70,12 @@ struct ChecklistInputField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.insertLineBreak(_:))
+                || selector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)) {
+                textView.insertText("\n", replacementRange: textView.selectedRange())
+                control.stringValue = textView.string
+                return true
+            }
             if selector == #selector(NSResponder.insertNewline(_:)) {
                 committed = true
                 onCommit(control.stringValue)

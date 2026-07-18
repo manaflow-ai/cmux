@@ -1,6 +1,23 @@
 import Foundation
 
 extension RemoteTmuxController {
+    /// A split was requested on a mirror window-tab (the split button / any
+    /// bonsplit-level split) → propagate to tmux `split-window`. Covers both
+    /// single-pane mirror windows and multi-pane ones. Returns `true` if handled.
+    func handleMirrorTabSplitRequested(
+        workspaceId: UUID,
+        panelId: UUID,
+        vertical: Bool,
+        focusIntent: RemoteTmuxSplitFocusIntent
+    ) -> Bool {
+        guard let mirror = sessionMirror(workspaceId: workspaceId) else { return false }
+        return mirror.requestSplit(
+            windowPanelId: panelId,
+            vertical: vertical,
+            focusIntent: focusIntent
+        )
+    }
+
     /// A new tab was requested in a mirrored workspace → create a tmux window in
     /// that session. The new tab arrives via the `%window-add` notification (one
     /// source of truth), so the caller must NOT also create a local tab.

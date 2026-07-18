@@ -46,6 +46,8 @@ final class CmuxFeatureFlags {
     #endif
     private static let agentChatUIDefault = false
     private static let sidebarWorkspaceAgentSpinnerDefault = false
+    private static let workspaceTodoControlsDefault = false
+    private static let appKitSidebarListDefault = false
 
     #if DEBUG
     private static let subrouterUIDefault = true
@@ -139,6 +141,42 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
 
+            // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Shows user-facing workspace todo controls that create checklist
+            // items or set completion/status lanes. Hidden until the local
+            // beta setting opts in or the PostHog flag is enabled.
+            CmuxFeatureFlagDefinition(
+                key: "workspace-todo-controls-enabled-release",
+                title: String(
+                    localized: "featureFlags.workspaceTodoControls.title",
+                    defaultValue: "Workspace todo controls"
+                ),
+                flagDescription: String(
+                    localized: "featureFlags.workspaceTodoControls.description",
+                    defaultValue: "Shows Add Checklist Item and workspace completion status controls."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.workspaceTodoControlsDefault
+            ),
+
+            // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Renders the workspace sidebar with the AppKit NSTableView list
+            // (virtualized rows, measured-once heights) instead of the SwiftUI
+            // LazyVStack. Off by default while the rewrite soaks.
+            CmuxFeatureFlagDefinition(
+                key: "sidebar-appkit-list-experiment",
+                title: String(
+                    localized: "featureFlags.appKitSidebarList.title",
+                    defaultValue: "Lawrence Sidebar"
+                ),
+                flagDescription: String(
+                    localized: "featureFlags.appKitSidebarList.description",
+                    defaultValue: "Renders the workspace sidebar with a native AppKit list and divider for smoother scrolling and resizing with many workspaces."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
+            ),
+
             // FLAG(key: subrouter-ui-enabled-release, owner: austinwang,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
             // Shows the subrouter integration (Agents right-sidebar mode,
@@ -179,8 +217,16 @@ final class CmuxFeatureFlags {
         effectiveValue(for: Self.allFlags[4])
     }
 
-    var isSubrouterUIEnabled: Bool {
+    var isWorkspaceTodoControlsEnabled: Bool {
         effectiveValue(for: Self.allFlags[5])
+    }
+
+    var isAppKitSidebarListEnabled: Bool {
+        effectiveValue(for: Self.allFlags[6])
+    }
+
+    var isSubrouterUIEnabled: Bool {
+        effectiveValue(for: Self.allFlags[7])
     }
 
     @ObservationIgnored

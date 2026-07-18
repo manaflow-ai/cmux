@@ -1,8 +1,10 @@
 import CmuxAgentChat
+import CmuxSettings
 import Foundation
 
 private enum TerminalControllerChatArtifactIndexProvider {
     static let shared = AgentChatArtifactIndex()
+    static let ordering = ChatArtifactGalleryOrderingCache()
 }
 
 extension TerminalController {
@@ -41,22 +43,25 @@ extension TerminalController {
             }
             let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
             let query = v2RawString(params, "query")
+            let includeDirectories = v2Bool(params, "include_directories") ?? false
+            let orderedItems = await TerminalControllerChatArtifactIndexProvider.ordering.ordered(
+                indexedSession.snapshot.artifacts,
+                indexID: indexedSession.sessionID,
+                generation: indexedSession.snapshot.generation
+            )
             let page = await Task.detached(priority: .utility) {
                 AgentChatArtifactGalleryBuilder().page(
                     sessionID: indexedSession.sessionID,
                     items: indexedSession.snapshot.artifacts,
+                    orderedItems: orderedItems,
                     generation: indexedSession.snapshot.generation,
                     cursor: cursor,
                     pageSize: pageSize,
-                    query: query
+                    query: query,
+                    includeDirectories: includeDirectories
                 )
             }.value
-            var payload = ChatArtifactWire.payload(page) ?? [:]
-            if cursor != nil {
-                payload.removeValue(forKey: "created")
-                payload.removeValue(forKey: "attached")
-            }
-            return .ok(payload)
+            return .ok(ChatArtifactWire.payload(page) ?? [:])
         } catch {
             return mobileChatArtifactError(.notFound, path: "")
         }
@@ -244,7 +249,8 @@ extension TerminalController {
                 transcriptPath: transcriptPath,
                 workingDirectory: record.workingDirectory,
                 requestedPath: requestedPath,
-                operation: operation.indexOperation
+                operation: operation.indexOperation,
+                directoryAccessMode: mobileArtifactDirectoryAccessMode()
             )
             switch pathResult {
             case .success(let canonicalPath):
@@ -265,6 +271,22 @@ extension TerminalController {
             }
         } catch {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
+        }
+    }
+
+    /// Resolves the persisted mobile folder setting into the shared scope policy.
+    func mobileArtifactDirectoryAccessMode(
+        defaults: UserDefaults = .standard
+    ) -> ChatArtifactScope.DirectoryAccessMode {
+        let key = SettingCatalog().mobile.artifactFolderAccess
+        let setting = MobileArtifactFolderAccess.decodeFromUserDefaults(
+            defaults.object(forKey: key.userDefaultsKey)
+        ) ?? key.defaultValue
+        switch setting {
+        case .subtree:
+            return .subtree
+        case .oneLevel:
+            return .oneLevel
         }
     }
 
