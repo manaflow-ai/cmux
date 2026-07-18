@@ -48,45 +48,14 @@ export type WorkspaceScene = {
   readonly panes: readonly WorkspacePane[];
 };
 
-export type TerminalStyle = {
-  readonly id: number;
-  readonly foreground?: string;
-  readonly background?: string;
-  readonly bold?: boolean;
-  readonly faint?: boolean;
-  readonly italic?: boolean;
-  readonly underline?: boolean;
-  readonly strikethrough?: boolean;
-  readonly inverse?: boolean;
-  readonly invisible?: boolean;
-};
-
-export type TerminalRowSpan = {
-  readonly row: number;
-  readonly column: number;
-  readonly style_id: number;
-  readonly text: string;
-  readonly cell_width?: number;
-};
-
-export type TerminalGridFrame = {
-  readonly format: "cmux.render-grid.v1";
-  readonly surface_id: string;
-  readonly state_seq: number;
+export type TerminalVtFrame = {
+  readonly surfaceId: string;
+  readonly generation: number;
+  readonly stateSeq: number;
   readonly columns: number;
   readonly rows: number;
-  readonly full: boolean;
-  readonly cleared_rows: readonly number[];
-  readonly styles: readonly TerminalStyle[];
-  readonly row_spans: readonly TerminalRowSpan[];
-  readonly terminal_background?: string;
-  readonly terminal_foreground?: string;
-  readonly cursor?: {
-    readonly row: number;
-    readonly column: number;
-    readonly visible?: boolean;
-    readonly style?: "block" | "bar" | "underline" | "block_hollow";
-  };
+  readonly kind: "snapshot" | "patch";
+  readonly dataB64: string;
 };
 
 export type ShareChatMessage = {
@@ -156,23 +125,20 @@ export function normalizeWorkspaceScene(value: unknown): WorkspaceScene | null {
   };
 }
 
-export function normalizeTerminalFrame(value: unknown): TerminalGridFrame | null {
+export function normalizeTerminalVtFrame(value: unknown): TerminalVtFrame | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const frame = value as Record<string, unknown>;
   if (
-    frame.format !== "cmux.render-grid.v1" ||
-    !shortString(frame.surface_id, 128) ||
+    typeof frame.surfaceId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(frame.surfaceId) ||
+    !positiveInteger(frame.generation) ||
+    !positiveInteger(frame.stateSeq) ||
     !positiveInteger(frame.columns) || (frame.columns as number) > 1_000 ||
     !positiveInteger(frame.rows) || (frame.rows as number) > 1_000 ||
-    !nonnegativeInteger(frame.state_seq) ||
-    typeof frame.full !== "boolean" ||
-    !Array.isArray(frame.cleared_rows) ||
-    !Array.isArray(frame.styles) ||
-    !Array.isArray(frame.row_spans) ||
-    frame.styles.length > 2_048 ||
-    frame.row_spans.length > 100_000
+    (frame.kind !== "snapshot" && frame.kind !== "patch") ||
+    !validTerminalBase64(frame.dataB64)
   ) return null;
-  return frame as unknown as TerminalGridFrame;
+  return frame as unknown as TerminalVtFrame;
 }
 
 function normalizePane(value: unknown): WorkspacePane | null {
@@ -216,6 +182,16 @@ function normalizeSurface(value: unknown): WorkspaceSurface | null {
 function validJPEGDataURL(value: unknown): value is string {
   return typeof value === "string" && value.length <= 1_500_000 &&
     /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/u.test(value);
+}
+
+function validTerminalBase64(value: unknown): value is string {
+  if (typeof value !== "string" || value.length < 4 || value.length > 2_000_000 || value.length % 4 !== 0 ||
+      !/^[A-Za-z0-9+/]*={0,2}$/u.test(value)) return false;
+  const firstPadding = value.indexOf("=");
+  if (firstPadding >= 0 && firstPadding < value.length - 2) return false;
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  const decodedBytes = value.length / 4 * 3 - padding;
+  return decodedBytes > 0 && decodedBytes <= 1_500_000;
 }
 
 function validFrame(value: unknown): value is WorkspaceFrame {

@@ -10,7 +10,7 @@ import {
   type PointerEvent,
 } from "react";
 import type { ShareParticipant, TextSelectionAwareness, WorkspaceSurface } from "../../../services/share/protocol";
-import type { RenderedTerminalGrid } from "../../../services/share/terminalGrid";
+import type { RenderedGhosttyTerminal } from "../../../services/share/ghosttyTerminal";
 import type { TextDocumentView } from "../../../services/share/textDocument";
 import {
   initialShareWorkspaceViewState,
@@ -213,7 +213,7 @@ function SurfaceView({
   onSelection,
 }: {
   surface: WorkspaceSurface;
-  terminal?: RenderedTerminalGrid;
+  terminal?: RenderedGhosttyTerminal;
   document?: TextDocumentView;
   selections: readonly TextSelectionAwareness[];
   copy: ShareWorkspaceCopy;
@@ -223,7 +223,7 @@ function SurfaceView({
   onSelection: (anchor: number, head: number) => void;
 }) {
   if (surface.kind === "terminal") {
-    return terminal ? <TerminalGrid grid={terminal} /> : <PanelWaiting text={copy.terminalWaiting} />;
+    return terminal ? <GhosttyTerminal terminal={terminal} /> : <PanelWaiting text={copy.terminalWaiting} />;
   }
   if (surface.kind === "browser") {
     return surface.imageDataUrl
@@ -250,40 +250,63 @@ function SurfaceView({
   return <PanelWaiting text={copy.unsupportedPanel} />;
 }
 
-function TerminalGrid({ grid }: { grid: RenderedTerminalGrid }) {
+function GhosttyTerminal({ terminal }: { terminal: RenderedGhosttyTerminal }) {
+  const [scale, setScale] = useState(1);
+  const resizeObserver = useRef<ResizeObserver | null>(null);
+  const mount = useCallback((node: HTMLDivElement | null) => {
+    resizeObserver.current?.disconnect();
+    resizeObserver.current = null;
+    if (!node) return;
+    const grid = node.querySelector<HTMLElement>("[data-ghostty-grid]");
+    if (!grid) return;
+    const measure = () => {
+      if (!node.isConnected) return;
+      const naturalWidth = grid.offsetWidth;
+      const naturalHeight = grid.offsetHeight;
+      if (naturalWidth <= 0 || naturalHeight <= 0) return;
+      const next = Math.min(1, (node.clientWidth - 20) / naturalWidth, (node.clientHeight - 16) / naturalHeight);
+      setScale(Math.max(0.05, Number.isFinite(next) ? next : 1));
+    };
+    measure();
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver.current = new ResizeObserver(measure);
+      resizeObserver.current.observe(node);
+      resizeObserver.current.observe(grid);
+    }
+  }, []);
+  const cursor = terminal.cursor;
+  const cursorColumn = cursor ? Math.max(0, cursor.column - (cursor.wide ? 1 : 0)) : 0;
   return (
     <div
+      ref={mount}
       className="share-terminal"
-      data-share-target={grid.surfaceId}
-      style={{ background: grid.background, color: grid.foreground, "--terminal-columns": grid.columns } as CSSProperties}
+      data-share-target={terminal.surfaceId}
+      style={{ background: terminal.background, color: terminal.foreground } as CSSProperties}
     >
-      {grid.rowSpans.map((spans, row) => (
-        <div className="share-terminal-row" key={row}>
-          {spans.map((span, index) => {
-            const style = grid.styles.get(span.style_id);
-            const foreground = style?.inverse ? style.background : style?.foreground;
-            const background = style?.inverse ? style.foreground : style?.background;
-            return (
-              <span
-                key={`${span.column}-${index}`}
-                className="share-terminal-span"
-                style={{
-                  left: `${span.column}ch`,
-                  color: foreground ? hexColor(foreground) : undefined,
-                  background: background ? hexColor(background) : undefined,
-                  fontWeight: style?.bold ? 700 : undefined,
-                  fontStyle: style?.italic ? "italic" : undefined,
-                  opacity: style?.faint ? 0.55 : style?.invisible ? 0 : undefined,
-                  textDecoration: [style?.underline && "underline", style?.strikethrough && "line-through"].filter(Boolean).join(" ") || undefined,
-                }}
-              >{span.text}</span>
-            );
-          })}
-          {grid.cursor?.visible !== false && grid.cursor?.row === row && (
-            <span className="share-terminal-cursor" style={{ left: `${grid.cursor.column}ch` }} />
-          )}
-        </div>
-      ))}
+      <div
+        className="share-terminal-scale"
+        data-ghostty-grid
+        style={{
+          "--terminal-scale": scale,
+          width: `${terminal.columns}ch`,
+          height: `${terminal.rows * 1.28}em`,
+        } as CSSProperties}
+      >
+        <div className="share-terminal-html" dangerouslySetInnerHTML={{ __html: terminal.html }} />
+        {cursor && (
+          <span
+            aria-hidden="true"
+            className={`share-terminal-cursor share-terminal-cursor-${cursor.style}${cursor.blinking ? " share-terminal-cursor-blink" : ""}`}
+            style={{
+              left: `${cursorColumn}ch`,
+              top: `${cursor.row * 1.28}em`,
+              width: cursor.wide ? "2ch" : undefined,
+              borderColor: cursor.color,
+              backgroundColor: cursor.color,
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -416,11 +439,6 @@ function initials(name: string): string {
 
 function color(index: number): string {
   return COLORS[Math.abs(Math.floor(index)) % COLORS.length] ?? COLORS[0];
-}
-
-function hexColor(value: string): string | undefined {
-  const prefixed = value.startsWith("#") ? value : `#${value}`;
-  return /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/iu.test(prefixed) ? prefixed : undefined;
 }
 
 function clamp(value: number): number {

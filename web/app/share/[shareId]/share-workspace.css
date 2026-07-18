@@ -193,32 +193,61 @@ body {
 }
 
 .share-terminal {
+  position: relative;
   height: calc(100% - 27px);
   overflow: hidden;
-  padding: 8px 10px;
   font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: clamp(4px, calc(70vw / var(--terminal-columns)), 13px);
-  line-height: 1.28;
   user-select: text;
 }
 
-.share-terminal-row {
-  position: relative;
-  height: 1.28em;
-  white-space: pre;
+.share-terminal-scale {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  overflow: hidden;
+  font-size: 13px;
+  font-variant-ligatures: none;
+  line-height: 1.28;
+  text-rendering: geometricPrecision;
+  transform: scale(var(--terminal-scale));
+  transform-origin: top left;
 }
 
-.share-terminal-span,
+.share-terminal-html,
+.share-terminal-html > div {
+  min-width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
 .share-terminal-cursor {
   position: absolute;
-  top: 0;
+  width: 1ch;
+  height: 1.28em;
+  border: 0 solid transparent;
+  background: currentColor;
+  opacity: 0.68;
+  pointer-events: none;
 }
 
-.share-terminal-cursor {
-  width: 1ch;
-  height: 1.18em;
-  background: currentColor;
-  opacity: 0.58;
+.share-terminal-cursor-bar {
+  width: 2px;
+  border-left-width: 2px;
+  background: transparent !important;
+}
+
+.share-terminal-cursor-underline {
+  border-bottom-width: 2px;
+  background: transparent !important;
+}
+
+.share-terminal-cursor-block_hollow {
+  border-width: 1px;
+  background: transparent !important;
+}
+
+.share-terminal-cursor-blink {
+  animation: share-terminal-blink 1s steps(1, end) infinite;
 }
 
 .share-browser-snapshot {
@@ -462,6 +491,10 @@ body {
   to { transform: rotate(360deg); }
 }
 
+@keyframes share-terminal-blink {
+  50% { opacity: 0; }
+}
+
 @media (max-width: 760px) {
   .share-header {
     padding-inline: 8px;
@@ -536,5 +569,9 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .share-remote-pointer {
     transition: none;
+  }
+
+  .share-terminal-cursor-blink {
+    animation: none;
   }
 }

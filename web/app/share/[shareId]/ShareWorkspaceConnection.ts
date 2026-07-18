@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  normalizeTerminalFrame,
+  normalizeTerminalVtFrame,
   normalizeWorkspaceScene,
   parseShareFrame,
   type ShareChatMessage,
@@ -11,9 +11,9 @@ import {
   type WorkspaceScene,
 } from "../../../services/share/protocol";
 import {
-  applyTerminalGridFrame,
-  type RenderedTerminalGrid,
-} from "../../../services/share/terminalGrid";
+  GhosttyTerminalRenderer,
+  type RenderedGhosttyTerminal,
+} from "../../../services/share/ghosttyTerminal";
 import {
   ReplicatedTextDocument,
   parseTextDocumentSnapshot,
@@ -34,7 +34,7 @@ export type ShareConnectionStatus =
 export type ShareWorkspaceViewState = {
   readonly status: ShareConnectionStatus;
   readonly scene: WorkspaceScene | null;
-  readonly terminals: ReadonlyMap<string, RenderedTerminalGrid>;
+  readonly terminals: ReadonlyMap<string, RenderedGhosttyTerminal>;
   readonly participants: ReadonlyMap<string, ShareParticipant>;
   readonly pointers: ReadonlyMap<string, SharePointer>;
   readonly chat: readonly ShareChatMessage[];
@@ -63,6 +63,7 @@ export class ShareWorkspaceConnection {
   private clientId: string | null = null;
   private readonly documents = new Map<string, ReplicatedTextDocument>();
   private readonly compositions = new Map<string, TextCompositionSnapshot>();
+  private readonly terminalRenderer = new GhosttyTerminalRenderer();
   private state = initialShareWorkspaceViewState;
   private socket: WebSocket | null = null;
   private abortController: AbortController | null = null;
@@ -88,6 +89,7 @@ export class ShareWorkspaceConnection {
     this.retryTimer = null;
     this.socket?.close(1000, "viewer_closed");
     this.socket = null;
+    this.terminalRenderer.dispose();
   }
 
   pointer(x: number, y: number, layoutRevision: number, targetId?: string): void {
@@ -221,7 +223,7 @@ export class ShareWorkspaceConnection {
       }
       return;
     }
-    if (frame.type === "terminal.grid") {
+    if (frame.type === "terminal.vt") {
       this.applyTerminal(payload.frame ?? payload);
       return;
     }
@@ -299,16 +301,19 @@ export class ShareWorkspaceConnection {
   }
 
   private applyTerminal(value: unknown): void {
-    const frame = normalizeTerminalFrame(value);
+    const frame = normalizeTerminalVtFrame(value);
     if (!frame) return;
-    const terminals = new Map(this.state.terminals);
-    const next = applyTerminalGridFrame(terminals.get(frame.surface_id), frame);
-    if (!next) {
-      this.send("workspace.resync.request", { reason: "terminal_sequence" });
-      return;
-    }
-    terminals.set(frame.surface_id, next);
-    this.patch({ terminals });
+    void this.terminalRenderer.apply(frame).then((result) => {
+      if (this.disposed) return;
+      if (result.status === "resync") {
+        this.send("workspace.resync.request", { reason: "terminal_sequence" });
+        return;
+      }
+      if (result.status !== "rendered") return;
+      const terminals = new Map(this.state.terminals);
+      terminals.set(result.terminal.surfaceId, result.terminal);
+      this.patch({ terminals });
+    });
   }
 
   private installDocument(value: unknown): void {
