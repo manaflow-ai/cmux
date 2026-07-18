@@ -27205,7 +27205,11 @@ const CMUXSessionRestore = async (ctx) => {
   globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
   return {
     dispose: async () => {
-      await drainHooksForShutdown();
+      try {
+        await drainHooksForShutdown();
+      } finally {
+        delete globalThis[CMUX_PLUGIN_INSTALLED_KEY];
+      }
     },
     event: async ({ event }) => {
       trackMessage(event);
