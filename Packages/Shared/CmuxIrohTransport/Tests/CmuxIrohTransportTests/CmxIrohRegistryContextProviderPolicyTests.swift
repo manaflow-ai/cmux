@@ -303,4 +303,42 @@ extension CmxIrohRegistryContextProviderTests {
             }
         }
     }
+
+    @Test
+    func pairGrantRateLimitSuppressesBrokerRequestsUntilRetryDeadline() async throws {
+        let fixture = try RegistryFixture()
+        let clock = TestRegistryClock(fixture.now)
+        let rateLimit = CmxIrohTrustBrokerClientError.rateLimited(
+            code: "pair_grant_hour_quota",
+            retryAfterSeconds: 120
+        )
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(targetHints: []),
+            pairGrantResponses: [],
+            pairGrantError: rateLimit
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [] },
+            now: { clock.value() }
+        )
+        let request = try fixture.request(hints: [])
+
+        await #expect(throws: rateLimit) {
+            try await provider.context(for: request)
+        }
+        await #expect(throws: rateLimit) {
+            try await provider.context(for: request)
+        }
+        #expect(await broker.pairGrantRequestCount() == 1)
+
+        clock.set(fixture.now.addingTimeInterval(121))
+        await #expect(throws: rateLimit) {
+            try await provider.context(for: request)
+        }
+        #expect(await broker.pairGrantRequestCount() == 2)
+    }
 }

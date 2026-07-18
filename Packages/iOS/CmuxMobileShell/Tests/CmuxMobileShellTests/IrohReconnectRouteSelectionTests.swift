@@ -946,6 +946,49 @@ extension ReconnectRouteSelectionTests {
         #expect(store.activeRoute?.kind == .iroh)
     }
 
+    @Test func switchRejectsDisplayCacheRowRemovedFromAuthoritativeStore() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "test-mac", instanceTag: "stable")
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try iroh()],
+            instanceTag: "stable",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "iroh-store-authority-\(UUID().uuidString)"
+            )!
+        )
+        await store.loadPairedMacs()
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["test-mac"])
+        try await pairedStore.remove(
+            macDeviceID: "test-mac",
+            stackUserID: "user-1",
+            teamID: nil
+        )
+
+        #expect(!(await store.switchToMac(macDeviceID: "test-mac")))
+        #expect(factory.attemptedKinds().isEmpty)
+    }
+
     @Test func foregroundResumeRedialsDeadIrohSessionBeforeUserAction() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -973,6 +1016,95 @@ extension ReconnectRouteSelectionTests {
         }
         #expect(recovered)
         #expect(store.activeRoute?.kind == .iroh)
+    }
+
+    @Test func subscribeStartFailureRedialsPinnedIrohWithoutRawFallback() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        await router.holdSubscribeRequest(number: 1)
+        defer {
+            Task { await router.releaseAllHeld() }
+        }
+        let store = try await makeReconnectStore(
+            routes: [try tailscale(), try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            )
+        )
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let firstTransport = try #require(box.get())
+        let firstSubscribeStarted = try await pollUntil {
+            await router.count(of: "mobile.events.subscribe") == 1
+        }
+        #expect(firstSubscribeStarted)
+
+        // Model the Mac restarting while the first subscription handshake is
+        // in flight. Recovery must discard this stale shell and authenticate a
+        // fresh Iroh session to the same persisted Mac without trying the
+        // secondary raw Tailscale route.
+        await firstTransport.close()
+
+        let recovered = try await pollUntil {
+            guard let replacement = box.get() else { return false }
+            let subscribeCount = await router.count(of: "mobile.events.subscribe")
+            let workspaceListCount = await router.count(of: "workspace.list")
+            return replacement !== firstTransport
+                && store.connectionState == .connected
+                && store.activeRoute?.kind == .iroh
+                && subscribeCount >= 2
+                && workspaceListCount >= 2
+        }
+        #expect(recovered)
+        #expect(factory.attemptedKinds() == [.iroh, .iroh])
+    }
+
+    @Test func repeatedSubscribeStartFailureStopsAfterOneIrohRedial() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        await router.holdSubscribeRequest(number: 1)
+        await router.holdSubscribeRequest(number: 2)
+        defer {
+            Task { await router.releaseAllHeld() }
+        }
+        let store = try await makeReconnectStore(
+            routes: [try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            )
+        )
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let firstTransport = try #require(box.get())
+        #expect(try await pollUntil {
+            await router.count(of: "mobile.events.subscribe") == 1
+        })
+        await firstTransport.close()
+
+        let replacementStarted = try await pollUntil {
+            guard let replacement = box.get(), replacement !== firstTransport else {
+                return false
+            }
+            return await router.count(of: "mobile.events.subscribe") == 2
+        }
+        #expect(replacementStarted)
+        let replacement = try #require(box.get())
+        await replacement.close()
+
+        let stopped = try await pollUntil {
+            store.connectionState == .disconnected
+                && store.connectionRecoveryFailed
+        }
+        #expect(stopped)
+        #expect(factory.attemptedKinds() == [.iroh, .iroh])
     }
 
     @Test func storedReconnectPinsIrohAndExcludesRawFallbacks() throws {
