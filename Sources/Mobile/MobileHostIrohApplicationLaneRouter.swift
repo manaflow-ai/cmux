@@ -255,27 +255,9 @@ actor MobileHostIrohApplicationLaneRouter {
             let frames = try await lane.frames()
             for try await frame in frames {
                 try Task.checkCancellation()
-                switch frame.kind {
-                case .replay:
-                    guard frame.data.count <=
-                            CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount else {
-                        throw MobileTerminalDataPlaneError.streamOverflow
-                    }
-                    let envelope = try CmxIrohTerminalOutputEnvelope(
-                        kind: .replay,
-                        retainedBaseSequence: frame.retainedBaseSequence,
-                        sequence: frame.sequence,
-                        currentSequence: frame.currentSequence,
-                        payload: frame.data
-                    )
+                for envelope in try terminalOutputEnvelopes(for: frame) {
                     try await stream.sendStream.send(
                         CmxIrohTerminalOutputEnvelopeCodec().encode(envelope)
-                    )
-                case .chunk:
-                    try await sendTerminalOutputChunks(
-                        frame.data,
-                        startingAt: frame.sequence,
-                        stream: stream
                     )
                 }
             }
@@ -287,31 +269,59 @@ actor MobileHostIrohApplicationLaneRouter {
         }
     }
 
-    private nonisolated static func sendTerminalOutputChunks(
-        _ data: Data,
-        startingAt startingSequence: UInt64,
-        stream: CmxIrohBidirectionalStream
-    ) async throws {
-        let codec = CmxIrohTerminalOutputEnvelopeCodec()
+    /// Splits one logical data-plane frame into bounded wire envelopes. A
+    /// replay always starts with exactly one replay envelope, including when it
+    /// is empty; continuation bytes use ordinary chunk envelopes so the phone
+    /// still observes only one replay marker per lane.
+    nonisolated static func terminalOutputEnvelopes(
+        for frame: MobileTerminalDataPlaneFrame
+    ) throws -> [CmxIrohTerminalOutputEnvelope] {
+        let (expectedCurrentSequence, overflow) = frame.sequence.addingReportingOverflow(
+            UInt64(frame.data.count)
+        )
+        guard !overflow,
+              frame.retainedBaseSequence <= frame.sequence,
+              expectedCurrentSequence == frame.currentSequence else {
+            throw MobileTerminalDataPlaneError.cursorGap
+        }
+        if frame.data.isEmpty {
+            guard frame.kind == .replay else { return [] }
+            return [try CmxIrohTerminalOutputEnvelope(
+                kind: .replay,
+                retainedBaseSequence: frame.retainedBaseSequence,
+                sequence: frame.sequence,
+                currentSequence: frame.currentSequence,
+                payload: Data()
+            )]
+        }
+
+        var envelopes: [CmxIrohTerminalOutputEnvelope] = []
+        envelopes.reserveCapacity(
+            (frame.data.count + CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount - 1)
+                / CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount
+        )
         var offset = 0
-        while offset < data.count {
+        while offset < frame.data.count {
             let payloadByteCount = min(
                 CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount,
-                data.count - offset
+                frame.data.count - offset
             )
-            let payload = Data(data[offset ..< (offset + payloadByteCount)])
-            let sequence = startingSequence + UInt64(offset)
+            let payload = Data(frame.data[offset ..< (offset + payloadByteCount)])
+            let sequence = frame.sequence + UInt64(offset)
             let currentSequence = sequence + UInt64(payloadByteCount)
-            let envelope = try CmxIrohTerminalOutputEnvelope(
-                kind: .chunk,
-                retainedBaseSequence: sequence,
+            envelopes.append(try CmxIrohTerminalOutputEnvelope(
+                kind: offset == 0 && frame.kind == .replay ? .replay : .chunk,
+                retainedBaseSequence: offset == 0 ? frame.retainedBaseSequence : sequence,
                 sequence: sequence,
                 currentSequence: currentSequence,
                 payload: payload
-            )
-            try await stream.sendStream.send(codec.encode(envelope))
+            ))
             offset += payloadByteCount
         }
+        guard envelopes.last?.currentSequence == frame.currentSequence else {
+            throw MobileTerminalDataPlaneError.cursorGap
+        }
+        return envelopes
     }
 
     private nonisolated static func terminalSurfaceID(

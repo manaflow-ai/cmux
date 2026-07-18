@@ -281,6 +281,13 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
     static let defaultMaximumPendingReplayCount = 16
     static let defaultMaximumPendingReplayBytes = 16 * 1_024 * 1_024
     static let defaultPendingReplayTTL = Duration.seconds(15)
+    /// Cursorless compatibility lanes use a fixed wire-space offset so a
+    /// synthesized VT snapshot can be represented without pretending its byte
+    /// length is part of cmuxd's canonical raw-output history. The offset is
+    /// stable across reconnects and large enough for every accepted snapshot.
+    static let virtualReplayCursorOffset = UInt64(
+        BackendTerminalCompatibilitySession.maximumReplayBytes
+    )
     /// Slow phones get two one-megabyte output slots in the compatibility
     /// stage and two more in the mobile lane. Both stages fail closed on the
     /// next frame, bounding retention to a few MiB plus transient base64 decode.
@@ -394,26 +401,21 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         cursor: UInt64?
     ) async throws -> any MobileTerminalDataPlaneLane {
         let attachment: MobileBackendTerminalCompatibilityAttachment
+        let cursorSpace: PersistentMobileTerminalDataPlaneLane.CursorSpace
         if let cursor,
            let pending = takeOldestPending(surfaceID: surfaceID, cursor: cursor) {
             attachment = pending.attachment
-        } else if cursor != nil, pendingIDsBySurfaceID[surfaceID]?.isEmpty == false {
-            // Preserve valid handoffs for other clients. A mismatched cursor
-            // is rejected before returning a lane, so the router can send its
-            // explicit cursor-gap code immediately.
-            throw MobileTerminalDataPlaneError.cursorGap
+            cursorSpace = .canonicalHandoff
         } else {
             attachment = try await sessionFactory(surfaceID)
-            if let cursor, cursor != attachment.snapshot.sequence {
-                await attachment.session.close()
-                throw MobileTerminalDataPlaneError.cursorGap
-            }
+            cursorSpace = .virtualReplay
         }
         do {
             return try await PersistentMobileTerminalDataPlaneLane(
                 session: attachment.session,
                 snapshot: attachment.snapshot,
-                requestedCursor: cursor
+                requestedCursor: cursor,
+                cursorSpace: cursorSpace
             )
         } catch {
             await attachment.session.close()
@@ -525,6 +527,15 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
 }
 
 private actor PersistentMobileTerminalDataPlaneLane: MobileTerminalDataPlaneLane {
+    enum CursorSpace: Sendable {
+        /// The RPC replay call already delivered the synthesized snapshot. Its
+        /// pending attach connection continues at cmuxd's canonical cursor.
+        case canonicalHandoff
+        /// A direct lane represents the snapshot in a separate, fixed-offset
+        /// wire coordinate space and maps later raw output into that space.
+        case virtualReplay
+    }
+
     private let session: any MobileBackendTerminalCompatibilitySession
     private let stream: AsyncThrowingStream<MobileTerminalDataPlaneFrame, any Error>
     private var producer: Task<Void, Never>?
@@ -533,15 +544,34 @@ private actor PersistentMobileTerminalDataPlaneLane: MobileTerminalDataPlaneLane
     init(
         session: any MobileBackendTerminalCompatibilitySession,
         snapshot: BackendTerminalCompatibilitySnapshot,
-        requestedCursor: UInt64?
+        requestedCursor: UInt64?,
+        cursorSpace: CursorSpace
     ) async throws {
-        guard UInt64(snapshot.replay.count) <= snapshot.sequence else {
+        guard snapshot.replay.count <= BackendTerminalCompatibilitySession.maximumReplayBytes else {
             await session.close()
-            throw MobileTerminalDataPlaneError.cursorGap
+            throw MobileTerminalDataPlaneError.streamOverflow
         }
-        if let requestedCursor, requestedCursor != snapshot.sequence {
-            await session.close()
-            throw MobileTerminalDataPlaneError.cursorGap
+        let transportBase: UInt64
+        switch cursorSpace {
+        case .canonicalHandoff:
+            guard requestedCursor == snapshot.sequence else {
+                await session.close()
+                throw MobileTerminalDataPlaneError.cursorGap
+            }
+            transportBase = snapshot.sequence
+        case .virtualReplay:
+            do {
+                transportBase = try snapshot.sequence.addingWithoutOverflow(
+                    PersistentMobileTerminalDataPlane.virtualReplayCursorOffset
+                )
+            } catch {
+                await session.close()
+                throw error
+            }
+            if let requestedCursor, requestedCursor != transportBase {
+                await session.close()
+                throw MobileTerminalDataPlaneError.cursorGap
+            }
         }
         self.session = session
         let source = try await session.events()
@@ -554,12 +584,6 @@ private actor PersistentMobileTerminalDataPlaneLane: MobileTerminalDataPlaneLane
         producer = Task {
             do {
                 let sourceBase = snapshot.sequence
-                let transportBase: UInt64
-                if let requestedCursor {
-                    transportBase = requestedCursor
-                } else {
-                    transportBase = snapshot.sequence
-                }
                 var emittedInitial = false
                 for try await event in source {
                     try Task.checkCancellation()

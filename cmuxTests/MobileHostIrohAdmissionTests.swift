@@ -397,6 +397,148 @@ extension MobileHostAuthorizationTests {
         #expect(await plane.pendingReplayCountForTesting() == 0)
     }
 
+    @Test func persistentDirectLaneUsesStableVirtualCursorAcrossChangedSnapshots() async throws {
+        let surfaceID = UUID()
+        let factory = RecordingMobileCompatibilitySessionFactory(
+            sequences: [6, 10],
+            replayByteCounts: [300 * 1_024, 8]
+        )
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID in
+                await factory.make(surfaceID: surfaceID)
+            },
+            maximumPendingReplayCount: 1,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { _ in }
+        )
+
+        let lane = try await plane.openLane(surfaceID: surfaceID, cursor: nil)
+        var iterator = try await lane.frames().makeAsyncIterator()
+        let replay = try #require(try await iterator.next())
+        let virtualCursor = UInt64(6) + PersistentMobileTerminalDataPlane.virtualReplayCursorOffset
+        #expect(replay.kind == .replay)
+        #expect(replay.data.count == 300 * 1_024)
+        #expect(replay.sequence == virtualCursor - UInt64(300 * 1_024))
+        #expect(replay.currentSequence == virtualCursor)
+
+        let firstSession = try #require((await factory.allSessions()).first)
+        await firstSession.emitOutput(startSequence: 6, data: Data("next".utf8))
+        let output = try #require(try await iterator.next())
+        #expect(output.kind == .chunk)
+        #expect(output.sequence == virtualCursor)
+        #expect(output.currentSequence == virtualCursor + 4)
+        await lane.close()
+
+        // The synthesized snapshot shrank from 300 KiB to 8 bytes. Reconnect
+        // still resumes at daemon cursor 10 plus the fixed virtual offset.
+        let resumed = try await plane.openLane(
+            surfaceID: surfaceID,
+            cursor: virtualCursor + 4
+        )
+        var resumedIterator = try await resumed.frames().makeAsyncIterator()
+        let baseline = try #require(try await resumedIterator.next())
+        #expect(baseline.kind == .replay)
+        #expect(baseline.data.isEmpty)
+        #expect(baseline.sequence == virtualCursor + 4)
+        #expect(baseline.currentSequence == virtualCursor + 4)
+        await resumed.close()
+    }
+
+    @Test func persistentRPCHandoffStaysOnCanonicalDaemonCursor() async throws {
+        let surfaceID = UUID()
+        let factory = RecordingMobileCompatibilitySessionFactory(
+            sequences: [6],
+            replayByteCounts: [8]
+        )
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID in
+                await factory.make(surfaceID: surfaceID)
+            },
+            maximumPendingReplayCount: 1,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { _ in }
+        )
+
+        let rpcReplay = try await plane.replay(surfaceID: surfaceID)
+        #expect(rpcReplay.sequence == 6)
+        #expect(rpcReplay.data.count == 8)
+        let lane = try await plane.openLane(surfaceID: surfaceID, cursor: 6)
+        var iterator = try await lane.frames().makeAsyncIterator()
+        let baseline = try #require(try await iterator.next())
+        #expect(baseline.kind == .replay)
+        #expect(baseline.data.isEmpty)
+        #expect(baseline.sequence == 6)
+        #expect(baseline.currentSequence == 6)
+
+        let session = try #require((await factory.allSessions()).first)
+        await session.emitOutput(startSequence: 6, data: Data("x".utf8))
+        let output = try #require(try await iterator.next())
+        #expect(output.sequence == 6)
+        #expect(output.currentSequence == 7)
+        await lane.close()
+    }
+
+    @Test func persistentDirectLaneCursorOffsetOverflowFailsClosed() async throws {
+        let offset = PersistentMobileTerminalDataPlane.virtualReplayCursorOffset
+        let factory = RecordingMobileCompatibilitySessionFactory(
+            sequences: [UInt64.max - offset + 1],
+            replayByteCounts: [1]
+        )
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID in
+                await factory.make(surfaceID: surfaceID)
+            },
+            maximumPendingReplayCount: 1,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { _ in }
+        )
+
+        await #expect(throws: MobileTerminalDataPlaneError.cursorGap) {
+            _ = try await plane.openLane(surfaceID: UUID(), cursor: nil)
+        }
+        let session = try #require((await factory.allSessions()).first)
+        #expect(await session.eventClaimCount() == 0)
+        #expect(await session.closeCount() == 1)
+    }
+
+    @Test func irohReplayEnvelopeSegmentationPreservesContiguousCoverage() throws {
+        let payload = Data(repeating: 0x61, count: 300 * 1_024)
+        let start: UInt64 = 900
+        let frame = MobileTerminalDataPlaneFrame(
+            kind: .replay,
+            retainedBaseSequence: start,
+            sequence: start,
+            currentSequence: start + UInt64(payload.count),
+            data: payload
+        )
+
+        let envelopes = try MobileHostIrohApplicationLaneRouter
+            .terminalOutputEnvelopes(for: frame)
+        #expect(envelopes.count == 2)
+        #expect(envelopes[0].kind == .replay)
+        #expect(envelopes[0].payload.count == CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount)
+        #expect(envelopes[0].sequence == start)
+        #expect(envelopes[1].kind == .chunk)
+        #expect(envelopes[1].sequence == envelopes[0].currentSequence)
+        #expect(envelopes[1].currentSequence == frame.currentSequence)
+        var reconstructed = Data()
+        for envelope in envelopes { reconstructed.append(envelope.payload) }
+        #expect(reconstructed == payload)
+
+        let empty = try MobileHostIrohApplicationLaneRouter.terminalOutputEnvelopes(
+            for: MobileTerminalDataPlaneFrame(
+                kind: .replay,
+                retainedBaseSequence: 42,
+                sequence: 42,
+                currentSequence: 42,
+                data: Data()
+            )
+        )
+        #expect(empty.count == 1)
+        #expect(empty[0].kind == .replay)
+        #expect(empty[0].payload.isEmpty)
+    }
+
     @Test func consumedReplayCancelsExpiryAndLaneFramesHaveOneConsumer() async throws {
         let surfaceID = UUID()
         let factory = RecordingMobileCompatibilitySessionFactory(sequences: [7])
@@ -444,7 +586,7 @@ extension MobileHostAuthorizationTests {
             pendingReplayTTL: .seconds(30),
             pendingSleep: { _ in }
         )
-        let lane = try await plane.openLane(surfaceID: surfaceID, cursor: 7)
+        let lane = try await plane.openLane(surfaceID: surfaceID, cursor: nil)
         let frames = try await lane.frames()
         let session = try #require((await factory.allSessions()).first)
 
@@ -541,7 +683,7 @@ private actor RecordingMobileCompatibilitySessionFactory {
     func make(surfaceID: UUID) -> MobileBackendTerminalCompatibilityAttachment {
         let sequence = sequences.isEmpty ? 0 : sequences.removeFirst()
         let requestedReplayBytes = replayByteCounts.isEmpty ? 4 : replayByteCounts.removeFirst()
-        let replayBytes = min(requestedReplayBytes, Int(clamping: sequence))
+        let replayBytes = max(0, requestedReplayBytes)
         let snapshot = BackendTerminalCompatibilitySnapshot(
             surfaceID: SurfaceID(rawValue: surfaceID),
             runtimeEpoch: 1,

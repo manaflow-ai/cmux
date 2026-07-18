@@ -53,14 +53,14 @@ struct BackendTerminalCompatibilitySessionTests {
         await fixture.session.close()
     }
 
-    @Test("a snapshot cannot retain bytes before sequence zero")
-    func malformedSnapshotReplayRange() async {
-        await #expect(throws: BackendTerminalCompatibilityError.invalidEvent("vt-state")) {
-            _ = try await attachedFixture(
-                sequence: 3,
-                replay: Data("four".utf8)
-            )
-        }
+    @Test("synthesized snapshot bytes are independent from the raw-output cursor")
+    func snapshotReplayMayExceedSequence() async throws {
+        let replay = Data("snapshot".utf8)
+        let fixture = try await attachedFixture(sequence: 3, replay: replay)
+
+        #expect(fixture.snapshot.sequence == 3)
+        #expect(fixture.snapshot.replay == replay)
+        await fixture.session.close()
     }
 
     @Test("resize starts a replacement generation at the exact cursor")

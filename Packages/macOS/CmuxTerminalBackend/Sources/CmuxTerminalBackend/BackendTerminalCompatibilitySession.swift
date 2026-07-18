@@ -420,9 +420,6 @@ public actor BackendTerminalCompatibilitySession {
             event.fields[replayKey],
             maximumBytes: Self.maximumReplayBytes
         )
-        guard UInt64(replay.count) <= sequence else {
-            throw BackendTerminalCompatibilityError.invalidEvent(event.name)
-        }
         return BackendTerminalCompatibilitySnapshot(
             surfaceID: resolvedSurface.surfaceID,
             runtimeEpoch: identity.runtimeEpoch,
