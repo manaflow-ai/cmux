@@ -902,6 +902,13 @@ struct AgentHookDeliveryQueueTests {
         let root = try temporaryDirectory(named: "credential-migration")
         defer { try? FileManager.default.removeItem(at: root) }
         let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let rawLaunchArguments = [
+            "/usr/local/bin/codex",
+            "--remote", "wss://relay.example.test/session?token=legacy-argv-secret",
+            "--model", "gpt-5.4",
+            "legacy prompt secret",
+        ]
+        let rawLaunchArgumentsBase64 = nulSeparatedBase64(rawLaunchArguments)
         let secretEnvironment: [String: String] = [
             "OPENAI_API_KEY": "legacy-openai-api-secret",
             "AWS_CONTAINER_AUTHORIZATION_TOKEN": "legacy-container-auth-secret",
@@ -910,28 +917,55 @@ struct AgentHookDeliveryQueueTests {
             "OPENAI_ADMIN_KEY": "legacy-openai-admin-secret",
             "OPENAI_BEARER_TOKEN": "legacy-openai-bearer-secret",
             "HTTPS_PROXY": "https://legacy-user:legacy-password@proxy.example.test:8443",
-            "ANTHROPIC_BASE_URL": "https://legacy-user:legacy-password@api.example.test/v1",
+            "HERMES_CODEX_BASE_URL": "https://legacy-user:legacy-password@api.example.test/v1",
             "OPENAI_BASE_URL": "https://api.example.test/v1?access_token=legacy-query-secret",
+        ]
+        let newlyUnsafeEnvironment: [String: String] = [
+            "CMUX_AGENT_LAUNCH_ARGV_B64": rawLaunchArgumentsBase64,
+            "CMUX_AGENT_LAUNCH_KIND": "codex",
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI":
+                "http://169.254.170.2/v2/credentials/legacy-path-capability",
+            "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI":
+                "/v2/credentials/legacy-path-capability",
+            "GOOGLE_CREDENTIALS_JSON":
+                #"{"type":"service_account","private_key":"legacy-provider-blob-secret"}"#,
+            "AWS_CREDENTIAL_PROVIDER_BLOB":
+                "[default]\naws_access_key_id=legacy-provider-blob-secret",
+            "OPENROUTER_BASE_URL":
+                "https://api.example.test/v1?sig=legacy-signed-url-secret",
+            "XAI_BASE_URL":
+                "api.example.test/not-an-absolute-url",
+            "OPENAI_EXPERIMENTAL_PROVIDER_STATE":
+                "legacy-unknown-provider-value",
         ]
         let durableLocators: [String: String] = [
             "AWS_CONFIG_FILE": "/tmp/aws-config",
             "AWS_SHARED_CREDENTIALS_FILE": "/tmp/aws-credentials",
             "AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/aws-web-identity-token",
+            "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE": "/tmp/aws-container-authorization-token",
             "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/google-credentials.json",
-            "XAI_BASE_URL": "https://api.x.ai/v1",
+            "ANTHROPIC_BASE_URL": "https://api.anthropic.com/v1",
             "HTTP_PROXY": "http://127.0.0.1:8080",
         ]
         var environment = testEnvironment(root: root)
         environment.merge(secretEnvironment, uniquingKeysWith: { _, new in new })
+        environment.merge(newlyUnsafeEnvironment, uniquingKeysWith: { _, new in new })
         environment.merge(durableLocators, uniquingKeysWith: { _, new in new })
         let legacy = try #require(makeEvent(
             deliveryID: "legacy-credential-row",
             payload: Data("legacy".utf8),
             environment: environment
         ))
+        let legacyDigest = contentDigest(
+            agent: legacy.agent,
+            subcommand: legacy.subcommand,
+            payload: legacy.payload,
+            environment: legacy.environment
+        )
         try createLegacyDeliveryDatabase(
             at: databaseURL,
             event: legacy,
+            contentDigest: legacyDigest,
             nextAttemptAt: Date().addingTimeInterval(3_600).timeIntervalSince1970
         )
 
@@ -953,14 +987,48 @@ struct AgentHookDeliveryQueueTests {
         for key in secretEnvironment.keys {
             #expect(stored[key] == nil)
         }
+        for key in newlyUnsafeEnvironment.keys where key != "CMUX_AGENT_LAUNCH_KIND" {
+            if key == "CMUX_AGENT_LAUNCH_ARGV_B64" {
+                let sanitized = try #require(stored[key])
+                #expect(decodedNulSeparatedBase64(sanitized) == [
+                    "/usr/local/bin/codex", "--model", "gpt-5.4",
+                ])
+                #expect(sanitized != rawLaunchArgumentsBase64)
+            } else {
+                #expect(stored[key] == nil)
+            }
+        }
+        #expect(stored["CMUX_AGENT_LAUNCH_KIND"] == "codex")
         for (key, value) in durableLocators {
             #expect(stored[key] == value)
         }
 
+        let storedDigest = try storedContentDigest(
+            databaseURL: databaseURL,
+            deliveryID: legacy.deliveryID
+        )
+        #expect(storedDigest == contentDigest(
+            agent: legacy.agent,
+            subcommand: legacy.subcommand,
+            payload: legacy.payload,
+            environment: stored
+        ))
+        #expect(storedDigest != legacyDigest)
+        try queue.enqueue(legacy)
+
         for file in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
             where file.lastPathComponent.hasPrefix("deliveries.sqlite3") {
             let bytes = try Data(contentsOf: file)
-            for secret in secretEnvironment.values {
+            for secret in Array(secretEnvironment.values) + [
+                rawLaunchArgumentsBase64,
+                newlyUnsafeEnvironment["AWS_CONTAINER_CREDENTIALS_FULL_URI"] ?? "",
+                newlyUnsafeEnvironment["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"] ?? "",
+                newlyUnsafeEnvironment["GOOGLE_CREDENTIALS_JSON"] ?? "",
+                newlyUnsafeEnvironment["AWS_CREDENTIAL_PROVIDER_BLOB"] ?? "",
+                newlyUnsafeEnvironment["OPENROUTER_BASE_URL"] ?? "",
+                newlyUnsafeEnvironment["XAI_BASE_URL"] ?? "",
+                newlyUnsafeEnvironment["OPENAI_EXPERIMENTAL_PROVIDER_STATE"] ?? "",
+            ] where !secret.isEmpty {
                 #expect(bytes.range(of: Data(secret.utf8)) == nil)
             }
         }
@@ -2024,6 +2092,47 @@ struct AgentHookDeliveryQueueTests {
         }
         let count = Int(sqlite3_column_bytes(statement, 0))
         return String(decoding: Data(bytes: bytes, count: count), as: UTF8.self)
+    }
+
+    private func storedContentDigest(databaseURL: URL, deliveryID: String) throws -> Data {
+        var database: OpaquePointer?
+        let openStatus = sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil)
+        guard openStatus == SQLITE_OK, let database else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(openStatus))
+        }
+        defer { sqlite3_close(database) }
+        var statement: OpaquePointer?
+        let prepareStatus = sqlite3_prepare_v2(
+            database,
+            "SELECT content_digest FROM agent_hook_deliveries WHERE delivery_id = ? LIMIT 1;",
+            -1,
+            &statement,
+            nil
+        )
+        guard prepareStatus == SQLITE_OK, let statement else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(prepareStatus))
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, deliveryID, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              let bytes = sqlite3_column_blob(statement, 0) else {
+            throw NSError(domain: "AgentHookDeliveryQueueTests", code: 998)
+        }
+        return Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, 0)))
+    }
+
+    private func nulSeparatedBase64(_ values: [String]) -> String {
+        var data = Data()
+        for value in values {
+            data.append(contentsOf: value.utf8)
+            data.append(0)
+        }
+        return data.base64EncodedString()
+    }
+
+    private func decodedNulSeparatedBase64(_ value: String) -> [String]? {
+        guard let data = Data(base64Encoded: value) else { return nil }
+        return data.split(separator: 0).compactMap { String(data: $0, encoding: .utf8) }
     }
 
     private func createLegacyDeliveryDatabase(
