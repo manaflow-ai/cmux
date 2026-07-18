@@ -32,7 +32,7 @@ cargo run -p cmux-tui -- --headless --session agents
 cargo run -p cmux-tui -- attach --session agents
 ```
 
-The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
+The default session is `main`. Default sockets use `XDG_RUNTIME_DIR`, then `TMPDIR`, then `/tmp`, under `cmux-tui-<uid>/<session>.sock`; empty values are ignored. On Darwin, paths over 103 filesystem bytes fall back to `/tmp/cmux-tui-<uid>` and are never truncated. Use `--socket <path>` for an explicit path. cmux's launch agent passes `--app-service-layout`, which always uses `/tmp/cmux-tui-<uid>` plus the native account home for persistent state so the app and service cannot diverge through environment variables. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_TUI_TERM` can override the process default in the surface layer, with `CMUX_MUX_TERM` retained as a legacy fallback.
 

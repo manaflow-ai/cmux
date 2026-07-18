@@ -1,4 +1,10 @@
-import { CmuxClient, CmuxCommandError, CmuxTimeoutError, Tree } from "../src/index.js";
+import {
+  CmuxClient,
+  CmuxCommandError,
+  CmuxTimeoutError,
+  Tree,
+  UUID,
+} from "../src/index.js";
 
 async function main(): Promise<void> {
   const socketPath = process.env.CMUX_TUI_SOCKET || process.env.CMUX_MUX_SOCKET;
@@ -10,7 +16,21 @@ async function main(): Promise<void> {
   try {
     const identify = await client.identify();
     assert(identify.app === "cmux-tui", `unexpected app ${identify.app}`);
-    assert(identify.protocol >= 5 && identify.protocol <= 7, `unsupported protocol ${identify.protocol}`);
+    assert(identify.protocol >= 5 && identify.protocol <= 8, `unsupported protocol ${identify.protocol}`);
+    assert(
+      identify.protocol >= 8 && identify.capabilities?.includes("topology-resume-v1"),
+      "server omitted protocol-v8 topology capabilities",
+    );
+    assert(identify.canonical_topology_revision !== undefined, "identify omitted canonical revision");
+    const ping = await client.ping();
+    assert(ping.ok, "ping reported false");
+    assert(ping.session_id === identify.session_id, "ping session authority changed");
+    assert(ping.daemon_instance_id === identify.daemon_instance_id, "ping daemon authority changed");
+    assert(ping.topology_revision === identify.topology_revision, "ping legacy revision changed");
+    assert(
+      ping.canonical_topology_revision === identify.canonical_topology_revision,
+      "ping canonical revision changed",
+    );
 
     const created = await client.newWorkspace({ name: marker, cols: 80, rows: 24 });
     await client.send(created.surface, { text: `printf '${marker}\\n'\r` });
@@ -22,15 +42,50 @@ async function main(): Promise<void> {
     const workspaceId = findWorkspaceForSurface(tree, created.surface);
     assert(workspaceId !== undefined, "new workspace not found");
 
-    await client.renameSurface(created.surface, `${marker}-renamed`);
+    const snapshot = await client.topologySnapshot();
+    const canonical = snapshot.topology.workspaces.find((workspace) =>
+      workspace.screens.some((screen) =>
+        screen.panes.some((pane) => pane.tabs.some((tab) => tab.id === created.surface))));
+    assert(canonical?.id === workspaceId, "canonical topology omitted the new workspace");
+    const topology = await client.subscribeTopology({
+      daemon_instance_id: snapshot.daemon_instance_id,
+      session_id: snapshot.session_id,
+      revision: snapshot.revision,
+    });
+    assert(topology.status === "subscribed", `fresh snapshot required resnapshot: ${JSON.stringify(topology)}`);
+    await client.renameWorkspace(workspaceId!, `${marker}-topology`);
+    const topologyEvent = await stage("topology rename delta", topology.stream.next(2000));
+    assert(topologyEvent.event === "topology-delta", `unexpected topology event ${JSON.stringify(topologyEvent)}`);
+    if (topologyEvent.event === "topology-delta") {
+      assert(topologyEvent.operation === "workspace-renamed", "wrong topology operation");
+      assert(topologyEvent.base_revision === snapshot.revision, "wrong topology base revision");
+      assert(topologyEvent.revision === snapshot.revision + 1, "wrong topology revision");
+    }
+    topology.stream.close();
+    const stale = await client.subscribeTopology({
+      daemon_instance_id: "00000000-0000-0000-0000-000000000001" as UUID,
+      session_id: snapshot.session_id,
+      revision: snapshot.revision,
+    });
+    assert(stale.status === "resnapshot-required", "stale daemon cursor unexpectedly subscribed");
+    if (stale.status === "resnapshot-required") {
+      assert(stale.reason === "stale-daemon", `wrong stale cursor reason ${stale.reason}`);
+    }
+
     const events = await client.subscribe();
     const title = `${marker}-title`;
-    await client.send(created.surface, { text: `printf '\\033]2;${title}\\007'; sleep 5\r` });
-    const titleChanged = await nextTitleChanged(events, created.surface, title, 3000);
+    await client.send(created.surface, { text: `printf '\\033]2;${title}\\007'; sleep 30\r` });
+    const titleChanged = await stage(
+      "OSC title event",
+      nextTitleChanged(events, created.surface, title, 3000),
+    );
     assert(titleChanged.title === title, `bad title event ${JSON.stringify(titleChanged)}`);
     await client.send(created.surface, { text: "\x03" });
     await client.resizeSurface(created.surface, 100, 31);
-    const resized = await nextSurfaceResized(events, created.surface, 1000);
+    const resized = await stage(
+      "surface resize event",
+      nextSurfaceResized(events, created.surface, 1000),
+    );
     assert(resized.cols === 100 && resized.rows === 31, `bad resize event ${JSON.stringify(resized)}`);
     await client.resizeSurface(created.surface, 100, 31);
     const duplicate = await nextSurfaceResized(events, created.surface, 500).catch((err) => {
@@ -39,12 +94,13 @@ async function main(): Promise<void> {
     });
     assert(duplicate === null, "same-size resize emitted surface-resized");
     events.close();
+    await client.renameSurface(created.surface, `${marker}-renamed`);
 
     const attach = await client.attachSurface(created.surface);
-    const first = await attach.next(1000);
+    const first = await stage("initial attach state", attach.next(1000));
     assert(first.event === "vt-state", `first attach event was ${first.event}`);
     await client.send(created.surface, { text: `printf '${later}\\n'\r` });
-    const output = await nextAttachOutput(attach, 3000);
+    const output = await stage("attach output", nextAttachOutput(attach, 3000));
     assert(output.event === "output" || output.event === "resized", "attach did not produce output/resized after vt-state");
     attach.close();
 
@@ -129,6 +185,14 @@ function findWorkspaceForSurface(tree: Tree, surface: number): number | undefine
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+async function stage<T>(name: string, operation: Promise<T>): Promise<T> {
+  try {
+    return await operation;
+  } catch (error) {
+    throw new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 main().catch((err) => {

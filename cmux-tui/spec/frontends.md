@@ -1,6 +1,6 @@
 # Build a cmux-tui Frontend
 
-This is the canonical integration path for an external cmux-tui frontend. This document narrates the protocol-v7 flow, so its capability examples report protocol 7. Protocol v7 rich frontends should consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.
+This is the canonical integration path for an external cmux-tui frontend. Protocol v8 frontends use the canonical topology snapshot/resume stream and consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.
 
 The complete command schemas are in [`commands.md`](commands.md), event schemas and scoping are in [`events.md`](events.md), and styled-cell details are in [`render.md`](render.md).
 
@@ -20,22 +20,26 @@ Only then send protocol requests. See [`transports.md`](transports.md#authentica
 
 ## 2. Identify And Select Capabilities
 
-Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 7` before enabling protocol-v7 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
+Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"`. Preserve request `id` values and route every non-event response back to the pending request with that id. Select features by named capability.
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":8,"capabilities":["canonical-topology-snapshot-v1","render-attach-v1","stable-entity-uuid-v1","topology-resume-v1"],"session":"main","session_id":"<uuid>","daemon_instance_id":"<uuid>","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
 ```
 
-Require `protocol >= 7` before requesting render mode, `read-scrollback`, or bracketed-paste handling. A frontend may fall back to protocol-v6 byte attach; it must not send v7-only fields to an older server.
+Require `render-attach-v1` before requesting render mode. Require all of `canonical-topology-snapshot-v1`, `stable-entity-uuid-v1`, and `topology-resume-v1` before using protocol-v8 topology synchronization. A frontend may fall back to the protocol-v7 legacy tree flow and protocol-v6 byte attach; it must not send capability-gated fields to an older server.
+
+Supervisors may use `ping` for readiness and continuity checks. Its `session_id`,
+`daemon_instance_id`, `pid`, and `canonical_topology_revision` prove socket
+authority and process continuity without fetching the full topology.
 
 ## 3. Load And Track The Workspace Tree
 
-Open [`subscribe`](commands.md#subscribe) with `tree_events:"deltas"`, buffer events as soon as the request is sent, then fetch [`list-workspaces`](commands.md#list-workspaces). Apply the snapshot before draining the buffer. The subscribe receiver is registered before its success response, so responses and events may race. Omitting `tree_events` selects the protocol-v6-compatible coarse stream instead.
+Fetch [`topology-snapshot`](commands.md#topology-snapshot), persist its `daemon_instance_id`, `session_id`, `revision`, and topology together, then open [`subscribe-topology`](commands.md#subscribe-topology) with that daemon, session, and revision. Registration either succeeds with every retained structural mutation after the snapshot or returns `resnapshot-required`. There is no mutation gap between the snapshot and a successful registration. Keep focus, selection, zoom, and scroll in the connection-owned presentation registry.
 
-Protocol v7 lifecycle events (`workspace-*`, `screen-*`, `pane-*`, and `tab-*`) carry subject ids, parent ids, and exact `list-workspaces` entity payloads. Apply those deltas in stream order. `layout-changed`, surface events, and title events retain their documented focused invalidation paths.
+Check that each `topology-delta` matches the accepted daemon and session and begins at the locally applied revision. Replace canonical topology with its `replacement` and advance to its `revision`. The replacement contains stable UUIDs alongside legacy numeric IDs. Key long-lived frontend objects by UUID; numeric IDs remain command handles for the current daemon.
 
-Always implement `tree-changed`: it is the delta stream's coarse resync fallback for churn and changes not represented by lifecycle deltas. Do not rely on it for ordinary delta-representable mutations. On receipt, fetch a new `list-workspaces` snapshot and treat it as authoritative over older buffered deltas. See the [event-scoping table](events.md#event-scoping) before routing events from a connection with streams.
+On `resnapshot-required` or `topology-resnapshot-required`, discard the cursor, fetch a new atomic snapshot, and open a new topology subscription. Never bridge a daemon change by revision alone, because a restarted daemon can reload the same session identity. The legacy fallback is `subscribe` plus `list-workspaces`; it remains available for protocol-v7 servers.
 
 Initial surface dimensions and smallest-client resize reporting follow the consolidated [`Sizing`](commands.md#sizing) contract.
 
@@ -90,11 +94,11 @@ Each line is one WebSocket text frame. `C>` is client-to-server and `S>` is serv
 ```text
 C> {"auth":{"token":"secret"}}
 C> {"id":1,"cmd":"identify"}
-S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
-C> {"id":2,"cmd":"subscribe","tree_events":"deltas"}
-S> {"id":2,"ok":true,"data":{}}
-C> {"id":3,"cmd":"list-workspaces"}
-S> {"id":3,"ok":true,"data":{"workspaces":[...]}}
+S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":8,"capabilities":["canonical-topology-snapshot-v1","render-attach-v1","stable-entity-uuid-v1","topology-resume-v1"],"session":"main","pid":12345}}
+C> {"id":2,"cmd":"topology-snapshot"}
+S> {"id":2,"ok":true,"data":{"daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","revision":41,"topology":{"workspaces":[...]}}}
+C> {"id":3,"cmd":"subscribe-topology","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","revision":41}
+S> {"id":3,"ok":true,"data":{"status":"subscribed","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","from_revision":41,"current_revision":41,"replayed":0}}
 C> {"id":4,"cmd":"attach-surface","surface":1,"mode":"render"}
 S> {"event":"render-state","surface":1,"size":{"cols":3,"rows":1},"cursor":{"x":2,"y":0,"style":"block","blink":true,"visible":true,"color":null},"default_fg":"#d8d9da","default_bg":"#131415","scrollback_rows":0,"rows":[{"row":0,"runs":[{"text":"$ x","fg":null,"bg":null,"attrs":0}]}]}
 S> {"id":4,"ok":true,"data":{}}

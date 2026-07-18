@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public final class CmuxClient implements AutoCloseable {
@@ -24,6 +25,7 @@ public final class CmuxClient implements AutoCloseable {
     private final JsonLineConnection connection;
     private long nextId = 1;
     private Integer protocol;
+    private IdentifyResult identity;
 
     private CmuxClient(Builder builder) throws CmuxException {
         this.socketPath = builder.socketPath != null ? builder.socketPath : resolvedSocketPath(builder.session);
@@ -37,11 +39,30 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public static String defaultSocketPath(String session) {
-        String base = System.getenv("TMPDIR");
-        if (base == null || base.isBlank()) {
-            base = System.getProperty("java.io.tmpdir");
+        String base = runtimeBase(System.getenv("XDG_RUNTIME_DIR"), System.getenv("TMPDIR"));
+        return defaultSocketPathFrom(base, currentUid(), session, isDarwin());
+    }
+
+    static String runtimeBase(String xdgRuntimeDir, String tmpDir) {
+        if (xdgRuntimeDir != null && !xdgRuntimeDir.isEmpty()) {
+            return xdgRuntimeDir;
         }
-        return Path.of(base, "cmux-tui-" + currentUid(), session + ".sock").toString();
+        if (tmpDir != null && !tmpDir.isEmpty()) {
+            return tmpDir;
+        }
+        return "/tmp";
+    }
+
+    static String defaultSocketPathFrom(String base, String uid, String session, boolean darwin) {
+        String candidate = Path.of(base, "cmux-tui-" + uid, session + ".sock").toString();
+        if (darwin && candidate.getBytes(StandardCharsets.UTF_8).length > 103) {
+            return Path.of("/tmp", "cmux-tui-" + uid, session + ".sock").toString();
+        }
+        return candidate;
+    }
+
+    private static boolean isDarwin() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac");
     }
 
     public static String envSocketPath() {
@@ -81,7 +102,98 @@ public final class CmuxClient implements AutoCloseable {
         Map<String, Object> data = request("identify", new LinkedHashMap<>());
         IdentifyResult result = IdentifyResult.from(data);
         protocol = result.protocol();
+        identity = result;
         return result;
+    }
+
+    public PingResult ping() throws CmuxException {
+        try {
+            return PingResult.from(request("ping", new LinkedHashMap<>()));
+        } catch (IllegalArgumentException err) {
+            throw new CmuxDecodeException("invalid ping response", err);
+        }
+    }
+
+    public TopologySnapshot topologySnapshot() throws CmuxException {
+        requireTopologyV8();
+        try {
+            return TopologySnapshot.from(request("topology-snapshot", new LinkedHashMap<>()));
+        } catch (IllegalArgumentException err) {
+            throw new CmuxDecodeException("invalid topology snapshot", err);
+        }
+    }
+
+    public TopologySubscribeOutcome subscribeTopology(TopologyCursor cursor) throws CmuxException {
+        requireTopologyV8();
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("id", nextId());
+        params.put("cmd", "subscribe-topology");
+        params.put("daemon_instance_id", cursor.daemonInstanceId().toString());
+        params.put("session_id", cursor.sessionId().toString());
+        params.put("revision", cursor.revision());
+        CmuxStream stream = CmuxStream.open(socketPath, timeout, params);
+        try {
+            Map<String, Object> data = stream.responseData();
+            String status = TopologyWire.string(data.get("status"));
+            if ("resnapshot-required".equals(status)) {
+                TopologyResnapshotRequired required = TopologyResnapshotRequired.from(data);
+                stream.close();
+                return required;
+            }
+            if (!"subscribed".equals(status)) {
+                stream.close();
+                throw new CmuxDecodeException("invalid subscribe-topology status " + status, null);
+            }
+            TopologySubscribed info = TopologySubscribed.from(data);
+            if (!info.daemonInstanceId().equals(cursor.daemonInstanceId())
+                || !info.sessionId().equals(cursor.sessionId())
+                || info.fromRevision() != cursor.revision()) {
+                stream.close();
+                return topologyFenceFailure(cursor, info);
+            }
+            return new TopologySubscription(info, stream, cursor);
+        } catch (IllegalArgumentException err) {
+            stream.close();
+            throw new CmuxDecodeException("invalid subscribe-topology response", err);
+        }
+    }
+
+    private IdentifyResult requireTopologyV8() throws CmuxException {
+        IdentifyResult current = identity != null ? identity : identify();
+        if (!current.supportsTopologyV8()) {
+            StringBuilder missing = new StringBuilder();
+            for (String capability : IdentifyResult.TOPOLOGY_V8_CAPABILITIES) {
+                if (!current.capabilities().contains(capability)) {
+                    if (!missing.isEmpty()) missing.append(',');
+                    missing.append(capability);
+                }
+            }
+            throw new CmuxProtocolMismatchException(
+                "canonical topology requires protocol 8 and capabilities "
+                    + String.join(",", IdentifyResult.TOPOLOGY_V8_CAPABILITIES)
+                    + "; server protocol=" + current.protocol() + " missing=" + missing
+            );
+        }
+        if (current.topologyCursor().isEmpty()) {
+            throw new CmuxProtocolMismatchException(
+                "canonical topology identify response omitted its authority cursor"
+            );
+        }
+        return current;
+    }
+
+    private static TopologyResnapshotRequired topologyFenceFailure(
+        TopologyCursor cursor,
+        TopologySubscribed info
+    ) {
+        TopologyResnapshotReason reason = !info.daemonInstanceId().equals(cursor.daemonInstanceId())
+            ? TopologyResnapshotReason.STALE_DAEMON
+            : !info.sessionId().equals(cursor.sessionId())
+                ? TopologyResnapshotReason.STALE_SESSION
+                : TopologyResnapshotReason.HISTORY_GAP;
+        return new TopologyResnapshotRequired(
+            info.daemonInstanceId(), info.sessionId(), info.currentRevision(), reason
+        );
     }
 
     public Tree listWorkspaces() throws CmuxException {
@@ -116,6 +228,36 @@ public final class CmuxClient implements AutoCloseable {
 
     public ReadScreenResult readScreen(long surface) throws CmuxException {
         return new ReadScreenResult(asString(request("read-screen", surfaceParams(surface)).get("text")));
+    }
+
+    public ProcessInfoResult processInfo(long surface) throws CmuxException {
+        try {
+            return ProcessInfoResult.from(request("process-info", surfaceParams(surface)));
+        } catch (IllegalArgumentException err) {
+            throw new CmuxDecodeException("invalid process-info response", err);
+        }
+    }
+
+    public EnsureTerminalResult ensureTerminal(EnsureTerminalRequest ensureRequest) throws CmuxException {
+        try {
+            return EnsureTerminalResult.from(request("ensure-terminal", ensureRequest.toMap()));
+        } catch (IllegalArgumentException err) {
+            throw new CmuxDecodeException("invalid ensure-terminal response", err);
+        }
+    }
+
+    public ReparentTerminalResult reparentTerminal(
+        java.util.UUID surfaceUuid,
+        java.util.UUID workspaceUuid
+    ) throws CmuxException {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("surface_uuid", surfaceUuid.toString());
+        params.put("workspace_uuid", workspaceUuid.toString());
+        try {
+            return ReparentTerminalResult.from(request("reparent-terminal", params));
+        } catch (IllegalArgumentException err) {
+            throw new CmuxDecodeException("invalid reparent-terminal response", err);
+        }
     }
 
     public VtStateResult vtState(long surface) throws CmuxException {
@@ -290,7 +432,7 @@ public final class CmuxClient implements AutoCloseable {
 
     public CmuxStream attachSurface(long surface) throws CmuxException {
         int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated > 7 || (negotiated > 5 && !allowProtocolV6Attach)) {
+        if (negotiated > 8 || (negotiated > 5 && !allowProtocolV6Attach)) {
             throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);
         }
         Map<String, Object> params = new LinkedHashMap<>();
@@ -520,12 +662,20 @@ public final class CmuxClient implements AutoCloseable {
     public static final class CmuxStream implements AutoCloseable {
         private final JsonLineConnection connection;
         private final ArrayDeque<CmuxEvent> buffered;
+        private final Map<String, Object> responseData;
         private boolean finished;
 
-        private CmuxStream(JsonLineConnection connection, ArrayDeque<CmuxEvent> buffered) {
+        private CmuxStream(
+            JsonLineConnection connection,
+            ArrayDeque<CmuxEvent> buffered,
+            Map<String, Object> responseData
+        ) {
             this.connection = connection;
             this.buffered = buffered;
+            this.responseData = responseData;
         }
+
+        public Map<String, Object> responseData() { return Map.copyOf(responseData); }
 
         static CmuxStream open(String socketPath, Duration timeout, Map<String, Object> request) throws CmuxException {
             JsonLineConnection connection = JsonLineConnection.connect(socketPath);
@@ -538,7 +688,7 @@ public final class CmuxClient implements AutoCloseable {
                     CmuxEvent event = CmuxEvent.from(response);
                     buffered.add(event);
                     if ("attach-surface".equals(request.get("cmd")) && event instanceof VtStateEvent) {
-                        return new CmuxStream(connection, buffered);
+                        return new CmuxStream(connection, buffered, new LinkedHashMap<>());
                     }
                     continue;
                 }
@@ -546,7 +696,11 @@ public final class CmuxClient implements AutoCloseable {
                     continue;
                 }
                 if (Boolean.TRUE.equals(response.get("ok"))) {
-                    return new CmuxStream(connection, buffered);
+                    Object data = response.get("data");
+                    Map<String, Object> responseData = data instanceof Map<?, ?>
+                        ? TopologyWire.object(data, "stream response data")
+                        : new LinkedHashMap<>();
+                    return new CmuxStream(connection, buffered, responseData);
                 }
                 if (Boolean.FALSE.equals(response.get("ok"))) {
                     throw new CmuxCommandException(asString(response.get("error")), response.get("id"));
@@ -570,7 +724,9 @@ public final class CmuxClient implements AutoCloseable {
         }
 
         private CmuxEvent finishTerminal(CmuxEvent event) throws CmuxException {
-            if (event instanceof OverflowEvent || "detached".equals(event.event())) {
+            if (event instanceof OverflowEvent
+                || event instanceof TopologyResnapshotRequired
+                || "detached".equals(event.event())) {
                 finished = true;
                 connection.close();
             }

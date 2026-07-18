@@ -12,6 +12,8 @@ export {
   type SendOptions,
   type SplitOptions,
   type SubscribeOptions,
+  type TopologySubscribeOutcome,
+  type TopologySubscription,
 } from "./client.js";
 export * from "./base64.js";
 export * from "./errors.js";

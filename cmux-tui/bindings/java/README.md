@@ -29,8 +29,43 @@ try (CmuxClient client = CmuxClient.builder().build()) {
 }
 ```
 
+`client.processInfo(surface.surface())` returns the daemon-owned PID, exact
+argv list, current cwd, and canonical PTY name.
+
+On the trusted local socket, `client.ensureTerminal(...)` creates or reconnects
+one stable terminal UUID. `EnsureTerminalRequest.Builder.waitAfterCommand(true)`
+retains its final VT state after child exit until explicit close and is
+creation-only.
+`client.reparentTerminal(...)` moves the same identity without replacing its
+PTY or child process.
+
+## Protocol v8 topology
+
+```java
+TopologySnapshot snapshot = client.topologySnapshot();
+TopologySubscribeOutcome outcome = client.subscribeTopology(snapshot.cursor());
+if (outcome instanceof TopologySubscription subscription) {
+    try (subscription) {
+        TopologyStreamEvent event = subscription.next(Duration.ofSeconds(5));
+        if (event instanceof TopologyDelta delta) {
+            System.out.println(delta.revision());
+        }
+    }
+} else {
+    snapshot = client.topologySnapshot();
+}
+```
+
+Immutable records use `java.util.UUID`. `IdentifyResult.topologyCursor()` uses
+`canonicalTopologyRevision`; `topologyRevision` remains the legacy tree
+revision. Capability, authority, and adjacent-revision failures return the
+sealed `TopologySubscribeOutcome` recovery case and close the stream.
+`ping()` returns immutable liveness and authority data.
+
 `CmuxClient.builder().build()` uses `CMUX_TUI_SOCKET` when set, then legacy
 `CMUX_MUX_SOCKET`, then the default session socket path.
+
+Default derivation uses `XDG_RUNTIME_DIR`, then `TMPDIR`, then `/tmp`; empty values are ignored. On Darwin, paths over 103 filesystem bytes fall back to `/tmp/cmux-tui-<uid>` and are never truncated.
 
 ## E2E
 

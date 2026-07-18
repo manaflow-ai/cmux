@@ -22,7 +22,8 @@ use serde_json::{Value, json};
 
 use super::tree::{TreeView, parse_tree};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 7;
+const SUPPORTED_PROTOCOL_MIN: u64 = 7;
+const SUPPORTED_PROTOCOL_MAX: u64 = 8;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -430,9 +431,9 @@ impl RemoteSession {
             anyhow::bail!("socket endpoint is not a cmux-tui session");
         }
         let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
-        if protocol != SUPPORTED_PROTOCOL_VERSION {
+        if !(SUPPORTED_PROTOCOL_MIN..=SUPPORTED_PROTOCOL_MAX).contains(&protocol) {
             anyhow::bail!(
-                "unsupported cmux-tui protocol {protocol}; this client requires protocol 7; restart the cmux-tui server"
+                "unsupported cmux-tui protocol {protocol}; this client requires protocol 7 or 8; restart the cmux-tui server"
             );
         }
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});

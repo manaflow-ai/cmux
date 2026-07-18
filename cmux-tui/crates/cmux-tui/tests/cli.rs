@@ -71,7 +71,14 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&ping_json);
     let ping: serde_json::Value = serde_json::from_slice(&ping_json.stdout).unwrap();
     assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(7));
+    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(8));
+    assert!(
+        ping["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == "topology-resume-v1")
+    );
 
     let client_info =
         cli(&server, &["set-client-info", "--name", "one-shot", "--kind", "cli-test"]);
@@ -120,6 +127,13 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&tree);
     let tree_json: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
     let pane0 = tree_json["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
+
+    let topology = cli(&server, &["--json", "topology-snapshot"]);
+    assert_success(&topology);
+    let topology: serde_json::Value = serde_json::from_slice(&topology.stdout).unwrap();
+    assert_eq!(topology["revision"], tree_json["topology_revision"]);
+    assert_eq!(topology["topology"]["workspaces"][0]["id"], tree_json["workspaces"][0]["id"]);
+    assert!(topology["topology"]["workspaces"][0]["uuid"].as_str().is_some());
 
     let split = cli(&server, &["split", "--pane", &pane0.to_string(), "--dir", "right"]);
     assert_success(&split);
@@ -224,6 +238,25 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(bogus.status.code(), Some(3));
 
     assert_subscribe_reports_tree_changed(&server);
+    assert_subscribe_topology_reports_revisioned_delta(&server);
+
+    let topology = cli(&server, &["--json", "topology-snapshot"]);
+    assert_success(&topology);
+    let topology: serde_json::Value = serde_json::from_slice(&topology.stdout).unwrap();
+    let stale = cli(
+        &server,
+        &[
+            "subscribe-topology",
+            "--daemon-instance-id",
+            "00000000-0000-4000-8000-000000000000",
+            "--session-id",
+            topology["session_id"].as_str().unwrap(),
+            "--revision",
+            "0",
+        ],
+    );
+    assert_eq!(stale.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&stale.stdout).contains("stale-daemon"));
 }
 
 #[test]
@@ -305,6 +338,65 @@ fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
     let _ = child.kill();
     let _ = child.wait();
     panic!("subscribe did not print tree-changed event; lines={lines:?}");
+}
+
+fn assert_subscribe_topology_reports_revisioned_delta(server: &HeadlessServer) {
+    let snapshot = cli(server, &["--json", "topology-snapshot"]);
+    assert_success(&snapshot);
+    let snapshot: serde_json::Value = serde_json::from_slice(&snapshot.stdout).unwrap();
+    let daemon = snapshot["daemon_instance_id"].as_str().unwrap();
+    let session = snapshot["session_id"].as_str().unwrap();
+    let revision = snapshot["revision"].as_u64().unwrap();
+    let mut child = Command::new(bin())
+        .args(["--socket"])
+        .arg(&server.socket)
+        .args([
+            "subscribe-topology",
+            "--daemon-instance-id",
+            daemon,
+            "--session-id",
+            session,
+            "--revision",
+            &revision.to_string(),
+        ])
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            if tx.send(line.unwrap()).is_err() {
+                break;
+            }
+        }
+    });
+
+    std::thread::sleep(Duration::from_millis(200));
+    assert_success(&cli(server, &["new-tab"]));
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut lines = Vec::new();
+    while Instant::now() < deadline {
+        if let Ok(line) = rx.recv_timeout(Duration::from_millis(250)) {
+            lines.push(line.clone());
+            let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if value["event"] == "topology-delta" {
+                assert_eq!(value["base_revision"].as_u64(), Some(revision));
+                assert_eq!(value["revision"].as_u64(), Some(revision + 1));
+                assert!(value["replacement"]["workspaces"].is_array());
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    panic!("subscribe-topology did not print a topology delta; lines={lines:?}");
 }
 
 #[test]

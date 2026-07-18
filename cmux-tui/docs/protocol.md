@@ -1,21 +1,31 @@
 # Control Socket Protocol
 
-As of protocol v7, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
+As of protocol v8, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe`, `subscribe-topology`, and `attach-surface` also push event lines on the same connection.
+
+Unix requests and authenticated WebSocket command frames are limited to 4 MiB.
+The Unix reader closes an oversized connection without buffering past that
+limit.
 
 For shell use, prefer `cmux-tui <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
 
-Default socket path:
+Default socket path, using `XDG_RUNTIME_DIR`, then `TMPDIR`, then `/tmp`:
 
 ```text
-$TMPDIR/cmux-tui-<uid>/<session>.sock
+<runtime-dir>/cmux-tui-<uid>/<session>.sock
 ```
+
+On Darwin, an oversized environment runtime root falls back to the private mode-`0700` directory `/tmp/cmux-tui-<uid>`. Filesystem socket paths accept 103 bytes and reject 104 bytes; paths are never truncated.
 
 `identify` reports the protocol version:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":8,"protocol_min":6,"protocol_max":8,"capabilities":["canonical-topology-snapshot-v1","stable-entity-uuid-v1","topology-resume-v1"],"session":"main","session_id":"<uuid>","daemon_instance_id":"<uuid>","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
 ```
+
+`ping` returns the same session, daemon, process, and revision authority fields
+without the `app` field. Supervisors can prove readiness and process continuity
+with `ping`; they do not need to decode `topology-snapshot`.
 
 Responses have this shape:
 
@@ -28,12 +38,18 @@ Bad JSON returns `ok:false` with no request id.
 
 ## Command Contract
 
-The full API contract is intended to live in `cmux-tui/spec/`, but that directory is not present in this checkout. Until it lands, `cmux-tui-core/src/server.rs` is the command source of truth.
+The full API contract lives in `spec/`. `cmux-tui-core/src/server.rs` is the implementation source of truth.
 
 The server command set in this branch is:
 
 ```text
 identify
+ping
+open-presentation
+update-presentation
+close-presentation
+list-presentations
+topology-snapshot
 list-workspaces
 send
 read-screen
@@ -70,9 +86,31 @@ browser-forward
 browser-reload
 browser-activate
 subscribe
+subscribe-topology
 attach-surface
 scroll-surface
 ```
+
+## Canonical Topology
+
+Protocol v8 clients should require `canonical-topology-snapshot-v1`, `stable-entity-uuid-v1`, and `topology-resume-v1`. Fetch one atomic snapshot:
+
+```json
+{"id":12,"cmd":"topology-snapshot"}
+{"id":12,"ok":true,"data":{"daemon_instance_id":"<uuid>","session_id":"<uuid>","revision":41,"topology":{"workspaces":[]}}}
+```
+
+Resume from that exact daemon, session, and revision on a persistent connection:
+
+```json
+{"id":13,"cmd":"subscribe-topology","daemon_instance_id":"<uuid>","session_id":"<uuid>","revision":41}
+{"id":13,"ok":true,"data":{"status":"subscribed","daemon_instance_id":"<uuid>","session_id":"<uuid>","from_revision":41,"current_revision":41,"replayed":0}}
+{"event":"topology-delta","daemon_instance_id":"<uuid>","session_id":"<uuid>","base_revision":41,"revision":42,"operation":"workspace-created","targets":{"workspaces":["<uuid>"]},"replacement":{"workspaces":[...]}}
+```
+
+Every successful structural topology transaction produces one delta. Failed and no-op requests produce none. Focus, selection, zoom, and scroll are presentation state, so legacy navigation commands keep their legacy events and advance only legacy `topology_revision`, not this canonical revision. Capability-v1 carries a complete replacement so clients can apply it deterministically. Replacement construction and wire bandwidth scale with the full topology, so this bootstrap does not make mutation cost independent of dormant workspaces. A follow-up capability can add typed patches without weakening the cursor and recovery contract. The retained history and each subscriber queue are bounded by count and serialized bytes. A stale daemon, stale session, future revision, history gap, oversized replay, or slow consumer requires a fresh snapshot. One connection may open one topology stream; the daemon permits 256 live streams. Duplicate and excess subscriptions fail before allocating a journal mailbox. Presentations, terminal content and geometry, titles, process status, notifications, agent records, PTY bytes, and render frames are outside this stream.
+
+Canonical protocol-v8 objects retain numeric IDs as current-daemon handles for legacy commands. Their parallel UUID fields are the daemon-owned identities and remain stable through rename, reorder, and move operations. Protocol-v7 tree payloads stay numeric and have no UUID guarantee. A recreated entity receives a new UUID. A daemon restart changes `daemon_instance_id`, so a client cannot resume against a replacement process even when `session_id` is unchanged.
 
 `move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
 
@@ -148,7 +186,7 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v7. It refuses servers reporting any other protocol version because it relies on resized attach replays and authoritative title events.
+The remote TUI accepts protocol v7 and v8. It uses the retained legacy attach and event contract in both versions and refuses older or unknown newer versions.
 
 Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
 

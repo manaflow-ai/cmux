@@ -146,7 +146,7 @@ java_cmd() {
       command -v java >/dev/null || { echo "java not found"; return 127; }
       javac -version >/dev/null 2>&1 || { javac -version 2>&1; return 127; }
       java -version >/dev/null 2>&1 || { java -version 2>&1; return 127; }
-      (cd "$ROOT/cmux-tui/bindings/java" && bash scripts/build.sh && java -cp out com.cmux.JsonTest && java -cp out com.cmux.StreamOpenTest && java -cp out com.cmux.WireCaptureTest)
+      (cd "$ROOT/cmux-tui/bindings/java" && bash scripts/build.sh && java -cp out com.cmux.JsonTest && java -cp out com.cmux.SocketPathTest && java -cp out com.cmux.StreamOpenTest && java -cp out com.cmux.WireCaptureTest)
       ;;
     run) (cd "$ROOT/cmux-tui/bindings/java" && java -cp out com.cmux.E2e) ;;
   esac

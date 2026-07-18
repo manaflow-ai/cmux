@@ -1,8 +1,8 @@
 # Binding Generation Contract
 
-Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
+Published bindings live under `cmux-tui/bindings/<lang>/`. They are validated by the shared fixtures and live-daemon conformance suite in this file.
 
-All bindings must expose the implemented protocol v7 commands, events, and transports. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
+All bindings must expose the implemented protocol v8 commands, events, and transports. APIs newer than the connected server must be guarded by explicit version checks or named capabilities.
 
 ## Shared Requirements
 
@@ -20,10 +20,74 @@ Bindings must:
 | JSON mode | Provide a way to send raw command JSON for forward compatibility |
 | Timeouts | Let callers configure request timeout without changing wire schema |
 | Ids | Use numeric ids for v5 and `IdRef` where supported by the negotiated protocol |
+| Canonical topology | Pair daemon, session, revision, and topology atomically; apply only adjacent matching v8 deltas and resnapshot on every recovery signal |
 
 ## Protocol v7 SDK Expectations
 
 SDKs that expose protocol v7 should provide a version-gated render attachment iterator whose first item is typed `render-state` and whose later union is `render-delta | scroll-changed | detached`; it must preserve plain UTF-8 run text, exact optional fields, resolved colors, row indexes, and unknown-event fallback without routing render events through a VT emulator. Subscribe APIs should default to `tree_events:"coarse"` and expose explicit `"deltas"` opt-in. Delta event unions add every workspace/screen/pane/tab lifecycle event with typed subject and parent ids plus the exact `list-workspaces` entity payload, while retaining `tree-changed` as an explicit resync case rather than an ordinary-change dependency. Detailed per-language API design, generated models, and conformance fixtures are deferred to a later SDK round.
+
+## Protocol v8 SDK Expectations
+
+SDKs that expose protocol v8 should provide typed `topology_snapshot` and `subscribe_topology` APIs gated by `canonical-topology-snapshot-v1`, `stable-entity-uuid-v1`, and `topology-resume-v1`. The cursor type and subscribe request must include `daemon_instance_id`, `session_id`, and `revision`. Topology models must retain numeric command handles and stable UUID identities while keeping presentation selection outside the structural model. Resume APIs must expose stale daemon, stale session, revision ahead, history gap, replay too large, and slow consumer recovery as explicit resnapshot outcomes, never as a continued stream with skipped revisions.
+
+### Authority and revision rules
+
+`identify` and `ping` expose the same session and process authority. Bindings retain both revision fields because they have different contracts:
+
+| Field | Binding use |
+| --- | --- |
+| `session_id` | Durable logical session fence |
+| `daemon_instance_id` | Current server-process fence |
+| `topology_revision` | Legacy protocol-v7 tree revision, including non-structural compatibility state |
+| `canonical_topology_revision` | Protocol-v8 structural revision used to construct a topology cursor |
+
+A binding must not substitute `topology_revision` for `canonical_topology_revision`. The two values may differ. Protocol-v6 and protocol-v7 servers omit the new authority fields, so published identity and ping models keep additive fields optional while v8 topology methods require all three cursor fields.
+
+`ping` must expose `ok`, version and protocol range, capabilities, session name, session UUID, daemon UUID, both revisions, and process id. Health checks can compare it to a prior identity without fetching topology.
+
+### Public topology API
+
+Each published binding exposes these operations without requiring its private raw-request helper:
+
+| Operation | Result |
+| --- | --- |
+| identify | Typed capabilities, authority, both revisions, and a helper that returns the canonical cursor when complete |
+| ping | Typed liveness and authority result |
+| topology snapshot | Typed daemon UUID, session UUID, structural revision, and complete canonical topology |
+| topology subscribe | Either a typed subscription or an immediate typed resnapshot requirement |
+| subscription receive | Either one adjacent typed delta or a terminal typed resnapshot requirement |
+
+UUID fields use the language's UUID type when one exists. Rust and Go use strict lowercase hyphenated UUID value types without adding runtime dependencies. Numeric `id` fields remain command handles. UUID fields remain stable identities across daemon reconstruction.
+
+Canonical layout is a recursive leaf or split union. A leaf carries both the numeric pane handle and pane UUID. Workspaces, screens, panes, and tabs carry both identities. Dynamic selection, focus, zoom, scroll position, terminal contents, render frames, PTY state, notifications, and presentation state are excluded.
+
+### Resume algorithm
+
+Clients use this state transition:
+
+1. Call the typed snapshot method and retain its daemon UUID, session UUID, and revision as one cursor.
+2. Call the typed subscribe method with that exact cursor. Registration and retained replay are atomic on the server.
+3. Accept a delta only when daemon UUID and session UUID match, `base_revision` equals the locally applied revision, and `revision == base_revision + 1`.
+4. Replace the complete local canonical topology with `replacement`, then advance the cursor to `revision`.
+5. On any immediate or streamed resnapshot requirement, close the stream, discard the cursor, and return to step 1.
+
+Bindings synthesize `stale-daemon`, `stale-session`, or `history-gap` when a successful response or decoded delta violates its local fence. TypeScript maps its own bounded topology replay-buffer overflow to `slow-consumer` with no current revision. No binding applies a later delta after a fence failure.
+
+The immediate recovery reasons are `stale-daemon`, `stale-session`, `revision-ahead`, `history-gap`, and `replay-too-large`. The terminal stream reason is `slow-consumer`; its `current_revision` is optional because transport-queue overflow may not know the latest structural revision.
+
+The registration response and replay events may interleave. Stream implementations buffer typed events received before the matching response and validate them against the caller's original cursor when consumed.
+
+### Language API names
+
+| Language | Snapshot | Subscribe | Cursor helper |
+| --- | --- | --- | --- |
+| Rust | `topology_snapshot()` | `subscribe_topology(cursor)` | `snapshot.cursor()`, `identify.topology_cursor()` |
+| Python | `topology_snapshot()` | `subscribe_topology(cursor)` | `snapshot.cursor`, `identify.topology_cursor` |
+| TypeScript | `topologySnapshot()` | `subscribeTopology(cursor)` | `topologyCursor(snapshot)` |
+| Go | `TopologySnapshot(ctx)` | `SubscribeTopology(ctx, cursor)` | `snapshot.Cursor()`, `identify.TopologyCursor()` |
+| Java | `topologySnapshot()` | `subscribeTopology(cursor)` | `snapshot.cursor()`, `identify.topologyCursor()` |
+
+`bindings/conformance/topology-v8.json` is the cross-language decode fixture. It deliberately sets legacy revision 47 and canonical revision 41, includes the full ping authority result, one adjacent delta, all immediate recovery reasons, and the terminal slow-consumer event. Every language unit suite decodes this file. Every language E2E also checks identity and ping authority, numeric-to-UUID topology mapping, an adjacent rename delta, and stale-daemon recovery against a live server.
 
 ## Rust
 
@@ -94,6 +158,8 @@ Every generated binding and CLI implementation must pass the same conformance su
 ```bash
 python3 cmux-tui/bindings/conformance/runner.py
 ```
+
+Each fixture runs in a fresh daemon session with its own temporary state directory. Fixture order therefore cannot change topology revisions, entity aliases, persisted recipes, or recovery behavior.
 
 ### Fixture File Format
 

@@ -2,6 +2,10 @@ import Foundation
 
 /// Describes one resolved cmux-tui transport endpoint and its optional WebSocket token.
 public struct CmuxConnectionConfiguration: Sendable, Equatable {
+    #if canImport(Darwin)
+    private static let maximumUnixSocketPathBytes = 103
+    #endif
+
     /// The default local WebSocket parity endpoint.
     public static let defaultURL = URL(string: "ws://127.0.0.1:7682")!
 
@@ -41,9 +45,9 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
 
     /// Returns the server-compatible runtime directory for one environment and user id.
     /// - Parameters:
-    ///   - environment: Environment variables used to resolve `TMPDIR`.
+    ///   - environment: Environment variables used to resolve the runtime root.
     ///   - userID: The decimal Unix user id component.
-    /// - Returns: `$TMPDIR/cmux-tui-<uid>`, falling back to `/tmp`.
+    /// - Returns: `$XDG_RUNTIME_DIR/cmux-tui-<uid>`, then `$TMPDIR`, then `/tmp`.
     public static func socketDirectory(
         environment: [String: String],
         userID: UInt32
@@ -61,20 +65,32 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
     /// Returns the server-compatible socket path for a named session.
     /// - Parameters:
     ///   - session: The cmux-tui session name.
-    ///   - environment: Environment variables used to resolve `TMPDIR`.
+    ///   - environment: Environment variables used to resolve the runtime root.
     ///   - userID: The decimal Unix user id component.
-    /// - Returns: `$TMPDIR/cmux-tui-<uid>/<session>.sock`.
+    /// - Returns: The environment-selected path, or Darwin's short `/tmp`
+    ///   layout when the full UTF-8 filesystem path exceeds 103 bytes.
     public static func socketPath(
         session: String,
         environment: [String: String],
         userID: UInt32
     ) -> String {
-        URL(
+        let candidate = URL(
             fileURLWithPath: socketDirectory(environment: environment, userID: userID),
             isDirectory: true
         )
         .appendingPathComponent("\(session).sock", isDirectory: false)
         .path
+        #if canImport(Darwin)
+        if candidate.utf8.count > maximumUnixSocketPathBytes {
+            return URL(
+                fileURLWithPath: shortSocketDirectory(userID: userID),
+                isDirectory: true
+            )
+            .appendingPathComponent("\(session).sock", isDirectory: false)
+            .path
+        }
+        #endif
+        return candidate
     }
 
     /// Returns the WebSocket token fallback path for a home directory.
@@ -274,10 +290,18 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
         listDirectory: (String) throws -> [String],
         isLive: (String) -> Bool = CmuxConnectionConfiguration.socketIsLive
     ) throws -> CmuxConnectionEndpoint {
-        let directory = socketDirectory(environment: environment, userID: userID)
-        let sockets = (try? listDirectory(directory))?
+        let primaryDirectory = socketDirectory(environment: environment, userID: userID)
+        let directories = [primaryDirectory, shortSocketDirectory(userID: userID)]
+            .reduce(into: [String]()) { unique, directory in
+                if !unique.contains(directory) { unique.append(directory) }
+            }
+        let sockets = Set(
+            directories.flatMap { directory in
+                (try? listDirectory(directory)) ?? []
+            }
             .filter { URL(fileURLWithPath: $0).pathExtension == "sock" }
-            .sorted() ?? []
+        )
+        .sorted()
         let live = sockets.filter(isLive)
 
         if live.count == 1, let socket = live.first {
@@ -298,10 +322,16 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
                     defaultValue: "Expected exactly one live *.sock in %1$@, found %2$lld live of %3$@; pass --socket <path>, --session <name>, or --url <ws://...>",
                     bundle: .module
                 ),
-                directory,
+                directories.joined(separator: ", "),
                 Int64(live.count),
                 found
             )
         )
+    }
+
+    private static func shortSocketDirectory(userID: UInt32) -> String {
+        URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-tui-\(userID)", isDirectory: true)
+            .path
     }
 }

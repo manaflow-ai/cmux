@@ -7,8 +7,47 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "identify" },
-          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 7 } },
+          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 8 } },
           "match": "partial"
+        }
+      ]
+    },
+    {
+      "name": "process-info-argv-and-tty",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-process-info", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "process_surface": "data.surface" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "process-info", "surface": "$process_surface" },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial",
+          "bind": {
+            "process_pid": "data.pid",
+            "process_argv0": "data.command[0]",
+            "process_cwd": "data.cwd",
+            "process_tty": "data.tty"
+          }
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "process-info", "surface": "$process_surface" },
+          "expect": {
+            "id": 3,
+            "ok": true,
+            "data": {
+              "pid": "$process_pid",
+              "command": ["$process_argv0"],
+              "cwd": "$process_cwd",
+              "tty": "$process_tty"
+            }
+          },
+          "match": "exact"
         }
       ]
     },
@@ -17,21 +56,250 @@
       "steps": [
         {
           "type": "command",
-          "request": { "id": 1, "cmd": "ping" },
-          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 7 } },
+          "request": { "id": 1, "cmd": "identify" },
+          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 8 } },
+          "match": "partial",
+          "bind": {
+            "version": "data.version",
+            "protocol": "data.protocol",
+            "protocol_min": "data.protocol_min",
+            "protocol_max": "data.protocol_max",
+            "capabilities": "data.capabilities",
+            "session": "data.session",
+            "session_id": "data.session_id",
+            "daemon_instance_id": "data.daemon_instance_id",
+            "legacy_revision": "data.topology_revision",
+            "canonical_revision": "data.canonical_topology_revision",
+            "pid": "data.pid"
+          }
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "ping" },
+          "expect": {
+            "id": 2,
+            "ok": true,
+            "data": {
+              "ok": true,
+              "version": "$version",
+              "protocol": "$protocol",
+              "protocol_min": "$protocol_min",
+              "protocol_max": "$protocol_max",
+              "capabilities": "$capabilities",
+              "session": "$session",
+              "session_id": "$session_id",
+              "daemon_instance_id": "$daemon_instance_id",
+              "topology_revision": "$legacy_revision",
+              "canonical_topology_revision": "$canonical_revision",
+              "pid": "$pid"
+            }
+          },
+          "match": "exact"
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "set-window-title", "title": "cmux-conformance" },
+          "expect": { "id": 3, "ok": true, "data": {} },
+          "match": "exact"
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "clear-window-title" },
+          "expect": { "id": 4, "ok": true, "data": {} },
+          "match": "exact"
+        }
+      ]
+    },
+    {
+      "name": "protocol-v8-topology-resume-and-presentations",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-v8", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
           "match": "partial"
         },
         {
           "type": "command",
-          "request": { "id": 2, "cmd": "set-window-title", "title": "cmux-conformance" },
-          "expect": { "id": 2, "ok": true, "data": {} },
+          "request": { "id": 2, "cmd": "topology-snapshot" },
+          "expect": {
+            "id": 2,
+            "ok": true,
+            "data": {
+              "revision": 1,
+              "topology": { "workspaces": [{ "name": "conf-v8" }] }
+            }
+          },
+          "match": "partial",
+          "bind": {
+            "daemon_instance_id": "data.daemon_instance_id",
+            "session_id": "data.session_id",
+            "revision": "data.revision",
+            "workspace_id": "data.topology.workspaces[0].id",
+            "workspace_uuid": "data.topology.workspaces[0].uuid",
+            "screen_id": "data.topology.workspaces[0].screens[0].id",
+            "screen_uuid": "data.topology.workspaces[0].screens[0].uuid",
+            "pane_id": "data.topology.workspaces[0].screens[0].panes[0].id",
+            "pane_uuid": "data.topology.workspaces[0].screens[0].panes[0].uuid",
+            "surface_id": "data.topology.workspaces[0].screens[0].panes[0].tabs[0].id",
+            "surface_uuid": "data.topology.workspaces[0].screens[0].panes[0].tabs[0].uuid"
+          }
+        },
+        {
+          "type": "command",
+          "request": {
+            "id": 3,
+            "cmd": "open-presentation",
+            "view": {
+              "workspace_uuid": "$workspace_uuid",
+              "screen_uuid": "$screen_uuid",
+              "pane_uuid": "$pane_uuid",
+              "surface_uuid": "$surface_uuid"
+            }
+          },
+          "expect": {
+            "id": 3,
+            "ok": true,
+            "data": {
+              "generation": 1,
+              "view": {
+                "workspace": "$workspace_id",
+                "workspace_uuid": "$workspace_uuid",
+                "screen": "$screen_id",
+                "screen_uuid": "$screen_uuid",
+                "pane": "$pane_id",
+                "pane_uuid": "$pane_uuid",
+                "tab": "$surface_id",
+                "surface_uuid": "$surface_uuid"
+              },
+              "zoom": { "pane": null, "pane_uuid": null },
+              "scroll": { "surface": null, "surface_uuid": null, "offset": 0 }
+            }
+          },
+          "match": "partial",
+          "bind": {
+            "presentation_id": "data.presentation_id",
+            "presentation_client": "data.client"
+          }
+        },
+        {
+          "type": "command",
+          "request": {
+            "id": 4,
+            "cmd": "update-presentation",
+            "presentation_id": "$presentation_id",
+            "expected_generation": 1,
+            "view": {
+              "workspace_uuid": "$workspace_uuid",
+              "screen_uuid": "$screen_uuid",
+              "pane_uuid": "$pane_uuid",
+              "surface_uuid": "$surface_uuid"
+            }
+          },
+          "expect": {
+            "id": 4,
+            "ok": true,
+            "data": {
+              "presentation_id": "$presentation_id",
+              "generation": 1,
+              "client": "$presentation_client",
+              "view": {
+                "workspace": "$workspace_id",
+                "workspace_uuid": "$workspace_uuid",
+                "screen": "$screen_id",
+                "screen_uuid": "$screen_uuid",
+                "pane": "$pane_id",
+                "pane_uuid": "$pane_uuid",
+                "tab": "$surface_id",
+                "surface_uuid": "$surface_uuid"
+              },
+              "zoom": { "pane": null, "pane_uuid": null },
+              "scroll": { "surface": null, "surface_uuid": null, "offset": 0 }
+            }
+          },
           "match": "exact"
         },
         {
           "type": "command",
-          "request": { "id": 3, "cmd": "clear-window-title" },
-          "expect": { "id": 3, "ok": true, "data": {} },
+          "request": {
+            "id": 5,
+            "cmd": "update-presentation",
+            "presentation_id": "$presentation_id",
+            "expected_generation": 1,
+            "scroll": { "surface_uuid": "$surface_uuid", "offset": 4 }
+          },
+          "expect": {
+            "id": 5,
+            "ok": true,
+            "data": {
+              "presentation_id": "$presentation_id",
+              "generation": 2,
+              "client": "$presentation_client",
+              "view": {
+                "workspace": "$workspace_id",
+                "workspace_uuid": "$workspace_uuid",
+                "screen": "$screen_id",
+                "screen_uuid": "$screen_uuid",
+                "pane": "$pane_id",
+                "pane_uuid": "$pane_uuid",
+                "tab": "$surface_id",
+                "surface_uuid": "$surface_uuid"
+              },
+              "zoom": { "pane": null, "pane_uuid": null },
+              "scroll": { "surface": "$surface_id", "surface_uuid": "$surface_uuid", "offset": 4 }
+            }
+          },
           "match": "exact"
+        },
+        {
+          "type": "command",
+          "request": {
+            "id": 6,
+            "cmd": "close-presentation",
+            "presentation_id": "$presentation_id"
+          },
+          "expect": { "id": 6, "ok": true, "data": {} },
+          "match": "exact"
+        },
+        {
+          "type": "stream",
+          "name": "topology",
+          "request": {
+            "id": 7,
+            "cmd": "subscribe-topology",
+            "daemon_instance_id": "$daemon_instance_id",
+            "session_id": "$session_id",
+            "revision": "$revision"
+          },
+          "expect": {
+            "id": 7,
+            "ok": true,
+            "data": {
+              "status": "subscribed",
+              "daemon_instance_id": "$daemon_instance_id",
+              "session_id": "$session_id",
+              "from_revision": "$revision"
+            }
+          },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 8, "cmd": "rename-workspace", "workspace": "$workspace_id", "name": "conf-v8-renamed" },
+          "expect": { "id": 8, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "expect_events",
+          "stream": "topology",
+          "expect": [
+            {
+              "event": "topology-delta",
+              "daemon_instance_id": "$daemon_instance_id",
+              "session_id": "$session_id",
+              "operation": "workspace-renamed"
+            }
+          ]
         }
       ]
     },
@@ -51,8 +319,8 @@
           "expect": { "id": 2, "ok": true },
           "match": "partial",
           "bind": {
-            "workspace0": "data.workspaces[0].id",
-            "pane0": "data.workspaces[0].screens[0].panes[0].id"
+            "workspace0": "data.workspaces[1].id",
+            "pane0": "data.workspaces[1].screens[0].panes[0].id"
           }
         },
         {
@@ -99,7 +367,7 @@
           "request": { "id": 2, "cmd": "list-workspaces" },
           "expect": { "id": 2, "ok": true },
           "match": "partial",
-          "bind": { "pane0": "data.workspaces[1].screens[0].panes[0].id" }
+          "bind": { "pane0": "data.workspaces[2].screens[0].panes[0].id" }
         },
         {
           "type": "command",
@@ -124,7 +392,7 @@
           "request": { "id": 2, "cmd": "list-workspaces" },
           "expect": { "id": 2, "ok": true },
           "match": "partial",
-          "bind": { "pane0": "data.workspaces[2].screens[0].panes[0].id" }
+          "bind": { "pane0": "data.workspaces[3].screens[0].panes[0].id" }
         },
         {
           "type": "command",
@@ -137,7 +405,7 @@
           "request": { "id": 4, "cmd": "list-workspaces" },
           "expect": { "id": 4, "ok": true },
           "match": "partial",
-          "bind": { "pane1": "data.workspaces[2].screens[0].panes[1].id" }
+          "bind": { "pane1": "data.workspaces[3].screens[0].panes[1].id" }
         },
         {
           "type": "command",
