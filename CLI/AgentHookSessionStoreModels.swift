@@ -338,6 +338,7 @@ struct AgentHookSessionActivationPolicy: Sendable {
     ) -> Bool {
         guard hasIncomingPID,
               lineage.pid != nil,
+              lineage.processLaunchMode == .interactive,
               let incomingStartedAt = lineage.processStartedAt else { return false }
         let relevantRuns = (record.runs ?? []).filter { run in
             run.runId == lineage.runId || run.runId == record.activeRunId
