@@ -2868,6 +2868,35 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func agentAndSessionListErrorsNameTheInvokedCommand() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-list-error-command-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let cases: [(command: String, arguments: [String], expectedPrefix: String)] = [
+            ("agents", ["list", "--state-dir"], "agents list: --state-dir requires a value"),
+            ("agents", ["list", "--limit", "0", "--state-dir", root.path], "agents list: --limit must be a positive integer"),
+            ("sessions", ["list", "--state-dir"], "sessions list: --state-dir requires a value"),
+            ("sessions", ["list", "--limit", "0", "--state-dir", root.path], "sessions list: --limit must be a positive integer"),
+        ]
+
+        for testCase in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [testCase.command] + testCase.arguments,
+                environment: isolatedAgentTreeEnvironment(home: root),
+                timeout: 5
+            )
+            let context = "\(testCase.command): \(result.stdout)"
+
+            #expect(!result.timedOut, Comment(rawValue: context))
+            #expect(result.status != 0, Comment(rawValue: context))
+            #expect(result.stdout.contains(testCase.expectedPrefix), Comment(rawValue: context))
+        }
+    }
+
     @Test func agentsEqualsOptionsPreserveDashLeadingValues() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
