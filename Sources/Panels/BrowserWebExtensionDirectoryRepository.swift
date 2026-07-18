@@ -16,8 +16,11 @@ struct BrowserWebExtensionApprovalDiscoveryResult: Sendable {
 @available(macOS 15.4, *)
 actor BrowserWebExtensionDirectoryRepository {
     struct PackageLimits: Sendable {
+        // Catalog downloads stay capped at 25 MB of compressed data. Installed
+        // packages need a separate limit because production extensions such as
+        // Bitwarden expand well beyond that while remaining bounded on disk.
         static let standard = PackageLimits(
-            maximumByteCount: BrowserWebExtensionPackageSession.defaultMaximumResponseByteCount,
+            maximumByteCount: 256 * 1024 * 1024,
             maximumFileCount: 10_000
         )
 
@@ -505,8 +508,8 @@ enum BrowserWebExtensionInstallError: LocalizedError {
             )
         case .packageTooLarge:
             return String(
-                localized: "browser.extensions.store.error.tooLarge",
-                defaultValue: "The extension package is larger than 25 MB."
+                localized: "browser.extensions.install.tooLarge",
+                defaultValue: "The installed extension is larger than 256 MB."
             )
         case .packageContainsTooManyFiles:
             return String(
