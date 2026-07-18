@@ -92,6 +92,9 @@ struct SidebarWorkspaceSnapshotFactory {
             metadataEntries: detailVisibility.showsMetadata
                 ? workspace.sidebarStatusEntriesInDisplayOrder()
                 : [],
+            metadataEntryOverrideColors: detailVisibility.showsMetadata
+                ? stateIndicatorOverrideColors()
+                : [:],
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
                 : [],
@@ -119,6 +122,46 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistTotalCount: checklistProgress.totalCount,
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText
         )
+    }
+
+    /// Resolves `sidebar.stateIndicatorColors` overrides per status-entry key
+    /// from the workspace's agent lifecycle states. When several panels report
+    /// different states for the same key, `needsInput` > `running` > `idle`
+    /// (a blocked panel must stay visible while a sibling still runs);
+    /// `unknown` never contributes an override. Manual loader keys
+    /// (`cmux workspace loading`) are excluded like in
+    /// `Workspace.agentHibernationLifecycleState` — they are always
+    /// `.running` and never back a status pill.
+    private func stateIndicatorOverrideColors() -> [String: String] {
+        let colors = settings.stateIndicatorColors
+        guard !colors.isEmpty else { return [:] }
+        var statesByKey: [String: SidebarStateIndicatorState] = [:]
+        for lifecyclesByKey in workspace.agentLifecycleStatesByPanelId.values {
+            for (key, lifecycle) in lifecyclesByKey {
+                guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else { continue }
+                guard let state = Self.indicatorState(for: lifecycle) else { continue }
+                if let existing = statesByKey[key] {
+                    statesByKey[key] = existing.dominating(state)
+                } else {
+                    statesByKey[key] = state
+                }
+            }
+        }
+        return colors.overrideColorsByKey(statesByKey: statesByKey)
+    }
+
+    /// Maps an agent lifecycle state to the indicator state a color override
+    /// can target, or `nil` for `.unknown` (an unknown lifecycle never
+    /// recolors a status pill).
+    private static func indicatorState(
+        for lifecycle: AgentHibernationLifecycleState
+    ) -> SidebarStateIndicatorState? {
+        switch lifecycle {
+        case .running: .running
+        case .needsInput: .needsInput
+        case .idle: .idle
+        case .unknown: nil
+        }
     }
 
     private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {

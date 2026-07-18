@@ -145,6 +145,7 @@ import Testing
             copyableSidebarSSHError: nil,
             latestConversationMessage: latestConversationMessage,
             metadataEntries: [],
+            metadataEntryOverrideColors: [:],
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,

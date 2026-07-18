@@ -182,5 +182,32 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarNotificationBadgeColorHex"
     )
 
+    /// Override color (`#RRGGBB`) for agent status pills while the agent is
+    /// running (`sidebar.stateIndicatorColors.running`). Empty means keep the
+    /// producer-reported pill color.
+    public let stateIndicatorRunningColorHex = DefaultsKey<String>(
+        id: "sidebar.stateIndicatorColors.running",
+        defaultValue: "",
+        userDefaultsKey: "sidebarStateIndicatorRunningColorHex"
+    )
+
+    /// Override color (`#RRGGBB`) for agent status pills while the agent
+    /// needs input (`sidebar.stateIndicatorColors.needsInput`). Empty means
+    /// keep the producer-reported pill color.
+    public let stateIndicatorNeedsInputColorHex = DefaultsKey<String>(
+        id: "sidebar.stateIndicatorColors.needsInput",
+        defaultValue: "",
+        userDefaultsKey: "sidebarStateIndicatorNeedsInputColorHex"
+    )
+
+    /// Override color (`#RRGGBB`) for agent status pills while the agent is
+    /// idle (`sidebar.stateIndicatorColors.idle`). Empty means keep the
+    /// producer-reported pill color.
+    public let stateIndicatorIdleColorHex = DefaultsKey<String>(
+        id: "sidebar.stateIndicatorColors.idle",
+        defaultValue: "",
+        userDefaultsKey: "sidebarStateIndicatorIdleColorHex"
+    )
+
     public init() {}
 }

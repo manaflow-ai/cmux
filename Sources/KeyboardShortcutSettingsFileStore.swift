@@ -722,12 +722,43 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[SidebarCatalogSection().notificationMessageLineLimit.userDefaultsKey] = .int(value)
         } else if section.keys.contains("notificationMessageLineLimit") { logInvalid("sidebar.notificationMessageLineLimit", sourcePath: sourcePath) }
         parseSidebarIndicatorPositionSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
+        if section.keys.contains("stateIndicatorColors") {
+            if let stateColors = section["stateIndicatorColors"] as? [String: Any] {
+                parseSidebarStateIndicatorColors(stateColors, sourcePath: sourcePath, snapshot: &snapshot)
+            } else {
+                logInvalid("sidebar.stateIndicatorColors", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)
             )
         } else if section.keys.contains(RightSidebarWidthSettings.jsonKey) {
             logInvalid(RightSidebarWidthSettings.settingsPath, sourcePath: sourcePath)
+        }
+    }
+
+    /// Parses `sidebar.stateIndicatorColors { running, needsInput, idle }`.
+    /// Each value is a `#RRGGBB` hex color, or `null` to keep the
+    /// producer-reported pill color for that lifecycle state.
+    private func parseSidebarStateIndicatorColors(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let sidebar = SidebarCatalogSection()
+        let mappings: [(jsonKey: String, defaultsKey: String)] = [
+            ("running", sidebar.stateIndicatorRunningColorHex.userDefaultsKey),
+            ("needsInput", sidebar.stateIndicatorNeedsInputColorHex.userDefaultsKey),
+            ("idle", sidebar.stateIndicatorIdleColorHex.userDefaultsKey),
+        ]
+        for mapping in mappings where section.keys.contains(mapping.jsonKey) {
+            guard let value = parseNullableHex(
+                section[mapping.jsonKey],
+                path: "sidebar.stateIndicatorColors.\(mapping.jsonKey)",
+                sourcePath: sourcePath
+            ) else { continue }
+            snapshot.managedUserDefaults[mapping.defaultsKey] = .nullableString(value)
         }
     }
 

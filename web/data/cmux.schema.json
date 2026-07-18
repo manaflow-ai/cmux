@@ -1109,6 +1109,28 @@
           "default": true,
           "description": "Show custom metadata pills."
         },
+        "stateIndicatorColors": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-state color overrides for the agent status pills (Running / Needs input / Idle) shown under workspace rows. Each value is a #RRGGBB hex color, or null to keep the color reported by the agent integration.",
+          "properties": {
+            "running": {
+              "$ref": "#/$defs/colorHexOrNull",
+              "default": null,
+              "description": "Status pill color while an agent is running. The exact configured color is used in both light and dark appearance."
+            },
+            "needsInput": {
+              "$ref": "#/$defs/colorHexOrNull",
+              "default": null,
+              "description": "Status pill color while an agent is waiting for input. The exact configured color is used in both light and dark appearance."
+            },
+            "idle": {
+              "$ref": "#/$defs/colorHexOrNull",
+              "default": null,
+              "description": "Status pill color while an agent is idle. The exact configured color is used in both light and dark appearance."
+            }
+          }
+        },
         "rightMaxWidth": {
           "type": "number",
           "exclusiveMinimum": 0,
