@@ -1330,6 +1330,30 @@ mod environment_tests {
     use std::io::Write as _;
 
     #[test]
+    fn transcript_generation_changes_when_the_trajectory_grows() {
+        let path = std::env::temp_dir().join(format!(
+            "cmux-transcript-generation-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&path, b"first turn\n").expect("write transcript");
+        let first = transcript_generation(&path).expect("read first generation");
+
+        let mut transcript = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("open transcript");
+        transcript
+            .write_all(b"second turn\n")
+            .expect("append transcript");
+        transcript.flush().expect("flush transcript");
+        let second = transcript_generation(&path).expect("read second generation");
+
+        assert_ne!(first, second);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn opencode_database_caps_sqlite_value_lengths_before_decoding() {
         let root = std::env::temp_dir().join(format!(
             "cmux-opencode-limit-test-{}-{}",

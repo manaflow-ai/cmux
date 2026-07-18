@@ -2529,14 +2529,14 @@ mod tests {
     use super::{
         AllowedFile, DiffSource, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
         TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
-        migrate_legacy_agent_turn_baselines, prune_orphaned_session_temp_files, read_rpc_request,
+        prepare_rpc_root, prune_orphaned_session_temp_files, read_rpc_request,
         register_session_temp, remove_trajectory_scan_if_current, reserve_session_owner,
         run_git_patch_with_limit, session_lease_lock_is_active,
         sweep_orphaned_sessions_periodically, valid_group_id,
     };
 
     #[tokio::test]
-    async fn legacy_agent_turn_baseline_migration_removes_owned_files_and_refs() {
+    async fn startup_maintenance_preserves_legacy_state_for_older_builds() {
         let root = std::env::temp_dir().join(format!(
             "cmux-legacy-baseline-migration-{}-{}",
             std::process::id(),
@@ -2590,19 +2590,19 @@ mod tests {
         )
         .expect("write store");
 
-        migrate_legacy_agent_turn_baselines(home.clone()).await;
+        prepare_rpc_root(&root).await;
 
-        assert!(!store.exists());
-        assert!(!state.join("agent-turn-diff-baseline-snapshots").exists());
+        assert!(store.exists());
+        assert!(state.join("agent-turn-diff-baseline-snapshots").exists());
         assert!(
-            !state
+            state
                 .join("agent-turn-diff-baseline-snapshots-staging")
                 .exists()
         );
         assert!(
             run_git(&["for-each-ref", "--format=%(refname)", "refs/cmux/last-turn"])
                 .trim()
-                .is_empty()
+                .starts_with("refs/cmux/last-turn/")
         );
         let _ = std::fs::remove_dir_all(root);
     }
