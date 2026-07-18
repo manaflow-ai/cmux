@@ -2,7 +2,7 @@
 //!
 //! This is the attach surface for external frontends (the cmux app, the
 //! bundled `cmux-tui attach` client, scripts). Unix uses one JSON message
-//! per line and WebSocket uses one JSON message per text frame. Three commands
+//! per line and WebSocket uses one JSON message per text frame. Four commands
 //! additionally turn the connection full-duplex:
 //!
 //! - `subscribe` — the server pushes `{"event":...}` lines (tree-changed,
@@ -10,6 +10,8 @@
 //!   with responses.
 //! - `subscribe-topology` — the server pushes revisioned canonical topology
 //!   replacements from a validated snapshot cursor.
+//! - `subscribe-renderer-lifecycle` — the server pushes only renderer worker,
+//!   presentation-ready, and renderer-config invalidation events.
 //! - `attach-surface` — PTYs receive `{"event":"vt-state"}` with a
 //!   base64 VT replay followed by live `{"event":"output"}` pty bytes.
 //!   Browsers receive `{"event":"browser-state"}` with optional latest
@@ -85,7 +87,8 @@ use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DaemonInstanceId, DefaultColors, Direction,
     LEGACY_TERMINAL_ACTIVITY_READER_UUID, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
     MuxEventReceiver, Node, NotificationLevel, PairingDecision, PaneId, PresentationId,
-    PresentationScroll, PresentationView, PresentationZoom, RenderAttachFrame, Rgb, ScreenId,
+    PresentationScroll, PresentationView, PresentationZoom,
+    RENDERER_LIFECYCLE_SUBSCRIPTION_CAPABILITY, RenderAttachFrame, Rgb, ScreenId,
     SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame,
     SurfaceUuid, TerminalColors, TopologyResume, TreeDelta, TreeDeltaKind, WorkspaceId,
     WorkspaceUuid, ZoomMode, assign_short_ids,
@@ -107,6 +110,7 @@ pub const PROTOCOL_CAPABILITIES: &[&str] = &[
     "service-handoff-v1",
     "remote-tmux-producer-source-v1",
     "renderer-semantic-scene-v1",
+    RENDERER_LIFECYCLE_SUBSCRIPTION_CAPABILITY,
     "renderer-worker-supervision-v1",
     "render-attach-v1",
     "stable-entity-uuid-v1",
@@ -1359,6 +1363,8 @@ enum Command {
         session_id: crate::SessionId,
         revision: u64,
     },
+    /// Protocol-v9 frontend-only renderer worker and presentation lifecycle stream.
+    SubscribeRendererLifecycle,
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
         surface: SurfaceId,
@@ -1452,6 +1458,7 @@ const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_SERVER_CONNECTIONS: usize = 64;
 const MAX_TOPOLOGY_STREAMS: u64 = 256;
+const MAX_RENDERER_LIFECYCLE_STREAMS: u64 = 256;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
 const CONTROL_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
 const EXTERNAL_TERMINAL_PAYLOAD_MAX_BYTES: usize = 2 * 1024 * 1024;
@@ -1850,6 +1857,7 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "release-projection-state"
             | "list-projection-states"
             | "renderer-workers"
+            | "subscribe-renderer-lifecycle"
             | "configure-renderer-presentation"
             | "activate-renderer-presentation"
             | "detach-renderer-presentation"
@@ -1951,6 +1959,7 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "acknowledge-terminal-request"
             | "terminal-activity-snapshot"
             | "mark-terminal-seen"
+            | "subscribe-renderer-lifecycle"
     );
     policy
 }
@@ -2688,6 +2697,9 @@ struct ClientRecord {
     attached: BTreeMap<SurfaceId, AttachedSurface>,
     announced_attached: bool,
     topology_subscribed: bool,
+    // Stream recovery is connection replacement, so this registration bit
+    // intentionally remains set after a terminal overflow ends its permit.
+    renderer_lifecycle_subscribed: bool,
     writer: MessageWriter,
 }
 
@@ -2704,6 +2716,7 @@ pub(crate) struct ClientRegistry {
     lifecycle: RwLock<()>,
     clients: Mutex<BTreeMap<u64, ClientRecord>>,
     active_topology_streams: Arc<AtomicU64>,
+    active_renderer_lifecycle_streams: Arc<AtomicU64>,
     inbound_budget: Arc<InboundBudget>,
 }
 
@@ -2714,6 +2727,7 @@ impl ClientRegistry {
             lifecycle: RwLock::new(()),
             clients: Mutex::new(BTreeMap::new()),
             active_topology_streams: Arc::new(AtomicU64::new(0)),
+            active_renderer_lifecycle_streams: Arc::new(AtomicU64::new(0)),
             inbound_budget: InboundBudget::new(INBOUND_INFLIGHT_MAX_BYTES),
         }
     }
@@ -2763,6 +2777,7 @@ impl ClientRegistry {
                 attached: BTreeMap::new(),
                 announced_attached: false,
                 topology_subscribed: false,
+                renderer_lifecycle_subscribed: false,
                 writer,
             },
         );
@@ -3144,6 +3159,36 @@ impl ClientRegistry {
         self.active_topology_streams.load(Ordering::Acquire)
     }
 
+    fn claim_renderer_lifecycle_stream(
+        &self,
+        client: u64,
+    ) -> anyhow::Result<RendererLifecycleStreamPermit> {
+        let mut clients = self.clients.lock().unwrap();
+        let record =
+            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        if record.renderer_lifecycle_subscribed {
+            anyhow::bail!("connection already has a renderer lifecycle subscription");
+        }
+        self.active_renderer_lifecycle_streams
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                (count < MAX_RENDERER_LIFECYCLE_STREAMS).then_some(count + 1)
+            })
+            .map_err(|_| anyhow::anyhow!("renderer lifecycle subscription limit reached"))?;
+        record.renderer_lifecycle_subscribed = true;
+        Ok(RendererLifecycleStreamPermit(self.active_renderer_lifecycle_streams.clone()))
+    }
+
+    fn cancel_renderer_lifecycle_claim(&self, client: u64) {
+        if let Some(record) = self.clients.lock().unwrap().get_mut(&client) {
+            record.renderer_lifecycle_subscribed = false;
+        }
+    }
+
+    #[cfg(test)]
+    fn active_renderer_lifecycle_streams(&self) -> u64 {
+        self.active_renderer_lifecycle_streams.load(Ordering::Acquire)
+    }
+
     pub(crate) fn client_ids(&self) -> HashSet<u64> {
         self.clients.lock().unwrap().keys().copied().collect()
     }
@@ -3169,6 +3214,14 @@ impl ClientRegistry {
 struct TopologyStreamPermit(Arc<AtomicU64>);
 
 impl Drop for TopologyStreamPermit {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+struct RendererLifecycleStreamPermit(Arc<AtomicU64>);
+
+impl Drop for RendererLifecycleStreamPermit {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
     }
@@ -7978,6 +8031,58 @@ fn handle_command(
             })?;
             Ok(json!({}))
         }
+        Command::SubscribeRendererLifecycle => {
+            // Keep disconnect from removing the connection between bounded
+            // admission and stream registration. The read guard ends after
+            // the output thread starts; only the counted permit is long-lived.
+            let client_lifecycle = mux.control_clients.read_lifecycle();
+            let permit = mux.control_clients.claim_renderer_lifecycle_stream(client)?;
+            let outbound_stream = match writer.start_stream(&renderer_lifecycle_overflow_json()) {
+                Ok(stream) => stream,
+                Err(error) => {
+                    mux.control_clients.cancel_renderer_lifecycle_claim(client);
+                    drop(permit);
+                    return Err(error.into());
+                }
+            };
+            let events = mux.subscribe_renderer_lifecycle();
+            let writer = writer.clone();
+            let thread = std::thread::Builder::new()
+                .name("mux-renderer-lifecycle-out".into())
+                .spawn(move || {
+                    let _permit = permit;
+                    let mut transport_overflow = false;
+                    while writer.is_open() && outbound_stream.is_open() {
+                        let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                            Ok(event) => event,
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        };
+                        let value = match &event {
+                            MuxEvent::RendererConfigInvalidated { .. }
+                            | MuxEvent::RendererWorkerChanged { .. }
+                            | MuxEvent::RendererPresentationReady { .. } => {
+                                subscribed_event_json(&event)
+                            }
+                            _ => continue,
+                        };
+                        if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                            transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
+                            break;
+                        }
+                    }
+                    if events.overflowed() || transport_overflow {
+                        let _ = writer
+                            .send_terminal(&renderer_lifecycle_overflow_json(), &outbound_stream);
+                    }
+                });
+            if let Err(error) = thread {
+                mux.control_clients.cancel_renderer_lifecycle_claim(client);
+                return Err(error.into());
+            }
+            drop(client_lifecycle);
+            Ok(json!({}))
+        }
         Command::SubscribeTopology { daemon_instance_id, session_id, revision } => {
             // Reserve connection/global capacity before the journal allocates
             // and registers a mailbox. Otherwise repeated duplicate requests
@@ -8550,6 +8655,10 @@ fn subscription_overflow_json() -> Value {
     })
 }
 
+fn renderer_lifecycle_overflow_json() -> Value {
+    json!({"event": "renderer-lifecycle-overflow"})
+}
+
 fn attach_overflow_json(surface: SurfaceId) -> Value {
     json!({
         "event": "overflow",
@@ -9097,6 +9206,7 @@ mod tests {
         for command in [
             "open-presentation",
             "renderer-workers",
+            "subscribe-renderer-lifecycle",
             "configure-renderer-presentation",
             "activate-renderer-presentation",
             "list-clients",
@@ -9112,6 +9222,26 @@ mod tests {
                 "{command}"
             );
         }
+        assert!(command_admission_policy("subscribe-renderer-lifecycle").protocol_v9);
+    }
+
+    #[test]
+    fn renderer_lifecycle_subscription_requires_a_registered_v9_frontend() {
+        let mux = test_mux();
+        let request = json!({"id": 7, "cmd": "subscribe-renderer-lifecycle"}).to_string();
+
+        let frontend_writer = test_writer();
+        let (frontend, _) = register_v9_client(&mux, &frontend_writer);
+        drop(preflight_request(&mux, frontend, &request, None).unwrap());
+
+        let automation_writer = test_writer();
+        let (automation, _, registration) =
+            register_v9_client_kind(&mux, &automation_writer, ClientTransport::Unix, "automation");
+        assert_eq!(registration["role"], "trusted-automation");
+        let error = preflight_request(&mux, automation, &request, None)
+            .err()
+            .expect("automation must not read renderer lifecycle events");
+        assert!(error.to_string().contains("trusted frontend"));
     }
 
     #[test]
@@ -9930,6 +10060,37 @@ mod tests {
     }
 
     #[test]
+    fn renderer_lifecycle_transport_overflow_uses_the_exact_terminal_event() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&renderer_lifecycle_overflow_json()).unwrap();
+
+        for sequence in 0..OUTBOUND_CAPACITY {
+            writer
+                .send_stream(
+                    &json!({"event": "renderer-worker-changed", "sequence": sequence}),
+                    &stream,
+                )
+                .unwrap();
+        }
+        let error = writer
+            .send_stream(
+                &json!({
+                    "event": "renderer-worker-changed",
+                    "sequence": OUTBOUND_CAPACITY,
+                }),
+                &stream,
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal, json!({"event": "renderer-lifecycle-overflow"}));
+        assert!(outbound.try_pop().is_none());
+        assert!(writer.is_open());
+    }
+
+    #[test]
     fn initial_stream_state_precedes_its_response_and_overflows_only_its_stream() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
@@ -10004,6 +10165,56 @@ mod tests {
         assert_eq!(registry.active_topology_streams(), MAX_TOPOLOGY_STREAMS);
         drop(permits);
         assert_eq!(registry.active_topology_streams(), 0);
+    }
+
+    #[test]
+    fn renderer_lifecycle_streams_allow_one_per_connection_and_release_the_global_cap() {
+        let registry = ClientRegistry::new();
+        let first = registry.register(ClientTransport::Unix, test_writer());
+        let first_permit = registry.claim_renderer_lifecycle_stream(first).unwrap();
+        assert!(
+            registry
+                .claim_renderer_lifecycle_stream(first)
+                .err()
+                .expect("second stream must fail")
+                .to_string()
+                .contains("already has")
+        );
+
+        let mut permits = vec![first_permit];
+        for _ in 1..MAX_RENDERER_LIFECYCLE_STREAMS {
+            let client = registry.register(ClientTransport::Unix, test_writer());
+            permits.push(registry.claim_renderer_lifecycle_stream(client).unwrap());
+        }
+        assert_eq!(registry.active_renderer_lifecycle_streams(), MAX_RENDERER_LIFECYCLE_STREAMS);
+        let excess = registry.register(ClientTransport::Unix, test_writer());
+        assert!(
+            registry
+                .claim_renderer_lifecycle_stream(excess)
+                .err()
+                .expect("global overflow must fail")
+                .to_string()
+                .contains("limit reached")
+        );
+
+        drop(permits.pop());
+        assert_eq!(
+            registry.active_renderer_lifecycle_streams(),
+            MAX_RENDERER_LIFECYCLE_STREAMS - 1
+        );
+        let replacement = registry.register(ClientTransport::Unix, test_writer());
+        permits.push(registry.claim_renderer_lifecycle_stream(replacement).unwrap());
+        assert_eq!(registry.active_renderer_lifecycle_streams(), MAX_RENDERER_LIFECYCLE_STREAMS);
+        drop(permits);
+        assert_eq!(registry.active_renderer_lifecycle_streams(), 0);
+        assert!(
+            registry
+                .claim_renderer_lifecycle_stream(first)
+                .err()
+                .expect("a terminated stream must recover on a new connection")
+                .to_string()
+                .contains("already has")
+        );
     }
 
     #[test]
@@ -10428,6 +10639,7 @@ mod tests {
         for capability in [
             "render-attach-v1",
             "presentation-registry-v1",
+            RENDERER_LIFECYCLE_SUBSCRIPTION_CAPABILITY,
             "renderer-worker-supervision-v1",
             "tree-delta-v1",
             "canonical-topology-snapshot-v1",
@@ -10444,6 +10656,11 @@ mod tests {
         let request: Request = serde_json::from_str(r#"{"id":7,"cmd":"subscribe"}"#).unwrap();
         assert_eq!(request.id, Some(json!(7)));
         assert!(matches!(request.cmd, Command::Subscribe { tree_events: None }));
+
+        let renderer_lifecycle: Request =
+            serde_json::from_str(r#"{"id":8,"cmd":"subscribe-renderer-lifecycle"}"#).unwrap();
+        assert_eq!(renderer_lifecycle.id, Some(json!(8)));
+        assert!(matches!(renderer_lifecycle.cmd, Command::SubscribeRendererLifecycle));
 
         let presentation_id = PresentationId::new();
         let accessibility: Request = serde_json::from_value(json!({
@@ -13064,6 +13281,52 @@ mod tests {
                 },
             })
         );
+    }
+
+    #[test]
+    fn renderer_lifecycle_stream_excludes_surface_and_topology_noise_and_releases_its_permit() {
+        let mux = test_mux();
+        let (writer, outbound) = test_writer_and_outbound();
+        let (client, _) = register_v9_client(&mux, &writer);
+
+        let response =
+            handle_command(&mux, client, Command::SubscribeRendererLifecycle, &writer).unwrap();
+        assert_eq!(response, json!({}));
+        assert_eq!(mux.control_clients.active_renderer_lifecycle_streams(), 1);
+
+        mux.emit(MuxEvent::SurfaceOutput(7));
+        mux.emit(MuxEvent::TreeChanged);
+        mux.emit(MuxEvent::ConfigReloadRequested);
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(outbound.try_pop().is_none());
+
+        mux.emit(MuxEvent::RendererConfigInvalidated {
+            revision: 9,
+            digest: [0x3c; 32],
+            reason: Arc::<str>::from("ghostty-config-reloaded"),
+            default_colors: DefaultColors::default(),
+        });
+        let lifecycle_event = (0..100)
+            .find_map(|_| {
+                let event = outbound.try_pop();
+                if event.is_none() {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                event
+            })
+            .expect("renderer lifecycle event");
+        let lifecycle_event: Value = serde_json::from_str(&lifecycle_event).unwrap();
+        assert_eq!(lifecycle_event["event"], "renderer-config-invalidated");
+        assert_eq!(lifecycle_event["revision"], 9);
+
+        assert!(disconnect_client(&mux, client, false));
+        for _ in 0..100 {
+            if mux.control_clients.active_renderer_lifecycle_streams() == 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(mux.control_clients.active_renderer_lifecycle_streams(), 0);
     }
 
     #[test]

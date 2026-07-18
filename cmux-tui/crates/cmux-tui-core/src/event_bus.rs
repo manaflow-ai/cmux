@@ -26,6 +26,7 @@ enum MuxEventFilter {
     AttachedSurface(SurfaceId),
     TerminalActivity,
     ConfigReload,
+    RendererLifecycle,
 }
 
 pub struct MuxEventReceiver {
@@ -67,6 +68,10 @@ impl MuxEventBroadcaster {
         self.subscribe_with_filter(MuxEventFilter::ConfigReload)
     }
 
+    pub fn subscribe_renderer_lifecycle(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::RendererLifecycle)
+    }
+
     fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
         let mailbox = Arc::new(MuxEventMailbox::default());
         self.subscribers
@@ -99,6 +104,12 @@ impl MuxEventFilter {
                 MuxEvent::TerminalActivity(_) | MuxEvent::TerminalActivityReceipt(_)
             ),
             Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
+            Self::RendererLifecycle => matches!(
+                event,
+                MuxEvent::RendererConfigInvalidated { .. }
+                    | MuxEvent::RendererWorkerChanged { .. }
+                    | MuxEvent::RendererPresentationReady { .. }
+            ),
         }
     }
 }
@@ -343,6 +354,78 @@ mod tests {
 
         broadcaster.emit(MuxEvent::ConfigReloadRequested);
         assert!(matches!(events.recv().unwrap(), MuxEvent::ConfigReloadRequested));
+    }
+
+    #[test]
+    fn renderer_lifecycle_subscription_accepts_only_renderer_lifecycle_events() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_renderer_lifecycle();
+
+        for surface in 0..=MAX_PENDING_EVENTS {
+            broadcaster.emit(MuxEvent::SurfaceOutput(surface as SurfaceId));
+            broadcaster.emit(MuxEvent::TreeChanged);
+        }
+        broadcaster.emit(MuxEvent::ConfigReloadRequested);
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+        assert!(!events.overflowed());
+
+        let workspace_uuid = crate::WorkspaceUuid::new();
+        broadcaster.emit(MuxEvent::RendererConfigInvalidated {
+            revision: 7,
+            digest: [0x5a; 32],
+            reason: Arc::<str>::from("ghostty-config-reloaded"),
+            default_colors: crate::DefaultColors::default(),
+        });
+        broadcaster.emit(MuxEvent::RendererWorkerChanged {
+            workspace_uuid,
+            prior_renderer_epoch: 4,
+            prior_process_id: Some(41),
+            prior_process_instance_token: None,
+            status: None,
+            reason: Some(Arc::<str>::from("worker-exited")),
+        });
+        broadcaster.emit(MuxEvent::RendererPresentationReady {
+            workspace_uuid,
+            renderer_epoch: 5,
+            process_id: 42,
+            process_instance_token: crate::renderer_supervisor::RendererProcessInstanceToken {
+                start_time_seconds: 11,
+                start_time_microseconds: 12,
+            },
+            effective_user_id: 501,
+            metrics: crate::renderer_control::RendererPresentationReady {
+                terminal_id: uuid::Uuid::new_v4(),
+                terminal_epoch: 2,
+                presentation_id: uuid::Uuid::new_v4(),
+                presentation_generation: 3,
+                canonical_sequence: 8,
+                presentation_sequence: 9,
+                columns: 120,
+                rows: 40,
+                cell_width: 8,
+                cell_height: 16,
+                padding_top: 1,
+                padding_right: 2,
+                padding_bottom: 3,
+                padding_left: 4,
+            },
+        });
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::RendererConfigInvalidated { revision: 7, .. }
+        ));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::RendererWorkerChanged { workspace_uuid: received, .. }
+                if received == workspace_uuid
+        ));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::RendererPresentationReady { workspace_uuid: received, .. }
+                if received == workspace_uuid
+        ));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[test]

@@ -3385,6 +3385,10 @@ impl Mux {
         self.subscribers.subscribe_config_reload()
     }
 
+    pub fn subscribe_renderer_lifecycle(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_renderer_lifecycle()
+    }
+
     pub fn emit(&self, event: MuxEvent) {
         self.subscribers.emit(event);
     }

@@ -1,6 +1,6 @@
 # Control Socket Protocol
 
-As of protocol v8, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe`, `subscribe-topology`, and `attach-surface` also push event lines on the same connection.
+As of protocol v8, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe`, `subscribe-topology`, `subscribe-renderer-lifecycle`, and `attach-surface` also push event lines on the same connection.
 
 Unix requests and authenticated WebSocket command frames are limited to 4 MiB.
 The Unix reader closes an oversized connection without buffering past that
@@ -20,7 +20,7 @@ On Darwin, an oversized environment runtime root falls back to the private mode-
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":8,"protocol_min":6,"protocol_max":9,"capabilities":["canonical-topology-snapshot-v1","projection-state-reconnect-v1","stable-entity-uuid-v1","terminal-activity-v1","terminal-control-lease-v1","terminal-input-idempotency-v1","terminal-ordered-input-v1","topology-resume-v1"],"session":"main","session_id":"<uuid>","daemon_instance_id":"<uuid>","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":8,"protocol_min":6,"protocol_max":9,"capabilities":["canonical-topology-snapshot-v1","projection-state-reconnect-v1","renderer-lifecycle-subscription-v1","stable-entity-uuid-v1","terminal-activity-v1","terminal-control-lease-v1","terminal-input-idempotency-v1","terminal-ordered-input-v1","topology-resume-v1"],"session":"main","session_id":"<uuid>","daemon_instance_id":"<uuid>","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
 ```
 
 `ping` returns the same session, daemon, process, and revision authority fields
@@ -93,6 +93,7 @@ browser-reload
 browser-activate
 subscribe
 subscribe-topology
+subscribe-renderer-lifecycle
 attach-surface
 scroll-surface
 ```
@@ -160,6 +161,26 @@ Subscribed event lines are:
 Protocol v7 `title-changed` carries the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
 
 Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 `resize-surface` responses include `data.accepted` and `data.reservation_id`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
+
+### Renderer lifecycle
+
+A registered protocol-v9 `swift-shell` or `tui` frontend can require
+`renderer-lifecycle-subscription-v1` and open the dedicated stream:
+
+```json
+{"id":21,"cmd":"subscribe-renderer-lifecycle"}
+{"id":21,"ok":true,"data":{}}
+```
+
+The stream filters at the mux broadcaster and carries only those three event
+names: `renderer-worker-changed`, `renderer-presentation-ready`, and
+`renderer-config-invalidated`. Surface output, terminal activity, tree changes,
+and topology deltas do not enter its 4,096-event mailbox. One connection may
+open one renderer lifecycle stream, and one daemon permits 256 live streams. A
+mailbox or transport backlog overflow ends the stream with exactly
+`{"event":"renderer-lifecycle-overflow"}`. The client reconnects, fetches
+`renderer-workers`, rebuilds its renderer presentations, and subscribes on a
+new connection.
 
 ## Attach Surface
 

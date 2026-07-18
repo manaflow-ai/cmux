@@ -95,6 +95,9 @@ pub type PaneId = u64;
 pub type ScreenId = u64;
 pub type WorkspaceId = u64;
 
+/// Protocol-v9 capability for the frontend-only renderer lifecycle event lane.
+pub const RENDERER_LIFECYCLE_SUBSCRIPTION_CAPABILITY: &str = "renderer-lifecycle-subscription-v1";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitDir {
     /// Split into left/right columns.
