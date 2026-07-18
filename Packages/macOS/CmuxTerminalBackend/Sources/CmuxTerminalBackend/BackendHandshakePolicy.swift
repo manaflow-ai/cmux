@@ -25,6 +25,7 @@ public struct BackendHandshakePolicy: Equatable, Sendable {
             "canonical-topology-mutations-v1",
             "durable-session-identity-v1",
             "ensure-terminal-v1",
+            "frontend-native-browser-v1",
             "presentation-registry-v1",
             "projection-state-reconnect-v1",
             "renderer-semantic-scene-v1",
