@@ -167,6 +167,16 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
                 }
 
+                Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
+                    Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.terminalFilesChip",
+                            defaultValue: "Terminal Files Chip"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
+                }
+
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
                     Button {
@@ -219,6 +229,14 @@ struct MobileSettingsView: View {
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Toggle(isOn: $displaySettings.showMissingFiles) {
+                        Text(L10n.string(
+                            "mobile.settings.showMissingFiles",
+                            defaultValue: "Show missing files"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsShowMissingFiles")
+
                     Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }

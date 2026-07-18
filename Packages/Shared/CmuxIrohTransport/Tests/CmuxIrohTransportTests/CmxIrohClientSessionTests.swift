@@ -173,6 +173,62 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
+    func emptyPublicPlanFailsTypedWithoutCallingTheNativeDialer() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.failure(.unsupported)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+            credential: credential
+        )
+
+        await #expect(throws: CmxIrohRegistryContextError.dialPlanUnavailable) {
+            try await session.connect()
+        }
+        #expect(await endpoint.observedDialedAddresses().isEmpty)
+    }
+
+    @Test
+    func emptyPublicPlanResolvesAndValidatesPrivateFallbackBeforeDialing() async throws {
+        let control = controlStream(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control.stream]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let privateHint = try tailscaleHint()
+        let authorization = try privateFallbackAuthorization(for: [privateHint])
+        let validator = TestPrivateFallbackValidator()
+        let fallbackContext = CmxIrohClientContext(
+            dialPlan: try testIrohDialPlan(
+                publicPaths: [],
+                privateFallbackPaths: [privateHint]
+            ),
+            credential: credential,
+            privateFallbackAuthorization: authorization
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+            credential: credential,
+            privateFallbackValidator: validator,
+            privateFallbackContextProvider: { fallbackContext }
+        )
+
+        try await session.connect()
+
+        #expect(await endpoint.observedDialedAddresses().map(\.pathHints) == [[privateHint]])
+        #expect(await validator.observedAuthorizations() == [authorization])
+    }
+
+    @Test
     func privateFallbackIsNotDialedWhenItsNetworkStateCannotBeRevalidated() async throws {
         let control = controlStream(decision: .accepted)
         let connection = TestIrohConnection(

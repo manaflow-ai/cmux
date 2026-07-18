@@ -299,16 +299,24 @@ actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
 
     private var steps: [Step]
     private var endpointIDs: [CmxIrohPeerIdentity] = []
+    private var issueCount = 0
+    private let issueHook: (@Sendable (_ count: Int) async -> Void)?
 
-    init(steps: [Step]) {
+    init(
+        steps: [Step],
+        issueHook: (@Sendable (_ count: Int) async -> Void)? = nil
+    ) {
         self.steps = steps
+        self.issueHook = issueHook
     }
 
     func issueRelayToken(
         bindingID _: String,
         endpointID: CmxIrohPeerIdentity
-    ) throws -> CmxIrohRelayTokenResponse {
+    ) async throws -> CmxIrohRelayTokenResponse {
         endpointIDs.append(endpointID)
+        issueCount += 1
+        await issueHook?(issueCount)
         guard !steps.isEmpty else { throw TestRelayCoordinatorError.noResponse }
         switch steps.removeFirst() {
         case let .response(response):
@@ -380,6 +388,10 @@ final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
         for sleeper in pending {
             sleeper.resume()
         }
+    }
+
+    func setNowWithoutResuming(_ date: Date) {
+        lock.withLock { currentDate = date }
     }
 
     func events() -> AsyncStream<Event> {
