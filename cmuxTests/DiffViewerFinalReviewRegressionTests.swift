@@ -43,6 +43,12 @@ import Testing
         #expect(first != second)
     }
 
+    @Test func internalPreloadNeverFallsBackToTheExternalBrowser() {
+        #expect(!Workspace.BrowserPanelCreationPolicy.automationPreload.opensURLExternallyWhenDisabled)
+        #expect(!Workspace.BrowserPanelCreationPolicy.restoration.opensURLExternallyWhenDisabled)
+        #expect(Workspace.BrowserPanelCreationPolicy.userInitiated.opensURLExternallyWhenDisabled)
+    }
+
     @Test func assetPruningPreservesReferencedAndNewestVersions() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-diff-assets-\(UUID().uuidString)", isDirectory: true)
