@@ -58,7 +58,7 @@ extension RestorableAgentHookSessionStoreFile {
                 return state
             }
             guard fileManager.fileExists(atPath: legacyURL.path),
-                  let data = try? Data(contentsOf: legacyURL) else { return nil }
+                  let data = try? registry.readHookLegacySourceData(at: legacyURL) else { return nil }
             return try? decoder.decode(Self.self, from: data)
         }
     }

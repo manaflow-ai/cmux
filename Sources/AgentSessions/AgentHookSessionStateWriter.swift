@@ -1,4 +1,6 @@
 import CmuxFoundation
+import CmuxControlSocket
+import CmuxSettings
 import Darwin
 import Foundation
 
@@ -91,6 +93,14 @@ struct AgentHookSessionStateWriter: Sendable {
             )
         }
 
+        func projectCanonicalLegacy(
+            using writer: AgentHookSessionStateWriter,
+            provider: String,
+            stateURL: URL
+        ) {
+            writer.projectCanonicalLegacy(provider: provider, stateURL: stateURL)
+        }
+
     }
 
     private static let writeCoordinator = WriteCoordinator()
@@ -101,6 +111,7 @@ struct AgentHookSessionStateWriter: Sendable {
         var workspaceId: UUID
         var surfaceId: UUID
         var rebindWorkspaceActiveSlot = false
+        var adoptionId = UUID()
     }
     enum RestoredHibernationAdoptionOutcome: Equatable, Sendable {
         case adopted
@@ -121,15 +132,92 @@ struct AgentHookSessionStateWriter: Sendable {
         var request: HibernatedResumeAuthorityRequest
         var legacyStampAtClaim: CmuxAgentSessionRegistry.LegacyStamp?
     }
+    private struct RestoredHibernationOwnerPreflight: Sendable {
+        let recordFingerprint: Data
+        let hasProvablyLiveForeignRuntime: Bool
+    }
+    private enum LegacyReadLockMode: Sendable, Equatable {
+        case immediate
+        case wait
+    }
+    private struct MonotonicBusyBudget: Sendable {
+        private let deadlineNanoseconds: UInt64
+
+        init(milliseconds: Int32) {
+            let now = DispatchTime.now().uptimeNanoseconds
+            let duration = UInt64(max(0, milliseconds)).multipliedReportingOverflow(by: 1_000_000)
+            if duration.overflow {
+                deadlineNanoseconds = .max
+            } else {
+                deadlineNanoseconds = now.addingReportingOverflow(duration.partialValue).overflow
+                    ? .max
+                    : now + duration.partialValue
+            }
+        }
+
+        func remainingMilliseconds() -> Int32 {
+            let remainingNanoseconds = remainingNanoseconds()
+            let roundedUpMilliseconds = remainingNanoseconds / 1_000_000
+                + (remainingNanoseconds % 1_000_000 == 0 ? 0 : 1)
+            return Int32(min(UInt64(Int32.max), roundedUpMilliseconds))
+        }
+
+        func remainingNanoseconds() -> UInt64 {
+            let now = DispatchTime.now().uptimeNanoseconds
+            return now < deadlineNanoseconds ? deadlineNanoseconds - now : 0
+        }
+    }
+    private final class LegacyLockCancellationSignal: @unchecked Sendable {
+        let readDescriptor: Int32
+        private let writeDescriptor: Int32
+
+        init?() {
+            var descriptors = [Int32](repeating: -1, count: 2)
+            guard pipe(&descriptors) == 0 else { return nil }
+            readDescriptor = descriptors[0]
+            writeDescriptor = descriptors[1]
+            _ = fcntl(readDescriptor, F_SETFD, FD_CLOEXEC)
+            _ = fcntl(writeDescriptor, F_SETFD, FD_CLOEXEC)
+            _ = fcntl(writeDescriptor, F_SETFL, O_NONBLOCK)
+        }
+
+        deinit {
+            Darwin.close(readDescriptor)
+            Darwin.close(writeDescriptor)
+        }
+
+        func cancel() {
+            var byte: UInt8 = 1
+            _ = withUnsafePointer(to: &byte) {
+                Darwin.write(writeDescriptor, $0, 1)
+            }
+        }
+    }
+    typealias CurrentSocketStateResolver = @Sendable (
+        _ preferredPath: String
+    ) -> (activePath: String, pathOwnedByCurrentListener: Bool)
     private let homeDirectory: String
     private let environment: [String: String]
+    private let currentSocketStateResolver: CurrentSocketStateResolver
 
     init(
         homeDirectory: String = NSHomeDirectory(),
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        currentSocketStateResolver: @escaping CurrentSocketStateResolver = { preferredPath in
+            let activePath = TerminalController.shared.activeSocketPath(
+                preferredPath: preferredPath
+            )
+            return (
+                activePath,
+                TerminalController.shared.socketListenerHealth(
+                    expectedSocketPath: activePath
+                ).socketPathOwnedByListener
+            )
+        }
     ) {
         self.homeDirectory = homeDirectory
         self.environment = environment
+        self.currentSocketStateResolver = currentSocketStateResolver
     }
 
     static func rootExitCandidate(
@@ -206,6 +294,56 @@ struct AgentHookSessionStateWriter: Sendable {
         )
     }
 
+    /// Waits once for an in-flight registry writer, then claims every restored
+    /// hibernation in the same provider-batched transactions used by restore.
+    /// Cancellation is checked inside the acquired transaction before any row
+    /// is changed, so closing a pending panel cannot apply a delayed claim.
+    static func waitForRestoredHibernationOutcomes(
+        _ requests: [RestoredHibernationAdoptionRequest],
+        now: TimeInterval = Date().timeIntervalSince1970,
+        busyTimeoutMilliseconds: Int32 = 2_000,
+        legacyReadLockWaitWillBegin: @escaping @Sendable () -> Void = {}
+    ) async -> [UUID: RestoredHibernationAdoptionOutcome] {
+        guard !requests.isEmpty else { return [:] }
+        let writer = AgentHookSessionStateWriter()
+        let cancellationSignal = LegacyLockCancellationSignal()
+        let operation = Task.detached(priority: .utility) {
+            writer.recordRestoredHibernationOutcomesSynchronously(
+                requests,
+                now: now,
+                busyTimeoutMilliseconds: max(0, busyTimeoutMilliseconds),
+                legacyReadLockMode: .wait,
+                legacyReadLockWaitWillBegin: legacyReadLockWaitWillBegin,
+                legacyReadLockCancellationDescriptor: cancellationSignal?.readDescriptor,
+                cancellationCheck: { Task.isCancelled }
+            )
+        }
+        return await withTaskCancellationHandler(
+            operation: { await operation.value },
+            onCancel: {
+                cancellationSignal?.cancel()
+                operation.cancel()
+            }
+        )
+    }
+
+    /// Completes only the exact adoption generation written by a delayed
+    /// background claim. A newer retry or resume replaces/removes the token,
+    /// making this compensation a no-op instead of revoking its authority.
+    static func releaseCanceledRestoredHibernations(
+        _ requests: [RestoredHibernationAdoptionRequest],
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) async {
+        guard !requests.isEmpty else { return }
+        let writer = AgentHookSessionStateWriter()
+        await Task.detached(priority: .utility) {
+            writer.releaseCanceledRestoredHibernationsSynchronously(
+                requests,
+                now: now
+            )
+        }.value
+    }
+
     /// Atomically claims the durable surface owner immediately before cmux
     /// queues a hibernated agent's resume input. A missing or changed slot is a
     /// lost authority lease, even when the record still carries the old binding.
@@ -258,10 +396,19 @@ struct AgentHookSessionStateWriter: Sendable {
 
     private func recordRestoredHibernationOutcomesSynchronously(
         _ requests: [RestoredHibernationAdoptionRequest],
-        now: TimeInterval
+        now: TimeInterval,
+        busyTimeoutMilliseconds: Int32 = 25,
+        legacyReadLockMode: LegacyReadLockMode = .immediate,
+        legacyReadLockWaitWillBegin: @escaping @Sendable () -> Void = {},
+        legacyReadLockCancellationDescriptor: Int32? = nil,
+        cancellationCheck: @Sendable () -> Bool = { false }
     ) -> [UUID: RestoredHibernationAdoptionOutcome] {
         var outcomes: [UUID: RestoredHibernationAdoptionOutcome] = [:]
-        for (provider, providerRequests) in Dictionary(grouping: requests, by: { $0.agent.kind.rawValue }) {
+        let busyBudget = MonotonicBusyBudget(milliseconds: busyTimeoutMilliseconds)
+        let requestsByProvider = Dictionary(grouping: requests, by: { $0.agent.kind.rawValue })
+            .sorted { $0.key < $1.key }
+        for (provider, providerRequests) in requestsByProvider {
+            guard !cancellationCheck() else { break }
             guard let kind = providerRequests.first?.agent.kind else { continue }
             let stateURL = kind.hookStoreFileURL(
                 homeDirectory: homeDirectory,
@@ -272,7 +419,11 @@ struct AgentHookSessionStateWriter: Sendable {
                 stateURL: stateURL,
                 requests: providerRequests,
                 now: now,
-                busyTimeoutMilliseconds: 25
+                busyBudget: busyBudget,
+                legacyReadLockMode: legacyReadLockMode,
+                legacyReadLockWaitWillBegin: legacyReadLockWaitWillBegin,
+                legacyReadLockCancellationDescriptor: legacyReadLockCancellationDescriptor,
+                cancellationCheck: cancellationCheck
             )
             outcomes.merge(providerResult.outcomes) { _, new in new }
             let adopted = providerResult.adopted
@@ -288,6 +439,93 @@ struct AgentHookSessionStateWriter: Sendable {
             }
         }
         return outcomes
+    }
+
+    private func releaseCanceledRestoredHibernationsSynchronously(
+        _ requests: [RestoredHibernationAdoptionRequest],
+        now: TimeInterval
+    ) {
+        let busyBudget = MonotonicBusyBudget(milliseconds: 2_000)
+        let requestsByProvider = Dictionary(
+            grouping: requests,
+            by: { $0.agent.kind.rawValue }
+        ).sorted { $0.key < $1.key }
+        for (provider, providerRequests) in requestsByProvider {
+            guard let kind = providerRequests.first?.agent.kind else { continue }
+            let stateURL = kind.hookStoreFileURL(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+            let normalizedRequests = providerRequests.compactMap {
+                request -> (RestoredHibernationAdoptionRequest, String)? in
+                guard let sessionId = normalized(request.agent.sessionId) else { return nil }
+                return (request, sessionId)
+            }
+            guard !normalizedRequests.isEmpty else { continue }
+            do {
+                try registry(
+                    provider: provider,
+                    stateURL: stateURL,
+                    busyTimeoutMilliseconds: busyBudget.remainingMilliseconds()
+                ).withRecordRebindBatch { batch in
+                    for (request, sessionId) in normalizedRequests {
+                        let result = try batch.patchRecordRebindingActiveSlots(
+                            provider: provider,
+                            sessionID: sessionId,
+                            updatedAt: now,
+                            previousSlots: [
+                                .init(scope: .workspace, scopeID: request.workspaceId.uuidString),
+                                .init(scope: .surface, scopeID: request.surfaceId.uuidString),
+                            ],
+                            activeSlots: [],
+                            monotonicUpdatedAt: true,
+                            shouldMutate: { record in
+                                guard normalized(record["cmuxRestoreAdoptionId"] as? String)
+                                        == request.adoptionId.uuidString,
+                                      record["sessionState"] as? String
+                                        == AgentSessionLifecycleState.hibernated.rawValue,
+                                      record["restoreAuthority"] as? Bool != false,
+                                      !hasCompletion(record),
+                                      recordBelongsToCurrentRuntime(record),
+                                      let workspaceId = normalized(record["workspaceId"] as? String),
+                                      let surfaceId = normalized(record["surfaceId"] as? String) else {
+                                    return false
+                                }
+                                return identifiersEqual(workspaceId, request.workspaceId.uuidString)
+                                    && identifiersEqual(surfaceId, request.surfaceId.uuidString)
+                            }
+                        ) { record in
+                            let effectiveNow = max(
+                                now,
+                                record["updatedAt"] as? TimeInterval ?? now
+                            )
+                            applyCompletion(to: &record, now: effectiveNow)
+                            record.removeValue(forKey: "cmuxRestoreAdoptionId")
+                        }
+                        if result == .patched {
+                            NSLog(
+                                "[Workspace] released canceled restored hibernation session=%@ surface=%@",
+                                sessionId,
+                                request.surfaceId.uuidString
+                            )
+                        }
+                    }
+                }
+                Task(priority: .utility) {
+                    await Self.writeCoordinator.projectCanonicalLegacy(
+                        using: self,
+                        provider: provider,
+                        stateURL: stateURL
+                    )
+                }
+            } catch {
+                NSLog(
+                    "[Workspace] failed to release canceled restored hibernation provider=%@ error=%@",
+                    provider,
+                    String(describing: error)
+                )
+            }
+        }
     }
 
     func schedule(
@@ -445,23 +683,7 @@ struct AgentHookSessionStateWriter: Sendable {
             applyCompletion(to: &registryRecord, now: now)
         }
 
-        let wroteLegacy = updateLegacyRecordNonblocking(stateURL: stateURL, sessionID: sessionId) { root, record in
-            if let expectedRecordUpdatedAt {
-                guard let actualUpdatedAt = record["updatedAt"] as? TimeInterval,
-                      actualUpdatedAt <= expectedRecordUpdatedAt else { return false }
-            }
-            applyCompletion(to: &record, now: now)
-            root["activeSessionsByWorkspace"] = removingSession(
-                sessionId,
-                from: root["activeSessionsByWorkspace"]
-            )
-            root["activeSessionsBySurface"] = removingSession(
-                sessionId,
-                from: root["activeSessionsBySurface"]
-            )
-            return true
-        }
-        if wroteLegacy { markLegacySource(provider: provider, stateURL: stateURL) }
+        projectCanonicalLegacy(provider: provider, stateURL: stateURL)
     }
 
     private func setLifecycle(
@@ -483,13 +705,7 @@ struct AgentHookSessionStateWriter: Sendable {
         ) { registryRecord in
             applyLifecycle(lifecycle, to: &registryRecord, now: now)
         }
-        let wroteLegacy = updateLegacyRecordNonblocking(stateURL: stateURL, sessionID: sessionId) { _, record in
-            guard let actualUpdatedAt = record["updatedAt"] as? TimeInterval,
-                  actualUpdatedAt <= now else { return false }
-            applyLifecycle(lifecycle, to: &record, now: now)
-            return true
-        }
-        if wroteLegacy { markLegacySource(provider: provider, stateURL: stateURL) }
+        projectCanonicalLegacy(provider: provider, stateURL: stateURL)
     }
 
     private func establishHibernatedAuthoritySynchronously(
@@ -539,6 +755,7 @@ struct AgentHookSessionStateWriter: Sendable {
             ) { record in
                 let effectiveNow = max(now, record["updatedAt"] as? TimeInterval ?? now)
                 applyLifecycle(.hibernated, to: &record, now: effectiveNow)
+                record.removeValue(forKey: "cmuxRestoreAdoptionId")
             }
         } catch {
             return .unavailable
@@ -562,10 +779,12 @@ struct AgentHookSessionStateWriter: Sendable {
         now: TimeInterval
     ) -> [UUID: HibernatedResumeAuthorityOutcome] {
         var outcomes: [UUID: HibernatedResumeAuthorityOutcome] = [:]
-        for (provider, providerRequests) in Dictionary(
+        let busyBudget = MonotonicBusyBudget(milliseconds: 25)
+        let requestsByProvider = Dictionary(
             grouping: requests,
             by: { $0.agent.kind.rawValue }
-        ) {
+        ).sorted { $0.key < $1.key }
+        for (provider, providerRequests) in requestsByProvider {
             guard let kind = providerRequests.first?.agent.kind else { continue }
             let stateURL = kind.hookStoreFileURL(
                 homeDirectory: homeDirectory,
@@ -589,7 +808,7 @@ struct AgentHookSessionStateWriter: Sendable {
                 let result = try registry(
                     provider: provider,
                     stateURL: stateURL,
-                    busyTimeoutMilliseconds: 25
+                    busyTimeoutMilliseconds: busyBudget.remainingMilliseconds()
                 ).withRecordRebindBatch { batch in
                     var accepted: [HibernatedResumeAuthorityClaim] = []
                     var transactionOutcomes: [UUID: HibernatedResumeAuthorityOutcome] = [:]
@@ -632,6 +851,7 @@ struct AgentHookSessionStateWriter: Sendable {
                                 record["updatedAt"] as? TimeInterval ?? now
                             )
                             applyLifecycle(.restoring, to: &record, now: effectiveNow)
+                            record.removeValue(forKey: "cmuxRestoreAdoptionId")
                         }
                         if result == .patched {
                             transactionOutcomes[request.surfaceId] = .acquired
@@ -668,12 +888,80 @@ struct AgentHookSessionStateWriter: Sendable {
         return outcomes
     }
 
+    /// Waits for compatibility writers without retry sleeps. Darwin reports
+    /// `NOTE_FUNLOCK` through kqueue when another process releases `flock`, and
+    /// a pipe wakes the same kernel wait on task cancellation. The monotonic
+    /// budget is shared with the following SQLite transaction.
+    private func acquireLegacyReadLock(
+        descriptor: Int32,
+        mode: LegacyReadLockMode,
+        busyBudget: MonotonicBusyBudget,
+        waitWillBegin: @escaping @Sendable () -> Void,
+        cancellationDescriptor: Int32?,
+        cancellationCheck: @Sendable () -> Bool
+    ) -> Bool {
+        if flock(descriptor, LOCK_SH | LOCK_NB) == 0 { return true }
+        guard errno == EWOULDBLOCK || errno == EAGAIN,
+              mode == .wait,
+              !cancellationCheck() else {
+            return false
+        }
+
+        waitWillBegin()
+        let queue = kqueue()
+        guard queue >= 0 else { return false }
+        defer { Darwin.close(queue) }
+
+        var changes = [kevent64_s()]
+        changes[0].ident = UInt64(descriptor)
+        changes[0].filter = Int16(EVFILT_VNODE)
+        changes[0].flags = UInt16(EV_ADD | EV_CLEAR)
+        changes[0].fflags = UInt32(NOTE_FUNLOCK)
+        if let cancellationDescriptor {
+            changes.append(kevent64_s())
+            changes[1].ident = UInt64(cancellationDescriptor)
+            changes[1].filter = Int16(EVFILT_READ)
+            changes[1].flags = UInt16(EV_ADD | EV_CLEAR)
+        }
+        let registrationResult = changes.withUnsafeBufferPointer { buffer in
+            kevent64(queue, buffer.baseAddress, Int32(buffer.count), nil, 0, 0, nil)
+        }
+        guard registrationResult == 0 else { return false }
+
+        while !cancellationCheck() {
+            // Close the registration race: the owner may have unlocked between
+            // the first flock attempt and installing NOTE_FUNLOCK.
+            if flock(descriptor, LOCK_SH | LOCK_NB) == 0 { return true }
+            guard errno == EWOULDBLOCK || errno == EAGAIN else { return false }
+
+            let remainingNanoseconds = busyBudget.remainingNanoseconds()
+            guard remainingNanoseconds > 0 else { return false }
+            var timeout = timespec(
+                tv_sec: Int(remainingNanoseconds / 1_000_000_000),
+                tv_nsec: Int(remainingNanoseconds % 1_000_000_000)
+            )
+            var event = kevent64_s()
+            let eventCount = kevent64(queue, nil, 0, &event, 1, 0, &timeout)
+            if eventCount == 0 { return false }
+            if eventCount < 0 {
+                guard errno == EINTR else { return false }
+                continue
+            }
+            if event.filter == Int16(EVFILT_READ) { return false }
+        }
+        return false
+    }
+
     private func adoptRestoredHibernationsHoldingLegacyReadLock(
         provider: String,
         stateURL: URL,
         requests: [RestoredHibernationAdoptionRequest],
         now: TimeInterval,
-        busyTimeoutMilliseconds: Int32
+        busyBudget: MonotonicBusyBudget,
+        legacyReadLockMode: LegacyReadLockMode,
+        legacyReadLockWaitWillBegin: @escaping @Sendable () -> Void,
+        legacyReadLockCancellationDescriptor: Int32?,
+        cancellationCheck: @Sendable () -> Bool = { false }
     ) -> (
         adopted: [RestoredHibernationAdoptionRequest],
         outcomes: [UUID: RestoredHibernationAdoptionOutcome]
@@ -704,23 +992,41 @@ struct AgentHookSessionStateWriter: Sendable {
         )
         guard descriptor >= 0 else { return unavailableResult() }
         defer { Darwin.close(descriptor) }
-        guard flock(descriptor, LOCK_SH | LOCK_NB) == 0 else { return unavailableResult() }
+        guard acquireLegacyReadLock(
+            descriptor: descriptor,
+            mode: legacyReadLockMode,
+            busyBudget: busyBudget,
+            waitWillBegin: legacyReadLockWaitWillBegin,
+            cancellationDescriptor: legacyReadLockCancellationDescriptor,
+            cancellationCheck: cancellationCheck
+        ) else { return unavailableResult() }
         defer { _ = flock(descriptor, LOCK_UN) }
+        guard !cancellationCheck() else { return unavailableResult() }
 
         let registry = registry(
             provider: provider,
             stateURL: stateURL,
-            busyTimeoutMilliseconds: busyTimeoutMilliseconds
+            busyTimeoutMilliseconds: busyBudget.remainingMilliseconds()
         )
+        guard let ownerPreflights = restoredHibernationOwnerPreflights(
+            provider: provider,
+            stateURL: stateURL,
+            normalizedRequests: normalizedRequests,
+            registry: registry
+        ) else {
+            return unavailableResult()
+        }
         do {
             return try registry.withLegacySourceRebindBatch(
                 provider: provider,
                 legacyURL: stateURL
             ) { batch in
+                if cancellationCheck() { throw CancellationError() }
                 var adopted: [RestoredHibernationAdoptionRequest] = []
                 var outcomes = initialOutcomes
                 adopted.reserveCapacity(normalizedRequests.count)
                 for (request, sessionId) in normalizedRequests {
+                    if cancellationCheck() { throw CancellationError() }
                     let previousSurfaceSlot = CmuxAgentSessionRegistry.ActiveSlotKey(
                         scope: .surface,
                         scopeID: request.previousSurfaceId.uuidString
@@ -772,6 +1078,10 @@ struct AgentHookSessionStateWriter: Sendable {
                                 workspaceId: request.workspaceId.uuidString,
                                 surfaceId: request.surfaceId.uuidString
                             ),
+                            let ownerPreflight = ownerPreflights[sessionId],
+                            !ownerPreflight.hasProvablyLiveForeignRuntime,
+                            restoredHibernationRecordFingerprint(record)
+                                == ownerPreflight.recordFingerprint,
                             let recordWorkspaceId = normalized(record["workspaceId"] as? String),
                             let recordSurfaceId = normalized(record["surfaceId"] as? String) else {
                                 return false
@@ -801,6 +1111,7 @@ struct AgentHookSessionStateWriter: Sendable {
                             surfaceId: request.surfaceId.uuidString,
                             now: effectiveNow
                         )
+                        record["cmuxRestoreAdoptionId"] = request.adoptionId.uuidString
                     }
                     if result == .patched {
                         var adoptedRequest = request
@@ -824,135 +1135,7 @@ struct AgentHookSessionStateWriter: Sendable {
         requests: [RestoredHibernationAdoptionRequest],
         now: TimeInterval
     ) {
-        let descriptor = open(
-            stateURL.path + ".lock",
-            O_CREAT | O_RDWR,
-            mode_t(S_IRUSR | S_IWUSR)
-        )
-        guard descriptor >= 0 else { return }
-        defer { Darwin.close(descriptor) }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return }
-        defer { _ = flock(descriptor, LOCK_UN) }
-        guard let data = try? Data(contentsOf: stateURL),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var sessions = root["sessions"] as? [String: Any] else { return }
-        let rawWorkspaceSlots = root["activeSessionsByWorkspace"]
-        let rawSurfaceSlots = root["activeSessionsBySurface"]
-        guard rawWorkspaceSlots == nil || rawWorkspaceSlots is [String: Any],
-              rawSurfaceSlots == nil || rawSurfaceSlots is [String: Any] else { return }
-        let currentWorkspaceSlots = rawWorkspaceSlots as? [String: Any] ?? [:]
-        let currentSurfaceSlots = rawSurfaceSlots as? [String: Any] ?? [:]
-
-        func targetSlotIsAvailable(
-            _ slots: [String: Any],
-            scopeId: String,
-            sessionId: String
-        ) -> Bool {
-            guard let value = slots[scopeId] else { return true }
-            guard let slot = value as? [String: Any],
-                  let owner = normalized(slot["sessionId"] as? String),
-                  slot["updatedAt"] is TimeInterval else { return false }
-            return owner == sessionId
-        }
-
-        var accepted: [(
-            request: RestoredHibernationAdoptionRequest,
-            sessionId: String,
-            updatedAt: TimeInterval
-        )] = []
-        accepted.reserveCapacity(requests.count)
-        for request in requests {
-            guard let sessionId = normalized(request.agent.sessionId),
-                  (!request.rebindWorkspaceActiveSlot || targetSlotIsAvailable(
-                    currentWorkspaceSlots,
-                    scopeId: request.workspaceId.uuidString,
-                    sessionId: sessionId
-                  )),
-                  targetSlotIsAvailable(
-                    currentSurfaceSlots,
-                    scopeId: request.surfaceId.uuidString,
-                    sessionId: sessionId
-                  ),
-                  var record = sessions[sessionId] as? [String: Any],
-                  restoredRecordCanBeAdopted(
-                    record,
-                    previousWorkspaceId: request.previousWorkspaceId?.uuidString,
-                    previousSurfaceId: request.previousSurfaceId.uuidString,
-                    workspaceId: request.workspaceId.uuidString,
-                    surfaceId: request.surfaceId.uuidString
-                  ),
-                  let effectiveNow = monotonicTimestamp(
-                    requested: now,
-                    record: record,
-                    slotCollections: [currentWorkspaceSlots, currentSurfaceSlots],
-                    sessionId: sessionId
-                  ) else { continue }
-            applyRestoredHibernation(
-                to: &record,
-                workspaceId: request.workspaceId.uuidString,
-                surfaceId: request.surfaceId.uuidString,
-                now: effectiveNow
-            )
-            sessions[sessionId] = record
-            accepted.append((request, sessionId, effectiveNow))
-        }
-        guard !accepted.isEmpty else { return }
-
-        let acceptedSessionIds = Set(accepted.map { $0.sessionId })
-        let workspaceAcceptedSessionIds = Set(accepted.compactMap {
-            $0.request.rebindWorkspaceActiveSlot ? $0.sessionId : nil
-        })
-        func removeAcceptedSessions(
-            from value: Any?,
-            acceptedSessionIds: Set<String>
-        ) -> (remaining: [String: Any], templates: [String: [String: Any]]) {
-            var remaining = value as? [String: Any] ?? [:]
-            var templates: [String: [String: Any]] = [:]
-            for (scopeId, value) in remaining {
-                guard let slot = value as? [String: Any],
-                      let sessionId = normalized(slot["sessionId"] as? String),
-                      acceptedSessionIds.contains(sessionId) else { continue }
-                let candidateUpdatedAt = slot["updatedAt"] as? TimeInterval ?? -.infinity
-                let storedUpdatedAt = templates[sessionId]?["updatedAt"] as? TimeInterval ?? -.infinity
-                if candidateUpdatedAt >= storedUpdatedAt {
-                    templates[sessionId] = slot
-                }
-                remaining.removeValue(forKey: scopeId)
-            }
-            return (remaining, templates)
-        }
-
-        var workspaceSlots = removeAcceptedSessions(
-            from: currentWorkspaceSlots,
-            acceptedSessionIds: workspaceAcceptedSessionIds
-        )
-        var surfaceSlots = removeAcceptedSessions(
-            from: currentSurfaceSlots,
-            acceptedSessionIds: acceptedSessionIds
-        )
-        for item in accepted {
-            if item.request.rebindWorkspaceActiveSlot {
-                var workspaceSlot = workspaceSlots.templates[item.sessionId] ?? [:]
-                workspaceSlot["sessionId"] = item.sessionId
-                workspaceSlot["updatedAt"] = item.updatedAt
-                workspaceSlots.remaining[item.request.workspaceId.uuidString] = workspaceSlot
-            }
-
-            var surfaceSlot = surfaceSlots.templates[item.sessionId] ?? [:]
-            surfaceSlot["sessionId"] = item.sessionId
-            surfaceSlot["updatedAt"] = item.updatedAt
-            surfaceSlots.remaining[item.request.surfaceId.uuidString] = surfaceSlot
-        }
-        root["sessions"] = sessions
-        root["activeSessionsByWorkspace"] = workspaceSlots.remaining
-        root["activeSessionsBySurface"] = surfaceSlots.remaining
-        guard JSONSerialization.isValidJSONObject(root),
-              let encoded = try? JSONSerialization.data(
-                withJSONObject: root,
-                options: [.prettyPrinted, .sortedKeys]
-              ),
-              replacePrivateStateFile(with: encoded, at: stateURL) else { return }
-        markLegacySource(provider: provider, stateURL: stateURL)
+        projectCanonicalLegacy(provider: provider, stateURL: stateURL)
     }
 
     private func projectHibernatedResumesToLegacy(
@@ -961,116 +1144,7 @@ struct AgentHookSessionStateWriter: Sendable {
         claims: [HibernatedResumeAuthorityClaim],
         now: TimeInterval
     ) {
-        let sessionIds = Set(claims.compactMap { normalized($0.request.agent.sessionId) })
-        guard let canonicalRecords = try? registry(
-            provider: provider,
-            stateURL: stateURL
-        ).records(provider: provider, sessionIDs: sessionIds) else { return }
-        let canonicalBySessionId = Dictionary(
-            canonicalRecords.map { ($0.sessionID, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let descriptor = open(
-            stateURL.path + ".lock",
-            O_CREAT | O_RDWR,
-            mode_t(S_IRUSR | S_IWUSR)
-        )
-        guard descriptor >= 0 else { return }
-        defer { Darwin.close(descriptor) }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return }
-        defer { _ = flock(descriptor, LOCK_UN) }
-        guard let data = try? Data(contentsOf: stateURL),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var sessions = root["sessions"] as? [String: Any] else { return }
-        let rawWorkspaceSlots = root["activeSessionsByWorkspace"]
-        let rawSurfaceSlots = root["activeSessionsBySurface"]
-        guard rawWorkspaceSlots == nil || rawWorkspaceSlots is [String: Any],
-              rawSurfaceSlots == nil || rawSurfaceSlots is [String: Any] else { return }
-        var workspaceSlots = rawWorkspaceSlots as? [String: Any] ?? [:]
-        var surfaceSlots = rawSurfaceSlots as? [String: Any] ?? [:]
-        let currentLegacyStamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path)
-        var didMutate = false
-
-        for claim in claims {
-            let request = claim.request
-            guard let sessionId = normalized(request.agent.sessionId),
-                  let canonical = canonicalBySessionId[sessionId],
-                  let canonicalRecord = try? JSONSerialization.jsonObject(
-                    with: canonical.json
-                  ) as? [String: Any],
-                  lifecycleProjectionStillOwned(
-                    canonicalRecord,
-                    state: .restoring,
-                    workspaceId: request.workspaceId,
-                    surfaceId: request.surfaceId
-                  ),
-                  var record = sessions[sessionId] as? [String: Any] else { continue }
-            let legacySourceIsUnchanged = claim.legacyStampAtClaim == currentLegacyStamp
-            guard legacySourceIsUnchanged || recordBelongsToCurrentRuntime(record) else {
-                continue
-            }
-            guard record["sessionState"] as? String == AgentSessionLifecycleState.hibernated.rawValue,
-                  record["restoreAuthority"] as? Bool != false,
-                  !hasCompletion(record),
-                  targetSlotIsAvailable(
-                    surfaceSlots,
-                    scopeId: request.surfaceId.uuidString,
-                    sessionId: sessionId
-                  ),
-                  let effectiveNow = monotonicTimestamp(
-                    requested: now,
-                    record: record,
-                    slotCollections: [workspaceSlots, surfaceSlots],
-                    sessionId: sessionId
-                  ) else { continue }
-
-            applyLifecycle(.restoring, to: &record, now: effectiveNow)
-            record["workspaceId"] = request.workspaceId.uuidString
-            record["surfaceId"] = request.surfaceId.uuidString
-
-            var surfaceSlot = surfaceSlots[request.surfaceId.uuidString] as? [String: Any] ?? [:]
-            surfaceSlots = slotsRemovingSession(sessionId, from: surfaceSlots)
-            surfaceSlot["sessionId"] = sessionId
-            surfaceSlot["updatedAt"] = effectiveNow
-            surfaceSlots[request.surfaceId.uuidString] = surfaceSlot
-
-            let ownedWorkspaceSlot = workspaceSlots.values.compactMap { value -> [String: Any]? in
-                guard let slot = value as? [String: Any],
-                      normalized(slot["sessionId"] as? String) == sessionId else {
-                    return nil
-                }
-                return slot
-            }.max {
-                ($0["updatedAt"] as? TimeInterval ?? -.infinity)
-                    < ($1["updatedAt"] as? TimeInterval ?? -.infinity)
-            }
-            if var workspaceSlot = ownedWorkspaceSlot {
-                let targetWorkspaceAvailable = targetSlotIsAvailable(
-                    workspaceSlots,
-                    scopeId: request.workspaceId.uuidString,
-                    sessionId: sessionId
-                )
-                workspaceSlots = slotsRemovingSession(sessionId, from: workspaceSlots)
-                if targetWorkspaceAvailable {
-                    workspaceSlot["sessionId"] = sessionId
-                    workspaceSlot["updatedAt"] = effectiveNow
-                    workspaceSlots[request.workspaceId.uuidString] = workspaceSlot
-                }
-            }
-            sessions[sessionId] = record
-            didMutate = true
-        }
-        guard didMutate else { return }
-        root["sessions"] = sessions
-        root["activeSessionsByWorkspace"] = workspaceSlots
-        root["activeSessionsBySurface"] = surfaceSlots
-        guard JSONSerialization.isValidJSONObject(root),
-              let encoded = try? JSONSerialization.data(
-                withJSONObject: root,
-                options: [.prettyPrinted, .sortedKeys]
-              ),
-              replacePrivateStateFile(with: encoded, at: stateURL) else { return }
-        markLegacySource(provider: provider, stateURL: stateURL)
+        projectCanonicalLegacy(provider: provider, stateURL: stateURL)
     }
 
     func projectEstablishedHibernationToLegacy(
@@ -1080,50 +1154,7 @@ struct AgentHookSessionStateWriter: Sendable {
         legacyStampAtClaim: CmuxAgentSessionRegistry.LegacyStamp?,
         now: TimeInterval
     ) {
-        guard let sessionId = normalized(request.agent.sessionId),
-              let canonicalRecords = try? registry(
-                provider: provider,
-                stateURL: stateURL
-              ).records(provider: provider, sessionIDs: [sessionId]),
-              let canonical = canonicalRecords.first,
-              let canonicalRecord = try? JSONSerialization.jsonObject(
-                with: canonical.json
-              ) as? [String: Any],
-              lifecycleProjectionStillOwned(
-                canonicalRecord,
-                state: .hibernated,
-                workspaceId: request.workspaceId,
-                surfaceId: request.surfaceId
-              ) else { return }
-
-        let descriptor = open(
-            stateURL.path + ".lock",
-            O_CREAT | O_RDWR,
-            mode_t(S_IRUSR | S_IWUSR)
-        )
-        guard descriptor >= 0 else { return }
-        defer { Darwin.close(descriptor) }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return }
-        defer { _ = flock(descriptor, LOCK_UN) }
-        guard let data = try? Data(contentsOf: stateURL),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var sessions = root["sessions"] as? [String: Any],
-              var record = sessions[sessionId] as? [String: Any] else { return }
-        let currentLegacyStamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path)
-        guard legacyStampAtClaim == currentLegacyStamp || recordBelongsToCurrentRuntime(record),
-              record["restoreAuthority"] as? Bool != false,
-              !hasCompletion(record),
-              let recordUpdatedAt = record["updatedAt"] as? TimeInterval else { return }
-        applyLifecycle(.hibernated, to: &record, now: max(now, recordUpdatedAt))
-        sessions[sessionId] = record
-        root["sessions"] = sessions
-        guard JSONSerialization.isValidJSONObject(root),
-              let encoded = try? JSONSerialization.data(
-                withJSONObject: root,
-                options: [.prettyPrinted, .sortedKeys]
-              ),
-              replacePrivateStateFile(with: encoded, at: stateURL) else { return }
-        markLegacySource(provider: provider, stateURL: stateURL)
+        projectCanonicalLegacy(provider: provider, stateURL: stateURL)
     }
 
     private func applyCompletion(to record: inout [String: Any], now: TimeInterval) {
@@ -1195,41 +1226,37 @@ struct AgentHookSessionStateWriter: Sendable {
         return alreadyAdopted || matchesPreviousBinding
     }
 
-    private func updateLegacyRecordNonblocking(
-        stateURL: URL,
-        sessionID: String,
-        mutate: (inout [String: Any], inout [String: Any]) -> Bool
-    ) -> Bool {
-        let lockPath = stateURL.path + ".lock"
-        let descriptor = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
-        guard descriptor >= 0 else { return false }
-        defer { Darwin.close(descriptor) }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return false }
-        defer { _ = flock(descriptor, LOCK_UN) }
-        guard let data = try? Data(contentsOf: stateURL),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var sessions = root["sessions"] as? [String: Any],
-              var record = sessions[sessionID] as? [String: Any],
-              mutate(&root, &record) else { return false }
-        sessions[sessionID] = record
-        root["sessions"] = sessions
-        guard JSONSerialization.isValidJSONObject(root),
-              let encoded = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
-            return false
-        }
-        return replacePrivateStateFile(with: encoded, at: stateURL)
-    }
-
     private func preparedRegistry(
         provider: String,
         stateURL: URL
     ) -> CmuxAgentSessionRegistry {
         let registry = registry(provider: provider, stateURL: stateURL)
-        _ = try? registry.snapshotImportingLegacy(
-            provider: provider,
-            legacyURL: stateURL
+        _ = try? registry.refreshLegacySources(
+            [.init(provider: provider, url: stateURL)]
         )
         return registry
+    }
+
+    private func projectCanonicalLegacy(provider: String, stateURL: URL) {
+        let registry = registry(
+            provider: provider,
+            stateURL: stateURL,
+            busyTimeoutMilliseconds: 2_000
+        )
+        do {
+            let status = try registry.hookProjectionStatus(provider: provider)
+            try registry.projectHookLegacyStore(
+                provider: provider,
+                to: stateURL,
+                including: status.revision
+            )
+        } catch {
+            NSLog(
+                "[AgentHookSessionStateWriter] canonical projection failed provider=%@ error=%@",
+                provider,
+                String(describing: error)
+            )
+        }
     }
 
     private func registry(
@@ -1250,36 +1277,6 @@ struct AgentHookSessionStateWriter: Sendable {
             url: registryURL,
             busyTimeoutMilliseconds: busyTimeoutMilliseconds
         )
-    }
-
-    private func markLegacySource(provider: String, stateURL: URL) {
-        guard let stamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path) else { return }
-        try? registry(provider: provider, stateURL: stateURL).markLegacySource(
-            provider: provider,
-            stamp: stamp
-        )
-    }
-
-    private func replacePrivateStateFile(with data: Data, at stateURL: URL) -> Bool {
-        let fileManager = FileManager.default
-        let temporaryURL = stateURL.deletingLastPathComponent()
-            .appendingPathComponent(".\(stateURL.lastPathComponent).\(UUID().uuidString).tmp")
-        defer { try? fileManager.removeItem(at: temporaryURL) }
-        guard fileManager.createFile(
-            atPath: temporaryURL.path,
-            contents: data,
-            attributes: [.posixPermissions: NSNumber(value: Int16(0o600))]
-        ) else { return false }
-        let renameResult = temporaryURL.path.withCString { source in
-            stateURL.path.withCString { destination in
-                Darwin.rename(source, destination)
-            }
-        }
-        guard renameResult == 0 else { return false }
-        // Keep the invariant even on filesystems that do not preserve the
-        // temporary file's mode across replacement.
-        _ = chmod(stateURL.path, S_IRUSR | S_IWUSR)
-        return true
     }
 
     private func completeRuns(_ value: Any?, now: TimeInterval) -> [[String: Any]] {
@@ -1332,22 +1329,148 @@ struct AgentHookSessionStateWriter: Sendable {
         return true
     }
 
-    private func lifecycleProjectionStillOwned(
-        _ record: [String: Any],
-        state: AgentSessionLifecycleState,
-        workspaceId: UUID,
-        surfaceId: UUID
-    ) -> Bool {
-        guard record["sessionState"] as? String == state.rawValue,
-              record["restoreAuthority"] as? Bool != false,
-              !hasCompletion(record),
-              recordBelongsToCurrentRuntime(record),
-              let recordWorkspaceId = normalized(record["workspaceId"] as? String),
-              let recordSurfaceId = normalized(record["surfaceId"] as? String) else {
-            return false
+    /// Reads and probes the prospective owner before opening the SQLite writer
+    /// transaction. The transaction compares the exact canonicalized record,
+    /// turning this preflight into a CAS instead of holding a database lock
+    /// across filesystem and socket I/O.
+    private func restoredHibernationOwnerPreflights(
+        provider: String,
+        stateURL: URL,
+        normalizedRequests: [(RestoredHibernationAdoptionRequest, String)],
+        registry: CmuxAgentSessionRegistry
+    ) -> [String: RestoredHibernationOwnerPreflight]? {
+        let sessionIds = Set(normalizedRequests.map(\.1))
+        guard let canonicalRecords = try? registry.records(
+            provider: provider,
+            sessionIDs: sessionIds
+        ) else { return nil }
+        let canonicalBySessionId = Dictionary(
+            canonicalRecords.map { ($0.sessionID, $0) },
+            uniquingKeysWith: { existing, _ in existing }
+        )
+
+        let legacyStamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path)
+        let legacyWillRefresh: Bool
+        if let legacyStamp {
+            guard let isCurrent = try? registry.legacySourceIsCurrent(
+                provider: provider,
+                stamp: legacyStamp
+            ) else { return nil }
+            legacyWillRefresh = !isCurrent
+        } else {
+            legacyWillRefresh = false
         }
-        return identifiersEqual(recordWorkspaceId, workspaceId.uuidString)
-            && identifiersEqual(recordSurfaceId, surfaceId.uuidString)
+        let legacySessions: [String: Any] = {
+            guard legacyWillRefresh,
+                  let data = try? registry.readHookLegacySourceData(at: stateURL),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return [:]
+            }
+            return root["sessions"] as? [String: Any] ?? [:]
+        }()
+        var result: [String: RestoredHibernationOwnerPreflight] = [:]
+        var foreignSocketLiveness: [String: Bool] = [:]
+        var currentSocketState: (
+            activePath: String,
+            pathOwnedByCurrentListener: Bool
+        )?
+        result.reserveCapacity(sessionIds.count)
+        for sessionId in sessionIds {
+            let canonical = canonicalBySessionId[sessionId]
+            let record: [String: Any]?
+            if let canonical, canonical.writerGeneration > 0 {
+                record = try? JSONSerialization.jsonObject(with: canonical.json) as? [String: Any]
+            } else if legacyWillRefresh,
+                      let legacyRecord = legacySessions[sessionId] as? [String: Any] {
+                record = legacyRecord
+            } else if let canonical {
+                record = try? JSONSerialization.jsonObject(with: canonical.json) as? [String: Any]
+            } else {
+                record = nil
+            }
+            guard let record,
+                  let fingerprint = restoredHibernationRecordFingerprint(record) else {
+                return nil
+            }
+            result[sessionId] = RestoredHibernationOwnerPreflight(
+                recordFingerprint: fingerprint,
+                hasProvablyLiveForeignRuntime: recordHasProvablyLiveForeignRuntime(
+                    record,
+                    currentSocketState: &currentSocketState,
+                    foreignSocketLiveness: &foreignSocketLiveness
+                )
+            )
+        }
+        return result
+    }
+
+    private func restoredHibernationRecordFingerprint(_ record: [String: Any]) -> Data? {
+        guard JSONSerialization.isValidJSONObject(record) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+    }
+
+    /// Stable workspace and surface UUIDs survive an app restart, so matching
+    /// those identifiers alone cannot distinguish a stale saved owner from a
+    /// second cmux process that is still serving the same restored binding.
+    /// Only a successful non-blocking connection is treated as proof that the
+    /// foreign runtime remains live. Missing, refused, or legacy socket metadata
+    /// stays eligible for normal app-restart adoption.
+    private func recordHasProvablyLiveForeignRuntime(
+        _ record: [String: Any],
+        currentSocketState: inout (
+            activePath: String,
+            pathOwnedByCurrentListener: Bool
+        )?,
+        foreignSocketLiveness: inout [String: Bool]
+    ) -> Bool {
+        let currentRuntimeId = normalized(environment["CMUX_RUNTIME_ID"])
+        var runtimes: [[String: Any]] = []
+        if let runtime = record["cmuxRuntime"] as? [String: Any] {
+            runtimes.append(runtime)
+        }
+        if let activeRunId = normalized(record["activeRunId"] as? String),
+           let runs = record["runs"] as? [[String: Any]],
+           let activeRun = runs.first(where: {
+               normalized($0["runId"] as? String) == activeRunId
+           }),
+           let runtime = activeRun["cmuxRuntime"] as? [String: Any] {
+            runtimes.append(runtime)
+        }
+
+        var probedSocketPaths: Set<String> = []
+        let socketTransport = SocketTransport()
+        for runtime in runtimes {
+            guard let runtimeId = normalized(runtime["id"] as? String),
+                  runtimeId != currentRuntimeId,
+                  let socketPath = normalized(runtime["socketPath"] as? String),
+                  probedSocketPaths.insert(socketPath).inserted else {
+                continue
+            }
+            if currentSocketState == nil {
+                let preferredSocketPath = SocketControlSettings.socketPath(
+                    environment: environment,
+                    bundleIdentifier: normalized(environment["CMUX_BUNDLE_ID"])
+                        ?? Bundle.main.bundleIdentifier
+                )
+                currentSocketState = currentSocketStateResolver(preferredSocketPath)
+            }
+            if let currentSocketState,
+               currentSocketState.pathOwnedByCurrentListener,
+               SocketControlSettings.pathsMatch(socketPath, currentSocketState.activePath) {
+                continue
+            }
+            let isLive: Bool
+            if let cached = foreignSocketLiveness[socketPath] {
+                isLive = cached
+            } else {
+                isLive = socketTransport.pathAcceptsConnections(socketPath)
+                foreignSocketLiveness[socketPath] = isLive
+            }
+            if isLive {
+                return true
+            }
+        }
+        return false
     }
 
     private func assigningRuntime(
@@ -1394,63 +1517,4 @@ struct AgentHookSessionStateWriter: Sendable {
         return !(completedAt is NSNull)
     }
 
-    private func targetSlotIsAvailable(
-        _ slots: [String: Any],
-        scopeId: String,
-        sessionId: String
-    ) -> Bool {
-        guard let value = slots[scopeId] else { return true }
-        guard let slot = value as? [String: Any],
-              normalized(slot["sessionId"] as? String) == sessionId,
-              slot["updatedAt"] is TimeInterval else {
-            return false
-        }
-        return true
-    }
-
-    private func monotonicTimestamp(
-        requested: TimeInterval,
-        record: [String: Any],
-        slotCollections: [[String: Any]],
-        sessionId: String
-    ) -> TimeInterval? {
-        guard let recordUpdatedAt = record["updatedAt"] as? TimeInterval else { return nil }
-        var effective = max(requested, recordUpdatedAt)
-        for slots in slotCollections {
-            for value in slots.values {
-                guard let slot = value as? [String: Any],
-                      normalized(slot["sessionId"] as? String) == sessionId else {
-                    continue
-                }
-                guard let slotUpdatedAt = slot["updatedAt"] as? TimeInterval else { return nil }
-                effective = max(effective, slotUpdatedAt)
-            }
-        }
-        return effective
-    }
-
-    private func slotsRemovingSession(
-        _ sessionId: String,
-        from records: [String: Any]
-    ) -> [String: Any] {
-        var result = records
-        for (key, value) in records {
-            guard let record = value as? [String: Any],
-                  normalized(record["sessionId"] as? String) == sessionId else {
-                continue
-            }
-            result.removeValue(forKey: key)
-        }
-        return result
-    }
-
-    private func removingSession(_ sessionId: String, from value: Any?) -> [String: Any] {
-        guard var records = value as? [String: Any] else { return [:] }
-        for (key, value) in records {
-            guard let record = value as? [String: Any],
-                  record["sessionId"] as? String == sessionId else { continue }
-            records.removeValue(forKey: key)
-        }
-        return records
-    }
 }
