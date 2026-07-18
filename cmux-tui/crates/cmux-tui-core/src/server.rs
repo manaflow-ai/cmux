@@ -4373,6 +4373,23 @@ mod tests {
     }
 
     #[test]
+    fn failed_attach_setup_does_not_announce_client() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let events = mux.subscribe();
+        let failed_stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+
+        assert!(
+            mark_client_attached(&mux, client, surface.id + 10_000, failed_stream, Some((80, 24)),)
+                .is_err()
+        );
+        assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::ClientAttached { .. })));
+        assert!(!mux.control_clients.attached_client_ids().contains(&client));
+    }
+
+    #[test]
     fn reload_config_returns_path_and_emits_request() {
         let mux = test_mux();
         let events = mux.subscribe();
