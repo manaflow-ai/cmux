@@ -57,6 +57,85 @@ struct AgentHibernationRecord {
 }
 
 @MainActor
+final class AgentHibernationStartupRecoveryCoordinator {
+    typealias RecoveryOperation = @Sendable (
+        _ cancellationCheck: @escaping @Sendable () -> Bool
+    ) async -> Int
+
+    private let recoveryOperation: RecoveryOperation
+    private var isStarted = false
+    private var runGeneration: UInt64 = 0
+    private var taskSequence: UInt64 = 0
+    private var completedRunGeneration: UInt64?
+    private var taskRunGeneration: UInt64?
+    private var task: Task<Void, Never>?
+
+    init(recoveryOperation: @escaping RecoveryOperation) {
+        self.recoveryOperation = recoveryOperation
+    }
+
+    var hasDeferredRecoveryForCurrentStart: Bool {
+        isStarted
+            && task != nil
+            && taskRunGeneration != runGeneration
+    }
+
+    func start() {
+        if !isStarted {
+            isStarted = true
+            runGeneration &+= 1
+        }
+        scheduleIfNeeded()
+    }
+
+    func stop() {
+        isStarted = false
+        task?.cancel()
+    }
+
+    func requestRecovery() {
+        guard isStarted else { return }
+        // Coalesce any number of requests behind the current generation. Its
+        // completion schedules exactly one successor for the newest request.
+        runGeneration &+= 1
+        scheduleIfNeeded()
+    }
+
+    private func scheduleIfNeeded() {
+        guard isStarted,
+              task == nil,
+              completedRunGeneration != runGeneration else {
+            return
+        }
+        taskSequence &+= 1
+        let sequence = taskSequence
+        let scheduledRunGeneration = runGeneration
+        let recoveryOperation = recoveryOperation
+        taskRunGeneration = scheduledRunGeneration
+        task = Task.detached(priority: .utility) {
+            _ = await recoveryOperation { Task.isCancelled }
+            await MainActor.run { [weak self] in
+                self?.taskDidFinish(
+                    sequence: sequence,
+                    runGeneration: scheduledRunGeneration
+                )
+            }
+        }
+    }
+
+    private func taskDidFinish(sequence: UInt64, runGeneration: UInt64) {
+        guard sequence == taskSequence,
+              taskRunGeneration == runGeneration else {
+            return
+        }
+        task = nil
+        taskRunGeneration = nil
+        completedRunGeneration = runGeneration
+        scheduleIfNeeded()
+    }
+}
+
+@MainActor
 final class AgentHibernationController {
     static let shared = AgentHibernationController()
 
@@ -65,7 +144,16 @@ final class AgentHibernationController {
     private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var hibernationIndexLoadInFlight = false
-    private var didScheduleTranscriptRecovery = false
+    private let transcriptRecoveryCoordinator = AgentHibernationStartupRecoveryCoordinator {
+        cancellationCheck in
+        let restored = await AgentHibernationTranscriptGuard.recoverPendingSnapshotsAwaitingLock(
+            cancellationCheck: cancellationCheck
+        )
+        if restored > 0 {
+            NSLog("[AgentHibernation] recovered %d protected transcript snapshot(s)", restored)
+        }
+        return restored
+    }
     private var settingsObserver: NSObjectProtocol?
     var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
@@ -96,15 +184,7 @@ final class AgentHibernationController {
     }
 
     func start() {
-        if !didScheduleTranscriptRecovery {
-            didScheduleTranscriptRecovery = true
-            Task.detached(priority: .utility) {
-                let restored = AgentHibernationTranscriptGuard.recoverPendingSnapshots()
-                if restored > 0 {
-                    NSLog("[AgentHibernation] recovered %d protected transcript snapshot(s)", restored)
-                }
-            }
-        }
+        transcriptRecoveryCoordinator.start()
         guard settingsObserver == nil else {
             updateTimerForCurrentSettings()
             return
@@ -122,14 +202,19 @@ final class AgentHibernationController {
     }
 
     func stop() {
+        transcriptRecoveryCoordinator.stop()
         timer?.cancel()
         timer = nil
         AgentHibernationTrackingGate.setEnabled(false)
-        clearTrackingState()
+        clearTrackingState(cancelRestoreMonitors: true)
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
             self.settingsObserver = nil
         }
+    }
+
+    func enqueueTranscriptRecovery() {
+        transcriptRecoveryCoordinator.requestRecovery()
     }
 
     func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
@@ -465,8 +550,8 @@ final class AgentHibernationController {
         )
     }
 
-    private func clearTrackingState() {
-        cancelPostTeardownRestoreTasks()
+    private func clearTrackingState(cancelRestoreMonitors: Bool = false) {
+        if cancelRestoreMonitors { cancelPostTeardownRestoreTasks() }
         teardownInFlightByPanel.values.forEach { $0.invalidate() }
         teardownValidationGeneration = teardownValidationGeneration &+ 1
         activityByPanel.removeAll(keepingCapacity: false)

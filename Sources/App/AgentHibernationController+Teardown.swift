@@ -35,18 +35,54 @@ extension AgentHibernationController {
             }
 
             var snapshotOutcomes = await Self.snapshotOutcomes(for: requests)
+            let recordsByKey = Dictionary(
+                requests.map { ($0.record.key, $0.record) },
+                uniquingKeysWith: { first, _ in first }
+            )
             var restoreOwnedSnapshotPaths: Set<String> = []
             defer {
-                for outcome in snapshotOutcomes.values {
+                for (key, outcome) in snapshotOutcomes {
                     guard case .snapshot(let snapshot) = outcome,
-                          !restoreOwnedSnapshotPaths.contains(snapshot.snapshotPath),
-                          AgentHibernationTranscriptGuard.liveFileVersionStillMatches(snapshot) else {
+                          !restoreOwnedSnapshotPaths.contains(snapshot.snapshotPath) else {
                         continue
                     }
-                    // A snapshot is disposable only while the live path still
-                    // identifies the exact bytes it protected. Any later rewrite
-                    // retains the snapshot as a recovery backup.
-                    try? FileManager.default.removeItem(atPath: snapshot.snapshotPath)
+                    if AgentHibernationTranscriptGuard.liveFileVersionStillMatches(snapshot),
+                       let snapshotVersion = AgentHibernationTranscriptGuard.stableRegularFileVersion(
+                        atPath: snapshot.snapshotPath
+                       ) {
+                        _ = AgentHibernationTranscriptGuard.durablyRemoveRecoverySnapshot(
+                            atPath: snapshot.snapshotPath,
+                            afterSynchronizingLivePath: snapshot.transcriptPath,
+                            expectedSnapshotVersion: snapshotVersion
+                        )
+                    } else {
+                        // Every unowned abort converges through the retained
+                        // slot. Successive prefix-related captures replace one
+                        // slot instead of leaking UUID-sized transcript copies.
+                        AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
+                            snapshot,
+                            sessionId: recordsByKey[key]?.agent.sessionId
+                        )
+                    }
+                }
+            }
+
+            @MainActor func protectAbortedHandoff(
+                _ snapshot: AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot,
+                record: AgentHibernationRecord
+            ) {
+                if self.armPostTeardownRestoreMonitor(
+                    snapshot: snapshot,
+                    processIDs: record.processIDs,
+                    snapshotDisposal: .retainForRecovery(sessionId: record.agent.sessionId)
+                ) {
+                    restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
+                } else {
+                    AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
+                        snapshot,
+                        sessionId: record.agent.sessionId
+                    )
+                    restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
                 }
             }
 
@@ -57,10 +93,6 @@ extension AgentHibernationController {
             await drainCancelledPostTeardownRestoreTasks()
             let revalidation = await Self.revalidatedSnapshotOutcomes(in: snapshotOutcomes)
             snapshotOutcomes = revalidation.outcomes
-            let recordsByKey = Dictionary(
-                requests.map { ($0.record.key, $0.record) },
-                uniquingKeysWith: { first, _ in first }
-            )
             for (key, snapshot) in revalidation.forfeitedSnapshots {
                 // The live path changed under the fresh snapshot (e.g. an older
                 // monitor restored a stale copy). Arm a restore monitor on the
@@ -162,18 +194,7 @@ extension AgentHibernationController {
                         // The quiesce above disarmed the path's previous monitor, so
                         // forfeiting must re-arm protection with the fresh snapshot;
                         // its restore checks fail closed if the live file has turns.
-                        if self.armPostTeardownRestoreMonitor(
-                            snapshot: snapshot,
-                            processIDs: record.processIDs,
-                            snapshotDisposal: .retainForRecovery(sessionId: record.agent.sessionId)
-                        ) {
-                            restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
-                        } else {
-                            AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
-                                snapshot,
-                                sessionId: record.agent.sessionId
-                            )
-                        }
+                        protectAbortedHandoff(snapshot, record: record)
                         continue
                     }
                 }
@@ -182,6 +203,7 @@ extension AgentHibernationController {
                       lease.panelId == record.key.panelId,
                       record.workspace.surfaceTTYDevices[record.key.panelId] == lease.ttyDevice,
                       record.satisfiesPromptAndCloseGates else {
+                    if let snapshot { protectAbortedHandoff(snapshot, record: record) }
                     continue
                 }
                 let inFlight = request.inFlight
@@ -203,7 +225,10 @@ extension AgentHibernationController {
                         return { frozenLease.resume() }
                     }
                 )
-                guard didHibernate else { continue }
+                guard didHibernate else {
+                    if let snapshot { protectAbortedHandoff(snapshot, record: record) }
+                    continue
+                }
                 guard let snapshot else { continue }
                 if self.armPostTeardownRestoreMonitor(snapshot: snapshot, processIDs: record.processIDs) {
                     restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
@@ -334,15 +359,23 @@ extension AgentHibernationController {
     func armPostTeardownRestoreMonitor(
         snapshot: AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot,
         processIDs: Set<Int>,
-        snapshotDisposal: AgentHibernationTranscriptGuard.PostTeardownSnapshotDisposal = .deleteWhenSafe
+        snapshotDisposal: AgentHibernationTranscriptGuard.PostTeardownSnapshotDisposal = .deleteWhenSafe,
+        initialRetryDelaysNanoseconds: [UInt64] = [
+            0, 250_000_000, 500_000_000, 1_000_000_000, 2_000_000_000,
+        ],
+        backstopDelaysSeconds: [UInt64] = AgentHibernationTranscriptGuard.restoreCheckDelaysSeconds
     ) -> Bool {
         let transcriptPath = snapshot.transcriptPath
         let requestID = UUID()
         let cancellationState = PostTeardownRestoreCancellationState()
+        let startGate = AgentHibernationRestoreMonitorStartGate()
         let task = Task.detached(priority: .utility) {
+            guard await startGate.wait() else { return }
             await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
                 snapshot: snapshot,
                 processIDs: processIDs,
+                initialRetryDelaysNanoseconds: initialRetryDelaysNanoseconds,
+                backstopDelaysSeconds: backstopDelaysSeconds,
                 snapshotDisposal: snapshotDisposal,
                 shouldContinue: {
                     await MainActor.run {
@@ -356,6 +389,12 @@ extension AgentHibernationController {
                     await MainActor.run {
                         cancellationState.restoresSnapshotOnCancellation
                     }
+                },
+                recoveryAuthorityRetired: {
+                    await MainActor.run {
+                        AgentHibernationController.shared
+                            .enqueueTranscriptRecovery()
+                    }
                 }
             )
             await MainActor.run {
@@ -365,12 +404,16 @@ extension AgentHibernationController {
                 )
             }
         }
-        return storePostTeardownRestoreTask(
+        let didStore = storePostTeardownRestoreTask(
             task,
             transcriptPath: transcriptPath,
             requestID: requestID,
             cancellationState: cancellationState
         )
+        // The task cannot inspect ownership or restore until the registry
+        // insertion (or duplicate rejection) is final.
+        startGate.resolve(didStore)
+        return didStore
     }
 
     @discardableResult
