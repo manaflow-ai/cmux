@@ -4,6 +4,7 @@ import CmuxSettings
 import CmuxTerminal
 import Darwin
 import Foundation
+import os
 import SQLite3
 import Testing
 
@@ -68,7 +69,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             hibernatedAt: Date(timeIntervalSince1970: 100)
         ))
 
-        let oldRuntime: [String: Any] = ["id": "previous-runtime"]
+        let oldRuntime = provablyDeadRuntime(id: "previous-runtime")
         let activeSlot: [String: Any] = ["sessionId": sessionID, "updatedAt": 100.0]
         try JSONSerialization.data(withJSONObject: [
             "version": 2,
@@ -861,6 +862,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "surfaceId": fixture.sourcePanelID.uuidString,
                 "sessionState": "hibernated",
                 "restoreAuthority": true,
+                "cmuxRuntime": provablyDeadRuntime(id: "closed-panel-retired-runtime"),
                 "startedAt": 10.0,
                 "updatedAt": 20.0,
             ]],
@@ -1651,6 +1653,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "surfaceId": fixture.sourcePanelID.uuidString,
                 "sessionState": "hibernated",
                 "restoreAuthority": true,
+                "cmuxRuntime": provablyDeadRuntime(id: "legacy-only-retired-runtime"),
                 "startedAt": 10.0,
                 "updatedAt": 20.0,
             ]],
@@ -1687,6 +1690,173 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(!restoredPanel.isAgentHibernated)
         _ = restored.reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         #expect(restoredPanel.hostedView.debugPortalActive)
+    }
+
+    @MainActor
+    @Test func legacyOnlyUnknownRuntimeOwnerRemainsInertAfterImport() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-restored-hibernation-legacy-unknown-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "legacy-unknown-current-runtime",
+        ]
+        let previousEnvironment = environment.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in environment { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "legacy-unknown-session"
+        )
+        let slot: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": 20.0,
+        ]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [fixture.agent.sessionId: [
+                "sessionId": fixture.agent.sessionId,
+                "workspaceId": fixture.source.id.uuidString,
+                "surfaceId": fixture.sourcePanelID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "cmuxRuntime": ["id": "metadata-only-foreign-runtime"],
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+            "activeSessionsByWorkspace": [fixture.source.id.uuidString: slot],
+            "activeSessionsBySurface": [fixture.sourcePanelID.uuidString: slot],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+        let targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+
+        let outcomes = AgentHookSessionStateWriter.recordRestoredHibernationOutcomes([
+            .init(
+                agent: fixture.agent,
+                previousWorkspaceId: fixture.source.id,
+                previousSurfaceId: fixture.sourcePanelID,
+                workspaceId: targetWorkspaceID,
+                surfaceId: targetSurfaceID
+            ),
+        ], now: 30)
+
+        #expect(outcomes[targetSurfaceID] == .unavailable)
+        let snapshot = try CmuxAgentSessionRegistry(url: registryURL).snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: record.json) as? [String: Any]
+        )
+        #expect(object["workspaceId"] as? String == fixture.source.id.uuidString)
+        #expect(object["surfaceId"] as? String == fixture.sourcePanelID.uuidString)
+        #expect(object["sessionState"] as? String == "hibernated")
+        #expect(snapshot.activeSlots.allSatisfy { $0.scopeID != targetSurfaceID.uuidString })
+    }
+
+    @MainActor
+    @Test(arguments: ["hibernated", "restoring"])
+    func currentAttachedPendingOwnerSurvivesImmediateClosedHistoryAdoption(
+        _ lifecycle: String
+    ) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-current-pending-closed-history-\(lifecycle)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let runtimeID = "portal-close-current-runtime"
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": runtimeID,
+        ]
+        let previousEnvironment = environment.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in environment { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "current-pending-\(lifecycle)"
+        )
+        var object: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "workspaceId": fixture.source.id.uuidString,
+            "surfaceId": fixture.sourcePanelID.uuidString,
+            "sessionState": lifecycle,
+            "restoreAuthority": true,
+            "cmuxRuntime": ["id": runtimeID],
+            "startedAt": 10.0,
+            "updatedAt": 20.0,
+        ]
+        if lifecycle == "restoring" {
+            object["cmuxHibernationResumeAttemptId"] = UUID().uuidString
+        }
+        let slotJSON = try JSONSerialization.data(withJSONObject: [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": 20.0,
+        ], options: [.sortedKeys])
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(
+            provider: "codex",
+            records: [.init(
+                provider: "codex",
+                sessionID: fixture.agent.sessionId,
+                updatedAt: 20,
+                json: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            )],
+            activeSlots: [.init(
+                provider: "codex",
+                scope: .surface,
+                scopeID: fixture.sourcePanelID.uuidString,
+                sessionID: fixture.agent.sessionId,
+                updatedAt: 20,
+                json: slotJSON
+            )]
+        )
+        let targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+
+        let outcomes = AgentHookSessionStateWriter.recordRestoredHibernationOutcomes([
+            .init(
+                agent: fixture.agent,
+                previousWorkspaceId: fixture.source.id,
+                previousSurfaceId: fixture.sourcePanelID,
+                workspaceId: targetWorkspaceID,
+                surfaceId: targetSurfaceID
+            ),
+        ], now: 30)
+
+        #expect(outcomes[targetSurfaceID] == .unavailable)
+        let retained = try #require(registry.snapshot(provider: "codex").records.first)
+        let retainedObject = try #require(
+            JSONSerialization.jsonObject(with: retained.json) as? [String: Any]
+        )
+        #expect(retainedObject["workspaceId"] as? String == fixture.source.id.uuidString)
+        #expect(retainedObject["surfaceId"] as? String == fixture.sourcePanelID.uuidString)
+        #expect(retainedObject["sessionState"] as? String == lifecycle)
     }
 
     @MainActor
@@ -1727,6 +1897,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "surfaceId": fixture.sourcePanelID.uuidString,
                 "sessionState": "hibernated",
                 "restoreAuthority": true,
+                "cmuxRuntime": provablyDeadRuntime(id: "already-visible-retired-runtime"),
                 "startedAt": 10.0,
                 "updatedAt": 20.0,
             ]],
@@ -3372,6 +3543,49 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     // MARK: - Startup hibernation reconciliation
 
+    @Test func runtimeOwnershipProbeCapsAndDeduplicatesExternalProcessChecks() {
+        let calls = OSAllocatedUnfairLock(initialState: [pid_t: Int]())
+        var probe = AgentRuntimeOwnershipProbe(
+            environment: ["CMUX_RUNTIME_ID": "current-runtime"],
+            currentSocketStateResolver: {
+                (activePath: $0, pathOwnedByCurrentListener: false)
+            },
+            processIdentityResolver: { pid in
+                calls.withLock { $0[pid, default: 0] += 1 }
+                return AgentPIDProcessIdentity(
+                    pid: pid,
+                    startSeconds: 10,
+                    startMicroseconds: 20
+                )
+            },
+            maximumExternalProbes: 3
+        )
+        func record(pid: pid_t) -> [String: Any] {
+            ["cmuxRuntime": [
+                "id": "foreign-\(pid)",
+                "processId": Int(pid),
+                "processStartSeconds": 10,
+                "processStartMicroseconds": 20,
+            ]]
+        }
+
+        for _ in 0..<100 {
+            #expect(probe.evidence(for: record(pid: 41_001)) == .provablyLiveForeign)
+        }
+        #expect(probe.evidence(for: record(pid: 41_002)) == .provablyLiveForeign)
+        #expect(probe.evidence(for: record(pid: 41_003)) == .provablyLiveForeign)
+        #expect(probe.evidence(for: record(pid: 41_004)) == .unknownForeign)
+        #expect(probe.externalProbeCount == 3)
+        let callSnapshot = calls.withLock { $0 }
+        #expect(callSnapshot.values.reduce(0, +) == 3)
+        #expect(callSnapshot[41_001] == 1)
+
+        #expect(probe.evidence(for: [
+            "cmuxRuntime": ["id": "current-runtime"],
+        ]) == .current)
+        #expect(probe.externalProbeCount == 3)
+    }
+
     @MainActor
     @Test func startupReconciliationTurnsSavedActiveCanonicalHibernationIntoInertPlaceholder() throws {
         let root = FileManager.default.temporaryDirectory
@@ -3448,6 +3662,117 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
         #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
         #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
+    }
+
+    @MainActor
+    @Test func startupReconciliationPreservesCanonicalHibernationOverStaleActiveLegacy() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-startup-canonical-over-stale-active-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "startup-canonical-current-runtime",
+        ]
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "startup-canonical-over-stale-active"
+        )
+        var savedActive = fixture.snapshot
+        let panelIndex = try #require(
+            savedActive.panels.firstIndex { $0.id == fixture.sourcePanelID }
+        )
+        var terminal = try #require(savedActive.panels[panelIndex].terminal)
+        terminal.hibernation = nil
+        terminal.wasAgentRunning = true
+        savedActive.panels[panelIndex].terminal = terminal
+
+        let canonicalRecord: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "workspaceId": fixture.source.id.uuidString,
+            "surfaceId": fixture.sourcePanelID.uuidString,
+            "sessionState": "hibernated",
+            "restoreAuthority": true,
+            "cmuxHibernatedAt": 30.0,
+            "startedAt": 10.0,
+            "updatedAt": 30.0,
+        ]
+        let canonicalSlot: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": 30.0,
+        ]
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(
+            provider: "codex",
+            records: [.init(
+                provider: "codex",
+                sessionID: fixture.agent.sessionId,
+                updatedAt: 30,
+                json: try JSONSerialization.data(
+                    withJSONObject: canonicalRecord,
+                    options: [.sortedKeys]
+                )
+            )],
+            activeSlots: [.init(
+                provider: "codex",
+                scope: .surface,
+                scopeID: fixture.sourcePanelID.uuidString,
+                sessionID: fixture.agent.sessionId,
+                updatedAt: 30,
+                json: try JSONSerialization.data(
+                    withJSONObject: canonicalSlot,
+                    options: [.sortedKeys]
+                )
+            )]
+        )
+        let staleSlot: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": 20.0,
+        ]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [fixture.agent.sessionId: [
+                "sessionId": fixture.agent.sessionId,
+                "workspaceId": fixture.source.id.uuidString,
+                "surfaceId": fixture.sourcePanelID.uuidString,
+                "sessionState": "active",
+                "restoreAuthority": true,
+                "cmuxRuntime": ["id": "stale-active-runtime"],
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+            "activeSessionsBySurface": [fixture.sourcePanelID.uuidString: staleSlot],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+        var appSnapshot = appSessionSnapshot(containing: savedActive)
+
+        let failures = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+            &appSnapshot,
+            homeDirectory: root.path,
+            environment: environment
+        )
+
+        #expect(failures.isEmpty)
+        let reconciled = try #require(
+            appSnapshot.windows[0].tabManager.workspaces[0]
+                .panels.first { $0.id == fixture.sourcePanelID }?.terminal
+        )
+        #expect(reconciled.hibernation?.hibernatedAt == 30)
+        #expect(reconciled.wasAgentRunning == false)
+        let retained = try #require(registry.snapshot(provider: "codex").records.first)
+        let retainedObject = try #require(
+            JSONSerialization.jsonObject(with: retained.json) as? [String: Any]
+        )
+        #expect(retained.writerGeneration == CmuxAgentSessionRegistry.currentWriterGeneration)
+        #expect(retainedObject["sessionState"] as? String == "hibernated")
+        #expect(retainedObject["updatedAt"] as? Double == 30)
     }
 
     @MainActor
@@ -4986,6 +5311,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         surfaceId: UUID,
         runtime: [String: Any]? = nil
     ) throws -> CmuxAgentSessionRegistry {
+        let runtime = runtime ?? provablyDeadRuntime(
+            id: "retired-\(agent.kind.rawValue)-runtime"
+        )
         let activeSlot: [String: Any] = [
             "sessionId": agent.sessionId,
             "updatedAt": 20.0,
@@ -4999,17 +5327,15 @@ extension CMUXCLIErrorOutputRegressionTests {
             "startedAt": 10.0,
             "updatedAt": 20.0,
         ]
-        if let runtime {
-            record["activeRunId"] = "restored-run"
-            record["cmuxRuntime"] = runtime
-            record["runs"] = [[
-                "runId": "restored-run",
-                "restoreAuthority": true,
-                "cmuxRuntime": runtime,
-                "startedAt": 10.0,
-                "updatedAt": 20.0,
-            ]]
-        }
+        record["activeRunId"] = "restored-run"
+        record["cmuxRuntime"] = runtime
+        record["runs"] = [[
+            "runId": "restored-run",
+            "restoreAuthority": true,
+            "cmuxRuntime": runtime,
+            "startedAt": 10.0,
+            "updatedAt": 20.0,
+        ]]
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
         try JSONSerialization.data(withJSONObject: [
             "version": 2,
@@ -5024,6 +5350,15 @@ extension CMUXCLIErrorOutputRegressionTests {
             fileManager: .default
         )
         return registry
+    }
+
+    private func provablyDeadRuntime(id: String) -> [String: Any] {
+        [
+            "id": id,
+            "processId": Int(Int32.max),
+            "processStartSeconds": 1,
+            "processStartMicroseconds": 1,
+        ]
     }
 
     private func makeListeningUnixSocket(at path: String) throws -> Int32 {
