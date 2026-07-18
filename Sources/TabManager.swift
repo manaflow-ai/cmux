@@ -8,6 +8,7 @@ import CmuxBrowser
 import CmuxGit
 import CmuxNotifications
 import CmuxPanes
+import CmuxRemoteSession
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
@@ -391,6 +392,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -474,9 +476,11 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -957,7 +961,8 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
-            closeTabWarningDefaults: closeTabWarningDefaults
+            closeTabWarningDefaults: closeTabWarningDefaults,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
 
@@ -5999,7 +6004,8 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
-                closeTabWarningDefaults: closeTabWarningDefaults
+                closeTabWarningDefaults: closeTabWarningDefaults,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
@@ -6012,7 +6018,12 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal, closeTabWarningDefaults: closeTabWarningDefaults)
+            let fallback = Workspace(
+                title: "Terminal 1",
+                portOrdinal: ordinal,
+                closeTabWarningDefaults: closeTabWarningDefaults,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker
+            )
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
