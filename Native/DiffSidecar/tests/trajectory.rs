@@ -573,7 +573,7 @@ fn codex_resolver_resolves_relative_apply_patch_paths_from_nested_cwd() {
                 "type":"custom_tool_call",
                 "name":"apply_patch",
                 "call_id":"patch",
-                "input":"*** Begin Patch\n*** Update File: File.swift\n@@\n-before\n+after\n*** End Patch"
+                "input":"*** Begin Patch\n*** Update File: File.swift\n@@ -1 +1 @@\n-before\n+after\n*** End Patch"
             }}),
             serde_json::json!({"type":"response_item","payload":{
                 "type":"custom_tool_call_output",

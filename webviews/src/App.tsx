@@ -54,6 +54,7 @@ import type { DiffViewerConfig } from "./types";
 import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
+import { synchronizeWorkerRenderOptions } from "./worker-render-options-sync";
 
 type ConfigProps = {
   config: DiffViewerConfig;
@@ -296,6 +297,11 @@ export function App({ config, initialStatus }: ConfigProps) {
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+  const [codeViewReady, setCodeViewReady] = useState(false);
+  const bindViewerContainer = useCallback((node: HTMLDivElement | null) => {
+    viewerContainerRef.current = node;
+    setCodeViewReady(node != null);
+  }, []);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
@@ -526,11 +532,15 @@ export function App({ config, initialStatus }: ConfigProps) {
               poolOptions={workerPoolOptions}
               highlighterOptions={highlighterOptions}
             >
-              <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
+              <WorkerRenderOptionsSync
+                codeViewReady={codeViewReady}
+                codeViewRef={codeViewRef}
+                highlighterOptions={highlighterOptions}
+              />
               <CodeView
                 ref={codeViewRef}
                 className="code-view-root"
-                containerRef={viewerContainerRef}
+                containerRef={bindViewerContainer}
                 items={state.items}
                 onScroll={handleCodeViewScroll}
                 options={renderedCodeViewOptions}
@@ -720,13 +730,15 @@ function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
 }
 
 function WorkerRenderOptionsSync({
+  codeViewReady,
   codeViewRef,
   highlighterOptions,
 }: {
+  codeViewReady: boolean;
   codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>;
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>;
 }) {
-  useWorkerRenderOptionsSync(highlighterOptions, codeViewRef);
+  useWorkerRenderOptionsSync(codeViewReady, highlighterOptions, codeViewRef);
   return null;
 }
 
@@ -1512,28 +1524,37 @@ function useSyncedRef<T>(value: T): React.MutableRefObject<T> {
 }
 
 function useWorkerRenderOptionsSync(
+  codeViewReady: boolean,
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>,
   codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
 ): void {
   const workerPool = useWorkerPool();
   const syncedOptions = useRef<ReturnType<typeof workerHighlighterOptions> | null>(null);
   useEffect(() => {
-    if (!workerPool || sameWorkerHighlighterOptions(syncedOptions.current, highlighterOptions)) {
+    if (
+      !workerPool ||
+      !codeViewReady ||
+      sameWorkerHighlighterOptions(syncedOptions.current, highlighterOptions)
+    ) {
       return;
     }
     let active = true;
     syncedOptions.current = highlighterOptions;
-    workerPool.setRenderOptions(highlighterOptions)
-      .then(() => {
-        if (active) {
-          codeViewRef.current?.getInstance()?.render(true);
-        }
+    synchronizeWorkerRenderOptions({
+      codeViewReady,
+      highlighterOptions,
+      render: () => {
+        if (active) codeViewRef.current?.getInstance()?.render(true);
+      },
+      workerPool,
+    })
+      .catch((error: unknown) => {
+        console.warn("cmux diff worker render options update failed", error);
       })
-      .catch((error: unknown) => console.warn("cmux diff worker render options update failed", error));
     return () => {
       active = false;
     };
-  }, [codeViewRef, highlighterOptions, workerPool]);
+  }, [codeViewReady, codeViewRef, highlighterOptions, workerPool]);
 }
 
 function sameWorkerHighlighterOptions(

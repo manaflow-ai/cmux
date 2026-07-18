@@ -37,7 +37,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         let url: URL
         let profileID: UUID
         let hostWindow: NSWindow
-        let expires: Bool
+        let expiresAfter: Duration?
         var loadState: LoadState
         var lastRequestedAt: ContinuousClock.Instant
     }
@@ -46,6 +46,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     private var expiryTasks: [EntryKey: Task<Void, Never>] = [:]
     private let capacity: Int
     private let timeToLive: Duration
+    private let trustedInlineTimeToLive: Duration
     private let makeWebView: @MainActor (UUID) -> CmuxWebView
     private let startLoad: @MainActor (CmuxWebView, URLRequest) -> Void
     private let expirySleep: @Sendable (Duration) async throws -> Void
@@ -53,6 +54,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     init(
         capacity: Int = 1,
         timeToLive: Duration = .seconds(180),
+        trustedInlineTimeToLive: Duration = .seconds(30),
         makeWebView: @escaping @MainActor (UUID) -> CmuxWebView = { profileID in
             BrowserPanel.makeWebView(profileID: profileID)
         },
@@ -65,6 +67,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     ) {
         self.capacity = max(1, capacity)
         self.timeToLive = timeToLive
+        self.trustedInlineTimeToLive = trustedInlineTimeToLive
         self.makeWebView = makeWebView
         self.startLoad = startLoad
         self.expirySleep = expirySleep
@@ -90,20 +93,21 @@ final class BrowserPrewarmedWebViewPool: NSObject {
               !browserShouldBlockInsecureHTTPURL(url) else {
             return
         }
-        prewarmValidated(url: url, profileID: profileID, expires: true)
+        prewarmValidated(url: url, profileID: profileID, expiresAfter: timeToLive)
     }
 
     /// Prewarms an app-authored inline page. The caller must supply a data URL;
     /// arbitrary local or custom-scheme URLs never enter the pool through this path.
     func prewarmTrustedInlinePage(url: URL, profileID: UUID) {
         guard url.scheme?.lowercased() == "data" else { return }
-        // App-authored loading shells are tiny and sit on a latency-critical
-        // path. Keep them ready until claimed instead of aging them out like
-        // speculative network-page prewarms.
-        prewarmValidated(url: url, profileID: profileID, expires: false)
+        prewarmValidated(
+            url: url,
+            profileID: profileID,
+            expiresAfter: trustedInlineTimeToLive
+        )
     }
 
-    private func prewarmValidated(url: URL, profileID: UUID, expires: Bool) {
+    private func prewarmValidated(url: URL, profileID: UUID, expiresAfter: Duration?) {
         let key = entryKey(url: url, profileID: profileID)
         if entries[key] != nil {
             entries[key]?.lastRequestedAt = ContinuousClock.now
@@ -120,7 +124,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
             url: url,
             profileID: profileID,
             hostWindow: hostWindow,
-            expires: expires,
+            expiresAfter: expiresAfter,
             loadState: .loading,
             lastRequestedAt: ContinuousClock.now
         )
@@ -177,8 +181,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
 
     private func scheduleExpiry(for key: EntryKey) {
         expiryTasks.removeValue(forKey: key)?.cancel()
-        guard entries[key]?.expires == true else { return }
-        let ttl = timeToLive
+        guard let ttl = entries[key]?.expiresAfter else { return }
         let sleep = expirySleep
         expiryTasks[key] = Task { [weak self] in
             do {
@@ -197,7 +200,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
 
     private func evictOldestEntryIfNeeded() {
         guard entries.count >= capacity else { return }
-        let expiringEntries = entries.filter { $0.value.expires }
+        let expiringEntries = entries.filter { $0.value.expiresAfter != nil }
         let candidates = expiringEntries.isEmpty ? entries : expiringEntries
         guard let oldest = candidates.min(by: {
             $0.value.lastRequestedAt < $1.value.lastRequestedAt

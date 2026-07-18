@@ -82,6 +82,7 @@ type TrajectoryScanResult = Result<ResolvedTurnPatch, TrajectoryError>;
 struct TrajectoryScanKey {
     identity: AgentTurnIdentity,
     roots: TrajectoryRoots,
+    working_directory: PathBuf,
     generation: AgentTurnGeneration,
 }
 
@@ -94,6 +95,7 @@ impl TrajectoryScanKey {
         Self {
             identity,
             roots: roots.clone(),
+            working_directory: location.working_directory().to_owned(),
             generation: location.generation().clone(),
         }
     }
@@ -2486,6 +2488,7 @@ mod tests {
         let canceled_key = TrajectoryScanKey {
             identity: identity.clone(),
             roots: TrajectoryRoots::for_home(PathBuf::from("/tmp/cmux-test-home")),
+            working_directory: PathBuf::from("/tmp/cmux-test-home/repo"),
             generation: AgentTurnGeneration::for_test(1),
         };
         let (canceled_sender, canceled_receiver) = watch::channel(None);
@@ -2502,6 +2505,7 @@ mod tests {
         let replacement_key = TrajectoryScanKey {
             identity,
             roots: TrajectoryRoots::for_home(PathBuf::from("/tmp/cmux-test-home")),
+            working_directory: PathBuf::from("/tmp/cmux-test-home/repo"),
             generation: AgentTurnGeneration::for_test(2),
         };
         let (replacement_sender, _replacement_receiver) = watch::channel(None);

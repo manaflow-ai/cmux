@@ -165,6 +165,7 @@ pub struct ResolvedTurnPatch {
 #[derive(Clone, Debug)]
 pub struct AgentTurnLocation {
     repo_root: PathBuf,
+    working_directory: PathBuf,
     transcript: Option<PathBuf>,
     generation: AgentTurnGeneration,
 }
@@ -177,6 +178,10 @@ impl AgentTurnLocation {
 
     pub(crate) fn generation(&self) -> &AgentTurnGeneration {
         &self.generation
+    }
+
+    pub(crate) fn working_directory(&self) -> &Path {
+        &self.working_directory
     }
 }
 
@@ -299,7 +304,12 @@ pub fn resolve_last_turn_patch_at_location_cancellable(
                 .transcript
                 .as_deref()
                 .ok_or(TrajectoryError::Unavailable)?;
-            let patch = codex_last_turn_patch(transcript, &location.repo_root, cancellation)?;
+            let patch = codex_last_turn_patch(
+                transcript,
+                &location.repo_root,
+                &location.working_directory,
+                cancellation,
+            )?;
             finish(location.repo_root.clone(), patch)
         }
         AgentProvider::Claude => {
@@ -307,7 +317,12 @@ pub fn resolve_last_turn_patch_at_location_cancellable(
                 .transcript
                 .as_deref()
                 .ok_or(TrajectoryError::Unavailable)?;
-            let patch = claude_last_turn_patch(transcript, &location.repo_root, cancellation)?;
+            let patch = claude_last_turn_patch(
+                transcript,
+                &location.repo_root,
+                &location.working_directory,
+                cancellation,
+            )?;
             finish(location.repo_root.clone(), patch)
         }
         AgentProvider::OpenCode => resolve_opencode(identity, roots, cancellation),
@@ -346,29 +361,32 @@ pub fn resolve_agent_turn_location_cancellable(
     cancellation.check()?;
     validate_session_id(&identity.session_id)?;
     match identity.provider {
-        AgentProvider::Codex => {
-            codex_location(identity, roots).and_then(|(transcript, repo_root)| {
+        AgentProvider::Codex => codex_location(identity, roots).and_then(
+            |(transcript, repo_root, working_directory)| {
                 let generation =
                     AgentTurnGeneration::Transcript(vec![transcript_generation(&transcript)?]);
                 Ok(AgentTurnLocation {
                     repo_root,
+                    working_directory,
                     transcript: Some(transcript),
                     generation,
                 })
-            })
-        }
-        AgentProvider::Claude => {
-            claude_location(identity, roots, cancellation).and_then(|(transcript, repo_root)| {
+            },
+        ),
+        AgentProvider::Claude => claude_location(identity, roots, cancellation).and_then(
+            |(transcript, repo_root, working_directory)| {
                 let generation = claude_transcript_generation(&transcript, cancellation)?;
                 Ok(AgentTurnLocation {
                     repo_root,
+                    working_directory,
                     transcript: Some(transcript),
                     generation,
                 })
-            })
-        }
+            },
+        ),
         AgentProvider::OpenCode => {
             opencode_location(identity, roots).map(|(repo_root, generation)| AgentTurnLocation {
+                working_directory: repo_root.clone(),
                 repo_root,
                 transcript: None,
                 generation,
@@ -441,7 +459,7 @@ fn validate_session_id(session_id: &str) -> Result<(), TrajectoryError> {
 fn codex_location(
     identity: &AgentTurnIdentity,
     roots: &TrajectoryRoots,
-) -> Result<(PathBuf, PathBuf), TrajectoryError> {
+) -> Result<(PathBuf, PathBuf, PathBuf), TrajectoryError> {
     let hook = read_hook_record(roots, identity.provider, &identity.session_id);
     let (transcript, repo_root) = if let Some(record) = hook
         .as_ref()
@@ -473,15 +491,19 @@ fn codex_location(
             expanded_path(repo_root.as_deref().ok_or(TrajectoryError::Unavailable)?),
         )
     };
-    let repo_root = canonical_repository_root(&repo_root)?;
-    Ok((transcript, repo_root))
+    let working_directory = canonical_directory(&repo_root)?;
+    let repo_root = canonical_repository_root(&working_directory)?;
+    working_directory
+        .strip_prefix(&repo_root)
+        .map_err(|_| TrajectoryError::Invalid)?;
+    Ok((transcript, repo_root, working_directory))
 }
 
 fn claude_location(
     identity: &AgentTurnIdentity,
     roots: &TrajectoryRoots,
     cancellation: &TrajectoryCancellation,
-) -> Result<(PathBuf, PathBuf), TrajectoryError> {
+) -> Result<(PathBuf, PathBuf, PathBuf), TrajectoryError> {
     let hook = read_hook_record(roots, identity.provider, &identity.session_id);
     let (transcript, repo_root) = if let Some(record) =
         hook.filter(|record| record.transcript_path.is_some() && record.cwd.is_some())
@@ -502,8 +524,12 @@ fn claude_location(
             claude_transcript_cwd(&transcript, cancellation).ok_or(TrajectoryError::Unavailable)?;
         (transcript, repo_root)
     };
-    let repo_root = canonical_repository_root(&repo_root)?;
-    Ok((transcript, repo_root))
+    let working_directory = canonical_directory(&repo_root)?;
+    let repo_root = canonical_repository_root(&working_directory)?;
+    working_directory
+        .strip_prefix(&repo_root)
+        .map_err(|_| TrajectoryError::Invalid)?;
+    Ok((transcript, repo_root, working_directory))
 }
 
 fn resolve_opencode(
@@ -740,13 +766,14 @@ fn claude_transcript_cwd(
 fn codex_last_turn_patch(
     transcript: &Path,
     repo_root: &Path,
+    working_directory: &Path,
     cancellation: &TrajectoryCancellation,
 ) -> Result<String, TrajectoryError> {
     let mut state = CodexTurnPatchState::default();
     for_json_lines(transcript, cancellation, |object| {
-        state.consume(object, repo_root)
+        state.consume(object, repo_root, working_directory)
     })?;
-    state.finish(repo_root)
+    state.finish(repo_root, working_directory)
 }
 
 #[derive(Default)]
@@ -760,7 +787,12 @@ struct CodexTurnPatchState {
 }
 
 impl CodexTurnPatchState {
-    fn consume(&mut self, object: &Value, repo_root: &Path) -> Result<bool, TrajectoryError> {
+    fn consume(
+        &mut self,
+        object: &Value,
+        repo_root: &Path,
+        working_directory: &Path,
+    ) -> Result<bool, TrajectoryError> {
         let Some(payload) = object.get("payload") else {
             return Ok(false);
         };
@@ -777,7 +809,7 @@ impl CodexTurnPatchState {
         if object_type != Some("event_msg") {
             return Ok(false);
         }
-        self.consume_event(payload, turn_id, repo_root)?;
+        self.consume_event(payload, turn_id, repo_root, working_directory)?;
         Ok(false)
     }
 
@@ -809,6 +841,7 @@ impl CodexTurnPatchState {
         payload: &Value,
         turn_id: Option<&str>,
         repo_root: &Path,
+        working_directory: &Path,
     ) -> Result<(), TrajectoryError> {
         let event_type = payload.get("type").and_then(Value::as_str);
         if event_type == Some("task_started") {
@@ -843,7 +876,7 @@ impl CodexTurnPatchState {
             let mut event_patch = String::new();
             let changes = changes.expect("checked above");
             for (path, change) in changes {
-                append_codex_change(&mut event_patch, repo_root, path, change)?;
+                append_codex_change(&mut event_patch, repo_root, working_directory, path, change)?;
             }
             self.patch.push_str(&event_patch);
             ensure_patch_limit(&self.patch)?;
@@ -851,7 +884,14 @@ impl CodexTurnPatchState {
             && let Some(input) = self.apply_patch_inputs.get(call_id)
         {
             let mut structured_patch = String::new();
-            if append_codex_apply_patch_input(&mut structured_patch, repo_root, input).is_ok() {
+            if append_codex_apply_patch_input(
+                &mut structured_patch,
+                repo_root,
+                working_directory,
+                input,
+            )
+            .is_ok()
+            {
                 self.patch.push_str(&structured_patch);
                 ensure_patch_limit(&self.patch)?;
             }
@@ -868,7 +908,11 @@ impl CodexTurnPatchState {
         self.apply_patch_event_calls.clear();
     }
 
-    fn finish(mut self, repo_root: &Path) -> Result<String, TrajectoryError> {
+    fn finish(
+        mut self,
+        repo_root: &Path,
+        working_directory: &Path,
+    ) -> Result<String, TrajectoryError> {
         for call_id in self.successful_apply_patch_order {
             if self.apply_patch_event_calls.contains(&call_id) {
                 continue;
@@ -877,7 +921,14 @@ impl CodexTurnPatchState {
                 continue;
             };
             let mut structured_patch = String::new();
-            if append_codex_apply_patch_input(&mut structured_patch, repo_root, input).is_ok() {
+            if append_codex_apply_patch_input(
+                &mut structured_patch,
+                repo_root,
+                working_directory,
+                input,
+            )
+            .is_ok()
+            {
                 self.patch.push_str(&structured_patch);
                 ensure_patch_limit(&self.patch)?;
             }
@@ -1011,6 +1062,7 @@ struct CodexApplyPatchSection {
 fn append_codex_apply_patch_input(
     output: &mut String,
     repo_root: &Path,
+    working_directory: &Path,
     input: &str,
 ) -> Result<(), TrajectoryError> {
     let mut lines = input.lines();
@@ -1061,7 +1113,7 @@ fn append_codex_apply_patch_input(
         return Err(TrajectoryError::Invalid);
     }
     for section in sections {
-        append_codex_apply_patch_section(output, repo_root, &section)?;
+        append_codex_apply_patch_section(output, repo_root, working_directory, &section)?;
     }
     ensure_patch_limit(output)
 }
@@ -1082,12 +1134,17 @@ fn codex_apply_patch_header(line: &str) -> Option<(CodexApplyPatchOperation, &st
 fn append_codex_apply_patch_section(
     output: &mut String,
     repo_root: &Path,
+    working_directory: &Path,
     section: &CodexApplyPatchSection,
 ) -> Result<(), TrajectoryError> {
-    let old_path = relative_patch_path(repo_root, Path::new(&section.path))?;
+    let path_context = PatchPathContext {
+        repo_root,
+        working_directory,
+    };
+    let old_path = relative_patch_path(path_context, Path::new(&section.path))?;
     let new_path = section.move_path.as_ref().map_or_else(
         || Ok(old_path.clone()),
-        |path| relative_patch_path(repo_root, Path::new(path)),
+        |path| relative_patch_path(path_context, Path::new(path)),
     )?;
     match section.operation {
         CodexApplyPatchOperation::Add => {
@@ -1172,10 +1229,15 @@ fn codex_turn_id(payload: &Value) -> Option<&str> {
 fn append_codex_change(
     output: &mut String,
     repo_root: &Path,
+    working_directory: &Path,
     raw_path: &str,
     change: &Value,
 ) -> Result<(), TrajectoryError> {
-    let Ok(old_path) = relative_patch_path(repo_root, Path::new(raw_path)) else {
+    let path_context = PatchPathContext {
+        repo_root,
+        working_directory,
+    };
+    let Ok(old_path) = relative_patch_path(path_context, Path::new(raw_path)) else {
         return Ok(());
     };
     let change_type = change
@@ -1183,7 +1245,7 @@ fn append_codex_change(
         .and_then(Value::as_str)
         .unwrap_or("update");
     let new_path = if let Some(path) = change.get("move_path").and_then(Value::as_str) {
-        let Ok(path) = relative_patch_path(repo_root, Path::new(path)) else {
+        let Ok(path) = relative_patch_path(path_context, Path::new(path)) else {
             return Ok(());
         };
         path
@@ -1267,6 +1329,7 @@ fn append_added_file(
 fn claude_last_turn_patch(
     transcript: &Path,
     repo_root: &Path,
+    working_directory: &Path,
     cancellation: &TrajectoryCancellation,
 ) -> Result<String, TrajectoryError> {
     let mut current_prompt = None::<String>;
@@ -1290,7 +1353,7 @@ fn claude_last_turn_patch(
                 .and_then(Value::as_array)
                 .is_some()
         {
-            append_claude_result(&mut patch, repo_root, result)?;
+            append_claude_result(&mut patch, repo_root, working_directory, result)?;
         }
         Ok(false)
     })?;
@@ -1299,6 +1362,7 @@ fn claude_last_turn_patch(
             &mut patch,
             transcript,
             repo_root,
+            working_directory,
             &prompt_id,
             cancellation,
         )?;
@@ -1310,6 +1374,7 @@ fn append_claude_subagent_patches(
     output: &mut String,
     parent_transcript: &Path,
     repo_root: &Path,
+    working_directory: &Path,
     prompt_id: &str,
     cancellation: &TrajectoryCancellation,
 ) -> Result<(), TrajectoryError> {
@@ -1360,7 +1425,7 @@ fn append_claude_subagent_patches(
                     .and_then(Value::as_array)
                     .is_some()
             {
-                append_claude_result(output, repo_root, result)?;
+                append_claude_result(output, repo_root, working_directory, result)?;
             }
             Ok(false)
         })?;
@@ -1421,13 +1486,20 @@ fn claude_is_prompt_boundary(object: &Value) -> bool {
 fn append_claude_result(
     output: &mut String,
     repo_root: &Path,
+    working_directory: &Path,
     result: &Value,
 ) -> Result<(), TrajectoryError> {
     let raw_path = result
         .get("filePath")
         .and_then(Value::as_str)
         .ok_or(TrajectoryError::Invalid)?;
-    let Ok(path) = relative_patch_path(repo_root, Path::new(raw_path)) else {
+    let Ok(path) = relative_patch_path(
+        PatchPathContext {
+            repo_root,
+            working_directory,
+        },
+        Path::new(raw_path),
+    ) else {
         return Ok(());
     };
     let hunks = result
@@ -1611,16 +1683,26 @@ fn expanded_path(raw: &str) -> PathBuf {
     PathBuf::from(raw)
 }
 
-fn relative_patch_path(repo_root: &Path, path: &Path) -> Result<String, TrajectoryError> {
-    let relative = if path.is_absolute() {
-        let normalized = canonicalize_with_missing(path)?;
-        normalized
-            .strip_prefix(repo_root)
-            .map_err(|_| TrajectoryError::Invalid)?
-            .to_owned()
-    } else {
+#[derive(Clone, Copy)]
+struct PatchPathContext<'a> {
+    repo_root: &'a Path,
+    working_directory: &'a Path,
+}
+
+fn relative_patch_path(
+    context: PatchPathContext<'_>,
+    path: &Path,
+) -> Result<String, TrajectoryError> {
+    let rooted_path = if path.is_absolute() {
         path.to_owned()
+    } else {
+        context.working_directory.join(path)
     };
+    let normalized = canonicalize_with_missing(&rooted_path)?;
+    let relative = normalized
+        .strip_prefix(context.repo_root)
+        .map_err(|_| TrajectoryError::Invalid)?
+        .to_owned();
     let mut components = Vec::new();
     for component in relative.components() {
         match component {
@@ -1791,7 +1873,13 @@ fn normalized_opencode_path(
     } else {
         decoded
     };
-    relative_patch_path(repo_root, Path::new(&normalized))
+    relative_patch_path(
+        PatchPathContext {
+            repo_root,
+            working_directory: repo_root,
+        },
+        Path::new(&normalized),
+    )
 }
 
 fn decode_git_quoted_path(raw: &str) -> Result<String, TrajectoryError> {
