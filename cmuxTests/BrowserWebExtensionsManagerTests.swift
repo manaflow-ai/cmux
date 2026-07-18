@@ -972,6 +972,9 @@ struct BrowserWebExtensionsManagerTests {
         #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
             "onCreatedNavigationTarget"
         ))
+        #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
+            "readystatechange"
+        ))
     }
 
     @available(macOS 15.4, *)
