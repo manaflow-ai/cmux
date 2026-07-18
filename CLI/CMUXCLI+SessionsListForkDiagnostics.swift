@@ -279,7 +279,7 @@ extension CMUXCLI {
         // while adding diagnostics for the same row.
         let diagnosticRecord = record
         let storedPIDExists = sessionsListStoredPIDExists(diagnosticRecord.pid)
-        let hookRecordRestorable = sessionsListHookRecordRestorable(
+        let hookRecordRestorable = agentHookRecordIsRestorable(
             agent: agent,
             record: diagnosticRecord,
             claudeTranscriptLookup: claudeTranscriptLookup
@@ -392,11 +392,17 @@ extension CMUXCLI {
         (value as NSString).lastPathComponent
     }
 
-    private func sessionsListHookRecordRestorable(
+    /// One restore-evidence predicate shared by list visibility, tree
+    /// visibility, and fork diagnostics. A rejected launch capture is an
+    /// explicit trust failure and cannot be rescued by a legacy nil flag.
+    func agentHookRecordIsRestorable(
         agent: String,
         record: ClaudeHookSessionRecord,
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> Bool {
+        guard sessionsListNormalized(record.launchCommand?.source)?.lowercased() != "rejected" else {
+            return false
+        }
         if agent == "gemini" {
             guard record.isRestorable != false,
                   let transcriptPath = sessionsListNormalized(record.transcriptPath) else {
@@ -407,7 +413,12 @@ extension CMUXCLI {
             )
         }
         guard agent == "claude" else {
-            return record.isRestorable != false
+            guard record.isRestorable != false else { return false }
+            return agentHookSessionHasDurableResumeEvidence(
+                kind: agent,
+                launchCommand: record.launchCommand,
+                transcriptPath: record.transcriptPath
+            )
         }
         if let transcriptPath = sessionsListNormalized(record.transcriptPath),
            sessionsListRegularNonEmptyFileExists(

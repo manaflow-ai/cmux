@@ -85,6 +85,20 @@ struct AgentHookSessionLineageResolver: Sendable {
             : nil
 
         let identity = pid.flatMap(processIdentity)
+        let processDescribesAgent = identity.map {
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: $0.executableName,
+                arguments: $0.arguments,
+                kind: agentName
+            )
+        } ?? false
+        let processLaunchMode = identity.map {
+            AgentLaunchModeClassifier.processMode(
+                processName: $0.executableName,
+                arguments: $0.arguments,
+                kind: agentName
+            )
+        } ?? .unknown
         let cmuxRuntime = AgentCmuxRuntimeIdentity(environment: environment)
         let ancestorResolution = identity.map {
             agentAncestor(startingAt: $0.parentPID, descendant: $0, agentName: agentName)
@@ -107,6 +121,8 @@ struct AgentHookSessionLineageResolver: Sendable {
             runId: runId,
             pid: pid,
             processStartedAt: identity?.startedAt,
+            processDescribesAgent: processDescribesAgent,
+            processLaunchMode: processLaunchMode,
             cmuxRuntime: cmuxRuntime,
             parentRunId: parentRunId,
             parentSessionId: parentSessionId,
