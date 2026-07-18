@@ -12,17 +12,39 @@ nonisolated private let agentHookDeliveryLogger = Logger(
 )
 
 private final class AgentHookEphemeralEnvironmentStore: @unchecked Sendable {
+    private static let maximumEntries = 4_096
+    private static let maximumBytes = 16 * 1024 * 1024
+
+    // Socket admission is synchronous and delivery runs on the queue actor;
+    // this short lock is the boundary protecting the memory-only credential cache.
     private let lock = NSLock()
     private var environments: [String: [String: String]] = [:]
+    private var environmentBytes: [String: Int] = [:]
+    private var totalBytes = 0
 
-    func replace(_ environment: [String: String], for deliveryID: String) {
+    func replace(_ environment: [String: String], for deliveryID: String) -> Bool {
+        let byteCount = environment.reduce(into: 0) { total, entry in
+            total += entry.key.utf8.count + entry.value.utf8.count + 2
+        }
         lock.lock()
         defer { lock.unlock() }
+        let priorBytes = environmentBytes[deliveryID] ?? 0
         if environment.isEmpty {
             environments.removeValue(forKey: deliveryID)
-        } else {
-            environments[deliveryID] = environment
+            environmentBytes.removeValue(forKey: deliveryID)
+            totalBytes -= priorBytes
+            return true
         }
+        let isNewEntry = environments[deliveryID] == nil
+        guard (!isNewEntry || environments.count < Self.maximumEntries),
+              byteCount <= Self.maximumBytes,
+              totalBytes - priorBytes <= Self.maximumBytes - byteCount else {
+            return false
+        }
+        environments[deliveryID] = environment
+        environmentBytes[deliveryID] = byteCount
+        totalBytes = totalBytes - priorBytes + byteCount
+        return true
     }
 
     func environment(for deliveryID: String) -> [String: String] {
@@ -34,6 +56,9 @@ private final class AgentHookEphemeralEnvironmentStore: @unchecked Sendable {
     func remove(deliveryID: String) {
         lock.lock()
         defer { lock.unlock() }
+        if let removedBytes = environmentBytes.removeValue(forKey: deliveryID) {
+            totalBytes -= removedBytes
+        }
         environments.removeValue(forKey: deliveryID)
     }
 }
@@ -50,12 +75,36 @@ actor AgentHookOutbox {
     private static let readyMarkerPrefix = "ready-"
     private static let pendingMarkerPrefix = "pending-"
     private static let capabilitySecretName = ".capability-secret-v1"
+    private static let budgetFileName = ".quota-v1"
+    private static let budgetMagic = Array("CMUXHQ01".utf8)
+    private static let budgetVersion: UInt32 = 1
+    private static let budgetHeaderBytes = 64
+    private static let budgetRecordBytes = 32
+    private static let maximumBudgetRecords = 1_024
+    private static let maximumBudgetBytes: UInt64 = 256 * 1024 * 1024
+    private static let budgetStateReserved: UInt32 = 1
+    private static let budgetStatePublished: UInt32 = 2
+
+    private struct BudgetRecord: Sendable, Equatable {
+        let token: UInt64
+        let reservedBytes: UInt64
+        let createdNanoseconds: UInt64
+        let ownerPID: Int32
+        let state: UInt32
+    }
+
+    private struct BudgetLedger: Sendable {
+        let slotCount: Int
+        let maximumBytes: UInt64
+        var records: [BudgetRecord?]
+    }
 
     private struct Marker: Sendable {
         let sharedMemoryName: String
         let nonce: String
         let code: Data
         let byteCount: Int
+        let reservationToken: UInt64
     }
 
     private enum MarkerReadResult: Sendable {
@@ -104,6 +153,7 @@ actor AgentHookOutbox {
     nonisolated let directoryURL: URL
     nonisolated let capabilitySecretURL: URL
     private let directoryDescriptor: Int32
+    private let budgetDescriptor: Int32
     private nonisolated let capabilityAuthority: SocketClientCapabilityAuthority
     private let deliveryQueue: AgentHookDeliveryQueue
     private let reconciliationInterval: TimeInterval
@@ -119,6 +169,7 @@ actor AgentHookOutbox {
         directoryURL: URL,
         capabilitySecretURL: URL,
         directoryDescriptor: Int32,
+        budgetDescriptor: Int32,
         capabilityAuthority: SocketClientCapabilityAuthority,
         deliveryQueue: AgentHookDeliveryQueue,
         reconciliationInterval: TimeInterval,
@@ -128,6 +179,7 @@ actor AgentHookOutbox {
         self.directoryURL = directoryURL
         self.capabilitySecretURL = capabilitySecretURL
         self.directoryDescriptor = directoryDescriptor
+        self.budgetDescriptor = budgetDescriptor
         self.capabilityAuthority = capabilityAuthority
         self.deliveryQueue = deliveryQueue
         self.reconciliationInterval = max(0.05, reconciliationInterval)
@@ -139,6 +191,7 @@ actor AgentHookOutbox {
         reconciliationTask?.cancel()
         pendingRecoveryTask?.cancel()
         watcher?.cancel()
+        Darwin.close(budgetDescriptor)
         Darwin.close(directoryDescriptor)
     }
 
@@ -219,6 +272,13 @@ actor AgentHookOutbox {
             agentHookDeliveryLogger.error("Could not load private hook outbox credential")
             return nil
         }
+        guard let budgetDescriptor = prepareBudget(
+            directoryDescriptor: descriptor
+        ) else {
+            Darwin.close(descriptor)
+            agentHookDeliveryLogger.error("Could not prepare bounded hook outbox quota")
+            return nil
+        }
         sweepStaleCapabilityTemporaryFiles(directoryDescriptor: descriptor)
         let normalizedAudience = audience.trimmingCharacters(in: .whitespacesAndNewlines)
         let capabilityAuthority = SocketClientCapabilityAuthority(
@@ -233,6 +293,7 @@ actor AgentHookOutbox {
                 isDirectory: false
             ),
             directoryDescriptor: descriptor,
+            budgetDescriptor: budgetDescriptor,
             capabilityAuthority: capabilityAuthority,
             deliveryQueue: deliveryQueue,
             reconciliationInterval: reconciliationInterval,
@@ -435,6 +496,515 @@ actor AgentHookOutbox {
         }
     }
 
+    /// Rebuilds the fixed reservation ledger from discoverable markers while
+    /// holding the same cross-process lock used by native publishers. A corrupt
+    /// ledger therefore fails closed in helpers until the app can recompute it.
+    private nonisolated static func prepareBudget(
+        directoryDescriptor: Int32
+    ) -> Int32? {
+        let descriptor = openat(
+            directoryDescriptor,
+            budgetFileName,
+            O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
+            0o600
+        )
+        guard descriptor >= 0 else { return nil }
+        var keepDescriptor = false
+        defer {
+            if !keepDescriptor { Darwin.close(descriptor) }
+        }
+        var status = stat()
+        guard fchmod(descriptor, 0o600) == 0,
+              fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_uid == geteuid(),
+              (status.st_mode & 0o777) == 0o600,
+              lockBudget(descriptor) else {
+            return nil
+        }
+        defer { unlockBudget(descriptor) }
+
+        guard let markerReservations = budgetMarkerReservations(
+            directoryDescriptor: directoryDescriptor
+        ) else { return nil }
+        let existingLedger = readBudgetLedger(descriptor: descriptor)
+        let existingByToken = Dictionary(
+            uniqueKeysWithValues: (existingLedger?.records.compactMap { $0 } ?? []).map {
+                ($0.token, $0)
+            }
+        )
+        var retained: [BudgetRecord] = []
+        retained.reserveCapacity(markerReservations.count + 8)
+        var retainedTokens: Set<UInt64> = []
+        var totalBytes: UInt64 = 0
+
+        for (token, reservedBytes) in markerReservations.sorted(by: { $0.key < $1.key }) {
+            let existing = existingByToken[token]
+            let record = BudgetRecord(
+                token: token,
+                reservedBytes: reservedBytes,
+                createdNanoseconds: existing?.createdNanoseconds ?? 0,
+                ownerPID: existing?.ownerPID ?? 0,
+                state: budgetStatePublished
+            )
+            guard totalBytes <= maximumBudgetBytes - reservedBytes else { return nil }
+            totalBytes += reservedBytes
+            retained.append(record)
+            retainedTokens.insert(token)
+        }
+
+        if let existingLedger {
+            for record in existingLedger.records.compactMap({ $0 })
+                where !retainedTokens.contains(record.token) {
+                if processExists(record.ownerPID) {
+                    guard retained.count < maximumBudgetRecords,
+                          totalBytes <= maximumBudgetBytes - record.reservedBytes else {
+                        return nil
+                    }
+                    retained.append(record)
+                    retainedTokens.insert(record.token)
+                    totalBytes += record.reservedBytes
+                } else {
+                    unlinkSharedMemory(token: record.token)
+                }
+            }
+        }
+        guard retained.count <= maximumBudgetRecords else { return nil }
+        guard persistBudgetRecords(
+            retained,
+            existingLedger: existingLedger,
+            descriptor: descriptor
+        ) else { return nil }
+        keepDescriptor = true
+        return descriptor
+    }
+
+    private nonisolated static func budgetMarkerReservations(
+        directoryDescriptor: Int32
+    ) -> [UInt64: UInt64]? {
+        let scanDescriptor = openat(
+            directoryDescriptor,
+            ".",
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard scanDescriptor >= 0, let directory = fdopendir(scanDescriptor) else {
+            if scanDescriptor >= 0 { Darwin.close(scanDescriptor) }
+            return nil
+        }
+        defer { closedir(directory) }
+        var reservations: [UInt64: UInt64] = [:]
+        while let entry = readdir(directory) {
+            let name = withUnsafePointer(to: entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN)) {
+                    String(cString: $0)
+                }
+            }
+            guard publicationKey(markerName: name, prefix: readyMarkerPrefix) != nil
+                    || publicationKey(markerName: name, prefix: pendingMarkerPrefix) != nil else {
+                continue
+            }
+            let markerDescriptor = openat(
+                directoryDescriptor,
+                name,
+                O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+            )
+            guard markerDescriptor >= 0 else {
+                if errno == ENOENT { continue }
+                return nil
+            }
+            var markerStatus = stat()
+            guard fstat(markerDescriptor, &markerStatus) == 0,
+                  markerStatus.st_size > 0,
+                  markerStatus.st_size <= off_t(maximumMarkerBytes) else {
+                Darwin.close(markerDescriptor)
+                _ = unlinkat(directoryDescriptor, name, 0)
+                continue
+            }
+            let markerData: Data
+            switch readRegularFile(descriptor: markerDescriptor, count: Int(markerStatus.st_size)) {
+            case .data(let data): markerData = data
+            case .retryable:
+                Darwin.close(markerDescriptor)
+                return nil
+            case .malformed:
+                Darwin.close(markerDescriptor)
+                _ = unlinkat(directoryDescriptor, name, 0)
+                continue
+            }
+            Darwin.close(markerDescriptor)
+            guard let parsed = budgetReservation(
+                markerData: markerData,
+                markerName: name
+            ) else {
+                if let sharedMemoryName = recoverSharedMemoryName(markerData) {
+                    _ = shm_unlink(sharedMemoryName)
+                }
+                _ = unlinkat(directoryDescriptor, name, 0)
+                continue
+            }
+            if let existing = reservations[parsed.token], existing != parsed.reservedBytes {
+                return nil
+            }
+            reservations[parsed.token] = parsed.reservedBytes
+        }
+        return reservations
+    }
+
+    private nonisolated static func budgetReservation(
+        markerData: Data,
+        markerName: String
+    ) -> (token: UInt64, reservedBytes: UInt64)? {
+        guard let text = String(data: markerData, encoding: .utf8) else { return nil }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard (lines.count == 5 || lines.count == 6), lines.last?.isEmpty == true,
+              isSharedMemoryName(String(lines[0])),
+              let byteCount = UInt64(lines[3]),
+              byteCount > 0,
+              byteCount <= UInt64(maximumMessageBytes),
+              let sharedMemoryToken = token(sharedMemoryName: String(lines[0])) else {
+            return nil
+        }
+        let reservationToken: UInt64
+        if lines.count == 6 {
+            guard lines[4].count == 16,
+                  let explicitToken = UInt64(lines[4], radix: 16),
+                  explicitToken == sharedMemoryToken else { return nil }
+            reservationToken = explicitToken
+        } else {
+            reservationToken = sharedMemoryToken
+        }
+        guard markerName.hasSuffix(String(format: "%016llx", reservationToken)) else {
+            return nil
+        }
+        let pageSize = UInt64(getpagesize())
+        guard pageSize > 0, byteCount <= UInt64.max - (pageSize - 1) else { return nil }
+        return (
+            reservationToken,
+            ((byteCount + pageSize - 1) / pageSize) * pageSize
+        )
+    }
+
+    private nonisolated static func recoverSharedMemoryName(_ markerData: Data) -> String? {
+        guard let text = String(data: markerData, encoding: .utf8),
+              let first = text.split(separator: "\n", omittingEmptySubsequences: false).first else {
+            return nil
+        }
+        let name = String(first)
+        return isSharedMemoryName(name) ? name : nil
+    }
+
+    private nonisolated static func token(sharedMemoryName: String) -> UInt64? {
+        guard isSharedMemoryName(sharedMemoryName) else { return nil }
+        return UInt64(sharedMemoryName.dropFirst(3), radix: 16)
+    }
+
+    private nonisolated static func processExists(_ processID: Int32) -> Bool {
+        guard processID > 1 else { return false }
+        if Darwin.kill(processID, 0) == 0 { return true }
+        return errno == EPERM
+    }
+
+    private nonisolated static func unlinkSharedMemory(token: UInt64) {
+        _ = shm_unlink(String(format: "/ch%016llx", token))
+    }
+
+    private nonisolated static func lockBudget(_ descriptor: Int32) -> Bool {
+        while flock(descriptor, LOCK_EX) != 0 {
+            if errno != EINTR { return false }
+        }
+        return true
+    }
+
+    private nonisolated static func unlockBudget(_ descriptor: Int32) {
+        while flock(descriptor, LOCK_UN) != 0, errno == EINTR {}
+    }
+
+    private nonisolated static func readBudgetLedger(
+        descriptor: Int32
+    ) -> BudgetLedger? {
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              status.st_size >= off_t(budgetHeaderBytes),
+              status.st_size <= off_t(budgetHeaderBytes + maximumBudgetRecords * budgetRecordBytes),
+              let data = preadData(descriptor: descriptor, count: Int(status.st_size), offset: 0),
+              Array(data.prefix(8)) == budgetMagic,
+              readUInt32(data, offset: 8) == budgetVersion else {
+            return nil
+        }
+        let slotCount = Int(readUInt32(data, offset: 12))
+        let maximumBytes = readUInt64(data, offset: 16)
+        let recordedCount = Int(readUInt32(data, offset: 24))
+        let nextSlot = Int(readUInt32(data, offset: 28))
+        let recordedBytes = readUInt64(data, offset: 32)
+        guard slotCount > 0, slotCount <= maximumBudgetRecords,
+              maximumBytes > 0, maximumBytes <= maximumBudgetBytes,
+              recordedCount >= 0, recordedCount <= slotCount,
+              nextSlot >= 0, nextSlot < slotCount,
+              recordedBytes <= maximumBytes,
+              data.count == budgetHeaderBytes + slotCount * budgetRecordBytes else {
+            return nil
+        }
+        var records = Array<BudgetRecord?>(repeating: nil, count: slotCount)
+        var tokens: Set<UInt64> = []
+        for index in 0..<slotCount {
+            let offset = budgetHeaderBytes + index * budgetRecordBytes
+            let token = readUInt64(data, offset: offset)
+            let reservedBytes = readUInt64(data, offset: offset + 8)
+            let created = readUInt64(data, offset: offset + 16)
+            let ownerPID = Int32(bitPattern: readUInt32(data, offset: offset + 24))
+            let state = readUInt32(data, offset: offset + 28)
+            if state == 0 {
+                guard token == 0, reservedBytes == 0, created == 0, ownerPID == 0 else {
+                    return nil
+                }
+                continue
+            }
+            guard token != 0, reservedBytes > 0, reservedBytes <= maximumBytes,
+                  tokens.insert(token).inserted,
+                  state == budgetStateReserved || state == budgetStatePublished else {
+                return nil
+            }
+            records[index] = BudgetRecord(
+                token: token,
+                reservedBytes: reservedBytes,
+                createdNanoseconds: created,
+                ownerPID: ownerPID,
+                state: state
+            )
+        }
+        let actualRecords = records.compactMap { $0 }
+        let actualBytes = actualRecords.reduce(UInt64(0)) { total, record in
+            total + record.reservedBytes
+        }
+        guard actualRecords.count == recordedCount, actualBytes == recordedBytes else {
+            return nil
+        }
+        return BudgetLedger(slotCount: slotCount, maximumBytes: maximumBytes, records: records)
+    }
+
+    private nonisolated static func budgetHeaderData(_ ledger: BudgetLedger) -> Data {
+        var data = Data(count: budgetHeaderBytes)
+        data.replaceSubrange(0..<budgetMagic.count, with: budgetMagic)
+        writeUInt32(budgetVersion, to: &data, offset: 8)
+        writeUInt32(UInt32(ledger.slotCount), to: &data, offset: 12)
+        writeUInt64(ledger.maximumBytes, to: &data, offset: 16)
+        let occupiedRecords = ledger.records.compactMap { $0 }
+        writeUInt32(UInt32(occupiedRecords.count), to: &data, offset: 24)
+        writeUInt32(
+            UInt32(ledger.records.firstIndex(where: { $0 == nil }) ?? 0),
+            to: &data,
+            offset: 28
+        )
+        writeUInt64(
+            occupiedRecords.reduce(UInt64(0)) { $0 + $1.reservedBytes },
+            to: &data,
+            offset: 32
+        )
+        return data
+    }
+
+    private nonisolated static func budgetRecordData(_ record: BudgetRecord?) -> Data {
+        var data = Data(count: budgetRecordBytes)
+        guard let record else { return data }
+        writeUInt64(record.token, to: &data, offset: 0)
+        writeUInt64(record.reservedBytes, to: &data, offset: 8)
+        writeUInt64(record.createdNanoseconds, to: &data, offset: 16)
+        writeUInt32(UInt32(bitPattern: record.ownerPID), to: &data, offset: 24)
+        writeUInt32(record.state, to: &data, offset: 28)
+        return data
+    }
+
+    private nonisolated static func budgetRecordOffset(_ index: Int) -> off_t {
+        off_t(budgetHeaderBytes + index * budgetRecordBytes)
+    }
+
+    private nonisolated static func persistBudgetRecords(
+        _ desiredRecords: [BudgetRecord],
+        existingLedger: BudgetLedger?,
+        descriptor: Int32
+    ) -> Bool {
+        guard desiredRecords.count <= maximumBudgetRecords else { return false }
+        var desiredByToken: [UInt64: BudgetRecord] = [:]
+        var desiredBytes: UInt64 = 0
+        for record in desiredRecords {
+            guard desiredByToken.updateValue(record, forKey: record.token) == nil,
+                  desiredBytes <= maximumBudgetBytes - record.reservedBytes else {
+                return false
+            }
+            desiredBytes += record.reservedBytes
+        }
+
+        guard existingLedger != nil else {
+            // Make the old header unconditionally invalid before rebuilding
+            // slots. A crash before the final header therefore fails closed.
+            guard pwriteData(
+                descriptor: descriptor,
+                data: Data(count: budgetHeaderBytes),
+                offset: 0
+            ), ftruncate(descriptor, 0) == 0 else { return false }
+            let fileBytes = budgetHeaderBytes + maximumBudgetRecords * budgetRecordBytes
+            guard ftruncate(descriptor, off_t(fileBytes)) == 0 else { return false }
+            var working = BudgetLedger(
+                slotCount: maximumBudgetRecords,
+                maximumBytes: maximumBudgetBytes,
+                records: Array(repeating: nil, count: maximumBudgetRecords)
+            )
+            for record in desiredRecords {
+                guard let index = working.records.firstIndex(where: { $0 == nil }),
+                      pwriteData(
+                        descriptor: descriptor,
+                        data: budgetRecordData(record),
+                        offset: budgetRecordOffset(index)
+                      ) else { return false }
+                working.records[index] = record
+            }
+            return pwriteData(
+                descriptor: descriptor,
+                data: budgetHeaderData(working),
+                offset: 0
+            )
+        }
+
+        guard var working = existingLedger else { return false }
+
+        guard desiredRecords.count <= working.slotCount,
+              desiredBytes <= working.maximumBytes else { return false }
+        // Removals clear their slots before decreasing the header, so a crash
+        // can only overcount. Additions increment the header before filling a
+        // slot, which has the same conservative failure direction.
+        for index in working.records.indices {
+            guard let current = working.records[index] else { continue }
+            guard let desired = desiredByToken[current.token],
+                  desired.reservedBytes == current.reservedBytes else {
+                guard pwriteData(
+                    descriptor: descriptor,
+                    data: budgetRecordData(nil),
+                    offset: budgetRecordOffset(index)
+                ) else { return false }
+                working.records[index] = nil
+                continue
+            }
+        }
+        guard pwriteData(
+            descriptor: descriptor,
+            data: budgetHeaderData(working),
+            offset: 0
+        ) else { return false }
+
+        for index in working.records.indices {
+            guard let current = working.records[index],
+                  let desired = desiredByToken[current.token],
+                  desired != current else { continue }
+            guard pwriteData(
+                descriptor: descriptor,
+                data: budgetRecordData(desired),
+                offset: budgetRecordOffset(index)
+            ) else { return false }
+            working.records[index] = desired
+        }
+        let existingTokens = Set(working.records.compactMap { $0?.token })
+        for record in desiredRecords where !existingTokens.contains(record.token) {
+            guard let index = working.records.firstIndex(where: { $0 == nil }) else {
+                return false
+            }
+            working.records[index] = record
+            guard pwriteData(
+                descriptor: descriptor,
+                data: budgetHeaderData(working),
+                offset: 0
+            ), pwriteData(
+                descriptor: descriptor,
+                data: budgetRecordData(record),
+                offset: budgetRecordOffset(index)
+            ) else { return false }
+        }
+        return true
+    }
+
+    private nonisolated static func preadData(
+        descriptor: Int32,
+        count: Int,
+        offset: off_t
+    ) -> Data? {
+        var data = Data(count: count)
+        let succeeded = data.withUnsafeMutableBytes { bytes -> Bool in
+            guard let base = bytes.baseAddress else { return count == 0 }
+            var completed = 0
+            while completed < count {
+                let amount = Darwin.pread(
+                    descriptor,
+                    base.advanced(by: completed),
+                    count - completed,
+                    offset + off_t(completed)
+                )
+                if amount > 0 { completed += amount }
+                else if amount < 0, errno == EINTR { continue }
+                else { return false }
+            }
+            return true
+        }
+        return succeeded ? data : nil
+    }
+
+    private nonisolated static func pwriteData(
+        descriptor: Int32,
+        data: Data,
+        offset: off_t
+    ) -> Bool {
+        data.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress else { return data.isEmpty }
+            var completed = 0
+            while completed < data.count {
+                let amount = Darwin.pwrite(
+                    descriptor,
+                    base.advanced(by: completed),
+                    data.count - completed,
+                    offset + off_t(completed)
+                )
+                if amount > 0 { completed += amount }
+                else if amount < 0, errno == EINTR { continue }
+                else { return false }
+            }
+            return true
+        }
+    }
+
+    private nonisolated static func readUInt32(_ data: Data, offset: Int) -> UInt32 {
+        var value: UInt32 = 0
+        for index in 0..<4 {
+            value |= UInt32(data[offset + index]) << UInt32(index * 8)
+        }
+        return value
+    }
+
+    private nonisolated static func readUInt64(_ data: Data, offset: Int) -> UInt64 {
+        var value: UInt64 = 0
+        for index in 0..<8 {
+            value |= UInt64(data[offset + index]) << UInt64(index * 8)
+        }
+        return value
+    }
+
+    private nonisolated static func writeUInt32(
+        _ value: UInt32,
+        to data: inout Data,
+        offset: Int
+    ) {
+        for index in 0..<4 {
+            data[offset + index] = UInt8(truncatingIfNeeded: value >> UInt32(index * 8))
+        }
+    }
+
+    private nonisolated static func writeUInt64(
+        _ value: UInt64,
+        to data: inout Data,
+        offset: Int
+    ) {
+        for index in 0..<8 {
+            data[offset + index] = UInt8(truncatingIfNeeded: value >> UInt64(index * 8))
+        }
+    }
+
     /// Scans before and after arming the vnode source, closing the publication
     /// race without treating coalesced vnode events as a per-record stream.
     func start() {
@@ -506,6 +1076,9 @@ actor AgentHookOutbox {
 
     private func reconcile() {
         let scan = markerCandidates()
+        reconcileBudgetReservations(markerTokens: Set(scan.candidates.compactMap {
+            UInt64($0.publicationKey.suffix(16), radix: 16)
+        }))
         schedulePendingRecovery(after: scan.nextPendingDelay)
         for candidate in scan.candidates {
             if let barrier = scan.freshPendingBarrier,
@@ -518,6 +1091,35 @@ actor AgentHookOutbox {
                 schedulePendingRecovery(after: min(scan.nextPendingDelay ?? 0.25, 0.25))
                 break
             }
+        }
+    }
+
+    private func reconcileBudgetReservations(markerTokens: Set<UInt64>) {
+        guard Self.lockBudget(budgetDescriptor) else { return }
+        defer { Self.unlockBudget(budgetDescriptor) }
+        guard let existingLedger = Self.readBudgetLedger(descriptor: budgetDescriptor) else {
+            // Native publishers also reject a corrupt ledger. The next app
+            // preparation recomputes it from markers before exporting access.
+            return
+        }
+        var ledger = existingLedger
+        var changed = false
+        for index in ledger.records.indices {
+            guard let record = ledger.records[index],
+                  !markerTokens.contains(record.token),
+                  !Self.processExists(record.ownerPID) else {
+                continue
+            }
+            Self.unlinkSharedMemory(token: record.token)
+            ledger.records[index] = nil
+            changed = true
+        }
+        if changed, !Self.persistBudgetRecords(
+            ledger.records.compactMap { $0 },
+            existingLedger: existingLedger,
+            descriptor: budgetDescriptor
+        ) {
+            agentHookDeliveryLogger.error("Could not reconcile hook outbox quota")
         }
     }
 
@@ -663,7 +1265,13 @@ actor AgentHookOutbox {
         case .valid(let validMarker):
             marker = validMarker
         case .malformed(let sharedMemoryName):
-            cleanup(markerName: markerName, sharedMemoryName: sharedMemoryName)
+            cleanup(
+                markerName: markerName,
+                sharedMemoryName: sharedMemoryName,
+                reservationToken: sharedMemoryName.flatMap {
+                    Self.token(sharedMemoryName: $0)
+                }
+            )
             return .advanced
         case .missing, .retryable:
             return .blocked
@@ -673,7 +1281,11 @@ actor AgentHookOutbox {
         case .data(let data):
             message = data
         case .invalid:
-            cleanup(markerName: markerName, sharedMemoryName: marker.sharedMemoryName)
+            cleanup(
+                markerName: markerName,
+                sharedMemoryName: marker.sharedMemoryName,
+                reservationToken: marker.reservationToken
+            )
             return .advanced
         case .retryable:
             return .blocked
@@ -684,7 +1296,11 @@ actor AgentHookOutbox {
             message: message
         ), let event = Self.event(from: message) else {
             agentHookDeliveryLogger.error("Rejected unauthenticated or malformed hook outbox record")
-            cleanup(markerName: markerName, sharedMemoryName: marker.sharedMemoryName)
+            cleanup(
+                markerName: markerName,
+                sharedMemoryName: marker.sharedMemoryName,
+                reservationToken: marker.reservationToken
+            )
             return .advanced
         }
 
@@ -698,7 +1314,11 @@ actor AgentHookOutbox {
             )
             return .blocked
         }
-        cleanup(markerName: markerName, sharedMemoryName: marker.sharedMemoryName)
+        cleanup(
+            markerName: markerName,
+            sharedMemoryName: marker.sharedMemoryName,
+            reservationToken: marker.reservationToken
+        )
         return .advanced
     }
 
@@ -746,8 +1366,8 @@ actor AgentHookOutbox {
         let sharedMemoryName = lines.first.map(String.init).flatMap {
             Self.isSharedMemoryName($0) ? $0 : nil
         }
-        guard lines.count == 5,
-              lines[4].isEmpty,
+        guard (lines.count == 5 || lines.count == 6),
+              lines.last?.isEmpty == true,
               let sharedMemoryName,
               !lines[1].isEmpty,
               lines[1].utf8.count < 65,
@@ -758,11 +1378,27 @@ actor AgentHookOutbox {
               byteCount <= Self.maximumMessageBytes else {
             return .malformed(sharedMemoryName: sharedMemoryName)
         }
+        guard let sharedMemoryToken = Self.token(sharedMemoryName: sharedMemoryName) else {
+            return .malformed(sharedMemoryName: sharedMemoryName)
+        }
+        let reservationToken: UInt64
+        if lines.count == 6 {
+            guard lines[4].count == 16,
+                  let explicitToken = UInt64(lines[4], radix: 16),
+                  explicitToken == sharedMemoryToken,
+                  name.hasSuffix(String(format: "%016llx", explicitToken)) else {
+                return .malformed(sharedMemoryName: sharedMemoryName)
+            }
+            reservationToken = explicitToken
+        } else {
+            reservationToken = sharedMemoryToken
+        }
         return .valid(Marker(
             sharedMemoryName: sharedMemoryName,
             nonce: String(lines[1]),
             code: code,
-            byteCount: byteCount
+            byteCount: byteCount,
+            reservationToken: reservationToken
         ))
     }
 
@@ -861,11 +1497,38 @@ actor AgentHookOutbox {
         return AgentHookDeliveryEvent(params: params)
     }
 
-    private func cleanup(markerName: String, sharedMemoryName: String?) {
+    private func cleanup(
+        markerName: String,
+        sharedMemoryName: String?,
+        reservationToken: UInt64?
+    ) {
         if let sharedMemoryName, Self.isSharedMemoryName(sharedMemoryName) {
             _ = shm_unlink(sharedMemoryName)
         }
         _ = unlinkat(directoryDescriptor, markerName, 0)
+        if let reservationToken {
+            releaseBudgetReservation(token: reservationToken)
+        }
+    }
+
+    private func releaseBudgetReservation(token: UInt64) {
+        guard Self.lockBudget(budgetDescriptor) else { return }
+        defer { Self.unlockBudget(budgetDescriptor) }
+        guard let existingLedger = Self.readBudgetLedger(descriptor: budgetDescriptor) else {
+            return
+        }
+        var ledger = existingLedger
+        guard let index = ledger.records.firstIndex(where: { $0?.token == token }) else {
+            return
+        }
+        ledger.records[index] = nil
+        if !Self.persistBudgetRecords(
+            ledger.records.compactMap { $0 },
+            existingLedger: existingLedger,
+            descriptor: budgetDescriptor
+        ) {
+            agentHookDeliveryLogger.error("Could not release hook outbox quota")
+        }
     }
 }
 
@@ -875,6 +1538,11 @@ actor AgentHookOutbox {
 actor AgentHookDeliveryQueue {
     private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     private static let hardMaximumConcurrentDeliveries = 32
+    private static let maximumPendingDeliveries = 4_096
+    private static let maximumPendingBytes = 64 * 1024 * 1024
+    private static let maximumDeliveredReceipts = 4_096
+    private static let maximumPhysicalDatabaseBytes = 256 * 1024 * 1024
+    private static let maximumWALBytes = 16 * 1024 * 1024
 
     private struct PendingDelivery: Sendable {
         let sequence: Int64
@@ -1027,6 +1695,16 @@ actor AgentHookDeliveryQueue {
             withJSONObject: event.durableEnvironment,
             options: [.sortedKeys]
         )
+        let retainedBytes = [
+            event.deliveryID.utf8.count,
+            event.orderingKey.utf8.count,
+            event.contentDigest.count,
+            event.agent.utf8.count,
+            event.subcommand.utf8.count,
+            event.payload.count,
+            event.socketPath.utf8.count,
+            environmentData.count,
+        ].reduce(0, +)
         admissionLock.lock()
         defer { admissionLock.unlock() }
 
@@ -1038,10 +1716,12 @@ actor AgentHookDeliveryQueue {
                 )
             }
             if try Self.storedDeliveryIsPending(for: event.deliveryID, database: database) {
-                ephemeralEnvironmentStore.replace(
+                guard ephemeralEnvironmentStore.replace(
                     event.ephemeralEnvironment,
                     for: event.deliveryID
-                )
+                ) else {
+                    throw Self.failure("Pending hook credential memory budget is full.", code: 13)
+                }
                 do {
                     if try !Self.storedDeliveryIsPending(for: event.deliveryID, database: database) {
                         ephemeralEnvironmentStore.remove(deliveryID: event.deliveryID)
@@ -1064,8 +1744,8 @@ actor AgentHookDeliveryQueue {
         let insertSQL = """
         INSERT INTO agent_hook_deliveries (
             delivery_id, ordering_key, content_digest, agent, subcommand, payload,
-            socket_path, environment_json, accepted_at, next_attempt_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            socket_path, environment_json, retained_bytes, accepted_at, next_attempt_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
         var statement: OpaquePointer?
         var status = sqlite3_prepare_v2(database, insertSQL, -1, &statement, nil)
@@ -1090,18 +1770,22 @@ actor AgentHookDeliveryQueue {
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind socket path") }
         status = Self.bind(environmentData, to: statement, at: 8)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind environment") }
-        status = sqlite3_bind_double(statement, 9, now)
-        guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind acceptance time") }
+        status = sqlite3_bind_int64(statement, 9, Int64(retainedBytes))
+        guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind retained bytes") }
         status = sqlite3_bind_double(statement, 10, now)
+        guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind acceptance time") }
+        status = sqlite3_bind_double(statement, 11, now)
         guard status == SQLITE_OK else { throw Self.sqliteFailure(status, operation: "bind retry time") }
 
         // Publish credentials before the committed row can become visible to
         // an already-running drain. The admission lock serializes the
         // preflight duplicate check with this publication/insert pair.
-        ephemeralEnvironmentStore.replace(
+        guard ephemeralEnvironmentStore.replace(
             event.ephemeralEnvironment,
             for: event.deliveryID
-        )
+        ) else {
+            throw Self.failure("Pending hook credential memory budget is full.", code: 13)
+        }
         status = sqlite3_step(statement)
         guard status == SQLITE_DONE else {
             ephemeralEnvironmentStore.remove(deliveryID: event.deliveryID)
@@ -1473,7 +2157,7 @@ actor AgentHookDeliveryQueue {
         let sql = """
         UPDATE agent_hook_deliveries
         SET delivered_at = ?, next_attempt_at = 0, last_error = NULL,
-            payload = X'', socket_path = '', environment_json = X'7B7D'
+            payload = X'', socket_path = '', environment_json = X'7B7D', retained_bytes = 0
         WHERE sequence = ?;
         """
         try executeUpdate(
@@ -1938,7 +2622,8 @@ actor AgentHookDeliveryQueue {
             // the OS may lose the last acknowledged transactions. This is still
             // stronger than the previous detached, memory-only delivery path.
             "PRAGMA synchronous = NORMAL;",
-            "PRAGMA wal_autocheckpoint = 1000;",
+            "PRAGMA wal_autocheckpoint = 256;",
+            "PRAGMA journal_size_limit = \(maximumWALBytes);",
             // Credential migrations must overwrite removed values rather than
             // leaving them in SQLite free blocks.
             "PRAGMA secure_delete = ON;",
@@ -1953,6 +2638,7 @@ actor AgentHookDeliveryQueue {
                 payload BLOB NOT NULL,
                 socket_path TEXT NOT NULL,
                 environment_json BLOB NOT NULL,
+                retained_bytes INTEGER NOT NULL DEFAULT 0,
                 accepted_at REAL NOT NULL,
                 attempts INTEGER NOT NULL DEFAULT 0,
                 last_attempt_at REAL,
@@ -1982,12 +2668,27 @@ actor AgentHookDeliveryQueue {
                 throw sqliteFailure(status, operation: "add delivery ordering key")
             }
         }
+        if try tableHasColumn("retained_bytes", table: "agent_hook_deliveries", database: database) == false {
+            status = sqlite3_exec(
+                database,
+                "ALTER TABLE agent_hook_deliveries ADD COLUMN retained_bytes INTEGER NOT NULL DEFAULT 0;",
+                nil,
+                nil,
+                nil
+            )
+            guard status == SQLITE_OK else {
+                sqlite3_close_v2(database)
+                throw sqliteFailure(status, operation: "add delivery retained-byte accounting")
+            }
+        }
         do {
             let scrubbedCredentialRows = try scrubPersistedEnvironments(database: database)
             try backfillLegacyOrderingKeys(database: database)
             if scrubbedCredentialRows {
                 try compactAfterCredentialScrub(database: database)
             }
+            try initializeResourceBudget(database: database)
+            try configurePhysicalStorageBudget(database: database)
         } catch {
             sqlite3_close_v2(database)
             throw error
@@ -2000,6 +2701,10 @@ actor AgentHookDeliveryQueue {
             """
             CREATE INDEX IF NOT EXISTS agent_hook_deliveries_ordering
             ON agent_hook_deliveries (ordering_key, delivered_at, sequence);
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS agent_hook_deliveries_receipts
+            ON agent_hook_deliveries (delivered_at, sequence);
             """,
         ]
         for sql in indexStatements {
@@ -2035,6 +2740,183 @@ actor AgentHookDeliveryQueue {
             throw sqliteFailure(stepStatus, operation: "read delivery schema")
         }
         return false
+    }
+
+    private nonisolated static func initializeResourceBudget(
+        database: OpaquePointer
+    ) throws {
+        let statements = [
+            """
+            UPDATE agent_hook_deliveries
+            SET retained_bytes =
+                length(delivery_id) + length(ordering_key) + length(content_digest)
+                + length(agent) + length(subcommand) + length(payload)
+                + length(socket_path) + length(environment_json)
+            WHERE delivered_at IS NULL;
+            """,
+            """
+            DELETE FROM agent_hook_deliveries
+            WHERE sequence IN (
+                SELECT sequence
+                FROM agent_hook_deliveries
+                WHERE delivered_at IS NOT NULL
+                ORDER BY delivered_at DESC, sequence DESC
+                LIMIT -1 OFFSET \(maximumDeliveredReceipts)
+            );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS agent_hook_delivery_quota (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                pending_count INTEGER NOT NULL CHECK (pending_count >= 0),
+                pending_bytes INTEGER NOT NULL CHECK (pending_bytes >= 0)
+            );
+            """,
+            """
+            INSERT INTO agent_hook_delivery_quota (singleton, pending_count, pending_bytes)
+            VALUES (1, 0, 0)
+            ON CONFLICT(singleton) DO NOTHING;
+            """,
+            """
+            UPDATE agent_hook_delivery_quota
+            SET pending_count = (
+                    SELECT count(*) FROM agent_hook_deliveries WHERE delivered_at IS NULL
+                ),
+                pending_bytes = COALESCE((
+                    SELECT sum(retained_bytes)
+                    FROM agent_hook_deliveries
+                    WHERE delivered_at IS NULL
+                ), 0)
+            WHERE singleton = 1;
+            """,
+            "DROP TRIGGER IF EXISTS agent_hook_delivery_admission_limit;",
+            "DROP TRIGGER IF EXISTS agent_hook_delivery_admission_add;",
+            "DROP TRIGGER IF EXISTS agent_hook_delivery_pending_remove;",
+            "DROP TRIGGER IF EXISTS agent_hook_delivery_complete;",
+            """
+            CREATE TRIGGER agent_hook_delivery_admission_limit
+            BEFORE INSERT ON agent_hook_deliveries
+            WHEN NEW.delivered_at IS NULL AND (
+                NEW.retained_bytes < 0
+                OR (SELECT pending_count FROM agent_hook_delivery_quota WHERE singleton = 1)
+                    >= \(maximumPendingDeliveries)
+                OR NEW.retained_bytes > \(maximumPendingBytes)
+                OR (SELECT pending_bytes FROM agent_hook_delivery_quota WHERE singleton = 1)
+                    > \(maximumPendingBytes) - NEW.retained_bytes
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'agent_hook_queue_capacity');
+            END;
+            """,
+            """
+            CREATE TRIGGER agent_hook_delivery_admission_add
+            AFTER INSERT ON agent_hook_deliveries
+            WHEN NEW.delivered_at IS NULL
+            BEGIN
+                UPDATE agent_hook_delivery_quota
+                SET pending_count = pending_count + 1,
+                    pending_bytes = pending_bytes + NEW.retained_bytes
+                WHERE singleton = 1;
+            END;
+            """,
+            """
+            CREATE TRIGGER agent_hook_delivery_pending_remove
+            AFTER DELETE ON agent_hook_deliveries
+            WHEN OLD.delivered_at IS NULL
+            BEGIN
+                UPDATE agent_hook_delivery_quota
+                SET pending_count = pending_count - 1,
+                    pending_bytes = pending_bytes - OLD.retained_bytes
+                WHERE singleton = 1;
+            END;
+            """,
+            """
+            CREATE TRIGGER agent_hook_delivery_complete
+            AFTER UPDATE OF delivered_at ON agent_hook_deliveries
+            WHEN OLD.delivered_at IS NULL AND NEW.delivered_at IS NOT NULL
+            BEGIN
+                UPDATE agent_hook_delivery_quota
+                SET pending_count = pending_count - 1,
+                    pending_bytes = pending_bytes - OLD.retained_bytes
+                WHERE singleton = 1;
+                DELETE FROM agent_hook_deliveries
+                WHERE sequence IN (
+                    SELECT sequence
+                    FROM agent_hook_deliveries
+                    WHERE delivered_at IS NOT NULL
+                    ORDER BY delivered_at DESC, sequence DESC
+                    LIMIT -1 OFFSET \(maximumDeliveredReceipts)
+                );
+            END;
+            """,
+        ]
+        for statement in statements {
+            let status = sqlite3_exec(database, statement, nil, nil, nil)
+            guard status == SQLITE_OK else {
+                throw sqliteFailure(status, operation: "initialize delivery resource budget")
+            }
+        }
+    }
+
+    private nonisolated static func configurePhysicalStorageBudget(
+        database: OpaquePointer
+    ) throws {
+        let pageSize = try pragmaInteger("page_size", database: database)
+        guard pageSize > 0 else {
+            throw failure("SQLite reported an invalid page size.", code: 14)
+        }
+        let maximumPages = max(1, maximumPhysicalDatabaseBytes / pageSize)
+        var status = sqlite3_exec(
+            database,
+            "PRAGMA max_page_count = \(maximumPages);",
+            nil,
+            nil,
+            nil
+        )
+        guard status == SQLITE_OK else {
+            throw sqliteFailure(status, operation: "set delivery database page limit")
+        }
+        let appliedMaximum = try pragmaInteger("max_page_count", database: database)
+        guard appliedMaximum <= maximumPages else {
+            throw failure(
+                "Existing delivery database exceeds its physical page budget.",
+                code: 15
+            )
+        }
+        // One writer and 256-page auto-checkpoints bound normal WAL growth;
+        // truncate startup residue before accepting any new hook.
+        status = sqlite3_exec(
+            database,
+            "PRAGMA wal_checkpoint(TRUNCATE);",
+            nil,
+            nil,
+            nil
+        )
+        guard status == SQLITE_OK else {
+            throw sqliteFailure(status, operation: "truncate delivery WAL")
+        }
+    }
+
+    private nonisolated static func pragmaInteger(
+        _ name: String,
+        database: OpaquePointer
+    ) throws -> Int {
+        var statement: OpaquePointer?
+        let prepareStatus = sqlite3_prepare_v2(
+            database,
+            "PRAGMA \(name);",
+            -1,
+            &statement,
+            nil
+        )
+        guard prepareStatus == SQLITE_OK, let statement else {
+            throw sqliteFailure(prepareStatus, operation: "prepare SQLite pragma \(name)")
+        }
+        defer { sqlite3_finalize(statement) }
+        let stepStatus = sqlite3_step(statement)
+        guard stepStatus == SQLITE_ROW else {
+            throw sqliteFailure(stepStatus, operation: "read SQLite pragma \(name)")
+        }
+        return Int(sqlite3_column_int64(statement, 0))
     }
 
     private nonisolated static func scrubPersistedEnvironments(

@@ -3,6 +3,8 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <libproc.h>
 #include <poll.h>
 #include <signal.h>
 #include <spawn.h>
@@ -13,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -33,7 +36,47 @@ enum {
     CMUX_HOOK_FALLBACK_TIMEOUT_MILLISECONDS = 500,
     CMUX_HOOK_EMERGENCY_FALLBACK_TIMEOUT_MILLISECONDS = 50,
     CMUX_HOOK_TERMINATION_GRACE_MILLISECONDS = 50,
+    CMUX_HOOK_OUTBOX_MAX_RECORDS = 1024,
+    CMUX_HOOK_OUTBOX_MAX_BYTES = 256 * 1024 * 1024,
+    CMUX_HOOK_FALLBACK_MAX_WORKERS = 32,
+    CMUX_HOOK_OUTBOX_BUDGET_VERSION = 1,
+    CMUX_HOOK_OUTBOX_RESERVATION_RESERVED = 1,
+    CMUX_HOOK_OUTBOX_RESERVATION_PUBLISHED = 2,
 };
+
+static const char cmux_hook_outbox_budget_name[] = ".quota-v1";
+static const unsigned char cmux_hook_outbox_budget_magic[8] = {
+    'C', 'M', 'U', 'X', 'H', 'Q', '0', '1',
+};
+
+typedef struct {
+    unsigned char magic[8];
+    uint32_t version;
+    uint32_t slot_count;
+    uint64_t maximum_bytes;
+    uint32_t occupied_records;
+    uint32_t next_slot;
+    uint64_t occupied_bytes;
+    unsigned char reserved[24];
+} CMUXHookOutboxBudgetHeader;
+
+typedef struct {
+    uint64_t token;
+    uint64_t reserved_bytes;
+    uint64_t created_nanoseconds;
+    int32_t owner_pid;
+    uint32_t state;
+} CMUXHookOutboxReservationRecord;
+
+typedef struct {
+    int descriptor;
+    uint32_t slot_index;
+    CMUXHookOutboxReservationRecord record;
+    bool active;
+} CMUXHookOutboxReservation;
+
+_Static_assert(sizeof(CMUXHookOutboxBudgetHeader) == 64, "outbox budget header layout");
+_Static_assert(sizeof(CMUXHookOutboxReservationRecord) == 32, "outbox reservation layout");
 
 typedef enum {
     CMUX_SUBMISSION_RETRYABLE,
@@ -604,6 +647,546 @@ static uint64_t cmux_monotonic_nanoseconds(void) {
     return (uint64_t)time.tv_sec * 1000 * 1000 * 1000 + (uint64_t)time.tv_nsec;
 }
 
+static bool cmux_pread_all_at(
+    int descriptor,
+    void *bytes,
+    size_t count,
+    off_t offset
+) {
+    size_t completed = 0;
+    while (completed < count) {
+        const ssize_t amount = pread(
+            descriptor,
+            (unsigned char *)bytes + completed,
+            count - completed,
+            offset + (off_t)completed
+        );
+        if (amount > 0) {
+            completed += (size_t)amount;
+            continue;
+        }
+        if (amount < 0 && errno == EINTR) {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+static bool cmux_pwrite_all_at(
+    int descriptor,
+    const void *bytes,
+    size_t count,
+    off_t offset
+) {
+    size_t completed = 0;
+    while (completed < count) {
+        const ssize_t amount = pwrite(
+            descriptor,
+            (const unsigned char *)bytes + completed,
+            count - completed,
+            offset + (off_t)completed
+        );
+        if (amount > 0) {
+            completed += (size_t)amount;
+            continue;
+        }
+        if (amount < 0 && errno == EINTR) {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+static bool cmux_flock(int descriptor, int operation) {
+    while (flock(descriptor, operation) != 0) {
+        if (errno != EINTR) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static uint64_t cmux_debug_limit(
+    const char *environment_key,
+    uint64_t default_value,
+    uint64_t minimum,
+    uint64_t maximum
+) {
+#if defined(DEBUG)
+    const char *value = getenv(environment_key);
+    if (value != NULL && value[0] != '\0') {
+        char *end = NULL;
+        errno = 0;
+        const unsigned long long parsed = strtoull(value, &end, 10);
+        if (errno == 0 && end != value && *end == '\0'
+            && parsed >= minimum && parsed <= maximum) {
+            return (uint64_t)parsed;
+        }
+    }
+#else
+    (void)environment_key;
+    (void)minimum;
+    (void)maximum;
+#endif
+    return default_value;
+}
+
+static bool cmux_process_exists(pid_t process_id) {
+    if (process_id <= 1) {
+        return false;
+    }
+    if (kill(process_id, 0) == 0) {
+        return true;
+    }
+    return errno == EPERM;
+}
+
+typedef struct {
+    uint64_t values[CMUX_HOOK_OUTBOX_MAX_RECORDS];
+    size_t count;
+} CMUXHookOutboxMarkerTokens;
+
+static int cmux_compare_uint64(const void *left, const void *right) {
+    const uint64_t lhs = *(const uint64_t *)left;
+    const uint64_t rhs = *(const uint64_t *)right;
+    return lhs < rhs ? -1 : (lhs > rhs ? 1 : 0);
+}
+
+static bool cmux_collect_outbox_marker_tokens(
+    int directory,
+    CMUXHookOutboxMarkerTokens *tokens
+) {
+    tokens->count = 0;
+    const int scan_descriptor = openat(
+        directory,
+        ".",
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+    );
+    if (scan_descriptor < 0) {
+        return false;
+    }
+    DIR *entries = fdopendir(scan_descriptor);
+    if (entries == NULL) {
+        close(scan_descriptor);
+        return false;
+    }
+    bool succeeded = true;
+    struct dirent *entry = NULL;
+    while ((entry = readdir(entries)) != NULL) {
+        const char *name = entry->d_name;
+        const bool prefix_matches = strncmp(name, "pending-", 8) == 0
+            || strncmp(name, "ready-", 6) == 0;
+        const size_t count = strlen(name);
+        if (!prefix_matches || count < 16) {
+            continue;
+        }
+        char token_text[17];
+        memcpy(token_text, name + count - 16, 16);
+        token_text[16] = '\0';
+        char *end = NULL;
+        errno = 0;
+        const unsigned long long token = strtoull(token_text, &end, 16);
+        if (errno != 0 || end == token_text || *end != '\0') {
+            continue;
+        }
+        if (tokens->count >= CMUX_HOOK_OUTBOX_MAX_RECORDS) {
+            succeeded = false;
+            break;
+        }
+        tokens->values[tokens->count++] = (uint64_t)token;
+    }
+    closedir(entries);
+    if (succeeded) {
+        qsort(tokens->values, tokens->count, sizeof(tokens->values[0]), cmux_compare_uint64);
+    }
+    return succeeded;
+}
+
+static bool cmux_outbox_marker_tokens_contain(
+    const CMUXHookOutboxMarkerTokens *tokens,
+    uint64_t token
+) {
+    return bsearch(
+        &token,
+        tokens->values,
+        tokens->count,
+        sizeof(tokens->values[0]),
+        cmux_compare_uint64
+    ) != NULL;
+}
+
+static off_t cmux_outbox_reservation_offset(uint32_t slot_index) {
+    return (off_t)sizeof(CMUXHookOutboxBudgetHeader)
+        + (off_t)slot_index * (off_t)sizeof(CMUXHookOutboxReservationRecord);
+}
+
+static bool cmux_outbox_budget_header_is_valid(
+    const CMUXHookOutboxBudgetHeader *header,
+    off_t file_size
+) {
+    if (memcmp(header->magic, cmux_hook_outbox_budget_magic, sizeof(header->magic)) != 0
+        || header->version != CMUX_HOOK_OUTBOX_BUDGET_VERSION
+        || header->slot_count == 0
+        || header->slot_count > CMUX_HOOK_OUTBOX_MAX_RECORDS
+        || header->maximum_bytes == 0
+        || header->maximum_bytes > CMUX_HOOK_OUTBOX_MAX_BYTES
+        || header->occupied_records > header->slot_count
+        || header->next_slot >= header->slot_count
+        || header->occupied_bytes > header->maximum_bytes) {
+        return false;
+    }
+    const off_t expected_size = (off_t)sizeof(*header)
+        + (off_t)header->slot_count * (off_t)sizeof(CMUXHookOutboxReservationRecord);
+    return file_size == expected_size;
+}
+
+static bool cmux_initialize_or_read_outbox_budget(
+    int descriptor,
+    CMUXHookOutboxBudgetHeader *header
+) {
+    struct stat status = {0};
+    if (fstat(descriptor, &status) != 0
+        || !S_ISREG(status.st_mode)
+        || status.st_uid != geteuid()
+        || (status.st_mode & 0077) != 0) {
+        return false;
+    }
+    if (status.st_size == 0) {
+        memset(header, 0, sizeof(*header));
+        memcpy(header->magic, cmux_hook_outbox_budget_magic, sizeof(header->magic));
+        header->version = CMUX_HOOK_OUTBOX_BUDGET_VERSION;
+        header->slot_count = (uint32_t)cmux_debug_limit(
+            "CMUX_TEST_HOOK_OUTBOX_MAX_RECORDS",
+            CMUX_HOOK_OUTBOX_MAX_RECORDS,
+            1,
+            CMUX_HOOK_OUTBOX_MAX_RECORDS
+        );
+        header->maximum_bytes = cmux_debug_limit(
+            "CMUX_TEST_HOOK_OUTBOX_MAX_BYTES",
+            CMUX_HOOK_OUTBOX_MAX_BYTES,
+            (uint64_t)getpagesize(),
+            CMUX_HOOK_OUTBOX_MAX_BYTES
+        );
+        const off_t expected_size = (off_t)sizeof(*header)
+            + (off_t)header->slot_count * (off_t)sizeof(CMUXHookOutboxReservationRecord);
+        if (ftruncate(descriptor, expected_size) != 0
+            || !cmux_pwrite_all_at(descriptor, header, sizeof(*header), 0)) {
+            return false;
+        }
+        return true;
+    }
+    if (status.st_size < (off_t)sizeof(*header)
+        || !cmux_pread_all_at(descriptor, header, sizeof(*header), 0)) {
+        return false;
+    }
+    return cmux_outbox_budget_header_is_valid(header, status.st_size);
+}
+
+static int cmux_open_outbox_budget(int directory) {
+    const int descriptor = openat(
+        directory,
+        cmux_hook_outbox_budget_name,
+        O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
+        0600
+    );
+    if (descriptor < 0 || fchmod(descriptor, 0600) != 0) {
+        if (descriptor >= 0) {
+            close(descriptor);
+        }
+        return -1;
+    }
+    struct stat status = {0};
+    if (fstat(descriptor, &status) != 0
+        || !S_ISREG(status.st_mode)
+        || status.st_uid != geteuid()
+        || (status.st_mode & 0077) != 0) {
+        close(descriptor);
+        return -1;
+    }
+    return descriptor;
+}
+
+static void cmux_unlink_outbox_shared_memory(uint64_t token) {
+    char shared_memory_name[32];
+    snprintf(
+        shared_memory_name,
+        sizeof(shared_memory_name),
+        "/ch%016llx",
+        (unsigned long long)token
+    );
+    shm_unlink(shared_memory_name);
+}
+
+static bool cmux_outbox_record_is_valid(
+    const CMUXHookOutboxReservationRecord *record,
+    const CMUXHookOutboxBudgetHeader *header
+) {
+    if (record->state == 0) {
+        return record->token == 0
+            && record->reserved_bytes == 0
+            && record->created_nanoseconds == 0
+            && record->owner_pid == 0;
+    }
+    return record->token != 0
+        && record->reserved_bytes != 0
+        && record->reserved_bytes <= header->maximum_bytes
+        && (record->state == CMUX_HOOK_OUTBOX_RESERVATION_RESERVED
+            || record->state == CMUX_HOOK_OUTBOX_RESERVATION_PUBLISHED);
+}
+
+static bool cmux_reconcile_outbox_budget_locked(
+    int directory,
+    int descriptor,
+    CMUXHookOutboxBudgetHeader *header
+) {
+    const size_t records_size = (size_t)header->slot_count
+        * sizeof(CMUXHookOutboxReservationRecord);
+    CMUXHookOutboxReservationRecord *records = malloc(records_size);
+    if (records == NULL || !cmux_pread_all_at(
+            descriptor,
+            records,
+            records_size,
+            (off_t)sizeof(*header))) {
+        free(records);
+        return false;
+    }
+    CMUXHookOutboxMarkerTokens marker_tokens = {0};
+    if (!cmux_collect_outbox_marker_tokens(directory, &marker_tokens)) {
+        free(records);
+        return false;
+    }
+
+    uint32_t occupied_records = 0;
+    uint64_t occupied_bytes = 0;
+    uint32_t first_free = UINT32_MAX;
+    for (uint32_t index = 0; index < header->slot_count; index += 1) {
+        CMUXHookOutboxReservationRecord *record = &records[index];
+        if (!cmux_outbox_record_is_valid(record, header)) {
+            free(records);
+            return false;
+        }
+        if (record->state == 0) {
+            if (first_free == UINT32_MAX) {
+                first_free = index;
+            }
+            continue;
+        }
+        if (!cmux_process_exists(record->owner_pid)
+            && !cmux_outbox_marker_tokens_contain(&marker_tokens, record->token)) {
+            cmux_unlink_outbox_shared_memory(record->token);
+            memset(record, 0, sizeof(*record));
+            if (!cmux_pwrite_all_at(
+                    descriptor,
+                    record,
+                    sizeof(*record),
+                    cmux_outbox_reservation_offset(index))) {
+                free(records);
+                return false;
+            }
+            if (first_free == UINT32_MAX) {
+                first_free = index;
+            }
+            continue;
+        }
+        if (occupied_bytes > header->maximum_bytes - record->reserved_bytes) {
+            free(records);
+            return false;
+        }
+        occupied_bytes += record->reserved_bytes;
+        occupied_records += 1;
+    }
+    header->occupied_records = occupied_records;
+    header->occupied_bytes = occupied_bytes;
+    header->next_slot = first_free == UINT32_MAX ? 0 : first_free;
+    const bool succeeded = cmux_pwrite_all_at(
+        descriptor,
+        header,
+        sizeof(*header),
+        0
+    );
+    free(records);
+    return succeeded;
+}
+
+static bool cmux_reserve_outbox_budget(
+    int directory,
+    uint64_t token,
+    size_t message_bytes,
+    CMUXHookOutboxReservation *reservation
+) {
+    memset(reservation, 0, sizeof(*reservation));
+    reservation->descriptor = -1;
+    if (token == 0 || message_bytes == 0) {
+        return false;
+    }
+    const int page_size = getpagesize();
+    if (page_size <= 0 || message_bytes > SIZE_MAX - ((size_t)page_size - 1)) {
+        return false;
+    }
+    const uint64_t rounded_bytes = (uint64_t)(
+        ((message_bytes + (size_t)page_size - 1) / (size_t)page_size) * (size_t)page_size
+    );
+    const int descriptor = cmux_open_outbox_budget(directory);
+    if (descriptor < 0 || !cmux_flock(descriptor, LOCK_EX)) {
+        if (descriptor >= 0) {
+            close(descriptor);
+        }
+        return false;
+    }
+
+    bool succeeded = false;
+    CMUXHookOutboxBudgetHeader header = {0};
+    if (!cmux_initialize_or_read_outbox_budget(descriptor, &header)) {
+        goto done;
+    }
+    if (rounded_bytes > header.maximum_bytes) {
+        goto done;
+    }
+    if (header.occupied_records >= header.slot_count
+        || header.occupied_bytes > header.maximum_bytes - rounded_bytes) {
+        if (!cmux_reconcile_outbox_budget_locked(directory, descriptor, &header)
+            || header.occupied_records >= header.slot_count
+            || header.occupied_bytes > header.maximum_bytes - rounded_bytes) {
+            goto done;
+        }
+    }
+
+    uint32_t available_slot = UINT32_MAX;
+    for (uint32_t offset = 0; offset < header.slot_count; offset += 1) {
+        const uint32_t index = (header.next_slot + offset) % header.slot_count;
+        CMUXHookOutboxReservationRecord candidate = {0};
+        if (!cmux_pread_all_at(
+                descriptor,
+                &candidate,
+                sizeof(candidate),
+                cmux_outbox_reservation_offset(index))
+            || !cmux_outbox_record_is_valid(&candidate, &header)) {
+            goto done;
+        }
+        if (candidate.state == 0) {
+            available_slot = index;
+            break;
+        }
+    }
+    if (available_slot == UINT32_MAX) {
+        if (!cmux_reconcile_outbox_budget_locked(directory, descriptor, &header)) {
+            goto done;
+        }
+        for (uint32_t offset = 0; offset < header.slot_count; offset += 1) {
+            const uint32_t index = (header.next_slot + offset) % header.slot_count;
+            CMUXHookOutboxReservationRecord candidate = {0};
+            if (!cmux_pread_all_at(
+                    descriptor,
+                    &candidate,
+                    sizeof(candidate),
+                    cmux_outbox_reservation_offset(index))
+                || !cmux_outbox_record_is_valid(&candidate, &header)) {
+                goto done;
+            }
+            if (candidate.state == 0) {
+                available_slot = index;
+                break;
+            }
+        }
+        if (available_slot == UINT32_MAX) {
+            goto done;
+        }
+    }
+
+    CMUXHookOutboxReservationRecord record = {
+        .token = token,
+        .reserved_bytes = rounded_bytes,
+        .created_nanoseconds = cmux_monotonic_nanoseconds(),
+        .owner_pid = getpid(),
+        .state = CMUX_HOOK_OUTBOX_RESERVATION_PUBLISHED,
+    };
+    header.occupied_records += 1;
+    header.occupied_bytes += rounded_bytes;
+    header.next_slot = (available_slot + 1) % header.slot_count;
+    // Increment first: a process crash can conservatively leak capacity, but
+    // can never leave an unaccounted shared-memory allocation. App startup and
+    // the saturated slow path recompute leaked counters from fixed slots.
+    if (!cmux_pwrite_all_at(descriptor, &header, sizeof(header), 0)
+        || !cmux_pwrite_all_at(
+            descriptor,
+            &record,
+            sizeof(record),
+            cmux_outbox_reservation_offset(available_slot))) {
+        goto done;
+    }
+    reservation->descriptor = descriptor;
+    reservation->slot_index = available_slot;
+    reservation->record = record;
+    reservation->active = true;
+    succeeded = true;
+
+done:
+    (void)cmux_flock(descriptor, LOCK_UN);
+    if (!succeeded) {
+        close(descriptor);
+    }
+    return succeeded;
+}
+
+static void cmux_release_outbox_reservation(CMUXHookOutboxReservation *reservation) {
+    if (reservation == NULL || !reservation->active || reservation->descriptor < 0) {
+        return;
+    }
+    if (cmux_flock(reservation->descriptor, LOCK_EX)) {
+        CMUXHookOutboxReservationRecord stored = {0};
+        if (cmux_pread_all_at(
+                reservation->descriptor,
+                &stored,
+                sizeof(stored),
+                cmux_outbox_reservation_offset(reservation->slot_index))
+            && stored.token == reservation->record.token) {
+            CMUXHookOutboxReservationRecord empty = {0};
+            CMUXHookOutboxBudgetHeader header = {0};
+            if (cmux_pread_all_at(
+                    reservation->descriptor,
+                    &header,
+                    sizeof(header),
+                    0)
+                && cmux_outbox_budget_header_is_valid(
+                    &header,
+                    (off_t)sizeof(header)
+                        + (off_t)header.slot_count * (off_t)sizeof(stored))
+                && header.occupied_records > 0
+                && header.occupied_bytes >= stored.reserved_bytes
+                && cmux_pwrite_all_at(
+                reservation->descriptor,
+                &empty,
+                sizeof(empty),
+                cmux_outbox_reservation_offset(reservation->slot_index))) {
+                header.occupied_records -= 1;
+                header.occupied_bytes -= stored.reserved_bytes;
+                header.next_slot = reservation->slot_index;
+                (void)cmux_pwrite_all_at(
+                    reservation->descriptor,
+                    &header,
+                    sizeof(header),
+                    0
+                );
+            }
+        }
+        (void)cmux_flock(reservation->descriptor, LOCK_UN);
+    }
+    close(reservation->descriptor);
+    reservation->descriptor = -1;
+    reservation->active = false;
+}
+
+static void cmux_close_published_outbox_reservation(CMUXHookOutboxReservation *reservation) {
+    if (reservation == NULL || !reservation->active || reservation->descriptor < 0) {
+        return;
+    }
+    close(reservation->descriptor);
+    reservation->descriptor = -1;
+    reservation->active = false;
+}
+
 static bool cmux_publish_outbox(
     const char *directory_path,
     const char *capability,
@@ -630,6 +1213,23 @@ static bool cmux_publish_outbox(
     for (int attempt = 0; attempt < 8 && !published; attempt += 1) {
         uint64_t random = 0;
         arc4random_buf(&random, sizeof(random));
+        if (random == 0) {
+            continue;
+        }
+        CMUXHookOutboxReservation reservation = { .descriptor = -1 };
+        if (!cmux_reserve_outbox_budget(
+                directory,
+                random,
+                command->count,
+                &reservation)) {
+            break;
+        }
+#if defined(DEBUG)
+        const char *crash_after_reserve = getenv("CMUX_TEST_HOOK_OUTBOX_CRASH_AFTER_RESERVE");
+        if (crash_after_reserve != NULL && strcmp(crash_after_reserve, "1") == 0) {
+            _exit(86);
+        }
+#endif
         const uint64_t timestamp = cmux_monotonic_nanoseconds();
         char shared_memory_name[32];
         char pending_name[96];
@@ -659,14 +1259,16 @@ static bool cmux_publish_outbox(
         const int marker_count = snprintf(
             marker,
             sizeof(marker),
-            "%s\n%s\n%s\n%zu\n",
+            "%s\n%s\n%s\n%zu\n%016llx\n",
             shared_memory_name,
             nonce,
             encoded_code,
-            command->count
+            command->count,
+            (unsigned long long)random
         );
         if (marker_count <= 0 || (size_t)marker_count >= sizeof(marker)) {
             shm_unlink(shared_memory_name);
+            cmux_release_outbox_reservation(&reservation);
             continue;
         }
         const int marker_descriptor = openat(
@@ -676,6 +1278,7 @@ static bool cmux_publish_outbox(
             0600
         );
         if (marker_descriptor < 0) {
+            cmux_release_outbox_reservation(&reservation);
             continue;
         }
         bool record_ready = fchmod(marker_descriptor, 0600) == 0
@@ -687,6 +1290,7 @@ static bool cmux_publish_outbox(
         close(marker_descriptor);
         if (!record_ready) {
             unlinkat(directory, pending_name, 0);
+            cmux_release_outbox_reservation(&reservation);
             continue;
         }
 
@@ -701,6 +1305,7 @@ static bool cmux_publish_outbox(
         );
         if (shared_memory < 0) {
             unlinkat(directory, pending_name, 0);
+            cmux_release_outbox_reservation(&reservation);
             continue;
         }
         struct stat shared_memory_status = {0};
@@ -714,8 +1319,10 @@ static bool cmux_publish_outbox(
             || renameat(directory, pending_name, directory, ready_name) != 0) {
             unlinkat(directory, pending_name, 0);
             shm_unlink(shared_memory_name);
+            cmux_release_outbox_reservation(&reservation);
             continue;
         }
+        cmux_close_published_outbox_reservation(&reservation);
         published = true;
     }
 
@@ -999,20 +1606,11 @@ static bool cmux_write_all_fd_until(
     return true;
 }
 
-static bool cmux_reap_child_until(pid_t child, int64_t deadline) {
+static void cmux_wait_until(int64_t deadline) {
     for (;;) {
-        int status = 0;
-        const pid_t result = waitpid(child, &status, WNOHANG);
-        if (result == child || (result < 0 && errno == ECHILD)) {
-            return true;
-        }
-        if (result < 0 && errno != EINTR) {
-            return false;
-        }
-
         const int64_t now = cmux_monotonic_milliseconds();
         if (now >= deadline) {
-            return false;
+            return;
         }
         const int64_t remaining = deadline - now;
         const int64_t sleep_milliseconds = remaining < 5 ? remaining : 5;
@@ -1024,53 +1622,50 @@ static bool cmux_reap_child_until(pid_t child, int64_t deadline) {
     }
 }
 
-static bool cmux_process_group_exists(pid_t group) {
-    if (kill(-group, 0) == 0) {
+static bool cmux_fallback_group_has_descendants(pid_t group_leader) {
+    pid_t members[256] = {0};
+    const int member_count = proc_listpgrppids(group_leader, members, sizeof(members));
+    const size_t capacity = sizeof(members) / sizeof(members[0]);
+    if (member_count < 0 || (size_t)member_count >= capacity) {
         return true;
     }
-    return errno == EPERM;
+    for (size_t index = 0; index < (size_t)member_count; index += 1) {
+        if (members[index] > 0 && members[index] != group_leader) {
+            return true;
+        }
+    }
+    return false;
 }
 
-static bool cmux_wait_for_process_group_exit_until(pid_t group, int64_t deadline) {
-    while (cmux_process_group_exists(group)) {
+static bool cmux_reap_fallback_group_when_drained(pid_t child, int64_t deadline) {
+    for (;;) {
+        siginfo_t information = {0};
+        if (waitid(P_PID, (id_t)child, &information, WEXITED | WNOHANG | WNOWAIT) == 0
+            && information.si_pid == child
+            && !cmux_fallback_group_has_descendants(child)) {
+            int status = 0;
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+            return true;
+        }
         const int64_t now = cmux_monotonic_milliseconds();
         if (now >= deadline) {
             return false;
         }
-        const int64_t remaining = deadline - now;
-        const int64_t sleep_milliseconds = remaining < 5 ? remaining : 5;
-        struct timespec sleep_time = {
-            .tv_sec = 0,
-            .tv_nsec = sleep_milliseconds * 1000 * 1000,
-        };
-        while (nanosleep(&sleep_time, &sleep_time) != 0 && errno == EINTR) {}
+        cmux_wait_until(now + 5);
     }
-    return true;
 }
 
-static void cmux_terminate_and_reap_child(pid_t child) {
-    if (kill(-child, SIGTERM) != 0 && errno == ESRCH) {
-        (void)cmux_reap_child_until(child, cmux_monotonic_milliseconds() + 1);
-        return;
-    }
-    const int64_t grace_deadline = cmux_monotonic_milliseconds()
-        + CMUX_HOOK_TERMINATION_GRACE_MILLISECONDS;
-    const bool child_reaped = cmux_reap_child_until(child, grace_deadline);
-    const bool group_exited = cmux_wait_for_process_group_exit_until(child, grace_deadline);
-    if (!group_exited) {
-        (void)kill(-child, SIGKILL);
-    }
-
-    if (!child_reaped) {
-        int status = 0;
-        while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
-    }
-    if (!group_exited) {
-        (void)cmux_wait_for_process_group_exit_until(
-            child,
-            cmux_monotonic_milliseconds() + CMUX_HOOK_TERMINATION_GRACE_MILLISECONDS
-        );
-    }
+static void cmux_cleanup_fallback_process_group(pid_t child) {
+    // Keep the leader unreaped until group cleanup. Its reserved PID is the
+    // group sentinel, so this PGID cannot be reused while the permit-owning
+    // supervisor is still responsible for double-forked descendants.
+    (void)kill(-child, SIGTERM);
+    cmux_wait_until(
+        cmux_monotonic_milliseconds() + CMUX_HOOK_TERMINATION_GRACE_MILLISECONDS
+    );
+    (void)kill(-child, SIGKILL);
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
 }
 
 static void cmux_run_cli_fallback(
@@ -1224,19 +1819,104 @@ static void cmux_run_cli_fallback(
 
     const int64_t deadline = cmux_monotonic_milliseconds()
         + timeout_milliseconds;
-    const bool wrote_payload = cmux_write_all_fd_until(
+    (void)cmux_write_all_fd_until(
         input_pipe[1],
         payload->bytes,
         payload->count,
         deadline
     );
     close(input_pipe[1]);
-    if (!wrote_payload || !cmux_reap_child_until(child, deadline)) {
-        cmux_terminate_and_reap_child(child);
+    if (!cmux_reap_fallback_group_when_drained(child, deadline)) {
+        cmux_cleanup_fallback_process_group(child);
     }
 }
 
-static void cmux_close_inherited_worker_descriptors(void) {
+static int cmux_open_fallback_worker_directory(void) {
+    char path[PATH_MAX];
+    const int count = snprintf(
+        path,
+        sizeof(path),
+        "/private/tmp/cmux-agent-hook-workers-%u",
+        (unsigned int)geteuid()
+    );
+    if (count <= 0 || (size_t)count >= sizeof(path)) {
+        return -1;
+    }
+    if (mkdir(path, 0700) != 0 && errno != EEXIST) {
+        return -1;
+    }
+    const int directory = open(
+        path,
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+    );
+    if (directory < 0) {
+        return -1;
+    }
+    struct stat status = {0};
+    if (fstat(directory, &status) != 0
+        || !S_ISDIR(status.st_mode)
+        || status.st_uid != geteuid()
+        || (status.st_mode & 0077) != 0
+        || fchmod(directory, 0700) != 0) {
+        close(directory);
+        return -1;
+    }
+    return directory;
+}
+
+static int cmux_acquire_fallback_worker_permit(void) {
+    const int directory = cmux_open_fallback_worker_directory();
+    if (directory < 0) {
+        return -1;
+    }
+    const uint64_t maximum_workers = cmux_debug_limit(
+        "CMUX_TEST_HOOK_FALLBACK_MAX_WORKERS",
+        CMUX_HOOK_FALLBACK_MAX_WORKERS,
+        1,
+        CMUX_HOOK_FALLBACK_MAX_WORKERS
+    );
+    int permit = -1;
+    for (uint64_t index = 0; index < maximum_workers; index += 1) {
+        char name[48];
+        snprintf(name, sizeof(name), ".worker-%02llu.lock", (unsigned long long)index);
+        const int descriptor = openat(
+            directory,
+            name,
+            O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
+            0600
+        );
+        if (descriptor < 0) {
+            continue;
+        }
+        struct stat status = {0};
+        if (fchmod(descriptor, 0600) != 0
+            || fstat(descriptor, &status) != 0
+            || !S_ISREG(status.st_mode)
+            || status.st_uid != geteuid()
+            || (status.st_mode & 0077) != 0) {
+            close(descriptor);
+            continue;
+        }
+        if (flock(descriptor, LOCK_EX | LOCK_NB) == 0) {
+            permit = descriptor;
+            break;
+        }
+        close(descriptor);
+    }
+    close(directory);
+    return permit;
+}
+
+static int cmux_fallback_timeout_milliseconds(void) {
+    return (int)cmux_debug_limit(
+        "CMUX_TEST_HOOK_FALLBACK_TIMEOUT_MILLISECONDS",
+        CMUX_HOOK_FALLBACK_TIMEOUT_MILLISECONDS,
+        50,
+        10 * 1000
+    );
+}
+
+static void cmux_close_inherited_worker_descriptors(int preserved_descriptor) {
     DIR *directory = opendir("/dev/fd");
     if (directory != NULL) {
         const int directory_fd = dirfd(directory);
@@ -1247,7 +1927,8 @@ static void cmux_close_inherited_worker_descriptors(void) {
             const long raw_descriptor = strtol(entry->d_name, &end, 10);
             if (errno != 0 || end == entry->d_name || *end != '\0'
                 || raw_descriptor < 3 || raw_descriptor > INT32_MAX
-                || raw_descriptor == directory_fd) {
+                || raw_descriptor == directory_fd
+                || raw_descriptor == preserved_descriptor) {
                 continue;
             }
             close((int)raw_descriptor);
@@ -1261,7 +1942,9 @@ static void cmux_close_inherited_worker_descriptors(void) {
     // leaking an arbitrarily high inherited descriptor.
     const int limit = getdtablesize();
     for (int descriptor = 3; descriptor < limit; descriptor += 1) {
-        close(descriptor);
+        if (descriptor != preserved_descriptor) {
+            close(descriptor);
+        }
     }
 }
 
@@ -1312,7 +1995,7 @@ static void cmux_run_fallback_worker(
         socket_path,
         payload,
         result == CMUX_SUBMISSION_UNSUPPORTED,
-        CMUX_HOOK_FALLBACK_TIMEOUT_MILLISECONDS
+        cmux_fallback_timeout_milliseconds()
     );
 }
 
@@ -1321,8 +2004,12 @@ static bool cmux_start_fallback_worker(
     const char *subcommand,
     const char *socket_path,
     const CMUXBuffer *request,
-    const CMUXBuffer *payload
+    const CMUXBuffer *payload,
+    int *permit_descriptor
 ) {
+    if (permit_descriptor == NULL || *permit_descriptor < 0) {
+        return false;
+    }
     pid_t worker = -1;
 #if defined(DEBUG)
     const char *force_fork_failure = getenv("CMUX_TEST_FORCE_HOOK_FORK_FAILURE");
@@ -1339,10 +2026,14 @@ static bool cmux_start_fallback_worker(
     }
     if (worker == 0) {
         (void)setsid();
-        cmux_close_inherited_worker_descriptors();
+        const int permit = *permit_descriptor;
+        cmux_close_inherited_worker_descriptors(permit);
         cmux_run_fallback_worker(initial_result, subcommand, socket_path, request, payload);
+        close(permit);
         _exit(0);
     }
+    close(*permit_descriptor);
+    *permit_descriptor = -1;
     int status = 0;
     (void)waitpid(worker, &status, WNOHANG);
     return true;
@@ -1445,14 +2136,17 @@ int main(int argument_count, char **arguments) {
         // extending Codex's hook latency or retaining its stdout pipe.
         cmux_print_noop();
         cmux_redirect_standard_descriptors_to_null();
-        const bool started = cmux_start_fallback_worker(
-            submission,
-            subcommand,
-            socket_path,
-            &request,
-            &payload
-        );
-        if (!started) {
+        int fallback_permit = cmux_acquire_fallback_worker_permit();
+        const bool started = fallback_permit >= 0
+            && cmux_start_fallback_worker(
+                submission,
+                subcommand,
+                socket_path,
+                &request,
+                &payload,
+                &fallback_permit
+            );
+        if (!started && fallback_permit >= 0) {
             // Process pressure can make fork return EAGAIN. Preserve the old
             // delivery attempt under its own short deadline rather than
             // silently dropping the event or violating the hook budget.
@@ -1463,6 +2157,7 @@ int main(int argument_count, char **arguments) {
                 submission == CMUX_SUBMISSION_UNSUPPORTED,
                 CMUX_HOOK_EMERGENCY_FALLBACK_TIMEOUT_MILLISECONDS
             );
+            close(fallback_permit);
         }
     }
 
