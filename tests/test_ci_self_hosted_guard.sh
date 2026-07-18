@@ -678,34 +678,43 @@ EOF
 }
 
 check_dmg_signing_uses_build_keychain() {
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
-    if grep -Fq -- '--identity="$APPLE_SIGNING_IDENTITY"' "$file"; then
-      echo "FAIL: $(basename "$file") must not let create-dmg codesign outside build.keychain"
-      exit 1
-    fi
+  local nightly_workflow="$ROOT_DIR/.github/workflows/nightly.yml"
+  local nightly_helper="$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh"
+  local release_workflow="$ROOT_DIR/.github/workflows/release.yml"
 
-    if ! awk '
-      /create-dmg[[:space:]]*\\/ { in_dmg=1; next }
-      in_dmg && /--no-code-sign[[:space:]]*\\/ { saw_no_code_sign=1 }
-      in_dmg && /^[[:space:]]*$/ { in_dmg=0 }
-      END { exit !saw_no_code_sign }
-    ' "$file"; then
-      echo "FAIL: $(basename "$file") must disable create-dmg implicit code signing"
-      exit 1
-    fi
-
-    if ! awk '
-      /create-dmg[[:space:]]*\\/ { in_dmg=1; next }
-      in_dmg && /\/usr\/bin\/codesign --force --timestamp --keychain build\.keychain/ { saw_keychain=1 }
-      in_dmg && /--sign "\$APPLE_SIGNING_IDENTITY"/ { saw_identity=1 }
-      in_dmg && /\/usr\/bin\/codesign --verify --verbose=2 "\$(DMG_RELEASE|dmg_release)"/ { saw_verify=1 }
-      in_dmg && /xcrun notarytool submit "\$(DMG_RELEASE|dmg_release)"/ { saw_notary=1 }
-      END { exit !(saw_keychain && saw_identity && saw_verify && saw_notary) }
-    ' "$file"; then
-      echo "FAIL: $(basename "$file") must sign DMGs explicitly with build.keychain before notarization"
+  if ! grep -Fq './scripts/ci/notarize-nightly-dmg.sh \' "$nightly_workflow"; then
+    echo "FAIL: nightly workflow must invoke the guarded notarization helper"
+    exit 1
+  fi
+  for needle in \
+    'CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"' \
+    '"$CREATE_DMG_TOOL" --no-code-sign "$APP_PATH" "$DMG_TMP_DIR"' \
+    '"$CODESIGN_TOOL" --force --timestamp --keychain build.keychain' \
+    '--sign "$APPLE_SIGNING_IDENTITY"' \
+    '"$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"' \
+    '"$XCRUN_TOOL" notarytool submit "$DMG_RELEASE"'; do
+    if ! grep -Fq -- "$needle" "$nightly_helper"; then
+      echo "FAIL: nightly notarization helper must sign the DMG through build.keychain before submission: $needle"
       exit 1
     fi
   done
+
+  if grep -Eq -- '--identity([=[:space:]]|$)' "$release_workflow"; then
+    echo "FAIL: release.yml must not let create-dmg codesign outside build.keychain"
+    exit 1
+  fi
+  if ! awk '
+    /create-dmg[[:space:]]*\\/ { in_dmg=1; next }
+    in_dmg && /--no-code-sign[[:space:]]*\\/ { saw_no_code_sign=1 }
+    in_dmg && /\/usr\/bin\/codesign --force --timestamp --keychain build\.keychain/ { saw_keychain=1 }
+    in_dmg && /--sign "\$APPLE_SIGNING_IDENTITY"/ { saw_identity=1 }
+    in_dmg && /\/usr\/bin\/codesign --verify --verbose=2 "\$(DMG_RELEASE|dmg_release)"/ { saw_verify=1 }
+    in_dmg && /xcrun notarytool submit "\$(DMG_RELEASE|dmg_release)"/ { saw_notary=1 }
+    END { exit !(saw_no_code_sign && saw_keychain && saw_identity && saw_verify && saw_notary) }
+  ' "$release_workflow"; then
+    echo "FAIL: release.yml must sign DMGs explicitly with build.keychain before notarization"
+    exit 1
+  fi
 
   echo "PASS: DMG signing uses build.keychain explicitly"
 }
@@ -757,21 +766,26 @@ check_gui_smoke_unsupported_launch_handling() {
     exit 1
   fi
 
-  if ! awk '
-    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1/ { saw_launchservices=1 }
-    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_DIRECT_EXEC=1/ { saw_direct_exec=1 }
-    END { exit !(saw_launchservices && saw_direct_exec) }
-  ' "$ROOT_DIR/.github/workflows/nightly.yml"; then
-    echo "FAIL: nightly signing smoke must run direct exec after unsupported-GUI LaunchServices smoke"
+  local nightly_workflow="$ROOT_DIR/.github/workflows/nightly.yml"
+  local nightly_helper="$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh"
+  if ! grep -Fq './scripts/ci/notarize-nightly-dmg.sh \' "$nightly_workflow"; then
+    echo "FAIL: nightly workflow must invoke the helper that owns launch smokes"
     exit 1
   fi
-
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
-    if ! grep -Fq 'scripts/smoke-launch-macos-app.sh' "$file"; then
-      echo "FAIL: $(basename "$file") signing workflow must run launch smoke"
+  for needle in \
+    'SMOKE_TOOL="${CMUX_SMOKE_TOOL:-$ROOT_DIR/scripts/smoke-launch-macos-app.sh}"' \
+    'CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL"' \
+    'CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL"'; do
+    if ! grep -Fq -- "$needle" "$nightly_helper"; then
+      echo "FAIL: nightly notarization helper must preserve both launch smokes: $needle"
       exit 1
     fi
   done
+
+  if ! grep -Fq 'scripts/smoke-launch-macos-app.sh' "$ROOT_DIR/.github/workflows/release.yml"; then
+    echo "FAIL: release.yml signing workflow must run launch smoke"
+    exit 1
+  fi
 
   echo "PASS: signing smoke handles unsupported GUI launch and release direct exec explicitly"
 }
