@@ -2000,6 +2000,48 @@ mod tests {
         assert!(fs::read_dir(&target).unwrap().next().is_none());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn state_file_symlink_is_rejected_without_reading_or_replacing_its_target() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let directory = TestDirectory::new("file-symlink");
+        let store = StateStore::new(directory.0.join("state"));
+        fs::create_dir_all(store.root().join("sessions")).unwrap();
+        fs::set_permissions(store.root(), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(store.root().join("sessions"), fs::Permissions::from_mode(0o700))
+            .unwrap();
+        let target = directory.0.join("outside.json");
+        let original = b"outside state must remain untouched";
+        fs::write(&target, original).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+        symlink(&target, store.session_path("main")).unwrap();
+
+        let error = store.open_session("main").err().expect("symlink state file must be rejected");
+
+        assert!(error.to_string().contains("symbolic link"));
+        assert_eq!(fs::read(&target).unwrap(), original);
+        assert!(fs::symlink_metadata(store.session_path("main")).unwrap().file_type().is_symlink());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preexisting_state_file_with_broad_permissions_is_rejected_without_chmod() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = TestDirectory::new("broad-file");
+        let store = StateStore::new(directory.0.join("state"));
+        let opened = store.open_session("main").unwrap();
+        drop(opened.durable);
+        let checkpoint = store.session_path("main");
+        fs::set_permissions(&checkpoint, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let error = store.open_session("main").err().expect("broad state file must be rejected");
+
+        assert!(error.to_string().contains("private file"));
+        assert_eq!(fs::metadata(checkpoint).unwrap().permissions().mode() & 0o777, 0o644);
+    }
+
     #[test]
     fn journal_recovers_synced_mutation_without_checkpoint() {
         let directory = TestDirectory::new("append-before-checkpoint");
