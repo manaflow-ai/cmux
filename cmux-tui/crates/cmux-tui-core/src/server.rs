@@ -2841,9 +2841,8 @@ fn handle_command(
             }))
         }
         Command::TerminalEvents { after_revision } => {
-            let snapshot = mux.terminal_registry_snapshot()?;
-            let events = mux
-                .terminal_registry_events_after(after_revision)?
+            let (snapshot, events) = mux.terminal_registry_events_page(after_revision)?;
+            let events = events
                 .into_iter()
                 .map(|event| {
                     json!({
