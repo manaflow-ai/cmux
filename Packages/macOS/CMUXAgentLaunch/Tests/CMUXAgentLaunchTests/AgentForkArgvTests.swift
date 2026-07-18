@@ -45,6 +45,54 @@ struct AgentForkArgvTests {
                 arguments: ["/opt/bin/omp", "--model", "anthropic/claude-sonnet-4-6"]
             ) == ["/opt/bin/omp", "--fork", "SID", "--model", "anthropic/claude-sonnet-4-6"]
         )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "grok",
+                sessionId: "SID",
+                executablePath: "/opt/bin/grok",
+                arguments: ["/opt/bin/grok", "--resume", "OLD", "--fork-session", "--model", "grok-4"]
+            ) == ["/opt/bin/grok", "--resume", "SID", "--fork-session", "--model", "grok-4"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "amp",
+                sessionId: "SID",
+                executablePath: "/opt/bin/amp",
+                arguments: ["/opt/bin/amp", "threads", "continue", "OLD", "--mode", "smart"]
+            ) == ["/opt/bin/amp", "threads", "fork", "SID", "--mode", "smart"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "amp",
+                sessionId: "CHILD",
+                executablePath: "/opt/bin/amp",
+                arguments: ["/opt/bin/amp", "threads", "fork", "PARENT", "--mode", "smart"]
+            ) == ["/opt/bin/amp", "threads", "fork", "CHILD", "--mode", "smart"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "factory",
+                sessionId: "SID",
+                executablePath: "/opt/bin/droid",
+                arguments: ["/opt/bin/droid", "--resume", "OLD", "--settings", "/tmp/settings.json"]
+            ) == ["/opt/bin/droid", "--fork", "SID", "--settings", "/tmp/settings.json"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "codebuddy",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codebuddy",
+                arguments: ["/opt/bin/codebuddy", "--resume", "OLD", "--fork-session", "--model", "glm-5"]
+            ) == ["/opt/bin/codebuddy", "--resume", "SID", "--fork-session", "--model", "glm-5"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "qoder",
+                sessionId: "SID",
+                executablePath: "/opt/bin/qodercli",
+                arguments: ["/opt/bin/qodercli", "--resume", "OLD", "--fork-session", "--model", "qoder"]
+            ) == ["/opt/bin/qodercli", "--resume", "SID", "--fork-session", "--model", "qoder"]
+        )
     }
 
     @Test("Codex one-shot commands are not forkable")
@@ -174,13 +222,13 @@ struct AgentForkArgvTests {
         )
     }
 
-    @Test("Unsupported agents stay unsupported")
+    @Test("Agents without a documented fork entrypoint stay unsupported")
     func unsupportedAgentsStayUnsupported() {
         #expect(
-            AgentForkArgv().builtInKind(kind: "grok", sessionId: "SID", executablePath: nil, arguments: ["grok"]) == nil
+            AgentForkArgv().builtInKind(kind: "gemini", sessionId: "SID", executablePath: nil, arguments: ["gemini"]) == nil
         )
         #expect(
-            AgentForkArgv().builtInKind(kind: "amp", sessionId: "SID", executablePath: nil, arguments: ["amp"]) == nil
+            AgentForkArgv().builtInKind(kind: "cursor", sessionId: "SID", executablePath: nil, arguments: ["cursor-agent"]) == nil
         )
     }
 }

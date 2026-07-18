@@ -265,6 +265,10 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(registration.id, "grok")
         XCTAssertEqual(registration.sessionIdSource, .grokSessionDirectory)
         XCTAssertEqual(registration.sessionDirectory, "~/.grok/sessions")
+        XCTAssertEqual(
+            registration.forkCommand,
+            "{{executable}} --resume {{sessionId}} --fork-session"
+        )
         XCTAssertEqual(registration.detect.processNames, ["grok", "grok-macos-aarch64", "grok-macos-aarch"])
         XCTAssertTrue(registration.detect.argvContains.isEmpty)
         XCTAssertEqual(SessionAgent.grok.assetName, "AgentIcons/Grok")
