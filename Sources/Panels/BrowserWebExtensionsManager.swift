@@ -531,10 +531,20 @@ final class BrowserWebExtensionsManager: NSObject {
         lastActionInvocations[key] = invocation
         if action.presentsPopup {
             pendingActionInvocations[key, default: []].append(invocation)
-        } else {
-            pendingActionInvocations.removeValue(forKey: key)
+            // WebKit's delegate callback is delayed until the popup finishes
+            // loading. Present its public popover immediately for a user click
+            // so a slow extension still has a visible loading surface.
+            context.userGesturePerformed(in: tabAdapter)
+            do {
+                try showPopup(action, for: context)
+                return true
+            } catch {
+                pendingActionInvocations.removeValue(forKey: key)
+                return false
+            }
         }
-        // WebKit owns background activation for action events and popups.
+        pendingActionInvocations.removeValue(forKey: key)
+        // WebKit owns background activation for action events.
         // Waiting on loadBackgroundContent here can permanently swallow an
         // action when a service worker keeps that callback pending.
         context.performAction(for: tabAdapter)
@@ -886,17 +896,31 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping ((any Error)?) -> Void
     ) {
-        guard let popover = action.popupPopover,
-              let anchor = popupAnchor(for: action, extensionContext: extensionContext) else {
-            completionHandler(BrowserWebExtensionActionError.missingPopupAnchor)
-            return
+        do {
+            try showPopup(action, for: extensionContext)
+            completionHandler(nil)
+        } catch {
+            completionHandler(error)
         }
-        popover.behavior = .transient
-        popover.show(relativeTo: anchor.rect, of: anchor.view, preferredEdge: .maxY)
+    }
+
+    private func showPopup(
+        _ action: WKWebExtension.Action,
+        for extensionContext: WKWebExtensionContext
+    ) throws {
+        guard let popover = action.popupPopover else {
+            throw BrowserWebExtensionActionError.missingPopupAnchor
+        }
+        if !popover.isShown {
+            guard let anchor = popupAnchor(for: action, extensionContext: extensionContext) else {
+                throw BrowserWebExtensionActionError.missingPopupAnchor
+            }
+            popover.behavior = .transient
+            popover.show(relativeTo: anchor.rect, of: anchor.view, preferredEdge: .maxY)
+        }
         if let webView = action.popupWebView {
             popupWebViews[extensionContext.uniqueIdentifier] = WeakPopupWebView(webView)
         }
-        completionHandler(nil)
     }
 
     func webExtensionController(
