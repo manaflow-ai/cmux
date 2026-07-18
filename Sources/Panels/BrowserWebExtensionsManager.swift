@@ -274,13 +274,19 @@ final class BrowserWebExtensionsManager: NSObject {
         // be loaded once by each path when a user installs during app launch.
         await waitUntilLoaded()
         try requireActive()
-        try await directoryRepository.validatePackageSize(at: source)
+        let installSource = try await directoryRepository.resolveInstallSource(at: source)
+        try requireActive()
+        try await directoryRepository.validatePackageSize(at: installSource.packageURL)
         try requireActive()
         // Validate before copying. WKWebExtension accepts either a directory or
         // ZIP archive and parses the manifest plus referenced resources.
-        _ = try await WKWebExtension(resourceBaseURL: source)
+        _ = try await WKWebExtension(resourceBaseURL: installSource.packageURL)
         try requireActive()
-        let destination = try await directoryRepository.installCandidate(from: source, into: directory)
+        let destination = try await directoryRepository.installCandidate(
+            from: installSource.packageURL,
+            into: directory,
+            destinationName: installSource.installationName
+        )
         do {
             try requireActive()
             // Approval computes the package digest and rejects symbolic links.

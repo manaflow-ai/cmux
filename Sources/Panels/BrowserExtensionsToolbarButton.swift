@@ -326,7 +326,10 @@ struct BrowserExtensionsManagerPage: View {
         let picker = NSOpenPanel()
         picker.title = String(localized: "browser.extensions.install.pickerTitle", defaultValue: "Choose a WebExtension")
         picker.prompt = String(localized: "browser.extensions.install.pickerPrompt", defaultValue: "Add Extension")
-        picker.message = String(localized: "browser.extensions.install.pickerMessage", defaultValue: "Choose an unpacked extension folder or a ZIP archive.")
+        picker.message = String(
+            localized: "browser.extensions.install.pickerMessage",
+            defaultValue: "Choose a Safari extension app, extension bundle, unpacked folder, or ZIP archive."
+        )
         picker.canChooseDirectories = true
         picker.canChooseFiles = true
         picker.allowsMultipleSelection = false

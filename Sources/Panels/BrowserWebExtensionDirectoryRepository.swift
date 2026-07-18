@@ -12,6 +12,11 @@ struct BrowserWebExtensionApprovalDiscoveryResult: Sendable {
     let failures: [Failure]
 }
 
+struct BrowserWebExtensionInstallSource: Sendable {
+    let packageURL: URL
+    let installationName: String
+}
+
 /// Moves extension-directory enumeration and metadata reads off the main actor.
 @available(macOS 15.4, *)
 actor BrowserWebExtensionDirectoryRepository {
@@ -107,15 +112,78 @@ actor BrowserWebExtensionDirectoryRepository {
         _ = try validatedPackageEntries(at: candidate)
     }
 
-    func installCandidate(from source: URL, into directory: URL) throws -> URL {
+    func resolveInstallSource(at source: URL) throws -> BrowserWebExtensionInstallSource {
+        try requireActive()
+        let sourceValues = try source.resourceValues(
+            forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+        )
+        guard sourceValues.isSymbolicLink != true else {
+            throw BrowserWebExtensionInstallError.symbolicLinksNotAllowed
+        }
+        guard sourceValues.isDirectory == true || sourceValues.isRegularFile == true else {
+            throw BrowserWebExtensionInstallError.invalidPackage(source.lastPathComponent)
+        }
+
+        guard sourceValues.isDirectory == true else {
+            return BrowserWebExtensionInstallSource(
+                packageURL: source,
+                installationName: source.lastPathComponent
+            )
+        }
+        if FileManager.default.fileExists(
+            atPath: source.appendingPathComponent("manifest.json").path
+        ) {
+            return BrowserWebExtensionInstallSource(
+                packageURL: source,
+                installationName: source.lastPathComponent
+            )
+        }
+
+        switch source.pathExtension.lowercased() {
+        case "appex":
+            return try safariExtensionSource(in: source)
+        case "app":
+            let plugins = source.appendingPathComponent("Contents/PlugIns", isDirectory: true)
+            guard FileManager.default.fileExists(atPath: plugins.path) else {
+                throw BrowserWebExtensionInstallError.safariExtensionNotFound(source.lastPathComponent)
+            }
+            let candidates = try (FileManager.default.contentsOfDirectory(
+                at: plugins,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles]
+            )).filter { $0.pathExtension.lowercased() == "appex" }
+            let safariSources = try candidates.compactMap { candidate in
+                try safariExtensionSourceIfPresent(in: candidate)
+            }
+            guard !safariSources.isEmpty else {
+                throw BrowserWebExtensionInstallError.safariExtensionNotFound(source.lastPathComponent)
+            }
+            guard safariSources.count == 1 else {
+                throw BrowserWebExtensionInstallError.multipleSafariExtensions(source.lastPathComponent)
+            }
+            return safariSources[0]
+        default:
+            return BrowserWebExtensionInstallSource(
+                packageURL: source,
+                installationName: source.lastPathComponent
+            )
+        }
+    }
+
+    func installCandidate(
+        from source: URL,
+        into directory: URL,
+        destinationName: String? = nil
+    ) throws -> URL {
         try requireActive()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let resolvedDestinationName = destinationName ?? source.lastPathComponent
         let destination = directory.appendingPathComponent(
-            source.lastPathComponent,
+            resolvedDestinationName,
             isDirectory: source.hasDirectoryPath
         )
         guard !FileManager.default.fileExists(atPath: destination.path) else {
-            throw BrowserWebExtensionInstallError.alreadyInstalled(source.lastPathComponent)
+            throw BrowserWebExtensionInstallError.alreadyInstalled(resolvedDestinationName)
         }
         let stagingName = ".cmux-install-\(UUID().uuidString)"
             + (source.pathExtension.isEmpty ? "" : ".\(source.pathExtension)")
@@ -129,6 +197,78 @@ actor BrowserWebExtensionDirectoryRepository {
         try requireActive()
         try FileManager.default.moveItem(at: staging, to: destination)
         return destination
+    }
+
+    private func safariExtensionSource(in appex: URL) throws -> BrowserWebExtensionInstallSource {
+        guard let source = try safariExtensionSourceIfPresent(in: appex) else {
+            throw BrowserWebExtensionInstallError.safariExtensionNotFound(appex.lastPathComponent)
+        }
+        return source
+    }
+
+    private func safariExtensionSourceIfPresent(
+        in appex: URL
+    ) throws -> BrowserWebExtensionInstallSource? {
+        try requireActive()
+        let appexValues = try appex.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard appexValues.isSymbolicLink != true else {
+            throw BrowserWebExtensionInstallError.symbolicLinksNotAllowed
+        }
+        guard appexValues.isDirectory == true else { return nil }
+        let infoURL = appex.appendingPathComponent("Contents/Info.plist")
+        let infoValues = try infoURL.resourceValues(
+            forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+        )
+        guard infoValues.isSymbolicLink != true else {
+            throw BrowserWebExtensionInstallError.symbolicLinksNotAllowed
+        }
+        guard infoValues.isRegularFile == true,
+              let info = try PropertyListSerialization.propertyList(
+                from: Data(contentsOf: infoURL),
+                options: [],
+                format: nil
+              ) as? [String: Any],
+              let extensionDictionary = info["NSExtension"] as? [String: Any],
+              extensionDictionary["NSExtensionPointIdentifier"] as? String
+                == "com.apple.Safari.web-extension" else {
+            return nil
+        }
+        let resources = appex.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let resourceValues = try resources.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        )
+        guard resourceValues.isSymbolicLink != true else {
+            throw BrowserWebExtensionInstallError.symbolicLinksNotAllowed
+        }
+        guard resourceValues.isDirectory == true,
+              FileManager.default.fileExists(
+                atPath: resources.appendingPathComponent("manifest.json").path
+              ),
+              let bundleIdentifier = info["CFBundleIdentifier"] as? String else {
+            throw BrowserWebExtensionInstallError.invalidPackage(appex.lastPathComponent)
+        }
+        let version = info["CFBundleShortVersionString"] as? String
+        let rawName = [bundleIdentifier, version]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: "-")
+        let installationName = Self.sanitizedInstallationName(rawName)
+        guard !installationName.isEmpty else {
+            throw BrowserWebExtensionInstallError.invalidPackage(appex.lastPathComponent)
+        }
+        return BrowserWebExtensionInstallSource(
+            packageURL: resources,
+            installationName: installationName
+        )
+    }
+
+    private static func sanitizedInstallationName(_ name: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        return name.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? String(scalar) : "-"
+        }.joined()
     }
 
     func removeInstalledCandidate(at url: URL, from directory: URL) {
@@ -481,6 +621,8 @@ enum BrowserWebExtensionInstallError: LocalizedError {
     case outsideManagedDirectory
     case symbolicLinksNotAllowed
     case invalidPackage(String)
+    case safariExtensionNotFound(String)
+    case multipleSafariExtensions(String)
     case packageTooLarge
     case packageContainsTooManyFiles
 
@@ -505,6 +647,16 @@ enum BrowserWebExtensionInstallError: LocalizedError {
             return String(
                 localized: "browser.extensions.install.invalidPackage",
                 defaultValue: "\(name) is not a readable extension package."
+            )
+        case .safariExtensionNotFound(let name):
+            return String(
+                localized: "browser.extensions.install.safariExtensionNotFound",
+                defaultValue: "\(name) does not contain a Safari web extension."
+            )
+        case .multipleSafariExtensions(let name):
+            return String(
+                localized: "browser.extensions.install.multipleSafariExtensions",
+                defaultValue: "\(name) contains more than one Safari web extension. Choose an extension bundle directly."
             )
         case .packageTooLarge:
             return String(
