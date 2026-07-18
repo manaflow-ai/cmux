@@ -234,6 +234,30 @@ struct SimulatorPaneCoordinatorCancellationTests {
         #expect(coordinator.controlActionTasks.isEmpty)
     }
 
+    @Test("Device selection started by a control action never joins itself")
+    func controlActionSelectionDoesNotJoinItself() async {
+        let device = makeDevice(id: "phone", family: .iPhone)
+        let client = SimulatorPaneClientSpy(devices: [device])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.devices = [device]
+
+        let task = coordinator.startControlAction("control-socket-select") { coordinator in
+            try? await coordinator.selectDeviceAndWait(id: device.id)
+        }
+
+        for _ in 0..<100 {
+            if await client.activations().contains(where: { $0.id == device.id }) { break }
+            await Task.yield()
+        }
+        let activated = await client.activations().contains(where: { $0.id == device.id })
+        #expect(activated)
+
+        if activated {
+            await task?.value
+            await coordinator.close()
+        }
+    }
+
     private func makeDevice(
         id: String,
         family: SimulatorDeviceFamily
