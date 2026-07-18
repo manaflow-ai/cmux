@@ -495,16 +495,20 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          CODEX_HOOK_CLIENT="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-codex-hook-client"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           APP_ARCHS="$(lipo -archs "$APP_BINARY")"
           CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
           HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
+          CODEX_HOOK_ARCHS="$(lipo -archs "$CODEX_HOOK_CLIENT")"
           echo "App binary architectures: $APP_ARCHS"
           echo "CLI binary architectures: $CLI_ARCHS"
           echo "Ghostty helper architectures: $HELPER_ARCHS"
+          echo "Codex hook client architectures: $CODEX_HOOK_ARCHS"
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
+          [[ "$CODEX_HOOK_ARCHS" == *arm64* && "$CODEX_HOOK_ARCHS" == *x86_64* ]]
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
 
       - name: Run CLI version memory guard regression

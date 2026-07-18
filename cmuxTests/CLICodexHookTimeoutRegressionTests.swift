@@ -193,6 +193,74 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(noCLIFallback.stdout == "{}\n")
     }
 
+    @Test func codexNativeClientTerminatesHungFallbackWithinDeadline() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-native-hung-fallback-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux-hung-fallback", isDirectory: false)
+        let childPIDFile = root.appendingPathComponent("hung-child-pid.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer {
+            if let rawPID = try? String(contentsOf: childPIDFile, encoding: .utf8),
+               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                Darwin.kill(pid, SIGKILL)
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let hookPath = hooksDirectory
+            .appendingPathComponent("cmux-codex-hook-stop.sh", isDirectory: false)
+            .path
+        #expect(codexHookExecutableIsMachO(hookPath))
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s' \"$$\" > \"$CMUX_TEST_PID\"",
+            "trap 'exit 143' TERM",
+            "while :; do :; done",
+        ])
+        let started = ContinuousClock().now
+        let result = runCodexHookProcess(
+            executablePath: hookPath,
+            arguments: [],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "surface-hung-fallback",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-native-hung-missing.sock",
+                "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_AGENT_HOOK_DELIVERY_ID": "native-hung-fallback",
+                "CMUX_TEST_PID": childPIDFile.path,
+            ],
+            standardInputData: Data(repeating: 0xA5, count: 512 * 1024),
+            timeout: 3
+        )
+        let elapsed = started.duration(to: ContinuousClock().now)
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(elapsed < .seconds(2))
+        let rawPID = try String(contentsOf: childPIDFile, encoding: .utf8)
+        let childPID = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
+        errno = 0
+        #expect(Darwin.kill(childPID, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
     @Test func codexPersistentLifecycleHooksAreNativeButFeedHooksStayScripts() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -579,6 +647,8 @@ struct CLICodexHookTimeoutRegressionTests {
             "session-start", "prompt-submit", "stop",
             "pre-tool-use", "post-tool-use", "notification",
         ]
+        let payloads = [Data([0x00, 0xFF, 0x0A, 0x22, 0x5C, 0x7F])]
+            + subcommands.dropFirst().map { Data("payload-\($0)".utf8) }
         for (index, subcommand) in subcommands.enumerated() {
             let result = runCodexHookProcess(
                 executablePath: cliPath,
@@ -591,7 +661,7 @@ struct CLICodexHookTimeoutRegressionTests {
                     "CMUX_AGENT_HOOK_DELIVERY_ID": "fallback-event-\(index)",
                     "CMUX_CLI_SENTRY_DISABLED": "1",
                 ],
-                standardInput: "payload-\(subcommand)",
+                standardInputData: payloads[index],
                 timeout: 3
             )
             #expect(!result.timedOut, Comment(rawValue: result.stderr))
@@ -599,12 +669,16 @@ struct CLICodexHookTimeoutRegressionTests {
             #expect(result.stdout == "{}\n")
         }
 
-        let queuedSubcommands = commands.snapshot().compactMap(codexHookJSONObject).compactMap { request -> String? in
-            guard request["method"] as? String == "agent.hook.enqueue",
-                  let params = request["params"] as? [String: Any] else { return nil }
-            return params["subcommand"] as? String
+        let queuedParams = commands.snapshot().compactMap(codexHookJSONObject).compactMap { request -> [String: Any]? in
+            guard request["method"] as? String == "agent.hook.enqueue" else { return nil }
+            return request["params"] as? [String: Any]
         }
-        #expect(queuedSubcommands == subcommands)
+        #expect(queuedParams.compactMap { $0["subcommand"] as? String } == subcommands)
+        for (index, params) in queuedParams.enumerated() {
+            let payloadBase64 = try #require(params["payload_b64"] as? String)
+            #expect(Data(base64Encoded: payloadBase64) == payloads[index])
+            #expect(params["payload"] == nil)
+        }
     }
 
     @Test func codexResumeUsesGeneratedQueuedSessionStartBeforeExec() throws {
