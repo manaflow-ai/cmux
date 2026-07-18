@@ -978,6 +978,12 @@ struct BrowserWebExtensionsManagerTests {
         #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
             "onCreatedNavigationTarget', {\n                configurable: false"
         ))
+        #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
+            "connectNative"
+        ))
+        #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
+            "No such native application"
+        ))
     }
 
     @available(macOS 15.4, *)
