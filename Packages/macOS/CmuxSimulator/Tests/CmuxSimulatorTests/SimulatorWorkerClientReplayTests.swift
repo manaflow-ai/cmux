@@ -22,7 +22,7 @@ extension SimulatorWorkerClientTests {
 
         first.finish()
         #expect(await iterator.next() == .workerStopped)
-        let second = try #require(launcher.endpoint(at: 1))
+        let second = try #require(await launcher.waitForEndpoint(at: 1))
         second.setResponder { message in
             guard case let .ping(sequence) = message else { return nil }
             return .ack(sequence)
@@ -61,17 +61,16 @@ extension SimulatorWorkerClientTests {
         let typing = Task {
             await client.send(.typeText(requestID: UUID(), sequence: sequence))
         }
-        for _ in 0..<1_000 {
-            if first.inboundMessages().contains(where: {
+        _ = try #require(await first.waitForInboundMessages { messages in
+            messages.contains(where: {
                 if case .typeText = $0 { true } else { false }
-            }) { break }
-            await Task.yield()
-        }
+            })
+        })
 
         first.finish()
         #expect(await iterator.next() == .workerStopped)
         await typing.value
-        let second = try #require(launcher.endpoint(at: 1))
+        let second = try #require(await launcher.waitForEndpoint(at: 1))
         second.setResponder { message in
             guard case let .ping(sequence) = message else { return nil }
             return .ack(sequence)
@@ -139,13 +138,12 @@ extension SimulatorWorkerClientTests {
             button: heldButton,
             phase: .down
         )))
-        for _ in 0..<1_000 {
-            if first.inboundMessages().contains(.hidButton(.init(
+        _ = try #require(await first.waitForInboundMessages { messages in
+            messages.contains(.hidButton(.init(
                 button: heldButton,
                 phase: .down
-            ))) { break }
-            await Task.yield()
-        }
+            )))
+        })
         #expect(first.inboundMessages().contains(.hidButton(.init(
             button: heldButton,
             phase: .down
@@ -158,7 +156,7 @@ extension SimulatorWorkerClientTests {
 
         first.finish()
         #expect(await iterator.next() == .workerStopped)
-        let second = try #require(launcher.endpoint(at: 1))
+        let second = try #require(await launcher.waitForEndpoint(at: 1))
         second.setResponder { message in
             switch message {
             case let .ping(sequence):
@@ -266,7 +264,7 @@ extension SimulatorWorkerClientTests {
         first.finish()
         #expect(await iterator.next() == .workerStopped)
 
-        let second = try #require(launcher.endpoint(at: 1))
+        let second = try #require(await launcher.waitForEndpoint(at: 1))
         second.setResponder { message in
             switch message {
             case let .ping(sequence):
@@ -397,7 +395,7 @@ extension SimulatorWorkerClientTests {
 
         first.finish()
         #expect(await iterator.next() == .workerStopped)
-        let replacement = try #require(launcher.endpoint(at: 1))
+        let replacement = try #require(await launcher.waitForEndpoint(at: 1))
         replacement.emit(.status(.streaming))
         var timeoutEvent = await iterator.next()
         while timeoutEvent != .workerStopped {
@@ -422,14 +420,9 @@ extension SimulatorWorkerClientTests {
 
     private func replayMessages(
         from endpoint: TestWorkerEndpoint,
-        until complete: ([SimulatorWorkerInbound]) -> Bool
+        until complete: @escaping @Sendable ([SimulatorWorkerInbound]) -> Bool
     ) async -> [SimulatorWorkerInbound] {
-        for _ in 0..<1_000 {
-            let messages = endpoint.inboundMessages()
-            if complete(messages) { return messages }
-            await Task.yield()
-        }
-        return endpoint.inboundMessages()
+        await endpoint.waitForInboundMessages(until: complete) ?? endpoint.inboundMessages()
     }
 
     private func acknowledgeRecordedPings(_ endpoint: TestWorkerEndpoint) {

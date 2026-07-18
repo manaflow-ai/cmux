@@ -41,14 +41,13 @@ extension SimulatorWorkerClientTests {
 
         first.finish()
         let replacement = try await replayReplacementEndpoint(launcher)
-        for _ in 0..<10_000 {
-            if replacement.inboundMessages().contains(.attach(
+        let attachmentMessages = try #require(await replacement.waitForInboundMessages { messages in
+            messages.contains(.attach(
                 udid: "DEVICE",
                 geometry: nil
-            )) { break }
-            await Task.yield()
-        }
-        #expect(replacement.inboundMessages() == [.attach(udid: "DEVICE", geometry: nil)])
+            ))
+        })
+        #expect(attachmentMessages == [.attach(udid: "DEVICE", geometry: nil)])
         replacement.setResponder { message in
             guard case let .ping(sequence) = message else { return nil }
             return .ack(sequence)
@@ -56,19 +55,20 @@ extension SimulatorWorkerClientTests {
         replacement.emit(.status(.streaming))
 
         for expectedCount in 1...9 {
-            var configurations: [(UUID, SimulatorCameraConfiguration)] = []
-            for _ in 0..<1_000 {
-                configurations = replacement.inboundMessages().compactMap { message in
+            let messages = try #require(await replacement.waitForInboundMessages { messages in
+                messages.compactMap { message -> UUID? in
+                    guard case let .configureCamera(requestID, _) = message else { return nil }
+                    return requestID
+                }.count == expectedCount
+            })
+            let configurations = messages.compactMap { message -> (UUID, SimulatorCameraConfiguration)? in
                     guard case let .configureCamera(requestID, configuration) = message else {
                         return nil
                     }
                     return (requestID, configuration)
-                }
-                if configurations.count == expectedCount { break }
-                await Task.yield()
             }
             #expect(configurations.count == expectedCount)
-            #expect(!replacement.inboundMessages().contains {
+            #expect(!messages.contains {
                 if case .setCameraMirror = $0 { true } else { false }
             })
             let latest = try #require(configurations.last)
@@ -78,13 +78,12 @@ extension SimulatorWorkerClientTests {
                 targetBundleIdentifier: latest.1.targetBundleIdentifier
             ))
         }
-        for _ in 0..<1_000 {
-            if replacement.inboundMessages().contains(where: {
+        let completedMessages = try #require(await replacement.waitForInboundMessages { messages in
+            messages.contains(where: {
                 if case .setCameraMirror = $0 { true } else { false }
-            }) { break }
-            await Task.yield()
-        }
-        #expect(replacement.inboundMessages().filter {
+            })
+        })
+        #expect(completedMessages.filter {
             if case .setCameraMirror = $0 { true } else { false }
         }.count == 1)
         await client.stop()
@@ -142,10 +141,7 @@ extension SimulatorWorkerClientTests {
     private func replayReplacementEndpoint(
         _ launcher: TestWorkerLauncher
     ) async throws -> TestWorkerEndpoint {
-        for _ in 0..<1_000 {
-            if let endpoint = launcher.endpoint(at: 1) { return endpoint }
-            await Task.yield()
-        }
+        if let endpoint = await launcher.waitForEndpoint(at: 1) { return endpoint }
         throw SimulatorControlError(
             code: "missing_replacement",
             arguments: [],

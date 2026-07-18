@@ -4,11 +4,16 @@ import Foundation
 final class TestWorkerLauncher: SimulatorWorkerLaunching, @unchecked Sendable {
     private let lock = NSLock()
     private let processIdentifiers: [Int32?]
+    private let launchContinuation: AsyncStream<Void>.Continuation
+    private let launchStream: AsyncStream<Void>
     private var endpoints: [TestWorkerEndpoint] = []
     private var responder: (@Sendable (SimulatorWorkerInbound) -> SimulatorWorkerOutbound?)?
 
     init(processIdentifiers: [Int32?] = []) {
         self.processIdentifiers = processIdentifiers
+        let (launchStream, launchContinuation) = AsyncStream.makeStream(of: Void.self)
+        self.launchStream = launchStream
+        self.launchContinuation = launchContinuation
     }
 
     func launch(
@@ -25,6 +30,7 @@ final class TestWorkerLauncher: SimulatorWorkerLaunching, @unchecked Sendable {
         let responder = self.responder
         endpoints.append(endpoint)
         lock.unlock()
+        launchContinuation.yield()
         if let responder { endpoint.setResponder(responder) }
         return endpoint.connection
     }
@@ -42,5 +48,24 @@ final class TestWorkerLauncher: SimulatorWorkerLaunching, @unchecked Sendable {
         defer { lock.unlock() }
         guard endpoints.indices.contains(index) else { return nil }
         return endpoints[index]
+    }
+
+    func waitForEndpoint(at index: Int, timeout: Duration = .seconds(5)) async -> TestWorkerEndpoint? {
+        if let endpoint = endpoint(at: index) { return endpoint }
+        return await withTaskGroup(of: TestWorkerEndpoint?.self) { group in
+            group.addTask { [launchStream] in
+                for await _ in launchStream {
+                    if let endpoint = self.endpoint(at: index) { return endpoint }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let endpoint = await group.next() ?? nil
+            group.cancelAll()
+            return endpoint
+        }
     }
 }

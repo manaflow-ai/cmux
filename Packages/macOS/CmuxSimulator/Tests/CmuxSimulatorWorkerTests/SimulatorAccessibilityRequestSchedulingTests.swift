@@ -34,7 +34,7 @@ struct SimulatorAccessibilityRequestSchedulingTests {
     @MainActor
     func foregroundReadsAreBoundedAndCoalesced() async throws {
         let executor = GatedAccessibilityExecutor()
-        let fixture = try WorkerOutputFixture()
+        let fixture = try WorkerOutputFixture(nonblockingWrites: true)
         let coordinator = SimulatorWorkerCoordinator(
             channel: fixture.worker,
             accessibilityExecutor: executor
@@ -56,12 +56,15 @@ struct SimulatorAccessibilityRequestSchedulingTests {
         await executor.waitForForegroundReadCount(1)
         #expect(await executor.foregroundReadCount == 1)
 
+        let responses = Task.detached {
+            try (0..<SimulatorLengthPrefixedMessageChannel.maximumBufferedFrameCount).map { _ in
+                try fixture.receive()
+            }
+        }
         await executor.releaseForegroundRead()
         var completedIdentifiers: Set<UUID> = []
-        for _ in 0..<SimulatorLengthPrefixedMessageChannel.maximumBufferedFrameCount {
-            guard case let .foregroundApplication(requestID, application) =
-                try await fixture.receiveAsync()
-            else {
+        for response in try await responses.value {
+            guard case let .foregroundApplication(requestID, application) = response else {
                 Issue.record("Expected a coalesced foreground response")
                 return
             }

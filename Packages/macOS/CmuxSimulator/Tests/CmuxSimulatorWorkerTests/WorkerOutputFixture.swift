@@ -8,13 +8,17 @@ final class WorkerOutputFixture: @unchecked Sendable {
     let worker: SimulatorLengthPrefixedMessageChannel
     private let host: SimulatorLengthPrefixedMessageChannel
 
-    init() throws {
+    init(nonblockingWrites: Bool = false) throws {
         var descriptors = [Int32](repeating: 0, count: 2)
         guard pipe(&descriptors) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         self.descriptors = descriptors
-        worker = SimulatorLengthPrefixedMessageChannel(readFD: -1, writeFD: descriptors[1])
+        worker = SimulatorLengthPrefixedMessageChannel(
+            readFD: -1,
+            writeFD: descriptors[1],
+            nonblockingWrites: nonblockingWrites
+        )
         host = SimulatorLengthPrefixedMessageChannel(readFD: descriptors[0], writeFD: -1)
     }
 

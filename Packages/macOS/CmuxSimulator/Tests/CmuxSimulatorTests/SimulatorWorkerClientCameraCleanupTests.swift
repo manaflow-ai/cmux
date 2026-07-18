@@ -146,14 +146,15 @@ extension SimulatorWorkerClientTests {
         second.emit(.status(.streaming))
         #expect(!firstRegion.exists())
         #expect((await control.actions).isEmpty)
-        var replayMessages: [SimulatorWorkerInbound] = []
-        for _ in 0..<1_000 {
-            replayMessages = second.inboundMessages().filter {
+        let secondMessages = try #require(await second.waitForInboundMessages { messages in
+            messages.filter {
                 if case .configureCamera = $0 { return true }
                 return false
-            }
-            if replayMessages.count == 2 { break }
-            await Task.yield()
+            }.count == 2
+        })
+        let replayMessages = secondMessages.filter {
+            if case .configureCamera = $0 { return true }
+            return false
         }
         #expect(replayMessages.count == 2)
         for _ in 0..<1_000 {
@@ -202,14 +203,13 @@ extension SimulatorWorkerClientTests {
             }
         }
         third.emit(.status(.streaming))
-        for _ in 0..<1_000 {
-            if third.inboundMessages().contains(where: {
+        let thirdMessages = try #require(await third.waitForInboundMessages { messages in
+            messages.contains(where: {
                 guard case .configureCamera = $0 else { return false }
                 return true
-            }) { break }
-            await Task.yield()
-        }
-        let replayTargets = Set(third.inboundMessages().compactMap { message -> String? in
+            })
+        })
+        let replayTargets = Set(thirdMessages.compactMap { message -> String? in
             guard case let .configureCamera(_, configuration) = message else { return nil }
             return configuration.targetBundleIdentifier
         })
@@ -335,12 +335,7 @@ extension SimulatorWorkerClientTests {
         from launcher: TestWorkerLauncher,
         at index: Int
     ) async throws -> TestWorkerEndpoint {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        while clock.now < deadline {
-            if let endpoint = launcher.endpoint(at: index) { return endpoint }
-            try await clock.sleep(for: .milliseconds(1))
-        }
+        if let endpoint = await launcher.waitForEndpoint(at: index) { return endpoint }
         throw SimulatorControlError(
             code: "missing_test_worker",
             arguments: [],
