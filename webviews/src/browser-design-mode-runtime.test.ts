@@ -68,9 +68,10 @@ type DesignRuntime = {
     annotation_phase: "idle" | "drawing" | "ink_only" | "capturing" | "captured";
   };
   setMode(mode: string): Snapshot;
+  setSelectionHover(selection: number | string | null): Snapshot;
   clearHover(): Snapshot;
   flashSelection(index: number): Snapshot;
-  removeSelection(index: number): Snapshot;
+  removeSelection(selection: number | string): Snapshot;
   applyStyle(property: string, value: string): Snapshot;
   applyText(value: string): Snapshot;
   revert(id: string): Snapshot;
@@ -783,7 +784,7 @@ describe("browser design-mode runtime", () => {
     expect(regions).toHaveLength(2);
     expect(regions[1]?.bounds?.x).toBe(252);
 
-    const remaining = runtime.removeSelection(0).selections ?? [];
+    const remaining = runtime.removeSelection(regions[0]?.selector ?? "").selections ?? [];
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.selector).toBe(regions[1]?.selector);
 
@@ -810,7 +811,7 @@ describe("browser design-mode runtime", () => {
       (message) => (message as { type?: string }).type === "annotation_capture_requested",
     ) as { request: { id: string } } | undefined;
     const descriptor = runtime.prepareAnnotationCapture(request?.request.id ?? "");
-    runtime.completeAnnotationCapture(
+    const completed = runtime.completeAnnotationCapture(
       request?.request.id ?? "",
       2,
       12,
@@ -832,9 +833,16 @@ describe("browser design-mode runtime", () => {
     expect(card?.style.top).toBe("12px");
     expect(card?.style.width).toBe("196px");
     expect(card?.style.height).toBe("196px");
+    expect(card?.style.borderStyle).toBe("dashed");
+    expect(card?.style.borderColor).toBe("rgb(10, 132, 255)");
+
+    runtime.setSelectionHover(completed.selections?.[0]?.selector ?? "");
+    expect(card?.style.boxShadow).toContain("rgba(10, 132, 255, 0.55)");
+    runtime.setSelectionHover(null);
+    expect(card?.style.boxShadow).not.toContain("rgba(10, 132, 255, 0.55)");
   });
 
-  test("modes are exclusive: no marquee in select mode, no element picks in draw mode", () => {
+  test("a drag switches select mode to draw while clicks remain element picks", () => {
     const { dom, messages, runtime } = fixture(`<main><button id="b">B</button></main>`);
     const doc = dom.window.document;
     const button = doc.querySelector("#b") as HTMLElement;
@@ -843,24 +851,34 @@ describe("browser design-mode runtime", () => {
       new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
     );
 
-    // Select mode: a drag never creates a region; pointerup picks the element.
+    // A click in select mode remains an element pick.
     at("pointerdown", 10, 10);
-    at("pointermove", 200, 200);
-    at("pointerup", 200, 200);
+    at("pointerup", 10, 10);
     expect(runtime.snapshot().selection?.selector).toBe("#b");
     expect(runtime.snapshot().selections?.every((entry) => entry.tag_name !== "region")).toBe(true);
 
-    // Draw mode: taps never pick elements; strokes capture regions, and
-    // element pills selected earlier persist across the mode switch.
-    runtime.setMode("draw");
-    expect(runtime.composerState().mode).toBe("draw");
-    expect(runtime.composerState().selection_count).toBe(1);
-    at("pointerdown", 30, 30);
-    at("pointerup", 31, 31);
-    expect(runtime.composerState().selection_count).toBe(1);
+    // Crossing the drag threshold automatically enters draw mode before the
+    // drawing transaction begins, with the existing element pill preserved.
     at("pointerdown", 40, 40);
     at("pointermove", 140, 140);
     at("pointerup", 140, 140);
+    expect(runtime.composerState().mode).toBe("draw");
+    expect(runtime.composerState().selection_count).toBe(1);
+    const modeMessageIndex = messages.findIndex(
+      (message) => (message as { type?: string; mode?: string }).type === "interaction_mode_changed"
+        && (message as { mode?: string }).mode === "draw",
+    );
+    const drawingMessageIndex = messages.findIndex(
+      (message) => (message as { type?: string }).type === "annotation_drawing",
+    );
+    expect(modeMessageIndex).toBeGreaterThanOrEqual(0);
+    expect(drawingMessageIndex).toBeGreaterThan(modeMessageIndex);
+
+    // Draw-mode taps remain no-ops; the stroke above becomes a second,
+    // region context only after native capture completion.
+    at("pointerdown", 30, 30);
+    at("pointerup", 31, 31);
+    expect(runtime.composerState().selection_count).toBe(1);
     const request = messages.findLast(
       (message) => (message as { type?: string }).type === "annotation_capture_requested",
     ) as { request: { id: string } } | undefined;

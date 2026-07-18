@@ -107,4 +107,34 @@ struct BrowserDesignModeComposerHostingViewTests {
         #expect(cell.accessibilityPerformPress())
         #expect(removedIdentity == "#hero")
     }
+
+    @Test func failedRuntimeRemovalKeepsAuthoritativeSelection() async {
+        let controller = makeController()
+        controller.phase = .active(annotation: .idle)
+        let selection = BrowserDesignModeSelection(
+            selector: "#hero",
+            selectors: ["#hero"],
+            tagName: "h1",
+            domSnippet: "<h1 id=\"hero\">Hero</h1>",
+            textContent: "Hero",
+            textEditable: true,
+            bounds: BrowserDesignModeRect(x: 10, y: 20, width: 200, height: 60),
+            viewport: BrowserDesignModeViewport(width: 800, height: 600),
+            computedStyles: [:]
+        )
+        controller.apply(
+            BrowserDesignModeSnapshot(
+                revision: 1,
+                enabled: true,
+                selection: selection,
+                edits: [],
+                cssDiff: ""
+            )
+        )
+
+        let removed = await controller.removeSelection(at: 0)
+
+        #expect(!removed)
+        #expect(controller.snapshot?.selections == [selection])
+    }
 }

@@ -133,6 +133,42 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(!panel.designModeController.isActive)
     }
 
+    @Test func nativeAnnotationLifecycleRejectsDrawMessagesOutsideDrawMode() {
+        let controller = makeDetachedController()
+        controller.phase = .active(annotation: .idle)
+
+        controller.beginAnnotationDrawing(id: "stale-stroke")
+
+        #expect(controller.phase == .active(annotation: .idle))
+    }
+
+    @Test func annotationCaptureRequestMustMatchTheActiveStroke() throws {
+        let controller = makeDetachedController()
+        controller.phase = .active(annotation: .idle)
+        controller.adoptInteractionModeFromRuntime("draw")
+        controller.beginAnnotationDrawing(id: "active-stroke")
+        let staleRequest = BrowserDesignModeAnnotationCaptureRequest(
+            id: "stale-stroke",
+            strokeBounds: BrowserDesignModeRect(x: 10, y: 20, width: 100, height: 80),
+            viewport: BrowserDesignModeViewport(width: 800, height: 600),
+            scrollX: 0,
+            scrollY: 0
+        )
+
+        controller.receiveAnnotationCaptureRequestData(try JSONEncoder().encode(staleRequest))
+
+        #expect(controller.phase == .active(annotation: .drawing(id: "active-stroke")))
+    }
+
+    @Test func escapeTreatsInFlightInkAsPromptContent() async {
+        let controller = makeDetachedController()
+        controller.phase = .active(annotation: .drawing(id: "active-stroke"))
+
+        await controller.handleEscape()
+
+        #expect(controller.phase == .active(annotation: .drawing(id: "active-stroke")))
+    }
+
     @Test func composerCopyRequestWritesSelectedContextWithoutDescriptionOrRuntimeEdits() async throws {
         let image = NSImage(size: NSSize(width: 640, height: 480))
         image.lockFocus()
@@ -308,6 +344,20 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
     private func requestedChange(from prompt: String) throws -> String? {
         try payload(from: prompt)["requested_change"] as? String
+    }
+
+    private func makeDetachedController() -> BrowserDesignModeController {
+        BrowserDesignModeController(
+            surfaceID: UUID(),
+            script: BrowserDesignModeScript(),
+            promptFormatter: BrowserDesignModePromptFormatter(),
+            screenshotStore: BrowserDesignModeScreenshotStore(directory: URL.temporaryDirectory),
+            javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
+            canEnable: { true },
+            clipboardWriter: { _ in true },
+            onActivityChanged: {}
+        )
     }
 
     private func payload(from prompt: String) throws -> [String: Any] {
