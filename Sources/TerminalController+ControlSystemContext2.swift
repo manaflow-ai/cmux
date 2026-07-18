@@ -44,28 +44,47 @@ extension TerminalController {
             return .missingAction
         }
 
-        guard let workspace = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
+        let resolvesMirroredTab = action == "rename" || action == "clear_name"
+        let workspace = resolvesMirroredTab
+            ? resolveSurfaceWorkspace(routing: routing, tabManager: tabManager)
+            : controlTabActionResolveWorkspace(routing: routing, tabManager: tabManager)
+        guard let workspace else {
             return .workspaceNotFound
         }
 
         let resolvedSurfaceId: UUID?
         if let surfaceID {
             resolvedSurfaceId = surfaceID
-        } else if let paneID = routing.paneID,
+        } else if resolvesMirroredTab,
+                  let paneID = routing.paneID,
                   let location = workspace.remoteTmuxControlPane(paneID: paneID) {
             resolvedSurfaceId = location.pane.panel.id
-        } else {
+        } else if resolvesMirroredTab {
             resolvedSurfaceId = workspace.focusedPanelId.flatMap {
                 workspace.controlSurfaceProjection(forContainerPanelID: $0)?.surfaceID
             }
+        } else {
+            resolvedSurfaceId = workspace.focusedPanelId
         }
         guard let surfaceId = resolvedSurfaceId else {
             return .noFocusedTab
         }
-        guard let tabTarget = workspace.controlTabTarget(for: surfaceId) else {
-            return .tabNotFound(surfaceID: surfaceId)
+
+        let panelId: UUID
+        let outcomePaneId: UUID?
+        if resolvesMirroredTab {
+            guard let tabTarget = workspace.controlTabTarget(for: surfaceId) else {
+                return .tabNotFound(surfaceID: surfaceId)
+            }
+            panelId = tabTarget.panelID
+            outcomePaneId = tabTarget.paneID
+        } else {
+            guard workspace.panels[surfaceId] != nil else {
+                return .tabNotFound(surfaceID: surfaceId)
+            }
+            panelId = surfaceId
+            outcomePaneId = workspace.paneId(forPanelId: surfaceId)?.id
         }
-        let panelId = tabTarget.panelID
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
         let focus = v2FocusAllowed(requested: requestedFocus)
@@ -75,7 +94,7 @@ extension TerminalController {
                 workspaceID: workspace.id,
                 surfaceID: surfaceId,
                 windowID: windowId,
-                paneID: tabTarget.paneID,
+                paneID: outcomePaneId,
                 extras: extras
             ))
         }
@@ -291,6 +310,27 @@ extension TerminalController {
         default:
             return .unknownAction
         }
+    }
+
+    /// Preserves the legacy workspace resolver for non-title tab actions.
+    /// Remote tmux projections are window-tab aliases only for rename/clear;
+    /// unrelated actions retain their existing workspace-panel semantics.
+    private func controlTabActionResolveWorkspace(
+        routing: ControlRoutingSelectors,
+        tabManager: TabManager
+    ) -> Workspace? {
+        if let wsId = routing.workspaceID {
+            return tabManager.tabs.first(where: { $0.id == wsId })
+        }
+        if let surfaceId = routing.surfaceID {
+            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+        }
+        if let paneId = routing.paneID, let located = v2LocatePane(paneId) {
+            guard located.tabManager === tabManager else { return nil }
+            return located.workspace
+        }
+        guard let wsId = tabManager.selectedTabId else { return nil }
+        return tabManager.tabs.first(where: { $0.id == wsId })
     }
 
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped
