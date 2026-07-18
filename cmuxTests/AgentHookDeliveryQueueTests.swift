@@ -233,7 +233,8 @@ struct AgentHookDeliveryQueueTests {
         try Data().write(to: releaseFirstURL)
 
         let credentialDelivered = await waitUntil(timeout: .seconds(2)) {
-            FileManager.default.fileExists(atPath: capturedSecretURL.path)
+            guard let captured = try? Data(contentsOf: capturedSecretURL) else { return false }
+            return !captured.isEmpty
         }
         #expect(credentialDelivered)
         if credentialDelivered {

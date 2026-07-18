@@ -205,39 +205,20 @@ extension CMUXCLI {
         pid: Int?,
         client: SocketClient
     ) -> LiveAgentDeliveryTargetProbeResult {
-        // A relay-backed connection means this hook is not running in the
-        // app's process namespace (SSH/cloud host): its CMUX_CLAUDE_PID is a
-        // REMOTE pid, and resolving that number against the Mac's local
-        // process table could match an unrelated local process attached to
-        // some other pane. Surface/workspace UUIDs are machine-independent,
-        // so the legacy chain and the {surface_id} re-home probe still apply.
-        guard !client.isRelayBacked, let pid, pid > 0 else { return .notAttempted }
-        let payload: [String: Any]
-        do {
-            payload = try client.sendV2(
-                method: "agent.resolve_delivery_target",
-                params: ["pid": pid],
-                responseTimeout: 2.0
-            )
-        } catch let error as CLIError where error.v2Code == "method_not_found"
-                || error.v2Code == "unrecognized_method" {
+        switch liveAgentProcessTerminalBinding(pid: pid, client: client) {
+        case .notAttempted:
+            return .notAttempted
+        case .unsupported:
             return .unsupported
-        } catch {
+        case .failed:
             return .failed
+        case .resolved(let binding):
+            return .resolved(ClaudeHookDeliveryTarget(
+                workspaceId: binding.workspaceId,
+                surfaceId: binding.surfaceId,
+                isAuthoritative: true
+            ))
         }
-        guard
-              (payload["source"] as? String) == "pid",
-              let workspaceId = normalizedHandleValue(payload["workspace_id"] as? String),
-              isUUID(workspaceId),
-              let surfaceId = normalizedHandleValue(payload["surface_id"] as? String),
-              isUUID(surfaceId) else {
-            return .failed
-        }
-        return .resolved(ClaudeHookDeliveryTarget(
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            isAuthoritative: true
-        ))
     }
 
     /// `{surface_id}` probe: the workspace that CURRENTLY owns a known

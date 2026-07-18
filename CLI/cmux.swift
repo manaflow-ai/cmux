@@ -25421,6 +25421,13 @@ struct CMUXCLI {
         let surfaceId: String
     }
 
+    enum LiveAgentProcessTerminalBindingProbeResult {
+        case notAttempted
+        case unsupported
+        case failed
+        case resolved(CallerTerminalBinding)
+    }
+
     private func resolveCallerWorkspaceIdForClaudeHook(
         callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
         client: SocketClient
@@ -25462,7 +25469,56 @@ struct CMUXCLI {
         return resolveTerminalBinding(ttyName: ttyName, client: client)
     }
 
+    func liveAgentProcessTerminalBinding(
+        pid: Int?,
+        client: SocketClient
+    ) -> LiveAgentProcessTerminalBindingProbeResult {
+        // Relay pids belong to a different host's process namespace. Looking
+        // them up locally can silently bind an unrelated process with the same
+        // numeric pid to the wrong pane.
+        guard !client.isRelayBacked, let pid, pid > 0 else { return .notAttempted }
+        let payload: [String: Any]
+        do {
+            payload = try client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: ["pid": pid],
+                responseTimeout: 2.0
+            )
+        } catch let error as CLIError where error.v2Code == "method_not_found"
+                || error.v2Code == "unrecognized_method" {
+            return .unsupported
+        } catch {
+            return .failed
+        }
+        guard
+            (payload["source"] as? String) == "pid",
+            let workspaceId = normalizedHandleValue(payload["workspace_id"] as? String),
+            isUUID(workspaceId),
+            let surfaceId = normalizedHandleValue(payload["surface_id"] as? String),
+            isUUID(surfaceId)
+        else {
+            return .failed
+        }
+        return .resolved(CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId))
+    }
+
     private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
+        switch liveAgentProcessTerminalBinding(pid: pid, client: client) {
+        case .resolved(let binding):
+            return binding
+        case .unsupported:
+            // Rolling upgrade compatibility for apps predating the indexed
+            // resolver. New apps never pay this O(all workspaces) cost.
+            return resolveAgentProcessTerminalBindingViaLegacySnapshot(pid: pid, client: client)
+        case .notAttempted, .failed:
+            return nil
+        }
+    }
+
+    private func resolveAgentProcessTerminalBindingViaLegacySnapshot(
+        pid: Int?,
+        client: SocketClient
+    ) -> CallerTerminalBinding? {
         guard let pid else { return nil }
         guard let payload = try? client.sendV2(
             method: "system.top",
