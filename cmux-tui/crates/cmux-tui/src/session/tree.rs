@@ -262,7 +262,7 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 .map(Value::as_u64)
                 .collect::<Option<Vec<_>>>()?;
             let expanded = value.get("expanded")?.as_u64()?;
-            (!panes.is_empty() && panes.contains(&expanded)).then_some(Node::Stack { panes })
+            panes.contains(&expanded).then(|| Node::stack(panes)).flatten()
         }
         _ => None,
     }

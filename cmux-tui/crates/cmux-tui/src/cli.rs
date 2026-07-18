@@ -218,7 +218,7 @@ const VERBS: &[VerbSpec] = &[
     },
     VerbSpec {
         name: "new-pane",
-        help: "Create a pane with Zellij-style distribution.",
+        help: "Create a pane with automatic distribution.",
         allowed: &["pane", "cols", "rows"],
         kind: socket(build_new_pane, print_surface, false),
     },

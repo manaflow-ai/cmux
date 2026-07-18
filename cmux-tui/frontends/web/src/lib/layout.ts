@@ -17,6 +17,7 @@ export function visibleStackPanes(
   expanded: Id,
   visibleHeaders: number | null,
 ): Id[] {
+  if (panes.length === 0 || !panes.includes(expanded)) return [];
   if (visibleHeaders === null || visibleHeaders >= panes.length - 1) return panes;
   const expandedIndex = panes.indexOf(expanded);
   if (expandedIndex < 0) return panes;
@@ -36,6 +37,9 @@ export function layoutToViewModel(
   if (zoomedPane !== null) return { type: "pane", pane: zoomedPane };
   if (layout.type === "leaf") return { type: "pane", pane: layout.pane };
   if (layout.type === "stack") {
+    if (layout.panes.length === 0 || !layout.panes.includes(layout.expanded)) {
+      throw new Error("invalid stack layout");
+    }
     const expanded = selectedPane !== null && layout.panes.includes(selectedPane)
       ? selectedPane
       : layout.expanded;

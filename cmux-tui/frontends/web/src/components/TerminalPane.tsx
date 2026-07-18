@@ -310,27 +310,40 @@ function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodePro
   const panes = visibleStackPanes(node.panes, node.expanded, visibleHeaders);
   return (
     <div className="pane-stack" ref={ref} style={style}>
-      {panes.map((pane) => (
-        <div
-          className={`pane-leaf${pane === node.expanded ? " expanded" : " collapsed"}`}
-          key={pane}
-          onPointerDown={() => {
-            if (pane === node.expanded) return;
-            actions.onSelectPane(pane);
-          }}
-          onFocusCapture={() => {
-            if (pane !== node.expanded) actions.onSelectPane(pane);
-          }}
-        >
-          <PaneLeaf
-            {...actions}
-            pane={screen.panes.find((candidate) => candidate.id === pane) ?? null}
-            paneId={pane}
-            active={screen.activePane === pane}
-            zoomed={screen.zoomedPane === pane}
-          />
-        </div>
-      ))}
+      {panes.map((pane) => {
+        const livePane = screen.panes.find((candidate) => candidate.id === pane) ?? null;
+        const expanded = pane === node.expanded;
+        const activeTab = livePane?.tabs[livePane.active_tab] ?? null;
+        const label = livePane?.name || activeTab?.name || activeTab?.title || t("pane", { number: pane });
+        return (
+          <div className={`pane-leaf${expanded ? " expanded" : " collapsed"}`} key={pane}>
+            {expanded ? (
+              <PaneLeaf
+                {...actions}
+                pane={livePane}
+                paneId={pane}
+                active={screen.activePane === pane}
+                zoomed={screen.zoomedPane === pane}
+              />
+            ) : (
+              <button
+                aria-label={t("pane", { number: pane })}
+                className="stack-pane-header"
+                onFocus={() => actions.onSelectPane(pane)}
+                onPointerDown={(event) => {
+                  if (event.pointerType === "mouse" && event.button !== 0) return;
+                  actions.onSelectPane(pane);
+                }}
+                type="button"
+              >
+                <span aria-hidden="true">┌</span>
+                <span className="stack-pane-title">{label}</span>
+                <span aria-hidden="true">┐</span>
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

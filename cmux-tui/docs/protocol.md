@@ -42,6 +42,7 @@ new-tab
 new-browser-tab
 new-workspace
 new-screen
+new-pane
 split
 set-ratio
 set-split-ratio
@@ -88,7 +89,7 @@ scroll-surface
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}
 ```
 
-Protocol-v7 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
+Split nodes added stable ids in protocol v7 and serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
 ```json
 {"id":12,"cmd":"set-split-ratio","split":9,"ratio":0.65}
@@ -119,9 +120,9 @@ Subscribed event lines are:
 
 `surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes. `surface-resize-failed` reports an asynchronous browser resize failure and the delay before an automatic retry, or `null` after retries are exhausted. Browser resize completions repeat the numeric `reservation_id` returned by the accepted request so clients can ignore stale completions.
 
-Protocol v7 `title-changed` carries the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
+Protocol v7 and newer `title-changed` events carry the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
 
-Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 `resize-surface` responses include `data.accepted` and `data.reservation_id`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
+Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 and newer `resize-surface` responses include `data.accepted` and `data.reservation_id`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
 
 ## Attach Surface
 
@@ -158,7 +159,7 @@ When the stream ends, it sends:
 
 The remote TUI requires protocol v8. It refuses servers reporting any other protocol version because it relies on stack layouts, resized attach replays, authoritative title events, and stable `split` ids in canonical layout nodes.
 
-Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v7 frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly.
+Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v7 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v8 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v7 server.
 
 Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
 

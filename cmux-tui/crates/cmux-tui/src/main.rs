@@ -71,7 +71,7 @@ OPTIONS:
   -V, --version      Print the cmux-tui version.
 
 KEYS (prefix: Ctrl-b)
-  t  new tab in pane   B    new browser tab    Alt-n  Zellij-style new pane
+  t  new tab in pane   B    new browser tab    Alt-n  auto-layout new pane
   Tab/BackTab  next/prev tab
   1-9  select screen
   %  split right       \"  split down          x/X  close pane/tab

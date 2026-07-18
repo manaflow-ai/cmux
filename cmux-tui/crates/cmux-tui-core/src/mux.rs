@@ -2049,8 +2049,14 @@ impl Mux {
         target: PaneId,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        if self.state.lock().unwrap().screen_of(target).is_none() {
+            anyhow::bail!("unknown pane {target}");
+        }
         let cwd = self.pane_cwd(target);
-        let surface = self.spawn_surface(cwd, size)?;
+        let surface = self.spawn_surface(cwd, size).map_err(|error| {
+            eprintln!("cmux-tui: pane PTY creation failed: {error:#}");
+            anyhow::anyhow!("pane creation failed")
+        })?;
         let pane_id = self.next_id();
         let active_at = self.next_active_at();
         let mut changed_screen = None;
@@ -2067,7 +2073,10 @@ impl Mux {
                         panes.sort_unstable();
                         panes
                     });
-                    panes.retain(|pane| screen.root.contains(*pane));
+                    let mut current_panes = Vec::new();
+                    screen.root.pane_ids(&mut current_panes);
+                    let current_panes = current_panes.into_iter().collect::<HashSet<_>>();
+                    panes.retain(|pane| current_panes.contains(pane));
                     panes.push(pane_id);
                     screen.root =
                         crate::layout::zellij_default_pane_layout_with_ids(&panes, &mut || {
@@ -2398,8 +2407,10 @@ impl Mux {
                     let ws = &mut state.workspaces[wi];
                     ws.active_screen = si;
                     let screen = &mut ws.screens[si];
-                    let layout_changed = (screen.active_pane != pane
-                        && screen.root.contains_stack_pane(pane))
+                    let previous = screen.active_pane;
+                    let layout_changed = (previous != pane
+                        && (screen.root.contains_stack_pane(previous)
+                            || screen.root.contains_stack_pane(pane)))
                     .then_some(screen.id);
                     screen.active_pane = pane;
                     stamp_pane(&mut state, pane, active_at);
@@ -2729,16 +2740,37 @@ impl Mux {
     /// out of its split tree.
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> bool {
         let active_at = self.next_active_at();
-        let moved = {
+        let (moved, changed_screens) = {
             let mut state = self.state.lock().unwrap();
+            let source_pane = state.pane_of(surface);
+            let mut changed_screens = if source_pane.is_some_and(|source| source != pane) {
+                unique_screen_ids(
+                    source_pane
+                        .and_then(|source| state.screen_of(source))
+                        .map(|(wi, si)| state.workspaces[wi].screens[si].id)
+                        .into_iter()
+                        .chain(
+                            state
+                                .screen_of(pane)
+                                .map(|(wi, si)| state.workspaces[wi].screens[si].id),
+                        ),
+                )
+            } else {
+                Vec::new()
+            };
             let moved = move_tab_in_state(self, &mut state, surface, pane, index);
             if moved {
                 stamp_pane(&mut state, pane, active_at);
+            } else {
+                changed_screens.clear();
             }
-            moved
+            (moved, changed_screens)
         };
         if moved {
             self.emit(MuxEvent::TreeChanged);
+            for screen in changed_screens {
+                self.emit(MuxEvent::LayoutChanged(screen));
+            }
         }
         moved
     }
@@ -4184,6 +4216,7 @@ mod tests {
             surfaces.push(surface);
         }
         let target = mux.with_state(|state| state.pane_of(surfaces[0].id).unwrap());
+        let events = mux.subscribe();
 
         assert!(mux.move_tab(surfaces[1].id, target, 0));
         mux.with_state(|state| {
@@ -4198,6 +4231,7 @@ mod tests {
             assert!(!layout.stacked_headers.contains(&target));
             assert!(layout.rect_of(target).unwrap().height > 1);
         });
+        assert!(events.try_iter().any(|event| matches!(event, MuxEvent::LayoutChanged(_))));
     }
 
     #[test]
@@ -4277,6 +4311,25 @@ mod tests {
             assert!(!layout.stacked_headers.contains(&first_pane));
             assert!(layout.rect_of(first_pane).unwrap().height > 1);
         });
+    }
+
+    #[test]
+    fn focusing_outside_a_stack_emits_layout_changed() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut active = first_pane;
+        for _ in 1..13 {
+            let surface = mux.new_pane(active, None).unwrap();
+            active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        }
+        let outside = mux.split(active, SplitDir::Right, None).unwrap();
+        let outside_pane = mux.with_state(|state| state.pane_of(outside.id).unwrap());
+        assert!(mux.focus_pane(first_pane));
+        let events = mux.subscribe();
+
+        assert!(mux.focus_pane(outside_pane));
+        assert!(events.try_iter().any(|event| matches!(event, MuxEvent::LayoutChanged(_))));
     }
 
     #[test]

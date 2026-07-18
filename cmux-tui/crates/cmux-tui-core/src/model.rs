@@ -7,6 +7,37 @@ use std::sync::Arc;
 
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
+/// Pane membership for a stack. Construction rejects empty stacks so layout
+/// and protocol consumers never need to assume a member exists.
+#[derive(Debug, Clone)]
+pub struct StackPanes(Vec<PaneId>);
+
+impl StackPanes {
+    pub fn new(panes: Vec<PaneId>) -> Option<Self> {
+        (!panes.is_empty()).then_some(Self(panes))
+    }
+
+    pub fn as_slice(&self) -> &[PaneId] {
+        &self.0
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut PaneId> {
+        self.0.iter_mut()
+    }
+
+    fn retain(&mut self, predicate: impl FnMut(&PaneId) -> bool) {
+        self.0.retain(predicate);
+    }
+}
+
+impl std::ops::Deref for StackPanes {
+    type Target = [PaneId];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
 /// Binary split tree over panes for one screen.
 #[derive(Debug, Clone)]
 pub enum Node {
@@ -21,11 +52,15 @@ pub enum Node {
     /// Zellij-style stacked panes. `Screen::active_pane` selects the expanded
     /// member; the node owns membership and order only.
     Stack {
-        panes: Vec<PaneId>,
+        panes: StackPanes,
     },
 }
 
 impl Node {
+    pub fn stack(panes: Vec<PaneId>) -> Option<Self> {
+        StackPanes::new(panes).map(|panes| Self::Stack { panes })
+    }
+
     pub fn pane_ids(&self, out: &mut Vec<PaneId>) {
         match self {
             Node::Leaf(id) => out.push(*id),
@@ -33,7 +68,7 @@ impl Node {
                 a.pane_ids(out);
                 b.pane_ids(out);
             }
-            Node::Stack { panes } => out.extend(panes),
+            Node::Stack { panes } => out.extend(panes.iter().copied()),
         }
     }
 
@@ -83,7 +118,7 @@ impl Node {
                 b.swap_leaf_ids(first, second);
             }
             Node::Stack { panes } => {
-                for pane in panes {
+                for pane in panes.iter_mut() {
                     if *pane == first {
                         *pane = second;
                     } else if *pane == second {
@@ -212,6 +247,12 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stack_construction_rejects_empty_membership() {
+        assert!(Node::stack(Vec::new()).is_none());
+        assert!(Node::stack(vec![1]).is_some());
+    }
 
     fn nested_tree() -> Node {
         Node::Split {

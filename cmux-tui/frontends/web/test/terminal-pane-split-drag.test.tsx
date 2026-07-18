@@ -190,10 +190,25 @@ describe("TerminalPane split dividers", () => {
 describe("TerminalPane stacks", () => {
   it("renders collapsed title rows around the expanded pane", () => {
     const props = terminalPaneProps(vi.fn(async () => true));
+    props.client = { protocol: 8 } as CmuxClient;
     const screen: ScreenView = {
       ...screenView(0.5),
       layout: { type: "stack", panes: [1, 2, 3], expanded: 2 },
       activePane: 2,
+      panes: [1, 2, 3].map((id) => ({
+        id,
+        name: null,
+        active_tab: 0,
+        tabs: [{
+          surface: id + 10,
+          kind: "pty" as const,
+          browser_source: null,
+          name: null,
+          title: `shell ${id}`,
+          size: { cols: 80, rows: 24 },
+          dead: false,
+        }],
+      })),
     };
 
     const { container } = render(<TerminalPane {...props} screen={screen} />);
@@ -202,12 +217,17 @@ describe("TerminalPane stacks", () => {
     expect(stack?.querySelectorAll(":scope > .pane-leaf.collapsed")).toHaveLength(2);
     expect(stack?.querySelectorAll(":scope > .pane-leaf.expanded")).toHaveLength(1);
     expect(stack?.children[1]).toHaveClass("expanded");
+    expect(attachedTerminal.renderHook).toHaveBeenCalledTimes(1);
 
-    fireEvent.pointerDown(stack!.children[0]!);
+    const firstHeader = stack!.children[0]!.querySelector(".stack-pane-header")!;
+    fireEvent.pointerDown(firstHeader, { pointerType: "mouse", button: 0 });
     expect(props.onSelectPane).toHaveBeenCalledWith(1);
 
     props.onSelectPane.mockClear();
-    fireEvent.focusIn(stack!.children[2]!.querySelector(".new-tab")!);
+    fireEvent.pointerDown(firstHeader, { pointerType: "mouse", button: 2 });
+    expect(props.onSelectPane).not.toHaveBeenCalled();
+
+    fireEvent.focusIn(stack!.children[2]!.querySelector(".stack-pane-header")!);
     expect(props.onSelectPane).toHaveBeenCalledWith(3);
   });
 });

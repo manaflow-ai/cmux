@@ -67,6 +67,8 @@ object{type:"leaf",pane:Id}
 | object{type:"stack",panes:array<Id>,expanded:Id}
 ```
 
+Stack `panes` must be non-empty, and `expanded` must identify one of those panes.
+
 `split` is stable for the lifetime of that split node. Ratio changes, pane focus, tab changes, and leaf swaps preserve it. Collapsing the split removes the id. A later split receives a new id. Protocol v6 and older canonical layouts omit this field.
 
 `DeclarativeLayout`:
@@ -910,7 +912,7 @@ Example:
 | status | implemented |
 | since | protocol 8 |
 
-Creates a PTY pane after the current panes in creation order, focuses it, and reapplies Zellij's default auto-layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, non-focused panes collapse to one-row headers and the focused pane expands in the remaining stacked area. The new surface inherits the active surface working directory of `pane` when available.
+Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, non-focused panes collapse to one-row headers and the focused pane expands in the remaining stacked area. The new surface inherits the active surface working directory of `pane` when available.
 
 Params:
 
@@ -930,8 +932,8 @@ Errors:
 
 | Error | Condition |
 | --- | --- |
-| `pane <id> not found` | Target pane is not in any screen tree |
-| spawn or PTY error string | PTY creation or child spawn fails |
+| `unknown pane <id>` | Target pane is not in any screen tree |
+| `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -2697,7 +2699,7 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 
 | Area | v5 behavior | Proposed v6 normalization |
 | --- | --- | --- |
-| Create commands | `new-tab`, `new-browser-tab`, `new-screen`, `new-workspace`, `new-pane`, and `split` return only `{surface}` | Return `{surface,pane,screen,workspace}` |
+| Create commands | `new-tab`, `new-browser-tab`, `new-screen`, `new-workspace`, and `split` return only `{surface}` | Return `{surface,pane,screen,workspace}` |
 | Selection commands | `select-*` returns success for unknown targets, out-of-range indexes, and missing selector fields | Return a changed boolean or reject invalid target/index |
 | Resize command | `resize-surface` reports acceptance but not the final clamped size | Return `{accepted,cols,rows}` |
 | Ratio command | `set-ratio` silently clamps and does not return final ratio | Return `{ratio}` after clamping |
@@ -2706,3 +2708,5 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 | Error taxonomy | Errors are strings from `anyhow`, IO, base64, and terminal layers | Add stable machine error codes while preserving messages |
 | Optional size pair | Supplying only one of `cols` or `rows` is silently ignored | Reject partial size pairs |
 | Unknown fields | Unknown request fields are ignored by serde | Reject unknown fields or define extension slots |
+
+Protocol v8 adds `new-pane`; its implemented result is `{surface}`. A future result expansion may add `{pane,screen,workspace}` only behind a newer protocol version.

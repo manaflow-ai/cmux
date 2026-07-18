@@ -214,7 +214,7 @@ pub(crate) fn zellij_default_pane_layout_with_ids(
 }
 
 fn zellij_stacked_layout(panes: &[PaneId]) -> Node {
-    Node::Stack { panes: panes.to_vec() }
+    Node::stack(panes.to_vec()).expect("stacked layout requires at least one pane")
 }
 
 fn equal_split(
@@ -266,6 +266,7 @@ fn walk(node: &Node, area: Rect, active_pane: Option<PaneId>, out: &mut LayoutRe
             walk(b, b_rect, active_pane, out);
         }
         Node::Stack { panes } => {
+            let panes = panes.as_slice();
             let expanded = active_pane
                 .filter(|pane| panes.contains(pane))
                 .unwrap_or_else(|| *panes.last().expect("stack layout requires at least one pane"));
@@ -633,7 +634,7 @@ mod tests {
             id: 1,
             dir: SplitDir::Right,
             ratio: 0.5,
-            a: Box::new(Node::Stack { panes: vec![1, 2, 3] }),
+            a: Box::new(Node::stack(vec![1, 2, 3]).unwrap()),
             b: Box::new(Node::Leaf(4)),
         };
 

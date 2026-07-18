@@ -1615,11 +1615,11 @@ fn node_json(node: &Node, active_pane: PaneId) -> Value {
         }),
         Node::Stack { panes } => json!({
             "type": "stack",
-            "panes": panes,
+            "panes": panes.as_slice(),
             "expanded": if panes.contains(&active_pane) {
                 active_pane
             } else {
-                *panes.last().expect("stack layout requires panes")
+                *panes.last().expect("StackPanes is non-empty")
             },
         }),
     }
@@ -3300,7 +3300,7 @@ mod tests {
 
     #[test]
     fn stack_json_derives_expansion_from_the_active_pane() {
-        let stack = Node::Stack { panes: vec![1, 2, 3] };
+        let stack = Node::stack(vec![1, 2, 3]).unwrap();
 
         assert_eq!(node_json(&stack, 2)["expanded"], 2);
         assert_eq!(node_json(&stack, 9)["expanded"], 3);
@@ -3619,7 +3619,7 @@ mod tests {
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
-        assert_eq!(PROTOCOL_VERSION, 7);
+        assert_eq!(PROTOCOL_VERSION, 8);
     }
 
     #[test]

@@ -59,6 +59,19 @@ describe("layoutToViewModel", () => {
     expect(layoutToViewModel(layout, null, 1)).toEqual({ type: "stack", panes: [1, 2, 3], expanded: 1 });
     expect(layoutToViewModel(layout, 3)).toEqual({ type: "pane", pane: 3 });
   });
+
+  it("rejects malformed stack snapshots", () => {
+    expect(() => layoutToViewModel({
+      type: "stack",
+      panes: [],
+      expanded: 1,
+    } as unknown as Layout)).toThrow("invalid stack layout");
+    expect(() => layoutToViewModel({
+      type: "stack",
+      panes: [1, 2],
+      expanded: 3,
+    })).toThrow("invalid stack layout");
+  });
 });
 
 describe("visibleStackPanes", () => {
