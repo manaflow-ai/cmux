@@ -1525,7 +1525,7 @@ class TerminalController {
                 _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
                 return
             }
-            guard let trimmed = authorizedSocketCommand(
+            guard let commandAuthorization = authorizedSocketCommand(
                 receivedCommand,
                 peerProcessID: pid,
                 peerHasSameUID: peerHasSameUID
@@ -1537,6 +1537,8 @@ class TerminalController {
                 )
                 return
             }
+            let trimmed = commandAuthorization.command
+            let authorizationBasis = commandAuthorization.basis
             lineReader.clearLimits()
             if holdsPreauthorizationSlot {
                 holdsPreauthorizationSlot = false
@@ -1548,7 +1550,8 @@ class TerminalController {
                 if isEventsStreamRequest(trimmed) {
                     if let response = authResponseIfNeeded(
                         for: trimmed,
-                        passwordAuthorization: &passwordAuthorization
+                        passwordAuthorization: &passwordAuthorization,
+                        authorizationBasis: authorizationBasis
                     ) {
                         if !writeSocketResponse(response, to: socket) {
                             shouldCloseSocket = true
@@ -1560,7 +1563,8 @@ class TerminalController {
                         socket: socket,
                         authorizationGeneration: authorizationGeneration,
                         authorizationRevocationSignal: authorizationRevocationSignal,
-                        passwordAuthorization: passwordAuthorization
+                        passwordAuthorization: passwordAuthorization,
+                        authorizationBasis: authorizationBasis
                     )
                     shouldCloseSocket = true
                     return
@@ -1569,7 +1573,7 @@ class TerminalController {
                 let result = processSocketLine(
                     trimmed,
                     passwordAuthorization: passwordAuthorization,
-                    allowsLocalAgentSidecars: peerHasSameUID && (pid.map(isDescendant) ?? false)
+                    authorizationBasis: authorizationBasis
                 )
                 passwordAuthorization = result.passwordAuthorization
                 if let response = result.response {
@@ -1590,7 +1594,7 @@ class TerminalController {
     private nonisolated func processSocketLine(
         _ command: String,
         passwordAuthorization: SocketPasswordAuthorization,
-        allowsLocalAgentSidecars: Bool
+        authorizationBasis: SocketClientAuthorizationBasis
     ) -> SocketLineProcessingResult {
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
@@ -1606,7 +1610,8 @@ class TerminalController {
         var nextPasswordAuthorization = passwordAuthorization
         if let response = authResponseIfNeeded(
             for: command,
-            passwordAuthorization: &nextPasswordAuthorization
+            passwordAuthorization: &nextPasswordAuthorization,
+            authorizationBasis: authorizationBasis
         ) {
 #if DEBUG
             Self.debugLogSocketCommandEndIfNeeded(
@@ -1624,7 +1629,8 @@ class TerminalController {
 
         let response = processCommandUsingSocketExecutionPolicy(
             command,
-            allowsLocalAgentSidecars: allowsLocalAgentSidecars
+            allowsLocalAgentSidecars: authorizationBasis == .descendant
+                || authorizationBasis == .verifiedCapability
         )
 #if DEBUG
         if let response {

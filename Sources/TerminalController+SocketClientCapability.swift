@@ -57,8 +57,8 @@ extension TerminalController {
         _ command: String,
         peerProcessID: pid_t?,
         peerHasSameUID: Bool
-    ) -> String? {
-        return SocketClientAuthorization().authorizedCommand(
+    ) -> SocketClientAuthorizationResult? {
+        SocketClientAuthorization().authorizedCommandResult(
             command,
             accessMode: socketServer.accessMode,
             peerProcessID: peerProcessID,
@@ -144,7 +144,8 @@ extension TerminalController {
 
     nonisolated func authResponseIfNeeded(
         for command: String,
-        passwordAuthorization: inout SocketPasswordAuthorization
+        passwordAuthorization: inout SocketPasswordAuthorization,
+        authorizationBasis: SocketClientAuthorizationBasis
     ) -> String? {
         guard socketServer.accessMode.requiresPasswordAuth else {
             return nil
@@ -160,6 +161,12 @@ extension TerminalController {
             passwordAuthorization: &passwordAuthorization
         ) {
             return v1Response
+        }
+        // A verified capability authorizes this exact envelope only. Do not
+        // mutate the connection's password state, otherwise a later raw line
+        // would inherit privileges it never presented.
+        if authorizationBasis == .verifiedCapability {
+            return nil
         }
         if !passwordAuthorization.isAuthenticated {
             return passwordAuthRequiredResponse(for: command)
@@ -180,8 +187,12 @@ extension TerminalController {
 
     nonisolated func socketEventStreamAuthorizationIsCurrent(
         _ authorizationGeneration: UInt64,
-        passwordAuthorization: inout SocketPasswordAuthorization
+        passwordAuthorization: inout SocketPasswordAuthorization,
+        authorizationBasis: SocketClientAuthorizationBasis
     ) -> Bool {
+        if authorizationBasis == .verifiedCapability {
+            return socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
+        }
         socketAuthorizationIsCurrent(
             authorizationGeneration,
             passwordAuthorization: &passwordAuthorization

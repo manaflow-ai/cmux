@@ -19,18 +19,21 @@ extension TerminalController {
         socket: Int32,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
-        passwordAuthorization: SocketPasswordAuthorization
+        passwordAuthorization: SocketPasswordAuthorization,
+        authorizationBasis: SocketClientAuthorizationBasis
     ) {
         var streamPasswordAuthorization = passwordAuthorization
         guard socketEventStreamAuthorizationIsCurrent(
             authorizationGeneration,
-            passwordAuthorization: &streamPasswordAuthorization
+            passwordAuthorization: &streamPasswordAuthorization,
+            authorizationBasis: authorizationBasis
         ) else { return }
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             guard socketEventStreamAuthorizationIsCurrent(
                 authorizationGeneration,
-                passwordAuthorization: &streamPasswordAuthorization
+                passwordAuthorization: &streamPasswordAuthorization,
+                authorizationBasis: authorizationBasis
             ) else { return }
             _ = writeEventsStreamLine([
                 "type": "error",
@@ -62,25 +65,29 @@ extension TerminalController {
 
         guard socketEventStreamAuthorizationIsCurrent(
                   authorizationGeneration,
-                  passwordAuthorization: &streamPasswordAuthorization
+                  passwordAuthorization: &streamPasswordAuthorization,
+                  authorizationBasis: authorizationBasis
               ),
               writeEventsStreamLine(snapshot.ack, socket: socket) else { return }
         for event in snapshot.replay {
             guard socketEventStreamAuthorizationIsCurrent(
                       authorizationGeneration,
-                      passwordAuthorization: &streamPasswordAuthorization
+                      passwordAuthorization: &streamPasswordAuthorization,
+                      authorizationBasis: authorizationBasis
                   ),
                   writeEventsStreamLine(event, socket: socket) else { return }
         }
 
         while socketEventStreamAuthorizationIsCurrent(
             authorizationGeneration,
-            passwordAuthorization: &streamPasswordAuthorization
+            passwordAuthorization: &streamPasswordAuthorization,
+            authorizationBasis: authorizationBasis
         ) {
             let event = snapshot.subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds)
             guard socketEventStreamAuthorizationIsCurrent(
                 authorizationGeneration,
-                passwordAuthorization: &streamPasswordAuthorization
+                passwordAuthorization: &streamPasswordAuthorization,
+                authorizationBasis: authorizationBasis
             ) else { return }
             if let event {
                 guard writeEventsStreamLine(event, socket: socket) else { return }
@@ -100,7 +107,8 @@ extension TerminalController {
             } else if includeHeartbeats,
                       socketEventStreamAuthorizationIsCurrent(
                           authorizationGeneration,
-                          passwordAuthorization: &streamPasswordAuthorization
+                          passwordAuthorization: &streamPasswordAuthorization,
+                          authorizationBasis: authorizationBasis
                       ) {
                 let heartbeat = CmuxEventBus.shared.heartbeat(subscription: snapshot.subscription)
                 guard writeEventsStreamLine(heartbeat, socket: socket) else { return }
