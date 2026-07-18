@@ -2487,7 +2487,7 @@ private struct SidebarFooterHelpIconVariant: Identifiable {
 private enum SidebarFooterOpticalBalanceDebugSettings {
     static let blurRadiusKey = "debug.sidebarFooterIconBalance.blurRadius"
     static let showsCellGuidesKey = "debug.sidebarFooterIconBalance.showsCellGuides"
-    static let defaultBlurRadius = 1.75
+    static let defaultBlurRadius = 4.0
     static let defaultShowsCellGuides = true
 }
 

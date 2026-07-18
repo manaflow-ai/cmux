@@ -33,12 +33,12 @@ enum SidebarFooterProfileIconDebugSettings {
     static let iconKey = "debug.sidebarFooterProfileIcon.symbol"
     static let sizeKey = "debug.sidebarFooterProfileIcon.size"
     static let defaultIcon = SidebarFooterProfileIconDebugChoice.outline
-    static let defaultSize = 16.0
+    static let defaultSize = 15.0
 }
 
 enum SidebarFooterMobileIconDebugSettings {
     static let sizeKey = "debug.sidebarFooterMobileIcon.size"
-    static let defaultSize = 11.0
+    static let defaultSize = 12.0
 }
 
 enum SidebarFooterHelpIconDebugWeight: String, CaseIterable, Identifiable {
@@ -77,7 +77,7 @@ enum SidebarFooterHelpIconDebugSettings {
     static let sizeKey = "debug.sidebarFooterHelpIcon.size"
     static let weightKey = "debug.sidebarFooterHelpIcon.weight"
     static let iconKey = "debug.sidebarFooterHelpIcon.symbol"
-    static let defaultSize = 14.0
+    static let defaultSize = 13.5
     static let defaultWeight = SidebarFooterHelpIconDebugWeight.regular
     static let defaultIcon = SidebarFooterHelpIconDebugChoice.circle
 }
@@ -121,7 +121,7 @@ struct SidebarAccountMenuButton: View {
 #if DEBUG
         CGFloat(debugIconSize)
 #else
-        16
+        15
 #endif
     }
 
@@ -325,7 +325,7 @@ struct SidebarMobileConnectButton: View {
 #if DEBUG
         CGFloat(debugIconSize)
 #else
-        11
+        12
 #endif
     }
 

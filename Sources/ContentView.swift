@@ -14306,7 +14306,7 @@ private struct SidebarHelpMenuButton: View {
 #if DEBUG
         CGFloat(debugIconSize)
 #else
-        14
+        13.5
 #endif
     }
 
