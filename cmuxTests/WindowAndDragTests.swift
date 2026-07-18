@@ -130,35 +130,6 @@ final class WindowGlassEffectTests: XCTestCase {
         XCTAssertGreaterThan(tintOverlay.alphaValue, 0)
     }
 
-    func testGlassTintCanRemainStableAcrossWindowKeyNotifications() throws {
-        let glassEffect = WindowGlassEffect(adjustsTintForInactiveWindow: false)
-        _ = NSApplication.shared
-
-        let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
-        let window = NSWindow(
-            contentRect: originalContentView.bounds,
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = originalContentView
-
-        glassEffect.apply(to: window, tintColor: .black, style: .clear)
-
-        guard let backgroundView = Self.glassBackgroundView(in: window.contentView),
-              let tintOverlay = backgroundView.subviews.last else {
-            XCTFail("Expected glass background tint overlay")
-            return
-        }
-
-        let initialAlpha = tintOverlay.alphaValue
-        XCTAssertGreaterThan(initialAlpha, 0)
-        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
-        XCTAssertEqual(tintOverlay.alphaValue, initialAlpha, accuracy: 0.001)
-        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
-        XCTAssertEqual(tintOverlay.alphaValue, initialAlpha, accuracy: 0.001)
-    }
-
     private static func windowContainsGlassBackground(_ window: NSWindow) -> Bool {
         guard let contentView = window.contentView else { return false }
         let root = contentView.superview ?? contentView
@@ -2992,8 +2963,26 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
-    func testWorkspaceFloatingDockUsesCustomTransparentGlassChrome() throws {
+    func testWorkspaceFloatingDockUsesNativeCloseOnlyGlassChrome() throws {
         _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let originalTextureStyle = defaults.object(
+            forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+        )
+        defaults.set(
+            WorkspaceFloatingDockTextureDebugStyle.regular.rawValue,
+            forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+        )
+        defer {
+            if let originalTextureStyle {
+                defaults.set(
+                    originalTextureStyle,
+                    forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+                )
+            } else {
+                defaults.removeObject(forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey)
+            }
+        }
         let url = try temporaryTextFile(contents: "", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -3022,52 +3011,115 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
         defer { controller.teardown() }
         let panel = try XCTUnwrap(controller.window)
+        let glassBackdrop = controller.glassBackdropWindowForTesting
 
         XCTAssertTrue(panel.styleMask.contains(.fullSizeContentView))
         XCTAssertEqual(panel.titleVisibility, .hidden)
         XCTAssertTrue(panel.titlebarAppearsTransparent)
-        XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isHidden == true)
-        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isHidden == true)
-        XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isHidden == true)
-        XCTAssertEqual(panel.standardWindowButton(.closeButton)?.alphaValue, 0)
-        XCTAssertEqual(panel.standardWindowButton(.miniaturizeButton)?.alphaValue, 0)
-        XCTAssertEqual(panel.standardWindowButton(.zoomButton)?.alphaValue, 0)
-        XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isEnabled == false)
+        XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isHidden == false)
+        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isHidden == false)
+        XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isHidden == false)
+        XCTAssertEqual(panel.standardWindowButton(.closeButton)?.alphaValue, 1)
+        XCTAssertEqual(panel.standardWindowButton(.miniaturizeButton)?.alphaValue, 1)
+        XCTAssertEqual(panel.standardWindowButton(.zoomButton)?.alphaValue, 1)
+        XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isEnabled == true)
         XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == false)
         XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
         XCTAssertFalse(panel.isOpaque)
+        XCTAssertFalse(panel.hasShadow)
         XCTAssertTrue(panel.usesWorkspaceFloatingDockGlassBackdrop)
         XCTAssertFalse(panel.isMovableByWindowBackground)
         XCTAssertTrue(panel.styleMask.contains(.resizable))
         XCTAssertEqual(panel.backgroundColor.alphaComponent, 0, accuracy: 0.001)
         XCTAssertEqual(panel.minSize, NSSize(width: 320, height: 220))
         XCTAssertEqual(panel.contentMinSize, NSSize(width: 320, height: 220))
+        XCTAssertFalse(glassBackdrop.isOpaque)
+        XCTAssertTrue(glassBackdrop.hasShadow)
+        XCTAssertFalse(glassBackdrop.canBecomeKey)
+        XCTAssertFalse(glassBackdrop.canBecomeMain)
+        XCTAssertTrue(glassBackdrop.ignoresMouseEvents)
+        XCTAssertTrue(glassBackdrop.isExcludedFromWindowsMenu)
+        XCTAssertFalse(glassBackdrop.usesWorkspaceFloatingDockGlassBackdrop)
+        XCTAssertEqual(glassBackdrop.backgroundColor.alphaComponent, 0, accuracy: 0.001)
         XCTAssertEqual(
             controller.windowWillResize(panel, to: NSSize(width: 80, height: 40)),
             NSSize(width: 320, height: 220)
         )
 
         controller.show(focus: false)
+        XCTAssertTrue(glassBackdrop.parent === panel)
         dock.frame = CGRect(x: 75, y: 85, width: 610, height: 410)
         controller.show(focus: false)
         XCTAssertEqual(panel.frame, CGRect(x: 175, y: 185, width: 610, height: 410))
+        XCTAssertEqual(glassBackdrop.frame, panel.frame)
 
         let glass = WindowGlassEffect()
         let glassIsInstalled = Self.viewTree(
-            rootedAt: panel.contentView?.superview,
+            rootedAt: glassBackdrop.contentView?.superview,
             contains: glass.rootViewIdentifier
         ) || Self.viewTree(
-            rootedAt: panel.contentView?.superview,
+            rootedAt: glassBackdrop.contentView?.superview,
             contains: glass.backgroundViewIdentifier
         )
         XCTAssertTrue(glassIsInstalled)
+        XCTAssertFalse(Self.viewTree(
+            rootedAt: panel.contentView?.superview,
+            contains: glass.rootViewIdentifier
+        ))
+        if NSClassFromString("NSGlassEffectView") != nil {
+            XCTAssertTrue(Self.viewTree(
+                rootedAt: glassBackdrop.contentView?.superview,
+                containsClassNamed: "NSGlassEffectView"
+            ))
+        }
+
+        defaults.set(
+            WorkspaceFloatingDockTextureDebugStyle.transparent.rawValue,
+            forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+        )
+        controller.show(focus: false)
+        XCTAssertFalse(Self.viewTree(
+            rootedAt: glassBackdrop.contentView?.superview,
+            contains: glass.rootViewIdentifier
+        ))
+
+        defaults.set(
+            WorkspaceFloatingDockTextureDebugStyle.clear.rawValue,
+            forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+        )
+        controller.show(focus: false)
+        XCTAssertTrue(Self.viewTree(
+            rootedAt: glassBackdrop.contentView?.superview,
+            contains: glass.rootViewIdentifier
+        ) || Self.viewTree(
+            rootedAt: glassBackdrop.contentView?.superview,
+            contains: glass.backgroundViewIdentifier
+        ))
+
+        defaults.set(
+            WorkspaceFloatingDockTextureDebugStyle.hud.rawValue,
+            forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+        )
+        controller.show(focus: false)
+        XCTAssertFalse(Self.viewTree(
+            rootedAt: glassBackdrop.contentView?.superview,
+            contains: glass.rootViewIdentifier
+        ))
+        XCTAssertTrue(Self.viewTree(
+            rootedAt: glassBackdrop.contentView?.superview,
+            containsClassNamed: "NSVisualEffectView"
+        ))
+        XCTAssertEqual(WorkspaceFloatingDockTextureDebugStyle.allCases.count, 14)
     }
 
-    func testWorkspaceFloatingDockDragRegionOwnsFirstMouseAndWindowDrag() {
-        let dragRegion = WorkspaceFloatingDockDragNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 38))
+    func testWorkspaceFloatingDockTitlebarIdentityAcceptsFirstMouseWithoutAppKitDragInterception() {
+        let dragRegion = WorkspaceFloatingDockTitlebarDragNSView(
+            frame: NSRect(x: 0, y: 0, width: WorkspaceFloatingDockChromeMetrics.identityWidth, height: 38)
+        )
 
         XCTAssertTrue(dragRegion.acceptsFirstMouse(for: nil))
-        XCTAssertTrue(dragRegion.mouseDownCanMoveWindow)
+        XCTAssertFalse(dragRegion.mouseDownCanMoveWindow)
+        XCTAssertEqual(WorkspaceFloatingDockChromeMetrics.tabBarLeadingInset, 112)
     }
 
     func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {
@@ -3130,6 +3182,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         guard let root else { return false }
         if root.identifier == identifier { return true }
         return root.subviews.contains { Self.viewTree(rootedAt: $0, contains: identifier) }
+    }
+
+    private static func viewTree(rootedAt root: NSView?, containsClassNamed className: String) -> Bool {
+        guard let root, let expectedClass = NSClassFromString(className) else { return false }
+        if root.isKind(of: expectedClass) { return true }
+        return root.subviews.contains { Self.viewTree(rootedAt: $0, containsClassNamed: className) }
     }
 
     func testNativePreviewSessionsDetachAndManageViewsAcrossRecreation() throws {

@@ -20,6 +20,7 @@ struct DockPanelView: View {
     var rightSidebarOwnsInputFocus: Bool = false
     var onKeyboardFocusIntent: (() -> Void)? = nil
     var usesTransparentBackground = false
+    var tabBarLeadingInset: CGFloat = 0
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
     @State private var visibilityHostId = UUID()
@@ -69,7 +70,7 @@ struct DockPanelView: View {
     private func refreshAppearance(reason: String) {
         let next = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
         appearanceConfig = next
-        store.applyGhosttyChrome(from: next)
+        store.applyGhosttyChrome(from: next, tabBarLeadingInset: tabBarLeadingInset)
     }
 
     @ViewBuilder

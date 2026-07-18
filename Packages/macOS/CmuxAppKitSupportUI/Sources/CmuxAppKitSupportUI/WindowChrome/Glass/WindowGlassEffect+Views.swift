@@ -26,7 +26,6 @@ extension WindowGlassEffect {
         private var effectTopConstraint: NSLayoutConstraint!
         private weak var observedWindow: NSWindow?
         private var currentTintColor: NSColor?
-        private var adjustsTintForInactiveWindow: Bool
 
         init(
             frame: NSRect,
@@ -34,15 +33,9 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool,
-            adjustsTintForInactiveWindow: Bool
+            isKeyWindow: Bool
         ) {
-            // NSGlassEffectView adapts its material to key-window state and
-            // has no public API for forcing an active state. Use the same
-            // always-active blur as older macOS when visual stability is the
-            // requested contract.
-            if adjustsTintForInactiveWindow,
-               let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
+            if let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
                 effectView = glassClass.init(frame: .zero)
                 usesNativeGlass = true
             } else {
@@ -54,7 +47,6 @@ extension WindowGlassEffect {
                 usesNativeGlass = false
             }
             tintOverlay = NSView(frame: .zero)
-            self.adjustsTintForInactiveWindow = adjustsTintForInactiveWindow
 
             super.init(frame: frame)
 
@@ -90,8 +82,7 @@ extension WindowGlassEffect {
                 tintColor: tintColor,
                 style: style,
                 cornerRadius: cornerRadius,
-                isKeyWindow: isKeyWindow,
-                adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
+                isKeyWindow: isKeyWindow
             )
         }
 
@@ -117,11 +108,9 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool,
-            adjustsTintForInactiveWindow: Bool
+            isKeyWindow: Bool
         ) {
             currentTintColor = tintColor
-            self.adjustsTintForInactiveWindow = adjustsTintForInactiveWindow
             effectView.layer?.cornerRadius = cornerRadius ?? 0
             if usesNativeGlass {
                 updateNativeGlassConfiguration(
@@ -180,7 +169,7 @@ extension WindowGlassEffect {
         }
 
         private func updateInactiveTintOverlay(tintColor: NSColor?, isKeyWindow: Bool) {
-            guard adjustsTintForInactiveWindow, let tintColor else {
+            guard let tintColor else {
                 tintOverlay.layer?.backgroundColor = nil
                 tintOverlay.alphaValue = 0
                 return
@@ -236,8 +225,7 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool,
-            adjustsTintForInactiveWindow: Bool
+            isKeyWindow: Bool
         ) {
             backgroundView = GlassBackgroundView(
                 frame: frame,
@@ -245,8 +233,7 @@ extension WindowGlassEffect {
                 tintColor: tintColor,
                 style: style,
                 cornerRadius: cornerRadius,
-                isKeyWindow: isKeyWindow,
-                adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
+                isKeyWindow: isKeyWindow
             )
 
             super.init(frame: frame)
@@ -300,16 +287,14 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool,
-            adjustsTintForInactiveWindow: Bool
+            isKeyWindow: Bool
         ) {
             backgroundView.updateTopOffset(topOffset)
             backgroundView.configure(
                 tintColor: tintColor,
                 style: style,
                 cornerRadius: cornerRadius,
-                isKeyWindow: isKeyWindow,
-                adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
+                isKeyWindow: isKeyWindow
             )
         }
     }
