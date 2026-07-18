@@ -316,7 +316,6 @@ extension CMUXCLIErrorOutputRegressionTests {
             homeDirectory: root.path,
             fileManager: fileManager
         )
-        let cli = CMUXCLI(args: [])
         let records = (0..<count).map { index in
             ClaudeHookSessionRecord(
                 sessionId: String(format: "00000000-0000-4000-8000-%012d", index),
@@ -339,13 +338,17 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
 
         for record in records {
-            let resolved = cli.sessionsListResolvedClaudeWorkflowRecord(record, lookup: lookup)
-            let diagnostics = cli.sessionsListForkDiagnostics(
-                agent: "claude",
-                record: resolved,
-                claudeTranscriptLookup: lookup
-            )
-            #expect(diagnostics["hook_record_restorable"] as? Bool == false)
+            let configRoot = try #require(lookup.configRoots(record: record).first)
+            #expect(lookup.workflowProjectRoots(configRoot: configRoot, sessionId: record.sessionId).isEmpty)
+            #expect(lookup.transcriptPath(
+                configRoot: configRoot,
+                projectDirName: "missing-project-\(record.sessionId)",
+                sessionId: record.sessionId
+            ) == nil)
+            #expect(lookup.transcriptPathInAnyProject(
+                configRoot: configRoot,
+                sessionId: record.sessionId
+            ) == nil)
         }
 
         #expect(fileManager.directoryReadCount <= count + 2)

@@ -8,6 +8,7 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @MainActor
     @Test func completedRootExitCannotBeReattachedByColdIndexEnrichment() {
         #expect(!Workspace.closedPanelAgentEnrichmentAllowed(resumeState: .completedAgentExit))
         #expect(Workspace.closedPanelAgentEnrichmentAllowed(resumeState: nil))
