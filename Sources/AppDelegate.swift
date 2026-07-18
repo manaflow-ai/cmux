@@ -7516,6 +7516,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didStart
     }
 
+    /// Opens the selected team's persistent Base in one stable daemon PTY session.
+    /// Every team member resolves the same team-scoped Base and session id, so their
+    /// native windows render and control the same terminal instead of independent shells.
+    @discardableResult
+    func performSharedTeamWindowAction(
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "cloudVM.teamWindow",
+        onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
+    ) -> Bool {
+        guard let auth, auth.coordinator.resolvedTeamID != nil else {
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = String(
+                localized: "command.cloudVM.teamWindow.teamRequired.title",
+                defaultValue: "Join a Team First"
+            )
+            alert.informativeText = String(
+                localized: "command.cloudVM.teamWindow.teamRequired.message",
+                defaultValue: "Select or join a team in Settings, then open the shared team window again."
+            )
+            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            if let parentWindow = preferredWindow ?? NSApp.keyWindow {
+                alert.beginSheetModal(for: parentWindow)
+            } else {
+                alert.runModal()
+            }
+            return false
+        }
+
+        let sourceWindow = preferredWindow
+            ?? preferredRegisteredMainWindowContext().flatMap { resolvedWindow(for: $0) }
+        let title = String(
+            localized: "workspace.cloudVM.teamWindow.defaultTitle",
+            defaultValue: "Team Window"
+        )
+        let windowId = createMainWindow(
+            initialWorkspaceTitle: title,
+            shouldActivate: true,
+            sourceWindow: sourceWindow
+        )
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+              let window = resolvedWindow(for: context),
+              let initialWorkspace = context.tabManager.selectedWorkspace else {
+            discardMainWindowWithoutClosedHistory(windowId: windowId)
+            NSSound.beep()
+            return false
+        }
+
+        let workspace = context.tabManager.addWorkspace(
+            title: title,
+            initialSurface: .cloudVMLoading,
+            inheritWorkingDirectory: false,
+            select: true,
+            autoWelcomeIfNeeded: false
+        )
+        context.tabManager.setPinned(workspace, pinned: true)
+        closeInitialWorkspaceIfNeeded(initialWorkspaceId: initialWorkspace.id, in: context)
+        if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+            loadingPanel.resetLoading()
+        }
+
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        let didStart = CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: window,
+            arguments: [
+                "vm", "base", "open",
+                "--workspace", workspace.id.uuidString,
+                "--session", "cmux-team-window-v1",
+            ],
+            showsProgress: false,
+            presentsFailureAlert: false,
+            environmentOverrides: [
+                "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
+                "CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS": "2",
+            ],
+            onCompletion: { completion in
+                if !completion.succeeded,
+                   let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+                    loadingPanel.showFailure(completion.output)
+                }
+                onCompletion?(completion)
+            }
+        )
+        if !didStart,
+           let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+            loadingPanel.showFailure(String(
+                localized: "panel.cloudVM.loading.failed.launch",
+                defaultValue: "Cloud VM command could not be launched."
+            ))
+        }
+#if DEBUG
+        cmuxDebugLog("\(debugSource).started window=\(windowId.uuidString) workspace=\(workspace.id.uuidString) result=\(didStart ? 1 : 0)")
+#endif
+        return didStart
+    }
+
     private func existingCloudVMWorkspace(in tabManager: TabManager) -> Workspace? {
         tabManager.tabs.first { workspace in
             if workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
