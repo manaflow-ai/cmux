@@ -156,6 +156,74 @@ struct WorkstreamStoreTests {
         #expect(store.items[0].kind == .toolUse)
     }
 
+    @Test("Telemetry enriches actionable cards without entering retained Feed state")
+    func telemetryOnlyEnrichesActionableItems() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "s1",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            toolInputJSON: #"{"prompt":"keep this context only"}"#
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "s1",
+            hookEventName: .preToolUse,
+            source: "claude",
+            toolName: "Read",
+            toolInputJSON: #"{"path":"/tmp/file"}"#
+        ))
+        store.ingest(.permission("s1", requestId: "r1"))
+
+        #expect(store.items.count == 1)
+        #expect(store.items[0].kind == .permissionRequest)
+        #expect(store.items[0].context?.lastUserMessage == "keep this context only")
+    }
+
+    @Test("Default Feed retention keeps memory bounded")
+    func defaultRetentionIsBounded() {
+        let store = WorkstreamStore()
+        for i in 0..<500 {
+            store.ingest(.permission("s\(i)", requestId: "r\(i)"))
+        }
+
+        #expect(WorkstreamDefaultRingCapacity <= 200)
+        #expect(store.items.count == WorkstreamDefaultRingCapacity)
+        #expect(store.items.last?.workstreamId == "s499")
+    }
+
+    @Test("Restart restores pending decisions only and compacts legacy activity")
+    func restartRestoresOnlyPendingDecisions() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-store-compact-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "telemetry",
+            source: .claude,
+            kind: .toolUse,
+            payload: .toolUse(toolName: "Read", toolInputJSON: "{}")
+        ))
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "resolved",
+            source: .claude,
+            kind: .question,
+            status: .resolved(.question(selections: ["Done"]), at: Date()),
+            payload: .question(requestId: "resolved", questions: [])
+        ))
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "pending",
+            source: .claude,
+            kind: .question,
+            payload: .question(requestId: "pending", questions: [])
+        ))
+
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await store.start()
+
+        #expect(store.items.map(\.workstreamId) == ["pending"])
+        #expect(try await persistence.loadRecent(limit: 10).map(\.workstreamId) == ["pending"])
+    }
+
     @Test("Codex CLI lifecycle feed events stay telemetry")
     func codexLifecycleFeedEventsStayTelemetry() {
         let store = WorkstreamStore(

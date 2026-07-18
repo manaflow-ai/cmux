@@ -152,4 +152,30 @@ struct WorkstreamPersistenceTests {
         try await persistence.clear()
         #expect(!FileManager.default.fileExists(atPath: tmp.path))
     }
+
+    @Test("Persisted Feed state stays below the disk byte ceiling")
+    func persistedStateHasByteCeiling() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-bounded-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let largeInput = String(repeating: "x", count: 64 * 1024)
+        for i in 0..<64 {
+            try await persistence.append(WorkstreamItem(
+                workstreamId: "s\(i)",
+                source: .claude,
+                kind: .permissionRequest,
+                payload: .permissionRequest(
+                    requestId: "r\(i)",
+                    toolName: "Bash",
+                    toolInputJSON: largeInput,
+                    pattern: nil
+                )
+            ))
+        }
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: tmp.path)
+        let fileSize = try #require(attributes[.size] as? NSNumber).intValue
+        #expect(fileSize <= 2 * 1024 * 1024)
+    }
 }
