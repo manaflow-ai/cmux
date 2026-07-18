@@ -172,6 +172,13 @@ struct WorkspaceShareCanvasTopologyTests {
         ))
         #expect(frontPaneID != frontTab)
     }
+
+    @Test func convertsPointerYIntoTopDownCoordinatesForFlippedAndUnflippedViews() {
+        #expect(WorkspaceShareExporter.topDownY(pointY: 0, height: 100, isFlipped: true) == 0)
+        #expect(WorkspaceShareExporter.topDownY(pointY: 100, height: 100, isFlipped: true) == 100)
+        #expect(WorkspaceShareExporter.topDownY(pointY: 0, height: 100, isFlipped: false) == 100)
+        #expect(WorkspaceShareExporter.topDownY(pointY: 100, height: 100, isFlipped: false) == 0)
+    }
 }
 
 @MainActor
