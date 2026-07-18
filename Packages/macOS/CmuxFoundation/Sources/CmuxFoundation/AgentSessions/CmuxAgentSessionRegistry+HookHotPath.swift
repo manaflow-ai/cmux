@@ -1727,7 +1727,17 @@ extension CmuxAgentSessionRegistry {
         at url: URL,
         maximumBytes: Int64
     ) throws -> Data {
-        let descriptor = open(url.path, O_RDONLY | O_CLOEXEC)
+        var pathMetadata = stat()
+        guard stat(url.path, &pathMetadata) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard pathMetadata.st_mode & S_IFMT == S_IFREG else {
+            throw POSIXError(.EFTYPE)
+        }
+
+        // O_NONBLOCK closes the race between the path check and open: if the
+        // path is swapped for a FIFO, opening the descriptor still cannot hang.
+        let descriptor = open(url.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
         guard descriptor >= 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
@@ -1736,6 +1746,9 @@ extension CmuxAgentSessionRegistry {
         var metadata = stat()
         guard fstat(descriptor, &metadata) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard metadata.st_mode & S_IFMT == S_IFREG else {
+            throw POSIXError(.EFTYPE)
         }
         guard metadata.st_size <= maximumBytes else {
             throw HookLegacySourceSizeError(
