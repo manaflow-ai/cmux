@@ -46,11 +46,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// Ghostty config update without remounting or changing another scene.
     var configThemeGeneration: UInt64 = 0
     var artifactFilesEnabled: Bool = false
+    var terminalFilesChipEnabled: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
+    var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -58,11 +60,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: surfaceID,
             store: store,
             artifactFilesEnabled: artifactFilesEnabled,
+            terminalFilesChipEnabled: terminalFilesChipEnabled,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled,
             visibleArtifactCount: visibleArtifactCount,
             onArtifactFilesRequested: onArtifactFilesRequested,
             onArtifactPathTapped: onArtifactPathTapped,
-            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged
+            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
+            onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal
         )
     }
 
@@ -126,8 +130,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
+        context.coordinator.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
         let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
             artifactFilesEnabled: artifactFilesEnabled,
+            terminalFilesChipEnabled: terminalFilesChipEnabled,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
@@ -137,10 +143,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let projectedArtifactCount = context.coordinator.artifactCountNeedsRefresh
             ? 0
             : visibleArtifactCount
-        context.coordinator.updateArtifactChip(
-            count: projectedArtifactCount,
-            enabled: artifactFilesEnabled
-        )
+        context.coordinator.updateArtifactChip(count: projectedArtifactCount)
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         context.coordinator.scheduleTheme(terminalConfigTheme, generation: configThemeGeneration)
@@ -163,11 +166,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         var artifactFilesEnabled: Bool
+        var artifactChipGate: TerminalArtifactChipFeatureGate
         var sessionArtifactCountEnabled: Bool
         var visibleArtifactCount: Int
         var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
         var onArtifactPathTapped: @MainActor (_ path: String) -> Void
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
+        var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
@@ -175,6 +180,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactCountTaskRequest: TerminalArtifactChipCountState.Request?
         var artifactCountState = TerminalArtifactChipCountState()
         var artifactCountNeedsRefresh: Bool
+        var freshestLocalArtifactCount = 0
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
@@ -202,32 +208,36 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: String,
             store: CMUXMobileShellStore,
             artifactFilesEnabled: Bool,
+            terminalFilesChipEnabled: Bool,
             sessionArtifactCountEnabled: Bool,
             visibleArtifactCount: Int,
             onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
             onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
-            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void
+            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void,
+            onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
             self.store = store
             self.artifactFilesEnabled = artifactFilesEnabled
+            self.artifactChipGate = TerminalArtifactChipFeatureGate(
+                artifactsAvailable: artifactFilesEnabled,
+                preferenceEnabled: terminalFilesChipEnabled
+            )
             self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
             self.visibleArtifactCount = visibleArtifactCount
-            self.artifactCountNeedsRefresh = artifactFilesEnabled
+            self.artifactCountNeedsRefresh = artifactChipGate.isEnabled
             self.onArtifactFilesRequested = onArtifactFilesRequested
             self.onArtifactPathTapped = onArtifactPathTapped
             self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
+            self.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
             super.init()
         }
 
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
-            updateArtifactChip(
-                count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount,
-                enabled: artifactFilesEnabled
-            )
+            updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
             guard let store else { return }
             let surfaceID = surfaceID
             viewportReportScheduler = TerminalViewportReportScheduler(

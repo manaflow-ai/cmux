@@ -38,7 +38,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let remoteStatusView = SidebarRowTextView(lines: 1)
     private let remoteReconnectButton = NSButton()
     private var metadataRows: [SidebarRowIconTextLine] = []
+    private let metadataToggleButton = SidebarRowLinkButton()
     private var markdownBlocks: [SidebarRowTextView] = []
+    private let markdownToggleButton = SidebarRowLinkButton()
     private let logLine = SidebarRowIconTextLine()
     private let progressView = SidebarRowProgressView()
     private let branchIconView = NSImageView()
@@ -56,6 +58,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var isEditing = false
     private var pumpCancellables: [AnyCancellable] = []
 
+#if DEBUG
+    /// Test seam: observes every full model application (configure, pump,
+    /// optimistic press/deselect, hover enforcement).
+    var applyModelProbeForTesting: ((SidebarWorkspaceRowModel) -> Void)?
+#endif
+
     /// Per-row churn pump: mirrors TabItemView's onReceive subscriptions so
     /// metadata/branch/PR updates repaint just this cell without any
     /// container re-render. Installed per configure; replaced on reuse.
@@ -65,13 +73,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     ) {
         pumpCancellables.removeAll()
         workspace.sidebarImmediateObservationPublisher
-            .receive(on: RunLoop.main)
+            .receive(on: DispatchQueue.main)
             .sink { _ in
                 MainActor.assumeIsolated { rebuild() }
             }
             .store(in: &pumpCancellables)
         workspace.sidebarObservationPublisher
-            .debounce(for: .milliseconds(40), scheduler: RunLoop.main)
+            .debounce(for: .milliseconds(40), scheduler: DispatchQueue.main)
             .sink { _ in
                 MainActor.assumeIsolated { rebuild() }
             }
@@ -88,33 +96,32 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     var currentModelForMeasurement: SidebarWorkspaceRowModel? { model }
 
-    /// Paints the selected-row background instantly on press; the next
-    /// authoritative configure() repaints the full selected treatment (or
-    /// reverts if the selection did not land).
+    /// Paints the FULL selected treatment instantly on press by applying a
+    /// selection-flipped copy of the model — every selection-derived color
+    /// (background, title, secondary text, notification preview, badges)
+    /// flips with the highlight instead of trailing in with the terminal
+    /// swap. The stored model stays authoritative; the next configure()
+    /// reconciles (or reverts if the selection did not land).
     func showOptimisticSelectionHighlight() {
         guard let model, !model.isActive else { return }
-        let palette = SidebarRowPalette(model: model)
-        backgroundView.layer?.backgroundColor = palette.selectedBackground.cgColor
-        titleView.textColor = palette.selectedForeground(1.0)
+        var optimistic = model
+        optimistic.isActive = true
+        optimistic.isMultiSelected = false
+        applyModel(optimistic)
+        needsLayout = true
     }
 
-    /// Counterpart for the row selection is LEAVING: repaints the normal
-    /// (deselected) treatment instantly so old and new selection never show
+    /// Counterpart for the row selection is LEAVING: applies the full
+    /// deselected treatment instantly so old and new selection never show
     /// together while the authoritative render sits behind the terminal-view
     /// swap. configure() reconciles right after.
     func showOptimisticDeselection() {
         guard let model, model.isActive || model.isMultiSelected else { return }
-        let style = sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
-            isActive: false,
-            isMultiSelected: false,
-            customColorHex: model.snapshot.customColorHex,
-            colorScheme: SidebarRowPalette(model: model).colorScheme,
-            sidebarSelectionColorHex: model.settings.selectionColorHex
-        )
-        applyBackgroundStyle(style)
-        backgroundView.layer?.borderWidth = 0
-        titleView.textColor = .labelColor
+        var optimistic = model
+        optimistic.isActive = false
+        optimistic.isMultiSelected = false
+        applyModel(optimistic)
+        needsLayout = true
     }
 
     /// True when a press at this view should not repaint selection (the
@@ -167,6 +174,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         remoteReconnectButton.target = self
         remoteReconnectButton.action = #selector(didClickReconnect)
         addSubview(remoteReconnectButton)
+        addSubview(metadataToggleButton)
+        addSubview(markdownToggleButton)
         addSubview(logLine)
         addSubview(progressView)
         branchIconView.imageScaling = .scaleProportionallyDown
@@ -222,6 +231,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func applyModel(_ model: SidebarWorkspaceRowModel) {
+#if DEBUG
+        applyModelProbeForTesting?(model)
+#endif
+        // Legacy parity: the SwiftUI sidebar never animates content or color
+        // changes; layer-backed subviews here otherwise pick up implicit
+        // 0.25s actions on backgroundColor/frame (rails and text visibly
+        // crossfaded during resizes and selection).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let palette = palette(model)
         let snapshot = model.snapshot
         let settings = model.settings
@@ -288,10 +307,19 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let titleLineLimit = settings.wrapsWorkspaceTitles ? 8 : 1
         titleView.maximumNumberOfLines = titleLineLimit
         titleView.lineBreakMode = titleLineLimit == 1 ? .byTruncatingTail : .byWordWrapping
-        titleView.stringValue = snapshot.title.sidebarBoundedDisplayString(
+        let boundedTitle = snapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: 2048
         )
+#if DEBUG
+        if titleView.stringValue != boundedTitle {
+            cmuxDebugLog(
+                "sidebar.row.titlePaint workspace=\(model.workspaceId.uuidString.prefix(8)) " +
+                "title=\"\(boundedTitle.prefix(40))\""
+            )
+        }
+#endif
+        titleView.stringValue = boundedTitle
         titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
         titleView.textColor = palette.primaryText
 
@@ -489,9 +517,27 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         closeButton.setRevealed(showsCloseNow)
     }
 
+    /// Authoritative hover enforcement: the controller sweeps visible cells
+    /// so hover-revealed chrome cannot strand on rows the pointer left
+    /// (row-index/id races during churn made per-transition repaints miss).
+    func enforcePointerHovering(_ hovering: Bool) {
+        guard isPointerHovering != hovering else { return }
+        isPointerHovering = hovering
+        // Full re-apply: hover gates more than the close button (the
+        // trailing badge and spinner hide while the close button shows), and
+        // re-deriving that subset here would drift from applyModel.
+        if let model {
+            applyModel(model)
+            needsLayout = true
+        } else {
+            updateCloseVisibility()
+        }
+    }
+
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
-        let entries = model.snapshot.metadataEntries
-        let visible = model.settings.visibleAuxiliaryDetails.showsMetadata ? Array(entries.prefix(3)) : []
+        let allEntries = model.settings.visibleAuxiliaryDetails.showsMetadata
+            ? model.snapshot.metadataEntries : []
+        let visible = model.isMetadataExpanded ? allEntries : Array(allEntries.prefix(3))
         Self.pool(&metadataRows, count: visible.count, parent: self) { SidebarRowIconTextLine() }
         for (index, entry) in visible.enumerated() {
             metadataRows[index].configureMetadataEntry(
@@ -499,7 +545,33 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 color: entry.color.flatMap { NSColor(hex: $0) } ?? (model.isActive ? palette.secondary(0.95).withAlphaComponent(0.84) : .secondaryLabelColor)
             )
         }
-        let blocks = model.settings.visibleAuxiliaryDetails.showsMetadata ? Array(model.snapshot.metadataBlocks.prefix(1)) : []
+        let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
+        let toggleColor = model.isActive
+            ? palette.secondary(0.9)
+            : NSColor.secondaryLabelColor.withAlphaComponent(0.9)
+        metadataToggleButton.isHidden = allEntries.count <= 3
+        if !metadataToggleButton.isHidden {
+            metadataToggleButton.configure(
+                title: model.isMetadataExpanded
+                    ? String(localized: "sidebar.metadata.showLess", defaultValue: "Show less")
+                    : String(localized: "sidebar.metadata.showMore", defaultValue: "Show more"),
+                font: toggleFont, color: toggleColor, underlined: false, toolTip: nil,
+                onClick: { [weak self] in self?.actions?.onToggleMetadataExpansion() }
+            )
+        }
+        let allBlocks = model.settings.visibleAuxiliaryDetails.showsMetadata
+            ? model.snapshot.metadataBlocks : []
+        let blocks = model.isMarkdownExpanded ? allBlocks : Array(allBlocks.prefix(1))
+        markdownToggleButton.isHidden = allBlocks.count <= 1
+        if !markdownToggleButton.isHidden {
+            markdownToggleButton.configure(
+                title: model.isMarkdownExpanded
+                    ? String(localized: "sidebar.metadata.showLessDetails", defaultValue: "Show less details")
+                    : String(localized: "sidebar.metadata.showMoreDetails", defaultValue: "Show more details"),
+                font: toggleFont, color: toggleColor, underlined: false, toolTip: nil,
+                onClick: { [weak self] in self?.actions?.onToggleMarkdownExpansion() }
+            )
+        }
         Self.pool(&markdownBlocks, count: blocks.count, parent: self) { SidebarRowTextView(lines: 12) }
         for (index, block) in blocks.enumerated() {
             let view = markdownBlocks[index]
@@ -652,7 +724,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         renameField.onCancel = { [weak self] in
             self?.endInlineRename(commit: false)
         }
-        window?.makeFirstResponder(renameField)
+        let tookFocus = window?.makeFirstResponder(renameField) ?? false
+#if DEBUG
+        cmuxDebugLog("sidebar.row.beginInlineRename tookFocus=\(tookFocus ? 1 : 0) window=\(window == nil ? 0 : 1)")
+#endif
         renameField.selectText(nil)
         needsLayout = true
     }
@@ -686,7 +761,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     override func layout() {
         super.layout()
         guard let model else { return }
+        // No implicit actions during manual layout: sublayer frame moves
+        // otherwise animate when layout runs inside an animation context
+        // (legacy parity — geometry snaps, never interpolates).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         _ = layoutContent(model: model, width: bounds.width, apply: true)
+        CATransaction.commit()
     }
 
     /// Places (or measures) every slot top-down; single source of truth for
@@ -816,11 +897,31 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if apply { row.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
             y += height
         }
+        if !metadataToggleButton.isHidden {
+            y += 2
+            let size = metadataToggleButton.intrinsicContentSize
+            if apply {
+                metadataToggleButton.frame = NSRect(
+                    x: leading, y: y, width: min(size.width, contentWidth), height: size.height
+                )
+            }
+            y += size.height
+        }
         for block in markdownBlocks where !block.isHidden {
             y += 3
             let height = block.measuredHeight(width: contentWidth)
             if apply { block.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
             y += height
+        }
+        if !markdownToggleButton.isHidden {
+            y += 2
+            let size = markdownToggleButton.intrinsicContentSize
+            if apply {
+                markdownToggleButton.frame = NSRect(
+                    x: leading, y: y, width: min(size.width, contentWidth), height: size.height
+                )
+            }
+            y += size.height
         }
         if !logLine.isHidden {
             y += spacing

@@ -223,15 +223,17 @@ struct CmxIrohHostRuntimeTests {
 }
 
 actor TestIrohHostBroker: CmxIrohHostBrokerServing {
-    private let registrationBinding: CmxIrohBrokerBinding
+    private var registrationBindings: [CmxIrohBrokerBinding]
     private var discoveryResponses: [CmxIrohDiscoveryResponse]
     private let registrationError: CmxIrohTrustBrokerClientError?
     private let discoveryError: CmxIrohTrustBrokerClientError?
     private let revokeError: CmxIrohTrustBrokerClientError?
     private let registrationHook: (@Sendable () async -> Bool)?
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
+    private let relayIssueHook: (@Sendable () async -> Void)?
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
     private var registrationCount = 0
+    private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var relayIssueCount = 0
     private var registrationHookResult: Bool?
     private var revokedBindingIDs: [String] = []
@@ -242,29 +244,33 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     init(
         registrationBinding: CmxIrohBrokerBinding,
         discovery: CmxIrohDiscoveryResponse,
+        subsequentRegistrationBindings: [CmxIrohBrokerBinding] = [],
         subsequentDiscoveries: [CmxIrohDiscoveryResponse] = [],
         registrationError: CmxIrohTrustBrokerClientError? = nil,
         discoveryError: CmxIrohTrustBrokerClientError? = nil,
         revokeError: CmxIrohTrustBrokerClientError? = nil,
         registrationHook: (@Sendable () async -> Bool)? = nil,
         subsequentRegistrationHook: (@Sendable () async -> Void)? = nil,
+        relayIssueHook: (@Sendable () async -> Void)? = nil,
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
     ) {
-        self.registrationBinding = registrationBinding
+        registrationBindings = [registrationBinding] + subsequentRegistrationBindings
         discoveryResponses = [discovery] + subsequentDiscoveries
         self.registrationError = registrationError
         self.discoveryError = discoveryError
         self.revokeError = revokeError
         self.registrationHook = registrationHook
         self.subsequentRegistrationHook = subsequentRegistrationHook
+        self.relayIssueHook = relayIssueHook
         self.subsequentRegistrationErrors = subsequentRegistrationErrors
     }
 
     func register(
-        prepared _: CmxIrohPreparedRegistration,
+        prepared: CmxIrohPreparedRegistration,
         signer _: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse {
         registrationCount += 1
+        preparedRegistrations.append(prepared)
         let readyIDs = registrationCountWaiters.compactMap { id, waiter in
             registrationCount >= waiter.minimum ? id : nil
         }
@@ -283,8 +289,11 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         if let registrationHook {
             registrationHookResult = await registrationHook()
         }
+        let binding = registrationBindings.count > 1
+            ? registrationBindings.removeFirst()
+            : registrationBindings[0]
         return CmxIrohRegistrationResponse(
-            binding: registrationBinding,
+            binding: binding,
             relay: .unavailable
         )
     }
@@ -306,8 +315,11 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     func issueRelayToken(
         bindingID _: String,
         endpointID _: CmxIrohPeerIdentity
-    ) -> CmxIrohRelayTokenResponse {
+    ) async -> CmxIrohRelayTokenResponse {
         relayIssueCount += 1
+        if let relayIssueHook {
+            await relayIssueHook()
+        }
         return CmxIrohRelayTokenResponse(
             token: "testrelaytoken",
             expiresAt: "2027-07-10T12:00:00.000Z",
@@ -322,6 +334,9 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     }
 
     func observedRegistrationCount() -> Int { registrationCount }
+    func observedPreparedRegistrations() -> [CmxIrohPreparedRegistration] {
+        preparedRegistrations
+    }
     func observedRelayIssueCount() -> Int { relayIssueCount }
 
     func enqueueSubsequentRegistrationError(
