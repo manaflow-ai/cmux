@@ -428,6 +428,63 @@ final class RemoteTmuxController {
         waiter.resume(workspaceId)
     }
 
+    /// The destination (ssh alias / `user@host`) of the host whose mirror owns
+    /// `workspaceId`, or nil when no mirror maps to it. Mirror workspaces carry
+    /// their host only through the session mirror, so per-host UI (origin color)
+    /// reads it here.
+    func hostDestination(forWorkspaceId workspaceId: UUID) -> String? {
+        sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId })?.host.destination
+    }
+
+    /// New Workspace requested in `manager`: when its ACTIVE workspace is a live
+    /// session mirror, create a new detached tmux session on that mirror's host and
+    /// mirror it into the same manager, returning `true` (the caller suppresses local
+    /// creation). `false` — active workspace isn't a mirror — means the caller
+    /// creates a plain local workspace. Routes by the ACTIVE workspace's own mirror
+    /// (a window routinely holds mirrors from several hosts plus local workspaces).
+    @discardableResult
+    func handleNewWorkspaceRequested(in manager: TabManager) -> Bool {
+        let entries = sessionMirrors.values.map { (host: $0.host, workspaceId: $0.mirroredWorkspaceId) }
+        guard let activeTabId = manager.selectedTab?.id,
+              let host = Self.newSessionHost(activeTabId: activeTabId, entries: entries) else {
+            return false
+        }
+        // Multiplexer: create the session IN BAND over the shared view stream — a
+        // one-shot ssh would need a second channel a single-connection host refuses.
+        // The reply carries the new session's name, so exactly that workspace is
+        // selected when it surfaces, and a dropped send does nothing (matching the
+        // dedicated transport's silent-failure semantics for the same race).
+        if let view = multiplexedViewsByHost[host.connectionHash] {
+            Task { @MainActor in
+                guard let name = await view.createWorkspaceReturningName() else { return }
+                guard self.multiplexedViewsByHost[host.connectionHash] === view else { return }
+                var intents = self.multiplexIntentsByHost[host.connectionHash] ?? .init()
+                intents.pendingSelect = .init(sessionName: name, originatingTabId: activeTabId)
+                self.storeMultiplexIntents(intents, hostHash: host.connectionHash)
+                view.requestReconcile()
+            }
+            return true
+        }
+        Task { @MainActor in
+            do {
+                let result = try await self.transport(for: host).runTmux(
+                    ["new-session", "-d", "-P", "-F", "#{session_name}"]
+                )
+                let name = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard result.succeeded, !name.isEmpty else { return }
+                // Revalidate across the ssh round trip: the manager's window may have
+                // closed (skip — the detached session is picked up on the next
+                // attach), and the user may have moved on (mirror, don't steal focus).
+                guard AppDelegate.shared?.windowId(for: manager) != nil else { return }
+                let select = manager.selectedTab?.id == activeTabId
+                _ = try self.mirrorSession(host: host, sessionName: name, into: manager, select: select)
+            } catch {
+                // A failed create leaves nothing to mirror; the user can retry.
+            }
+        }
+        return true
+    }
+
     // MARK: - Create / destroy propagation (P5)
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the

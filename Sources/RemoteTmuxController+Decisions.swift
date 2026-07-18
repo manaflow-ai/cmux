@@ -295,6 +295,20 @@ extension RemoteTmuxController {
         return MirrorTabActivity(hasActiveCommand: hasActive, activeCommandName: name)
     }
 
+    /// The host to spawn a new session on when New Workspace fires: the host of the
+    /// mirror whose workspace is currently active, or nil when the active workspace
+    /// isn't a live mirror (→ create a plain local workspace). Pure over
+    /// `(activeTabId, entries)` so the whole truth table is unit-testable without
+    /// live mirrors. A mirror whose weak workspace already deallocated (`workspaceId`
+    /// nil, mid-teardown) and no active workspace both yield nil.
+    nonisolated static func newSessionHost(
+        activeTabId: UUID?,
+        entries: [(host: RemoteTmuxHost, workspaceId: UUID?)]
+    ) -> RemoteTmuxHost? {
+        guard let activeTabId else { return nil }
+        return entries.first { $0.workspaceId == activeTabId }?.host
+    }
+
     /// The `kill-session` target for a user-initiated mirror-workspace close, or
     /// nil when the control client already ended. Closing a leftover workspace
     /// after deliberate detach must not kill the remote session detach promised to
