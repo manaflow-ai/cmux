@@ -466,10 +466,12 @@ test("pagehide cancels a typed session while its initial open is pending", async
   );
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
   const openRequest = requests.find((request) => request.method === "sessionOpen");
+  expect(openRequest).toBeDefined();
   expect(openRequest.params.viewerInstanceId).toMatch(/^[0-9a-f-]{36}$/i);
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
   await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 1);
   const closeRequest = requests.find((request) => request.method === "sessionClose");
+  expect(closeRequest).toBeDefined();
   expect(closeRequest.params.sessionId).toBe("00000000-0000-0000-0000-000000000000");
   expect(closeRequest.params.viewerInstanceId).toBe(openRequest.params.viewerInstanceId);
 });

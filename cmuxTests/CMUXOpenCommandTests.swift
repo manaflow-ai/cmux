@@ -990,7 +990,7 @@ final class CMUXOpenCommandTests: XCTestCase {
                   params["expected_url"] as? String == expectedURL,
                   let rawURL = params["url"] as? String,
                   URL(string: rawURL)?.scheme == "cmux-diff-viewer",
-                  params["diff_viewer_token"] as? String != nil,
+                  params["diff_viewer_token"] is String,
                   (params["diff_viewer_files"] as? [[String: Any]])?.isEmpty == false else {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
             }

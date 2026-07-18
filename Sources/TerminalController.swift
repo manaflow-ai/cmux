@@ -6627,7 +6627,6 @@ class TerminalController {
         }
         var basePayload: [String: Any]?
         var resolutionError: V2CallResult?
-        var shouldRewarmDiffLoadingPage = false
         v2MainSync {
             let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
             if let error = resolvedContext.error {
@@ -6654,13 +6653,17 @@ class TerminalController {
                     resolutionError = registrationError
                     return
                 }
-                shouldRewarmDiffLoadingPage = v2IsDiffViewerURL(parsedURL)
             }
             if !context.browserPanel.navigateFromCLI(
                 url,
                 expectedURL: expectedURL,
                 expectedOperationID: expectedOperationID
             ) { resolutionError = .err(code: "stale_state", message: "Browser URL changed before navigation", data: nil); return }
+            if let parsedURL = URL(string: url), v2IsDiffViewerURL(parsedURL) {
+                // Navigation has been handed to WebKit. Refill the separate
+                // loading-shell pool deterministically before leaving MainActor.
+                DiffViewerLoadingPage.prewarm()
+            }
             if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
                 basePayload = v2WindowDockBrowserActionPayload(context)
             } else {
@@ -6678,12 +6681,6 @@ class TerminalController {
         }
         guard var payload = basePayload else {
             return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
-        }
-        if shouldRewarmDiffLoadingPage {
-            Task { @MainActor in
-                await Task.yield()
-                DiffViewerLoadingPage.prewarm()
-            }
         }
         // Run the optional --snapshot-after walk on the worker thread (not inside
         // v2MainSync) so a slow accessibility-tree snapshot on a fresh surface

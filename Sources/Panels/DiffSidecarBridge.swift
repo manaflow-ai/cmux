@@ -96,9 +96,6 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     nonisolated static func shutdown() {
         terminationHandle.terminateSynchronously()
-        Task.detached(priority: .utility) {
-            await sidecarProcess.shutdown()
-        }
     }
 
     static func installIfNeeded(on userContentController: WKUserContentController) {
@@ -407,20 +404,27 @@ actor DiffSidecarProcessSupervisor {
         outputTask = Task { [weak self] in
             var frame = Data()
             for await data in outputStream.stream {
-                for byte in data {
-                    if byte == UInt8(ascii: "\n") {
-                        await self?.receive(frame: frame, generation: launchGeneration)
-                        frame.removeAll(keepingCapacity: true)
-                    } else {
-                        frame.append(byte)
-                        if frame.count > Self.maximumResponseBytes {
-                            await self?.transportDidFail(
-                                generation: launchGeneration,
-                                error: SupervisorError.invalidResponse
-                            )
-                            return
-                        }
+                var searchStart = data.startIndex
+                while let newlineIndex = data[searchStart...].firstIndex(of: UInt8(ascii: "\n")) {
+                    frame.append(contentsOf: data[searchStart..<newlineIndex])
+                    if frame.count > Self.maximumResponseBytes {
+                        await self?.transportDidFail(
+                            generation: launchGeneration,
+                            error: SupervisorError.invalidResponse
+                        )
+                        return
                     }
+                    await self?.receive(frame: frame, generation: launchGeneration)
+                    frame.removeAll(keepingCapacity: true)
+                    searchStart = data.index(after: newlineIndex)
+                }
+                frame.append(contentsOf: data[searchStart...])
+                if frame.count > Self.maximumResponseBytes {
+                    await self?.transportDidFail(
+                        generation: launchGeneration,
+                        error: SupervisorError.invalidResponse
+                    )
+                    return
                 }
             }
             if !frame.isEmpty {
