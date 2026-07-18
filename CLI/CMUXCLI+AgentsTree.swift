@@ -102,15 +102,18 @@ extension CMUXCLI {
                 normalizedWorkKind
             ))
         }
+        let canonicalTerminalObservations = AgentTerminalObservationJoiner.canonicalObservations(
+            terminalObservations
+        )
 
         let specifications = [(name: "claude", suffix: "claude")] + Self.agentDefs.map {
             (name: $0.name, suffix: $0.sessionStoreSuffix)
         }
         let providerID = normalizedAgent.flatMap {
-            agentSessionProviderID(for: $0, terminalObservations: terminalObservations)
+            agentSessionProviderID(for: $0, terminalObservations: canonicalTerminalObservations)
         }
         if let normalizedAgent {
-            let hasMatchingObservation = terminalObservations.contains {
+            let hasMatchingObservation = canonicalTerminalObservations.contains {
                 agentTerminalObservation($0, matchesAnyAgentID: [normalizedAgent])
             }
             guard providerID != nil || hasMatchingObservation else {
@@ -229,7 +232,7 @@ extension CMUXCLI {
             }
         }
 
-        let matchingObservations = terminalObservations.filter { observation in
+        let matchingObservations = canonicalTerminalObservations.filter { observation in
             if !observationAgentIDs.isEmpty,
                !agentTerminalObservation(observation, matchesAnyAgentID: observationAgentIDs) {
                 return false

@@ -7,6 +7,49 @@ import Foundation
 /// start time. Ambiguous observations remain independent process nodes instead
 /// of being attached to the wrong logical session.
 struct AgentTerminalObservationJoiner: Sendable {
+    /// Detector family, provider, state, and workspace are mutable metadata.
+    /// The runtime-owned terminal generation plus kernel PID lifetime is the
+    /// stable identity used to collapse repeated publications.
+    private struct ProcessIdentity: Hashable, Sendable {
+        let runtimeID: String
+        let surfaceID: UUID
+        let surfaceGeneration: UInt64
+        let pid: Int32
+        let processStartSeconds: Int64
+        let processStartMicroseconds: Int64
+
+        init(_ observation: CmuxAgentTerminalObservation) {
+            runtimeID = observation.runtimeID
+            surfaceID = observation.surfaceID
+            surfaceGeneration = observation.surfaceGeneration
+            pid = observation.pid
+            processStartSeconds = observation.processStartSeconds
+            processStartMicroseconds = observation.processStartMicroseconds
+        }
+    }
+
+    static func canonicalObservations(
+        _ observations: [CmuxAgentTerminalObservation]
+    ) -> [CmuxAgentTerminalObservation] {
+        var result: [CmuxAgentTerminalObservation] = []
+        var indexByIdentity: [ProcessIdentity: Int] = [:]
+        result.reserveCapacity(observations.count)
+        indexByIdentity.reserveCapacity(observations.count)
+
+        for observation in observations {
+            let identity = ProcessIdentity(observation)
+            if let index = indexByIdentity[identity] {
+                if prefers(observation, over: result[index]) {
+                    result[index] = observation
+                }
+            } else {
+                indexByIdentity[identity] = result.count
+                result.append(observation)
+            }
+        }
+        return result
+    }
+
     func merge(
         nodes: [AgentSessionGraphNode],
         observations: [CmuxAgentTerminalObservation],
@@ -29,7 +72,7 @@ struct AgentTerminalObservationJoiner: Sendable {
         let candidateIndices = Dictionary(grouping: nodes.indices) { index in
             Self.processKey(node: nodes[index])
         }
-        for observation in observations {
+        for observation in Self.canonicalObservations(observations) {
             let matchingIndices = (candidateIndices[Self.processKey(observation: observation)] ?? []).filter { index in
                 matches(nodes[index], observation: observation)
             }
@@ -70,6 +113,51 @@ struct AgentTerminalObservationJoiner: Sendable {
             surfaceID: observation.surfaceID.uuidString
         )
         return "\(surface)\u{1F}\(observation.pid)"
+    }
+
+    private static func prefers(
+        _ candidate: CmuxAgentTerminalObservation,
+        over existing: CmuxAgentTerminalObservation
+    ) -> Bool {
+        if candidate.publishedAt != existing.publishedAt {
+            return candidate.publishedAt > existing.publishedAt
+        }
+        if candidate.revision != existing.revision { return candidate.revision > existing.revision }
+        if candidate.runtimeID != existing.runtimeID { return candidate.runtimeID > existing.runtimeID }
+        let candidateWorkspaceID = candidate.workspaceID.uuidString.lowercased()
+        let existingWorkspaceID = existing.workspaceID.uuidString.lowercased()
+        if candidateWorkspaceID != existingWorkspaceID { return candidateWorkspaceID > existingWorkspaceID }
+        let candidateSurfaceID = candidate.surfaceID.uuidString.lowercased()
+        let existingSurfaceID = existing.surfaceID.uuidString.lowercased()
+        if candidateSurfaceID != existingSurfaceID { return candidateSurfaceID > existingSurfaceID }
+        if candidate.surfaceGeneration != existing.surfaceGeneration {
+            return candidate.surfaceGeneration > existing.surfaceGeneration
+        }
+        if candidate.familyID != existing.familyID { return candidate.familyID > existing.familyID }
+        if candidate.sessionProviderID != existing.sessionProviderID {
+            return candidate.sessionProviderID > existing.sessionProviderID
+        }
+        if candidate.lifecycleAuthoritative != existing.lifecycleAuthoritative {
+            return candidate.lifecycleAuthoritative
+        }
+        if candidate.state.rawValue != existing.state.rawValue {
+            return candidate.state.rawValue > existing.state.rawValue
+        }
+        if candidate.pid != existing.pid { return candidate.pid > existing.pid }
+        if candidate.processStartSeconds != existing.processStartSeconds {
+            return candidate.processStartSeconds > existing.processStartSeconds
+        }
+        if candidate.processStartMicroseconds != existing.processStartMicroseconds {
+            return candidate.processStartMicroseconds > existing.processStartMicroseconds
+        }
+        switch (candidate.cwd, existing.cwd) {
+        case let (candidate?, existing?) where candidate != existing:
+            return candidate > existing
+        case (_?, nil):
+            return true
+        default:
+            return false
+        }
     }
 
     func matches(

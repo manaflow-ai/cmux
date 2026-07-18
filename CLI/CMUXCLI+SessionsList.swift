@@ -91,6 +91,9 @@ extension CMUXCLI {
                     .path
         )
         let homeDirectory = sessionsListExpandedPath(processEnv["HOME"] ?? NSHomeDirectory())
+        let canonicalTerminalObservations = AgentTerminalObservationJoiner.canonicalObservations(
+            terminalObservations
+        )
 
         let agentSpecs = sessionsListAgentSpecs()
         let requestedAgent = agentRaw.map(agentsNormalizedAgentID)
@@ -102,9 +105,9 @@ extension CMUXCLI {
             }
             let providerID = agentSessionProviderID(
                 for: normalized,
-                terminalObservations: terminalObservations
+                terminalObservations: canonicalTerminalObservations
             )
-            let hasMatchingObservation = terminalObservations.contains {
+            let hasMatchingObservation = canonicalTerminalObservations.contains {
                 agentTerminalObservation($0, matchesAnyAgentID: [normalized])
             }
             guard providerID != nil || hasMatchingObservation else {
@@ -150,7 +153,7 @@ extension CMUXCLI {
             || surfaceFilter != nil || cwdFilter != nil
         let includesEndedRecords = includeAll || hasIdentityFilter || stateFilter == AgentEffectiveState.ended.rawValue
         let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
-        let matchingObservations = terminalObservations.filter { observation in
+        let matchingObservations = canonicalTerminalObservations.filter { observation in
             if !observationAgentIDs.isEmpty,
                !agentTerminalObservation(observation, matchesAnyAgentID: observationAgentIDs) {
                 return false

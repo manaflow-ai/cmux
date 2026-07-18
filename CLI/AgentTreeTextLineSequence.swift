@@ -11,6 +11,11 @@ struct AgentTreeTextLineSequence: Sequence {
     }
 
     struct Iterator: IteratorProtocol {
+        private struct ResolvedEdgeKey: Hashable {
+            let parentNodeID: String
+            let childNodeID: String
+        }
+
         private struct RenderFrame {
             var node: AgentSessionGraphNode
             var prefix: String
@@ -33,19 +38,24 @@ struct AgentTreeTextLineSequence: Sequence {
             nodes = snapshot.nodes
             let nodeByID = AgentSessionGraphNodeIndex.nodes(snapshot.nodes)
             let edgeResolver = AgentSessionGraphEdgeResolver(nodes: snapshot.nodes)
+            var seenEdgeKeys: Set<ResolvedEdgeKey> = []
+            let resolvedEdges = snapshot.edges.compactMap {
+                edge -> (parentNodeID: String, edge: AgentSessionGraphEdge)? in
+                guard let parentNodeID = edgeResolver.parentNodeId(for: edge),
+                      seenEdgeKeys.insert(ResolvedEdgeKey(
+                          parentNodeID: parentNodeID,
+                          childNodeID: edge.toNodeId
+                      )).inserted else { return nil }
+                return (parentNodeID, edge)
+            }
             let childEdgesByNodeID = Dictionary(
-                grouping: snapshot.edges.compactMap { edge -> (String, AgentSessionGraphEdge)? in
-                    guard let parent = edgeResolver.parentNodeId(for: edge) else { return nil }
-                    return (parent, edge)
-                },
-                by: \.0
-            ).mapValues { $0.map(\.1) }
+                grouping: resolvedEdges,
+                by: \.parentNodeID
+            ).mapValues { $0.map(\.edge) }
             childrenByNodeID = childEdgesByNodeID.mapValues { edges in
                 edges.compactMap { nodeByID[$0.toNodeId] }
             }
-            let childNodeIDs = Set(snapshot.edges.compactMap { edge in
-                edgeResolver.parentNodeId(for: edge).map { _ in edge.toNodeId }
-            })
+            let childNodeIDs = Set(resolvedEdges.map { $0.edge.toNodeId })
             roots = snapshot.nodes.filter { !childNodeIDs.contains($0.nodeId) }
         }
 

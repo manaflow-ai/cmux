@@ -3,13 +3,57 @@ import Foundation
 /// Resolves graph edges that retain a durable parent session ID after the
 /// parent process generation is no longer available to the child hook.
 struct AgentSessionGraphEdgeResolver: Sendable {
-    private let nodesByRunId: [String: [AgentSessionGraphNode]]
-    private let parentCandidatesBySessionId: [String: [AgentSessionGraphNode]]
+    private struct CandidateSummary: Sendable {
+        let count: Int
+        let firstNodeId: String
+        let secondNodeId: String?
+
+        init(_ candidates: [AgentSessionGraphNode]) {
+            precondition(!candidates.isEmpty)
+            count = candidates.count
+            firstNodeId = candidates[0].nodeId
+            secondNodeId = candidates.count > 1 ? candidates[1].nodeId : nil
+        }
+
+        func firstNodeId(excluding nodeId: String) -> String? {
+            firstNodeId == nodeId ? secondNodeId : firstNodeId
+        }
+    }
+
+    private struct RunCandidateSummary: Sendable {
+        let all: CandidateSummary
+        let bySessionId: [String: CandidateSummary]
+        let byProvider: [String: CandidateSummary]
+
+        init(_ candidates: [AgentSessionGraphNode]) {
+            all = CandidateSummary(candidates)
+            bySessionId = Dictionary(grouping: candidates.compactMap { node in
+                node.sessionId.map { ($0, node) }
+            }, by: \.0).mapValues { CandidateSummary($0.map(\.1)) }
+            byProvider = Dictionary(grouping: candidates, by: \.provider)
+                .mapValues(CandidateSummary.init)
+        }
+    }
+
+    private struct SessionCandidateSummary: Sendable {
+        let all: CandidateSummary
+        let byProvider: [String: CandidateSummary]
+
+        init(_ candidates: [AgentSessionGraphNode]) {
+            all = CandidateSummary(candidates)
+            byProvider = Dictionary(grouping: candidates, by: \.provider)
+                .mapValues(CandidateSummary.init)
+        }
+    }
+
+    private let candidatesByRunId: [String: RunCandidateSummary]
+    private let parentCandidatesBySessionId: [String: SessionCandidateSummary]
     private let nodesByNodeId: [String: AgentSessionGraphNode]
 
     init(nodes: [AgentSessionGraphNode]) {
         let canonical = AgentSessionGraphNodeIndex.canonicalNodes(nodes)
-        nodesByRunId = AgentSessionGraphNodeIndex.candidatesByRunId(canonical)
+        candidatesByRunId = AgentSessionGraphNodeIndex.candidatesByRunId(canonical)
+            .mapValues(RunCandidateSummary.init)
         nodesByNodeId = AgentSessionGraphNodeIndex.nodes(canonical)
         parentCandidatesBySessionId = Dictionary(grouping: canonical.compactMap { node in
             node.sessionId.map { ($0, node) }
@@ -20,38 +64,42 @@ struct AgentSessionGraphEdgeResolver: Sendable {
                     if lhs.restoreAuthority != rhs.restoreAuthority { return lhs.restoreAuthority }
                     if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
                     if lhs.startedAt != rhs.startedAt { return lhs.startedAt > rhs.startedAt }
-                    return lhs.runId < rhs.runId
+                    if lhs.runId != rhs.runId { return lhs.runId < rhs.runId }
+                    return lhs.nodeId < rhs.nodeId
                 }
             }
+            .mapValues(SessionCandidateSummary.init)
     }
 
     func parentNodeId(for edge: AgentSessionGraphEdge) -> String? {
         if let fromRunId = edge.fromRunId,
-           let candidates = nodesByRunId[fromRunId] {
-            let eligible = candidates.filter { $0.nodeId != edge.toNodeId }
+           let candidates = candidatesByRunId[fromRunId] {
+            let child = nodesByNodeId[edge.toNodeId]
+            let excludesChild = child?.runId == fromRunId
             if let fromSessionId = edge.fromSessionId {
-                if let parent = eligible.first(where: { $0.sessionId == fromSessionId }) {
-                    return parent.nodeId
+                if let parentNodeId = candidates.bySessionId[fromSessionId]?
+                    .firstNodeId(excluding: edge.toNodeId) {
+                    return parentNodeId
                 }
                 // The durable session identity is stronger than a reused run
                 // ID. Fall through to session-only recovery below.
-            } else if eligible.count == 1 {
-                return eligible[0].nodeId
-            } else if let childProvider = nodesByNodeId[edge.toNodeId]?.provider {
-                let sameProvider = eligible.filter { $0.provider == childProvider }
-                if sameProvider.count == 1 { return sameProvider[0].nodeId }
+            } else if candidates.all.count - (excludesChild ? 1 : 0) == 1 {
+                return candidates.all.firstNodeId(excluding: edge.toNodeId)
+            } else if let childProvider = child?.provider {
+                if let sameProvider = candidates.byProvider[childProvider],
+                   sameProvider.count - (excludesChild ? 1 : 0) == 1 {
+                    return sameProvider.firstNodeId(excluding: edge.toNodeId)
+                }
                 // Run IDs are not global. Multiple same-provider candidates,
                 // or several foreign-provider candidates, are ambiguous.
                 return nil
             }
         }
         guard let fromSessionId = edge.fromSessionId else { return nil }
-        let candidates = parentCandidatesBySessionId[fromSessionId] ?? []
+        guard let candidates = parentCandidatesBySessionId[fromSessionId] else { return nil }
         if let childProvider = nodesByNodeId[edge.toNodeId]?.provider {
-            return candidates.first(where: {
-                $0.nodeId != edge.toNodeId && $0.provider == childProvider
-            })?.nodeId
+            return candidates.byProvider[childProvider]?.firstNodeId(excluding: edge.toNodeId)
         }
-        return candidates.first(where: { $0.nodeId != edge.toNodeId })?.nodeId
+        return candidates.all.firstNodeId(excluding: edge.toNodeId)
     }
 }
