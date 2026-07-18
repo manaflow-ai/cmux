@@ -68,7 +68,7 @@
       "id": "STATE-2",
       "priority": "P0",
       "observable": "No dual terminal authority",
-      "pass_condition": "The Swift renderer and cmux-browser renderer consume the daemon semantic-scene endpoint, receive no raw PTY output, and instantiate no second canonical parser; byte-stream compatibility clients are identified separately and cannot claim canonical parity.",
+      "pass_condition": "Only renderer-worker PIDs consume daemon semantic scenes and perform terminal shaping. Swift consumes authenticated IOSurface frames, cmux-browser consumes daemon-authored styled rows or a renderer-frame endpoint, neither receives raw PTY output or instantiates a canonical parser, and byte-stream compatibility clients are identified separately and cannot claim canonical parity.",
       "required_artifact_kinds": ["protocol", "linkage-audit", "runtime-assertion"]
     },
     {
