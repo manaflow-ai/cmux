@@ -5607,6 +5607,8 @@ struct ContentView: View {
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         case .workspaceTodo:
             return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
+        case .workspaceShareChat:
+            return String(localized: "workspaceShare.chat.title", defaultValue: "Workspace chat")
         case .cloudVMLoading:
             return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
         }
@@ -5633,6 +5635,11 @@ struct ContentView: View {
             return ["sidebar", "extensions", "extensionkit", "browser"]
         case .workspaceTodo:
             return ["todo", "todos", "checklist", "task", "status"]
+        case .workspaceShareChat:
+            return [
+                String(localized: "workspaceShare.chat.title", defaultValue: "Workspace chat"),
+                String(localized: "workspaceShare.chat.placeholder", defaultValue: "Message everyone"),
+            ]
         case .cloudVMLoading:
             return ["cloud", "vm", "loading"]
         }
@@ -12164,7 +12171,7 @@ struct VerticalTabsSidebar: View, Equatable {
             return .project
         case .extensionBrowser:
             return .unknown
-        case .workspaceTodo, .cloudVMLoading:
+        case .workspaceTodo, .workspaceShareChat, .cloudVMLoading:
             return .unknown
         }
     }

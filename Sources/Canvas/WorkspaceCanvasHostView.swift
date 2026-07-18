@@ -101,6 +101,7 @@ struct WorkspaceCanvasHostView: View {
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
         case .workspaceTodo: return "checklist"
+        case .workspaceShareChat: return "bubble.left.and.bubble.right.fill"
         case .cloudVMLoading: return "cloud.fill"
         }
     }

@@ -14,6 +14,7 @@ public enum PanelType: String, Codable, Sendable {
     case project
     case extensionBrowser
     case workspaceTodo
+    case workspaceShareChat
     case cloudVMLoading
 
     public init(from decoder: Decoder) throws {
@@ -41,6 +42,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
             self = .workspaceTodo
+            return
+        }
+        if rawValue.lowercased() == Self.workspaceShareChat.rawValue.lowercased() {
+            self = .workspaceShareChat
             return
         }
         if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {

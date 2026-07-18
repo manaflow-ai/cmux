@@ -31,6 +31,8 @@ extension Workspace {
             return SurfaceKind.extensionBrowser.rawValue
         case .workspaceTodo:
             return SurfaceKind.todo.rawValue
+        case .workspaceShareChat:
+            return SurfaceKind.workspaceShareChat.rawValue
         case .cloudVMLoading:
             return SurfaceKind.cloudVMLoading.rawValue
         }

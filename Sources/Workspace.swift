@@ -568,6 +568,8 @@ extension Workspace {
             workspaceTodoSnapshot = SessionWorkspaceTodoPanelSnapshot()
         case .extensionBrowser:
             return nil
+        case .workspaceShareChat:
+            return nil
         case .cloudVMLoading:
             return nil
         }
@@ -1562,6 +1564,8 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: todoPanel.id)
             return todoPanel.id
         case .extensionBrowser:
+            return nil
+        case .workspaceShareChat:
             return nil
         case .cloudVMLoading:
             return nil
