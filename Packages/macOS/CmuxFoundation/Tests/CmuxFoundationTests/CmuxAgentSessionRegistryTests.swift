@@ -362,17 +362,46 @@ struct CmuxAgentSessionRegistryTests {
 
     @Test("registry storage repairs an existing state directory to owner-only access")
     func registryRepairsStateDirectoryPermissions() throws {
-        let fixture = try Fixture()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-registry-permissions-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.setAttributes(
             [.posixPermissions: NSNumber(value: Int16(0o755))],
-            ofItemAtPath: fixture.directory.path
+            ofItemAtPath: stateDirectory.path
+        )
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
         )
 
-        _ = try fixture.registry.snapshot(provider: "codex")
+        _ = try registry.snapshot(provider: "codex")
 
-        let attributes = try FileManager.default.attributesOfItem(atPath: fixture.directory.path)
+        let attributes = try FileManager.default.attributesOfItem(atPath: stateDirectory.path)
         let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
         #expect(permissions.intValue & 0o777 == 0o700)
+    }
+
+    @Test("explicit registry paths preserve existing parent directory permissions")
+    func registryPreservesExistingParentDirectoryPermissions() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-registry-shared-parent-\(UUID().uuidString)", isDirectory: true)
+        let sharedDirectory = root.appendingPathComponent("shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o755))],
+            ofItemAtPath: sharedDirectory.path
+        )
+        let registry = CmuxAgentSessionRegistry(
+            url: sharedDirectory.appendingPathComponent("custom-agent-sessions.sqlite3")
+        )
+
+        _ = try registry.snapshot(provider: "codex")
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: sharedDirectory.path)
+        let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
+        #expect(permissions.intValue & 0o777 == 0o755)
     }
 
     private struct Fixture {
