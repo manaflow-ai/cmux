@@ -323,44 +323,56 @@ extension CMUXCLIErrorOutputRegressionTests {
         let activeRunIDs: [Any] = ["child-run-1", "missing-run", NSNull(), "root-run-4"]
         var sessions: [String: Any] = [:]
         for (index, sessionID) in sessionIDs.enumerated() {
-            let childRunID = "child-run-\(index + 1)"
+            let ordinal = index + 1
+            let rootRunID = "root-run-\(ordinal)"
+            let childRunID = "child-run-\(ordinal)"
             let canonicalRunIsRoot = index == 3
+            let childRunTimestamp = 1_781_996_900.0 + Double(index)
+            let rootRunEndedAt: Any
+            let childRunEndedAt: Any
+            if canonicalRunIsRoot {
+                rootRunEndedAt = NSNull()
+                childRunEndedAt = childRunTimestamp + 1
+            } else {
+                rootRunEndedAt = 1_781_996_850.0
+                childRunEndedAt = NSNull()
+            }
+            let launchCommand: [String: Any] = [
+                "launcher": "codex",
+                "executablePath": "/usr/local/bin/codex",
+                "arguments": ["/usr/local/bin/codex"],
+                "workingDirectory": "/tmp/cmux/debug",
+                "environment": [:],
+                "source": "environment",
+            ]
+            let rootRun: [String: Any] = [
+                "runId": rootRunID,
+                "restoreAuthority": true,
+                "startedAt": 1_781_996_800.0,
+                "updatedAt": 1_781_996_850.0,
+                "endedAt": rootRunEndedAt,
+            ]
+            let childRun: [String: Any] = [
+                "runId": childRunID,
+                "parentRunId": rootRunID,
+                "relationship": "spawned",
+                "restoreAuthority": false,
+                "startedAt": childRunTimestamp,
+                "updatedAt": childRunTimestamp,
+                "endedAt": childRunEndedAt,
+            ]
             var record: [String: Any] = [
                 "sessionId": sessionID,
                 "workspaceId": workspaceID,
-                "surfaceId": "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D\(index + 1)",
+                "surfaceId": "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D\(ordinal)",
                 "cwd": "/tmp/cmux/debug",
                 "startedAt": 1_781_996_800.0,
-                "updatedAt": 1_781_996_900.0 + Double(index),
+                "updatedAt": childRunTimestamp,
                 // Simulate a stale compatibility field that still describes the
                 // previous root while run history says the projected run is a child.
                 "restoreAuthority": !canonicalRunIsRoot,
-                "launchCommand": [
-                    "launcher": "codex",
-                    "executablePath": "/usr/local/bin/codex",
-                    "arguments": ["/usr/local/bin/codex"],
-                    "workingDirectory": "/tmp/cmux/debug",
-                    "environment": [:],
-                    "source": "environment",
-                ],
-                "runs": [
-                    [
-                        "runId": "root-run-\(index + 1)",
-                        "restoreAuthority": true,
-                        "startedAt": 1_781_996_800.0,
-                        "updatedAt": 1_781_996_850.0,
-                        "endedAt": canonicalRunIsRoot ? NSNull() : 1_781_996_850.0,
-                    ],
-                    [
-                        "runId": childRunID,
-                        "parentRunId": "root-run-\(index + 1)",
-                        "relationship": "spawned",
-                        "restoreAuthority": false,
-                        "startedAt": 1_781_996_900.0 + Double(index),
-                        "updatedAt": 1_781_996_900.0 + Double(index),
-                        "endedAt": canonicalRunIsRoot ? 1_781_996_901.0 + Double(index) : NSNull(),
-                    ],
-                ],
+                "launchCommand": launchCommand,
+                "runs": [rootRun, childRun],
             ]
             if let activeRunID = activeRunIDs[index] as? String {
                 record["activeRunId"] = activeRunID
