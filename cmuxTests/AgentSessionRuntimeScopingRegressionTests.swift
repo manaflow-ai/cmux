@@ -4527,17 +4527,17 @@ extension CMUXCLIErrorOutputRegressionTests {
                 #expect(reconciled.agent?.sessionId == fixture.agent.sessionId)
                 #expect(reconciled.resumeBinding?.checkpointId == fixture.agent.sessionId)
                 #expect(reconciled.hibernation == nil)
-                #expect(reconciled.wasAgentRunning)
+                #expect(reconciled.wasAgentRunning == true)
             case .hibernated:
                 #expect(reconciled.agent?.sessionId == fixture.agent.sessionId)
                 #expect(reconciled.resumeBinding?.checkpointId == fixture.agent.sessionId)
                 #expect(reconciled.hibernation?.hibernatedAt == 30)
-                #expect(!reconciled.wasAgentRunning)
+                #expect(reconciled.wasAgentRunning == false)
             case .cleared:
                 #expect(reconciled.agent == nil)
                 #expect(reconciled.resumeBinding == nil)
                 #expect(reconciled.hibernation == nil)
-                #expect(!reconciled.wasAgentRunning)
+                #expect(reconciled.wasAgentRunning == false)
             }
         }
     }
@@ -4610,7 +4610,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             #expect(reconciled.agent == nil, Comment(rawValue: name))
             #expect(reconciled.resumeBinding == nil, Comment(rawValue: name))
             #expect(reconciled.hibernation == nil, Comment(rawValue: name))
-            #expect(!reconciled.wasAgentRunning, Comment(rawValue: name))
+            #expect(reconciled.wasAgentRunning == false, Comment(rawValue: name))
         }
     }
 
@@ -4664,7 +4664,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(rejectedTerminal.agent == nil)
         #expect(rejectedTerminal.resumeBinding == nil)
         #expect(rejectedTerminal.hibernation == nil)
-        #expect(!rejectedTerminal.wasAgentRunning)
+        #expect(rejectedTerminal.wasAgentRunning == false)
     }
 
     @MainActor
