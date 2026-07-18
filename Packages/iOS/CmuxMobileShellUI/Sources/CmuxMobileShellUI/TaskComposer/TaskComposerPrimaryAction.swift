@@ -6,6 +6,8 @@ import SwiftUI
 /// scrolling content makes the visible action a stable accessibility element
 /// on compact and regular-width layouts.
 struct TaskComposerPrimaryAction: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
     let isSubmitting: Bool
     let isEnabled: Bool
     let templateIcon: String?
@@ -108,7 +110,7 @@ struct TaskComposerPrimaryAction: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.82)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity)
@@ -134,7 +136,10 @@ struct TaskComposerPrimaryAction: View {
             .frame(height: 1)
             .accessibilityHidden(true)
         }
-        .animation(.snappy(duration: 0.22), value: isEnabled)
+        .animation(
+            accessibilityReduceMotion ? nil : .snappy(duration: 0.22),
+            value: isEnabled
+        )
         .sensoryFeedback(.impact(weight: .light), trigger: isSubmitting) { oldValue, newValue in
             !oldValue && newValue
         }

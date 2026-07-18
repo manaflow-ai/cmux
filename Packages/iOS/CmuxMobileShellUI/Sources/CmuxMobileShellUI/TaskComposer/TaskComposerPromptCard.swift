@@ -5,43 +5,33 @@ import SwiftUI
 
 /// A large, automatically focused prompt canvas for the agent's first instruction.
 struct TaskComposerPromptCard: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @Binding var prompt: String
     let placeholder: String
     let isDisabled: Bool
-    let template: MobileTaskTemplate?
+    let templates: [MobileTaskTemplate]
+    let selectedTemplateID: MobileTaskTemplate.ID?
+    let selectTemplate: (MobileTaskTemplate) -> Void
+    let editTemplates: () -> Void
 
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                if let template {
-                    TaskTemplateIcon(value: template.icon, size: 17)
-                        .frame(width: 30, height: 30)
-                        .background(Color.accentColor.opacity(0.11), in: Circle())
-                        .accessibilityHidden(true)
-                } else {
-                    Image(systemName: "text.cursor")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 30, height: 30)
-                        .background(Color.accentColor.opacity(0.11), in: Circle())
-                        .accessibilityHidden(true)
-                }
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(L10n.string("mobile.taskComposer.prompt", defaultValue: "Prompt"))
-                        .font(.subheadline.weight(.semibold))
-                    if let template {
-                        Text(template.name)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                TaskComposerAgentMenu(
+                    templates: templates,
+                    selectedTemplateID: selectedTemplateID,
+                    isDisabled: isDisabled,
+                    selectTemplate: selectTemplate,
+                    editTemplates: editTemplates
+                )
 
                 Spacer(minLength: 8)
 
-                Image(systemName: "arrow.turn.down.right")
+                Image(systemName: "plus.square.on.square")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(isFocused ? Color.accentColor : Color.secondary.opacity(0.65))
                     .accessibilityHidden(true)
@@ -51,10 +41,12 @@ struct TaskComposerPromptCard: View {
                 .textFieldStyle(.plain)
                 .font(.body)
                 .lineSpacing(3)
-                .lineLimit(4...10)
-                .frame(minHeight: 98, alignment: .topLeading)
+                .lineLimit(promptLineLimit)
+                .frame(minHeight: promptMinimumHeight, alignment: .topLeading)
                 .focused($isFocused)
                 .disabled(isDisabled)
+                .accessibilityLabel(L10n.string("mobile.taskComposer.prompt", defaultValue: "Prompt"))
+                .accessibilityHint(placeholder)
                 .accessibilityIdentifier("MobileTaskComposerPrompt")
         }
         .padding(14)
@@ -86,7 +78,18 @@ struct TaskComposerPromptCard: View {
             radius: isFocused ? 16 : 10,
             y: 6
         )
-        .animation(.easeOut(duration: 0.18), value: isFocused)
+        .animation(
+            accessibilityReduceMotion ? nil : .easeOut(duration: 0.18),
+            value: isFocused
+        )
+    }
+
+    private var promptLineLimit: ClosedRange<Int> {
+        dynamicTypeSize.isAccessibilitySize ? 2...6 : 5...12
+    }
+
+    private var promptMinimumHeight: CGFloat {
+        dynamicTypeSize.isAccessibilitySize ? 96 : 132
     }
 }
 #endif

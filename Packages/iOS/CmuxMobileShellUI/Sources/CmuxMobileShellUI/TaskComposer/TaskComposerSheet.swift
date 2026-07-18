@@ -8,6 +8,7 @@ import UIKit
 
 struct TaskComposerSheet: View {
     @Environment(\.dismiss) var dismiss
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Bindable var store: CMUXMobileShellStore
 
@@ -163,29 +164,35 @@ struct TaskComposerSheet: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
-                VStack(spacing: 0) {
-                    launchRoute
-                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                        .frame(maxWidth: 680)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 14)
-                        .padding(.bottom, 10)
-
-                    ScrollView {
+                ScrollView {
+                    VStack(spacing: 12) {
                         TaskComposerPromptCard(
                             prompt: promptBinding,
                             placeholder: promptPlaceholder,
                             isDisabled: submissionPhase.disablesRequestEditing,
-                            template: selectedTemplate
+                            templates: templates,
+                            selectedTemplateID: selectedTemplateID,
+                            selectTemplate: selectTemplateFromPicker,
+                            editTemplates: presentTemplateEditor
                         )
-                        .frame(maxWidth: 680)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 20)
+
+                        TaskComposerContextSection(
+                            machines: machines,
+                            selectedMacDeviceID: selectedMacDeviceID,
+                            directory: directory,
+                            isDisabled: submissionPhase.disablesRequestEditing,
+                            selectMachine: selectMachine,
+                            selectDirectory: { isDirectoryPickerPresented = true }
+                        )
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     }
-                    .scrollDismissesKeyboard(.interactively)
+                    .frame(maxWidth: 680)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 14)
+                    .padding(.bottom, 20)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TaskComposerPrimaryAction(
@@ -279,71 +286,6 @@ struct TaskComposerSheet: View {
         ))
     }
 
-    private var launchRoute: some View {
-        VStack(spacing: 10) {
-            TaskComposerTemplatePicker(
-                templates: templates,
-                selectedTemplateID: selectedTemplateID,
-                isDisabled: submissionPhase.disablesRequestEditing,
-                selectTemplate: selectTemplateFromPicker,
-                editTemplates: presentTemplateEditor
-            )
-
-            launchRouteDivider
-
-            TaskComposerContextSection(
-                machines: machines,
-                selectedMacDeviceID: selectedMacDeviceID,
-                directory: directory,
-                isDisabled: submissionPhase.disablesRequestEditing,
-                selectMachine: selectMachine,
-                selectDirectory: { isDirectoryPickerPresented = true }
-            )
-        }
-        .padding(12)
-        .background { launchRouteBackground }
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        }
-        .shadow(color: Color.black.opacity(0.055), radius: 18, y: 8)
-    }
-
-    private var launchRouteDivider: some View {
-        Rectangle()
-            .fill(
-                LinearGradient(
-                    colors: [
-                        .clear,
-                        Color.accentColor.opacity(0.32),
-                        Color.primary.opacity(0.08),
-                        .clear,
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .frame(height: 1)
-            .accessibilityHidden(true)
-    }
-
-    private var launchRouteBackground: some View {
-        RoundedRectangle(cornerRadius: 26, style: .continuous)
-            .fill(.regularMaterial)
-            .overlay {
-                LinearGradient(
-                    colors: [
-                        Color.accentColor.opacity(0.11),
-                        .clear,
-                        Color.primary.opacity(0.025),
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-            }
-    }
-
     var selectedTemplate: MobileTaskTemplate? {
         selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
     }
@@ -407,6 +349,12 @@ struct TaskComposerSheet: View {
     }
 
     private var primaryActionProgressTitle: String {
+        if submissionPhase == .preparing {
+            return L10n.string(
+                "mobile.taskComposer.preparingWorkspace",
+                defaultValue: "Preparing workspace…"
+            )
+        }
         guard let selectedTemplate else {
             return L10n.string("mobile.taskComposer.startingTask", defaultValue: "Starting Task…")
         }
@@ -429,13 +377,7 @@ struct TaskComposerSheet: View {
                 defaultValue: "Creates a workspace and sends your prompt immediately."
             )
         }
-        if selectedTemplate.isPlainShell {
-            return L10n.string(
-                "mobile.taskComposer.action.shellCaption",
-                defaultValue: "Opens a workspace with an interactive shell."
-            )
-        }
-        guard canLaunchSelectedTemplate else {
+        if !selectedTemplate.isPlainShell, !canLaunchSelectedTemplate {
             return String(
                 format: L10n.string(
                     "mobile.taskComposer.action.promptRequiredFormat",
@@ -444,9 +386,19 @@ struct TaskComposerSheet: View {
                 selectedTemplate.name
             )
         }
-        return L10n.string(
-            "mobile.taskComposer.action.caption",
-            defaultValue: "Creates a workspace and sends your prompt immediately."
+        guard let selectedMachine else {
+            return L10n.string(
+                "mobile.taskComposer.action.caption",
+                defaultValue: "Creates a workspace and sends your prompt immediately."
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.taskComposer.action.routeCaptionFormat",
+                defaultValue: "New workspace on %@ in %@."
+            ),
+            selectedMachine.resolvedName,
+            TaskComposerDirectoryDisplayPath(path: directory).name
         )
     }
 
@@ -465,7 +417,7 @@ struct TaskComposerSheet: View {
 
     private func selectTemplateFromPicker(_ template: MobileTaskTemplate) {
         guard !submissionPhase.disablesRequestEditing else { return }
-        withAnimation(.snappy(duration: 0.2)) {
+        withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.2)) {
             selectTemplate(template)
             failureText = nil
         }

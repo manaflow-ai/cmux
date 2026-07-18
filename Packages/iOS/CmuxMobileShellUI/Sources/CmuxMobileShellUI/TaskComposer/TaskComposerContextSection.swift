@@ -64,6 +64,14 @@ struct TaskComposerContextSection: View {
             )
             .accessibilityIdentifier("MobileTaskComposerDirectory")
         }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .shadow(color: Color.black.opacity(0.04), radius: 12, y: 5)
     }
 
     @ViewBuilder

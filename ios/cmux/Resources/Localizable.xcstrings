@@ -7600,6 +7600,23 @@
         }
       }
     },
+    "mobile.taskComposer.action.routeCaptionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspace on %1$@ in %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースを%1$@の%2$@に作成します。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.action.shellCaption": {
       "extractionState": "manual",
       "localizations": {
@@ -7630,6 +7647,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェント"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.agent.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Agents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを編集"
           }
         }
       }
@@ -8341,6 +8375,23 @@
         }
       }
     },
+    "mobile.taskComposer.preparingWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing workspace…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを準備中…"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.prompt": {
       "extractionState": "manual",
       "localizations": {
@@ -8405,6 +8456,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "実行したい内容を入力"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.promptTitle.agentFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に依頼"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.promptTitle.shell": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルコマンド"
           }
         }
       }
