@@ -233,17 +233,75 @@ struct TerminalBackendTopologyCoordinatorTests {
             workspaces: [makeWorkspace(workspaceID: firstWorkspaceID, surfaceIDs: [surfaceID])]
         ))
         #expect(manager.tabs.map(\.id) == [firstWorkspaceID])
-        #expect(manager.tabs[0].panels[surfaceID] is TerminalPanel)
+        let originalPanel = try #require(manager.tabs[0].panels[surfaceID] as? TerminalPanel)
+        let originalSurface = originalPanel.surface
+        let originalHostedView = originalPanel.hostedView
 
         try manager.installCanonicalTopology(try makeSnapshot(
             authority: authority,
             revision: 2,
+            workspaces: [makeWorkspace(workspaceID: firstWorkspaceID, surfaceIDs: [surfaceID])]
+        ))
+
+        #expect(manager.tabs[0].panels[surfaceID] === originalPanel)
+        #expect((manager.tabs[0].panels[surfaceID] as? TerminalPanel)?.surface === originalSurface)
+        #expect((manager.tabs[0].panels[surfaceID] as? TerminalPanel)?.hostedView === originalHostedView)
+
+        try manager.installCanonicalTopology(try makeSnapshot(
+            authority: authority,
+            revision: 3,
             workspaces: [makeWorkspace(workspaceID: secondWorkspaceID, surfaceIDs: [surfaceID])]
         ))
 
         #expect(manager.tabs.map(\.id) == [secondWorkspaceID])
-        #expect(manager.tabs[0].panels[surfaceID] is TerminalPanel)
+        #expect(manager.tabs[0].panels[surfaceID] === originalPanel)
+        #expect((manager.tabs[0].panels[surfaceID] as? TerminalPanel)?.surface === originalSurface)
+        #expect((manager.tabs[0].panels[surfaceID] as? TerminalPanel)?.hostedView === originalHostedView)
         #expect(manager.tabs.flatMap { $0.panels.keys }.filter { $0 == surfaceID }.count == 1)
+    }
+
+    @Test @MainActor
+    func renameOnlySnapshotPreservesWorkspaceAndTerminalPresentationIdentity() throws {
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: makeProjectionComposition()
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let authority = makeAuthority()
+
+        try manager.installCanonicalTopology(try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [makeWorkspace(
+                workspaceID: workspaceID,
+                workspaceName: "before",
+                surfaceIDs: [surfaceID]
+            )]
+        ))
+        let originalWorkspace = try #require(manager.tabs.first)
+        let originalPanel = try #require(originalWorkspace.panels[surfaceID] as? TerminalPanel)
+        let originalSurface = originalPanel.surface
+        let originalHostedView = originalPanel.hostedView
+
+        try manager.installCanonicalTopology(try makeSnapshot(
+            authority: authority,
+            revision: 2,
+            workspaces: [makeWorkspace(
+                workspaceID: workspaceID,
+                workspaceName: "after",
+                surfaceIDs: [surfaceID]
+            )]
+        ))
+
+        let reconciledWorkspace = try #require(manager.tabs.first)
+        let reconciledPanel = try #require(reconciledWorkspace.panels[surfaceID] as? TerminalPanel)
+        #expect(reconciledWorkspace === originalWorkspace)
+        #expect(reconciledPanel === originalPanel)
+        #expect(reconciledPanel.surface === originalSurface)
+        #expect(reconciledPanel.hostedView === originalHostedView)
+        #expect(reconciledWorkspace.title == "after")
     }
 
     @Test @MainActor
@@ -484,6 +542,7 @@ struct TerminalBackendTopologyCoordinatorTests {
 
     private func makeWorkspace(
         workspaceID: UUID = UUID(),
+        workspaceName: String = "canonical",
         workspaceNumber: UInt64 = 1,
         screenNumber: UInt64 = 1,
         paneNumber: UInt64 = 1,
@@ -493,7 +552,7 @@ struct TerminalBackendTopologyCoordinatorTests {
         CanonicalWorkspace(
             id: workspaceNumber,
             uuid: WorkspaceID(rawValue: workspaceID),
-            name: "canonical",
+            name: workspaceName,
             screens: [makeScreen(
                 surfaceIDs: surfaceIDs,
                 screenNumber: screenNumber,
