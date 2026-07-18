@@ -100,6 +100,18 @@ impl HostIncarnation {
     pub const fn as_bytes(&self) -> &[u8; TERMINAL_ID_LEN] {
         &self.0
     }
+
+    /// Parse the canonical registry representation: lowercase UUIDv4 bytes
+    /// without dashes. Incarnations use the same strict spelling and UUID
+    /// invariants as terminal ids so records cannot be duplicated through
+    /// alternate encodings.
+    pub fn from_hex(value: &str) -> Option<Self> {
+        TerminalId::from_hex(value).map(|id| Self::from_bytes(*id.as_bytes()))
+    }
+
+    pub fn to_hex(self) -> String {
+        TerminalId::from_bytes(self.0).to_hex()
+    }
 }
 
 impl fmt::Debug for HostIncarnation {

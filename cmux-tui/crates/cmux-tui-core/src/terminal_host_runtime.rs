@@ -20,7 +20,7 @@ use crate::terminal_host_protocol::{
     write_frame,
 };
 
-const HOST_RECORD_VERSION: u32 = 1;
+const HOST_RECORD_VERSION: u32 = 2;
 const MAX_LAUNCH_PAYLOAD: usize = 1024 * 1024;
 const MAX_STRING: usize = 256 * 1024;
 const MAX_BLOB: usize = 8 * 1024 * 1024;
@@ -28,22 +28,62 @@ const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 const CAPABILITY_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const MAX_HOST_CLIENT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
+const HOST_START_NONCE_LEN: usize = 32;
+const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 pub const TERMINAL_COLORS_WIRE_VERSION: u16 = 1;
 pub const MAX_TERMINAL_COLORS_PAYLOAD: usize = 8 + 3 * 3 + 256 * 4;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) fn normalize_terminal_geometry(cols: u16, rows: u16) -> anyhow::Result<(u16, u16)> {
+    let cols = cols.clamp(1, TERMINAL_DIMENSION_MAX);
+    let rows = rows.clamp(1, TERMINAL_DIMENSION_MAX);
+    if u64::from(cols) * u64::from(rows) > TERMINAL_CELL_AREA_MAX {
+        anyhow::bail!(
+            "terminal geometry {cols}x{rows} exceeds the {TERMINAL_CELL_AREA_MAX}-cell limit"
+        );
+    }
+    Ok((cols, rows))
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TerminalHostRecord {
     pub record_version: u32,
     pub terminal_id: String,
     pub incarnation: String,
     pub endpoint: String,
     pub owner_token: String,
+    /// PID of the terminal-host process (not the child running inside its
+    /// PTY). A PID by itself is never sufficient proof of liveness because it
+    /// can be reused after a crash.
+    #[serde(default)]
+    pub host_pid: u32,
+    /// Random process-start nonce naming a file lock held for exactly this
+    /// host process lifetime. The PID + locked nonce gives cleanup code a
+    /// positive, PID-reuse-safe liveness proof.
+    #[serde(default)]
+    pub host_start_nonce: String,
     /// Deprecated compatibility placement hint. Discovery authority is the
     /// stable terminal identity + endpoint capability; the canonical
     /// workspace registry owns placement in the stacked follow-up.
     #[serde(default)]
     pub workspace_key: String,
+}
+
+impl std::fmt::Debug for TerminalHostRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TerminalHostRecord")
+            .field("record_version", &self.record_version)
+            .field("terminal_id", &self.terminal_id)
+            .field("incarnation", &self.incarnation)
+            .field("endpoint", &self.endpoint)
+            .field("owner_token", &"[REDACTED]")
+            .field("host_pid", &self.host_pid)
+            .field("host_start_nonce", &self.host_start_nonce)
+            .field("workspace_key", &self.workspace_key)
+            .finish()
+    }
 }
 
 impl TerminalHostRecord {
@@ -70,6 +110,18 @@ pub struct HostSnapshot {
 pub struct TerminalHostIdentity {
     pub terminal_id: String,
     pub incarnation: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalHostLiveness {
+    /// The exact process-start nonce is still locked by a host process.
+    Live,
+    /// The nonce lock is no longer held (or the recorded PID does not exist),
+    /// which positively proves that this exact host incarnation ended.
+    Dead,
+    /// The proof could not be inspected safely. Callers must retain the
+    /// record and retry; this state is never permission to reap a terminal.
+    Indeterminate,
 }
 
 /// A short-lived, one-use credential that can open the terminal host socket
@@ -168,15 +220,16 @@ pub fn decode_terminal_color_overrides(payload: &[u8]) -> anyhow::Result<Termina
 
 #[cfg(unix)]
 mod unix {
-    use std::collections::HashMap;
-    use std::fs::{self, OpenOptions};
+    use std::collections::{HashMap, HashSet};
+    use std::fs::{self, File, OpenOptions};
     use std::io::{Read, Write};
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Condvar, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -187,6 +240,29 @@ mod unix {
     use super::*;
 
     static RECORD_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+    struct SpawnedHostProcess {
+        child: Option<std::process::Child>,
+    }
+
+    impl SpawnedHostProcess {
+        fn child_mut(&mut self) -> &mut std::process::Child {
+            self.child.as_mut().expect("terminal-host child is present")
+        }
+
+        fn into_child(mut self) -> std::process::Child {
+            self.child.take().expect("terminal-host child is present")
+        }
+    }
+
+    impl Drop for SpawnedHostProcess {
+        fn drop(&mut self) {
+            if let Some(child) = self.child.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
 
     #[derive(Debug)]
     struct HostLaunch {
@@ -210,12 +286,13 @@ mod unix {
             if self.extra_env.len() > MAX_ENV {
                 anyhow::bail!("terminal-host environment count is out of range");
             }
+            let (cols, rows) = normalize_terminal_geometry(self.cols, self.rows)?;
             let mut output = Vec::new();
             put_string(&mut output, &self.endpoint)?;
             put_string(&mut output, &self.record_path)?;
             put_string(&mut output, &self.term)?;
-            output.extend_from_slice(&self.cols.max(1).to_le_bytes());
-            output.extend_from_slice(&self.rows.max(1).to_le_bytes());
+            output.extend_from_slice(&cols.to_le_bytes());
+            output.extend_from_slice(&rows.to_le_bytes());
             output.extend_from_slice(
                 &u32::try_from(self.scrollback)
                     .map_err(|_| anyhow::anyhow!("terminal-host scrollback is too large"))?
@@ -243,8 +320,7 @@ mod unix {
             let endpoint = decoder.string()?;
             let record_path = decoder.string()?;
             let term = decoder.string()?;
-            let cols = decoder.u16()?.max(1);
-            let rows = decoder.u16()?.max(1);
+            let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
             let scrollback = decoder.u32()? as usize;
             let cwd = decoder.optional_string()?;
             let argc = decoder.u16()? as usize;
@@ -403,13 +479,23 @@ mod unix {
         pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
             let mut writer = self.writer.lock().unwrap();
             let frame = Frame::new(kind, payload.to_vec());
-            write_frame(&mut *writer, &frame).map_err(protocol_io_error)
+            let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+            if result.is_err() {
+                // A timed-out write may have emitted only part of a frame.
+                // Poison this connection so the reader takes a fresh atomic
+                // Snapshot instead of ever appending to a corrupt stream.
+                let _ = writer.shutdown(std::net::Shutdown::Both);
+            }
+            result
         }
 
         pub fn send_viewer_size(&self, cols: u16, rows: u16) -> std::io::Result<()> {
+            let (cols, rows) = normalize_terminal_geometry(cols, rows).map_err(|error| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
+            })?;
             let mut payload = Vec::with_capacity(4);
-            payload.extend_from_slice(&cols.max(1).to_le_bytes());
-            payload.extend_from_slice(&rows.max(1).to_le_bytes());
+            payload.extend_from_slice(&cols.to_le_bytes());
+            payload.extend_from_slice(&rows.to_le_bytes());
             self.send(MessageKind::ViewerSize, &payload)
         }
 
@@ -426,6 +512,10 @@ mod unix {
                 terminal_id: self.record.terminal_id.clone(),
                 incarnation: self.record.incarnation.clone(),
             }
+        }
+
+        pub(crate) fn discovery_record(&self) -> (TerminalHostRecord, PathBuf) {
+            (self.record.clone(), self.record_path.clone())
         }
 
         pub(crate) fn capability_responses(&self) -> Arc<CapabilityResponses> {
@@ -451,6 +541,7 @@ mod unix {
                 write_frame(&mut *writer, &frame).map_err(protocol_io_error)
             };
             if let Err(error) = write_result {
+                let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
                 self.capability_responses.waiters.lock().unwrap().remove(&request_id);
                 return Err(error.into());
             }
@@ -479,8 +570,11 @@ mod unix {
             if self.record.workspace_key == workspace_key {
                 return Ok(());
             }
-            self.record.workspace_key = workspace_key.to_string();
-            write_record(&self.record_path, &self.record)
+            let mut updated = self.record.clone();
+            updated.workspace_key = workspace_key.to_string();
+            write_record(&self.record_path, &updated)?;
+            self.record = updated;
+            Ok(())
         }
     }
 
@@ -542,7 +636,7 @@ mod unix {
         };
 
         let binary = std::env::current_exe().context("resolve cmux-tui terminal-host binary")?;
-        let mut child = Command::new(binary)
+        let child = Command::new(binary)
             .args(["__terminal-host", "--bootstrap-stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -551,8 +645,12 @@ mod unix {
             .stderr(Stdio::null())
             .spawn()
             .context("spawn terminal-host process")?;
-        let mut stdin = child.stdin.take().context("open terminal-host bootstrap stdin")?;
-        let mut stdout = child.stdout.take().context("open terminal-host bootstrap stdout")?;
+        let mut process = SpawnedHostProcess { child: Some(child) };
+        let host_pid = process.child_mut().id();
+        let mut stdin =
+            process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
+        let mut stdout =
+            process.child_mut().stdout.take().context("open terminal-host bootstrap stdout")?;
 
         let bootstrap = HostBootstrap {
             min_version: PROTOCOL_VERSION,
@@ -583,18 +681,22 @@ mod unix {
         }
         drop(stdin);
         drop(stdout);
+        let mut child = process.into_child();
         thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
             let _ = child.wait();
         })?;
 
-        let record = TerminalHostRecord {
-            record_version: HOST_RECORD_VERSION,
-            terminal_id: terminal_hex,
-            incarnation: encode_hex(ready.incarnation.as_bytes()),
-            endpoint: endpoint.to_string_lossy().into_owned(),
-            owner_token: encode_hex(owner_token.as_bytes()),
-            workspace_key: String::new(),
-        };
+        let record: TerminalHostRecord = serde_json::from_slice(
+            &fs::read(&record_path).context("read terminal-host discovery record")?,
+        )?;
+        validate_terminal_host_record(&record_path, &record)?;
+        if record.terminal_id != terminal_hex
+            || record.incarnation != ready.incarnation.to_hex()
+            || record.owner_token != encode_hex(owner_token.as_bytes())
+            || record.host_pid != host_pid
+        {
+            anyhow::bail!("terminal-host discovery record changed during launch");
+        }
         connect_record(record, record_path)
     }
 
@@ -602,16 +704,196 @@ mod unix {
         record: TerminalHostRecord,
         record_path: PathBuf,
     ) -> anyhow::Result<HostAttachment> {
-        if record.record_version != HOST_RECORD_VERSION {
+        validate_terminal_host_record(&record_path, &record)?;
+        connect_record(record, record_path)
+    }
+
+    /// Validate a discovery record without trusting paths or alternate
+    /// identity spellings supplied by its JSON payload.
+    pub fn validate_terminal_host_record(
+        record_path: &Path,
+        record: &TerminalHostRecord,
+    ) -> anyhow::Result<TerminalHostIdentity> {
+        if !matches!(record.record_version, 1 | HOST_RECORD_VERSION) {
             anyhow::bail!("unsupported terminal-host record version {}", record.record_version);
         }
-        connect_record(record, record_path)
+        let terminal_id = TerminalId::from_hex(&record.terminal_id)
+            .ok_or_else(|| anyhow::anyhow!("terminal-host id is not a canonical UUIDv4"))?;
+        let incarnation = HostIncarnation::from_hex(&record.incarnation).ok_or_else(|| {
+            anyhow::anyhow!("terminal-host incarnation is not a canonical UUIDv4")
+        })?;
+        let owner = decode_lower_hex_array::<{ crate::terminal_host::CAPABILITY_TOKEN_LEN }>(
+            &record.owner_token,
+            "owner token",
+        )?;
+        if owner.iter().all(|byte| *byte == 0) {
+            anyhow::bail!("terminal-host owner token is zero");
+        }
+        if record.record_version == 1 {
+            if record.host_pid != 0 || !record.host_start_nonce.is_empty() {
+                anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
+            }
+        } else {
+            let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
+                &record.host_start_nonce,
+                "process-start nonce",
+            )?;
+            if nonce.iter().all(|byte| *byte == 0) {
+                anyhow::bail!("terminal-host process-start nonce is zero");
+            }
+            if record.host_pid == 0 {
+                anyhow::bail!("terminal-host PID is zero");
+            }
+        }
+        if record.workspace_key.len() > MAX_STRING || record.workspace_key.contains('\0') {
+            anyhow::bail!("terminal-host workspace hint is invalid");
+        }
+
+        let parent = record_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?;
+        let expected_record = parent.join(format!("{}.json", record.terminal_id));
+        if record_path != expected_record {
+            anyhow::bail!("terminal-host record filename is not canonical");
+        }
+        let uid = fs::metadata(parent)?.uid();
+        let expected_endpoint = PathBuf::from("/tmp")
+            .join(format!("cmux-th-{uid}"))
+            .join(format!("{}.sock", record.terminal_id));
+        if Path::new(&record.endpoint) != expected_endpoint {
+            anyhow::bail!("terminal-host endpoint is not canonical");
+        }
+        if let Ok(metadata) = fs::symlink_metadata(record_path)
+            && (!metadata.file_type().is_file()
+                || metadata.uid() != uid
+                || metadata.mode() & 0o077 != 0)
+        {
+            anyhow::bail!("terminal-host record permissions or ownership are unsafe");
+        }
+        let _ = (terminal_id, incarnation);
+        Ok(TerminalHostIdentity {
+            terminal_id: record.terminal_id.clone(),
+            incarnation: record.incarnation.clone(),
+        })
+    }
+
+    fn liveness_path(record_path: &Path, record: &TerminalHostRecord) -> PathBuf {
+        record_path
+            .with_extension(format!("{}-{}.live", record.incarnation, record.host_start_nonce))
+    }
+
+    /// Probe the process-lifetime nonce lock. `Dead` is positive evidence
+    /// tied to this exact incarnation even if `host_pid` has since been
+    /// assigned to another process.
+    pub fn terminal_host_record_liveness(
+        record_path: &Path,
+        record: &TerminalHostRecord,
+    ) -> anyhow::Result<TerminalHostLiveness> {
+        validate_terminal_host_record(record_path, record)?;
+        if record.record_version == 1 {
+            // v1 predates process-bound liveness proof. Preserve and adopt a
+            // reachable legacy host, but never infer death from PID/socket
+            // observations that are vulnerable to reuse and startup races.
+            // A normal legacy Exit remains authoritative and removes its own
+            // record; an unclean v1 crash intentionally requires manual or
+            // version-aware migration rather than unsafe reaping.
+            return Ok(if !record_path.exists() && !Path::new(&record.endpoint).exists() {
+                TerminalHostLiveness::Dead
+            } else {
+                TerminalHostLiveness::Indeterminate
+            });
+        }
+        let path = liveness_path(record_path, record);
+        let file = match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let host_cleanup_complete = !record_path.exists()
+                    && !Path::new(&record.endpoint).exists()
+                    && !path.exists();
+                return Ok(
+                    if host_cleanup_complete || process_definitely_absent(record.host_pid) {
+                        TerminalHostLiveness::Dead
+                    } else {
+                        TerminalHostLiveness::Indeterminate
+                    },
+                );
+            }
+            Err(_) => return Ok(TerminalHostLiveness::Indeterminate),
+        };
+        let metadata = file.metadata()?;
+        let expected_uid = fs::metadata(record_path.parent().unwrap())?.uid();
+        if !metadata.file_type().is_file()
+            || metadata.uid() != expected_uid
+            || metadata.nlink() != 1
+            || metadata.mode() & 0o077 != 0
+        {
+            return Ok(TerminalHostLiveness::Indeterminate);
+        }
+        loop {
+            // SAFETY: flock only observes/changes the advisory lock associated
+            // with this valid, owned file descriptor.
+            let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+            if result == 0 {
+                // SAFETY: same valid descriptor as above. Unlock before the
+                // temporary probe descriptor is closed.
+                let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+                return Ok(TerminalHostLiveness::Dead);
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Ok(
+                if error
+                    .raw_os_error()
+                    .is_some_and(|code| code == libc::EWOULDBLOCK || code == libc::EAGAIN)
+                {
+                    TerminalHostLiveness::Live
+                } else {
+                    TerminalHostLiveness::Indeterminate
+                },
+            );
+        }
+    }
+
+    /// Remove a discovery record only after the process-lifetime proof says
+    /// the exact recorded host is dead. A live or ambiguous record is always
+    /// retained for a later adoption attempt.
+    pub fn remove_stale_terminal_host_record(
+        record_path: &Path,
+        expected: &TerminalHostRecord,
+    ) -> anyhow::Result<bool> {
+        if terminal_host_record_liveness(record_path, expected)? != TerminalHostLiveness::Dead {
+            return Ok(false);
+        }
+        let current: TerminalHostRecord = serde_json::from_slice(&fs::read(record_path)?)?;
+        validate_terminal_host_record(record_path, &current)?;
+        if current.terminal_id != expected.terminal_id
+            || current.incarnation != expected.incarnation
+            || current.host_start_nonce != expected.host_start_nonce
+        {
+            return Ok(false);
+        }
+        let proof = liveness_path(record_path, &current);
+        let endpoint = PathBuf::from(&current.endpoint);
+        fs::remove_file(record_path)?;
+        let _ = fs::remove_file(proof);
+        if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| metadata.file_type().is_socket()) {
+            let _ = fs::remove_file(endpoint);
+        }
+        Ok(true)
     }
 
     pub fn load_terminal_host_records(
         root: &Path,
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
         let mut records = Vec::new();
+        let mut identities = HashSet::new();
         let entries = match fs::read_dir(root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
@@ -630,24 +912,35 @@ mod unix {
             let Ok(record) = serde_json::from_slice::<TerminalHostRecord>(&bytes) else {
                 continue;
             };
+            if validate_terminal_host_record(&path, &record).is_err()
+                || !identities.insert((record.terminal_id.clone(), record.incarnation.clone()))
+            {
+                continue;
+            }
             records.push((path, record));
         }
         records.sort_by(|left, right| left.0.cmp(&right.0));
         Ok(records)
     }
 
-    pub fn remove_terminal_host_record(path: &Path) {
-        let _ = fs::remove_file(path);
-    }
-
     fn connect_record(
         record: TerminalHostRecord,
         record_path: PathBuf,
+    ) -> anyhow::Result<HostAttachment> {
+        connect_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT)
+    }
+
+    fn connect_record_with_timeout(
+        record: TerminalHostRecord,
+        record_path: PathBuf,
+        handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
         let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
         let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
         let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
         let mut stream = connect_with_retry(Path::new(&record.endpoint))?;
+        stream.set_read_timeout(Some(handshake_timeout))?;
+        stream.set_write_timeout(Some(handshake_timeout))?;
         let hello = ClientHello {
             min_version: PROTOCOL_VERSION,
             max_version: PROTOCOL_VERSION,
@@ -683,6 +976,12 @@ mod unix {
         }
         snapshot.sequence_boundary = snapshot_frame.sequence;
         snapshot.colors = decode_terminal_color_overrides(&colors_frame.payload)?;
+        stream.set_read_timeout(None)?;
+        // Keep bounded writes for the lifetime of the disposable admin
+        // mirror. A stopped or wedged host must not block a mux/control thread
+        // forever while it sends input, mouse, resize, or Terminate. Reads are
+        // unbounded because the dedicated reader thread is intentionally
+        // long-lived and reconnects on any eventual EOF/protocol failure.
         let reader = stream.try_clone()?;
         let attachment = HostAttachment {
             record,
@@ -736,6 +1035,9 @@ mod unix {
             file.write_all(&bytes)?;
             file.sync_all()?;
             fs::rename(&temporary, path)?;
+            if let Some(parent) = path.parent() {
+                File::open(parent)?.sync_all()?;
+            }
             Ok(())
         })();
         if result.is_err() {
@@ -822,6 +1124,7 @@ mod unix {
         sequence: AtomicU64,
         next_client: AtomicU64,
         dead: AtomicBool,
+        child_exit: (Mutex<bool>, Condvar),
     }
 
     fn publish_host_frames(
@@ -860,7 +1163,7 @@ mod unix {
 
         fn remove_client(&self, client: u64) {
             self.taps.lock().unwrap().remove(&client);
-            mutate_viewer_sizes(
+            let _ = mutate_viewer_sizes(
                 &self.viewer_sizes,
                 |viewer_sizes| {
                     viewer_sizes.remove(&client);
@@ -869,18 +1172,19 @@ mod unix {
             );
         }
 
-        fn set_viewer_size(&self, client: u64, cols: u16, rows: u16) {
+        fn set_viewer_size(&self, client: u64, cols: u16, rows: u16) -> anyhow::Result<()> {
+            let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
             mutate_viewer_sizes(
                 &self.viewer_sizes,
                 |viewer_sizes| {
-                    viewer_sizes.insert(client, (cols.max(1), rows.max(1)));
+                    viewer_sizes.insert(client, (cols, rows));
                 },
                 |desired| self.apply_viewer_minimum(desired),
-            );
+            )
         }
 
         fn remove_viewer_size(&self, client: u64) {
-            mutate_viewer_sizes(
+            let _ = mutate_viewer_sizes(
                 &self.viewer_sizes,
                 |viewer_sizes| {
                     viewer_sizes.remove(&client);
@@ -889,27 +1193,42 @@ mod unix {
             );
         }
 
-        fn apply_viewer_minimum(&self, desired: Option<(u16, u16)>) {
-            let Some((cols, rows)) = desired else { return };
-            {
-                let mut size = self.size.lock().unwrap();
-                if *size == (cols, rows) {
-                    return;
-                }
-                *size = (cols, rows);
+        fn apply_viewer_minimum(&self, desired: Option<(u16, u16)>) -> anyhow::Result<()> {
+            let Some((cols, rows)) = desired else { return Ok(()) };
+            let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
+            let mut size = self.size.lock().unwrap();
+            if *size == (cols, rows) {
+                return Ok(());
             }
+            let previous = *size;
             let mut term = self.term.lock().unwrap();
-            let _ = self.master.lock().unwrap().resize(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            });
-            let _ = term.resize(cols, rows, 8, 16);
-            let replay = term
-                .vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES)
-                .unwrap_or_default();
+            let master = self.master.lock().unwrap();
+            master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
+            if let Err(error) = term.resize(cols, rows, 8, 16) {
+                let _ = master.resize(PtySize {
+                    rows: previous.1,
+                    cols: previous.0,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                });
+                return Err(error.into());
+            }
+            let replay =
+                match term.vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES) {
+                    Ok(replay) => replay,
+                    Err(error) => {
+                        let _ = term.resize(previous.0, previous.1, 8, 16);
+                        let _ = master.resize(PtySize {
+                            rows: previous.1,
+                            cols: previous.0,
+                            pixel_width: 0,
+                            pixel_height: 0,
+                        });
+                        return Err(error.into());
+                    }
+                };
             let colors = term.color_overrides();
+            *size = (cols, rows);
             // Keep the parser lock through sequence publication so output
             // parsed at the new size cannot overtake the Resized marker.
             self.broadcast_with_colors(
@@ -917,6 +1236,21 @@ mod unix {
                 encode_resize(cols, rows, &replay),
                 encode_terminal_color_overrides(&colors),
             );
+            Ok(())
+        }
+
+        fn child_exited(&self) -> bool {
+            *self.child_exit.0.lock().unwrap()
+        }
+
+        fn terminate_and_wait(&self) {
+            if !self.child_exited() {
+                let _ = self.killer.lock().unwrap().kill();
+            }
+            let mut exited = self.child_exit.0.lock().unwrap();
+            while !*exited {
+                exited = self.child_exit.1.wait(exited).unwrap();
+            }
         }
     }
 
@@ -927,15 +1261,99 @@ mod unix {
     fn mutate_viewer_sizes(
         viewer_sizes: &Mutex<HashMap<u64, (u16, u16)>>,
         mutation: impl FnOnce(&mut HashMap<u64, (u16, u16)>),
-        apply: impl FnOnce(Option<(u16, u16)>),
-    ) {
+        apply: impl FnOnce(Option<(u16, u16)>) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
         let mut viewer_sizes = viewer_sizes.lock().unwrap();
+        let previous = viewer_sizes.clone();
         mutation(&mut viewer_sizes);
         let desired = viewer_sizes
             .values()
             .copied()
             .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1)));
-        apply(desired);
+        if let Err(error) = apply(desired) {
+            *viewer_sizes = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    struct HostLivenessLease {
+        file: File,
+        path: PathBuf,
+    }
+
+    impl HostLivenessLease {
+        fn acquire(path: PathBuf) -> anyhow::Result<Self> {
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+                .open(&path)?;
+            // SAFETY: flock only changes the advisory lock on this newly
+            // created, valid file descriptor.
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+                let error = std::io::Error::last_os_error();
+                let _ = fs::remove_file(&path);
+                return Err(error.into());
+            }
+            file.sync_all()?;
+            Ok(Self { file, path })
+        }
+    }
+
+    struct HostServiceGuard {
+        shared: Arc<HostShared>,
+        endpoint: PathBuf,
+        record_path: PathBuf,
+        record: TerminalHostRecord,
+        lease: HostLivenessLease,
+        published: bool,
+    }
+
+    struct UnpublishedHostGuard {
+        shared: Arc<HostShared>,
+        endpoint: PathBuf,
+        armed: bool,
+    }
+
+    impl Drop for UnpublishedHostGuard {
+        fn drop(&mut self) {
+            if self.armed {
+                self.shared.terminate_and_wait();
+                let _ = fs::remove_file(&self.endpoint);
+            }
+        }
+    }
+
+    impl Drop for HostServiceGuard {
+        fn drop(&mut self) {
+            // All normal and early-error paths confirm the PTY child exited
+            // before removing its discoverability record. If this host is
+            // SIGKILLed, Drop cannot run; the locked nonce file remains on
+            // disk but unlocks automatically, giving the next mux positive
+            // stale-record proof.
+            self.shared.terminate_and_wait();
+            if !self.shared.child_exited() {
+                return;
+            }
+            let mut removed_record = !self.published;
+            if self.published
+                && let Ok(bytes) = fs::read(&self.record_path)
+                && let Ok(current) = serde_json::from_slice::<TerminalHostRecord>(&bytes)
+                && current.terminal_id == self.record.terminal_id
+                && current.incarnation == self.record.incarnation
+                && current.host_start_nonce == self.record.host_start_nonce
+            {
+                removed_record = fs::remove_file(&self.record_path).is_ok();
+            }
+            let _ = fs::remove_file(&self.endpoint);
+            if removed_record {
+                let _ = fs::remove_file(&self.lease.path);
+            }
+            let _ = self.lease.file.sync_all();
+        }
     }
 
     pub fn serve_terminal_host_stdio(
@@ -960,6 +1378,11 @@ mod unix {
         let shared = spawn_host_runtime(&launch, &bootstrapped)?;
 
         let endpoint = PathBuf::from(&launch.endpoint);
+        let mut unpublished = UnpublishedHostGuard {
+            shared: shared.clone(),
+            endpoint: endpoint.clone(),
+            armed: true,
+        };
         let _ = fs::remove_file(&endpoint);
         if let Some(parent) = endpoint.parent() {
             prepare_private_dir(parent)?;
@@ -968,18 +1391,45 @@ mod unix {
         fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
 
+        let start_nonce = CapabilityToken::random()?;
+        let record = TerminalHostRecord {
+            record_version: HOST_RECORD_VERSION,
+            terminal_id: bootstrapped.terminal_id.to_hex(),
+            incarnation: bootstrapped.incarnation.to_hex(),
+            endpoint: launch.endpoint.clone(),
+            owner_token: encode_hex(bootstrapped.owner_token().as_bytes()),
+            host_pid: std::process::id(),
+            host_start_nonce: encode_hex(start_nonce.as_bytes()),
+            workspace_key: String::new(),
+        };
+        let lease =
+            HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
+        let mut guard = HostServiceGuard {
+            shared: shared.clone(),
+            endpoint,
+            record_path: PathBuf::from(&launch.record_path),
+            record: record.clone(),
+            lease,
+            published: false,
+        };
+        unpublished.armed = false;
+
         // The PTY owner publishes its own adoption record before Ready. A
         // daemon killed immediately after launch acknowledgement can never
         // leave behind an undiscoverable terminal process.
-        let record = TerminalHostRecord {
-            record_version: HOST_RECORD_VERSION,
-            terminal_id: encode_hex(bootstrapped.terminal_id.as_bytes()),
-            incarnation: encode_hex(bootstrapped.incarnation.as_bytes()),
-            endpoint: launch.endpoint.clone(),
-            owner_token: encode_hex(bootstrapped.owner_token().as_bytes()),
-            workspace_key: String::new(),
-        };
         write_record(Path::new(&launch.record_path), &record)?;
+        guard.published = true;
+
+        // Integration failure-injection seam for the narrow record-before-
+        // Ready crash window. It is inherited only by explicitly configured
+        // test daemons and bounded so an accidental environment setting
+        // cannot wedge a production host indefinitely.
+        if let Ok(delay) = std::env::var("CMUX_TUI_TEST_HOST_READY_DELAY_MS")
+            && let Ok(delay) = delay.parse::<u64>()
+            && delay > 0
+        {
+            thread::sleep(Duration::from_millis(delay.min(5_000)));
+        }
 
         let ready = HostReady {
             selected_version: PROTOCOL_VERSION,
@@ -988,7 +1438,11 @@ mod unix {
         };
         let mut response = Frame::new(MessageKind::Ready, ready.encode());
         response.request_id = launch_frame.request_id;
-        write_frame(writer, &response)?;
+        // Publication is the ownership handoff. If the launcher dies in the
+        // narrow record-before-Ready window, EPIPE must not tear down the
+        // independently adoptable shell; a replacement daemon discovers the
+        // record and connects through the already-listening Unix socket.
+        let _ = write_frame(writer, &response);
 
         while !shared.dead.load(Ordering::Acquire) {
             match listener.accept() {
@@ -1011,10 +1465,8 @@ mod unix {
                 Err(error) => return Err(error.into()),
             }
         }
-        shared.broadcast(MessageKind::Exit, Vec::new());
         thread::sleep(Duration::from_millis(20));
-        let _ = fs::remove_file(&endpoint);
-        let _ = fs::remove_file(&launch.record_path);
+        drop(guard);
         Ok(())
     }
 
@@ -1091,6 +1543,7 @@ mod unix {
             sequence: AtomicU64::new(0),
             next_client: AtomicU64::new(1),
             dead: AtomicBool::new(false),
+            child_exit: (Mutex::new(false), Condvar::new()),
         });
 
         let reader_host = shared.clone();
@@ -1143,11 +1596,17 @@ mod unix {
                     let _ = writer.flush();
                 }
             }
-            reader_host.dead.store(true, Ordering::Release);
-            reader_host.broadcast(MessageKind::Exit, Vec::new());
         })?;
+        let child_host = shared.clone();
         thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
             let _ = child.wait();
+            {
+                let mut exited = child_host.child_exit.0.lock().unwrap();
+                *exited = true;
+            }
+            child_host.dead.store(true, Ordering::Release);
+            child_host.broadcast(MessageKind::Exit, Vec::new());
+            child_host.child_exit.1.notify_all();
         })?;
         Ok(shared)
     }
@@ -1262,7 +1721,12 @@ mod unix {
                         }
                         let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
                         let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
-                        command_host.set_viewer_size(client, cols, rows);
+                        if command_host.set_viewer_size(client, cols, rows).is_err() {
+                            // Invalid geometry or a PTY/parser resize failure
+                            // rejects this admin stream. No Resized/replay was
+                            // published, and the host remains adoptable.
+                            break;
+                        }
                     }
                     MessageKind::ReleaseViewer => {
                         if !granted_rights.contains(CapabilityRights::RESIZE) {
@@ -1299,6 +1763,11 @@ mod unix {
                     _ => break,
                 }
             }
+            // Wake a writer that is waiting on an otherwise-empty live-frame
+            // channel. The socket is shut down first, so this private wakeup
+            // frame can never be mistaken for a sequenced host transition.
+            command_sender.close();
+            let _ = command_sender.try_send(Frame::new(MessageKind::ResyncRequired, Vec::new()));
             command_host.remove_client(client);
         })?;
 
@@ -1367,9 +1836,10 @@ mod unix {
     }
 
     fn encode_snapshot(snapshot: &HostSnapshot) -> anyhow::Result<Vec<u8>> {
+        let (cols, rows) = normalize_terminal_geometry(snapshot.cols, snapshot.rows)?;
         let mut output = Vec::new();
-        output.extend_from_slice(&snapshot.cols.to_le_bytes());
-        output.extend_from_slice(&snapshot.rows.to_le_bytes());
+        output.extend_from_slice(&cols.to_le_bytes());
+        output.extend_from_slice(&rows.to_le_bytes());
         output.extend_from_slice(&snapshot.pid.unwrap_or(0).to_le_bytes());
         put_blob(&mut output, &snapshot.replay)?;
         put_optional_string(&mut output, snapshot.cwd.as_deref())?;
@@ -1385,8 +1855,7 @@ mod unix {
 
     fn decode_snapshot(payload: &[u8]) -> anyhow::Result<HostSnapshot> {
         let mut decoder = PayloadDecoder::new(payload);
-        let cols = decoder.u16()?.max(1);
-        let rows = decoder.u16()?.max(1);
+        let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
         let pid = match decoder.u32()? {
             0 => None,
             pid => Some(pid),
@@ -1415,10 +1884,9 @@ mod unix {
     }
 
     fn encode_resize(cols: u16, rows: u16, replay: &[u8]) -> Vec<u8> {
-        let mut output = Vec::with_capacity(8 + replay.len());
+        let mut output = Vec::with_capacity(4 + replay.len());
         output.extend_from_slice(&cols.to_le_bytes());
         output.extend_from_slice(&rows.to_le_bytes());
-        output.extend_from_slice(&(replay.len() as u32).to_le_bytes());
         output.extend_from_slice(replay);
         output
     }
@@ -1471,6 +1939,23 @@ mod unix {
                 .map_err(|_| anyhow::anyhow!("terminal-host identity is not hexadecimal"))?;
         }
         Ok(bytes)
+    }
+
+    fn decode_lower_hex_array<const N: usize>(text: &str, field: &str) -> anyhow::Result<[u8; N]> {
+        if !text.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')) {
+            anyhow::bail!("terminal-host {field} is not canonical lowercase hexadecimal");
+        }
+        decode_hex_array(text)
+    }
+
+    fn process_definitely_absent(pid: u32) -> bool {
+        let Ok(pid) = libc::pid_t::try_from(pid) else { return true };
+        // SAFETY: signal zero performs a liveness/permission probe and does
+        // not deliver a signal to the target process.
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            return false;
+        }
+        std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
     }
 
     struct PayloadDecoder<'a> {
@@ -1582,6 +2067,35 @@ mod unix {
     mod tests {
         use super::*;
 
+        fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-record-{name}-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&root).unwrap();
+            let terminal_id = TerminalId::random().unwrap();
+            let incarnation = HostIncarnation::random().unwrap();
+            let owner = CapabilityToken::random().unwrap();
+            let nonce = CapabilityToken::random().unwrap();
+            let terminal_hex = terminal_id.to_hex();
+            let uid = fs::metadata(&root).unwrap().uid();
+            let record = TerminalHostRecord {
+                record_version: HOST_RECORD_VERSION,
+                terminal_id: terminal_hex.clone(),
+                incarnation: incarnation.to_hex(),
+                endpoint: format!("/tmp/cmux-th-{uid}/{terminal_hex}.sock"),
+                owner_token: encode_hex(owner.as_bytes()),
+                host_pid: std::process::id(),
+                host_start_nonce: encode_hex(nonce.as_bytes()),
+                workspace_key: String::new(),
+            };
+            let record_path = record.record_path(&root);
+            let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
+            write_record(&record_path, &record).unwrap();
+            (record_path, record, lease)
+        }
+
         #[test]
         fn launch_round_trip_preserves_ghostty_defaults() {
             let mut default_colors = DefaultColors {
@@ -1611,6 +2125,130 @@ mod unix {
             assert_eq!(decoded.default_colors, default_colors);
             assert_eq!(decoded.command, launch.command);
             assert_eq!(decoded.extra_env, launch.extra_env);
+        }
+
+        #[test]
+        fn process_nonce_proves_stale_record_even_if_pid_is_live_and_reused() {
+            let (record_path, record, lease) = record_fixture("liveness");
+            assert_eq!(
+                terminal_host_record_liveness(&record_path, &record).unwrap(),
+                TerminalHostLiveness::Live
+            );
+
+            // The recorded PID is this still-running test process. Releasing
+            // the process-start nonce nevertheless proves that the exact
+            // recorded host lifetime ended; PID existence cannot mask it.
+            drop(lease);
+            assert!(!process_definitely_absent(record.host_pid));
+            assert_eq!(
+                terminal_host_record_liveness(&record_path, &record).unwrap(),
+                TerminalHostLiveness::Dead
+            );
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            assert!(!record_path.exists());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
+        fn record_loader_rejects_noncanonical_filenames_and_identity_spellings() {
+            let (record_path, record, lease) = record_fixture("canonical");
+            let root = record_path.parent().unwrap();
+            fs::write(root.join("duplicate.json"), serde_json::to_vec(&record).unwrap()).unwrap();
+            let mut uppercase = record.clone();
+            uppercase.host_start_nonce.make_ascii_uppercase();
+            fs::write(
+                root.join(format!("{}.json", TerminalId::random().unwrap().to_hex())),
+                serde_json::to_vec(&uppercase).unwrap(),
+            )
+            .unwrap();
+
+            let loaded = load_terminal_host_records(root).unwrap();
+            assert_eq!(loaded, vec![(record_path.clone(), record.clone())]);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn legacy_record_is_adoptable_shape_but_never_unsafely_reaped() {
+            let (v2_path, v2, lease) = record_fixture("legacy");
+            let root = v2_path.parent().unwrap();
+            let terminal_id = TerminalId::random().unwrap().to_hex();
+            let mut legacy = v2.clone();
+            legacy.record_version = 1;
+            legacy.terminal_id = terminal_id.clone();
+            legacy.endpoint =
+                format!("/tmp/cmux-th-{}/{terminal_id}.sock", fs::metadata(root).unwrap().uid());
+            legacy.host_pid = 0;
+            legacy.host_start_nonce.clear();
+            let legacy_path = legacy.record_path(root);
+            write_record(&legacy_path, &legacy).unwrap();
+
+            validate_terminal_host_record(&legacy_path, &legacy).unwrap();
+            assert_eq!(
+                terminal_host_record_liveness(&legacy_path, &legacy).unwrap(),
+                TerminalHostLiveness::Indeterminate
+            );
+            assert!(
+                load_terminal_host_records(root)
+                    .unwrap()
+                    .iter()
+                    .any(|(_, record)| record.terminal_id == terminal_id)
+            );
+            assert!(!remove_stale_terminal_host_record(&legacy_path, &legacy).unwrap());
+
+            fs::remove_file(&legacy_path).unwrap();
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&v2_path, &v2).unwrap());
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn geometry_is_bounded_and_failed_apply_rolls_back_viewer_set() {
+            assert_eq!(normalize_terminal_geometry(0, 0).unwrap(), (1, 1));
+            assert_eq!(normalize_terminal_geometry(u16::MAX, 1).unwrap(), (10_000, 1));
+            assert!(normalize_terminal_geometry(10_000, 10_000).is_err());
+
+            let viewers = Mutex::new(HashMap::from([(1, (80, 24))]));
+            let error = mutate_viewer_sizes(
+                &viewers,
+                |sizes| {
+                    sizes.insert(2, (70, 20));
+                },
+                |_| anyhow::bail!("injected PTY resize failure"),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("injected PTY"));
+            assert_eq!(*viewers.lock().unwrap(), HashMap::from([(1, (80, 24))]));
+        }
+
+        #[test]
+        fn stalled_host_handshake_is_time_bounded() {
+            let (record_path, record, lease) = record_fixture("handshake-timeout");
+            let endpoint = PathBuf::from(&record.endpoint);
+            prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+            let _ = fs::remove_file(&endpoint);
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            let stalled = thread::spawn(move || {
+                let (_stream, _) = listener.accept().unwrap();
+                thread::sleep(Duration::from_millis(200));
+            });
+
+            let started = std::time::Instant::now();
+            assert!(
+                connect_record_with_timeout(
+                    record.clone(),
+                    record_path.clone(),
+                    Duration::from_millis(30),
+                )
+                .is_err()
+            );
+            assert!(started.elapsed() < Duration::from_secs(1));
+            stalled.join().unwrap();
+            let _ = fs::remove_file(endpoint);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
         }
 
         #[test]
@@ -1670,8 +2308,10 @@ mod unix {
                             first_applying_tx.send(()).unwrap();
                             release_first_rx.recv().unwrap();
                             applied.lock().unwrap().push(desired.unwrap());
+                            Ok(())
                         },
-                    );
+                    )
+                    .unwrap();
                 })
             };
             first_applying_rx.recv().unwrap();
@@ -1689,8 +2329,12 @@ mod unix {
                             second_mutating_tx.send(()).unwrap();
                             sizes.insert(2, (80, 24));
                         },
-                        |desired| applied.lock().unwrap().push(desired.unwrap()),
-                    );
+                        |desired| {
+                            applied.lock().unwrap().push(desired.unwrap());
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
                 })
             };
             second_attempting_rx.recv().unwrap();
@@ -1772,8 +2416,8 @@ mod unix {
 #[cfg(unix)]
 pub use unix::{
     HostAttachment, adopt_terminal_host, launch_terminal_host, launch_terminal_host_with_identity,
-    load_terminal_host_records, remove_terminal_host_record, serve_terminal_host_stdio,
-    terminal_host_root,
+    load_terminal_host_records, remove_stale_terminal_host_record, serve_terminal_host_stdio,
+    terminal_host_record_liveness, terminal_host_root, validate_terminal_host_record,
 };
 
 #[cfg(not(unix))]

@@ -5,6 +5,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
@@ -16,8 +18,9 @@ use cmux_tui_core::terminal_host_protocol::{
     read_frame, write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
-    adopt_terminal_host, decode_terminal_color_overrides, load_terminal_host_records,
-    remove_terminal_host_record, terminal_host_root,
+    TerminalHostLiveness, adopt_terminal_host, decode_terminal_color_overrides,
+    load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_record_liveness,
+    terminal_host_root,
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
@@ -27,6 +30,7 @@ struct RecoveryHarness {
     socket: PathBuf,
     state: PathBuf,
     session: String,
+    host_ready_delay_ms: Option<u64>,
 }
 
 impl RecoveryHarness {
@@ -40,23 +44,49 @@ impl RecoveryHarness {
             socket: dir.join("mux.sock"),
             state: dir.join("state"),
             session: "host-recovery".into(),
+            host_ready_delay_ms: None,
             dir,
         };
         harness.restart();
         harness
     }
 
+    fn start_with_host_ready_delay(name: &str, delay_ms: u64) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.host_ready_delay_ms = Some(delay_ms);
+        harness.restart();
+        harness
+    }
+
+    fn start_unstarted(name: &str) -> Self {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = PathBuf::from("/tmp")
+            .join(format!("cmux-terminal-host-{name}-{}-{stamp}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        Self {
+            child: None,
+            socket: dir.join("mux.sock"),
+            state: dir.join("state"),
+            session: "host-recovery".into(),
+            host_ready_delay_ms: None,
+            dir,
+        }
+    }
+
     fn restart(&mut self) {
         assert!(self.child.is_none());
-        let child = Command::new(bin())
+        let mut command = Command::new(bin());
+        command
             .args(["--headless", "--session", &self.session, "--socket"])
             .arg(&self.socket)
             .arg("--state")
             .arg(&self.state)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::null());
+        if let Some(delay_ms) = self.host_ready_delay_ms {
+            command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
+        }
+        let child = command.spawn().unwrap();
         self.child = Some(child);
         wait_for_socket(&self.socket);
     }
@@ -66,6 +96,13 @@ impl RecoveryHarness {
         child.kill().unwrap();
         child.wait().unwrap();
         let _ = fs::remove_file(&self.socket);
+    }
+
+    fn signal_daemon(&self, signal: libc::c_int) {
+        let pid = self.child.as_ref().unwrap().id() as libc::pid_t;
+        // SAFETY: the harness owns this child process and passes a platform
+        // signal constant.
+        assert_eq!(unsafe { libc::kill(pid, signal) }, 0);
     }
 
     fn host_root(&self) -> PathBuf {
@@ -83,16 +120,31 @@ impl Drop for RecoveryHarness {
         let records = load_terminal_host_records(&self.host_root()).unwrap_or_default();
         let endpoints =
             records.iter().map(|(_, record)| PathBuf::from(&record.endpoint)).collect::<Vec<_>>();
-        for (path, record) in records {
-            if let Ok(host) = adopt_terminal_host(record, path.clone()) {
+        for (path, record) in &records {
+            if let Ok(host) = adopt_terminal_host(record.clone(), path.clone()) {
                 let _ = host.terminate();
                 host.disconnect();
             }
-            remove_terminal_host_record(&path);
         }
         let deadline = Instant::now() + Duration::from_secs(2);
         while endpoints.iter().any(|endpoint| endpoint.exists()) && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(20));
+        }
+        for (path, record) in &records {
+            if terminal_host_record_liveness(path, record).ok() != Some(TerminalHostLiveness::Dead)
+            {
+                // SAFETY: test teardown owns these dedicated host processes;
+                // SIGKILL is a last resort after graceful Terminate timed out.
+                let _ = unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) };
+                let deadline = Instant::now() + Duration::from_secs(2);
+                while terminal_host_record_liveness(path, record).ok()
+                    != Some(TerminalHostLiveness::Dead)
+                    && Instant::now() < deadline
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            }
+            let _ = remove_stale_terminal_host_record(path, record);
         }
         for endpoint in endpoints {
             let _ = fs::remove_file(endpoint);
@@ -628,6 +680,388 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
         serde_json::json!({"id": 5, "cmd": "close-surface", "surface": surface}),
     );
     wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
+    let harness = RecoveryHarness::start("admin-reconnect");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    let before_record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    let terminal_snapshot =
+        request(&harness.socket, serde_json::json!({"id":20,"cmd":"list-terminals"}));
+    let before_revision = terminal_snapshot["terminal_revision"].as_u64().unwrap();
+    let grant = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+        }),
+    );
+    let renderer = connect_host_detailed(
+        grant["endpoint"].as_str().unwrap(),
+        grant["terminal_id"].as_str().unwrap(),
+        grant["token"].as_str().unwrap(),
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+    )
+    .unwrap();
+    let mut renderer_writer = renderer.stream.try_clone().unwrap();
+    let drained = Arc::new(AtomicUsize::new(0));
+    let drain_count = drained.clone();
+    let (overflow_tx, overflow_rx) = mpsc::sync_channel(1);
+    let drain = std::thread::spawn(move || {
+        let mut renderer = renderer;
+        let mut reported = false;
+        loop {
+            match read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD) {
+                Ok(Some(frame)) => {
+                    if frame.request_id == 0 {
+                        assert_eq!(frame.sequence, renderer.next_sequence);
+                        renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
+                    }
+                    if frame.kind == MessageKind::Output {
+                        let total = drain_count.fetch_add(frame.payload.len(), Ordering::AcqRel)
+                            + frame.payload.len();
+                        if total >= 12_000_000 && !reported {
+                            reported = true;
+                            let _ = overflow_tx.send(());
+                        }
+                    }
+                }
+                Ok(None) | Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => {
+                    break;
+                }
+                Err(error) => panic!("renderer stream failed during admin reconnect: {error}"),
+            }
+        }
+    });
+
+    // Freeze only the mux. The terminal host and renderer remain scheduled;
+    // enough PTY output fills the daemon tap's bounded queue and deliberately
+    // disconnects that admin stream.
+    harness.signal_daemon(libc::SIGSTOP);
+    write_frame(
+        &mut renderer_writer,
+        &Frame::new(
+            MessageKind::Input,
+            b"/usr/bin/head -c 14000000 /dev/zero; printf '\\nadmin-flood-done\\n'\n".to_vec(),
+        ),
+    )
+    .unwrap();
+    overflow_rx.recv_timeout(Duration::from_secs(15)).unwrap();
+    harness.signal_daemon(libc::SIGCONT);
+
+    let after = format!("renderer-after-reconnect-{}", std::process::id());
+    write_frame(
+        &mut renderer_writer,
+        &Frame::new(MessageKind::Input, format!("printf '{after}\\n'\n").into_bytes()),
+    )
+    .unwrap();
+    assert!(wait_for_screen(&harness.socket, surface, &after).contains(&after));
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_eq!(resolved["lifecycle"], "running");
+    assert_eq!(resolved["terminal_incarnation"], incarnation);
+    let after_record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(after_record.host_pid, before_record.host_pid);
+    assert_eq!(after_record.host_start_nonce, before_record.host_start_nonce);
+    assert_eq!(after_record.incarnation, before_record.incarnation);
+    assert!(drained.load(Ordering::Acquire) >= 12_000_000);
+    let lifecycle_events = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":21,"cmd":"terminal-events","after_revision":before_revision,
+        }),
+    );
+    let kinds = lifecycle_events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| event["kind"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(kinds.contains(&"terminal-adopting"));
+    assert!(kinds.contains(&"terminal-ready"));
+
+    let _ = renderer_writer.shutdown(std::net::Shutdown::Both);
+    drain.join().unwrap();
+    request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
+    let harness = RecoveryHarness::start("failed-control");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+
+    let disconnected = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    disconnected.disconnect();
+    assert!(disconnected.terminate().is_err());
+    assert!(record_path.exists(), "failed Terminate unlinked a live host record");
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live
+    );
+
+    let grant = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+        }),
+    );
+    let mut renderer = connect_host_detailed(
+        grant["endpoint"].as_str().unwrap(),
+        grant["terminal_id"].as_str().unwrap(),
+        grant["token"].as_str().unwrap(),
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+    )
+    .unwrap();
+    let mut oversized = Vec::new();
+    oversized.extend_from_slice(&5_000u16.to_le_bytes());
+    oversized.extend_from_slice(&1_000u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, oversized)).unwrap();
+    renderer.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    loop {
+        match read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD) {
+            Ok(None) | Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => break,
+            Ok(Some(frame)) => assert_ne!(frame.kind, MessageKind::Resized),
+            Err(error) => panic!("invalid resize produced malformed stream: {error}"),
+        }
+    }
+    let state =
+        request(&harness.socket, serde_json::json!({"id":3,"cmd":"vt-state","surface":surface}));
+    assert_eq!(state["cols"], 80);
+    assert_eq!(state["rows"], 24);
+    assert!(record_path.exists());
+
+    let marker = format!("after-failed-controls-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":4,"cmd":"send","surface":surface,"text":format!("{marker}\\n"),
+        }),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    request(&harness.socket, serde_json::json!({"id":5,"cmd":"close-surface","surface":surface}));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn daemon_crash_after_record_before_ready_adopts_same_live_host() {
+    let mut harness = RecoveryHarness::start_with_host_ready_delay("pre-ready-crash", 2_000);
+    let stream = transport::connect(&harness.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        })
+    )
+    .unwrap();
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live,
+        "record was not live while the host was paused before Ready"
+    );
+    let host_pid = record.host_pid;
+    let terminal_id = record.terminal_id.clone();
+    let incarnation = record.incarnation.clone();
+    harness.sigkill();
+    drop(writer);
+    drop(stream);
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live,
+        "daemon crash incorrectly killed the already-published terminal host"
+    );
+    harness.restart();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "running"
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            assert_eq!(resolved["terminal_incarnation"], incarnation);
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "pre-Ready host was not adopted after restart");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    let adopted = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(adopted.host_pid, host_pid);
+    assert_eq!(adopted.host_start_nonce, record.host_start_nonce);
+    assert_eq!(adopted.incarnation, incarnation);
+    let marker = format!("pre-ready-survivor-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":3,"cmd":"send","surface":surface,"text":format!("{marker}\\n"),
+        }),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":4,"cmd":"close-terminal","terminal_id":terminal_id,
+            "terminal_incarnation":incarnation,
+        }),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn running_host_sigkill_retains_read_only_exited_binding() {
+    let harness = RecoveryHarness::start("running-host-sigkill");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    // SAFETY: the record PID is the dedicated host process owned by this
+    // harness; killing it is the failure under test.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "exited" {
+            assert_eq!(resolved["surface"].as_u64(), Some(surface));
+            break;
+        }
+        assert!(Instant::now() < deadline, "running host never transitioned to Exited");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let write = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id":3,"cmd":"send","surface":surface,"text":"must-not-write\\n",
+        }),
+    );
+    assert_eq!(write["ok"], false);
+    assert!(write["error"].as_str().unwrap().contains("exited"));
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Dead
+    );
+    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":4,"cmd":"close-terminal","terminal_id":terminal_id,
+            "terminal_incarnation":record.incarnation,
+        }),
+    );
+}
+
+#[test]
+fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_binding() {
+    let mut harness = RecoveryHarness::start("dead-host-restart");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    let workspace_id = created["workspace"].as_u64().unwrap();
+    let tree = request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-workspaces"}));
+    let workspace_key = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
+        .unwrap()["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+
+    // Stop the mux first so it cannot observe the host Exit and update the
+    // registry. The restart must reconcile a dead proof against a still-
+    // Running/Adopting row without spawning a replacement shell.
+    harness.signal_daemon(libc::SIGSTOP);
+    // SAFETY: the record PID is the harness-owned terminal host.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    harness.sigkill();
+    harness.restart();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let exited_surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "exited"
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            assert_eq!(resolved["terminal_incarnation"], incarnation);
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "dead startup host was not projected as Exited");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    wait_for_no_host_records(&harness.host_root());
+    let recovered = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
+    let workspace = recovered["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
+        .expect("original workspace was not recovered");
+    let tab = first_tab(workspace).expect("Exited terminal placeholder was not materialized");
+    assert_eq!(tab["surface"].as_u64(), Some(exited_surface));
+    assert_eq!(tab["terminal_id"].as_str(), Some(terminal_id.as_str()));
+
+    let write = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id":5,"cmd":"send","surface":exited_surface,"text":"must-not-respawn\\n",
+        }),
+    );
+    assert_eq!(write["ok"], false);
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":6,"cmd":"close-terminal","terminal_id":terminal_id,
+            "terminal_incarnation":incarnation,
+        }),
+    );
 }
 
 fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
