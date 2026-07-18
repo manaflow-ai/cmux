@@ -493,11 +493,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
 
-        func rows(command: String, agent: String, key: String) throws -> [[String: Any]] {
+        func rows(
+            command: String,
+            agent: String,
+            key: String,
+            processEnvironment: [String: String]
+        ) throws -> [[String: Any]] {
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["agents", command, "--agent", agent, "--json", "--state-dir", root.path],
-                environment: environment,
+                environment: processEnvironment,
                 timeout: 5
             )
             XCTAssertEqual(result.status, 0, result.stderr)
@@ -507,31 +512,85 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return try XCTUnwrap(payload[key] as? [[String: Any]])
         }
 
-        let cursorListRows = try rows(command: "list", agent: "cursor-agent", key: "sessions")
+        let cursorListRows = try rows(
+            command: "list",
+            agent: "cursor-agent",
+            key: "sessions",
+            processEnvironment: environment
+        )
         XCTAssertEqual(cursorListRows.count, 1)
         XCTAssertEqual(cursorListRows.first?["agent"] as? String, "cursor")
         XCTAssertEqual(cursorListRows.first?["session_id"] as? String, cursorSessionID)
         XCTAssertEqual(cursorListRows.first?["identity_source"] as? String, "hook_session")
 
-        let droidListRows = try rows(command: "list", agent: "droid", key: "sessions")
+        let droidListRows = try rows(
+            command: "list",
+            agent: "droid",
+            key: "sessions",
+            processEnvironment: environment
+        )
         XCTAssertEqual(droidListRows.count, 1)
         XCTAssertEqual(droidListRows.first?["agent"] as? String, "factory")
         XCTAssertEqual(droidListRows.first?["session_id"] as? String, factorySessionID)
         XCTAssertEqual(droidListRows.first?["identity_source"] as? String, "hook_session")
 
-        let cursorTreeRows = try rows(command: "tree", agent: "cursor-agent", key: "nodes")
+        let cursorTreeRows = try rows(
+            command: "tree",
+            agent: "cursor-agent",
+            key: "nodes",
+            processEnvironment: environment
+        )
         XCTAssertEqual(cursorTreeRows.count, 1)
         XCTAssertEqual(cursorTreeRows.first?["provider"] as? String, "cursor")
         XCTAssertEqual(cursorTreeRows.first?["session_id"] as? String, cursorSessionID)
         XCTAssertEqual(cursorTreeRows.first?["identity_source"] as? String, "hook_session")
 
-        let droidTreeRows = try rows(command: "tree", agent: "droid", key: "nodes")
+        let droidTreeRows = try rows(
+            command: "tree",
+            agent: "droid",
+            key: "nodes",
+            processEnvironment: environment
+        )
         XCTAssertEqual(droidTreeRows.count, 1)
         XCTAssertEqual(droidTreeRows.first?["provider"] as? String, "factory")
         XCTAssertEqual(droidTreeRows.first?["session_id"] as? String, factorySessionID)
         XCTAssertEqual(droidTreeRows.first?["identity_source"] as? String, "hook_session")
 
         wait(for: [serverHandled], timeout: 1)
+
+        var offlineEnvironment = environment
+        offlineEnvironment.removeValue(forKey: "CMUX_SOCKET_PATH")
+        let offlineCursorListRows = try rows(
+            command: "list",
+            agent: "cursor-agent",
+            key: "sessions",
+            processEnvironment: offlineEnvironment
+        )
+        XCTAssertEqual(offlineCursorListRows.compactMap { $0["session_id"] as? String }, [cursorSessionID])
+
+        let offlineDroidListRows = try rows(
+            command: "list",
+            agent: "droid",
+            key: "sessions",
+            processEnvironment: offlineEnvironment
+        )
+        XCTAssertEqual(offlineDroidListRows.compactMap { $0["session_id"] as? String }, [factorySessionID])
+
+        let offlineCursorTreeRows = try rows(
+            command: "tree",
+            agent: "cursor-agent",
+            key: "nodes",
+            processEnvironment: offlineEnvironment
+        )
+        XCTAssertEqual(offlineCursorTreeRows.compactMap { $0["session_id"] as? String }, [cursorSessionID])
+
+        let offlineDroidTreeRows = try rows(
+            command: "tree",
+            agent: "droid",
+            key: "nodes",
+            processEnvironment: offlineEnvironment
+        )
+        XCTAssertEqual(offlineDroidTreeRows.compactMap { $0["session_id"] as? String }, [factorySessionID])
     }
 
     func testAmbientSocketScopesAgentsTreeToTheConnectedRuntime() throws {
