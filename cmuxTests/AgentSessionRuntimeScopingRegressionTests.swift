@@ -144,10 +144,8 @@ extension CMUXCLIErrorOutputRegressionTests {
         let restoredPanelID = restoredPanelSnapshot.id
         #expect(restored.id != source.id)
         #expect(restoredPanelID != sourcePanelID)
-        _ = try #require(restored.terminalPanel(for: restoredPanelID))
-        // Window construction can focus an adopted placeholder while adding its
-        // workspace, advancing it through the normal focus-driven resume path.
-        let adoptedLifecycleStates: Set<String> = ["hibernated", "restoring"]
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(restoredPanel.isAgentHibernated)
 
         let snapshot = try registry.snapshot(provider: "codex")
         let unrelatedProviderSnapshot = try registry.snapshot(provider: "claude")
@@ -156,7 +154,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let recordObject = try #require(
             JSONSerialization.jsonObject(with: record.json) as? [String: Any]
         )
-        #expect((recordObject["sessionState"] as? String).map(adoptedLifecycleStates.contains) == true)
+        #expect(recordObject["sessionState"] as? String == "hibernated")
         let runs = try #require(recordObject["runs"] as? [[String: Any]])
         #expect((runs.first?["cmuxRuntime"] as? [String: Any])?["id"] as? String == runtimeID)
         let sessionSlots = snapshot.activeSlots.filter { $0.sessionID == sessionID }
@@ -186,8 +184,76 @@ extension CMUXCLIErrorOutputRegressionTests {
             let restoredRow = try #require(rows?.first { $0["session_id"] as? String == sessionID })
             #expect(restoredRow["workspace_id"] as? String == restored.id.uuidString)
             #expect(restoredRow["surface_id"] as? String == restoredPanelID.uuidString)
-            #expect((restoredRow["session_state"] as? String).map(adoptedLifecycleStates.contains) == true)
+            #expect(restoredRow["session_state"] as? String == "hibernated")
         }
+    }
+
+    @MainActor
+    @Test func legacyOnlyRestoredHibernationImportsAtSharedAdoptionBoundary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-hibernation-legacy-only-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let environmentOverrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "legacy-only-runtime",
+        ]
+        let previousEnvironment = environmentOverrides.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in environmentOverrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "legacy-only-session"
+        )
+        let activeSlot: [String: Any] = [
+            "sessionId": fixture.agent.sessionId,
+            "updatedAt": 20.0,
+        ]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [fixture.agent.sessionId: [
+                "sessionId": fixture.agent.sessionId,
+                "workspaceId": fixture.source.id.uuidString,
+                "surfaceId": fixture.sourcePanelID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]],
+            "activeSessionsByWorkspace": [fixture.source.id.uuidString: activeSlot],
+            "activeSessionsBySurface": [fixture.sourcePanelID.uuidString: activeSlot],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+        #expect(!FileManager.default.fileExists(atPath: registryURL.path))
+
+        let restored = Workspace()
+        let mapping = restored.restoreSessionSnapshot(fixture.snapshot)
+        let restoredPanelID = try #require(mapping[fixture.sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(restoredPanel.isAgentHibernated)
+        #expect(restored.restoredAgentSnapshotForTesting(panelId: restoredPanelID)?.sessionId == fixture.agent.sessionId)
+        let registrySnapshot = try CmuxAgentSessionRegistry(url: registryURL).snapshot(provider: "codex")
+        let record = try #require(registrySnapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        #expect(object["workspaceId"] as? String == restored.id.uuidString)
+        #expect(object["surfaceId"] as? String == restoredPanelID.uuidString)
+        #expect(object["sessionState"] as? String == "hibernated")
+        #expect(Set(registrySnapshot.activeSlots.map(\.scopeID)) == [
+            restored.id.uuidString,
+            restoredPanelID.uuidString,
+        ])
     }
 
     @MainActor
@@ -954,7 +1020,6 @@ extension CMUXCLIErrorOutputRegressionTests {
     ) {
         let source = Workspace()
         let sourcePanelID = try #require(source.focusedPanelId)
-        let sourcePanel = try #require(source.terminalPanel(for: sourcePanelID))
         let sourcePaneID = try #require(source.paneId(forPanelId: sourcePanelID))
         _ = try #require(source.newTerminalSurface(inPane: sourcePaneID, focus: true))
         let agent = SessionRestorableAgentSnapshot(
@@ -971,14 +1036,19 @@ extension CMUXCLIErrorOutputRegressionTests {
                 source: "agent-hook"
             )
         )
-        #expect(sourcePanel.enterAgentHibernation(
-            agent: agent,
-            lastActivityAt: Date(timeIntervalSince1970: 10),
-            hibernatedAt: Date(timeIntervalSince1970: 20)
-        ))
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+        var terminal = try #require(snapshot.panels[panelIndex].terminal)
+        terminal.agent = agent
+        terminal.hibernation = SessionAgentHibernationSnapshot(
+            hibernatedAt: 20,
+            lastActivityAt: 10
+        )
+        terminal.wasAgentRunning = true
+        snapshot.panels[panelIndex].terminal = terminal
         return (
             source: source,
-            snapshot: source.sessionSnapshot(includeScrollback: false),
+            snapshot: snapshot,
             sourcePanelID: sourcePanelID,
             agent: agent
         )

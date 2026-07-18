@@ -235,16 +235,13 @@ struct ProviderCurrentVersionContractTests {
                 "\(arguments)"
             )
         }
-        for command in ["acp", "gateway"] {
-            #expect(
-                AgentLaunchModeClassifier.processMode(
-                    processName: "hermes",
-                    arguments: ["hermes", command],
-                    kind: "hermes-agent"
-                ) == .interactive,
-                "hermes \(command)"
-            )
-        }
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "hermes",
+                arguments: ["hermes", "acp"],
+                kind: "hermes-agent"
+            ) == .interactive
+        )
     }
 
     @Test("Long-lived protocol entrypoints distinguish commands that exit")
@@ -291,10 +288,12 @@ struct ProviderCurrentVersionContractTests {
         }
         for arguments in [
             ["hermes", "acp", "--check"],
+            ["hermes", "acp", "--help"],
             ["hermes", "acp", "--setup"],
             ["hermes", "acp", "--setup-browser"],
             ["hermes", "acp", "--version"],
             ["hermes", "gateway"],
+            ["hermes", "gateway", "run", "--help"],
             ["hermes", "gateway", "status"],
             ["hermes", "gateway", "start"],
         ] {
@@ -303,6 +302,38 @@ struct ProviderCurrentVersionContractTests {
                     processName: "hermes", arguments: arguments, kind: "hermes-agent"
                 ) == .nonSession,
                 "\(arguments)"
+            )
+        }
+
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "grok",
+                arguments: ["grok", "agent", "--agent-profile", "/tmp/profile.json", "stdio"],
+                kind: "grok"
+            ) == .interactive
+        )
+        let protocolHelpCases: [(processName: String, kind: String, arguments: [String])] = [
+            ("claude", "claude", ["claude", "--input-format", "stream-json", "--help"]),
+            ("pi", "pi", ["pi", "--mode", "rpc", "--help"]),
+            ("omp", "omp", ["omp", "--mode", "rpc-ui", "--help"]),
+            ("campfire", "campfire", ["campfire", "--mode", "rpc", "--help"]),
+            ("droid", "factory", [
+                "droid", "exec", "--input-format", "stream-jsonrpc",
+                "--output-format", "stream-jsonrpc", "--help",
+            ]),
+            ("kimi", "kimi", ["kimi", "--acp", "--help"]),
+            ("grok", "grok", ["grok", "agent", "stdio", "--help"]),
+            ("opencode", "opencode", ["opencode", "serve", "--help"]),
+            ("qodercli", "qoder", ["qodercli", "--acp", "--help"]),
+        ]
+        for testCase in protocolHelpCases {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: testCase.processName,
+                    arguments: testCase.arguments,
+                    kind: testCase.kind
+                ) == .nonSession,
+                "\(testCase.arguments)"
             )
         }
     }
