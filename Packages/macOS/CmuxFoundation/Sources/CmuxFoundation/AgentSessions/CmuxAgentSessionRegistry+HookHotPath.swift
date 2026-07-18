@@ -79,6 +79,17 @@ extension CmuxAgentSessionRegistry {
         }
     }
 
+    /// A changed compatibility source could not be decoded or committed for one
+    /// provider. Canonical query failures remain their original error so callers
+    /// do not misreport database availability as a legacy import problem.
+    public struct HookLegacySourceImportError: Error, Equatable, Sendable {
+        public var provider: String
+
+        public init(provider: String) {
+            self.provider = provider
+        }
+    }
+
     /// Allocation-free size metadata used before inspection commands
     /// materialize a provider snapshot.
     public struct HookStorageMetrics: Equatable, Sendable {
@@ -417,14 +428,11 @@ extension CmuxAgentSessionRegistry {
         let statement = try prepare(
             database,
             """
-            SELECT session_id
-            FROM agent_sessions
-            WHERE provider = ?1
-              AND CASE
+            SELECT session_id,
+                   CASE
                     WHEN json_valid(record_json) = 0 THEN 1
                     WHEN json_type(record_json) IS NOT 'object' THEN 1
                     WHEN json_type(record_json, '$.sessionId') IS NOT 'text' THEN 1
-                    WHEN json_extract(record_json, '$.sessionId') != session_id THEN 1
                     WHEN json_type(record_json, '$.workspaceId') IS NOT 'text' THEN 1
                     WHEN json_type(record_json, '$.surfaceId') IS NOT 'text' THEN 1
                     WHEN json_type(record_json, '$.startedAt') IS NOT 'integer'
@@ -467,19 +475,27 @@ extension CmuxAgentSessionRegistry {
                            END = 1
                          ) THEN 1
                     ELSE 0
-                  END = 1
-            LIMIT 1
+                  END AS structurally_invalid,
+                  CASE WHEN json_valid(record_json)
+                       THEN json_extract(record_json, '$.sessionId') END
+            FROM agent_sessions
+            WHERE provider = ?1
+            ORDER BY session_id ASC
             """
         )
         defer { sqlite3_finalize(statement) }
         try bind(provider, to: 1, in: statement)
-        let hasInvalidRow = try stepRow(
+        while try stepRow(
             statement,
             database: database,
             operation: "validate bounded list sessions"
-        )
-        guard !hasInvalidRow else {
-            throw HookListProjectionValidationError(provider: provider)
+        ) {
+            guard let storedSessionID = text(statement, column: 0),
+                  sqlite3_column_int64(statement, 1) == 0,
+                  let projectedSessionID = text(statement, column: 2),
+                  storedSessionID == projectedSessionID else {
+                throw HookListProjectionValidationError(provider: provider)
+            }
         }
     }
 

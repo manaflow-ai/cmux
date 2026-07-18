@@ -274,6 +274,10 @@ struct AgentHookSessionRegistryBridge {
                 totalRecordCounts: bounded.mapValues(\.totalRecordCount)
             )
         } catch {
+            guard error is CmuxAgentSessionRegistry.HookListProjectionValidationError
+                    || error is CmuxAgentSessionRegistry.HookLegacySourceImportError else {
+                throw error
+            }
             var recovered: [String: CmuxAgentSessionRegistry.Snapshot] = [:]
             var totalRecordCounts: [String: Int] = [:]
             var validationFailures: Set<String> = []
@@ -297,7 +301,8 @@ struct AgentHookSessionRegistryBridge {
                     recovered[source.provider] = .init(records: [], activeSlots: [])
                     totalRecordCounts[source.provider] = 0
                     validationFailures.insert(source.provider)
-                } catch {
+                } catch let failure as CmuxAgentSessionRegistry.HookLegacySourceImportError
+                    where failure.provider == source.provider {
                     do {
                         let fallback = try registry.hookBoundedRecentSnapshot(
                             provider: source.provider,
@@ -324,10 +329,20 @@ struct AgentHookSessionRegistryBridge {
                             environment: environment,
                             fileManager: fileManager
                         )
-                        guard let validation = try? bridge.loadBoundedForInspection(
-                            snapshot: fallback.snapshot
-                        ), validation.warning == nil,
-                           !validation.store.sessions.isEmpty else {
+                        let validation: AgentHookSessionStoreLoadResult
+                        do {
+                            validation = try bridge.loadBoundedForInspection(
+                                snapshot: fallback.snapshot
+                            )
+                        } catch is AgentHookSessionStoreLoadFailure {
+                            throw AgentHookSessionStoreLoadFailure(
+                                provider: source.provider,
+                                path: source.url.path,
+                                code: .legacySourceImportFailed
+                            )
+                        }
+                        guard validation.warning == nil,
+                              !validation.store.sessions.isEmpty else {
                             throw AgentHookSessionStoreLoadFailure(
                                 provider: source.provider,
                                 path: source.url.path,
@@ -351,12 +366,6 @@ struct AgentHookSessionRegistryBridge {
                         )
                     } catch let failure as AgentHookSessionStoreLoadFailure {
                         throw failure
-                    } catch {
-                        throw AgentHookSessionStoreLoadFailure(
-                            provider: source.provider,
-                            path: source.url.path,
-                            code: .legacySourceImportFailed
-                        )
                     }
                 }
             }

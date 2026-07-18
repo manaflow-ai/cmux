@@ -520,18 +520,30 @@ public struct CmuxAgentSessionRegistry: Sendable {
                         provider: source.provider,
                         stamp: stamp
                       ) else { continue }
-                let data = try readHookLegacySourceData(at: source.url)
-                changed.append((source, stamp, try legacyPayload(provider: source.provider, json: data)))
+                do {
+                    let data = try readHookLegacySourceData(at: source.url)
+                    changed.append((
+                        source,
+                        stamp,
+                        try legacyPayload(provider: source.provider, json: data)
+                    ))
+                } catch {
+                    throw HookLegacySourceImportError(provider: source.provider)
+                }
             }
             if !changed.isEmpty {
                 try transaction(database) {
                     for item in changed {
-                        try replaceLegacy(
-                            database: database,
-                            provider: item.source.provider,
-                            stamp: item.stamp,
-                            payload: item.payload
-                        )
+                        do {
+                            try replaceLegacy(
+                                database: database,
+                                provider: item.source.provider,
+                                stamp: item.stamp,
+                                payload: item.payload
+                            )
+                        } catch {
+                            throw HookLegacySourceImportError(provider: item.source.provider)
+                        }
                     }
                 }
             }
