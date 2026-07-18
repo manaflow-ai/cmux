@@ -40,15 +40,153 @@ impl HeadlessServer {
         }
         panic!("headless server did not create socket at {}", self.socket.display());
     }
+
+    fn close_all_surfaces(&self) -> bool {
+        let state_root = self.socket.with_extension("state");
+        let host_root =
+            cmux_tui_core::terminal_host_runtime::terminal_host_root(&state_root, "main");
+        // Capture exact host PIDs before close can remove their discovery
+        // records. Waiting on both proves teardown did not merely unlink the
+        // record while leaving its process behind.
+        let host_pids = terminal_host_pids(&host_root);
+        let Some(tree) = try_json_socket_request(
+            &self.socket,
+            serde_json::json!({"id": u64::MAX - 1, "cmd": "list-workspaces"}),
+        ) else {
+            return host_pids.is_empty();
+        };
+        let mut surfaces = tree["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+            .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+            .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+            .filter_map(|tab| tab["surface"].as_u64())
+            .collect::<Vec<_>>();
+        surfaces.sort_unstable();
+        surfaces.dedup();
+        let terminal_pids = surfaces
+            .iter()
+            .filter_map(|surface| {
+                try_json_socket_request(
+                    &self.socket,
+                    serde_json::json!({
+                        "id": u64::MAX - 2,
+                        "cmd": "process-info",
+                        "surface": surface,
+                    }),
+                )?["pid"]
+                    .as_u64()
+            })
+            .filter_map(|pid| u32::try_from(pid).ok())
+            .collect::<Vec<_>>();
+        for (index, surface) in surfaces.into_iter().enumerate() {
+            let index = u64::try_from(index).expect("surface count fits a protocol request id");
+            let _ = try_json_socket_request(
+                &self.socket,
+                serde_json::json!({
+                    "id": u64::MAX - 3 - index,
+                    "cmd": "close-surface",
+                    "surface": surface,
+                }),
+            );
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            let records_remain =
+                fs::read_dir(&host_root).ok().into_iter().flatten().filter_map(Result::ok).any(
+                    |entry| {
+                        entry.path().extension().and_then(|value| value.to_str()) == Some("json")
+                    },
+                );
+            let processes_remain = host_pids.iter().copied().any(process_exists);
+            let terminals_remain = terminal_pids
+                .iter()
+                .copied()
+                .any(|pid| process_exists(pid) || process_group_exists(pid));
+            if !records_remain && !processes_remain && !terminals_remain {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
 }
 
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
+        // Durable terminal hosts intentionally outlive the daemon. Tests must
+        // close their canonical surfaces first rather than assuming SIGKILL
+        // of the daemon also owns or reaps its per-terminal processes.
+        let hosts_stopped = self.close_all_surfaces();
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(&self.dir);
+        if !hosts_stopped && !std::thread::panicking() {
+            panic!("headless CLI fixture left a durable terminal-host process behind");
+        }
     }
+}
+
+fn try_json_socket_request(
+    path: &std::path::Path,
+    request: serde_json::Value,
+) -> Option<serde_json::Value> {
+    let stream = transport::connect(path).ok()?;
+    let mut writer = stream.try_clone_box().ok()?;
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{request}").ok()?;
+    let mut line = String::new();
+    reader.read_line(&mut line).ok()?;
+    let response: serde_json::Value = serde_json::from_str(&line).ok()?;
+    (response["ok"] == true).then(|| response["data"].clone())
+}
+
+fn terminal_host_pids(root: &std::path::Path) -> Vec<u32> {
+    fs::read_dir(root)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| fs::read(entry.path()).ok())
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .filter_map(|record| record["host_pid"].as_u64())
+        .filter_map(|pid| u32::try_from(pid).ok())
+        .collect()
+}
+
+#[cfg(unix)]
+fn process_exists(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+    // SAFETY: signal zero performs only an existence/permission check.
+    if unsafe { libc::kill(pid, 0) == 0 } {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(unix)]
+fn process_group_exists(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+    // SAFETY: a negative PID with signal zero checks the process group and
+    // cannot deliver a signal.
+    if unsafe { libc::kill(-pid, 0) == 0 } {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn process_exists(_pid: u32) -> bool {
+    false
+}
+
+#[cfg(not(unix))]
+fn process_group_exists(_pid: u32) -> bool {
+    false
 }
 
 fn wait_for_socket_path(path: &std::path::Path) {
