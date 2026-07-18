@@ -24,6 +24,9 @@
 #   --older-than <DAYS>   Only touch tags whose DerivedData mtime is at
 #                         least DAYS days old.
 #   --keep <TAG>          Protect a tag (repeatable).
+#   --terminate-terminal-backends
+#                         Permit unregistering persistent terminal backends.
+#                         This terminates every PTY owned by those backends.
 #   --apply               Delete instead of preview.
 #
 # Examples:
@@ -33,11 +36,16 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/mobile-attach.sh
+source "$SCRIPT_DIR/lib/mobile-attach.sh"
+TERMINAL_BACKEND_IDENTITY_TOOL="$SCRIPT_DIR/terminal-backend-identity.py"
 DERIVED_DATA_ROOT="$HOME/Library/Developer/Xcode/DerivedData"
 APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
 LAST_CLI_PATH_FILE="/tmp/cmux-last-cli-path"
 
 apply=0
+terminate_terminal_backends=0
 older_than_days=0
 keep_tags=()
 
@@ -49,6 +57,7 @@ usage() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --apply) apply=1; shift ;;
+        --terminate-terminal-backends) terminate_terminal_backends=1; shift ;;
         --older-than)
             older_than_days="${2:?--older-than requires DAYS}"
             shift 2
@@ -119,6 +128,185 @@ derived_data_mtime_days() {
     echo $(( (now - mtime) / 86400 ))
 }
 
+# Populated by probe_maintenance_bundle_for_tag. A return status of 0 means one
+# exact, fully validated tagged bundle owns both maintenance entrypoints. Status
+# 1 means no maintenance-capable bundle exists. Status 2 means an ambiguous or
+# malformed bundle exists and the tag must be preserved.
+MAINTENANCE_APP=""
+MAINTENANCE_EXECUTABLE=""
+MAINTENANCE_BUNDLE_ID=""
+MAINTENANCE_SERVICE_LABEL=""
+MAINTENANCE_FINGERPRINT=""
+MAINTENANCE_PROBE_REASON=""
+
+maintenance_files_fingerprint() {
+    /usr/bin/python3 - "$@" <<'PY'
+import os
+import sys
+
+parts = []
+for path in sys.argv[1:]:
+    stat = os.stat(path, follow_symlinks=False)
+    parts.append(f"{path}:{stat.st_dev}:{stat.st_ino}:{stat.st_size}:{stat.st_mtime_ns}")
+print(";".join(parts))
+PY
+}
+
+products_have_maintenance_bundle() {
+    local products="$1"
+    local candidate=""
+    local plist=""
+    for candidate in "$products"/*.app; do
+        [[ -d "$candidate" ]] || continue
+        plist="$candidate/Contents/Info.plist"
+        [[ -r "$plist" ]] || continue
+        if /usr/libexec/PlistBuddy \
+            -c 'Print :CMUXTerminalBackendServiceStatusCommand' \
+            "$plist" >/dev/null 2>&1 || \
+           /usr/libexec/PlistBuddy \
+            -c 'Print :CMUXTerminalBackendServiceUnregisterCommand' \
+            "$plist" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+probe_maintenance_bundle_for_tag() {
+    local tag="$1"
+    local products="$DERIVED_DATA_ROOT/cmux-${tag}/Build/Products/Debug"
+    local app="$products/cmux DEV ${tag}.app"
+    local plist="$app/Contents/Info.plist"
+    local executable_name=""
+    local status_command=""
+    local unregister_command=""
+    local expected_bundle_id=""
+    local actual_bundle_id=""
+    local expected_service_label=""
+    local launch_plist=""
+    local actual_service_label=""
+
+    MAINTENANCE_APP=""
+    MAINTENANCE_EXECUTABLE=""
+    MAINTENANCE_BUNDLE_ID=""
+    MAINTENANCE_SERVICE_LABEL=""
+    MAINTENANCE_FINGERPRINT=""
+    MAINTENANCE_PROBE_REASON=""
+
+    if [[ ! -d "$app" || ! -r "$plist" ]]; then
+        if products_have_maintenance_bundle "$products"; then
+            MAINTENANCE_PROBE_REASON="canonical tagged app missing while another maintenance-capable app exists"
+            return 2
+        fi
+        return 1
+    fi
+
+    status_command="$(/usr/libexec/PlistBuddy -c 'Print :CMUXTerminalBackendServiceStatusCommand' "$plist" 2>/dev/null || true)"
+    unregister_command="$(/usr/libexec/PlistBuddy -c 'Print :CMUXTerminalBackendServiceUnregisterCommand' "$plist" 2>/dev/null || true)"
+    if [[ -z "$status_command" && -z "$unregister_command" ]]; then
+        if products_have_maintenance_bundle "$products"; then
+            MAINTENANCE_PROBE_REASON="canonical tagged app has no maintenance contract while another app does"
+            return 2
+        fi
+        return 1
+    fi
+    if [[ "$status_command" != "--terminal-backend-service-status" || \
+          "$unregister_command" != "--unregister-terminal-backend-service" ]]; then
+        MAINTENANCE_PROBE_REASON="canonical tagged app has an incomplete maintenance contract"
+        return 2
+    fi
+
+    expected_bundle_id="$(cmux_attach_mac_bundle_id "$tag")"
+    actual_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" 2>/dev/null || true)"
+    if [[ "$actual_bundle_id" != "$expected_bundle_id" ]]; then
+        MAINTENANCE_PROBE_REASON="canonical tagged app bundle identifier mismatch"
+        return 2
+    fi
+
+    executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist" 2>/dev/null || true)"
+    MAINTENANCE_EXECUTABLE="$app/Contents/MacOS/$executable_name"
+    if [[ -z "$executable_name" || ! -x "$MAINTENANCE_EXECUTABLE" ]]; then
+        MAINTENANCE_PROBE_REASON="canonical tagged app maintenance executable missing"
+        return 2
+    fi
+
+    expected_service_label="$("$TERMINAL_BACKEND_IDENTITY_TOOL" \
+        --bundle-id "$actual_bundle_id" \
+        --field serviceLabel 2>/dev/null || true)"
+    launch_plist="$app/Contents/Library/LaunchAgents/$expected_service_label.plist"
+    actual_service_label="$(/usr/libexec/PlistBuddy -c 'Print :Label' "$launch_plist" 2>/dev/null || true)"
+    if [[ -z "$expected_service_label" || "$actual_service_label" != "$expected_service_label" ]]; then
+        MAINTENANCE_PROBE_REASON="canonical tagged app terminal backend service identity mismatch"
+        return 2
+    fi
+
+    MAINTENANCE_FINGERPRINT="$(maintenance_files_fingerprint \
+        "$plist" \
+        "$MAINTENANCE_EXECUTABLE" \
+        "$launch_plist")" || {
+        MAINTENANCE_PROBE_REASON="canonical tagged app changed during validation"
+        return 2
+    }
+    MAINTENANCE_APP="$app"
+    MAINTENANCE_BUNDLE_ID="$actual_bundle_id"
+    MAINTENANCE_SERVICE_LABEL="$expected_service_label"
+    return 0
+}
+
+maintenance_record() {
+    printf '%s|%s|%s|%s|%s' \
+        "$MAINTENANCE_APP" \
+        "$MAINTENANCE_EXECUTABLE" \
+        "$MAINTENANCE_BUNDLE_ID" \
+        "$MAINTENANCE_SERVICE_LABEL" \
+        "$MAINTENANCE_FINGERPRINT"
+}
+
+run_backend_status() {
+    local executable="$1"
+    python3 - "$executable" <<'PY'
+import subprocess
+import sys
+
+try:
+    result = subprocess.run(
+        [sys.argv[1], "--terminal-backend-service-status"],
+        timeout=5,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+except subprocess.TimeoutExpired:
+    raise SystemExit(124)
+if result.returncode != 0:
+    raise SystemExit(result.returncode)
+value = result.stdout.strip()
+if value not in {"not-registered", "enabled", "requires-approval", "not-found"}:
+    raise SystemExit(65)
+print(value)
+PY
+}
+
+run_backend_unregistration() {
+    local executable="$1"
+    python3 - "$executable" <<'PY'
+import subprocess
+import sys
+
+try:
+    result = subprocess.run(
+        [sys.argv[1], "--unregister-terminal-backend-service"],
+        timeout=30,
+        check=False,
+    )
+except subprocess.TimeoutExpired:
+    print("error: terminal backend unregistration timed out after 30 seconds", file=sys.stderr)
+    raise SystemExit(124)
+raise SystemExit(result.returncode)
+PY
+}
+
 # ---- safety probes ----------------------------------------------------------
 
 # Active tag (most recent reload) per the CLI symlink target. Match
@@ -168,6 +356,29 @@ while IFS= read -r tag; do
     if contains "$tag" ${keep_tags[@]+"${keep_tags[@]}"}; then
         reasons+=("--keep")
     fi
+    maintenance_probe_status=0
+    probe_maintenance_bundle_for_tag "$tag" || maintenance_probe_status=$?
+    planned_maintenance_record=""
+    if (( maintenance_probe_status == 0 )); then
+        planned_maintenance_record="$(maintenance_record)"
+        if backend_status="$(run_backend_status "$MAINTENANCE_EXECUTABLE")"; then
+            case "$backend_status" in
+                enabled|requires-approval)
+                    if (( terminate_terminal_backends == 0 )); then
+                        reasons+=("persistent terminal backend; use --terminate-terminal-backends to terminate its PTYs")
+                    fi
+                    ;;
+                not-registered) ;;
+                not-found)
+                    reasons+=("terminal backend service status not found; preserving app")
+                    ;;
+            esac
+        else
+            reasons+=("terminal backend service status query failed; preserving app")
+        fi
+    elif (( maintenance_probe_status == 2 )); then
+        reasons+=("terminal backend maintenance identity is unsafe: $MAINTENANCE_PROBE_REASON; preserving app")
+    fi
     if (( older_than_days > 0 )); then
         age="$(derived_data_mtime_days "$DERIVED_DATA_ROOT/cmux-${tag}")"
         # age == -1 means the DerivedData dir is gone (e.g., manually
@@ -185,7 +396,7 @@ while IFS= read -r tag; do
     done < <(artifact_paths_for_tag "$tag")
 
     if (( ${#reasons[@]} == 0 )); then
-        plan_delete+=("$tag|$tag_bytes")
+        plan_delete+=("$tag|$tag_bytes|$planned_maintenance_record")
         total_bytes=$(( total_bytes + tag_bytes ))
     else
         IFS=, ; reason_str="${reasons[*]}" ; IFS=$' \t\n'
@@ -213,7 +424,7 @@ fi
 
 printf 'would delete:\n'
 for entry in "${plan_delete[@]}"; do
-    IFS='|' read -r tag bytes <<< "$entry"
+    IFS='|' read -r tag bytes _ <<< "$entry"
     printf '  %-40s %10s\n' "$tag" "$(human_bytes "$bytes")"
 done
 printf '\ntotal reclaimable: %s across %d tag(s)\n' "$(human_bytes "$total_bytes")" "${#plan_delete[@]}"
@@ -225,17 +436,94 @@ fi
 
 echo
 echo 'applying...'
+freed_bytes=0
 for entry in "${plan_delete[@]}"; do
-    IFS='|' read -r tag _ <<< "$entry"
+    IFS='|' read -r \
+        tag \
+        tag_bytes \
+        planned_app \
+        planned_executable \
+        planned_bundle_id \
+        planned_service_label \
+        planned_fingerprint \
+        <<< "$entry"
+    planned_maintenance_record=""
+    if [[ -n "${planned_app:-}" ]]; then
+        planned_maintenance_record="$planned_app|$planned_executable|$planned_bundle_id|$planned_service_label|$planned_fingerprint"
+    fi
+
+    maintenance_probe_status=0
+    probe_maintenance_bundle_for_tag "$tag" || maintenance_probe_status=$?
+    if (( maintenance_probe_status == 2 )); then
+        printf '  skipped: %s (backend maintenance identity unsafe: %s; artifacts preserved)\n' \
+            "$tag" "$MAINTENANCE_PROBE_REASON" >&2
+        continue
+    fi
+    if (( maintenance_probe_status == 0 )); then
+        current_maintenance_record="$(maintenance_record)"
+        if [[ -z "$planned_maintenance_record" || \
+              "$current_maintenance_record" != "$planned_maintenance_record" ]]; then
+            printf '  skipped: %s (backend maintenance bundle changed after planning; artifacts preserved)\n' "$tag" >&2
+            continue
+        fi
+        if ! backend_status="$(run_backend_status "$MAINTENANCE_EXECUTABLE")"; then
+            printf '  skipped: %s (backend status query failed; artifacts preserved)\n' "$tag" >&2
+            continue
+        fi
+
+        # The status executable is app code and may race a rebuild. Pin the
+        # exact bundle, service identity, and file identities across the call.
+        maintenance_probe_status=0
+        probe_maintenance_bundle_for_tag "$tag" || maintenance_probe_status=$?
+        if (( maintenance_probe_status != 0 )) || \
+           [[ "$(maintenance_record)" != "$planned_maintenance_record" ]]; then
+            printf '  skipped: %s (backend maintenance bundle changed during status; artifacts preserved)\n' "$tag" >&2
+            continue
+        fi
+        case "$backend_status" in
+            enabled|requires-approval)
+                if (( terminate_terminal_backends == 0 )); then
+                    printf '  skipped: %s (persistent terminal backend preserved)\n' "$tag" >&2
+                    continue
+                fi
+                printf '  WARNING: unregistering %s terminates every PTY owned by its terminal backend.\n' "$tag" >&2
+                if ! run_backend_unregistration "$MAINTENANCE_EXECUTABLE"; then
+                    printf '  skipped: %s (backend unregistration failed; artifacts preserved)\n' "$tag" >&2
+                    continue
+                fi
+                maintenance_probe_status=0
+                probe_maintenance_bundle_for_tag "$tag" || maintenance_probe_status=$?
+                if (( maintenance_probe_status != 0 )) || \
+                   [[ "$(maintenance_record)" != "$planned_maintenance_record" ]]; then
+                    printf '  skipped: %s (backend maintenance bundle changed during unregister; artifacts preserved)\n' "$tag" >&2
+                    continue
+                fi
+                if ! backend_status="$(run_backend_status "$MAINTENANCE_EXECUTABLE")" || \
+                   [[ "$backend_status" != "not-registered" ]]; then
+                    printf '  skipped: %s (backend did not confirm unregistration; artifacts preserved)\n' "$tag" >&2
+                    continue
+                fi
+                ;;
+            not-registered) ;;
+            not-found)
+                printf '  skipped: %s (backend service not found; artifacts preserved)\n' "$tag" >&2
+                continue
+                ;;
+        esac
+    elif [[ -n "$planned_maintenance_record" ]]; then
+        printf '  skipped: %s (backend maintenance bundle disappeared after planning; artifacts preserved)\n' "$tag" >&2
+        continue
+    fi
     while IFS= read -r p; do
         if [[ -e "$p" || -L "$p" ]]; then
             rm -rf -- "$p"
         fi
     done < <(artifact_paths_for_tag "$tag")
+    freed_bytes=$((freed_bytes + tag_bytes))
     printf '  removed: %s\n' "$tag"
 done
-# Estimated because total_bytes was measured during planning. If a
+# Estimated because freed_bytes was measured during planning. If a
 # concurrent process (e.g., Xcode's "Delete Derived Data") removed a
 # planned path between then and now, rm -rf skips it but the byte
 # count still includes those bytes.
-printf '\nfreed (estimated): %s\n' "$(human_bytes "$total_bytes")"
+printf '\nfreed (estimated): %s\n' "$(human_bytes "$freed_bytes")"

@@ -72,6 +72,12 @@ grep -Fq 'Ghostty IOSurface terminal render target' \
 
 "$ROOT/scripts/reload.sh" --help | grep -q -- '--terminal-backend'
 grep -q 'CMUX_TERMINAL_BACKEND_ENABLED=YES' "$ROOT/scripts/reload.sh"
+grep -q 'CMUX_SOURCE_COMMIT=' "$ROOT/scripts/reload.sh"
+grep -q 'CMUX_SOURCE_DIRTY=' "$ROOT/scripts/reload.sh"
+/usr/libexec/PlistBuddy -c 'Print :CMUXSourceCommit' "$ROOT/Resources/Info.plist" \
+  | grep -Fqx '$(CMUX_SOURCE_COMMIT)'
+/usr/libexec/PlistBuddy -c 'Print :CMUXSourceDirty' "$ROOT/Resources/Info.plist" \
+  | grep -Fqx '$(CMUX_SOURCE_DIRTY)'
 grep -q -- '--smoke-headless' "$ROOT/.github/workflows/ci.yml"
 grep -q -- '--smoke-headless' "$ROOT/.github/workflows/release.yml"
 grep -q -- '--smoke-headless' "$ROOT/.github/workflows/nightly.yml"
