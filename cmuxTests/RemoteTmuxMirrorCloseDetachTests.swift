@@ -180,6 +180,10 @@ import Testing
         #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
         #expect(connection.exited)
         #expect(harness.appDelegate.mainWindow(for: harness.windowId) == nil)
+        #expect(!harness.appDelegate.listMainWindowSummaries().contains {
+            $0.windowId == harness.windowId
+        })
+        #expect(harness.appDelegate.recoverableMainWindowRoute(windowId: harness.windowId) == nil)
     }
 
     /// The ordinary non-last tab-close route shares the same detach contract as
