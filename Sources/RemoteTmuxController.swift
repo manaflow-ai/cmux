@@ -430,7 +430,7 @@ final class RemoteTmuxController {
     /// The live control connection + tmux pane id behind a remote-tmux
     /// session-mirror surface, or `nil`.
     private func pasteTarget(forSurfaceId surfaceId: UUID)
-        -> (connection: RemoteTmuxControlConnection, paneId: Int)?
+        -> (connection: any RemoteTmuxSessionSource, paneId: Int)?
     {
         for sessionMirror in sessionMirrors.values where sessionMirror.connection.connectionState == .connected {
             if let paneId = sessionMirror.paneId(forSurfaceId: surfaceId) {
