@@ -606,7 +606,7 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     ) -> Bool {
         guard !isApplyingRemoteLayout else { return true }
         if let tmuxPane = paneIdByBonsplitPane[pane] {
-            _ = requestSplit(fromPane: tmuxPane, vertical: orientation == .vertical)
+            _ = requestSplit(fromPane: tmuxPane, vertical: orientation == .vertical, focusIntent: .focusCreatedPane)
         }
         return false
     }

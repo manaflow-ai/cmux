@@ -388,10 +388,18 @@ final class RemoteTmuxController {
     /// tmux `split-window`. The new pane arrives via the resulting
     /// `%layout-change`. Returns `true` if `surfaceId` is a mirror pane (the
     /// caller suppresses the local split).
-    func handleMirrorSplitRequested(surfaceId: UUID, vertical: Bool) -> Bool {
+    func handleMirrorSplitRequested(
+        surfaceId: UUID,
+        vertical: Bool,
+        focusIntent: RemoteTmuxSplitFocusIntent
+    ) -> Bool {
         for sessionMirror in sessionMirrors.values {
             if let match = sessionMirror.windowMirror(forSurfaceId: surfaceId) {
-                return match.mirror.requestSplit(fromPane: match.tmuxPaneId, vertical: vertical)
+                return match.mirror.requestSplit(
+                    fromPane: match.tmuxPaneId,
+                    vertical: vertical,
+                    focusIntent: focusIntent
+                )
             }
         }
         return false
@@ -442,15 +450,6 @@ final class RemoteTmuxController {
             return .detectedSSH(sessionMirror.host.detectedSSHSession())
         }
         return nil
-    }
-
-    /// A split was requested on a mirror window-tab (the split button / any
-    /// bonsplit-level split) → propagate to tmux `split-window`. Covers both
-    /// single-pane mirror windows and multi-pane ones. Returns `true` if handled.
-    func handleMirrorTabSplitRequested(workspaceId: UUID, panelId: UUID, vertical: Bool) -> Bool {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId })
-        else { return false }
-        return mirror.requestSplit(windowPanelId: panelId, vertical: vertical)
     }
 
     /// A mirrored window's tab was renamed → `rename-window` on the remote.

@@ -64,7 +64,11 @@ import Testing
             makePanel: { _ in nil }
         )
 
-        #expect(!mirror.requestSplit(fromPane: 7, vertical: true))
+        #expect(!mirror.requestSplit(
+            fromPane: 7,
+            vertical: true,
+            focusIntent: .focusCreatedPane
+        ))
     }
 
     /// `new-split --focus false` must ask tmux to create the pane detached.

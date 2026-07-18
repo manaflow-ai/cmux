@@ -1,5 +1,18 @@
 import Foundation
 
+/// Selection contract for a remote tmux split. Every mutation caller must state
+/// whether tmux may select the created pane; background automation uses
+/// `preserveActivePane`, which maps to `split-window -d`.
+enum RemoteTmuxSplitFocusIntent: Sendable, Equatable {
+    case preserveActivePane
+    case focusCreatedPane
+
+    func command(vertical: Bool, windowID: Int, paneID: Int) -> String {
+        let detached = self == .preserveActivePane ? " -d" : ""
+        return "split-window\(detached) \(vertical ? "-v" : "-h") -t @\(windowID).%\(paneID)"
+    }
+}
+
 /// Mutation boundary shared by session-owned pane projections and deliberately
 /// standalone window-mirror fixtures.
 @MainActor
@@ -10,7 +23,11 @@ protocol RemoteTmuxControlPaneMutationOwner: AnyObject {
         toPane tmuxPaneID: Int,
         name: String
     ) -> RemoteTmuxControlKeySendResult
-    func requestSplit(fromPane tmuxPaneID: Int, vertical: Bool) -> Bool
+    func requestSplit(
+        fromPane tmuxPaneID: Int,
+        vertical: Bool,
+        focusIntent: RemoteTmuxSplitFocusIntent
+    ) -> Bool
     func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool
     func requestResizePane(_ tmuxPaneID: Int, absoluteAxis: String, targetCells: Int) -> Bool
     func requestResizePane(
