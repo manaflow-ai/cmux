@@ -44,6 +44,27 @@ struct SimulatorFramebufferPortDiscoveryTests {
         #expect(metadata?.height == 12)
     }
 
+    @Test("The current SimulatorKit default-screen flag identifies the built-in display")
+    func currentDefaultScreenContract() async throws {
+        let fixture = SimulatorFramebufferPortFixture(
+            displays: [
+                (screenID: 42, screenType: 0, width: 8, height: 12),
+                (screenID: 1, screenType: 1, width: 30, height: 20),
+            ],
+            usesDefaultScreenFlag: true
+        )
+        var metadata: SimulatorDisplayMetadata?
+        let framebuffer = SimulatorFramebuffer(
+            onFrameTransportChange: { _ in },
+            onDisplayChange: { metadata = $0 }
+        )
+
+        try await framebuffer.start(device: fixture.device)
+
+        #expect(metadata?.width == 8)
+        #expect(metadata?.height == 12)
+    }
+
     @Test("The built-in display wins over a larger external display")
     func primaryDisplayIdentityWins() async throws {
         let fixture = SimulatorFramebufferPortFixture(displays: [

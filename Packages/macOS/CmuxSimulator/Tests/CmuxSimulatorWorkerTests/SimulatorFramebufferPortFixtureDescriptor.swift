@@ -5,7 +5,7 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
     private var surface: IOSurface?
     private var frameCallback: (() -> Void)?
     private var propertiesChangedCallback: (() -> Void)?
-    private let properties: SimulatorFramebufferPortFixtureScreenProperties
+    private let properties: NSObject & SimulatorFramebufferPortFixtureProperties
     private let propertiesAvailableAfterRegistration: Bool
     private var didRegisterCallbacks = false
     private(set) var screenPropertiesReadCount = 0
@@ -15,13 +15,21 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
         screenType: UInt64 = 0,
         width: Int = 8,
         height: Int = 12,
-        propertiesAvailableAfterRegistration: Bool = false
+        propertiesAvailableAfterRegistration: Bool = false,
+        usesDefaultScreenFlag: Bool = false
     ) {
         surface = makeSimulatorFramebufferPortFixtureSurface(width: width, height: height)
-        properties = SimulatorFramebufferPortFixtureScreenProperties(
-            screenID: screenID,
-            screenType: screenType
-        )
+        properties = if usesDefaultScreenFlag {
+            SimulatorFramebufferPortFixtureDefaultScreenProperties(
+                screenID: screenID,
+                isDefault: screenType == 0
+            )
+        } else {
+            SimulatorFramebufferPortFixtureScreenProperties(
+                screenID: screenID,
+                screenType: screenType
+            )
+        }
         self.propertiesAvailableAfterRegistration = propertiesAvailableAfterRegistration
         super.init()
     }
@@ -68,7 +76,9 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
     }
 }
 
-final class SimulatorFramebufferPortFixtureScreenProperties: NSObject {
+final class SimulatorFramebufferPortFixtureScreenProperties: NSObject,
+    SimulatorFramebufferPortFixtureProperties
+{
     private let identifier: UInt32
     private let type: UInt64
     var orientation: UInt32 = 1
