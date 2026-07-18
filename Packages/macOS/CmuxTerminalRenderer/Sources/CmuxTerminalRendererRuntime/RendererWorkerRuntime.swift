@@ -54,6 +54,9 @@ public actor RendererWorkerRuntime {
     private var records: [PresentationLifetime: PresentationRecord] = [:]
     private var currentLifetimes: [UUID: PresentationLifetime] = [:]
     private var highestGenerations: [UUID: UInt64] = [:]
+    private var removedPresentations: [PresentationLifetime: RendererPresentationRemoval] = [:]
+    private var removedPresentationOrder: [PresentationLifetime] = []
+    private var removedPresentationOrderHead = 0
     private var asynchronousFailure: RendererWorkerRuntimeError?
 
     public init(
@@ -117,14 +120,21 @@ public actor RendererWorkerRuntime {
             switch message {
             case .bootstrap:
                 throw RendererWorkerRuntimeError.duplicateBootstrap
-            case .ready, .needsFullScene, .fatal, .presentationReady:
+            case .ready, .needsFullScene, .fatal, .presentationReady, .presentationRemoved:
                 throw RendererWorkerRuntimeError.commandAfterTermination
             case let .upsertPresentation(attachment):
                 try await upsert(attachment, bootstrap: bootstrap)
                 return RendererWorkerRuntimeResult()
             case let .removePresentation(removal):
                 try await remove(removal)
-                return RendererWorkerRuntimeResult()
+                return RendererWorkerRuntimeResult(replies: [
+                    .presentationRemoved(try RendererPresentationRemoved(
+                        terminalID: removal.terminalID,
+                        terminalEpoch: removal.terminalEpoch,
+                        presentationID: removal.presentationID,
+                        presentationGeneration: removal.presentationGeneration
+                    )),
+                ])
             case let .semanticScene(scene):
                 let replies = try await apply(scene, bootstrap: bootstrap)
                 return RendererWorkerRuntimeResult(replies: replies)
@@ -200,6 +210,12 @@ public actor RendererWorkerRuntime {
             id: removal.presentationID,
             generation: removal.presentationGeneration
         )
+        if let removed = removedPresentations[lifetime] {
+            guard removed == removal else {
+                throw RendererWorkerRuntimeError.unknownPresentation
+            }
+            return
+        }
         guard currentLifetimes[removal.presentationID] == lifetime,
               let record = records[lifetime],
               record.attachment.terminalID == removal.terminalID,
@@ -209,7 +225,27 @@ public actor RendererWorkerRuntime {
         record.acceptsScenes = false
         record.cancelAnimation()
         currentLifetimes.removeValue(forKey: removal.presentationID)
+        rememberRemoval(removal, lifetime: lifetime)
         try await reapIfUnused(lifetime)
+    }
+
+    private func rememberRemoval(
+        _ removal: RendererPresentationRemoval,
+        lifetime: PresentationLifetime
+    ) {
+        guard removedPresentations[lifetime] == nil else { return }
+        removedPresentations[lifetime] = removal
+        removedPresentationOrder.append(lifetime)
+        if removedPresentations.count > Self.maximumRetiredPresentations {
+            let oldest = removedPresentationOrder[removedPresentationOrderHead]
+            removedPresentationOrderHead += 1
+            removedPresentations.removeValue(forKey: oldest)
+        }
+        if removedPresentationOrderHead >= Self.maximumRetiredPresentations,
+           removedPresentationOrderHead * 2 >= removedPresentationOrder.count {
+            removedPresentationOrder.removeFirst(removedPresentationOrderHead)
+            removedPresentationOrderHead = 0
+        }
     }
 
     private func apply(
@@ -479,6 +515,9 @@ public actor RendererWorkerRuntime {
         records.removeAll(keepingCapacity: false)
         currentLifetimes.removeAll(keepingCapacity: false)
         highestGenerations.removeAll(keepingCapacity: false)
+        removedPresentations.removeAll(keepingCapacity: false)
+        removedPresentationOrder.removeAll(keepingCapacity: false)
+        removedPresentationOrderHead = 0
     }
 
     private func normalize(_ error: any Error) -> RendererWorkerRuntimeError {

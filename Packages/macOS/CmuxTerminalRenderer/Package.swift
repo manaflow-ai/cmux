@@ -89,6 +89,10 @@ let package = Package(
                     name: "CmuxTerminalRendererControl",
                     package: "CmuxTerminalRenderTransport"
                 ),
+                .product(
+                    name: "CmuxTerminalRenderTransport",
+                    package: "CmuxTerminalRenderTransport"
+                ),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

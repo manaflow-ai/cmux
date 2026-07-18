@@ -30,6 +30,10 @@ struct RendererControlSessionStateMachineTests {
             sequence: 5
         ))
         #expect(state.presentationCount == 0)
+        try state.accept(fixture.envelope(
+            .presentationRemoved(fixture.presentationRemoved()),
+            sequence: 4
+        ))
         #expect(throws: RendererControlError.invalidTransition) {
             try state.accept(fixture.envelope(.semanticScene(fixture.scene()), sequence: 6))
         }
@@ -165,6 +169,63 @@ struct RendererControlSessionStateMachineTests {
                 sequence: 4
             ))
         }
+    }
+
+    @Test
+    func removalAcknowledgementMustMatchOnePendingLifetimeExactly() throws {
+        var state = RendererControlSessionStateMachine()
+        try state.accept(fixture.envelope(.bootstrap(fixture.bootstrap()), sequence: 1))
+        try state.accept(fixture.envelope(.ready(fixture.ready()), sequence: 1))
+        try state.accept(fixture.envelope(
+            .upsertPresentation(fixture.attachment()),
+            sequence: 2
+        ))
+        try state.accept(fixture.envelope(
+            .removePresentation(fixture.removal()),
+            sequence: 3
+        ))
+        try state.accept(fixture.envelope(
+            .presentationRemoved(fixture.presentationRemoved()),
+            sequence: 2
+        ))
+        #expect(throws: RendererControlError.invalidTransition) {
+            try state.accept(fixture.envelope(
+                .presentationRemoved(fixture.presentationRemoved()),
+                sequence: 3
+            ))
+        }
+        #expect(state.isTerminal)
+    }
+
+    @Test
+    func exactRemovalCanBeRetransmittedAfterLostAcknowledgement() throws {
+        var state = RendererControlSessionStateMachine()
+        try state.accept(fixture.envelope(.bootstrap(fixture.bootstrap()), sequence: 1))
+        try state.accept(fixture.envelope(.ready(fixture.ready()), sequence: 1))
+        try state.accept(fixture.envelope(
+            .upsertPresentation(fixture.attachment()),
+            sequence: 2
+        ))
+        try state.accept(fixture.envelope(
+            .removePresentation(fixture.removal()),
+            sequence: 3
+        ))
+        try state.accept(fixture.envelope(
+            .presentationRemoved(fixture.presentationRemoved()),
+            sequence: 2
+        ))
+
+        try state.accept(fixture.envelope(
+            .removePresentation(fixture.removal()),
+            sequence: 4
+        ))
+        try state.accept(fixture.envelope(
+            .presentationRemoved(fixture.presentationRemoved()),
+            sequence: 3
+        ))
+
+        #expect(!state.isTerminal)
+        #expect(state.presentationCount == 0)
     }
 
     @Test

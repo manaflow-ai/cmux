@@ -204,12 +204,13 @@ cmux_terminal_render_status_t cmux_terminal_render_frame_send(
     return CMUX_TERMINAL_RENDER_STATUS_SUCCESS;
 }
 
-cmux_terminal_render_status_t cmux_terminal_render_frame_receive(
+static cmux_terminal_render_status_t cmux_terminal_render_frame_receive_impl(
     mach_port_t receiver,
     uint32_t timeout_ms,
     const uint8_t *expected_capability,
     pid_t expected_pid,
     uid_t expected_euid,
+    bool require_expected_peer,
     cmux_terminal_render_received_frame_s *received_frame,
     kern_return_t *mach_error
 ) {
@@ -217,7 +218,8 @@ cmux_terminal_render_status_t cmux_terminal_render_frame_receive(
         *mach_error = KERN_SUCCESS;
     }
     if (!MACH_PORT_VALID(receiver) || expected_capability == NULL ||
-        expected_pid <= 0 || received_frame == NULL || mach_error == NULL) {
+        (require_expected_peer && expected_pid <= 0) ||
+        received_frame == NULL || mach_error == NULL) {
         return CMUX_TERMINAL_RENDER_STATUS_INVALID_ARGUMENT;
     }
     memset(received_frame, 0, sizeof(*received_frame));
@@ -291,7 +293,8 @@ cmux_terminal_render_status_t cmux_terminal_render_frame_receive(
 
     pid_t sender_pid = audit_token_to_pid(trailer->msgh_audit);
     uid_t sender_euid = audit_token_to_euid(trailer->msgh_audit);
-    if (sender_pid != expected_pid || sender_euid != expected_euid) {
+    if (require_expected_peer &&
+        (sender_pid != expected_pid || sender_euid != expected_euid)) {
         cmux_terminal_render_release_message_surface(message);
         return CMUX_TERMINAL_RENDER_STATUS_PEER_MISMATCH;
     }
@@ -310,6 +313,45 @@ cmux_terminal_render_status_t cmux_terminal_render_frame_receive(
     received_frame->sender_euid = sender_euid;
     message->surface_port.name = MACH_PORT_NULL;
     return CMUX_TERMINAL_RENDER_STATUS_SUCCESS;
+}
+
+cmux_terminal_render_status_t cmux_terminal_render_frame_receive(
+    mach_port_t receiver,
+    uint32_t timeout_ms,
+    const uint8_t *expected_capability,
+    pid_t expected_pid,
+    uid_t expected_euid,
+    cmux_terminal_render_received_frame_s *received_frame,
+    kern_return_t *mach_error
+) {
+    return cmux_terminal_render_frame_receive_impl(
+        receiver,
+        timeout_ms,
+        expected_capability,
+        expected_pid,
+        expected_euid,
+        true,
+        received_frame,
+        mach_error
+    );
+}
+
+cmux_terminal_render_status_t cmux_terminal_render_frame_receive_quiesced(
+    mach_port_t receiver,
+    const uint8_t *expected_capability,
+    cmux_terminal_render_received_frame_s *received_frame,
+    kern_return_t *mach_error
+) {
+    return cmux_terminal_render_frame_receive_impl(
+        receiver,
+        0,
+        expected_capability,
+        0,
+        0,
+        false,
+        received_frame,
+        mach_error
+    );
 }
 
 void cmux_terminal_render_surface_right_release(mach_port_t surface_port) {

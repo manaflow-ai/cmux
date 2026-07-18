@@ -252,6 +252,14 @@ pub struct RendererPresentationRemoval {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RendererPresentationRemoved {
+    pub terminal_id: Uuid,
+    pub terminal_epoch: u64,
+    pub presentation_id: Uuid,
+    pub presentation_generation: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RendererSemanticScene {
     pub terminal_id: Uuid,
     pub terminal_epoch: u64,
@@ -329,6 +337,7 @@ pub enum RendererControlMessage {
     NeedsFullScene(RendererNeedsFullScene),
     Fatal(RendererFatal),
     PresentationReady(RendererPresentationReady),
+    PresentationRemoved(RendererPresentationRemoved),
 }
 
 impl RendererControlMessage {
@@ -343,7 +352,8 @@ impl RendererControlMessage {
             Self::Ready(_)
             | Self::NeedsFullScene(_)
             | Self::Fatal(_)
-            | Self::PresentationReady(_) => RendererControlDirection::WorkerToDaemon,
+            | Self::PresentationReady(_)
+            | Self::PresentationRemoved(_) => RendererControlDirection::WorkerToDaemon,
         }
     }
 
@@ -359,6 +369,7 @@ impl RendererControlMessage {
             Self::NeedsFullScene(_) => RendererControlMessageType::NeedsFullScene,
             Self::Fatal(_) => RendererControlMessageType::Fatal,
             Self::PresentationReady(_) => RendererControlMessageType::PresentationReady,
+            Self::PresentationRemoved(_) => RendererControlMessageType::PresentationRemoved,
         }
     }
 
@@ -395,7 +406,8 @@ impl RendererControlMessage {
             | Self::Shutdown
             | Self::Ready(_)
             | Self::NeedsFullScene(_)
-            | Self::PresentationReady(_) => 0,
+            | Self::PresentationReady(_)
+            | Self::PresentationRemoved(_) => 0,
         }
     }
 }
@@ -436,6 +448,7 @@ enum RendererControlMessageType {
     NeedsFullScene = 0x82,
     Fatal = 0x83,
     PresentationReady = 0x84,
+    PresentationRemoved = 0x85,
 }
 
 impl RendererControlMessageType {
@@ -447,9 +460,11 @@ impl RendererControlMessageType {
             | Self::SemanticScene
             | Self::FrameRelease
             | Self::Shutdown => RendererControlDirection::DaemonToWorker,
-            Self::Ready | Self::NeedsFullScene | Self::Fatal | Self::PresentationReady => {
-                RendererControlDirection::WorkerToDaemon
-            }
+            Self::Ready
+            | Self::NeedsFullScene
+            | Self::Fatal
+            | Self::PresentationReady
+            | Self::PresentationRemoved => RendererControlDirection::WorkerToDaemon,
         }
     }
 
@@ -470,6 +485,7 @@ impl RendererControlMessageType {
             Self::NeedsFullScene => (72, 72),
             Self::Fatal => (16, 16 + MAXIMUM_DIAGNOSTIC_LENGTH),
             Self::PresentationReady => (104, 104),
+            Self::PresentationRemoved => (56, 56),
         }
     }
 }
@@ -489,6 +505,7 @@ impl TryFrom<u8> for RendererControlMessageType {
             0x82 => Ok(Self::NeedsFullScene),
             0x83 => Ok(Self::Fatal),
             0x84 => Ok(Self::PresentationReady),
+            0x85 => Ok(Self::PresentationRemoved),
             other => Err(RendererControlError::UnknownMessageType(other)),
         }
     }
@@ -751,6 +768,16 @@ impl RendererControlWire {
                 append_u32(payload, value.padding_left);
                 append_u64(payload, 0);
             }
+            RendererControlMessage::PresentationRemoved(value) => {
+                validate_identity(value.terminal_id)?;
+                validate_identity(value.presentation_id)?;
+                validate_generation(value.presentation_generation)?;
+                append_uuid(payload, value.terminal_id);
+                append_u64(payload, value.terminal_epoch);
+                append_uuid(payload, value.presentation_id);
+                append_u64(payload, value.presentation_generation);
+                append_u64(payload, 0);
+            }
         }
         debug_assert_eq!(payload.len().saturating_sub(start), expected_length);
         Ok(())
@@ -980,6 +1007,19 @@ impl RendererControlWire {
                 }
                 RendererControlMessage::PresentationReady(value)
             }
+            RendererControlMessageType::PresentationRemoved => {
+                let value = RendererPresentationRemoved {
+                    terminal_id: reader.read_uuid()?,
+                    terminal_epoch: reader.read_u64()?,
+                    presentation_id: reader.read_uuid()?,
+                    presentation_generation: reader.read_u64()?,
+                };
+                require_reserved_zero(reader.read_u64()?)?;
+                validate_identity(value.terminal_id)?;
+                validate_identity(value.presentation_id)?;
+                validate_generation(value.presentation_generation)?;
+                RendererControlMessage::PresentationRemoved(value)
+            }
         };
         if reader.remaining() != 0 {
             return Err(RendererControlError::TrailingPayload);
@@ -1071,6 +1111,12 @@ fn validated_payload_length(
                 return Err(RendererControlError::InvalidDimensions);
             }
             104
+        }
+        RendererControlMessage::PresentationRemoved(value) => {
+            validate_identity(value.terminal_id)?;
+            validate_identity(value.presentation_id)?;
+            validate_generation(value.presentation_generation)?;
+            56
         }
     };
     let (minimum, maximum) = message.message_type().payload_bounds();
@@ -1367,6 +1413,19 @@ struct RendererPresentationFence {
     presentation_generation: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct RendererPresentationLifetime {
+    presentation_id: Uuid,
+    presentation_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PendingRemovalAcknowledgement {
+    fence: RendererPresentationFence,
+    acknowledgements_due: u64,
+    retained_for_late_release: bool,
+}
+
 impl From<&RendererPresentationAttachment> for RendererPresentationFence {
     fn from(value: &RendererPresentationAttachment) -> Self {
         Self {
@@ -1442,6 +1501,8 @@ pub struct RendererControlSessionStateMachine {
     bootstrap: Option<RendererBootstrap>,
     presentations: std::collections::HashMap<Uuid, RendererPresentationFence>,
     retired_presentations: VecDeque<RendererPresentationFence>,
+    pending_removal_acknowledgements:
+        std::collections::HashMap<RendererPresentationLifetime, PendingRemovalAcknowledgement>,
     presentation_generation_tombstones: RendererPresentationGenerationTombstones,
     last_scene_sequences: std::collections::HashMap<Uuid, (u64, u64)>,
     next_daemon_sequence: Option<u64>,
@@ -1455,6 +1516,7 @@ impl RendererControlSessionStateMachine {
             bootstrap: None,
             presentations: std::collections::HashMap::new(),
             retired_presentations: VecDeque::new(),
+            pending_removal_acknowledgements: std::collections::HashMap::new(),
             presentation_generation_tombstones: RendererPresentationGenerationTombstones::default(),
             last_scene_sequences: std::collections::HashMap::new(),
             next_daemon_sequence: Some(1),
@@ -1485,6 +1547,7 @@ impl RendererControlSessionStateMachine {
             self.phase = RendererControlSessionPhase::Failed;
             self.presentations.clear();
             self.retired_presentations.clear();
+            self.pending_removal_acknowledgements.clear();
             self.presentation_generation_tombstones.clear();
             self.last_scene_sequences.clear();
         }
@@ -1586,23 +1649,51 @@ impl RendererControlSessionStateMachine {
                 Ok(())
             }
             RendererControlMessage::RemovePresentation(value) => {
-                let Some(attached) = self.presentations.get(&value.presentation_id) else {
-                    return Err(RendererControlError::InvalidTransition);
+                let lifetime = RendererPresentationLifetime {
+                    presentation_id: value.presentation_id,
+                    presentation_generation: value.presentation_generation,
                 };
-                if !presentation_matches(
-                    attached,
-                    value.terminal_id,
-                    value.terminal_epoch,
-                    value.presentation_generation,
-                ) {
-                    return Err(RendererControlError::InvalidTransition);
+                if let Some(attached) = self.presentations.get(&value.presentation_id).copied() {
+                    if !presentation_matches(
+                        &attached,
+                        value.terminal_id,
+                        value.terminal_epoch,
+                        value.presentation_generation,
+                    ) {
+                        return Err(RendererControlError::InvalidTransition);
+                    }
+                    let retired = self
+                        .presentations
+                        .remove(&value.presentation_id)
+                        .ok_or(RendererControlError::InvalidTransition)?;
+                    self.retire_presentation(retired);
+                    self.pending_removal_acknowledgements.insert(
+                        lifetime,
+                        PendingRemovalAcknowledgement {
+                            fence: retired,
+                            acknowledgements_due: 1,
+                            retained_for_late_release: true,
+                        },
+                    );
+                    self.last_scene_sequences.remove(&value.presentation_id);
+                } else {
+                    let Some(pending) = self.pending_removal_acknowledgements.get_mut(&lifetime)
+                    else {
+                        return Err(RendererControlError::InvalidTransition);
+                    };
+                    if !presentation_matches(
+                        &pending.fence,
+                        value.terminal_id,
+                        value.terminal_epoch,
+                        value.presentation_generation,
+                    ) {
+                        return Err(RendererControlError::InvalidTransition);
+                    }
+                    pending.acknowledgements_due = pending
+                        .acknowledgements_due
+                        .checked_add(1)
+                        .ok_or(RendererControlError::SequenceExhausted)?;
                 }
-                let retired = self
-                    .presentations
-                    .remove(&value.presentation_id)
-                    .ok_or(RendererControlError::InvalidTransition)?;
-                self.retire_presentation(retired);
-                self.last_scene_sequences.remove(&value.presentation_id);
                 Ok(())
             }
             RendererControlMessage::SemanticScene(value) => {
@@ -1666,9 +1757,39 @@ impl RendererControlSessionStateMachine {
                 }
                 Ok(())
             }
+            RendererControlMessage::PresentationRemoved(value) => {
+                let lifetime = RendererPresentationLifetime {
+                    presentation_id: value.presentation_id,
+                    presentation_generation: value.presentation_generation,
+                };
+                let remove_tombstone = {
+                    let Some(pending) = self.pending_removal_acknowledgements.get_mut(&lifetime)
+                    else {
+                        return Err(RendererControlError::InvalidTransition);
+                    };
+                    if pending.acknowledgements_due == 0 {
+                        return Err(RendererControlError::InvalidTransition);
+                    }
+                    if !presentation_matches(
+                        &pending.fence,
+                        value.terminal_id,
+                        value.terminal_epoch,
+                        value.presentation_generation,
+                    ) {
+                        return Err(RendererControlError::InvalidTransition);
+                    }
+                    pending.acknowledgements_due -= 1;
+                    pending.acknowledgements_due == 0 && !pending.retained_for_late_release
+                };
+                if remove_tombstone {
+                    self.pending_removal_acknowledgements.remove(&lifetime);
+                }
+                Ok(())
+            }
             RendererControlMessage::Shutdown | RendererControlMessage::Fatal(_) => {
                 self.presentations.clear();
                 self.retired_presentations = VecDeque::new();
+                self.pending_removal_acknowledgements.clear();
                 self.presentation_generation_tombstones.clear();
                 self.last_scene_sequences.clear();
                 self.phase = RendererControlSessionPhase::Terminal;
@@ -1726,14 +1847,32 @@ impl RendererControlSessionStateMachine {
                 .saturating_mul(size_of::<RendererPresentationFence>())
                 > MAXIMUM_RETIRED_PRESENTATION_FENCE_BYTES
         {
-            self.retired_presentations.pop_front();
+            self.evict_oldest_retired_presentation();
         }
         self.retired_presentations.push_back(presentation);
         while !self.retired_presentations.is_empty()
             && self.retired_presentation_byte_count() > MAXIMUM_RETIRED_PRESENTATION_FENCE_BYTES
         {
-            self.retired_presentations.pop_front();
+            self.evict_oldest_retired_presentation();
             self.retired_presentations.shrink_to_fit();
+        }
+    }
+
+    fn evict_oldest_retired_presentation(&mut self) {
+        let Some(retired) = self.retired_presentations.pop_front() else { return };
+        let lifetime = RendererPresentationLifetime {
+            presentation_id: retired.presentation_id,
+            presentation_generation: retired.presentation_generation,
+        };
+        let remove_tombstone =
+            if let Some(pending) = self.pending_removal_acknowledgements.get_mut(&lifetime) {
+                pending.retained_for_late_release = false;
+                pending.acknowledgements_due == 0
+            } else {
+                false
+            };
+        if remove_tombstone {
+            self.pending_removal_acknowledgements.remove(&lifetime);
         }
     }
 
@@ -1886,6 +2025,19 @@ mod tests {
         }
     }
 
+    fn presentation_removed(
+        terminal_id: Uuid,
+        presentation_id: Uuid,
+        generation: u64,
+    ) -> RendererPresentationRemoved {
+        RendererPresentationRemoved {
+            terminal_id,
+            terminal_epoch: 9,
+            presentation_id,
+            presentation_generation: generation,
+        }
+    }
+
     fn envelope(message: RendererControlMessage, sequence: u64) -> RendererControlEnvelope {
         RendererControlEnvelope::new(message.direction(), sequence, message)
             .expect("valid fixture envelope")
@@ -1997,6 +2149,11 @@ mod tests {
                 diagnostic: "bounded".to_owned(),
             }),
             RendererControlMessage::PresentationReady(presentation_ready(
+                terminal_a(),
+                presentation_a(),
+                1,
+            )),
+            RendererControlMessage::PresentationRemoved(presentation_removed(
                 terminal_a(),
                 presentation_a(),
                 1,
@@ -2329,6 +2486,16 @@ mod tests {
         assert_eq!(detached.presentation_count(), 0);
         detached
             .accept(&envelope(
+                RendererControlMessage::PresentationRemoved(presentation_removed(
+                    terminal_a(),
+                    presentation_a(),
+                    1,
+                )),
+                2,
+            ))
+            .unwrap();
+        detached
+            .accept(&envelope(
                 RendererControlMessage::FrameRelease(release(terminal_a(), presentation_a(), 1)),
                 4,
             ))
@@ -2348,6 +2515,58 @@ mod tests {
             RendererControlError::InvalidTransition
         );
         assert!(detached.is_terminal());
+    }
+
+    #[test]
+    fn exact_removal_can_be_retransmitted_after_a_lost_acknowledgement() {
+        let mut state = RendererControlSessionStateMachine::new();
+        state.accept(&envelope(RendererControlMessage::Bootstrap(bootstrap()), 1)).unwrap();
+        state.accept(&envelope(RendererControlMessage::Ready(ready()), 1)).unwrap();
+        state
+            .accept(&envelope(
+                RendererControlMessage::UpsertPresentation(attachment(
+                    terminal_a(),
+                    presentation_a(),
+                    1,
+                    vec![],
+                )),
+                2,
+            ))
+            .unwrap();
+        let removal = RendererPresentationRemoval {
+            terminal_id: terminal_a(),
+            terminal_epoch: 9,
+            presentation_id: presentation_a(),
+            presentation_generation: 1,
+        };
+        state
+            .accept(&envelope(RendererControlMessage::RemovePresentation(removal.clone()), 3))
+            .unwrap();
+        state
+            .accept(&envelope(
+                RendererControlMessage::PresentationRemoved(presentation_removed(
+                    terminal_a(),
+                    presentation_a(),
+                    1,
+                )),
+                2,
+            ))
+            .unwrap();
+
+        state.accept(&envelope(RendererControlMessage::RemovePresentation(removal), 4)).unwrap();
+        state
+            .accept(&envelope(
+                RendererControlMessage::PresentationRemoved(presentation_removed(
+                    terminal_a(),
+                    presentation_a(),
+                    1,
+                )),
+                3,
+            ))
+            .unwrap();
+
+        assert!(!state.is_terminal());
+        assert_eq!(state.presentation_count(), 0);
     }
 
     #[test]
@@ -2422,6 +2641,7 @@ mod tests {
         );
 
         let mut sequence = 4_u64;
+        let mut worker_sequence = 2_u64;
         for suffix in 1_u128..=12_000 {
             let presentation_id =
                 Uuid::from_u128(0x9000_0000_0000_4000_8000_0000_0000_0000 + suffix);
@@ -2449,6 +2669,17 @@ mod tests {
                 ))
                 .unwrap();
             sequence += 1;
+            state
+                .accept(&envelope(
+                    RendererControlMessage::PresentationRemoved(presentation_removed(
+                        terminal_a(),
+                        presentation_id,
+                        1,
+                    )),
+                    worker_sequence,
+                ))
+                .unwrap();
+            worker_sequence += 1;
         }
 
         assert!(state.retired_presentations.len() <= MAXIMUM_RETIRED_PRESENTATION_FENCES);

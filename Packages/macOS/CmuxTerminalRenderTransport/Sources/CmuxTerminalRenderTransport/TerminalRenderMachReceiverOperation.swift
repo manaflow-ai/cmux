@@ -6,16 +6,50 @@ internal import TerminalRenderMachIPC
 struct TerminalRenderMachReceiverOperation: Sendable {
     let receivePort: UInt32
     let capability: Data
-    let expectedWorker: TerminalRenderWorkerIdentity
+    let expectedWorker: TerminalRenderWorkerIdentity?
+    let quiesced: Bool
+
+    init(
+        receivePort: UInt32,
+        capability: Data,
+        expectedWorker: TerminalRenderWorkerIdentity
+    ) {
+        self.receivePort = receivePort
+        self.capability = capability
+        self.expectedWorker = expectedWorker
+        self.quiesced = false
+    }
+
+    init(
+        quiescedReceivePort receivePort: UInt32,
+        capability: Data
+    ) {
+        self.receivePort = receivePort
+        self.capability = capability
+        self.expectedWorker = nil
+        self.quiesced = true
+    }
 
     func run(timeoutMilliseconds: UInt32) -> TerminalRenderRawReceiveResult {
         var received = cmux_terminal_render_received_frame_s()
         var machError: kern_return_t = KERN_SUCCESS
         let status = capability.withUnsafeBytes { capabilityBytes in
-            cmux_terminal_render_frame_receive(
+            let bytes = capabilityBytes.bindMemory(to: UInt8.self).baseAddress!
+            if quiesced {
+                return cmux_terminal_render_frame_receive_quiesced(
+                    receivePort,
+                    bytes,
+                    &received,
+                    &machError
+                )
+            }
+            guard let expectedWorker else {
+                return CMUX_TERMINAL_RENDER_STATUS_INVALID_ARGUMENT
+            }
+            return cmux_terminal_render_frame_receive(
                 receivePort,
                 timeoutMilliseconds,
-                capabilityBytes.bindMemory(to: UInt8.self).baseAddress!,
+                bytes,
                 expectedWorker.processID,
                 expectedWorker.effectiveUserID,
                 &received,

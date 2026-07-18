@@ -12,13 +12,14 @@ enum RendererControlMessageType: UInt8 {
     case needsFullScene = 0x82
     case fatal = 0x83
     case presentationReady = 0x84
+    case presentationRemoved = 0x85
 
     var direction: RendererControlDirection {
         switch self {
         case .bootstrap, .upsertPresentation, .removePresentation,
              .semanticScene, .frameRelease, .shutdown:
             .daemonToWorker
-        case .ready, .needsFullScene, .fatal, .presentationReady:
+        case .ready, .needsFullScene, .fatal, .presentationReady, .presentationRemoved:
             .workerToDaemon
         }
     }
@@ -47,6 +48,8 @@ enum RendererControlMessageType: UInt8 {
             16...(16 + RendererControlProtocol.maximumDiagnosticLength)
         case .presentationReady:
             104...104
+        case .presentationRemoved:
+            56...56
         }
     }
 }

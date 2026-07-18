@@ -158,6 +158,8 @@ public struct RendererControlWire: Sendable {
             .fatal
         case .presentationReady:
             .presentationReady
+        case .presentationRemoved:
+            .presentationRemoved
         }
     }
 
@@ -294,6 +296,13 @@ public struct RendererControlWire: Sendable {
             writer.append(value: value.paddingRight)
             writer.append(value: value.paddingBottom)
             writer.append(value: value.paddingLeft)
+            writer.append(value: UInt64(0))
+
+        case let .presentationRemoved(value):
+            writer.append(uuid: value.terminalID)
+            writer.append(value: value.terminalEpoch)
+            writer.append(uuid: value.presentationID)
+            writer.append(value: value.presentationGeneration)
             writer.append(value: UInt64(0))
         }
         return writer.data
@@ -530,6 +539,19 @@ public struct RendererControlWire: Sendable {
                 paddingRight: paddingRight,
                 paddingBottom: paddingBottom,
                 paddingLeft: paddingLeft
+            ))
+
+        case .presentationRemoved:
+            let terminalID = try reader.readUUID()
+            let terminalEpoch = try reader.readUInt64()
+            let presentationID = try reader.readUUID()
+            let presentationGeneration = try reader.readUInt64()
+            try requireReservedZero(try reader.readUInt64())
+            message = .presentationRemoved(try RendererPresentationRemoved(
+                terminalID: terminalID,
+                terminalEpoch: terminalEpoch,
+                presentationID: presentationID,
+                presentationGeneration: presentationGeneration
             ))
         }
         guard reader.isAtEnd else {

@@ -37,6 +37,7 @@ actor TerminalBackendClientCoordinator:
         var descriptor: TerminalBackendPresentationDescriptor
         var receipt: BackendRendererPresentationReceipt?
         var ready: BackendRendererPresentationReady?
+        var removalPending: Bool
     }
 
     private struct PendingTerminalEnsure {
@@ -59,6 +60,11 @@ actor TerminalBackendClientCoordinator:
     private var connectionAttemptID = UUID()
     private var eventTask: Task<Void, Never>?
     private var rendererPresentations: [UUID: RendererPresentationRecord] = [:]
+    private var rendererRemovalRequests: Set<UUID> = []
+    private var activeRendererPresentationOperations: Set<UUID> = []
+    private var rendererPresentationOperationWaiters: [
+        UUID: [CheckedContinuation<Void, Never>]
+    ] = [:]
     private var rendererContinuations: [
         UUID: AsyncStream<TerminalBackendRendererEvent>.Continuation
     ] = [:]
@@ -215,12 +221,12 @@ actor TerminalBackendClientCoordinator:
         connectionTask = nil
         eventTask?.cancel()
         eventTask = nil
-        rendererPresentations.removeAll()
         latestSnapshot = nil
         failTopologyRevisionWaiters(BackendCanonicalSessionError.notConnected)
         let previous = connected
         connected = nil
         if let authority = previous?.readiness.authority {
+            publishRenderer(.connectionLost(authority))
             publishTopology(.disconnected(authority))
         }
         await compatibilityReporter(nil)
@@ -1163,7 +1169,7 @@ actor TerminalBackendClientCoordinator:
                     connection: connection
                 )
             } else {
-                await removeRendererPresentation(
+                try await removeRendererPresentation(
                     presentationID: presentation.presentationID,
                     connection: connection
                 )
@@ -1240,7 +1246,7 @@ actor TerminalBackendClientCoordinator:
             outcome.install(response)
         case .reparent(let workspaceID):
             if let presentation {
-                await removeRendererPresentation(
+                try await removeRendererPresentation(
                     presentationID: presentation.presentationID,
                     connection: connection
                 )
@@ -1280,7 +1286,7 @@ actor TerminalBackendClientCoordinator:
                 record.binding.appSurfaceID == binding.appSurfaceID ? identifier : nil
             }
             for presentationID in presentationIDs {
-                await removeRendererPresentation(
+                try await removeRendererPresentation(
                     presentationID: presentationID,
                     connection: connection
                 )
@@ -1463,24 +1469,31 @@ actor TerminalBackendClientCoordinator:
     func detachPresentation(
         presentationID: UUID,
         from binding: TerminalBackendTerminalBinding?
-    ) async {
-        guard let record = rendererPresentations[presentationID] else { return }
-        if let binding, binding.appSurfaceID != record.binding.appSurfaceID { return }
-        guard let connection = try? await connectedSession(for: record.binding) else {
-            rendererPresentations.removeValue(forKey: presentationID)
-            return
+    ) async throws {
+        rendererRemovalRequests.insert(presentationID)
+        if var record = rendererPresentations[presentationID] {
+            guard binding == nil || binding?.appSurfaceID == record.binding.appSurfaceID else {
+                rendererRemovalRequests.remove(presentationID)
+                return
+            }
+            record.removalPending = true
+            rendererPresentations[presentationID] = record
         }
-        await removeRendererPresentation(
+        let connection = try await connectedSession()
+        try await removeRendererPresentation(
             presentationID: presentationID,
-            connection: connection
+            connection: connection,
+            expectedAppSurfaceID: binding?.appSurfaceID
         )
     }
 
-    func releaseFrame(_ release: TerminalRenderFrameRelease) async {
-        guard let connection = try? await connectedSession(),
-              connection.readiness.authority.daemonInstanceID.rawValue
+    func releaseFrame(_ release: TerminalRenderFrameRelease) async throws {
+        let connection = try await connectedSession()
+        // A replacement daemon proves that the old renderer worker and every
+        // lease it owned are gone, so an old-daemon receipt is already settled.
+        guard connection.readiness.authority.daemonInstanceID.rawValue
                 == release.metadata.daemonInstanceID else { return }
-        _ = try? await connection.session.releaseRendererFrame(
+        _ = try await connection.session.releaseRendererFrame(
             BackendRendererFrameRelease(
                 daemonInstanceID: DaemonInstanceID(
                     rawValue: release.metadata.daemonInstanceID
@@ -1504,6 +1517,14 @@ actor TerminalBackendClientCoordinator:
         binding: TerminalBackendTerminalBinding,
         connection: TerminalBackendConnectedSession
     ) async throws -> TerminalBackendRendererAttachment? {
+        guard !rendererRemovalRequests.contains(descriptor.presentationID) else {
+            throw TerminalBackendClientError.presentationUnavailable
+        }
+        await acquireRendererPresentationOperation(descriptor.presentationID)
+        defer { releaseRendererPresentationOperation(descriptor.presentationID) }
+        guard !rendererRemovalRequests.contains(descriptor.presentationID) else {
+            throw TerminalBackendClientError.presentationUnavailable
+        }
         guard descriptor.visible,
               descriptor.viewport.widthPixels > 0,
               descriptor.viewport.heightPixels > 0,
@@ -1514,13 +1535,21 @@ actor TerminalBackendClientCoordinator:
 
         var record: RendererPresentationRecord
         let openedNewPresentation: Bool
-        if let existing = rendererPresentations[descriptor.presentationID] {
+        if let existing = rendererPresentations[descriptor.presentationID],
+           existing.binding.authority == binding.authority {
             guard existing.binding.appSurfaceID == binding.appSurfaceID else {
+                throw TerminalBackendClientError.presentationUnavailable
+            }
+            guard !existing.removalPending else {
                 throw TerminalBackendClientError.presentationUnavailable
             }
             record = existing
             openedNewPresentation = false
         } else {
+            // A daemon replacement proves an older record's worker dead. It
+            // cannot be reused because canonical presentation IDs are scoped
+            // to that immutable daemon authority.
+            rendererPresentations.removeValue(forKey: descriptor.presentationID)
             let opened = try await connection.session.openPresentation(
                 view: BackendPresentationView(
                     workspaceID: binding.workspaceID,
@@ -1535,7 +1564,8 @@ actor TerminalBackendClientCoordinator:
                 canonicalGeneration: opened.generation,
                 descriptor: descriptor,
                 receipt: nil,
-                ready: nil
+                ready: nil,
+                removalPending: false
             )
             openedNewPresentation = true
         }
@@ -1585,32 +1615,107 @@ actor TerminalBackendClientCoordinator:
         record.descriptor = descriptor
         record.receipt = receipt
         record.ready = nil
+        record.removalPending = rendererRemovalRequests.contains(descriptor.presentationID)
         rendererPresentations[descriptor.presentationID] = record
+        guard !record.removalPending else { return nil }
         return try rendererAttachment(record)
     }
 
     private func removeRendererPresentation(
         presentationID: UUID,
-        connection: TerminalBackendConnectedSession
-    ) async {
-        guard let record = rendererPresentations.removeValue(forKey: presentationID) else {
+        connection: TerminalBackendConnectedSession,
+        expectedAppSurfaceID: UUID? = nil
+    ) async throws {
+        rendererRemovalRequests.insert(presentationID)
+        await acquireRendererPresentationOperation(presentationID)
+        defer { releaseRendererPresentationOperation(presentationID) }
+        guard var record = rendererPresentations[presentationID] else {
+            rendererRemovalRequests.remove(presentationID)
             return
         }
-        if record.receipt != nil,
-           (try? await connection.session.terminalControlProtocol()) == .leasedV9 {
+        if let expectedAppSurfaceID,
+           expectedAppSurfaceID != record.binding.appSurfaceID {
+            rendererRemovalRequests.remove(presentationID)
+            return
+        }
+        // A different daemon lifetime is synchronous worker-death proof. The
+        // old process and every IOSurface lease it owned can no longer exist.
+        guard connection.readiness.authority.daemonInstanceID
+                == record.binding.authority.daemonInstanceID else {
+            removeRendererPresentationRecordIfCurrent(
+                presentationID: presentationID,
+                record: record
+            )
+            rendererRemovalRequests.remove(presentationID)
+            return
+        }
+        guard connection.readiness.authority == record.binding.authority else {
+            throw TerminalBackendClientError.authorityChanged(
+                expected: record.binding.authority,
+                actual: connection.readiness.authority
+            )
+        }
+        // Actor methods are reentrant at every daemon RPC. Publish the
+        // tombstone before the first await so neither another mutation nor a
+        // readiness event can resurrect this presentation while removal is in
+        // flight.
+        record.removalPending = true
+        rendererPresentations[presentationID] = record
+        if (try? await connection.session.terminalControlProtocol()) == .leasedV9 {
             try? await connection.session.releaseTerminalControl(
                 surfaceID: record.binding.surfaceID,
                 presentationID: record.backendID,
                 presentationGeneration: record.canonicalGeneration
             )
         }
-        if record.receipt != nil {
-            try? await connection.session.detachRendererPresentation(
-                id: record.backendID,
-                expectedGeneration: record.canonicalGeneration
-            )
-        }
+        // Detach even after a worker-death event cleared the frame receipt.
+        // The daemon still owns the canonical presentation runtime and must
+        // mark it removal-pending so a replacement worker cannot rehydrate it.
+        try await connection.session.detachRendererPresentation(
+            id: record.backendID,
+            expectedGeneration: record.canonicalGeneration
+        )
+        removeRendererPresentationRecordIfCurrent(
+            presentationID: presentationID,
+            record: record
+        )
+        rendererRemovalRequests.remove(presentationID)
         try? await connection.session.closePresentation(id: record.backendID)
+    }
+
+    private func acquireRendererPresentationOperation(_ presentationID: UUID) async {
+        if activeRendererPresentationOperations.insert(presentationID).inserted {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            rendererPresentationOperationWaiters[presentationID, default: []]
+                .append(continuation)
+        }
+    }
+
+    private func releaseRendererPresentationOperation(_ presentationID: UUID) {
+        if var waiters = rendererPresentationOperationWaiters[presentationID],
+           !waiters.isEmpty {
+            let next = waiters.removeFirst()
+            if waiters.isEmpty {
+                rendererPresentationOperationWaiters.removeValue(forKey: presentationID)
+            } else {
+                rendererPresentationOperationWaiters[presentationID] = waiters
+            }
+            next.resume()
+            return
+        }
+        activeRendererPresentationOperations.remove(presentationID)
+    }
+
+    private func removeRendererPresentationRecordIfCurrent(
+        presentationID: UUID,
+        record: RendererPresentationRecord
+    ) {
+        guard let current = rendererPresentations[presentationID],
+              current.backendID == record.backendID,
+              current.canonicalGeneration == record.canonicalGeneration else { return }
+        rendererPresentations.removeValue(forKey: presentationID)
     }
 
     private func rendererAttachment(
@@ -2519,6 +2624,7 @@ actor TerminalBackendClientCoordinator:
     ) {
         guard connected?.readiness == connection.readiness else { return }
         guard let entry = rendererPresentations.first(where: { _, record in
+            guard !record.removalPending else { return false }
             guard let receipt = record.receipt else { return false }
             return receipt.presentationID == ready.presentationID
                 && receipt.workspaceID == ready.workspaceID
@@ -2555,9 +2661,15 @@ actor TerminalBackendClientCoordinator:
         guard connected?.readiness == connection.readiness else { return }
         for (identifier, var record) in rendererPresentations
             where record.binding.workspaceID == changed.workspaceID {
-            record.receipt = nil
-            record.ready = nil
-            rendererPresentations[identifier] = record
+            guard let receipt = record.receipt else { continue }
+            let priorWorkerDied = changed.priorRendererEpoch == receipt.rendererEpoch
+                && (changed.rendererEpoch != receipt.rendererEpoch
+                    || changed.state != .ready)
+            if priorWorkerDied {
+                record.receipt = nil
+                record.ready = nil
+                rendererPresentations[identifier] = record
+            }
         }
         publishRenderer(.workerChanged(changed))
     }
@@ -2571,7 +2683,6 @@ actor TerminalBackendClientCoordinator:
         connected = nil
         latestSnapshot = nil
         failTopologyRevisionWaiters(BackendCanonicalSessionError.notConnected)
-        rendererPresentations.removeAll()
         publishRenderer(.connectionLost(connection.readiness.authority))
         publishTopology(.disconnected(connection.readiness.authority))
         await compatibilityReporter(nil)
@@ -2594,7 +2705,6 @@ actor TerminalBackendClientCoordinator:
         connected = nil
         latestSnapshot = nil
         failTopologyRevisionWaiters(BackendCanonicalSessionError.notConnected)
-        rendererPresentations.removeAll()
         publishRenderer(.connectionLost(connection.readiness.authority))
         publishTopology(.disconnected(connection.readiness.authority))
         await compatibilityReporter(nil)

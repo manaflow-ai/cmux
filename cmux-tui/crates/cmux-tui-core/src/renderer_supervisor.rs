@@ -27,7 +27,7 @@ use crate::renderer_control::{
     RendererControlEncoder, RendererControlEnvelope, RendererControlError,
     RendererControlIncrementalDecoder, RendererControlMessage, RendererControlSessionStateMachine,
     RendererControlWire, RendererNeedsFullScene, RendererPresentationReady,
-    RendererSceneCapabilities, RendererWorkerReady,
+    RendererPresentationRemoved, RendererSceneCapabilities, RendererWorkerReady,
 };
 use crate::{DaemonInstanceId, PresentationId, WorkspaceUuid};
 use serde::Serialize;
@@ -195,6 +195,12 @@ pub enum RendererSupervisorEvent {
         renderer_epoch: u64,
         process_id: u32,
         metrics: RendererPresentationReady,
+    },
+    PresentationRemoved {
+        workspace_uuid: WorkspaceUuid,
+        renderer_epoch: u64,
+        process_id: u32,
+        removal: RendererPresentationRemoved,
     },
 }
 
@@ -1735,6 +1741,14 @@ where
                     renderer_epoch,
                     process_id: pid,
                     metrics,
+                });
+            }
+            RendererControlMessage::PresentationRemoved(removal) => {
+                self.events.push_back(RendererSupervisorEvent::PresentationRemoved {
+                    workspace_uuid,
+                    renderer_epoch,
+                    process_id: pid,
+                    removal,
                 });
             }
             RendererControlMessage::Fatal(fatal) => {
@@ -3502,7 +3516,7 @@ mod tests {
     }
 
     #[test]
-    fn authenticated_needs_full_and_disconnect_emit_exact_lifecycle_events() {
+    fn authenticated_renderer_replies_and_disconnect_emit_exact_lifecycle_events() {
         let spawner = FakeSpawner::default();
         let mut core = new_core(spawner.clone(), ManualClock::default());
         let workspace = workspace("20000000-0000-4000-8000-000000000021");
@@ -3576,6 +3590,40 @@ mod tests {
                 renderer_epoch: status.renderer_epoch,
                 process_id: pid,
                 metrics,
+            }]
+        );
+
+        let removal = RendererPresentationRemoval {
+            terminal_id: terminal(),
+            terminal_epoch: 9,
+            presentation_id: presentation.as_uuid(),
+            presentation_generation: 1,
+        };
+        core.send_if_epoch(
+            workspace,
+            status.renderer_epoch,
+            vec![RendererControlMessage::RemovePresentation(removal)],
+        );
+        let removed = RendererPresentationRemoved {
+            terminal_id: terminal(),
+            terminal_epoch: 9,
+            presentation_id: presentation.as_uuid(),
+            presentation_generation: 1,
+        };
+        let envelope = RendererControlEnvelope::new(
+            RendererControlDirection::WorkerToDaemon,
+            4,
+            RendererControlMessage::PresentationRemoved(removed.clone()),
+        )
+        .unwrap();
+        core.accept_worker_envelope(workspace, status.renderer_epoch, pid, envelope).unwrap();
+        assert_eq!(
+            core.take_events(),
+            vec![RendererSupervisorEvent::PresentationRemoved {
+                workspace_uuid: workspace,
+                renderer_epoch: status.renderer_epoch,
+                process_id: pid,
+                removal: removed,
             }]
         );
 

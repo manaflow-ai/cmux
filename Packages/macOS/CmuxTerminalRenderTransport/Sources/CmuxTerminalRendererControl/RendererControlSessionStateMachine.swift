@@ -24,6 +24,9 @@ public struct RendererControlSessionStateMachine: Sendable {
     private var highestPresentationGenerations: [UUID: UInt64] = [:]
     private var lastSceneSequences: [UUID: (canonical: UInt64, presentation: UInt64)] = [:]
     private var readyPresentations: Set<UUID> = []
+    private var pendingRemovalAcknowledgements: [
+        PresentationLifetime: PendingRemovalAcknowledgement
+    ] = [:]
     private var nextDaemonSequence: UInt64? = 1
     private var nextWorkerSequence: UInt64? = 1
 
@@ -33,6 +36,12 @@ public struct RendererControlSessionStateMachine: Sendable {
     private struct PresentationLifetime: Hashable, Sendable {
         let id: UUID
         let generation: UInt64
+    }
+
+    private struct PendingRemovalAcknowledgement: Sendable {
+        let removal: RendererPresentationRemoval
+        var acknowledgementsDue: UInt64
+        var retainedForLateRelease: Bool
     }
 
     /// Accepts one decoded envelope or permanently fails the session.
@@ -56,6 +65,7 @@ public struct RendererControlSessionStateMachine: Sendable {
             highestPresentationGenerations.removeAll(keepingCapacity: false)
             lastSceneSequences.removeAll(keepingCapacity: false)
             readyPresentations.removeAll(keepingCapacity: false)
+            pendingRemovalAcknowledgements.removeAll(keepingCapacity: false)
             throw error
         }
     }
@@ -148,19 +158,37 @@ public struct RendererControlSessionStateMachine: Sendable {
             readyPresentations.remove(value.presentationID)
 
         case let .removePresentation(value):
-            guard let attached = presentations[value.presentationID],
-                  matches(
+            let lifetime = PresentationLifetime(
+                id: value.presentationID,
+                generation: value.presentationGeneration
+            )
+            if let attached = presentations[value.presentationID] {
+                guard matches(
                     attached,
                     terminalID: value.terminalID,
                     terminalEpoch: value.terminalEpoch,
                     presentationGeneration: value.presentationGeneration
-                  ) else {
-                throw RendererControlError.invalidTransition
+                ) else {
+                    throw RendererControlError.invalidTransition
+                }
+                retire(attached)
+                presentations.removeValue(forKey: value.presentationID)
+                lastSceneSequences.removeValue(forKey: value.presentationID)
+                readyPresentations.remove(value.presentationID)
+                pendingRemovalAcknowledgements[lifetime] = PendingRemovalAcknowledgement(
+                    removal: value,
+                    acknowledgementsDue: 1,
+                    retainedForLateRelease: true
+                )
+            } else {
+                guard var pending = pendingRemovalAcknowledgements[lifetime],
+                      pending.removal == value,
+                      pending.acknowledgementsDue < UInt64.max else {
+                    throw RendererControlError.invalidTransition
+                }
+                pending.acknowledgementsDue += 1
+                pendingRemovalAcknowledgements[lifetime] = pending
             }
-            retire(attached)
-            presentations.removeValue(forKey: value.presentationID)
-            lastSceneSequences.removeValue(forKey: value.presentationID)
-            readyPresentations.remove(value.presentationID)
 
         case let .semanticScene(value):
             guard let attached = presentations[value.presentationID],
@@ -224,6 +252,24 @@ public struct RendererControlSessionStateMachine: Sendable {
             }
             readyPresentations.insert(value.presentationID)
 
+        case let .presentationRemoved(value):
+            let lifetime = PresentationLifetime(
+                id: value.presentationID,
+                generation: value.presentationGeneration
+            )
+            guard var pending = pendingRemovalAcknowledgements[lifetime],
+                  pending.acknowledgementsDue > 0,
+                  pending.removal.terminalID == value.terminalID,
+                  pending.removal.terminalEpoch == value.terminalEpoch else {
+                throw RendererControlError.invalidTransition
+            }
+            pending.acknowledgementsDue -= 1
+            if pending.acknowledgementsDue == 0, !pending.retainedForLateRelease {
+                pendingRemovalAcknowledgements.removeValue(forKey: lifetime)
+            } else {
+                pendingRemovalAcknowledgements[lifetime] = pending
+            }
+
         case .shutdown, .fatal:
             presentations.removeAll(keepingCapacity: false)
             retiredPresentations.removeAll(keepingCapacity: false)
@@ -232,6 +278,7 @@ public struct RendererControlSessionStateMachine: Sendable {
             highestPresentationGenerations.removeAll(keepingCapacity: false)
             lastSceneSequences.removeAll(keepingCapacity: false)
             readyPresentations.removeAll(keepingCapacity: false)
+            pendingRemovalAcknowledgements.removeAll(keepingCapacity: false)
             phase = .terminal
         }
     }
@@ -248,6 +295,14 @@ public struct RendererControlSessionStateMachine: Sendable {
             let oldest = retiredPresentationOrder[retiredPresentationOrderHead]
             retiredPresentationOrderHead += 1
             retiredPresentations.removeValue(forKey: oldest)
+            if var pending = pendingRemovalAcknowledgements[oldest] {
+                pending.retainedForLateRelease = false
+                if pending.acknowledgementsDue == 0 {
+                    pendingRemovalAcknowledgements.removeValue(forKey: oldest)
+                } else {
+                    pendingRemovalAcknowledgements[oldest] = pending
+                }
+            }
         }
         if retiredPresentationOrderHead >= Self.maximumRetiredPresentations,
            retiredPresentationOrderHead * 2 >= retiredPresentationOrder.count {

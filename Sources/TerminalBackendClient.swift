@@ -56,9 +56,9 @@ protocol TerminalBackendClient: Sendable {
     func detachPresentation(
         presentationID: UUID,
         from binding: TerminalBackendTerminalBinding?
-    ) async
+    ) async throws
 
-    func releaseFrame(_ release: TerminalRenderFrameRelease) async
+    func releaseFrame(_ release: TerminalRenderFrameRelease) async throws
 }
 
 /// Connection-aware canonical topology delivery. Unlike the legacy snapshot-only

@@ -20,6 +20,8 @@ public enum RendererControlMessage: Equatable, Sendable {
     case fatal(RendererFatal)
     /// Publishes exact worker-owned grid geometry for an applied scene.
     case presentationReady(RendererPresentationReady)
+    /// Confirms an exact presentation can no longer publish frames.
+    case presentationRemoved(RendererPresentationRemoved)
 
     /// The only permitted wire direction for this message type.
     public var direction: RendererControlDirection {
@@ -27,7 +29,7 @@ public enum RendererControlMessage: Equatable, Sendable {
         case .bootstrap, .upsertPresentation, .removePresentation,
              .semanticScene, .frameRelease, .shutdown:
             .daemonToWorker
-        case .ready, .needsFullScene, .fatal, .presentationReady:
+        case .ready, .needsFullScene, .fatal, .presentationReady, .presentationRemoved:
             .workerToDaemon
         }
     }

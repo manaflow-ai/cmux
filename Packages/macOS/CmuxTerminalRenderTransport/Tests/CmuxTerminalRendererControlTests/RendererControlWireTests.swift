@@ -83,6 +83,7 @@ struct RendererControlWireTests {
             .needsFullScene(try fixture.needsFullScene()),
             .fatal(try RendererFatal(code: .resourceExhausted, diagnostic: "bounded")),
             .presentationReady(try fixture.presentationReady()),
+            .presentationRemoved(try fixture.presentationRemoved()),
         ]
         for message in messages {
             let envelope = try fixture.envelope(message, sequence: 1)
@@ -104,6 +105,23 @@ struct RendererControlWireTests {
         #expect(Array(encoded[48..<56]) == [0, 0, 0, 0, 0, 0, 0, 9])
         #expect(Array(encoded[96..<100]) == [0, 0, 0, 120])
         #expect(Array(encoded[100..<104]) == [0, 0, 0, 40])
+        #expect(Array(encoded.suffix(8)) == Array(repeating: 0, count: 8))
+    }
+
+    @Test
+    func presentationRemovedUsesFixed56ByteBigEndianPayload() throws {
+        let envelope = try fixture.envelope(
+            .presentationRemoved(fixture.presentationRemoved()),
+            sequence: 2
+        )
+        let encoded = try RendererControlWire().encode(envelope)
+        #expect(encoded.count == RendererControlProtocol.headerLength + 56)
+        #expect(encoded[8] == RendererControlDirection.workerToDaemon.rawValue)
+        #expect(encoded[9] == 0x85)
+        #expect(Array(encoded[32..<48]) == Array(fixture.terminalA.uuidBytes))
+        #expect(Array(encoded[48..<56]) == [0, 0, 0, 0, 0, 0, 0, 9])
+        #expect(Array(encoded[56..<72]) == Array(fixture.presentationA.uuidBytes))
+        #expect(Array(encoded[72..<80]) == [0, 0, 0, 0, 0, 0, 0, 1])
         #expect(Array(encoded.suffix(8)) == Array(repeating: 0, count: 8))
     }
 }

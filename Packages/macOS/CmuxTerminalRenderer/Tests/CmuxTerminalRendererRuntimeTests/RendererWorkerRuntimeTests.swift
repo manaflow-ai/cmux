@@ -1,7 +1,11 @@
+import CoreFoundation
 import CmuxTerminalRendererControl
 import CmuxTerminalRendererRuntime
 import CmuxTerminalRenderProtocol
+import CmuxTerminalRenderTransport
+import Darwin
 import Foundation
+import IOSurface
 import Testing
 
 private let daemonID = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
@@ -133,7 +137,16 @@ struct RendererWorkerRuntimeTests {
             presentationID: presentationID,
             presentationGeneration: 1
         )
-        #expect((await runtime.handle(.removePresentation(removal))).shouldExit == false)
+        let removalResult = await runtime.handle(.removePresentation(removal))
+        #expect(removalResult.shouldExit == false)
+        #expect(removalResult.replies == [
+            .presentationRemoved(try RendererPresentationRemoved(
+                terminalID: terminalID,
+                terminalEpoch: 4,
+                presentationID: presentationID,
+                presentationGeneration: 1
+            )),
+        ])
         #expect(engine.closed == false)
 
         #expect((await runtime.handle(.frameRelease(try release(
@@ -142,6 +155,108 @@ struct RendererWorkerRuntimeTests {
         )))).shouldExit == false)
         #expect(engine.closed)
         #expect(engine.releasedLeases.count == 1)
+    }
+
+    @Test("quiescence acknowledgement lets host drain a full Mach queue and reap leases")
+    func quiescedFullQueueDrain() async throws {
+        let fence = try TerminalRenderPresentationFence(
+            daemonInstanceID: daemonID,
+            rendererEpoch: 9,
+            terminalID: terminalID,
+            terminalEpoch: 4,
+            minimumTerminalSequence: 0,
+            presentationID: presentationID,
+            presentationGeneration: 1,
+            width: 32,
+            height: 24,
+            pixelFormat: .bgra8Unorm,
+            colorSpace: .sRGB,
+            completionRequirement: .producerCompleted
+        )
+        let receiver = try TerminalRenderFrameReceiver(
+            expectedWorker: TerminalRenderWorkerIdentity(
+                processID: getpid(),
+                effectiveUserID: geteuid()
+            ),
+            initialFence: fence,
+            queueLimit: 3
+        )
+        let factory = TransportEngineFactory()
+        let runtime = RendererWorkerRuntime(
+            expectation: RendererWorkerExpectation(
+                daemonInstanceID: daemonID,
+                workspaceID: workspaceID,
+                rendererEpoch: 9
+            ),
+            ready: try RendererWorkerReady(
+                processID: UInt32(getpid()),
+                effectiveUserID: geteuid(),
+                sceneCapabilities: .allKnown
+            ),
+            engineFactory: factory
+        )
+        try await activate(runtime)
+        let attachment = try RendererPresentationAttachment(
+            terminalID: terminalID,
+            terminalEpoch: 4,
+            presentationID: presentationID,
+            presentationGeneration: 1,
+            width: 32,
+            height: 24,
+            backingScaleFactor: 1,
+            pixelFormat: .bgra8Unorm,
+            colorSpace: .sRGB,
+            frameEndpoint: receiver.endpoint,
+            resolvedConfigRevision: 1,
+            resolvedConfig: Data("font-family = Menlo".utf8)
+        )
+        _ = await runtime.handle(.upsertPresentation(attachment))
+        for sequence in UInt64(1)...3 {
+            let result = await runtime.handle(.semanticScene(try makeScene(
+                generation: 1,
+                canonical: sequence,
+                presentation: sequence
+            )))
+            #expect(!result.shouldExit)
+        }
+        let engine = try #require(factory.engine)
+        #expect(engine.releasedLeases.isEmpty)
+
+        let removal = try RendererPresentationRemoval(
+            terminalID: terminalID,
+            terminalEpoch: 4,
+            presentationID: presentationID,
+            presentationGeneration: 1
+        )
+        let removalResult = await runtime.handle(.removePresentation(removal))
+        #expect(removalResult.replies == [
+            .presentationRemoved(try RendererPresentationRemoved(
+                terminalID: terminalID,
+                terminalEpoch: 4,
+                presentationID: presentationID,
+                presentationGeneration: 1
+            )),
+        ])
+        #expect(!engine.closed)
+
+        let retryBeforeDrain = await runtime.handle(.removePresentation(removal))
+        #expect(retryBeforeDrain.replies == removalResult.replies)
+        #expect(!retryBeforeDrain.shouldExit)
+
+        let releases = try await receiver.drainQuiescedFrames()
+        #expect(releases.count == 3)
+        for receipt in releases {
+            _ = await runtime.handle(.frameRelease(try release(
+                metadata: receipt.metadata,
+                surfaceID: receipt.surfaceID
+            )))
+        }
+        #expect(engine.releasedLeases.map(\.frameSequence).sorted() == [1, 2, 3])
+        #expect(engine.closed)
+        let retryAfterReap = await runtime.handle(.removePresentation(removal))
+        #expect(retryAfterReap.replies == removalResult.replies)
+        #expect(!retryAfterReap.shouldExit)
+        await receiver.stop()
     }
 
     @Test("queue-full frame is released locally and latest scene remains pending")
@@ -443,6 +558,115 @@ private final class FakeEngine: RendererPresentationEngine, @unchecked Sendable 
     }
 
     func close() async throws {
+        closed = true
+    }
+}
+
+private final class TransportEngineFactory:
+    RendererPresentationEngineFactory,
+    @unchecked Sendable
+{
+    var engine: TransportEngine?
+
+    func makeEngine(
+        context: RendererPresentationEngineContext
+    ) throws -> any RendererPresentationEngine {
+        let engine = try TransportEngine(context: context)
+        self.engine = engine
+        return engine
+    }
+}
+
+private final class TransportEngine: RendererPresentationEngine, @unchecked Sendable {
+    let context: RendererPresentationEngineContext
+    let sender: TerminalRenderFrameSender
+    var surfaces: [UInt32: TerminalRenderSurfaceHandle] = [:]
+    var releasedLeases: [RendererFrameLease] = []
+    var nextFrameSequence: UInt64 = 1
+    var terminalSequence: UInt64 = 1
+    var presentationSequence: UInt64 = 1
+    var closed = false
+
+    init(context: RendererPresentationEngineContext) throws {
+        self.context = context
+        self.sender = try TerminalRenderFrameSender(
+            endpoint: context.attachment.frameEndpoint
+        )
+    }
+
+    func apply(scene: RendererSemanticScene) throws {
+        terminalSequence = scene.canonicalSequence
+        presentationSequence = scene.presentationSequence
+    }
+
+    func metrics() throws -> RendererPresentationGeometry {
+        RendererPresentationGeometry(
+            columns: 32,
+            rows: 24,
+            cellWidth: 1,
+            cellHeight: 1,
+            paddingTop: 0,
+            paddingRight: 0,
+            paddingBottom: 0,
+            paddingLeft: 0
+        )
+    }
+
+    func render() throws -> RendererFrameLease {
+        let properties: [CFString: Any] = [
+            kIOSurfaceWidth: Int(context.attachment.width),
+            kIOSurfaceHeight: Int(context.attachment.height),
+            kIOSurfaceBytesPerElement: 4,
+            kIOSurfaceBytesPerRow: Int(context.attachment.width) * 4,
+            kIOSurfaceAllocSize:
+                Int(context.attachment.width) * Int(context.attachment.height) * 4,
+            kIOSurfacePixelFormat: TerminalRenderPixelFormat.bgra8Unorm.rawValue,
+        ]
+        let surface = TerminalRenderSurfaceHandle(
+            surface: IOSurfaceCreate(properties as CFDictionary)!
+        )
+        let frameSequence = nextFrameSequence
+        nextFrameSequence += 1
+        surfaces[surface.identifier] = surface
+        return RendererFrameLease(
+            rendererEpoch: context.rendererEpoch,
+            terminalID: context.attachment.terminalID,
+            terminalEpoch: context.attachment.terminalEpoch,
+            terminalSequence: terminalSequence,
+            presentationID: context.attachment.presentationID,
+            presentationGeneration: context.attachment.presentationGeneration,
+            presentationSequence: presentationSequence,
+            frameSequence: frameSequence,
+            surfaceID: surface.identifier,
+            width: context.attachment.width,
+            height: context.attachment.height
+        )
+    }
+
+    func publish(
+        lease: RendererFrameLease,
+        metadata: TerminalRenderFrameMetadata
+    ) async throws -> RendererFramePublishDisposition {
+        guard let surface = surfaces[lease.surfaceID] else {
+            throw RendererPresentationEngineError.invariantViolation
+        }
+        switch try await sender.send(surface: surface, metadata: metadata) {
+        case .sent:
+            return .sent
+        case .droppedQueueFull:
+            return .droppedQueueFull
+        }
+    }
+
+    func release(lease: RendererFrameLease) throws {
+        guard surfaces.removeValue(forKey: lease.surfaceID) != nil else {
+            throw RendererPresentationEngineError.invariantViolation
+        }
+        releasedLeases.append(lease)
+    }
+
+    func close() async throws {
+        await sender.stop()
         closed = true
     }
 }

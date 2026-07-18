@@ -81,6 +81,18 @@ cmux_terminal_render_status_t cmux_terminal_render_frame_receive(
     kern_return_t *mach_error
 );
 
+/// Receives one frame after the producer has been proved quiescent.
+///
+/// The endpoint capability remains mandatory, but the caller may not yet have
+/// observed the producer PID/eUID when the first frame preceded its readiness
+/// event. This entry point is only for draining that closed publication epoch.
+cmux_terminal_render_status_t cmux_terminal_render_frame_receive_quiesced(
+    mach_port_t receiver,
+    const uint8_t * _Nonnull expected_capability,
+    cmux_terminal_render_received_frame_s *received_frame,
+    kern_return_t *mach_error
+);
+
 /// Releases an unimported IOSurface send right returned by the receive function.
 void cmux_terminal_render_surface_right_release(mach_port_t surface_port);
 

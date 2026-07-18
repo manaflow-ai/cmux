@@ -102,6 +102,19 @@ struct RendererControlTestFixture {
         )
     }
 
+    func presentationRemoved(
+        terminalID: UUID? = nil,
+        presentationID: UUID? = nil,
+        generation: UInt64 = 1
+    ) throws -> RendererPresentationRemoved {
+        try RendererPresentationRemoved(
+            terminalID: terminalID ?? terminalA,
+            terminalEpoch: 9,
+            presentationID: presentationID ?? presentationA,
+            presentationGeneration: generation
+        )
+    }
+
     func needsFullScene(
         terminalID: UUID? = nil,
         presentationID: UUID? = nil,

@@ -29,6 +29,98 @@ private final class TerminalBackendAccessibilityFrameDemand: @unchecked Sendable
     }
 }
 
+/// Cooperative stop flag for a detached Mach receive loop.
+///
+/// Cancellation can abandon a message after the kernel transferred its
+/// IOSurface right but before Swift returned the worker's exact lease. Normal
+/// rotation therefore asks the loop to stop at a receive boundary instead.
+private final class TerminalBackendFrameReceiveLoopControl: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopRequested = false
+
+    func requestStop() {
+        lock.lock()
+        stopRequested = true
+        lock.unlock()
+    }
+
+    var shouldStop: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopRequested
+    }
+}
+
+private struct TerminalBackendReceiverRetirement: Sendable {
+    let receiver: TerminalRenderFrameReceiver
+    let receiveTask: Task<Void, Never>?
+    let receiveLoopControl: TerminalBackendFrameReceiveLoopControl?
+}
+
+/// Retries one renderer operation only when the ordered renderer lifecycle
+/// advances. Subscribing before the first attempt closes the disconnect race:
+/// a reconnect that overlaps a failed RPC is buffered and wakes the retry.
+func retryRendererOperationOnLifecycleChange(
+    client: any TerminalBackendClient,
+    operation: @escaping @Sendable () async throws -> Void
+) async -> Bool {
+    while !Task.isCancelled {
+        let events = await client.rendererEvents()
+        var iterator = events.makeAsyncIterator()
+        do {
+            try await operation()
+            return true
+        } catch {
+            var lifecycleAdvanced = false
+            while !lifecycleAdvanced {
+                guard let event = await iterator.next() else {
+                    // Stream replacement is itself a connection-boundary
+                    // signal. Re-subscribe before retrying so an overflowed
+                    // observer cannot silently abandon an exact receipt.
+                    lifecycleAdvanced = true
+                    continue
+                }
+                switch event {
+                case .connectionLost, .reconnected, .workerChanged:
+                    lifecycleAdvanced = true
+                case .presentationReady:
+                    continue
+                }
+            }
+        }
+    }
+    return false
+}
+
+/// Retries the canonical detach until cmuxd proves worker quiescence. The
+/// caller keeps its retired ingress active during this wait, so a reconnecting
+/// worker cannot strand a frame lease in a destroyed endpoint.
+func awaitRendererPresentationQuiescence(
+    client: any TerminalBackendClient,
+    presentationID: UUID,
+    binding: TerminalBackendTerminalBinding?
+) async -> Bool {
+    await retryRendererOperationOnLifecycleChange(client: client) {
+        try await client.detachPresentation(
+            presentationID: presentationID,
+            from: binding
+        )
+    }
+}
+
+/// Returns one exact lease across transient daemon disconnects. At most three
+/// leases exist per presentation, so retries remain strictly bounded by the
+/// worker pool while preventing a temporary socket failure from exhausting it.
+@discardableResult
+func returnRendererFrameLease(
+    client: any TerminalBackendClient,
+    release: TerminalRenderFrameRelease
+) async -> Bool {
+    await retryRendererOperationOnLifecycleChange(client: client) {
+        try await client.releaseFrame(release)
+    }
+}
+
 /// Thread-safe record of the newest frame Core Animation actually presented.
 ///
 /// The Metal callback records this off the main actor. Hyperlink hit testing and
@@ -142,6 +234,14 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private var renderConfigTask: Task<Void, Never>?
     private var receiver: TerminalRenderFrameReceiver?
     private var receiveTask: Task<Void, Never>?
+    private var receiveLoopControl: TerminalBackendFrameReceiveLoopControl?
+    private var receiverRetirementTask: Task<Bool, Never>?
+    private var receiverRetirementTaskID: UUID?
+    // A fatal local Mach-drain failure cannot destroy the endpoint without
+    // stranding a worker lease. This self-retention is a fail-closed last
+    // resort and is cleared only by process teardown.
+    private var unresolvedReceiverRetirements: [TerminalBackendReceiverRetirement] = []
+    private var unresolvedReceiverRetirementOwner: PersistentTerminalExternalRuntime?
     private var accessibilityRefreshTask: Task<Void, Never>?
     private var accessibilityRefreshRequested = false
     private var accessibilityDemanded = false
@@ -292,22 +392,36 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         // Retire the old drawable generation synchronously. Stopping the XPC
         // receiver and detaching the daemon presentation may await, but no
         // queued prior-workspace frame can remain mounted after this call.
-        let retiredReceiver = beginReceiverRotation()
+        let receiverRetirement = beginReceiverRotation()
 
         let previousAdoption = placementAdoptionTask
         let client = client
         placementAdoptionTask = Task { @MainActor [weak self] in
             _ = await previousAdoption?.value
-            guard let self, !self.detached else { return }
-            if let retiredReceiver {
-                await retiredReceiver.stop()
-            }
+            guard let self else { return }
             if let previousBinding {
-                await client.detachPresentation(
+                let quiesced = await awaitRendererPresentationQuiescence(
+                    client: client,
                     presentationID: previousPresentationID,
-                    from: previousBinding
+                    binding: previousBinding
                 )
+                if !quiesced {
+                    // Cancellation leaves the retired ingress active. It still
+                    // rejects any late frame with an exact release.
+                    if let receiverRetirement {
+                        self.retainUnresolvedReceiverRetirement(receiverRetirement)
+                    }
+                    self.placementAdoptionTask = nil
+                    self.markUnavailable()
+                    return
+                }
             }
+            guard await self.finishReceiverRetirement(receiverRetirement) else {
+                self.placementAdoptionTask = nil
+                self.markUnavailable()
+                return
+            }
+            guard !self.detached else { return }
             guard self.placementGeneration == generation, !self.detached else { return }
             self.placementAdoptionTask = nil
             self.scheduleDrain()
@@ -497,6 +611,11 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         while let placementAdoptionTask {
             await placementAdoptionTask.value
         }
+        while let receiverRetirementTask {
+            guard await receiverRetirementTask.value else {
+                throw TerminalBackendClientError.presentationUnavailable
+            }
+        }
         try Task.checkCancellation()
         guard !detached else { throw CancellationError() }
         if let binding {
@@ -625,7 +744,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                     self.clearBindingTask(ifCurrent: attemptID)
                     return binding
                 } catch TerminalBackendTopologyAdmissionError.invalidated {
-                    await client.detachPresentation(
+                    try? await client.detachPresentation(
                         presentationID: presentationID,
                         from: binding
                     )
@@ -636,7 +755,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                     )
                     continue
                 } catch {
-                    await client.detachPresentation(
+                    try? await client.detachPresentation(
                         presentationID: presentationID,
                         from: binding
                     )
@@ -926,7 +1045,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             compositor = try TerminalRenderCompositorView(
                 fence: attachment.fence,
                 frameReleaseHandler: { release in
-                    Task { await client.releaseFrame(release) }
+                    Task {
+                        await returnRendererFrameLease(client: client, release: release)
+                    }
                 },
                 frameDispositionHandler: { frame, result in
                     diagnostics.record(
@@ -1003,7 +1124,10 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         receiver: TerminalRenderFrameReceiver,
         ingress: TerminalRenderCompositorIngress
     ) {
-        receiveTask?.cancel()
+        guard receiveTask == nil else { return }
+        let control = TerminalBackendFrameReceiveLoopControl()
+        receiveLoopControl = control
+        let client = client
         let failureHandler: @Sendable () -> Void = { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !self.detached, self.visible else { return }
@@ -1011,16 +1135,27 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 self.scheduleDrain()
             }
         }
-        receiveTask = Task.detached { [receiver, ingress, failureHandler] in
+        receiveTask = Task.detached { [receiver, ingress, control, client, failureHandler] in
             do {
-                while !Task.isCancelled {
+                while !Task.isCancelled, !control.shouldStop {
                     switch try await receiver.receive(
                         timeoutMilliseconds: TerminalRenderFrameReceiver
                             .maximumReceiveTimeoutMilliseconds
                     ) {
                     case .frame(let frame):
-                        _ = await ingress.enqueue(frame)
-                    case .timedOut, .dropped:
+                        if control.shouldStop {
+                            await returnRendererFrameLease(
+                                client: client,
+                                release: TerminalRenderFrameRelease(frame: frame)
+                            )
+                        } else {
+                            _ = await ingress.enqueue(frame)
+                        }
+                    case .dropped(_, let release):
+                        if let release {
+                            await returnRendererFrameLease(client: client, release: release)
+                        }
+                    case .timedOut:
                         continue
                     }
                 }
@@ -1043,9 +1178,22 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                     await self.handleRendererEvent(event)
                 }
                 guard !Task.isCancelled, !self.detached else { return }
-                await self.rotateReceiver()
-                self.rendererReconfigureNeeded = true
-                self.scheduleDrain()
+                let presentationID = self.presentationID
+                let binding = self.binding
+                self.cancelBindingTask()
+                self.binding = nil
+                self.bindingReconcileRequested = true
+                self.state = .binding
+                if await self.rotateReceiverAfterDaemonQuiescence(
+                    presentationID: presentationID,
+                    binding: binding
+                ) {
+                    self.backendPresentationOpen = false
+                    self.rendererReconfigureNeeded = true
+                    self.scheduleDrain()
+                } else {
+                    self.markUnavailable()
+                }
                 await Task.yield()
             }
         }
@@ -1077,8 +1225,38 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             presentationOverrides: presentationConfigOverrides
         )
         guard canPresent else { return }
+        if backendPresentationOpen {
+            guard let binding, let viewport = currentViewport, let receiver else {
+                rendererReconfigureNeeded = true
+                return
+            }
+            let descriptor = TerminalBackendPresentationDescriptor(
+                presentationID: presentationID,
+                endpoint: receiver.endpoint,
+                viewport: viewport,
+                focused: focused,
+                visible: false,
+                preedit: preedit,
+                pixelFormat: pixelFormat,
+                colorSpace: colorSpace,
+                resolvedConfigRevision: resolvedConfigRevision,
+                resolvedConfig: resolvedConfig
+            )
+            do {
+                _ = try await client.apply(
+                    .visibility(false),
+                    requestID: UUID(),
+                    to: binding,
+                    presentation: descriptor
+                )
+            } catch {
+                // Keep receiving from the old endpoint. Destroying it without
+                // the worker's quiescence acknowledgement would strand leases.
+                return
+            }
+        }
         backendPresentationOpen = false
-        await rotateReceiver()
+        await rotateReceiverAfterQuiescenceProof()
         rendererReconfigureNeeded = true
         scheduleDrain()
     }
@@ -1087,7 +1265,13 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         switch event {
         case .workerChanged(let changed):
             guard changed.workspaceID.rawValue == currentWorkspaceID else { return }
-            await rotateReceiver()
+            let presentedEpoch = compositor?.fence.rendererEpoch
+            let oldWorkerDied = presentedEpoch == changed.priorRendererEpoch
+                && (changed.rendererEpoch != presentedEpoch || changed.state != .ready)
+            if oldWorkerDied {
+                await rotateReceiverAfterQuiescenceProof()
+                backendPresentationOpen = false
+            }
             if changed.state == .ready {
                 rendererReconfigureNeeded = true
                 scheduleDrain()
@@ -1098,17 +1282,22 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             do {
                 try await installRendererAttachment(attachment)
             } catch {
-                await rotateReceiver()
-                rendererReconfigureNeeded = true
-                scheduleDrain()
+                if await rotateReceiverAfterDaemonQuiescence(
+                    presentationID: presentationID,
+                    binding: binding
+                ) {
+                    backendPresentationOpen = false
+                    rendererReconfigureNeeded = true
+                    scheduleDrain()
+                } else {
+                    markUnavailable()
+                }
             }
         case .connectionLost(let authority):
-            guard binding?.authority == authority else { return }
-            await rotateReceiver()
+            guard let lostBinding = binding, lostBinding.authority == authority else { return }
             cancelBindingTask()
             binding = nil
             bindingReconcileRequested = true
-            backendPresentationOpen = false
             state = .binding
             replaceSnapshot(
                 lifecycle: .unavailable,
@@ -1116,9 +1305,16 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 accessibilityWasRead: true,
                 clearCellMetrics: true
             )
-            scheduleDrain()
+            if await rotateReceiverAfterDaemonQuiescence(
+                presentationID: presentationID,
+                binding: lostBinding
+            ) {
+                backendPresentationOpen = false
+                scheduleDrain()
+            } else {
+                markUnavailable()
+            }
         case .reconnected:
-            await rotateReceiver()
             rendererReconfigureNeeded = true
             scheduleDrain()
         }
@@ -1138,6 +1334,14 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         return false
     }
 
+    func debugHasCurrentFrameReceiverForTesting() -> Bool {
+        receiver != nil
+    }
+
+    func debugHasFrameReceiverRetirementForTesting() -> Bool {
+        receiverRetirementTask != nil || !unresolvedReceiverRetirements.isEmpty
+    }
+
     func debugHandleRendererEventForTesting(
         _ event: TerminalBackendRendererEvent
     ) async {
@@ -1153,32 +1357,124 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     }
 #endif
 
-    private func rotateReceiver() async {
-        let previous = beginReceiverRotation()
-        if let previous {
-            await previous.stop()
+    /// Retires an endpoint only when the caller already has synchronous proof
+    /// that its worker stopped publishing, such as an exact remove receipt or
+    /// an exact worker-lifetime death event.
+    private func rotateReceiverAfterQuiescenceProof() async {
+        if let receiverRetirementTask {
+            guard await receiverRetirementTask.value else { return }
         }
+        let retirement = beginReceiverRotation()
+        _ = await finishReceiverRetirement(retirement)
+    }
+
+    /// Unmounts the current drawable immediately, then keeps its receive loop
+    /// and endpoint alive until the daemon acknowledges the exact presentation
+    /// removal across any intervening reconnect.
+    private func rotateReceiverAfterDaemonQuiescence(
+        presentationID: UUID,
+        binding: TerminalBackendTerminalBinding?
+    ) async -> Bool {
+        let retirement = beginReceiverRotation()
+        let previous = receiverRetirementTask
+        let taskID = UUID()
+        receiverRetirementTaskID = taskID
+        let client = client
+        let task = Task<Bool, Never> { @MainActor [self] in
+            if let previous {
+                guard await previous.value else {
+                    if let retirement {
+                        retainUnresolvedReceiverRetirement(retirement)
+                    }
+                    if receiverRetirementTaskID == taskID {
+                        receiverRetirementTask = nil
+                        receiverRetirementTaskID = nil
+                    }
+                    return false
+                }
+            }
+            let quiesced = await awaitRendererPresentationQuiescence(
+                client: client,
+                presentationID: presentationID,
+                binding: binding
+            )
+            let retired: Bool
+            if quiesced {
+                retired = await finishReceiverRetirement(retirement)
+            } else {
+                if let retirement {
+                    retainUnresolvedReceiverRetirement(retirement)
+                }
+                retired = false
+            }
+            if receiverRetirementTaskID == taskID {
+                receiverRetirementTask = nil
+                receiverRetirementTaskID = nil
+            }
+            return quiesced && retired
+        }
+        receiverRetirementTask = task
+        return await task.value
     }
 
     @discardableResult
-    private func beginReceiverRotation() -> TerminalRenderFrameReceiver? {
-        receiveTask?.cancel()
+    private func beginReceiverRotation() -> TerminalBackendReceiverRetirement? {
+        let retirement = receiver.map {
+            TerminalBackendReceiverRetirement(
+                receiver: $0,
+                receiveTask: receiveTask,
+                receiveLoopControl: receiveLoopControl
+            )
+        }
         receiveTask = nil
+        receiveLoopControl = nil
         presentedFrameState.reset()
         lastPresentedTerminalSequence = nil
-        let previous = receiver
         receiver = nil
         compositor?.retire()
         compositor?.removeFromSuperview()
         compositor = nil
         mount?.removeCompositor()
         replaceSnapshot(clearCellMetrics: true)
-        return previous
+        return retirement
+    }
+
+    /// Completes teardown only after the caller has proved that the worker can
+    /// no longer publish to this endpoint (or the worker/session has died).
+    private func finishReceiverRetirement(
+        _ retirement: TerminalBackendReceiverRetirement?
+    ) async -> Bool {
+        guard let retirement else { return true }
+        retirement.receiveLoopControl?.requestStop()
+        await retirement.receiveTask?.value
+        do {
+            let releases = try await retirement.receiver.drainQuiescedFrames()
+            for release in releases {
+                guard await returnRendererFrameLease(client: client, release: release) else {
+                    retainUnresolvedReceiverRetirement(retirement)
+                    return false
+                }
+            }
+        } catch TerminalRenderFrameTransportError.stopped {
+            // A concurrent terminal session teardown already destroyed it.
+        } catch {
+            retainUnresolvedReceiverRetirement(retirement)
+            return false
+        }
+        await retirement.receiver.stop()
+        return true
+    }
+
+    private func retainUnresolvedReceiverRetirement(
+        _ retirement: TerminalBackendReceiverRetirement
+    ) {
+        unresolvedReceiverRetirements.append(retirement)
+        unresolvedReceiverRetirementOwner = self
     }
 
     private func stopRendererPresentation() async {
         backendPresentationOpen = false
-        await rotateReceiver()
+        await rotateReceiverAfterQuiescenceProof()
     }
 
     private func detachPresentation() {
@@ -1197,14 +1493,12 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         drainTask?.cancel()
         drainTask = nil
         cancelBindingTask()
-        placementAdoptionTask?.cancel()
+        let pendingAdoption = placementAdoptionTask
         placementAdoptionTask = nil
         rendererEventTask?.cancel()
         rendererEventTask = nil
         renderConfigTask?.cancel()
         renderConfigTask = nil
-        receiveTask?.cancel()
-        receiveTask = nil
         accessibilityRefreshTask?.cancel()
         accessibilityRefreshTask = nil
         accessibilityRefreshRequested = false
@@ -1213,14 +1507,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             continuation.finish()
         }
         accessibilityContinuations.removeAll()
-        let receiver = receiver
-        self.receiver = nil
-        if let receiver {
-            Task { await receiver.stop() }
-        }
-        compositor?.retire()
-        compositor?.removeFromSuperview()
-        compositor = nil
+        let receiverRetirement = beginReceiverRotation()
         if let mount {
             presentationRegistry.unregister(mount)
         }
@@ -1228,11 +1515,33 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         let client = client
         let presentationID = presentationID
         let binding = binding
-        Task {
-            await client.detachPresentation(
+        let previousRetirement = receiverRetirementTask
+        let taskID = UUID()
+        receiverRetirementTaskID = taskID
+        receiverRetirementTask = Task<Bool, Never> { @MainActor [self] in
+            _ = await pendingAdoption?.value
+            if let previousRetirement {
+                _ = await previousRetirement.value
+            }
+            let quiesced = await awaitRendererPresentationQuiescence(
+                client: client,
                 presentationID: presentationID,
-                from: binding
+                binding: binding
             )
+            let retired: Bool
+            if quiesced {
+                retired = await self.finishReceiverRetirement(receiverRetirement)
+            } else {
+                if let receiverRetirement {
+                    self.retainUnresolvedReceiverRetirement(receiverRetirement)
+                }
+                retired = false
+            }
+            if receiverRetirementTaskID == taskID {
+                receiverRetirementTask = nil
+                receiverRetirementTaskID = nil
+            }
+            return quiesced && retired
         }
     }
 

@@ -48,7 +48,7 @@ struct TerminalRenderFrameTransportTests {
                 receivedFrame = frame
             case .timedOut:
                 continue
-            case .dropped(let reason):
+            case .dropped(let reason, _):
                 Issue.record("Child frame was dropped: \(reason)")
             }
         }
@@ -61,6 +61,74 @@ struct TerminalRenderFrameTransportTests {
         #expect(process.terminationStatus == 0)
         #expect(frame.metadata == metadata)
         #expect(frame.workerIdentity == childWorker)
+    }
+
+    @Test
+    func quiescedDrainReturnsPreReadyLeaseFromSeparateProcess() async throws {
+        let metadata = try fixture.makeMetadata(frameSequence: 2)
+        let receiver = try TerminalRenderFrameReceiver(
+            initialFence: fixture.makeFence()
+        )
+        let executable = try #require(
+            fixture.executableCandidates(named: "cmux-terminal-render-test-sender").first
+        )
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = [
+            receiver.endpoint.serviceName,
+            receiver.endpoint.capability.base64EncodedString(),
+            TerminalRenderFrameMetadataCodec().encode(metadata).base64EncodedString(),
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(await receiver.authorizedWorker() == nil)
+        let releases = try await receiver.drainQuiescedFrames()
+        #expect(releases.count == 1)
+        let release = try #require(releases.first)
+        #expect(release.metadata == metadata)
+        #expect(release.surfaceID != 0)
+        #expect(await receiver.authorizedWorker() == nil)
+        await #expect(throws: TerminalRenderFrameTransportError.workerNotAuthorized) {
+            try await receiver.receive(timeoutMilliseconds: 0)
+        }
+    }
+
+    @Test
+    func quiescedDrainRejectsForgedCapabilityAndValidatesSurfaceDescriptor() async throws {
+        let receiver = try TerminalRenderFrameReceiver(
+            initialFence: fixture.makeFence(),
+            queueLimit: 3
+        )
+        var wrongCapability = receiver.endpoint.capability
+        wrongCapability[0] ^= 0xFF
+        let wrongEndpoint = try TerminalRenderFrameEndpoint(
+            serviceName: receiver.endpoint.serviceName,
+            capability: wrongCapability
+        )
+        let forgedSender = try TerminalRenderFrameSender(endpoint: wrongEndpoint)
+        #expect(try await forgedSender.send(
+            surface: fixture.makeSurface(),
+            metadata: fixture.makeMetadata(frameSequence: 3)
+        ) == .sent)
+
+        let descriptorMismatchSurface = fixture.makeSurface(width: 31, height: 24)
+        let descriptorMismatchMetadata = try fixture.makeMetadata(frameSequence: 4)
+        let authenticatedSender = try TerminalRenderFrameSender(endpoint: receiver.endpoint)
+        #expect(try await authenticatedSender.send(
+            surface: descriptorMismatchSurface,
+            metadata: descriptorMismatchMetadata
+        ) == .sent)
+
+        let releases = try await receiver.drainQuiescedFrames()
+        #expect(releases.count == 1)
+        let release = try #require(releases.first)
+        #expect(release.metadata == descriptorMismatchMetadata)
+        #expect(release.surfaceID == descriptorMismatchSurface.identifier)
+        #expect(releases.allSatisfy { $0.metadata.frameSequence != 3 })
     }
 
     @Test
@@ -109,12 +177,13 @@ struct TerminalRenderFrameTransportTests {
             surface: fixture.makeSurface(),
             metadata: fixture.makeMetadata()
         ) == .sent)
-        guard case .dropped(.capabilityMismatch) = try await receiver.receive(
+        guard case .dropped(.capabilityMismatch, let release) = try await receiver.receive(
             timeoutMilliseconds: 250
         ) else {
             Issue.record("Expected capability rejection")
             return
         }
+        #expect(release == nil)
     }
 
     @Test
@@ -133,12 +202,13 @@ struct TerminalRenderFrameTransportTests {
             surface: fixture.makeSurface(),
             metadata: fixture.makeMetadata()
         ) == .sent)
-        guard case .dropped(.peerIdentityMismatch) = try await receiver.receive(
+        guard case .dropped(.peerIdentityMismatch, let release) = try await receiver.receive(
             timeoutMilliseconds: 250
         ) else {
             Issue.record("Expected PID audit-token rejection")
             return
         }
+        #expect(release == nil)
     }
 
     @Test
@@ -157,12 +227,13 @@ struct TerminalRenderFrameTransportTests {
             surface: fixture.makeSurface(),
             metadata: fixture.makeMetadata()
         ) == .sent)
-        guard case .dropped(.peerIdentityMismatch) = try await receiver.receive(
+        guard case .dropped(.peerIdentityMismatch, let release) = try await receiver.receive(
             timeoutMilliseconds: 250
         ) else {
             Issue.record("Expected effective-UID audit-token rejection")
             return
         }
+        #expect(release == nil)
     }
 
     @Test
@@ -202,12 +273,13 @@ struct TerminalRenderFrameTransportTests {
         }
         #expect(sendResult == KERN_SUCCESS)
 
-        guard case .dropped(.malformedMachMessage) = try await receiver.receive(
+        guard case .dropped(.malformedMachMessage, let release) = try await receiver.receive(
             timeoutMilliseconds: 250
         ) else {
             Issue.record("Expected the oversized message to be consumed as malformed")
             return
         }
+        #expect(release == nil)
 
         let sender = try TerminalRenderFrameSender(endpoint: receiver.endpoint)
         #expect(try await sender.send(
@@ -234,12 +306,13 @@ struct TerminalRenderFrameTransportTests {
         }
         #expect(sendResult == KERN_SUCCESS)
 
-        guard case .dropped(.malformedMachMessage) = try await receiver.receive(
+        guard case .dropped(.malformedMachMessage, let release) = try await receiver.receive(
             timeoutMilliseconds: 250
         ) else {
             Issue.record("Expected the unexpected complex message to be destroyed")
             return
         }
+        #expect(release == nil)
 
         let sender = try TerminalRenderFrameSender(endpoint: receiver.endpoint)
         #expect(try await sender.send(
@@ -256,7 +329,7 @@ struct TerminalRenderFrameTransportTests {
     }
 
     @Test
-    func staleDimensionsAndGenerationAreRejectedBeforeSurfaceImport() async throws {
+    func authenticatedStaleFramesProduceExactReleaseReceipts() async throws {
         let receiver = try TerminalRenderFrameReceiver(
             expectedWorker: currentWorker(),
             initialFence: fixture.makeFence()
@@ -264,26 +337,39 @@ struct TerminalRenderFrameTransportTests {
         let sender = try TerminalRenderFrameSender(endpoint: receiver.endpoint)
 
         #expect(try await sender.send(
-            surface: fixture.makeSurface(width: 1, height: 1),
+            surface: fixture.makeSurface(width: 31, height: 24),
             metadata: fixture.makeMetadata(width: 31)
         ) == .sent)
-        guard case .dropped(.stale(.dimensionsMismatch)) = try await receiver.receive(
+        guard case .dropped(.stale(.dimensionsMismatch), let dimensionsRelease) =
+                try await receiver.receive(
             timeoutMilliseconds: 250
         ) else {
-            Issue.record("Expected metadata dimensions rejection before descriptor import")
+            Issue.record("Expected authenticated metadata dimensions rejection")
             return
         }
+        #expect(dimensionsRelease?.metadata.width == 31)
+        #expect(dimensionsRelease?.surfaceID != 0)
 
+        let generationSurface = fixture.makeSurface()
+        let generationMetadata = try fixture.makeMetadata(
+            presentationGeneration: 12,
+            frameSequence: 18
+        )
         #expect(try await sender.send(
-            surface: fixture.makeSurface(width: 1, height: 1),
-            metadata: fixture.makeMetadata(presentationGeneration: 12, frameSequence: 18)
+            surface: generationSurface,
+            metadata: generationMetadata
         ) == .sent)
-        guard case .dropped(.stale(.presentationGenerationMismatch)) = try await receiver.receive(
+        guard case .dropped(
+            .stale(.presentationGenerationMismatch),
+            let generationRelease
+        ) = try await receiver.receive(
             timeoutMilliseconds: 250
         ) else {
-            Issue.record("Expected generation rejection before descriptor import")
+            Issue.record("Expected authenticated generation rejection")
             return
         }
+        #expect(generationRelease?.metadata == generationMetadata)
+        #expect(generationRelease?.surfaceID == generationSurface.identifier)
     }
 
     @Test
@@ -295,32 +381,41 @@ struct TerminalRenderFrameTransportTests {
         )
         let sender = try TerminalRenderFrameSender(endpoint: receiver.endpoint)
 
+        let wrongFormatSurface = fixture.makeSurface(pixelFormat: .bgra8Unorm)
+        let wrongFormatMetadata = try fixture.makeMetadata(pixelFormat: .rgba16Float)
         #expect(try await sender.send(
-            surface: fixture.makeSurface(pixelFormat: .bgra8Unorm),
-            metadata: fixture.makeMetadata(pixelFormat: .rgba16Float)
+            surface: wrongFormatSurface,
+            metadata: wrongFormatMetadata
         ) == .sent)
-        guard case .dropped(.surfaceDescriptorMismatch) = try await receiver.receive(
+        guard case .dropped(.surfaceDescriptorMismatch, let release) = try await receiver.receive(
             timeoutMilliseconds: 250
         ) else {
             Issue.record("Expected imported IOSurface descriptor rejection")
             return
         }
+        #expect(release?.metadata == wrongFormatMetadata)
+        #expect(release?.surfaceID == wrongFormatSurface.identifier)
 
         let bgraReceiver = try TerminalRenderFrameReceiver(
             expectedWorker: currentWorker(),
             initialFence: fixture.makeFence()
         )
         let bgraSender = try TerminalRenderFrameSender(endpoint: bgraReceiver.endpoint)
+        let wrongStrideSurface = fixture.makeSurface(bytesPerElementOverride: 8)
+        let wrongStrideMetadata = try fixture.makeMetadata(frameSequence: 20)
         #expect(try await bgraSender.send(
-            surface: fixture.makeSurface(bytesPerElementOverride: 8),
-            metadata: fixture.makeMetadata(frameSequence: 20)
+            surface: wrongStrideSurface,
+            metadata: wrongStrideMetadata
         ) == .sent)
-        guard case .dropped(.surfaceDescriptorMismatch) = try await bgraReceiver.receive(
+        guard case .dropped(.surfaceDescriptorMismatch, let release) =
+                try await bgraReceiver.receive(
             timeoutMilliseconds: 250
         ) else {
             Issue.record("Expected bytes-per-element descriptor rejection")
             return
         }
+        #expect(release?.metadata == wrongStrideMetadata)
+        #expect(release?.surfaceID == wrongStrideSurface.identifier)
         #expect(try await bgraSender.send(
             surface: fixture.makeSurface(),
             metadata: fixture.makeMetadata(frameSequence: 20)
@@ -342,16 +437,47 @@ struct TerminalRenderFrameTransportTests {
         )
         let sender = try TerminalRenderFrameSender(endpoint: receiver.endpoint)
 
-        #expect(try await sender.send(
-            surface: fixture.makeSurface(),
-            metadata: fixture.makeMetadata()
-        ) == .sent)
+        let surface = fixture.makeSurface()
+        let metadata = try fixture.makeMetadata()
+        #expect(try await sender.send(surface: surface, metadata: metadata) == .sent)
         await receiver.updateFence(try fixture.makeFence(presentationGeneration: 14))
 
-        guard case .dropped(.stale(.presentationGenerationMismatch)) = try await receiver.receive(
+        guard case .dropped(
+            .stale(.presentationGenerationMismatch),
+            let release
+        ) = try await receiver.receive(
             timeoutMilliseconds: 250
         ) else {
             Issue.record("Expected old queued generation to be discarded")
+            return
+        }
+        #expect(release?.metadata == metadata)
+        #expect(release?.surfaceID == surface.identifier)
+    }
+
+    @Test
+    func drainsEveryQuiescedAuthenticatedLease() async throws {
+        let receiver = try TerminalRenderFrameReceiver(
+            expectedWorker: currentWorker(),
+            initialFence: fixture.makeFence(),
+            queueLimit: 3
+        )
+        let sender = try TerminalRenderFrameSender(endpoint: receiver.endpoint)
+        var expected: [UInt64: UInt32] = [:]
+        for sequence in UInt64(1)...3 {
+            let surface = fixture.makeSurface()
+            let metadata = try fixture.makeMetadata(frameSequence: sequence)
+            expected[sequence] = surface.identifier
+            #expect(try await sender.send(surface: surface, metadata: metadata) == .sent)
+        }
+
+        let releases = try await receiver.drainQuiescedFrames()
+        #expect(releases.count == 3)
+        #expect(Dictionary(uniqueKeysWithValues: releases.map {
+            ($0.metadata.frameSequence, $0.surfaceID)
+        }) == expected)
+        guard case .timedOut = try await receiver.receive(timeoutMilliseconds: 0) else {
+            Issue.record("Expected the quiesced queue to be empty")
             return
         }
     }
