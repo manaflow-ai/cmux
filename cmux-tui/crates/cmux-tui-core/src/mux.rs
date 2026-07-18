@@ -3050,8 +3050,7 @@ impl Mux {
             let Some(old_idx) = state.workspace_index(workspace) else {
                 return Ok(None);
             };
-            let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
-            let new_idx = new_idx.min(state.workspaces.len().saturating_sub(1));
+            let new_idx = index.min(state.workspaces.len().saturating_sub(1));
             if new_idx == old_idx {
                 return Ok(Some((state.workspace_revision, false)));
             }

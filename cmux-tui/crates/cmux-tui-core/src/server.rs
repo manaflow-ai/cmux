@@ -2372,8 +2372,9 @@ fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<()> {
 }
 
 fn cleanup_failed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
-    mux.control_clients.detach_surface(client, surface, stream);
-    mux.remove_surface_size_client(surface, client);
+    if mux.control_clients.detach_surface(client, surface, stream) {
+        mux.remove_surface_size_client(surface, client);
+    }
 }
 
 fn unmark_client_attached(mux: &Mux, client: u64, surface: SurfaceId, stream: &OutboundStream) {
