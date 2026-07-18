@@ -10,22 +10,14 @@ import Testing
 @Suite(.serialized)
 struct AgentSessionWebRendererTests {
     @Test
-    func testTrustedShellURLAcceptsOnlyMatchingFileURL() {
+    func testTrustedShellURLAcceptsOnlyMatchingAgentSessionURL() {
         let resources = URL(fileURLWithPath: "/tmp/cmux DEV test.app/Contents/Resources", isDirectory: true)
         let expected = AgentSessionWebRendererCoordinator.shellURL(
             rendererKind: .react,
             resourceDirectoryURL: resources
         )
-        let equivalent = resources
-            .appendingPathComponent("markdown-viewer", isDirectory: true)
-            .appendingPathComponent("webviews-app", isDirectory: true)
-            .appendingPathComponent("..", isDirectory: true)
-            .appendingPathComponent("webviews-app", isDirectory: true)
-            .appendingPathComponent("agent-session.html", isDirectory: false)
-        let otherBundledFile = resources
-            .appendingPathComponent("markdown-viewer", isDirectory: true)
-            .appendingPathComponent("webviews-app", isDirectory: true)
-            .appendingPathComponent("diff-viewer.html", isDirectory: false)
+        let equivalent = URL(string: "cmux-agent-session://app/agent-session.html")
+        let otherBundledFile = URL(string: "cmux-agent-session://app/main.mjs")
 
         expectTrue(AgentSessionWebRendererCoordinator.isTrustedShellURL(expected, expected: expected))
         expectTrue(AgentSessionWebRendererCoordinator.isTrustedShellURL(equivalent, expected: expected))

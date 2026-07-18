@@ -20,7 +20,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
-    private var processStore = AgentSessionProcessStore()
+    private let processStore: AgentSessionProcessStore
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
@@ -29,6 +29,11 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         }
     }
     var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
+
+    init(openCodeServer: any OpenCodeServerServing) {
+        processStore = AgentSessionProcessStore(openCodeServer: openCodeServer)
+        super.init()
+    }
 
     func bind(
         panelId: UUID,
@@ -77,6 +82,10 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             contentWorld: .page,
             name: AgentSessionBridgeContract.handlerName
         )
+        configuration.setURLSchemeHandler(
+            AgentSessionAssetSchemeHandler.shared,
+            forURLScheme: AgentSessionAssetSchemeHandler.scheme
+        )
         let webView = AgentSessionWebView(frame: .zero, configuration: configuration)
         isClosed = false
         webView.onPointerDown = onPointerDown
@@ -103,21 +112,18 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         guard let webView, webView.window != nil else {
             return
         }
-        guard let resourceDirectoryURL = Bundle.main.resourceURL else {
-            return
-        }
         let indexURL = Self.shellURL(
             rendererKind: rendererKind,
-            resourceDirectoryURL: resourceDirectoryURL
+            resourceDirectoryURL: Bundle.main.resourceURL ?? URL(fileURLWithPath: "/")
         )
-        trustedShellURL = Self.normalizedTrustedFileURL(indexURL)
+        trustedShellURL = indexURL
 #if DEBUG
         cmuxDebugLog(
             "agentSession.web.load renderer=\(rendererKind.rawValue) " +
             "index=\(indexURL.path)"
         )
 #endif
-        webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
+        webView.load(URLRequest(url: indexURL))
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
         hasCompletedVisiblePaintFlush = false
@@ -320,12 +326,15 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         rendererKind: AgentSessionRendererKind,
         resourceDirectoryURL: URL
     ) -> URL {
-        rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
-            $0.appendingPathComponent($1, isDirectory: false)
-        }
+        _ = rendererKind
+        _ = resourceDirectoryURL
+        return AgentSessionAssetSchemeHandler.shellURL
     }
 
     nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
+        if expected?.scheme == AgentSessionAssetSchemeHandler.scheme {
+            return candidate == expected
+        }
         guard let candidate = normalizedTrustedFileURL(candidate),
               let expected = normalizedTrustedFileURL(expected) else {
             return false
@@ -610,7 +619,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             )
             return ["sent": true]
         case "provider.stop":
-            try processStore.stop(sessionId: request.requiredString("sessionId"))
+            try await processStore.stop(sessionId: request.requiredString("sessionId"))
             return ["stopped": true]
         default:
             throw AgentSessionBridgeError.unsupportedMethod(request.method)

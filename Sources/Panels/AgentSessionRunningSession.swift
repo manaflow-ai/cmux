@@ -6,15 +6,14 @@ final class AgentSessionRunningSession {
     let executablePath: String
     let arguments: [String]
     let workingDirectory: String?
-    let process: Process
-    let stdin: Pipe
-    let inputWriter: AgentSessionInputWriter
+    let process: Process?
+    let inputWriter: AgentSessionInputWriter?
     let openCodeAuthorizationHeader: String?
+    var holdsOpenCodeServerLease: Bool
     var codexAppServerSession: CodexAppServerSession?
     private var claudeStreamJSONAccumulator = ClaudeStreamJSONAccumulator()
     var openCodeBaseURL: URL?
     var openCodeSessionID: String?
-    var isOpenCodeSessionCreateInFlight = false
     var stdoutReadTask: Task<Void, Never>?
     var stderrReadTask: Task<Void, Never>?
     var openCodeEventTask: Task<Void, Never>?
@@ -31,10 +30,10 @@ final class AgentSessionRunningSession {
         executablePath: String,
         arguments: [String],
         workingDirectory: String?,
-        process: Process,
-        stdin: Pipe,
-        inputWriter: AgentSessionInputWriter,
-        openCodeAuthorizationHeader: String?
+        process: Process?,
+        inputWriter: AgentSessionInputWriter?,
+        openCodeAuthorizationHeader: String?,
+        holdsOpenCodeServerLease: Bool = false
     ) {
         self.sessionId = sessionId
         self.providerID = providerID
@@ -42,9 +41,9 @@ final class AgentSessionRunningSession {
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.process = process
-        self.stdin = stdin
         self.inputWriter = inputWriter
         self.openCodeAuthorizationHeader = openCodeAuthorizationHeader
+        self.holdsOpenCodeServerLease = holdsOpenCodeServerLease
     }
 
     func appendOutputData(_ data: Data, stream: String) -> [String] {
