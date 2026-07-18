@@ -2786,6 +2786,168 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func malformedChangedLegacySidecarPreservesOnlyExactCanonicalHibernationAndRetriesRewrite() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-hibernation-corrupt-sidecar-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let canonicalSessionID = "canonical-hibernation"
+        let legacySessionID = "legacy-only-hibernation"
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: canonicalSessionID
+        )
+        var workspace = fixture.snapshot
+        var legacyPanel = try #require(
+            workspace.panels.first { $0.id == fixture.sourcePanelID }
+        )
+        legacyPanel.id = UUID()
+        var legacyTerminal = try #require(legacyPanel.terminal)
+        var legacyAgent = try #require(legacyTerminal.agent)
+        legacyAgent.sessionId = legacySessionID
+        legacyTerminal.agent = legacyAgent
+        var legacyBinding = try #require(legacyTerminal.resumeBinding)
+        legacyBinding.checkpointId = legacySessionID
+        legacyTerminal.resumeBinding = legacyBinding
+        legacyPanel.terminal = legacyTerminal
+        workspace.panels.append(legacyPanel)
+
+        let workspaceID = fixture.source.id.uuidString
+        func record(sessionID: String, surfaceID: UUID) -> [String: Any] {
+            [
+                "sessionId": sessionID,
+                "workspaceId": workspaceID,
+                "surfaceId": surfaceID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]
+        }
+        func slot(sessionID: String) -> [String: Any] {
+            ["sessionId": sessionID, "updatedAt": 20.0]
+        }
+        func legacyStoreData() throws -> Data {
+            try JSONSerialization.data(withJSONObject: [
+                "version": 2,
+                "sessions": [
+                    canonicalSessionID: record(
+                        sessionID: canonicalSessionID,
+                        surfaceID: fixture.sourcePanelID
+                    ),
+                    legacySessionID: record(
+                        sessionID: legacySessionID,
+                        surfaceID: legacyPanel.id
+                    ),
+                ],
+                "activeSessionsBySurface": [
+                    fixture.sourcePanelID.uuidString: slot(sessionID: canonicalSessionID),
+                    legacyPanel.id.uuidString: slot(sessionID: legacySessionID),
+                ],
+            ], options: [.sortedKeys])
+        }
+
+        try legacyStoreData().write(to: stateURL, options: .atomic)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        _ = try registry.snapshotImportingLegacy(
+            provider: "codex",
+            legacyURL: stateURL
+        )
+        let canonicalSlotJSON = try JSONSerialization.data(
+            withJSONObject: slot(sessionID: canonicalSessionID),
+            options: [.sortedKeys]
+        )
+        try registry.apply(
+            provider: "codex",
+            records: [.init(
+                provider: "codex",
+                sessionID: canonicalSessionID,
+                updatedAt: 20,
+                json: try JSONSerialization.data(
+                    withJSONObject: record(
+                        sessionID: canonicalSessionID,
+                        surfaceID: fixture.sourcePanelID
+                    ),
+                    options: [.sortedKeys]
+                )
+            )],
+            activeSlots: [.init(
+                provider: "codex",
+                scope: .surface,
+                scopeID: fixture.sourcePanelID.uuidString,
+                sessionID: canonicalSessionID,
+                updatedAt: 20,
+                json: canonicalSlotJSON
+            )]
+        )
+        try Data("{broken".utf8).write(to: stateURL, options: .atomic)
+
+        let persistedSnapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 20,
+            windows: [SessionWindowSnapshot(
+                windowId: UUID(),
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(
+                    selectedWorkspaceIndex: 0,
+                    workspaces: [workspace]
+                ),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )]
+        )
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+        ]
+        func restoredSessionIDs(_ snapshot: AppSessionSnapshot) -> Set<String> {
+            Set(snapshot.windows[0].tabManager.workspaces[0].panels.compactMap {
+                $0.terminal?.hibernation == nil ? nil : $0.terminal?.agent?.sessionId
+            })
+        }
+
+        var corruptSnapshot = persistedSnapshot
+        let failedKinds = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+            &corruptSnapshot,
+            homeDirectory: root.path,
+            environment: environment
+        )
+
+        #expect(failedKinds == [.codex])
+        #expect(restoredSessionIDs(corruptSnapshot) == [canonicalSessionID])
+        let afterCorruption = try registry.records(
+            provider: "codex",
+            sessionIDs: [canonicalSessionID]
+        )
+        #expect(afterCorruption.first?.writerGeneration == CmuxAgentSessionRegistry.currentWriterGeneration)
+        #expect(afterCorruption.first?.json == try JSONSerialization.data(
+            withJSONObject: record(
+                sessionID: canonicalSessionID,
+                surfaceID: fixture.sourcePanelID
+            ),
+            options: [.sortedKeys]
+        ))
+
+        try legacyStoreData().write(to: stateURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 40)],
+            ofItemAtPath: stateURL.path
+        )
+        var repairedSnapshot = persistedSnapshot
+        let retriedFailures = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+            &repairedSnapshot,
+            homeDirectory: root.path,
+            environment: environment
+        )
+
+        #expect(retriedFailures.isEmpty)
+        #expect(restoredSessionIDs(repairedSnapshot) == [canonicalSessionID, legacySessionID])
+    }
+
+    @MainActor
     @Test func restoredHibernationCannotStealANewerLiveBinding() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
