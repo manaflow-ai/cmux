@@ -2181,6 +2181,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(context.agentProvider, "codex")
     }
 
+    func testDiffViewerLaunchContextKeepsAgentWorkingDirectoryWithoutTrajectoryIdentity() {
+        let context = AppDelegate.openDiffViewerLaunchContext(
+            preferAgentContext: true,
+            fallbackCwd: "/workspace-fallback",
+            sessionId: "custom-session",
+            agentProvider: nil,
+            agentWorkingDirectory: "/focused-agent-repo"
+        )
+
+        XCTAssertEqual(context.cwd, "/focused-agent-repo")
+        XCTAssertFalse(context.useLastTurnSource)
+        XCTAssertNil(context.sessionId)
+        XCTAssertNil(context.agentProvider)
+    }
+
     func testDiffViewerAgentSnapshotForcesFreshIndexLoad() async {
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let sharedIndex = SharedLiveAgentIndex(

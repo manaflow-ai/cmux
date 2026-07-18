@@ -115,6 +115,47 @@ fn codex_resolver_uses_patch_events_from_the_latest_turn_id() {
 }
 
 #[test]
+fn codex_empty_file_addition_produces_a_valid_git_patch() {
+    let fixture = FixtureRoot::new("codex-empty-add");
+    prepare_common_directories(&fixture);
+    init_git_repository(&fixture.repo());
+    let transcript = fixture.home().join("codex-empty-add.jsonl");
+    let empty_path = fixture.repo().join("empty.txt");
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-current"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"patch_apply_end","turn_id":"turn-current","success":true,"status":"completed","changes":{
+                empty_path.to_string_lossy(): {"type":"add","content":""}
+            }}}),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "codex-session",
+        &fixture.repo(),
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "codex-session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve empty file addition");
+    let patch_path = fixture.path.join("empty-add.patch");
+    fs::write(&patch_path, &resolved.patch).expect("write generated patch");
+    let status = std::process::Command::new("git")
+        .args(["apply", "--check"])
+        .arg(&patch_path)
+        .current_dir(fixture.repo())
+        .status()
+        .expect("run git apply --check");
+
+    assert!(status.success(), "generated patch must be accepted by git");
+}
+
+#[test]
 fn codex_resolver_inherits_camel_case_turn_context_for_patch_without_id() {
     let fixture = FixtureRoot::new("codex-inherited-turn-id");
     prepare_common_directories(&fixture);
