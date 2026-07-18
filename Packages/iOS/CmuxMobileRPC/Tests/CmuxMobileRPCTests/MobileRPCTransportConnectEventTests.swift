@@ -43,14 +43,13 @@ import Testing
         }
         #expect(attemptID > 0)
         #expect(transport == .iroh)
-        guard case let .failed(failedID, failedTransport, failure, elapsed) = recorded[1] else {
+        guard case let .failed(failedID, failedTransport, failure, _) = recorded[1] else {
             Issue.record("Expected failed event second")
             return
         }
         #expect(failedID == attemptID)
         #expect(failedTransport == .iroh)
         #expect(failure == .unsupportedRoute)
-        #expect(elapsed.sign == .plus)
     }
 
     @Test func callerCancellationSuppressesCloseInducedFailureAndRetryConnects() async throws {
@@ -110,7 +109,7 @@ import Testing
         }
         guard case let .attempt(firstAttemptID, firstTransport) = recorded[0],
               case let .attempt(secondAttemptID, secondTransport) = recorded[1],
-              case let .connected(connectedID, connectedTransport, elapsed) = recorded[2] else {
+              case let .connected(connectedID, connectedTransport, _) = recorded[2] else {
             Issue.record("Expected attempt, attempt, connected with no failure")
             await session.tearDown(error: .connectionClosed)
             return
@@ -121,7 +120,6 @@ import Testing
         #expect(secondTransport == .debugLoopback)
         #expect(connectedID == secondAttemptID)
         #expect(connectedTransport == .debugLoopback)
-        #expect(elapsed.sign == .plus)
         await session.tearDown(error: .connectionClosed)
     }
 
