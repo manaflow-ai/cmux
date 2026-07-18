@@ -1,14 +1,87 @@
 import CmuxFoundation
 import Foundation
-extension CMUXCLI {
-    private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
-    private typealias SessionListEntry = (updatedAt: TimeInterval, payload: [String: Any])
-    private typealias CodexSessionListIndex = (indexedSessionIds: Set<String>, transcriptPathBySessionId: [String: String])
 
-    private struct SessionListCandidate {
-        var node: AgentSessionGraphNode
+struct SessionListEntryAccumulator {
+    private struct Entry {
+        var updatedAt: TimeInterval
         var payload: [String: Any]
     }
+
+    private let limit: Int
+    private var retained: [Entry] = []
+    private(set) var totalCount = 0
+
+    init(limit: Int) {
+        precondition(limit > 0)
+        self.limit = limit
+        if limit != Int.max { retained.reserveCapacity(min(limit, 1_024)) }
+    }
+
+    var retainedCount: Int { retained.count }
+
+    var sortedPayloads: [[String: Any]] {
+        retained.sorted(by: Self.isOrderedBefore).map(\.payload)
+    }
+
+    mutating func insert(updatedAt: TimeInterval, payload: [String: Any]) {
+        totalCount += 1
+        let entry = Entry(updatedAt: updatedAt, payload: payload)
+        guard limit != Int.max else {
+            retained.append(entry)
+            return
+        }
+        guard retained.count == limit else {
+            retained.append(entry)
+            siftUp(from: retained.count - 1)
+            return
+        }
+        guard let worst = retained.first, Self.isOrderedBefore(entry, worst) else { return }
+        retained[0] = entry
+        siftDown(from: 0)
+    }
+
+    private mutating func siftUp(from start: Int) {
+        var child = start
+        while child > 0 {
+            let parent = (child - 1) / 2
+            guard Self.isWorse(retained[child], than: retained[parent]) else { return }
+            retained.swapAt(child, parent)
+            child = parent
+        }
+    }
+
+    private mutating func siftDown(from start: Int) {
+        var parent = start
+        while true {
+            let left = parent * 2 + 1
+            guard left < retained.count else { return }
+            let right = left + 1
+            let worseChild = right < retained.count && Self.isWorse(retained[right], than: retained[left])
+                ? right
+                : left
+            guard Self.isWorse(retained[worseChild], than: retained[parent]) else { return }
+            retained.swapAt(parent, worseChild)
+            parent = worseChild
+        }
+    }
+
+    private static func isOrderedBefore(_ lhs: Entry, _ rhs: Entry) -> Bool {
+        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+        return sessionID(lhs.payload) < sessionID(rhs.payload)
+    }
+
+    private static func isWorse(_ lhs: Entry, than rhs: Entry) -> Bool {
+        isOrderedBefore(rhs, lhs)
+    }
+
+    private static func sessionID(_ payload: [String: Any]) -> String {
+        (payload["session_id"] as? String) ?? ""
+    }
+}
+
+extension CMUXCLI {
+    private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
+    private typealias CodexSessionListIndex = (indexedSessionIds: Set<String>, transcriptPathBySessionId: [String: String])
 
     func runSessionsCommand(
         commandArgs rawArgs: [String],
@@ -155,9 +228,34 @@ extension CMUXCLI {
             || surfaceFilter != nil || cwdFilter != nil
         let includesEndedRecords = includeAll || hasIdentityFilter || stateFilter == AgentEffectiveState.ended.rawValue
         let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
+        let matchingObservations = terminalObservations.filter { observation in
+            if !observationAgentIDs.isEmpty,
+               !agentTerminalObservation(observation, matchesAnyAgentID: observationAgentIDs) {
+                return false
+            }
+            if let workspaceFilter,
+               observation.workspaceID.uuidString.lowercased() != workspaceFilter { return false }
+            if let surfaceFilter,
+               observation.surfaceID.uuidString.lowercased() != surfaceFilter { return false }
+            if let cwdFilter,
+               observation.cwd?.lowercased().contains(cwdFilter) != true { return false }
+            switch queryScope {
+            case .history, .legacyUnscoped:
+                return true
+            case let .currentRuntime(runtimeID):
+                return observation.runtimeID == runtimeID
+            }
+        }
+        let observationJoiner = AgentTerminalObservationJoiner()
+        let observationsByProcessKey = Dictionary(
+            grouping: matchingObservations,
+            by: { AgentTerminalObservationJoiner.processKey(observation: $0) }
+        )
         var codexIndexes: [String: CodexSessionListIndex] = [:]
         let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: homeDirectory)
-        var candidates: [SessionListCandidate] = []
+        var deferredNodes: [AgentSessionGraphNode] = []
+        var deferredPayloads: [[String: Any]] = []
+        var entries = SessionListEntryAccumulator(limit: limit)
         var activeSessionBySurface: [String: String] = [:]
         var stores: [[String: Any]] = []
 
@@ -374,124 +472,134 @@ extension CMUXCLI {
                     continue
                 }
 
-                candidates.append(SessionListCandidate(
-                    node: AgentSessionGraphNode(
-                        provider: spec.name,
-                        sessionId: record.sessionId,
-                        runId: projectedRun.runId,
-                        pid: projectedRun.pid,
-                        processStartedAt: projectedRun.processStartedAt,
-                        cmuxRuntime: runtime,
-                        workspaceId: record.workspaceId,
-                        surfaceId: record.surfaceId,
-                        cwd: record.cwd,
-                        processState: projection.process,
-                        sessionState: projection.session,
-                        foregroundState: projection.foreground,
-                        attentionState: projection.attention,
-                        activity: projection.activity,
-                        effectiveState: projection.effective,
-                        workloads: projection.workloads.map(AgentWorkloadSnapshot.init),
-                        restoreAuthority: projectedRun.restoreAuthority,
-                        startedAt: projectedRun.startedAt,
-                        updatedAt: projectedRun.updatedAt,
-                        endedAt: projectedRun.endedAt
-                    ),
-                    payload: payload
-                ))
+                let node = AgentSessionGraphNode(
+                    provider: spec.name,
+                    sessionId: record.sessionId,
+                    runId: projectedRun.runId,
+                    pid: projectedRun.pid,
+                    processStartedAt: projectedRun.processStartedAt,
+                    cmuxRuntime: runtime,
+                    workspaceId: record.workspaceId,
+                    surfaceId: record.surfaceId,
+                    cwd: record.cwd,
+                    processState: projection.process,
+                    sessionState: projection.session,
+                    foregroundState: projection.foreground,
+                    attentionState: projection.attention,
+                    activity: projection.activity,
+                    effectiveState: projection.effective,
+                    workloads: projection.workloads.map(AgentWorkloadSnapshot.init),
+                    restoreAuthority: projectedRun.restoreAuthority,
+                    startedAt: projectedRun.startedAt,
+                    updatedAt: projectedRun.updatedAt,
+                    endedAt: projectedRun.endedAt
+                )
+                let matchingProcessObservations = observationsByProcessKey[
+                    AgentTerminalObservationJoiner.processKey(node: node)
+                ] ?? []
+                if matchingProcessObservations.contains(where: {
+                    observationJoiner.matches(node, observation: $0)
+                }) {
+                    deferredNodes.append(node)
+                    deferredPayloads.append(payload)
+                } else if let payload = sessionsListFilteredPayload(
+                    node: node,
+                    payload: payload,
+                    sessionFilter: sessionFilter,
+                    stateFilter: stateFilter,
+                    activityFilter: activityFilter,
+                    workKindFilter: workKindFilter
+                ) {
+                    entries.insert(updatedAt: node.updatedAt, payload: payload)
+                }
             }
         }
 
-        let matchingObservations = terminalObservations.filter { observation in
-            if !observationAgentIDs.isEmpty,
-               !agentTerminalObservation(observation, matchesAnyAgentID: observationAgentIDs) {
-                return false
-            }
-            if let workspaceFilter,
-               observation.workspaceID.uuidString.lowercased() != workspaceFilter { return false }
-            if let surfaceFilter,
-               observation.surfaceID.uuidString.lowercased() != surfaceFilter { return false }
-            if let cwdFilter,
-               observation.cwd?.lowercased().contains(cwdFilter) != true { return false }
-            switch queryScope {
-            case .history, .legacyUnscoped:
-                return true
-            case let .currentRuntime(runtimeID):
-                return observation.runtimeID == runtimeID
-            }
-        }
-        let mergedNodes = AgentTerminalObservationJoiner().merge(
-            nodes: candidates.map(\.node),
+        let savedDeferredCount = deferredNodes.count
+        observationJoiner.merge(
+            nodes: &deferredNodes,
             observations: matchingObservations,
             activeSessionBySurface: activeSessionBySurface
         )
-        let candidateByNodeID = candidates.reduce(into: [String: SessionListCandidate]()) { result, candidate in
-            result[candidate.node.nodeId] = candidate
-        }
         let displayNameByProvider = Dictionary(
             selectedSpecs.map { ($0.name, $0.displayName) },
             uniquingKeysWith: { first, _ in first }
         )
-        var entries: [SessionListEntry] = []
-        for node in mergedNodes {
-            if sessionFilter != nil, node.sessionId == nil { continue }
-            if let stateFilter, node.effectiveState.rawValue != stateFilter { continue }
-            if let activityFilter, node.activity.state.rawValue != activityFilter { continue }
-            if let workKindFilter,
-               !node.workloads.contains(where: {
-                   $0.kind.rawValue == workKindFilter && $0.phase.isActive
-               }) { continue }
-
-            if var candidate = candidateByNodeID[node.nodeId] {
-                sessionsListApply(node: node, to: &candidate.payload)
-                entries.append((updatedAt: node.updatedAt, payload: candidate.payload))
+        for (index, node) in deferredNodes.enumerated() {
+            let payload: [String: Any]
+            if index < savedDeferredCount {
+                payload = deferredPayloads[index]
             } else if node.identitySource == "terminal_process" {
-                entries.append((
-                    updatedAt: node.updatedAt,
-                    payload: sessionsListProcessPayload(
-                        node: node,
-                        displayName: displayNameByProvider[node.provider] ?? node.provider,
-                        timestampFormatter: timestampFormatter
-                    )
-                ))
+                payload = sessionsListProcessPayload(
+                    node: node,
+                    displayName: displayNameByProvider[node.provider] ?? node.provider,
+                    timestampFormatter: timestampFormatter
+                )
+            } else {
+                continue
+            }
+            if let payload = sessionsListFilteredPayload(
+                node: node,
+                payload: payload,
+                sessionFilter: sessionFilter,
+                stateFilter: stateFilter,
+                activityFilter: activityFilter,
+                workKindFilter: workKindFilter
+            ) {
+                entries.insert(updatedAt: node.updatedAt, payload: payload)
             }
         }
-
-        let sortedEntries = entries.sorted {
-            if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
-            let lhs = ($0.payload["session_id"] as? String) ?? ""
-            let rhs = ($1.payload["session_id"] as? String) ?? ""
-            return lhs < rhs
-        }
-        let limitedEntries = Array(sortedEntries.prefix(limit))
+        let limitedPayloads = entries.sortedPayloads
 
         if localJSONOutput {
             print(jsonString([
                 "state_dir": stateDir,
                 "default_codex_home": defaultCodexHome,
-                "total_matches": sortedEntries.count,
+                "total_matches": entries.totalCount,
                 "limit": limit == Int.max ? NSNull() : limit,
                 "stores": stores,
-                "sessions": limitedEntries.map(\.payload)
+                "sessions": limitedPayloads
             ]))
             return
         }
 
-        if limitedEntries.isEmpty {
+        if limitedPayloads.isEmpty {
             print(String(localized: "cli.sessions.output.noMatches", defaultValue: "No saved agent sessions matched."))
             print("state_dir=\(stateDir)")
             return
         }
 
-        for entry in limitedEntries {
-            print(renderSessionListLine(entry.payload))
+        for payload in limitedPayloads {
+            print(renderSessionListLine(payload))
         }
-        if sortedEntries.count > limitedEntries.count {
+        if entries.totalCount > limitedPayloads.count {
             print(String(
                 format: String(localized: "cli.sessions.output.more", defaultValue: "... %lld more. Pass --all or --limit <n>."),
-                sortedEntries.count - limitedEntries.count
+                entries.totalCount - limitedPayloads.count
             ))
         }
+    }
+
+    private func sessionsListFilteredPayload(
+        node: AgentSessionGraphNode,
+        payload: [String: Any],
+        sessionFilter: String?,
+        stateFilter: String?,
+        activityFilter: String?,
+        workKindFilter: String?
+    ) -> [String: Any]? {
+        if sessionFilter != nil, node.sessionId == nil { return nil }
+        if let stateFilter, node.effectiveState.rawValue != stateFilter { return nil }
+        if let activityFilter, node.activity.state.rawValue != activityFilter { return nil }
+        if let workKindFilter,
+           !node.workloads.contains(where: {
+               $0.kind.rawValue == workKindFilter && $0.phase.isActive
+           }) {
+            return nil
+        }
+        var payload = payload
+        sessionsListApply(node: node, to: &payload)
+        return payload
     }
 
     private func sessionsListApply(

@@ -13,12 +13,25 @@ struct AgentTerminalObservationJoiner: Sendable {
         activeSessionBySurface: [String: String]
     ) -> [AgentSessionGraphNode] {
         var result = nodes
-        let candidateIndices = Dictionary(grouping: result.indices) { index in
-            Self.processKey(node: result[index])
+        merge(
+            nodes: &result,
+            observations: observations,
+            activeSessionBySurface: activeSessionBySurface
+        )
+        return result
+    }
+
+    func merge(
+        nodes: inout [AgentSessionGraphNode],
+        observations: [CmuxAgentTerminalObservation],
+        activeSessionBySurface: [String: String]
+    ) {
+        let candidateIndices = Dictionary(grouping: nodes.indices) { index in
+            Self.processKey(node: nodes[index])
         }
         for observation in observations {
             let matchingIndices = (candidateIndices[Self.processKey(observation: observation)] ?? []).filter { index in
-                matches(result[index], observation: observation)
+                matches(nodes[index], observation: observation)
             }
             let activeSessionID = activeSessionBySurface[Self.surfaceKey(
                 provider: observation.sessionProviderID,
@@ -26,32 +39,31 @@ struct AgentTerminalObservationJoiner: Sendable {
                 surfaceID: observation.surfaceID.uuidString
             )]
             let selectedIndex: Int? = if let activeSessionID {
-                matchingIndices.first { result[$0].sessionId == activeSessionID }
+                matchingIndices.first { nodes[$0].sessionId == activeSessionID }
                     ?? (matchingIndices.count == 1 ? matchingIndices[0] : nil)
             } else {
                 matchingIndices.count == 1 ? matchingIndices[0] : nil
             }
             if let selectedIndex {
-                result[selectedIndex] = applying(observation, to: result[selectedIndex])
+                nodes[selectedIndex] = applying(observation, to: nodes[selectedIndex])
             } else {
-                result.append(processNode(observation))
+                nodes.append(processNode(observation))
             }
         }
-        return result
     }
 
     static func surfaceKey(provider: String, runtimeID: String, surfaceID: String) -> String {
         "\(provider)\u{1F}\(runtimeID)\u{1F}\(surfaceID.lowercased())"
     }
 
-    private static func processKey(node: AgentSessionGraphNode) -> String {
+    static func processKey(node: AgentSessionGraphNode) -> String {
         guard node.identitySource == "hook_session",
               let runtimeID = node.cmuxRuntime?.id,
               let pid = node.pid else { return "" }
         return "\(surfaceKey(provider: node.provider, runtimeID: runtimeID, surfaceID: node.surfaceId))\u{1F}\(pid)"
     }
 
-    private static func processKey(observation: CmuxAgentTerminalObservation) -> String {
+    static func processKey(observation: CmuxAgentTerminalObservation) -> String {
         let surface = surfaceKey(
             provider: observation.sessionProviderID,
             runtimeID: observation.runtimeID,
@@ -60,7 +72,7 @@ struct AgentTerminalObservationJoiner: Sendable {
         return "\(surface)\u{1F}\(observation.pid)"
     }
 
-    private func matches(
+    func matches(
         _ node: AgentSessionGraphNode,
         observation: CmuxAgentTerminalObservation
     ) -> Bool {
