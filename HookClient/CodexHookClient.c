@@ -26,6 +26,8 @@ enum {
     CMUX_HOOK_MAX_ENVIRONMENT_VALUE_BYTES = 128 * 1024,
     CMUX_HOOK_ATTEMPTS = 3,
     CMUX_HOOK_ATTEMPT_TIMEOUT_MILLISECONDS = 350,
+    CMUX_HOOK_FALLBACK_TIMEOUT_MILLISECONDS = 500,
+    CMUX_HOOK_TERMINATION_GRACE_MILLISECONDS = 50,
 };
 
 typedef struct {
@@ -517,6 +519,72 @@ static bool cmux_write_all_fd(int descriptor, const unsigned char *bytes, size_t
     return true;
 }
 
+static bool cmux_write_all_fd_until(
+    int descriptor,
+    const unsigned char *bytes,
+    size_t count,
+    int64_t deadline
+) {
+    size_t offset = 0;
+    while (offset < count) {
+        const ssize_t written = write(descriptor, bytes + offset, count - offset);
+        if (written > 0) {
+            offset += (size_t)written;
+            continue;
+        }
+        if (written < 0 && errno == EINTR) {
+            continue;
+        }
+        if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)
+            && cmux_wait_for_socket(descriptor, POLLOUT, deadline)) {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+static bool cmux_reap_child_until(pid_t child, int64_t deadline) {
+    for (;;) {
+        int status = 0;
+        const pid_t result = waitpid(child, &status, WNOHANG);
+        if (result == child || (result < 0 && errno == ECHILD)) {
+            return true;
+        }
+        if (result < 0 && errno != EINTR) {
+            return false;
+        }
+
+        const int64_t now = cmux_monotonic_milliseconds();
+        if (now >= deadline) {
+            return false;
+        }
+        const int64_t remaining = deadline - now;
+        const int64_t sleep_milliseconds = remaining < 5 ? remaining : 5;
+        struct timespec sleep_time = {
+            .tv_sec = 0,
+            .tv_nsec = sleep_milliseconds * 1000 * 1000,
+        };
+        while (nanosleep(&sleep_time, &sleep_time) != 0 && errno == EINTR) {}
+    }
+}
+
+static void cmux_terminate_and_reap_child(pid_t child) {
+    if (kill(-child, SIGTERM) != 0 && errno == ESRCH) {
+        (void)cmux_reap_child_until(child, cmux_monotonic_milliseconds() + 1);
+        return;
+    }
+    const int64_t grace_deadline = cmux_monotonic_milliseconds()
+        + CMUX_HOOK_TERMINATION_GRACE_MILLISECONDS;
+    if (cmux_reap_child_until(child, grace_deadline)) {
+        return;
+    }
+
+    (void)kill(-child, SIGKILL);
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+}
+
 static void cmux_run_cli_fallback(
     const char *subcommand,
     const char *socket_path,
@@ -530,6 +598,12 @@ static void cmux_run_cli_fallback(
 
     int input_pipe[2] = {-1, -1};
     if (pipe(input_pipe) != 0) {
+        return;
+    }
+    const int write_flags = fcntl(input_pipe[1], F_GETFL, 0);
+    if (write_flags < 0 || fcntl(input_pipe[1], F_SETFL, write_flags | O_NONBLOCK) != 0) {
+        close(input_pipe[0]);
+        close(input_pipe[1]);
         return;
     }
     const int null_fd = open("/dev/null", O_RDWR);
@@ -546,10 +620,29 @@ static void cmux_run_cli_fallback(
         close(input_pipe[1]);
         return;
     }
+    posix_spawnattr_t attributes;
+    if (posix_spawnattr_init(&attributes) != 0) {
+        posix_spawn_file_actions_destroy(&actions);
+        close(null_fd);
+        close(input_pipe[0]);
+        close(input_pipe[1]);
+        return;
+    }
+    if (posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP) != 0
+        || posix_spawnattr_setpgroup(&attributes, 0) != 0) {
+        posix_spawnattr_destroy(&attributes);
+        posix_spawn_file_actions_destroy(&actions);
+        close(null_fd);
+        close(input_pipe[0]);
+        close(input_pipe[1]);
+        return;
+    }
     posix_spawn_file_actions_adddup2(&actions, input_pipe[0], STDIN_FILENO);
     posix_spawn_file_actions_adddup2(&actions, null_fd, STDOUT_FILENO);
     posix_spawn_file_actions_adddup2(&actions, null_fd, STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, input_pipe[0]);
     posix_spawn_file_actions_addclose(&actions, input_pipe[1]);
+    posix_spawn_file_actions_addclose(&actions, null_fd);
 
     char *arguments_with_socket[] = {
         (char *)cli,
@@ -575,8 +668,9 @@ static void cmux_run_cli_fallback(
 
     pid_t child = 0;
     const int spawn_status = use_path_search
-        ? posix_spawnp(&child, cli, &actions, NULL, arguments, environ)
-        : posix_spawn(&child, cli, &actions, NULL, arguments, environ);
+        ? posix_spawnp(&child, cli, &actions, &attributes, arguments, environ)
+        : posix_spawn(&child, cli, &actions, &attributes, arguments, environ);
+    posix_spawnattr_destroy(&attributes);
     posix_spawn_file_actions_destroy(&actions);
     close(input_pipe[0]);
     close(null_fd);
@@ -585,10 +679,18 @@ static void cmux_run_cli_fallback(
         return;
     }
 
-    cmux_write_all_fd(input_pipe[1], payload->bytes, payload->count);
+    const int64_t deadline = cmux_monotonic_milliseconds()
+        + CMUX_HOOK_FALLBACK_TIMEOUT_MILLISECONDS;
+    const bool wrote_payload = cmux_write_all_fd_until(
+        input_pipe[1],
+        payload->bytes,
+        payload->count,
+        deadline
+    );
     close(input_pipe[1]);
-    int status = 0;
-    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    if (!wrote_payload || !cmux_reap_child_until(child, deadline)) {
+        cmux_terminate_and_reap_child(child);
+    }
 }
 
 static void cmux_print_noop(void) {

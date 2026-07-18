@@ -250,10 +250,7 @@ extension CMUXCLI {
             }
         }
         environment["CMUX_SOCKET_PATH"] = client.socketPath
-        let payload = String(
-            data: FileHandle.standardInput.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
+        let payload = FileHandle.standardInput.readDataToEndOfFile()
         _ = try client.sendV2(
             method: "agent.hook.enqueue",
             params: [
@@ -261,7 +258,7 @@ extension CMUXCLI {
                     ?? "codex-cli-\(getpid())-\(UUID().uuidString.lowercased())",
                 "agent": "codex",
                 "subcommand": subcommand,
-                "payload": payload,
+                "payload_b64": payload.base64EncodedString(),
                 "socket_path": client.socketPath,
                 "environment": environment,
             ],
