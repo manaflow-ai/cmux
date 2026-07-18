@@ -125,7 +125,7 @@ type WorkspacePlacement struct {
 type CreateTerminalOptions struct {
 	Workspace *uint64  `json:"workspace,omitempty"`
 	Key       *string  `json:"key,omitempty"`
-	Argv      []string `json:"argv,omitempty"`
+	Argv      []string `json:"argv"`
 	Command   *string  `json:"command,omitempty"`
 	Cwd       *string  `json:"cwd,omitempty"`
 	Name      *string  `json:"name,omitempty"`
