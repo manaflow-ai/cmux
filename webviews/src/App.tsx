@@ -54,7 +54,11 @@ import type { DiffViewerConfig } from "./types";
 import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
-import { synchronizeWorkerRenderOptions } from "./worker-render-options-sync";
+import {
+  advanceWorkerRenderOptionsSyncState,
+  synchronizeWorkerRenderOptions,
+  type WorkerRenderOptionsSyncState,
+} from "./worker-render-options-sync";
 
 type ConfigProps = {
   config: DiffViewerConfig;
@@ -527,24 +531,20 @@ export function App({ config, initialStatus }: ConfigProps) {
               poolOptions={workerPoolOptions}
               highlighterOptions={highlighterOptions}
             >
-              <WorkerRenderOptionsGate
-                codeViewRef={codeViewRef}
-                highlighterOptions={highlighterOptions}
-              >
-                <CodeView
-                  ref={codeViewRef}
-                  className="code-view-root"
-                  containerRef={viewerContainerRef}
-                  items={state.items}
-                  onScroll={handleCodeViewScroll}
-                  options={renderedCodeViewOptions}
-                  renderHeaderMetadata={(item) => (
-                    <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
-                  )}
-                  renderAnnotation={(annotation, item) =>
-                    renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
-                />
-              </WorkerRenderOptionsGate>
+              <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
+              <CodeView
+                ref={codeViewRef}
+                className="code-view-root"
+                containerRef={viewerContainerRef}
+                items={state.items}
+                onScroll={handleCodeViewScroll}
+                options={renderedCodeViewOptions}
+                renderHeaderMetadata={(item) => (
+                  <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
+                )}
+                renderAnnotation={(annotation, item) =>
+                  renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
+              />
             </WorkerPoolContextProvider>
           ) : null}
         </main>
@@ -724,17 +724,15 @@ function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
   return value === "split" || value === "unified" ? value : null;
 }
 
-function WorkerRenderOptionsGate({
-  children,
+function WorkerRenderOptionsSync({
   codeViewRef,
   highlighterOptions,
 }: {
-  children: React.ReactNode;
   codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>;
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>;
 }) {
-  const ready = useWorkerRenderOptionsSync(highlighterOptions, codeViewRef);
-  return ready ? children : null;
+  useWorkerRenderOptionsSync(highlighterOptions, codeViewRef);
+  return null;
 }
 
 function Toolbar({
@@ -1521,31 +1519,30 @@ function useSyncedRef<T>(value: T): React.MutableRefObject<T> {
 function useWorkerRenderOptionsSync(
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>,
   codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
-): boolean {
+): void {
   const workerPool = useWorkerPool();
-  const syncedOptions = useRef<ReturnType<typeof workerHighlighterOptions> | null>(null);
-  const activePool = useRef(workerPool);
-  const readyRef = useRef(false);
-  const [ready, setReady] = useState(false);
+  const syncState = useRef<WorkerRenderOptionsSyncState<
+    ReturnType<typeof workerHighlighterOptions>,
+    NonNullable<typeof workerPool>
+  > | null>(null);
   useEffect(() => {
     if (!workerPool) return;
-    if (activePool.current !== workerPool) {
-      activePool.current = workerPool;
-      syncedOptions.current = null;
-      readyRef.current = false;
-      setReady(false);
-    }
-    if (sameWorkerHighlighterOptions(syncedOptions.current, highlighterOptions)) return;
+    const transition = advanceWorkerRenderOptionsSyncState({
+      highlighterOptions,
+      previous: syncState.current,
+      sameOptions: sameWorkerHighlighterOptions,
+      workerPool,
+    });
+    syncState.current = transition.next;
+    // The provider constructs a new pool with these exact options. Calling
+    // setRenderOptions during that initialization races the CodeView's first
+    // queued render. Only synchronize later option changes.
+    if (!transition.shouldSynchronize) return;
     let active = true;
-    syncedOptions.current = highlighterOptions;
     synchronizeWorkerRenderOptions({
       highlighterOptions,
       render: () => {
-        if (!active) return;
-        if (!readyRef.current) {
-          readyRef.current = true;
-          setReady(true);
-        } else {
+        if (active) {
           codeViewRef.current?.getInstance()?.render(true);
         }
       },
@@ -1558,11 +1555,10 @@ function useWorkerRenderOptionsSync(
       active = false;
     };
   }, [codeViewRef, highlighterOptions, workerPool]);
-  return ready;
 }
 
 function sameWorkerHighlighterOptions(
-  previous: ReturnType<typeof workerHighlighterOptions> | null,
+  previous: ReturnType<typeof workerHighlighterOptions>,
   next: ReturnType<typeof workerHighlighterOptions>,
 ): boolean {
   return previous?.lineDiffType === next.lineDiffType &&

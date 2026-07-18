@@ -8,39 +8,6 @@ import Testing
 #endif
 
 @Suite @MainActor struct DiffViewerFinalReviewRegressionTests {
-    @Test func agentSnapshotDeadlineFailsClosedWhenRefreshStalls() async {
-        let stalledRefresh = AsyncStream<String>.makeStream()
-        let race = DiffViewerAgentSnapshotDeadline<String>()
-
-        let value = await race.value(
-            operation: {
-                for await value in stalledRefresh.stream {
-                    return value
-                }
-                return "cancelled"
-            },
-            waitForDeadline: {}
-        )
-
-        #expect(value == nil)
-        stalledRefresh.continuation.finish()
-    }
-
-    @Test func agentSnapshotDeadlineReturnsFreshValueBeforeDeadline() async {
-        let stalledDeadline = AsyncStream<Void>.makeStream()
-        let race = DiffViewerAgentSnapshotDeadline<String>()
-
-        let value = await race.value(
-            operation: { "fresh" },
-            waitForDeadline: {
-                for await _ in stalledDeadline.stream {}
-            }
-        )
-
-        #expect(value == "fresh")
-        stalledDeadline.continuation.finish()
-    }
-
     @Test func sidecarReadinessTimeoutDoesNotWaitForOpenPipeWriter() async {
         let readiness = Pipe()
         let clock = ContinuousClock()

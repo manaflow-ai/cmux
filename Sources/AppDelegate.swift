@@ -38,45 +38,6 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
-/// Returns whichever arrives first: a fresh value or a deadline that fails closed to `nil`.
-/// Both producers run on the main actor, so completion is serialized without locks. The
-/// losing task is cancelled, while a non-cooperative operation may finish harmlessly later.
-@MainActor
-final class DiffViewerAgentSnapshotDeadline<Value> {
-    private var continuation: CheckedContinuation<Value?, Never>?
-    private var operationTask: Task<Void, Never>?
-    private var deadlineTask: Task<Void, Never>?
-
-    func value(
-        operation: @escaping @MainActor () async -> Value?,
-        waitForDeadline: @escaping @MainActor () async -> Void
-    ) async -> Value? {
-        precondition(continuation == nil, "A snapshot deadline resolves only one operation")
-        return await withCheckedContinuation { continuation in
-            self.continuation = continuation
-            operationTask = Task { @MainActor [weak self] in
-                let value = await operation()
-                self?.complete(with: value)
-            }
-            deadlineTask = Task { @MainActor [weak self] in
-                await waitForDeadline()
-                guard !Task.isCancelled else { return }
-                self?.complete(with: nil)
-            }
-        }
-    }
-
-    private func complete(with value: Value?) {
-        guard let continuation else { return }
-        self.continuation = nil
-        operationTask?.cancel()
-        deadlineTask?.cancel()
-        operationTask = nil
-        deadlineTask = nil
-        continuation.resume(returning: value)
-    }
-}
-
 @MainActor
 private final class DiffViewerProcessStore {
     private var processes: [Int32: Process] = [:]
@@ -6129,20 +6090,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let workspaceId = workspace.id
         let freshSnapshotTask: Task<SessionRestorableAgentSnapshot?, Never>? = preferAgentContext
             ? Task { @MainActor in
-                let index = SharedLiveAgentIndex.shared
-                let deadline = DiffViewerAgentSnapshotDeadline<SessionRestorableAgentSnapshot>()
-                return await deadline.value(
-                    operation: {
-                        await index.freshSnapshot(
-                            workspaceId: workspaceId,
-                            panelId: sourceSurfaceId
-                        )
-                    },
-                    waitForDeadline: {
-                        // The skeleton is already visible. On expiry, fail closed to the
-                        // non-agent source instead of authorizing a stale session identity.
-                        try? await ContinuousClock().sleep(for: .milliseconds(500))
-                    }
+                await SharedLiveAgentIndex.shared.freshSnapshot(
+                    workspaceId: workspaceId,
+                    panelId: sourceSurfaceId
                 )
             }
             : nil
