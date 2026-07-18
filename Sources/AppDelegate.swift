@@ -9345,13 +9345,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             $0.id == targetWorkspaceID
         }) else { return false }
 
-        _ = focusMainWindow(windowId: located.windowId)
-        TerminalController.shared.setActiveTabManager(located.tabManager)
-        located.tabManager.focusTab(
-            targetWorkspaceID,
-            surfaceId: located.panelId,
-            suppressFlash: true
+        // Use the same window-aware navigation owner as `surface.focus`.
+        // Feed can itself occupy a right-sidebar-tool workspace, so directly
+        // mutating the located TabManager leaves two focus paths competing as
+        // AppKit settles. The control surface route owns window activation,
+        // active-manager selection, workspace selection, and panel focus.
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: true,
+            windowID: located.windowId,
+            groupID: nil,
+            workspaceID: targetWorkspaceID,
+            surfaceID: located.panelId,
+            paneID: nil
         )
+        guard case .focused(let windowID, let workspaceID, let surfaceID) =
+            TerminalController.shared.controlSurfaceFocus(
+                routing: routing,
+                surfaceID: located.panelId
+            ),
+            windowID == located.windowId,
+            workspaceID == targetWorkspaceID,
+            surfaceID == located.panelId
+        else { return false }
+
         workspace.triggerFocusFlash(panelId: located.panelId)
         return located.tabManager.selectedTabId == targetWorkspaceID
             && workspace.focusedPanelId == located.panelId
