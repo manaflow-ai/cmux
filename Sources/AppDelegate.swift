@@ -6109,6 +6109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             let targetSurfaceId = placement.panel.id
+            let loadingOperationID = placement.panel.beginDiffViewerLoadingOperation()
             if placement.createdSplit, let immediateTarget {
                 _ = placement.panel.presentDiffViewerLoadingImmediately(
                     relativeTo: immediateTarget.referenceView,
@@ -6128,7 +6129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let closeTargetIfStillOwnedByOperation = {
                 guard let targetPanel = workspace.panels[targetSurfaceId] as? BrowserPanel,
                       targetPanel.isShowingDiffViewerLoadingState(
-                        expectedURL: loadingURL.absoluteString
+                        expectedURL: loadingURL.absoluteString,
+                        operationID: loadingOperationID
                       ) else {
                     return
                 }
@@ -6143,7 +6145,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             guard targetPanel.isShowingDiffViewerLoadingState(
-                expectedURL: loadingURL.absoluteString
+                expectedURL: loadingURL.absoluteString,
+                operationID: loadingOperationID
             ) else {
                 // The user navigated this browser while agent identity was loading.
                 // It no longer belongs to the diff-open operation.
@@ -6167,10 +6170,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sessionId: launchContext.sessionId,
                 agentProvider: launchContext.agentProvider,
                 targetSurfaceId: targetSurfaceId,
-                targetExpectedURL: loadingURL.absoluteString
+                targetExpectedURL: loadingURL.absoluteString,
+                targetOperationID: loadingOperationID
             )
             if !launched {
-                _ = workspace.closePanel(targetSurfaceId, force: true)
+                closeTargetIfStillOwnedByOperation()
             }
         }
         return true
@@ -6225,7 +6229,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         agentProvider: String? = nil,
         focus: Bool = true,
         targetSurfaceId: UUID? = nil,
-        targetExpectedURL: String? = nil
+        targetExpectedURL: String? = nil,
+        targetOperationID: UUID? = nil
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
@@ -6284,11 +6289,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
                 if let targetSurfaceId,
                    let targetExpectedURL,
+                   let targetOperationID,
                    let appDelegate = AppDelegate.shared,
                    let workspace = appDelegate.workspaceFor(tabId: workspaceId),
                    let panel = workspace.panels[targetSurfaceId] as? BrowserPanel,
                    panel.isShowingPendingDiffViewerLoadingState(
-                       expectedURL: targetExpectedURL
+                       expectedURL: targetExpectedURL,
+                       operationID: targetOperationID
                    ) {
                     _ = workspace.closePanel(targetSurfaceId, force: true)
                 }

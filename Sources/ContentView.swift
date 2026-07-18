@@ -812,6 +812,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @Environment(\.colorScheme) private var colorScheme
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -5215,9 +5216,22 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommandsFingerprint(commandsContext: CommandPaletteCommandsContext) -> Int {
+        Self.commandPaletteCommandsFingerprint(
+            snapshotFingerprint: commandsContext.snapshot.fingerprint(),
+            configRevision: cmuxConfigStore.configRevision,
+            keyboardShortcutRevision: keyboardShortcutSettingsObserver.revision
+        )
+    }
+
+    nonisolated static func commandPaletteCommandsFingerprint(
+        snapshotFingerprint: Int,
+        configRevision: UInt64,
+        keyboardShortcutRevision: UInt64
+    ) -> Int {
         var hasher = Hasher()
-        hasher.combine(commandsContext.snapshot.fingerprint())
-        hasher.combine(cmuxConfigStore.configRevision)
+        hasher.combine(snapshotFingerprint)
+        hasher.combine(configRevision)
+        hasher.combine(keyboardShortcutRevision)
         return hasher.finalize()
     }
 

@@ -2880,6 +2880,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var backgroundPreloadWindow: NSWindow?
     var diffViewerImmediatePresentationHost: NSView?
     var diffViewerLoadingOverlay: NSView?
+    var diffViewerLoadingOperationID: UUID?
     private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
     let automationWatchdog = BrowserAutomationWatchdog()
     let automationDocumentReadiness = BrowserAutomationDocumentReadiness()

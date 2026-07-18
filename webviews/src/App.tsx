@@ -281,6 +281,9 @@ export function App({ config, initialStatus }: ConfigProps) {
     validDiffSource(payload.sessionSource) ? payload.sessionSource : null,
   );
   const [resolvedSessionSource, setResolvedSessionSource] = useState<DiffSource | null>(activeSessionSource);
+  const [resolvedSessionRepoRoot, setResolvedSessionRepoRoot] = useState<string | null>(
+    diffSourceRepoRoot(activeSessionSource),
+  );
   const branchSourceByRepoRef = useRef(new Map<string, Extract<DiffSource, { kind: "branch" }>>());
   if (activeSessionSource?.kind === "branch" && !branchSourceByRepoRef.current.has(activeSessionSource.repoRoot)) {
     branchSourceByRepoRef.current.set(activeSessionSource.repoRoot, activeSessionSource);
@@ -297,7 +300,10 @@ export function App({ config, initialStatus }: ConfigProps) {
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
   const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
-  const commentRepoRoot = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource) ?? payloadRepoRoot;
+  const commentSource = resolvedSessionSource ?? activeSessionSource;
+  const commentRepoRoot = resolvedSessionRepoRoot
+    ?? diffSourceRepoRoot(commentSource)
+    ?? (commentSource?.kind === "agentTurn" ? null : payloadRepoRoot);
   const bridgeAvailable = diffCommentsBridgeAvailable() && commentRepoRoot != null;
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
@@ -335,11 +341,12 @@ export function App({ config, initialStatus }: ConfigProps) {
         }
       });
   }, [payload.capabilityToken, transport, viewerInstanceID]);
-  const rememberResolvedSessionSource = useCallback((source: DiffSource) => {
+  const rememberResolvedSessionSource = useCallback((source: DiffSource, repoRoot?: string) => {
     if (source.kind === "branch") {
       branchSourceByRepoRef.current.set(source.repoRoot, source);
     }
     setResolvedSessionSource(source);
+    setResolvedSessionRepoRoot(repoRoot ?? diffSourceRepoRoot(source));
   }, []);
 
   usePageDataAttributes(state);
@@ -485,6 +492,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           setActivePatchURL(undefined);
           void closeActiveSession();
           setResolvedSessionSource(selectedSource);
+          setResolvedSessionRepoRoot(diffSourceRepoRoot(selectedSource));
           setActiveSessionSource(selectedSource);
         }}
         onReload={async () => {
@@ -1632,7 +1640,7 @@ function useRenderDiff(
   closeActiveSession: () => Promise<void>,
   sessionSource: DiffSource | null,
   viewerInstanceID: string,
-  onResolvedSessionSource: (source: DiffSource) => void,
+  onResolvedSessionSource: (source: DiffSource, repoRoot?: string) => void,
 ) {
   useEffect(() => {
     if (isStatusOnlyPayload(config.payload, transport, sessionSource)) {
@@ -1671,7 +1679,7 @@ function useRenderDiff(
             return;
           }
           activeSessionRef.current = openedSession;
-          onResolvedSessionSource(result.value.source);
+          onResolvedSessionSource(result.value.source, result.value.repoRoot);
           patchURL = result.value.patch.id;
         }
         if (cancelled || !patchURL) {

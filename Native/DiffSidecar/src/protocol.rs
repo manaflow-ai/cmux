@@ -217,6 +217,9 @@ pub struct SessionOpened {
     pub session_id: String,
     pub patch: DiffResourceRef,
     pub source: DiffSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub repo_root: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]

@@ -283,11 +283,20 @@ extension BrowserPanel {
         diffViewerLoadingOwnershipURL?.absoluteString == expectedURL
     }
 
-    func isShowingDiffViewerLoadingState(expectedURL: String) -> Bool {
-        DiffViewerLoadingPage.owns(url: diffViewerLoadingOwnershipURL, expectedURL: expectedURL)
+    @discardableResult
+    func beginDiffViewerLoadingOperation() -> UUID {
+        let operationID = UUID()
+        diffViewerLoadingOperationID = operationID
+        return operationID
     }
 
-    func isShowingPendingDiffViewerLoadingState(expectedURL: String) -> Bool {
+    func isShowingDiffViewerLoadingState(expectedURL: String, operationID: UUID) -> Bool {
+        guard diffViewerLoadingOperationID == operationID else { return false }
+        return DiffViewerLoadingPage.owns(url: diffViewerLoadingOwnershipURL, expectedURL: expectedURL)
+    }
+
+    func isShowingPendingDiffViewerLoadingState(expectedURL: String, operationID: UUID) -> Bool {
+        guard diffViewerLoadingOperationID == operationID else { return false }
         let visibleURL = diffViewerLoadingOwnershipURL
         let openingDocumentHasPendingMarker = visibleURL.flatMap {
             CmuxDiffViewerURLSchemeHandler.shared.documentHasPendingMarker(for: $0)

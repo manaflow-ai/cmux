@@ -780,6 +780,7 @@ async fn open_session(
                 revision: 1,
             },
             source: params.source,
+            repo_root: None,
         });
     }
     let authorized_agent_turn = if let DiffSource::AgentTurn {
@@ -926,6 +927,7 @@ async fn open_session(
             revision: 1,
         },
         source,
+        repo_root: Some(canonical_repo.to_string_lossy().into_owned()),
     })
 }
 

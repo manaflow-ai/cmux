@@ -40,6 +40,6 @@ export type NavigationResult = { url: string, };
 
 export type OpenSessionRequest = { source: DiffSource, capabilityToken: string, sessionId?: string, viewerInstanceId?: string, };
 
-export type SessionOpened = { sessionId: string, patch: DiffResourceRef, source: DiffSource, };
+export type SessionOpened = { sessionId: string, patch: DiffResourceRef, source: DiffSource, repoRoot?: string, };
 
 export type SessionRequest = { sessionId: string, capabilityToken: string, viewerInstanceId?: string, };
