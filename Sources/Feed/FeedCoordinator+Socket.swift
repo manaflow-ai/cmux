@@ -26,6 +26,19 @@ extension FeedCoordinator {
         jumpResolver.resolve(workstreamId) != nil
     }
 
+    /// Queues the same off-main resolution and main-actor navigation used by
+    /// Feed rows. The synchronous return only reports whether a session target
+    /// exists; the focus itself completes on the task so socket handling never
+    /// blocks on AppKit.
+    func requestFocusIfPossible(workstreamId: String) -> Bool {
+        guard resolvePossibleSurface(for: workstreamId) else { return false }
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await focusIfPossible(workstreamId: workstreamId)
+        }
+        return true
+    }
+
     /// Fires a best-effort focus for the given `workstreamId`. Returns
     /// `true` if a target was found and the focus commands were
     /// dispatched. Runs on the main actor because the focus commands
