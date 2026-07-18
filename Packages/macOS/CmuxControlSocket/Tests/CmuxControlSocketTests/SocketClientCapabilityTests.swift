@@ -57,6 +57,65 @@ struct SocketClientCapabilityTests {
         #expect(parsed.command == command)
     }
 
+    @Test func outboxAuthenticationSurvivesRestartWithoutPersistingBearerToken() throws {
+        let issuer = SocketClientCapabilityAuthority(
+            secret: secret,
+            audience: "com.cmuxterm.test"
+        )
+        let recreated = SocketClientCapabilityAuthority(
+            secret: secret,
+            audience: "com.cmuxterm.test"
+        )
+        let capability = issuer.issueCapability(nonce: nonce)
+        let message = Data(#"{"method":"agent.hook.enqueue"}"#.utf8)
+        let authentication = try #require(
+            SocketClientCapabilityOutboxAuthentication.make(
+                capability: capability,
+                message: message
+            )
+        )
+
+        #expect(!authentication.nonce.isEmpty)
+        #expect(!authentication.code.isEmpty)
+        #expect(recreated.verifiesOutboxMessage(
+            nonce: authentication.nonce,
+            code: authentication.code,
+            message: message
+        ))
+        let decodedCode = String(data: authentication.code, encoding: .utf8)
+        #expect(decodedCode?.contains(capability) != true)
+    }
+
+    @Test func outboxAuthenticationBindsAudienceAndEveryMessageByte() throws {
+        let issuer = SocketClientCapabilityAuthority(
+            secret: secret,
+            audience: "com.cmuxterm.test"
+        )
+        let otherAudience = SocketClientCapabilityAuthority(
+            secret: secret,
+            audience: "com.cmuxterm.other"
+        )
+        let capability = issuer.issueCapability(nonce: nonce)
+        let message = Data("exact hook bytes".utf8)
+        let authentication = try #require(
+            SocketClientCapabilityOutboxAuthentication.make(
+                capability: capability,
+                message: message
+            )
+        )
+
+        #expect(!otherAudience.verifiesOutboxMessage(
+            nonce: authentication.nonce,
+            code: authentication.code,
+            message: message
+        ))
+        #expect(!issuer.verifiesOutboxMessage(
+            nonce: authentication.nonce,
+            code: authentication.code,
+            message: Data("exact hook byteS".utf8)
+        ))
+    }
+
     @Test func secretStoreReusesPersistentSecret() {
         let store = SocketClientCapabilitySecretStore(
             loadSecret: { secret },
