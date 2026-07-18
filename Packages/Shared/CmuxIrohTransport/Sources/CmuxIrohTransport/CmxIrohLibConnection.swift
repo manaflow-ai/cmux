@@ -72,6 +72,10 @@ struct CmxIrohLibConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting 
         _ = await driver.closed()
     }
 
+    func isClosed() async -> Bool {
+        driver.closeReason() != nil
+    }
+
     func close(errorCode: UInt64, reason: String) async {
         let code = Int64(exactly: errorCode) ?? Int64.max
         try? driver.close(

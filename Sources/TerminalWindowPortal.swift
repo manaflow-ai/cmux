@@ -642,6 +642,11 @@ final class WindowTerminalPortal: NSObject {
     weak var installedReferenceView: NSView?
     private var referenceGeometryObservers: [NSObjectProtocol] = []
     private var hasDeferredFullSyncScheduled = false
+    private var deferredFullSyncIncludesVisibleReconcile = false
+    /// Set by ContentView's sidebar dispatcher — the flag's single
+    /// evaluation site — when the AppKit sidebar branch mounts. The portal
+    /// consumes a plain bool so the feature-flag lint's one-file rule holds.
+    static var usesCoalescedAnchorFailsafe = false
     /// Surface redraws requested by a sync that ran inside someone else's
     /// layout/update pass (syncLayout == false). displayIfNeeded there reaches
     /// ghostty's Metal drawFrame while the window's transaction is still open,
@@ -1459,6 +1464,7 @@ final class WindowTerminalPortal: NSObject {
         let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
         guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
         let becameVisible = visibleInUI && !entry.visibleInUI
+        let becameHidden = !visibleInUI && entry.visibleInUI
         entry.visibleInUI = visibleInUI
         if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
         entriesByHostedId[hostedId] = entry
@@ -1467,7 +1473,15 @@ final class WindowTerminalPortal: NSObject {
         // hidden entry's frame is deliberately left alone). Visibility is a
         // sizing input like any other: it schedules a pass rather than
         // trusting that some earlier one already ran.
-        if becameVisible {
+        //
+        // A flip to invisible must schedule the same pass: the hide is applied
+        // by synchronizeHostedView (shouldHide reads entry.visibleInUI), and a
+        // selection-only tab switch produces no window geometry churn that
+        // would run one otherwise. An unscheduled hide left the deselected
+        // terminal's layer rendering above SwiftUI chrome — the previous
+        // terminal's content filled the browser omnibar band until unrelated
+        // churn (sidebar toggle, window resize) healed it.
+        if becameVisible || becameHidden {
             scheduleExternalGeometrySynchronize(forceImmediate: false)
         }
         return needsReattach
@@ -1672,11 +1686,25 @@ final class WindowTerminalPortal: NSObject {
         // Failsafe: during aggressive divider drags/structural churn, one anchor can miss a
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
-        synchronizeAllHostedViews(excluding: primaryHostedId, syncLayout: syncLayout)
-        reconcileVisibleHostedViewsAfterGeometrySync(
-            reason: "portal.anchorGeometrySync", syncLayout: syncLayout
-        )
-        scheduleDeferredFullSynchronizeAll()
+        //
+        // With the AppKit sidebar experiment on (value pushed from
+        // ContentView's dispatcher, the flag's single evaluation site), the
+        // failsafe is coalesced to one pass per main-queue turn. Inline it
+        // ran per anchor callback, so one divider width commit cost panes x
+        // (all-hosted sync + all-visible reconcile) — 57% of drag-loop time
+        // in a Time Profiler capture. The deferred pass still runs within
+        // the same drag tick (the tracking loop spins the runloop per
+        // event), so the missed-callback window is unchanged. Experiment off
+        // keeps the existing per-callback fan-out.
+        if Self.usesCoalescedAnchorFailsafe {
+            scheduleDeferredFullSynchronizeAll(includeVisibleReconcile: true)
+        } else {
+            synchronizeAllHostedViews(excluding: primaryHostedId, syncLayout: syncLayout)
+            reconcileVisibleHostedViewsAfterGeometrySync(
+                reason: "portal.anchorGeometrySync", syncLayout: syncLayout
+            )
+            scheduleDeferredFullSynchronizeAll()
+        }
     }
 
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String, syncLayout: Bool = true) {
@@ -1704,13 +1732,26 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func scheduleDeferredFullSynchronizeAll() {
+    private func scheduleDeferredFullSynchronizeAll(includeVisibleReconcile: Bool = false) {
+        if includeVisibleReconcile {
+            deferredFullSyncIncludesVisibleReconcile = true
+        }
         guard !hasDeferredFullSyncScheduled else { return }
         hasDeferredFullSyncScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.hasDeferredFullSyncScheduled = false
+            let reconcileVisible = self.deferredFullSyncIncludesVisibleReconcile
+            self.deferredFullSyncIncludesVisibleReconcile = false
             self.synchronizeAllHostedViews(excluding: nil)
+            if reconcileVisible {
+                // syncLayout false: this runs off a layout callback during
+                // divider/sidebar drags, where a synchronous display wedges
+                // in Metal (same rule as the per-anchor sync).
+                self.reconcileVisibleHostedViewsAfterGeometrySync(
+                    reason: "portal.deferredFullSync", syncLayout: false
+                )
+            }
         }
     }
 
@@ -2566,6 +2607,11 @@ enum TerminalWindowPortalRegistry {
             return
         }
         interactiveGeometryResizeCountsByWindowId[windowId, default: 0] += 1
+#if DEBUG
+        if interactiveGeometryResizeCountsByWindowId[windowId] == 1 {
+            cmuxDebugLog("portal.geometryResize.begin")
+        }
+#endif
     }
 
     private static func endInteractiveGeometryResize(windowId: ObjectIdentifier?) {
@@ -2589,6 +2635,17 @@ enum TerminalWindowPortalRegistry {
             if unscopedInteractiveGeometryResizeCount == 0 {
                 portalsByWindowId[windowId]?.scheduleExternalGeometrySynchronize(forceImmediate: false)
             }
+            // Single choke point every drag-end path funnels through (tracker
+            // onEnded, legacy gesture onEnded, cursor failsafe): observers
+            // that deferred work during the drag settle NOW instead of on a
+            // trailing timer.
+            NotificationCenter.default.post(
+                name: .cmuxInteractiveGeometryResizeDidEnd,
+                object: nil
+            )
+#if DEBUG
+            cmuxDebugLog("portal.geometryResize.end")
+#endif
         } else {
             interactiveGeometryResizeCountsByWindowId[windowId] = count - 1
         }
@@ -2690,4 +2747,13 @@ enum TerminalWindowPortalRegistry {
         return portal.terminalPaneDropTargetAtWindowPoint(windowPoint)
     }
 
+}
+
+extension Notification.Name {
+    /// Posted when the last interactive geometry resize session in a window
+    /// ends (sidebar/split divider drags). Fired from the registry's single
+    /// end path so every drag-end route (tracker, legacy gesture, failsafe)
+    /// reaches observers.
+    static let cmuxInteractiveGeometryResizeDidEnd =
+        Notification.Name("cmux.interactiveGeometryResizeDidEnd")
 }

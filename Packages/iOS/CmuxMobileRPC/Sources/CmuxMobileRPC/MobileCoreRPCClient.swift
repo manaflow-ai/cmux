@@ -22,6 +22,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     let session: MobileCoreRPCSession
     private let stackTokenGate: RPCStackTokenGate
     private let stackTokenForceRefreshGate: RPCStackTokenGate
+    private let lifecycleGate: MobileRPCClientLifecycleGate
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -30,6 +31,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
+    ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
+    ///     transport dial lifecycle events. The observer must return immediately.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
@@ -40,7 +43,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
-        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000
+        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000,
+        transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) -> Void)? = nil
     ) {
         self.runtime = runtime
         self.route = route
@@ -52,6 +56,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        let lifecycleGate = MobileRPCClientLifecycleGate()
+        self.lifecycleGate = lifecycleGate
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
@@ -60,7 +66,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if route.kind == .iroh,
            let provider = runtime.independentEventByteStreamProvider {
             independentEventFactory = {
-                try await provider(transportRequest)
+                let admission = try lifecycleGate.beginIndependentEventAdmission()
+                let stream = try await provider(transportRequest)
+                return try await lifecycleGate.finishIndependentEventAdmission(
+                    admission,
+                    stream: stream
+                )
             }
         } else {
             independentEventFactory = nil
@@ -70,17 +81,30 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
-            makeTransport: { [runtime, transportRequest] in
-                try runtime.transportFactory.makeTransport(for: transportRequest)
+            makeTransport: { [runtime, transportRequest, lifecycleGate] in
+                try lifecycleGate.makeTransport {
+                    try runtime.transportFactory.makeTransport(for: transportRequest)
+                }
             },
-            makeIndependentEventByteStream: independentEventFactory
+            makeIndependentEventByteStream: independentEventFactory,
+            diagnosticTransport: route.kind.diagnosticTransportKind,
+            transportConnectObserver: transportConnectObserver
         )
     }
 
     /// Tear down the persistent transport (called when the client is
     /// replaced or the user signs out).
     public func disconnect() async {
+        retire()
         await session.tearDown(error: .connectionClosed)
+    }
+
+    /// Synchronously prevent this client from allocating another transport.
+    /// Shell ownership changes call this before scheduling actor-isolated
+    /// teardown, closing the window where an already-queued RPC could reopen a
+    /// client that is no longer authoritative.
+    public func retire() {
+        lifecycleGate.retire()
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
@@ -121,6 +145,48 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// The optional timeout is a hard end-to-end deadline for auth augmentation,
     /// connection setup, and response wait, not a per-subphase timeout.
     public func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64? = nil) async throws -> Data {
+        try await sendRequestOperation(
+            requestData,
+            timeoutNanoseconds: timeoutNanoseconds
+        ).response
+    }
+
+    /// Sends an authorized request and then proves host identity with the same
+    /// Stack token that authorized its successful response.
+    ///
+    /// The token stays in this call frame. Failed, cancelled, and concurrent
+    /// requests cannot publish or overwrite authorization state for a later
+    /// host-status probe.
+    public func sendRequestAndAuthenticatedHostStatus(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64? = nil,
+        hostStatusTimeoutNanoseconds: @Sendable () -> UInt64? = { nil }
+    ) async throws -> (response: Data, hostStatusResponse: Data) {
+        guard let request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any],
+              Self.requestRequiresAuth(request) else {
+            throw MobileShellConnectionError.invalidResponse
+        }
+        let authorized = try await sendRequestOperation(
+            requestData,
+            timeoutNanoseconds: timeoutNanoseconds
+        )
+        let hostStatusTimeout = hostStatusTimeoutNanoseconds()
+        if hostStatusTimeout == 0 {
+            throw MobileShellConnectionError.requestTimedOut
+        }
+        let hostStatus = try await sendRequestOperation(
+            Self.requestData(method: "mobile.host.status", params: [:]),
+            timeoutNanoseconds: hostStatusTimeout,
+            hostStatusStackToken: authorized.stackAccessToken
+        )
+        return (authorized.response, hostStatus.response)
+    }
+
+    private func sendRequestOperation(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64?,
+        hostStatusStackToken: String? = nil
+    ) async throws -> AuthenticatedRequestResult {
         let deadline = RPCRequestDeadline(
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
         )
@@ -132,7 +198,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return try await sendAuthenticatedRequest(
                 preparedRequest,
                 deadline: deadline,
-                allowAuthRetry: true
+                allowAuthRetry: true,
+                hostStatusStackToken: hostStatusStackToken
             )
         } catch let error as MobileShellConnectionError {
             // The host rejected this request on Stack-auth grounds. Before
@@ -153,7 +220,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return try await sendAuthenticatedRequest(
                 preparedRequest,
                 deadline: deadline,
-                allowAuthRetry: false
+                allowAuthRetry: false,
+                hostStatusStackToken: hostStatusStackToken
             )
         }
     }
@@ -168,6 +236,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
               request["method"] as? String == "mobile.events.subscribe",
               var params = request["params"] as? [String: Any],
               params["event_transport"] == nil,
+              let streamID = params["stream_id"] as? String,
               let remaining = try? deadline.remainingNanoseconds() else {
             return requestData
         }
@@ -176,6 +245,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             Self.independentEventPreparationTimeoutNanoseconds
         )
         guard await session.prepareIndependentServerEvents(
+            forSubscriptionStreamID: streamID,
             timeoutNanoseconds: preparationTimeout
         ) else {
             return requestData
@@ -215,8 +285,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func sendAuthenticatedRequest(
         _ requestData: Data,
         deadline: RPCRequestDeadline,
-        allowAuthRetry: Bool
-    ) async throws -> Data {
+        allowAuthRetry: Bool,
+        hostStatusStackToken: String?
+    ) async throws -> AuthenticatedRequestResult {
         // Multiplexed over a persistent transport: each request gets a unique
         // id, the session's reader task routes the response back here. No
         // connect/close per RPC, no head-of-line blocking between calls.
@@ -228,13 +299,18 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         )
         let authenticated = try await requestDataWithAuth(
             augmented,
-            deadline: deadline
+            deadline: deadline,
+            hostStatusStackToken: hostStatusStackToken
         )
         try Task.checkCancellation()
-        return try await session.send(
-            payload: authenticated,
+        let response = try await session.send(
+            payload: authenticated.data,
             requestID: id,
             deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+        )
+        return AuthenticatedRequestResult(
+            response: response,
+            stackAccessToken: authenticated.stackAccessToken
         )
     }
 
@@ -256,17 +332,25 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return (id, data)
     }
 
-    private func requestDataWithAuth(_ requestData: Data, deadline: RPCRequestDeadline) async throws -> Data {
+    private func requestDataWithAuth(
+        _ requestData: Data,
+        deadline: RPCRequestDeadline,
+        hostStatusStackToken: String?
+    ) async throws -> AuthenticatedRequestPayload {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
-            return requestData
+            return AuthenticatedRequestPayload(data: requestData, stackAccessToken: nil)
         }
         if transportRequest.authorizationMode == .transportAdmission {
             request.removeValue(forKey: "auth")
-            return try JSONSerialization.data(withJSONObject: request)
+            return AuthenticatedRequestPayload(
+                data: try JSONSerialization.data(withJSONObject: request),
+                stackAccessToken: nil
+            )
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
         var auth: [String: Any] = [:]
+        var requestStackAccessToken: String?
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachToken = attachToken?.isEmpty == false
         if let attachToken,
@@ -297,7 +381,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
-                auth["stack_access_token"] = try await stackAccessToken(deadline: deadline)
+                let token = try await stackAccessToken(deadline: deadline)
+                auth["stack_access_token"] = token
+                requestStackAccessToken = token
             } catch let error as MobileShellConnectionError {
                 // The provider already classified the failure: a transient
                 // token-fetch failure (offline / refresh server hiccup, session
@@ -322,14 +408,24 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if !requestNeedsAuth,
            isHostStatusRequest(request),
            allowsStackAuthFallback,
-           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
-           let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
-            auth["stack_access_token"] = stackAccessToken
+           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+            let stackAccessToken: String?
+            if let hostStatusStackToken {
+                stackAccessToken = hostStatusStackToken
+            } else {
+                stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline)
+            }
+            if let stackAccessToken {
+                auth["stack_access_token"] = stackAccessToken
+            }
         }
         if !auth.isEmpty {
             request["auth"] = auth
         }
-        return try JSONSerialization.data(withJSONObject: request)
+        return AuthenticatedRequestPayload(
+            data: try JSONSerialization.data(withJSONObject: request),
+            stackAccessToken: requestStackAccessToken
+        )
     }
 
     private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {
@@ -436,6 +532,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private struct StringParamSelection {
         let value: String?
         let hasConflict: Bool
+    }
+
+    private struct AuthenticatedRequestPayload {
+        let data: Data
+        let stackAccessToken: String?
+    }
+
+    private struct AuthenticatedRequestResult {
+        let response: Data
+        let stackAccessToken: String?
     }
 
 }

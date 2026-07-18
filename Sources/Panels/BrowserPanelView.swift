@@ -9,6 +9,81 @@ import AppKit
 
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
 
+enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
+    case wrenchAndScrewdriver = "wrench.and.screwdriver"
+    case wrenchAndScrewdriverFill = "wrench.and.screwdriver.fill"
+    case curlyBracesSquare = "curlybraces.square"
+    case curlyBraces = "curlybraces"
+    case terminalFill = "terminal.fill"
+    case terminal = "terminal"
+    case hammer = "hammer"
+    case hammerCircle = "hammer.circle"
+    case ladybug = "ladybug"
+    case ladybugFill = "ladybug.fill"
+    case scope = "scope"
+    case codeChevrons = "chevron.left.slash.chevron.right"
+    case gearshape = "gearshape"
+    case gearshapeFill = "gearshape.fill"
+    case globe = "globe"
+    case globeAmericas = "globe.americas.fill"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .wrenchAndScrewdriver: return "Wrench + Screwdriver"
+        case .wrenchAndScrewdriverFill: return "Wrench + Screwdriver (Fill)"
+        case .curlyBracesSquare: return "Curly Braces"
+        case .curlyBraces: return "Curly Braces (Plain)"
+        case .terminalFill: return "Terminal (Fill)"
+        case .terminal: return "Terminal"
+        case .hammer: return "Hammer"
+        case .hammerCircle: return "Hammer Circle"
+        case .ladybug: return "Bug"
+        case .ladybugFill: return "Bug (Fill)"
+        case .scope: return "Scope"
+        case .codeChevrons: return "Code Chevrons"
+        case .gearshape: return "Gear"
+        case .gearshapeFill: return "Gear (Fill)"
+        case .globe: return "Globe"
+        case .globeAmericas: return "Globe Americas (Fill)"
+        }
+    }
+}
+
+enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
+    case bonsplitInactive
+    case bonsplitActive
+    case accent
+    case tertiary
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .bonsplitInactive: return "Bonsplit Inactive (Terminal/Globe)"
+        case .bonsplitActive: return "Bonsplit Active (Terminal/Globe)"
+        case .accent: return "Accent"
+        case .tertiary: return "Tertiary"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .bonsplitInactive:
+            // Matches Bonsplit tab icon tint for inactive tabs.
+            return Color(nsColor: .secondaryLabelColor)
+        case .bonsplitActive:
+            // Matches Bonsplit tab icon tint for active tabs.
+            return Color(nsColor: .labelColor)
+        case .accent:
+            return cmuxAccentColor()
+        case .tertiary:
+            return Color(nsColor: .tertiaryLabelColor)
+        }
+    }
+}
+
 enum BrowserDevToolsButtonDebugSettings {
     static let iconNameKey = "browserDevToolsIconName"
     static let iconColorKey = "browserDevToolsIconColor"
@@ -919,6 +994,14 @@ struct BrowserPanelView: View {
         if panel.isOmnibarVisible {
             addressBar
                 .fixedSize(horizontal: false, vertical: true)
+                .onDisappear {
+#if DEBUG
+                    cmuxDebugLog(
+                        "browser.omnibar.header.disappear panel=\(panel.id.uuidString.prefix(5)) " +
+                        "visible=\(panel.isOmnibarVisible ? 1 : 0) focusMode=\(panel.isBrowserFocusModeActive ? 1 : 0)"
+                    )
+#endif
+                }
         }
     }
 
@@ -933,6 +1016,15 @@ struct BrowserPanelView: View {
         .overlay(browserFindOverlayView)
         .overlay(focusFlashOverlayView)
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
+        .overlay(alignment: .bottom) {
+            // WebView-backed cases host the composer in the AppKit portal slot
+            // (WindowBrowserSlotView.setDesignComposer) so it layers above the
+            // portal-hosted WKWebView. This SwiftUI mount only covers the empty
+            // new-tab state, e.g. surfacing the "open a page first" error.
+            if !panel.shouldRenderWebView {
+                BrowserDesignModePopoverHost(controller: panel.designModeController)
+            }
+        }
     }
 
     private var browserPanelLifecycleView: some View {
@@ -1028,7 +1120,6 @@ struct BrowserPanelView: View {
                 .accessibilityLabel("Browser omnibar")
 
             HStack(spacing: browserToolbarAccessorySpacing) {
-                webExtensionToolbarButtons
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
@@ -1042,8 +1133,15 @@ struct BrowserPanelView: View {
                     browserThemeModeButton
                 } else {
                     browserFocusModeButtonWithShortcutHint
+                    BrowserDesignModeToolbarButton(
+                        controller: panel.designModeController,
+                        iconPointSize: devToolsButtonIconSize,
+                        hitSize: addressBarButtonSize,
+                        inactiveColor: devToolsColorOption.color,
+                        onToggle: { await panel.toggleDesignMode(reason: "toolbar") }
+                    )
                     screenshotPageButton
-                    reactGrabButton
+                    // reactGrabButton  // Hidden for now; design mode covers element grabbing.
                     browserProfileButton
                     browserThemeModeButton
                     developerToolsButton
@@ -1145,21 +1243,6 @@ struct BrowserPanelView: View {
                     onClear: { panel.clearRecentDownloads() }
                 )
             }
-
-        }
-    }
-
-    /// Extension action buttons live to the right of the omnibar (matching
-    /// Safari/Chrome) rather than in the navigation cluster on its left.
-    @ViewBuilder
-    private var webExtensionToolbarButtons: some View {
-        if #available(macOS 15.4, *), let support = panel.browserWebExtensionSupport {
-            BrowserWebExtensionToolbarButtons(
-                support: support,
-                panel: panel,
-                iconPointSize: chromeMetrics.navigationIconFontSize,
-                hitSize: addressBarButtonHitSize
-            )
         }
     }
 
@@ -1312,8 +1395,7 @@ struct BrowserPanelView: View {
         .accessibilityIdentifier("BrowserProfileButton")
     }
 
-    /// Overflow menu shown in compact chrome: the plain-action accessory
-    /// buttons (focus mode, screenshot, React Grab, dev tools) as menu items.
+    /// Compact-chrome actions that do not need dedicated toolbar space.
     /// Profile and theme stay as visible buttons since they anchor popovers.
     private var browserOverflowMenu: some View {
         Menu {
@@ -1326,7 +1408,6 @@ struct BrowserPanelView: View {
                 )
             }
             .disabled(!panel.canToggleBrowserFocusMode)
-
             Button(action: handleScreenshotPageButtonAction) {
                 Label(
                     String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard"),
@@ -1334,7 +1415,10 @@ struct BrowserPanelView: View {
                 )
             }
             .disabled(!panel.shouldRenderWebView)
-
+            BrowserDesignModeOverflowMenuButton(
+                controller: panel.designModeController,
+                onToggle: { await panel.toggleDesignMode(reason: "overflowMenu") }
+            )
             Button {
                 panel.clearReactGrabRoundTrip(reason: "overflowMenu.manualStart")
                 Task { await panel.toggleOrInjectReactGrab() }
@@ -1634,6 +1718,10 @@ struct BrowserPanelView: View {
                             onFieldDidFocus: { panel.noteFindFieldFocused() }
                         )
                     },
+                    designComposer: BrowserPortalDesignComposerConfiguration(
+                        panelId: panel.id,
+                        controller: panel.designModeController
+                    ),
                     omnibarSuggestions: portalOmnibarSuggestions,
                     paneTopChromeHeight: panel.isOmnibarVisible ? addressBarHeight : 0
                 )
@@ -5232,6 +5320,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     /// without `Workspace.paneId(forPanelId:)`. `nil` keeps the main-area path.
     var paneOwnershipOverride: Bool? = nil
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
+    let designComposer: BrowserPortalDesignComposerConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
     let paneTopChromeHeight: CGFloat
 
@@ -7119,6 +7208,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
         let slotView = host.ensureLocalInlineSlotView()
+        slotView.setDesignComposer(designComposer)
         let isAlreadyInLocalHost = host.containsManagedLocalInlineContent(webView)
         let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
             for: webView,
@@ -7336,6 +7426,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let generation = coordinator.attachGeneration
         let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
         let activeSearchOverlay = coordinator.desiredPortalVisibleInUI ? searchOverlay : nil
+        let activeDesignComposer = coordinator.desiredPortalVisibleInUI ? designComposer : nil
         let portalAnchorView = panel.portalAnchorView
         let portalHideReason = !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
         let didReleasePortalHost: Bool
@@ -7421,6 +7512,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+            BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
@@ -7457,6 +7549,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
                 BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
                 BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+                BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)
                 BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
                 coordinator.lastPortalHostId = hostId
             }
@@ -7505,6 +7598,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
             )
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+            BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
             if !shouldBindNow,
                coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
@@ -7536,6 +7630,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 context: activePaneDropContext
             )
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+            BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
         }
 

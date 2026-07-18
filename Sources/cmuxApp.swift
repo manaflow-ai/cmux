@@ -194,11 +194,7 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        let browserWebExtensionHost = Self.makeBrowserWebExtensionHostAtLaunch(
-            jsonStore: settingsRuntime.jsonStore,
-            catalog: settingsCatalog
-        )
-        _tabManager = StateObject(wrappedValue: TabManager(browserWebExtensionHost: browserWebExtensionHost))
+        _tabManager = StateObject(wrappedValue: TabManager())
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -232,22 +228,9 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
-            auth: authComposition,
-            browserWebExtensionHost: browserWebExtensionHost
+            auth: authComposition
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
-    }
-
-    /// Creates the app-wide web-extension host on supported OS versions.
-    private static func makeBrowserWebExtensionHostAtLaunch(
-        jsonStore: JSONConfigStore,
-        catalog: SettingCatalog
-    ) -> (any BrowserWebExtensionHosting)? {
-        guard #available(macOS 15.4, *) else { return nil }
-        let support = BrowserWebExtensionSupport()
-        support.configure(jsonStore: jsonStore, catalog: catalog)
-        StartupBreadcrumbLog.append("app.init.browserWebExtensions.configured")
-        return support
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
@@ -966,20 +949,21 @@ struct cmuxApp: App {
                     NSSound.beep()
                 }
             }
-
             splitCommandButton(title: String(localized: "menu.view.showJSConsole", defaultValue: "Show JavaScript Console"), shortcut: menuShortcut(for: .showBrowserJavaScriptConsole)) {
                 let manager = activeTabManager
                 if !manager.showJavaScriptConsoleFocusedBrowser() {
                     NSSound.beep()
                 }
             }
-
             splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: menuShortcut(for: .toggleReactGrab)) {
                 if !activeTabManager.toggleReactGrabFromCurrentFocus() {
                     NSSound.beep()
                 }
             }
-
+            splitCommandButton(title: String(localized: "menu.view.toggleDesignMode", defaultValue: "Toggle Design Mode"), shortcut: menuShortcut(for: .toggleBrowserDesignMode)) {
+                guard let panel = activeTabManager.focusedBrowserPanel else { NSSound.beep(); return }
+                Task { @MainActor in _ = await panel.toggleDesignMode(reason: "viewMenu") }
+            }
             let browserFocusModeMenu = browserFocusModeMenuSnapshot
             Button(browserFocusModeMenu.title) {
                 if !activeTabManager.toggleBrowserFocusModeForFocusedBrowser(reason: "viewMenu") {
@@ -987,7 +971,6 @@ struct cmuxApp: App {
                 }
             }
             .disabled(!browserFocusModeMenu.canToggle)
-
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                 _ = activeTabManager.zoomInFocusedBrowserOrTextFilePreview()
             }
@@ -1399,7 +1382,7 @@ struct cmuxApp: App {
 
     private func closePanelOrWindow() {
         let window = NSApp.keyWindow ?? NSApp.mainWindow
-        if let window, window.cmuxShouldOwnCloseShortcut { window.performClose(nil); return }
+        if let window, cmuxWindowShouldOwnCloseShortcut(window) { window.performClose(nil); return }
         if appDelegate.closeFocusedDockPanelForCommand(preferredWindow: window) { return }
         activeTabManager.closeCurrentPanelWithConfirmation()
     }
@@ -1451,6 +1434,48 @@ private struct MainWindowBootstrapView: View {
                 }
             })
     }
+}
+
+private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.settings",
+    "cmux.about",
+    "cmux.licenses",
+    "cmux.browser-popup",
+    "cmux.browserProfilePopoverDebug",
+    "cmux.configEditor",
+    "cmux.defaultTerminalRegistrationError",
+    "cmux.feedButtonStyleDebug",
+    "cmux.feedPreview",
+    "cmux.feedTextEditorDebug",
+    "cmux.fileExplorerStyleDebug",
+    "cmux.folderDragIcon",
+    "cmux.pdfPreviewChromeDebug",
+    "cmux.proBadgeDebug",
+    "cmux.recentlyClosedHistory",
+    "cmux.splitButtonLayoutDebug",
+    "cmux.tabBarBackdropLab",
+    "cmux.taskManager",
+    "cmux.aboutTitlebarDebug",
+    "cmux.debugWindowControls",
+    "cmux.browserImportHintDebug",
+    "cmux.extensionSidebarInspector",
+    "cmux.sidebarDebug",
+    "cmux.menubarDebug",
+    "cmux.spinnerGallery",
+    "cmux.backgroundDebug",
+    "cmux.startupAppearanceDebug",
+    "cmux.bonsplitTabBarDebug",
+    "cmux.titlebarLayoutDebug",
+    "cmux.devWindowDisplay",
+    "cmux.mobilePairingWindow",
+]
+
+/// Returns whether the given window should handle the standard close shortcut
+/// as a standalone auxiliary window instead of routing it through workspace or
+/// panel-close behavior.
+func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
+    guard let identifier = window?.identifier?.rawValue else { return false }
+    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
 
 private enum DebugWindowConfigSnapshot {

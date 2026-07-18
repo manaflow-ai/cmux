@@ -10,35 +10,6 @@ import WebKit
 
 @MainActor
 extension BrowserDeveloperToolsVisibilityPersistenceTests {
-    func testWebExtensionWebViewReplacementClosesAndRestoresDeveloperTools() throws {
-        let (panel, inspector) = makePanelWithInspector()
-        defer { closeBrowserPanel(panel) }
-        XCTAssertTrue(panel.showDeveloperTools())
-        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
-        let oldWebView = panel.webView
-        let extensionURL = try XCTUnwrap(URL(string: "webkit-extension://cmux-test/options.html"))
-
-        panel.navigateFromWebExtension(
-            to: extensionURL,
-            webViewConfiguration: WKWebViewConfiguration()
-        )
-
-        XCTAssertFalse(panel.webView === oldWebView)
-        XCTAssertEqual(
-            inspector.closeCount,
-            1,
-            "Replacing the inspected WebView must close its inspector before releasing the old view"
-        )
-        XCTAssertTrue(
-            panel.preferredDeveloperToolsVisible,
-            "A live context swap should preserve the user's visible Developer Tools intent"
-        )
-        XCTAssertTrue(
-            panel.hasPendingDeveloperToolsRefreshAfterAttach(),
-            "The replacement WebView should restore Developer Tools after it attaches"
-        )
-    }
-
     func testDetachedInspectorWillCloseDuringDockBackAdoptsAttachedInspector() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
