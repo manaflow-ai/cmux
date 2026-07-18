@@ -176,6 +176,60 @@ private final class HibernationSurfaceRegistry: TerminalSurfaceRegistering, @unc
         #expect(recorder.events == [.finalValidation, .nativeFree, .teeLeaseRelease])
     }
 
+    @Test func durableCommitRejectionRestoresRuntimeAndQueuedInputBeforeShellResume() async {
+        let recorder = TeardownOrderRecorder()
+        let registry = HibernationSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { runtimeSurface.deallocate() }
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        #expect(surface.enqueuePendingSocketInputs([.inputText(Data("preserved".utf8))]))
+        surface.pendingSocketInputFlushOverrideForTesting = { items, bytes in
+            #expect(items == 1)
+            #expect(bytes > 0)
+            recorder.record(.pendingInputFlush)
+        }
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer {
+            surface.pendingSocketInputFlushOverrideForTesting = nil
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        let didSuspend = await surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.hibernate.commitRejected",
+            finalValidation: {
+                recorder.record(.finalValidation)
+                return true
+            },
+            finalTeardownPreparation: {
+                recorder.record(.shellStop)
+                return { recorder.record(.shellContinue) }
+            },
+            finalCommit: {
+                recorder.record(.durableCommitRejected)
+                return false
+            }
+        )
+
+        #expect(!didSuspend)
+        #expect(surface.surface == runtimeSurface)
+        #expect(registry.runtimeSurfaceOwnerId(runtimeSurface) == surface.id)
+        #expect(surface.debugPendingSocketInputForTesting().items == 0)
+        #expect(recorder.events == [
+            .finalValidation,
+            .shellStop,
+            .durableCommitRejected,
+            .pendingInputFlush,
+            .shellContinue,
+        ])
+
+        surface.runtimeSurfaceFreedOutOfBandForTesting = true
+        surface.teardownSurface()
+    }
+
     @Test func portalCloseDuringRejectedValidationFreesTransferredRuntimeInsteadOfRestoringIt() async {
         let recorder = TeardownOrderRecorder()
         let validationGate = HibernationValidationGate()

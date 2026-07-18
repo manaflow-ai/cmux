@@ -66,7 +66,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { surface.deallocate() }
 
-        let didFree = await coordinator.freeRuntimeSurfaceForAgentHibernation(
+        let result = await coordinator.freeRuntimeSurfaceForAgentHibernation(
             TerminalSurfaceRuntimeTeardownRequest(
                 id: UUID(),
                 workspaceId: UUID(),
@@ -85,7 +85,10 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             )
         )
 
-        #expect(didFree)
+        guard case .freed = result else {
+            Issue.record("Expected the hibernation request to free")
+            return
+        }
         #expect(recorder.snapshot() == ["validation", "surface.free", "tee.release"])
     }
 
@@ -96,7 +99,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { surface.deallocate() }
 
-        let didFree = await coordinator.freeRuntimeSurfaceForAgentHibernation(
+        let result = await coordinator.freeRuntimeSurfaceForAgentHibernation(
             TerminalSurfaceRuntimeTeardownRequest(
                 id: UUID(),
                 workspaceId: UUID(),
@@ -115,7 +118,10 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             )
         )
 
-        #expect(!didFree)
+        guard case .rejected(finalizer: nil) = result else {
+            Issue.record("Expected validation rejection without a finalizer")
+            return
+        }
         #expect(recorder.snapshot() == ["validation"])
     }
 

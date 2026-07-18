@@ -723,12 +723,14 @@ final class TerminalPanel: Panel, ObservableObject {
         lastActivityAt: Date,
         hibernatedAt: Date = Date(),
         finalValidation: @escaping @Sendable () async -> Bool,
-        finalCommit: @escaping @Sendable () async -> Bool = { true }
+        finalTeardownPreparation: @escaping @Sendable () -> (@Sendable () -> Void)? = { {} },
+        finalCommit: @escaping @Sendable () -> Bool = { true }
     ) async -> Bool {
         guard agentHibernationState == nil,
               await surface.suspendRuntimeSurfaceForAgentHibernation(
                   reason: "agentHibernation",
                   finalValidation: finalValidation,
+                  finalTeardownPreparation: finalTeardownPreparation,
                   finalCommit: finalCommit
               ) else {
             return false

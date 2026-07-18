@@ -2,6 +2,11 @@ public import Foundation
 public import GhosttyKit
 public import CmuxTerminalCore
 
+enum TerminalSurfaceRuntimeHibernationTeardownResult: @unchecked Sendable {
+    case freed
+    case rejected(finalizer: (@Sendable () -> Void)?)
+}
+
 /// A native-surface teardown queued on the teardown coordinator.
 ///
 /// The native pointer has been removed from all main-thread owner state
@@ -27,7 +32,16 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     let byteTeeLease: (any TerminalByteTeeLease)?
     let finalValidation: (@Sendable () async -> Bool)?
-    var completion: CheckedContinuation<Bool, Never>?
+    /// Synchronous last-mile preparation run after async validation and
+    /// immediately before native free. A successful preparation returns a
+    /// one-shot finalizer that the coordinator invokes synchronously after
+    /// `freeSurface` and before its next suspension point.
+    let finalTeardownPreparation: (@Sendable () -> (@Sendable () -> Void)?)?
+    /// Synchronous durable authority commit performed after last-mile
+    /// preparation. Rejection returns the prepared finalizer to the main-actor
+    /// owner so it can restore native ownership before relinquishing authority.
+    let finalCommit: (@Sendable () -> Bool)?
+    var completion: CheckedContinuation<TerminalSurfaceRuntimeHibernationTeardownResult, Never>?
     let freeSurface: @Sendable (ghostty_surface_t) -> Void
 #if DEBUG
     let surfaceToken: String
@@ -43,7 +57,9 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
         finalValidation: (@Sendable () async -> Bool)? = nil,
-        completion: CheckedContinuation<Bool, Never>? = nil,
+        finalTeardownPreparation: (@Sendable () -> (@Sendable () -> Void)?)? = nil,
+        finalCommit: (@Sendable () -> Bool)? = nil,
+        completion: CheckedContinuation<TerminalSurfaceRuntimeHibernationTeardownResult, Never>? = nil,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
     ) {
         self.id = id
@@ -54,6 +70,8 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.manualIOContext = manualIOContext
         self.byteTeeLease = byteTeeLease
         self.finalValidation = finalValidation
+        self.finalTeardownPreparation = finalTeardownPreparation
+        self.finalCommit = finalCommit
         self.completion = completion
         self.freeSurface = freeSurface
 #if DEBUG

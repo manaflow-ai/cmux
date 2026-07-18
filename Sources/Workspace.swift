@@ -5240,7 +5240,8 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date,
-        finalValidation: @escaping @Sendable () async -> Bool
+        finalValidation: @escaping @Sendable () async -> Bool,
+        finalTeardownPreparation: @escaping @Sendable () -> (@Sendable () -> Void)? = { {} }
     ) async -> Bool {
         guard let terminalPanel = panels[panelId] as? TerminalPanel,
               !terminalPanel.isAgentHibernated,
@@ -5267,6 +5268,7 @@ final class Workspace: Identifiable, ObservableObject {
             lastActivityAt: lastActivityAt,
             hibernatedAt: hibernatedAt,
             finalValidation: finalValidation,
+            finalTeardownPreparation: finalTeardownPreparation,
             finalCommit: {
                 guard requiresDurableAuthority else { return true }
                 return AgentHookSessionStateWriter.establishHibernatedAuthority(

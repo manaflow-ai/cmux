@@ -315,16 +315,22 @@ extension TerminalSurface {
     ///
     /// - Parameters:
     ///   - reason: The teardown reason, for diagnostics.
-    ///   - finalValidation: The last safety gate before native teardown.
+    ///   - finalValidation: Async safety work completed before the non-suspending
+    ///     native-free handoff.
+    ///   - finalTeardownPreparation: Synchronous last safety gate. Success
+    ///     returns a finalizer kept alive through native free and invoked before
+    ///     the coordinator can suspend again.
     ///   - finalCommit: Durable commit performed only after local invalidation
-    ///     has been atomically closed. A rejection restores the live runtime.
+    ///     has been atomically closed and last-mile preparation succeeds. A
+    ///     rejection runs the finalizer and restores the live runtime.
     /// - Returns: `true` only after native free and callback-userdata release
     ///   complete and the model commits its suspended state.
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(
         reason: String,
         finalValidation: @escaping @Sendable () async -> Bool,
-        finalCommit: @escaping @Sendable () async -> Bool = { true }
+        finalTeardownPreparation: @escaping @Sendable () -> (@Sendable () -> Void)? = { {} },
+        finalCommit: @escaping @Sendable () -> Bool = { true }
     ) async -> Bool {
         guard portalLifecycleState == .live,
               !runtimeSurfaceHibernationTeardownInFlight,
@@ -369,7 +375,7 @@ extension TerminalSurface {
         }
 #endif
 
-        let didFree = await runtimeTeardown.freeRuntimeSurfaceForAgentHibernation(
+        let teardownResult = await runtimeTeardown.freeRuntimeSurfaceForAgentHibernation(
             TerminalSurfaceRuntimeTeardownRequest(
                 id: id,
                 workspaceId: tabId,
@@ -378,18 +384,31 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
-                finalValidation: {
-                    guard await finalValidation(), validationGate.claim() else {
-                        return false
+                finalValidation: finalValidation,
+                finalTeardownPreparation: {
+                    // Close package-local invalidation first. Input after this
+                    // claim is queued; the app's last-mile preparation still
+                    // performs its own lifecycle CAS after freezing the shell.
+                    guard validationGate.claim(),
+                          let finalizer = finalTeardownPreparation() else {
+                        return nil
                     }
-                    // Input after the local claim is queued. The durable lease
-                    // is the final commit before native free, so a rejection
-                    // restores the exact runtime and flushes queued input.
-                    return await finalCommit()
+                    return finalizer
                 },
+                finalCommit: finalCommit,
                 freeSurface: freeSurface
             )
         )
+        let didFree: Bool
+        let rejectedFinalizer: (@Sendable () -> Void)?
+        switch teardownResult {
+        case .freed:
+            didFree = true
+            rejectedFinalizer = nil
+        case .rejected(let finalizer):
+            didFree = false
+            rejectedFinalizer = finalizer
+        }
 
         if !didFree, portalLifecycleState == .live {
             restoreRuntimeSurfaceAfterRejectedAgentHibernation(surfaceToFree)
@@ -403,6 +422,11 @@ extension TerminalSurface {
             if pendingSocketInputBytes > 0 {
                 flushPendingSocketInputIfNeeded()
             }
+            // The exact runtime, callback contexts, registry ownership, and
+            // queued traffic are live again before the shell can produce more
+            // output. The coordinator intentionally transferred this finalizer
+            // back instead of running it at durable-commit rejection.
+            rejectedFinalizer?()
             return false
         }
 
@@ -420,6 +444,10 @@ extension TerminalSurface {
                     manualIOContext: manualIOContext,
                     byteTeeLease: teeLease,
                     finalValidation: { true },
+                    finalTeardownPreparation: {
+                        if let rejectedFinalizer { return rejectedFinalizer }
+                        return {}
+                    },
                     freeSurface: freeSurface
                 )
             )

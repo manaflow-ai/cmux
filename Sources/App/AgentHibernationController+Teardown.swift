@@ -190,7 +190,17 @@ extension AgentHibernationController {
                     agent: record.agent,
                     lastActivityAt: Date(timeIntervalSince1970: request.effectiveLastActivityAt),
                     finalValidation: {
-                        lease.isStillProcessFree() && inFlight.claim()
+                        lease.isStillProcessFree()
+                    },
+                    finalTeardownPreparation: {
+                        guard let frozenLease = lease.freezeForFinalTeardown(
+                            finalProcessFreeValidation: {
+                                lease.isStillProcessFree() && inFlight.claim()
+                            }
+                        ) else {
+                            return nil
+                        }
+                        return { frozenLease.resume() }
                     }
                 )
                 guard didHibernate else { continue }

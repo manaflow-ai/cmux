@@ -1,5 +1,210 @@
 import Darwin
 import Foundation
+import os
+
+private func agentHibernationKevent(
+    _ queue: Int32,
+    _ changes: UnsafePointer<kevent>?,
+    _ changeCount: Int32,
+    _ events: UnsafeMutablePointer<kevent>?,
+    _ eventCount: Int32,
+    _ timeout: UnsafePointer<timespec>?
+) -> Int32 {
+    let systemKevent: (
+        Int32,
+        UnsafePointer<kevent>?,
+        Int32,
+        UnsafeMutablePointer<kevent>?,
+        Int32,
+        UnsafePointer<timespec>?
+    ) -> Int32 = kevent
+    return systemKevent(queue, changes, changeCount, events, eventCount, timeout)
+}
+
+struct AgentHibernationProcessGenerationFence: @unchecked Sendable {
+    enum State: Equatable {
+        case originalGenerationAlive
+        case originalGenerationExited
+        case unavailable
+    }
+
+    private final class KernelFence: @unchecked Sendable {
+        private enum Storage {
+            case active
+            case exited
+            case unavailable
+        }
+
+        private let descriptor: Int32
+        private let processID: pid_t
+        private let storage = OSAllocatedUnfairLock(initialState: Storage.active)
+
+        init?(processID: pid_t) {
+            let descriptor = kqueue()
+            guard descriptor >= 0 else { return nil }
+            var event = kevent(
+                ident: UInt(processID),
+                filter: Int16(EVFILT_PROC),
+                flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
+                fflags: UInt32(NOTE_EXIT),
+                data: 0,
+                udata: nil
+            )
+            guard agentHibernationKevent(descriptor, &event, 1, nil, 0, nil) == 0 else {
+                Darwin.close(descriptor)
+                return nil
+            }
+            self.descriptor = descriptor
+            self.processID = processID
+        }
+
+        deinit {
+            Darwin.close(descriptor)
+        }
+
+        func currentState() -> State {
+            storage.withLock { storage in
+                switch storage {
+                case .exited:
+                    return .originalGenerationExited
+                case .unavailable:
+                    return .unavailable
+                case .active:
+                    break
+                }
+                var event = kevent()
+                var timeout = timespec(tv_sec: 0, tv_nsec: 0)
+                while true {
+                    let result = agentHibernationKevent(
+                        descriptor,
+                        nil,
+                        0,
+                        &event,
+                        1,
+                        &timeout
+                    )
+                    if result == 0 {
+                        return .originalGenerationAlive
+                    }
+                    if result == 1,
+                       event.filter == Int16(EVFILT_PROC),
+                       event.ident == UInt(processID),
+                       event.fflags & UInt32(NOTE_EXIT) != 0 {
+                        storage = .exited
+                        return .originalGenerationExited
+                    }
+                    if result < 0, errno == EINTR {
+                        continue
+                    }
+                    storage = .unavailable
+                    return .unavailable
+                }
+            }
+        }
+    }
+
+    private let stateProvider: @Sendable () -> State
+
+    init?(processID: pid_t) {
+        guard let fence = KernelFence(processID: processID) else { return nil }
+        stateProvider = { fence.currentState() }
+    }
+
+    init(stateProvider: @escaping @Sendable () -> State) {
+        self.stateProvider = stateProvider
+    }
+
+    func currentState() -> State {
+        stateProvider()
+    }
+}
+
+final class AgentHibernationFrozenShellLease: @unchecked Sendable {
+    private enum State {
+        case active
+        case resumed
+        case ownerGoneOrReplaced
+    }
+
+    let processFreeLease: AgentHibernationProcessFreeLease
+    private let state = OSAllocatedUnfairLock(initialState: State.active)
+    private let generationFence: AgentHibernationProcessGenerationFence
+    private let processIdentity: @Sendable (Int) -> AgentPIDProcessIdentity?
+    private let processStatus: @Sendable (Int) -> UInt32?
+    private let sendSignal: @Sendable (pid_t, Int32) -> Int32
+
+    fileprivate init(
+        processFreeLease: AgentHibernationProcessFreeLease,
+        generationFence: AgentHibernationProcessGenerationFence,
+        processIdentity: @escaping @Sendable (Int) -> AgentPIDProcessIdentity?,
+        processStatus: @escaping @Sendable (Int) -> UInt32?,
+        sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32
+    ) {
+        self.processFreeLease = processFreeLease
+        self.generationFence = generationFence
+        self.processIdentity = processIdentity
+        self.processStatus = processStatus
+        self.sendSignal = sendSignal
+    }
+
+    var guardedProcessIDs: Set<Int> { [processFreeLease.shellPID] }
+
+    func isStillFrozenAndProcessFree(
+        finalProcessFreeValidation: (@Sendable () -> Bool)? = nil
+    ) -> Bool {
+        guard state.withLock({ $0 == .active }),
+              processIdentity(processFreeLease.shellPID) == processFreeLease.shellIdentity,
+              generationFence.currentState() == .originalGenerationAlive,
+              processStatus(processFreeLease.shellPID) == UInt32(SSTOP) else {
+            return false
+        }
+        return finalProcessFreeValidation?() ?? processFreeLease.isStillProcessFree()
+    }
+
+    func resume() {
+        state.withLock { state in
+            guard state == .active else { return }
+            let currentIdentity = processIdentity(processFreeLease.shellPID)
+            if let currentIdentity,
+               currentIdentity != processFreeLease.shellIdentity {
+                state = .ownerGoneOrReplaced
+                return
+            }
+            if currentIdentity == nil {
+                switch generationFence.currentState() {
+                case .originalGenerationExited:
+                    state = .ownerGoneOrReplaced
+                    return
+                case .unavailable:
+                    os_log(.fault, "Unable to prove frozen shell generation before SIGCONT")
+                    return
+                case .originalGenerationAlive:
+                    break
+                }
+            }
+
+            errno = 0
+            guard sendSignal(processFreeLease.shellIdentity.pid, SIGCONT) == 0 else {
+                let signalError = errno
+                if signalError == ESRCH {
+                    state = .ownerGoneOrReplaced
+                } else {
+                    os_log(
+                        .fault,
+                        "SIGCONT failed for proven frozen shell generation: errno=%{public}d",
+                        signalError
+                    )
+                }
+                return
+            }
+            state = .resumed
+        }
+    }
+
+    deinit {
+        resume()
+    }
+}
 
 struct AgentHibernationProcessFreeLease: Sendable, Equatable {
     struct ProcessTopology: Sendable, Equatable {
@@ -22,6 +227,62 @@ struct AgentHibernationProcessFreeLease: Sendable, Equatable {
     let sessionID: Int
     let processGroupID: Int
     let terminalProcessGroupID: Int
+
+    func freezeForFinalTeardown(
+        processIdentity: @escaping @Sendable (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processStatus: @escaping @Sendable (Int) -> UInt32? = {
+            Self.currentProcessStatus(pid: $0)
+        },
+        processGenerationFence: @escaping @Sendable (pid_t) -> AgentHibernationProcessGenerationFence? = {
+            AgentHibernationProcessGenerationFence(processID: $0)
+        },
+        sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = { pid, signal in
+            Darwin.kill(pid, signal)
+        },
+        yieldThread: @Sendable () -> Void = {
+            _ = sched_yield()
+        },
+        maximumStopStateChecks: Int = 256,
+        finalProcessFreeValidation: (@Sendable () -> Bool)? = nil
+    ) -> AgentHibernationFrozenShellLease? {
+        // Never resume a shell that the user or debugger had already stopped.
+        guard processIdentity(shellPID) == shellIdentity,
+              let initialStatus = processStatus(shellPID),
+              initialStatus != UInt32(SSTOP),
+              let generationFence = processGenerationFence(shellIdentity.pid),
+              processIdentity(shellPID) == shellIdentity,
+              generationFence.currentState() == .originalGenerationAlive,
+              sendSignal(shellIdentity.pid, SIGSTOP) == 0 else {
+            return nil
+        }
+        let frozenLease = AgentHibernationFrozenShellLease(
+            processFreeLease: self,
+            generationFence: generationFence,
+            processIdentity: processIdentity,
+            processStatus: processStatus,
+            sendSignal: sendSignal
+        )
+        var didStopExactGeneration = false
+        for _ in 0..<max(1, maximumStopStateChecks) {
+            guard processIdentity(shellPID) == shellIdentity else { break }
+            if processStatus(shellPID) == UInt32(SSTOP) {
+                didStopExactGeneration = true
+                break
+            }
+            yieldThread()
+        }
+        guard didStopExactGeneration,
+              frozenLease.isStillFrozenAndProcessFree(
+                finalProcessFreeValidation: finalProcessFreeValidation
+              ) else {
+            frozenLease.resume()
+            return nil
+        }
+        return frozenLease
+    }
 
     func isStillProcessFree(
         processArguments: (Int) -> CmuxTopProcessArguments? = {
@@ -94,6 +355,15 @@ struct AgentHibernationProcessFreeLease: Sendable, Equatable {
             processGroupID: processGroupID > 0 ? processGroupID : nil,
             terminalProcessGroupID: terminalProcessGroupID > 0 ? terminalProcessGroupID : nil
         )
+    }
+
+    private static func currentProcessStatus(pid: Int) -> UInt32? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard size == expectedSize else { return nil }
+        return info.pbi_status
     }
 }
 

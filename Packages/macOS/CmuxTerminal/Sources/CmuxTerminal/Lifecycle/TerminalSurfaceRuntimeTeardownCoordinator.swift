@@ -93,7 +93,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///   have completed; `false` when final validation rejected the request.
     func freeRuntimeSurfaceForAgentHibernation(
         _ request: TerminalSurfaceRuntimeTeardownRequest
-    ) async -> Bool {
+    ) async -> TerminalSurfaceRuntimeHibernationTeardownResult {
         await withCheckedContinuation { continuation in
             var request = request
             request.completion = continuation
@@ -187,10 +187,27 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         return request
     }
 
-    private nonisolated static func free(_ request: TerminalSurfaceRuntimeTeardownRequest) async -> Bool {
+    private nonisolated static func free(
+        _ request: TerminalSurfaceRuntimeTeardownRequest
+    ) async -> TerminalSurfaceRuntimeHibernationTeardownResult {
         if let finalValidation = request.finalValidation {
             let isValid = await finalValidation()
-            guard isValid else { return false }
+            guard isValid else { return .rejected(finalizer: nil) }
+        }
+        let finalizer: (@Sendable () -> Void)?
+        if let finalTeardownPreparation = request.finalTeardownPreparation {
+            guard let preparedFinalizer = finalTeardownPreparation() else {
+                return .rejected(finalizer: nil)
+            }
+            finalizer = preparedFinalizer
+        } else {
+            finalizer = nil
+        }
+        if let finalCommit = request.finalCommit, !finalCommit() {
+            // Do not run the finalizer here. The surface and callback ownership
+            // are still provisional; the main-actor owner must restore all of
+            // them and flush queued traffic before relinquishing authority.
+            return .rejected(finalizer: finalizer)
         }
 #if DEBUG
         logDebugEvent(
@@ -198,7 +215,11 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             "workspace=\(request.workspaceToken) reason=\(request.reason)"
         )
 #endif
-        request.freeSurface(request.surface)
+        // Keep last-mile authority continuously held from its synchronous
+        // preparation through native free. The helper returns only after the
+        // finalizer runs, so no `await` can suspend while that authority is
+        // active (the app uses it to SIGSTOP/SIGCONT the exact shell generation).
+        freeAndFinalize(request, finalizer: finalizer)
         if request.callbackContext != nil || request.manualIOContext != nil || request.byteTeeLease != nil {
             // The request is the @unchecked Sendable transport for the
             // Unmanaged contexts; release through the request so the @Sendable
@@ -219,7 +240,15 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             "workspace=\(request.workspaceToken) reason=\(request.reason)"
         )
 #endif
-        return true
+        return .freed
+    }
+
+    private nonisolated static func freeAndFinalize(
+        _ request: TerminalSurfaceRuntimeTeardownRequest,
+        finalizer: (@Sendable () -> Void)?
+    ) {
+        defer { finalizer?() }
+        request.freeSurface(request.surface)
     }
 
     private func complete(id: UUID) {

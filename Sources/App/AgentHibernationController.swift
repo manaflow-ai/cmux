@@ -20,7 +20,9 @@ struct AgentHibernationRecord {
     let isProtected: Bool
     let processEvidence: AgentHibernationProcessEvidence
 
-    var processIDs: Set<Int> { processEvidence.processIDs }
+    var processIDs: Set<Int> {
+        processEvidence.processIDs.union(processEvidence.lease?.guardedProcessIDs ?? [])
+    }
 
     var satisfiesPromptAndCloseGates: Bool {
         AgentHibernationController.passesPromptAndCloseGates(

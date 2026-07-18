@@ -146,7 +146,10 @@ import Testing
         )
         #expect(surface.portalHostVacancyWakeScheduled)
 
-        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate")
+        _ = await surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.hibernate",
+            finalValidation: { true }
+        )
         #expect(surface.portalHostVacancyRetries.isEmpty)
         #expect(!surface.portalHostVacancyWakeScheduled)
         #expect(!surface.canAcceptPortalBinding(

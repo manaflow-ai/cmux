@@ -10,8 +10,11 @@ import Foundation
 final class TeardownOrderRecorder: @unchecked Sendable {
     enum Event: Equatable, Sendable {
         case finalValidation
+        case shellStop
+        case durableCommitRejected
         case pendingInputFlush
         case nativeFree
+        case shellContinue
         case teeLeaseRelease
     }
 

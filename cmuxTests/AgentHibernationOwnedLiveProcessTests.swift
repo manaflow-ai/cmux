@@ -196,6 +196,7 @@ struct AgentHibernationOwnedLiveProcessTests {
         let frozen = try #require(lease.freezeForFinalTeardown(
             processIdentity: { _ in state.identity },
             processStatus: { _ in state.status },
+            processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
             yieldThread: {},
             finalProcessFreeValidation: {
@@ -231,6 +232,7 @@ struct AgentHibernationOwnedLiveProcessTests {
         #expect(lease.freezeForFinalTeardown(
             processIdentity: { _ in state.identity },
             processStatus: { _ in state.status },
+            processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
             yieldThread: {},
             finalProcessFreeValidation: { true }
@@ -253,6 +255,7 @@ struct AgentHibernationOwnedLiveProcessTests {
         #expect(lease.freezeForFinalTeardown(
             processIdentity: { _ in state.identity },
             processStatus: { _ in state.status },
+            processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
             yieldThread: {},
             finalProcessFreeValidation: { false }
@@ -261,7 +264,7 @@ struct AgentHibernationOwnedLiveProcessTests {
     }
 
     @Test
-    func frozenLeaseRetriesTransientIdentityAndSignalFailuresBeforeRetiring() throws {
+    func frozenLeaseUsesGenerationFenceWhenIdentityReadIsUnavailable() throws {
         let key = panelKey()
         let identity = processIdentity(pid: shellPID)
         let lease = try #require(topologyIndex(
@@ -274,21 +277,47 @@ struct AgentHibernationOwnedLiveProcessTests {
         let frozen = try #require(lease.freezeForFinalTeardown(
             processIdentity: { _ in state.readIdentity() },
             processStatus: { _ in state.status },
+            processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
-            processExists: { _ in true },
             yieldThread: {},
-            maximumResumeAttempts: 4,
             finalProcessFreeValidation: { true }
         ))
         state.failNextIdentityReads(1)
-        state.failNextResumeSignals(1)
 
         frozen.resume()
         #expect(state.status == UInt32(SRUN))
-        #expect(state.signals == [SIGSTOP, SIGCONT, SIGCONT])
+        #expect(state.signals == [SIGSTOP, SIGCONT])
 
         frozen.resume()
-        #expect(state.signals == [SIGSTOP, SIGCONT, SIGCONT])
+        #expect(state.signals == [SIGSTOP, SIGCONT])
+    }
+
+    @Test
+    func frozenLeaseResumesThroughPersistentIdentityProbeFailure() throws {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let lease = try #require(topologyIndex(
+            key: key,
+            identity: identity,
+            ttyEnumeration: .complete([shellPID]),
+            childEnumeration: .complete([])
+        ).evidence(for: key).lease)
+        let state = AgentHibernationFrozenShellTestState(identity: identity, status: UInt32(SRUN))
+        var frozen: AgentHibernationFrozenShellLease? = try #require(lease.freezeForFinalTeardown(
+            processIdentity: { _ in state.readIdentity() },
+            processStatus: { _ in state.status },
+            processGenerationFence: { _ in state.generationFence() },
+            sendSignal: { _, signal in state.send(signal) },
+            yieldThread: {},
+            finalProcessFreeValidation: { true }
+        ))
+        state.failNextIdentityReads(.max)
+
+        frozen?.resume()
+        frozen = nil
+
+        #expect(state.status == UInt32(SRUN))
+        #expect(state.signals == [SIGSTOP, SIGCONT])
     }
 
     @Test
@@ -305,6 +334,7 @@ struct AgentHibernationOwnedLiveProcessTests {
         let frozen = try #require(lease.freezeForFinalTeardown(
             processIdentity: { _ in state.identity },
             processStatus: { _ in state.status },
+            processGenerationFence: { _ in state.generationFence() },
             sendSignal: { _, signal in state.send(signal) },
             yieldThread: {},
             finalProcessFreeValidation: { true }
@@ -347,6 +377,7 @@ struct AgentHibernationOwnedLiveProcessTests {
                 guard let frozen = lease.freezeForFinalTeardown(
                     processIdentity: { _ in state.identity },
                     processStatus: { _ in state.status },
+                    processGenerationFence: { _ in state.generationFence() },
                     sendSignal: { _, signal in state.send(signal) },
                     yieldThread: {},
                     finalProcessFreeValidation: {
@@ -412,6 +443,7 @@ struct AgentHibernationOwnedLiveProcessTests {
                 guard let frozen = lease.freezeForFinalTeardown(
                     processIdentity: { _ in state.identity },
                     processStatus: { _ in state.status },
+                    processGenerationFence: { _ in state.generationFence() },
                     sendSignal: { _, signal in state.send(signal) },
                     yieldThread: {},
                     finalProcessFreeValidation: {
@@ -768,7 +800,8 @@ private final class AgentHibernationFrozenShellTestState: @unchecked Sendable {
         var finalValidationObservedStop = false
         var events: [String] = []
         var identityReadFailuresRemaining = 0
-        var resumeSignalFailuresRemaining = 0
+        var generationFenceState = AgentHibernationProcessGenerationFence.State
+            .originalGenerationAlive
     }
 
     private let storage: OSAllocatedUnfairLock<Storage>
@@ -800,8 +833,10 @@ private final class AgentHibernationFrozenShellTestState: @unchecked Sendable {
         storage.withLock { $0.identityReadFailuresRemaining = max(0, count) }
     }
 
-    func failNextResumeSignals(_ count: Int) {
-        storage.withLock { $0.resumeSignalFailuresRemaining = max(0, count) }
+    func generationFence() -> AgentHibernationProcessGenerationFence {
+        AgentHibernationProcessGenerationFence { [self] in
+            storage.withLock { $0.generationFenceState }
+        }
     }
 
     func replaceIdentity(_ identity: AgentPIDProcessIdentity?) {
@@ -815,10 +850,6 @@ private final class AgentHibernationFrozenShellTestState: @unchecked Sendable {
                 state.status = UInt32(SSTOP)
                 state.events.append("SIGSTOP")
             } else if signal == SIGCONT {
-                if state.resumeSignalFailuresRemaining > 0 {
-                    state.resumeSignalFailuresRemaining -= 1
-                    return -1
-                }
                 state.status = UInt32(SRUN)
                 state.events.append("SIGCONT")
             }
