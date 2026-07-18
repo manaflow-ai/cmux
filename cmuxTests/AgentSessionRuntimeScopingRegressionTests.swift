@@ -3575,6 +3575,209 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(registrySnapshot.activeSlots.isEmpty)
     }
 
+    @MainActor
+    @Test(arguments: [false, true])
+    func pendingClosedHistoryReleaseRetriesAfterRestartWithoutEndingAReusedSession(
+        reusesSessionGeneration: Bool
+    ) async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-retry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "closed-history-restart-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let owner = Process()
+        owner.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        owner.arguments = ["30"]
+        try owner.run()
+        defer {
+            if owner.isRunning {
+                owner.terminate()
+                owner.waitUntilExit()
+            }
+        }
+        let ownerIdentity = try #require(AgentPIDProcessIdentity(pid: owner.processIdentifier))
+        let foreignRuntime: [String: Any] = [
+            "id": "foreign-live-runtime",
+            "processId": Int(ownerIdentity.pid),
+            "processStartSeconds": ownerIdentity.startSeconds,
+            "processStartMicroseconds": ownerIdentity.startMicroseconds,
+        ]
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: reusesSessionGeneration
+                ? "closed-history-reused-session"
+                : "closed-history-retry-session"
+        )
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID,
+            runtime: foreignRuntime
+        )
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let legacyLock = open(
+            stateURL.path + ".lock",
+            O_CREAT | O_RDWR,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        let legacyLock = try #require(legacyLock >= 0 ? legacyLock : nil)
+        defer { Darwin.close(legacyLock) }
+        #expect(flock(legacyLock, LOCK_EX | LOCK_NB) == 0)
+        var legacyLockIsHeld = true
+        defer {
+            if legacyLockIsHeld { _ = flock(legacyLock, LOCK_UN) }
+        }
+
+        let hibernatedPanel = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.sourcePanelID }
+        )
+        let store = ClosedItemHistoryStore(capacity: 2)
+        store.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: fixture.source.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: hibernatedPanel
+        )))
+        store.removeAll()
+
+        let queueDirectory = root.appendingPathComponent(
+            "pending-closed-history-releases-v1",
+            isDirectory: true
+        )
+        func pendingReleaseURLs() -> [URL] {
+            (try? FileManager.default.contentsOfDirectory(
+                at: queueDirectory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ))?.filter { $0.pathExtension == "json" } ?? []
+        }
+        func hasArmedRelease() -> Bool {
+            pendingReleaseURLs().contains { url in
+                guard let data = try? Data(contentsOf: url),
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let requests = object["requests"] as? [[String: Any]] else {
+                    return false
+                }
+                return requests.contains { $0["recordFingerprint"] is String }
+            }
+        }
+
+        let clock = ContinuousClock()
+        let armDeadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < armDeadline, !hasArmedRelease() {
+            try await clock.sleep(for: .milliseconds(10))
+        }
+        #expect(hasArmedRelease())
+        let liveOwnerSnapshot = try registry.snapshot(provider: "codex")
+        let liveOwnerRecord = try #require(liveOwnerSnapshot.records.first)
+        let liveOwnerObject = try #require(
+            JSONSerialization.jsonObject(with: liveOwnerRecord.json) as? [String: Any]
+        )
+        #expect(liveOwnerObject["sessionState"] as? String == "hibernated")
+
+        if reusesSessionGeneration {
+            let replacementUpdatedAt = 40.0
+            let replacementRecord: [String: Any] = [
+                "sessionId": fixture.agent.sessionId,
+                "workspaceId": fixture.source.id.uuidString,
+                "surfaceId": fixture.sourcePanelID.uuidString,
+                "sessionState": "active",
+                "restoreAuthority": true,
+                "startedAt": 30.0,
+                "updatedAt": replacementUpdatedAt,
+            ]
+            let replacementSlot: [String: Any] = [
+                "sessionId": fixture.agent.sessionId,
+                "updatedAt": replacementUpdatedAt,
+            ]
+            let replacementSlotJSON = try JSONSerialization.data(
+                withJSONObject: replacementSlot,
+                options: [.sortedKeys]
+            )
+            try registry.apply(
+                provider: "codex",
+                records: [.init(
+                    provider: "codex",
+                    sessionID: fixture.agent.sessionId,
+                    updatedAt: replacementUpdatedAt,
+                    json: try JSONSerialization.data(
+                        withJSONObject: replacementRecord,
+                        options: [.sortedKeys]
+                    )
+                )],
+                activeSlots: [
+                    .init(
+                        provider: "codex",
+                        scope: .workspace,
+                        scopeID: fixture.source.id.uuidString,
+                        sessionID: fixture.agent.sessionId,
+                        updatedAt: replacementUpdatedAt,
+                        json: replacementSlotJSON
+                    ),
+                    .init(
+                        provider: "codex",
+                        scope: .surface,
+                        scopeID: fixture.sourcePanelID.uuidString,
+                        sessionID: fixture.agent.sessionId,
+                        updatedAt: replacementUpdatedAt,
+                        json: replacementSlotJSON
+                    ),
+                ]
+            )
+        }
+
+        #expect(flock(legacyLock, LOCK_UN) == 0)
+        legacyLockIsHeld = false
+        owner.terminate()
+        owner.waitUntilExit()
+        AgentHookSessionStateWriter.resumePendingClosedHistoryHibernationReleases(now: 50)
+
+        let releaseDeadline = clock.now.advanced(by: .seconds(2))
+        var finalSnapshot = try registry.snapshot(provider: "codex")
+        while clock.now < releaseDeadline {
+            let object = try finalSnapshot.records.first.flatMap {
+                try JSONSerialization.jsonObject(with: $0.json) as? [String: Any]
+            }
+            let reachedExpectedState = reusesSessionGeneration
+                ? object?["sessionState"] as? String == "active"
+                    && pendingReleaseURLs().isEmpty
+                : object?["sessionState"] as? String == "ended"
+            if reachedExpectedState { break }
+            try await clock.sleep(for: .milliseconds(10))
+            finalSnapshot = try registry.snapshot(provider: "codex")
+        }
+
+        let finalRecord = try #require(finalSnapshot.records.first)
+        let finalObject = try #require(
+            JSONSerialization.jsonObject(with: finalRecord.json) as? [String: Any]
+        )
+        if reusesSessionGeneration {
+            #expect(finalObject["sessionState"] as? String == "active")
+            #expect(finalObject["restoreAuthority"] as? Bool == true)
+            #expect(finalSnapshot.activeSlots.count == 2)
+        } else {
+            #expect(finalObject["sessionState"] as? String == "ended")
+            #expect(finalObject["restoreAuthority"] as? Bool == false)
+            #expect(finalSnapshot.activeSlots.isEmpty)
+        }
+        #expect(pendingReleaseURLs().isEmpty)
+    }
+
     @Test func agentsTreeDefaultsToTheCallingCmuxRuntimeWhileAllIncludesHistory() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
