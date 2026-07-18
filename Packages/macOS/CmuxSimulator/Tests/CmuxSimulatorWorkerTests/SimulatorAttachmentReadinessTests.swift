@@ -14,7 +14,7 @@ struct SimulatorAttachmentReadinessTests {
             baselineCapabilities: [.framebuffer, .touch],
             send: { recorder.events.append($0) },
             hydrate: { await gate.wait() },
-            applyHydratedCapabilities: { recorder.events.append(.capabilities($0)) }
+            applyHydratedCapabilities: { recorder.events.append(.capabilitiesHydrated($0)) }
         )
 
         #expect(recorder.events == [
@@ -28,7 +28,7 @@ struct SimulatorAttachmentReadinessTests {
         #expect(recorder.events == [
             .capabilities([.framebuffer, .touch]),
             .status(.streaming),
-            .capabilities([.accessibility, .framebuffer, .touch]),
+            .capabilitiesHydrated([.accessibility, .framebuffer, .touch]),
         ])
     }
 }

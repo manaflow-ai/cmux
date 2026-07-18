@@ -171,6 +171,27 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.activations().map(\.id) == ["phone"])
     }
 
+    @Test("Optional capability commands wait for hydration after core streaming")
+    func optionalCapabilityWaitsForHydration() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await client.emit(.message(.status(.streaming)))
+        await eventually { coordinator.status == .streaming }
+
+        let waiter = Task { @MainActor in
+            try await coordinator.waitForCapabilityHydration()
+        }
+        await eventually { coordinator.capabilityHydrationWaiters.count == 1 }
+        #expect(!coordinator.supports(.accessibility))
+
+        await client.emit(.message(.capabilitiesHydrated([.accessibility, .framebuffer])))
+        try await waiter.value
+
+        #expect(coordinator.supports(.accessibility))
+        #expect(coordinator.capabilityHydrationWaiters.isEmpty)
+    }
+
     @Test("Restored panes without a persisted UDID require explicit selection")
     func restoredPaneWithoutIdentityFailsClosed() async throws {
         let client = SimulatorPaneClientSpy(devices: [
