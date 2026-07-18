@@ -9,6 +9,26 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func agentsListTextRendersLifecycleAndIdentityState() {
+        let line = CMUXCLI(args: []).renderSessionListLine([
+            "agent": "codex",
+            "session_id": "session-a",
+            "workspace_id": "workspace-a",
+            "surface_id": "surface-a",
+            "effective_state": "working",
+            "activity": ["state": "busy"],
+            "identity_source": "hook_session",
+            "state_source": "terminal",
+            "restore_authority": true,
+        ])
+
+        #expect(line.contains("state=working"))
+        #expect(line.contains("activity=busy"))
+        #expect(line.contains("identity=hook_session"))
+        #expect(line.contains("state_source=terminal"))
+        #expect(line.contains("restore_owner=yes"))
+    }
+
     @Test func terminalObservationJoinsExactProcessGenerationAndUpdatesState() throws {
         let observation = makeTerminalObservation(state: .working, lifecycleAuthoritative: false)
         let node = makeTerminalNodeCandidate(
