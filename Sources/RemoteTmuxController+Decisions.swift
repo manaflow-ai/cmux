@@ -308,3 +308,130 @@ extension RemoteTmuxController {
         return sessionId.map { "$\($0)" } ?? sessionName
     }
 }
+
+/// The result of ``RemoteTmuxController/createRemoteWorkspace(referenceWorkspaceId:name:surfaceDeadline:)``.
+enum RemoteTmuxWorkspaceCreationOutcome {
+    /// A new session was created and its mirror surfaced as a workspace. The first
+    /// tab's addressable surface id is included when it has already reconciled.
+    case created(workspaceId: UUID, surfaceId: UUID?)
+    /// The reference workspace has no live remote tmux mirror to spawn a session on.
+    case notLinked
+    /// The create never reached tmux (the dedicated one-shot returned a failure exit
+    /// before creating anything), so NO session exists — a retry is safe.
+    case createFailed
+    /// tmux created the session, but its mirror has not surfaced yet (the wait
+    /// deadline elapsed, or the target view/window went away mid-create). The session
+    /// EXISTS and appears on the next reconcile, so its name is returned for recovery
+    /// — callers must NOT auto-retry (that would create a duplicate).
+    case createdPending(sessionName: String)
+    /// The multiplexer create's reply was lost — a control-stream timeout can land
+    /// AFTER tmux ran `new-session`, so whether a session was created is unknown.
+    /// Callers must NOT auto-retry (it could duplicate); check `list-workspaces`.
+    case createIndeterminate
+}
+
+extension RemoteTmuxController {
+    /// Creates a NEW tmux session on the host backing `referenceWorkspaceId` — the
+    /// CLI analogue of the Cmd-N "new workspace on a remote connection" action — so
+    /// it links into the shared view and registers as its own cmux workspace, then
+    /// returns the new workspace id (and its first tab's surface, once reconciled).
+    ///
+    /// It rides the SAME primitives the GUI New Workspace path uses
+    /// (``RemoteTmuxViewConnection/createWorkspaceReturningName(named:)`` over the
+    /// shared stream for the multiplexer, ``mirrorSession`` for the dedicated
+    /// transport), so no second SSH connection is opened and the mirror is built by
+    /// the one reconcile pipeline — never a parallel reimplementation.
+    func createRemoteWorkspace(
+        referenceWorkspaceId: UUID,
+        name: String?,
+        surfaceDeadline: Duration = .seconds(30)
+    ) async -> RemoteTmuxWorkspaceCreationOutcome {
+        guard let mirror = sessionMirror(workspaceId: referenceWorkspaceId),
+              mirror.connection.connectionState == .connected else { return .notLinked }
+        let host = mirror.host
+
+        if isMultiplexed(mirror) {
+            // Multiplexer: create the session IN BAND over the shared view stream (a
+            // one-shot ssh would need a second channel a single-connection host
+            // refuses), then nudge the reconcile that links + surfaces it.
+            guard let view = multiplexedViewsByHost[host.connectionHash],
+                  view.connection?.connectionState == .connected else { return .notLinked }
+            guard let sessionName = await view.createWorkspaceReturningName(named: name) else {
+                // The stream was connected when we issued the create, so a nil reply
+                // is NOT a clean "not created": the send may have dropped (no session)
+                // or the reply timed out AFTER tmux ran new-session. We can't tell, so
+                // report indeterminate rather than inviting a duplicate-creating retry.
+                return .createIndeterminate
+            }
+            view.requestReconcile()
+            // The view can be torn down between the create reply and here; bail with
+            // the created name instead of waiting out the full deadline for a mirror
+            // that will never surface on this now-dead view.
+            guard multiplexedViewsByHost[host.connectionHash] === view else {
+                return .createdPending(sessionName: sessionName)
+            }
+            guard let workspaceId = await awaitNewWorkspace(
+                host: host, sessionName: sessionName, deadline: surfaceDeadline
+            ) else {
+                return .createdPending(sessionName: sessionName)
+            }
+            return .created(
+                workspaceId: workspaceId,
+                surfaceId: firstMirrorSurfaceId(host: host, sessionName: sessionName))
+        }
+
+        // Dedicated transport: create the session over the shared master, then mirror
+        // it into the reference workspace's window (the same window Cmd-N targets).
+        let created: String?
+        do {
+            let result = try await transport(for: host).runTmux(Self.detachedSessionArgv(named: name))
+            let out = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            created = (result.succeeded && !out.isEmpty) ? out : nil
+        } catch {
+            created = nil
+        }
+        guard let sessionName = created else { return .createFailed }
+        // The session now EXISTS. From here every failure to mirror it reports the
+        // created name (recover) — never a bare failure that invites a duplicate.
+        // Revalidate the target window across the ssh round trip (it may have closed).
+        guard let manager = mirror.mirroredWorkspace?.owningTabManager
+                ?? AppDelegate.shared?.tabManagerFor(tabId: referenceWorkspaceId),
+              AppDelegate.shared?.windowId(for: manager) != nil else {
+            return .createdPending(sessionName: sessionName)
+        }
+        do {
+            _ = try mirrorSession(host: host, sessionName: sessionName, into: manager, select: false)
+        } catch {
+            return .createdPending(sessionName: sessionName)
+        }
+        guard let workspaceId = sessionMirror(host: host, sessionName: sessionName)?.mirroredWorkspaceId else {
+            return .createdPending(sessionName: sessionName)
+        }
+        return .created(
+            workspaceId: workspaceId,
+            surfaceId: firstMirrorSurfaceId(host: host, sessionName: sessionName))
+    }
+
+    /// The addressable surface id of a mirror's first (single-pane) tab, or nil when
+    /// it has not reconciled to a drivable surface yet. Best-effort: the workspace id
+    /// is the primitive result; the surface is a convenience for immediate driving.
+    private func firstMirrorSurfaceId(host: RemoteTmuxHost, sessionName: String) -> UUID? {
+        guard let mirror = sessionMirror(host: host, sessionName: sessionName),
+              let workspace = mirror.mirroredWorkspace,
+              let firstWindowId = mirror.connection.windowOrder.first,
+              let panelId = mirror.panelIdByWindow[firstWindowId],
+              let panel = workspace.terminalPanel(for: panelId) else { return nil }
+        return panel.surface.id
+    }
+
+    /// `new-session` argv for a dedicated one-shot create: prints the auto-assigned
+    /// name, and requests an explicit name when one is given (dropped if it carries
+    /// characters tmux forbids in a session name).
+    nonisolated static func detachedSessionArgv(named: String?) -> [String] {
+        var argv = ["new-session", "-d", "-P", "-F", "#{session_name}"]
+        if let named, let safe = RemoteTmuxHost.controlModeCommandName(named) {
+            argv += ["-s", safe]
+        }
+        return argv
+    }
+}

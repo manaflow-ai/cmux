@@ -319,7 +319,8 @@ final class RemoteTmuxController {
         host: RemoteTmuxHost,
         sessionName: String,
         sessionId: Int? = nil,
-        into tabManager: TabManager
+        into tabManager: TabManager,
+        select: Bool = false
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
@@ -333,7 +334,7 @@ final class RemoteTmuxController {
             sessionId: sessionId,
             connection: connection,
             into: tabManager,
-            select: false
+            select: select
         )
         return true
     }
@@ -394,6 +395,37 @@ final class RemoteTmuxController {
     /// Whether any dedicated control connection is attached to the given host.
     func hasCachedConnection(hostHash: String) -> Bool {
         connectionsByHostSession.values.contains { $0.host.connectionHash == hostHash }
+    }
+
+    /// Suspends until the mirror for (`host`, `sessionName`) surfaces (returning its
+    /// new workspace id) or `deadline` elapses (returning nil). Event-driven: the
+    /// reconcile's ``createMirrorWorkspace`` drains the waiter, so a create over a
+    /// warm view pays no polling tick. Resolves inline if the mirror already exists.
+    func awaitNewWorkspace(
+        host: RemoteTmuxHost, sessionName: String, deadline: Duration
+    ) async -> UUID? {
+        let key = Self.connectionKey(host: host, sessionName: sessionName)
+        if let existing = sessionMirrors[key]?.mirroredWorkspaceId { return existing }
+        let token = UUID()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<UUID?, Never>) in
+            newWorkspaceWaiters[key, default: []].append(
+                NewWorkspaceWaiter(token: token, resume: { continuation.resume(returning: $0) }))
+            newWorkspaceTimeoutTasks[token] = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: deadline)
+                self?.resolveNewWorkspaceWaiter(key: key, token: token, workspaceId: nil)
+            }
+        }
+    }
+
+    /// Resolves a single waiter (the deadline path) by token, leaving any siblings
+    /// on the same key still waiting.
+    private func resolveNewWorkspaceWaiter(key: String, token: UUID, workspaceId: UUID?) {
+        guard var waiters = newWorkspaceWaiters[key],
+              let idx = waiters.firstIndex(where: { $0.token == token }) else { return }
+        let waiter = waiters.remove(at: idx)
+        newWorkspaceWaiters[key] = waiters.isEmpty ? nil : waiters
+        newWorkspaceTimeoutTasks.removeValue(forKey: token)?.cancel()
+        waiter.resume(workspaceId)
     }
 
     // MARK: - Create / destroy propagation (P5)
