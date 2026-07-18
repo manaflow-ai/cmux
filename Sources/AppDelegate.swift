@@ -6260,6 +6260,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let targetExpectedURL {
             arguments.append(contentsOf: ["--target-expected-url", targetExpectedURL])
         }
+        if let targetOperationID {
+            arguments.append(contentsOf: ["--target-operation-id", targetOperationID.uuidString])
+        }
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath

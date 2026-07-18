@@ -6639,7 +6639,11 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
-            if !context.browserPanel.navigateFromCLI(url, expectedURL: v2String(params, "expected_url")) { resolutionError = .err(code: "stale_state", message: "Browser URL changed before navigation", data: nil); return }
+            if !context.browserPanel.navigateFromCLI(
+                url,
+                expectedURL: v2String(params, "expected_url"),
+                expectedOperationID: v2UUID(params, "expected_operation_id")
+            ) { resolutionError = .err(code: "stale_state", message: "Browser URL changed before navigation", data: nil); return }
             if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
                 basePayload = v2WindowDockBrowserActionPayload(context)
             } else {

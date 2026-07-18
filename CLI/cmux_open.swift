@@ -101,6 +101,7 @@ extension CMUXCLI {
         var surface: String?
         var targetSurface: String?
         var targetExpectedURL: String?
+        var targetOperationID: String?
         var focus: String?
         var noFocus = false
         var title: String?
@@ -1011,6 +1012,9 @@ extension CMUXCLI {
             if let targetExpectedURL = parsedArgs.targetExpectedURL {
                 params["expected_url"] = targetExpectedURL
             }
+            if let targetOperationID = parsedArgs.targetOperationID {
+                params["expected_operation_id"] = targetOperationID
+            }
             payload = try activeClient.sendV2(method: "browser.navigate", params: params)
         } else {
             if let surfaceHandle { params["surface_id"] = surfaceHandle }
@@ -1022,13 +1026,15 @@ extension CMUXCLI {
         } catch {
             try navigateCompletedDiffViewerIfNeeded(
                 viewer.completeDeferred != nil, viewer.url.scheme, payload,
-                viewer.url, viewer.url, socketPath, explicitPassword
+                viewer.url, viewer.url, parsedArgs.targetOperationID,
+                socketPath, explicitPassword
             )
             throw error
         }
         try navigateCompletedDiffViewerIfNeeded(
             viewer.completeDeferred != nil, viewer.url.scheme, payload,
-            viewer.url, completedViewer.url, socketPath, explicitPassword
+            viewer.url, completedViewer.url, parsedArgs.targetOperationID,
+            socketPath, explicitPassword
         )
 
         if jsonOutput {
@@ -1307,6 +1313,14 @@ extension CMUXCLI {
                     parsed.targetExpectedURL = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--target-operation-id":
+                    let value = try openOptionValue(commandArgs, index: index, name: arg)
+                    guard UUID(uuidString: value) != nil else {
+                        throw CLIError(message: "--target-operation-id must be a UUID")
+                    }
+                    parsed.targetOperationID = value
+                    index += 2
+                    continue
                 case "--session", "--agent-session":
                     parsed.sessionId = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
@@ -1401,6 +1415,10 @@ extension CMUXCLI {
                 "cli.diff.error.targetExpectedURLRequiresSurface",
                 defaultValue: "--target-expected-url requires --target-surface"
             ))
+        }
+        if parsed.targetOperationID != nil,
+           parsed.targetSurface == nil || parsed.targetExpectedURL == nil {
+            throw CLIError(message: "--target-operation-id requires --target-surface and --target-expected-url")
         }
 
         return parsed

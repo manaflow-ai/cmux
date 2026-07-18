@@ -211,14 +211,16 @@ enum DiffViewerLoadingPage {
         )
     }
 
-    static func owns(url currentURL: URL?, expectedURL: String) -> Bool {
+    static func owns(
+        url currentURL: URL?,
+        expectedURL: String,
+        ownedOpeningURL: String?
+    ) -> Bool {
         guard let currentURL else { return false }
         if currentURL.absoluteString == expectedURL {
             return true
         }
-        return CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: currentURL)?
-            .requestPath
-            .hasSuffix("-opening.html") == true
+        return currentURL.absoluteString == ownedOpeningURL
     }
 
     static func ownershipURL(
@@ -232,15 +234,14 @@ enum DiffViewerLoadingPage {
     static func isPending(
         url currentURL: URL?,
         expectedURL: String,
+        ownedOpeningURL: String?,
         openingDocumentHasPendingMarker: Bool
     ) -> Bool {
         guard let currentURL else { return false }
         if currentURL.absoluteString == expectedURL {
             return true
         }
-        guard CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: currentURL)?
-            .requestPath
-            .hasSuffix("-opening.html") == true else {
+        guard currentURL.absoluteString == ownedOpeningURL else {
             return false
         }
         return openingDocumentHasPendingMarker

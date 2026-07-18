@@ -287,12 +287,17 @@ extension BrowserPanel {
     func beginDiffViewerLoadingOperation() -> UUID {
         let operationID = UUID()
         diffViewerLoadingOperationID = operationID
+        diffViewerLoadingOwnedOpeningURL = nil
         return operationID
     }
 
     func isShowingDiffViewerLoadingState(expectedURL: String, operationID: UUID) -> Bool {
         guard diffViewerLoadingOperationID == operationID else { return false }
-        return DiffViewerLoadingPage.owns(url: diffViewerLoadingOwnershipURL, expectedURL: expectedURL)
+        return DiffViewerLoadingPage.owns(
+            url: diffViewerLoadingOwnershipURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: diffViewerLoadingOwnedOpeningURL
+        )
     }
 
     func isShowingPendingDiffViewerLoadingState(expectedURL: String, operationID: UUID) -> Bool {
@@ -304,16 +309,30 @@ extension BrowserPanel {
         return DiffViewerLoadingPage.isPending(
             url: visibleURL,
             expectedURL: expectedURL,
+            ownedOpeningURL: diffViewerLoadingOwnedOpeningURL,
             openingDocumentHasPendingMarker: openingDocumentHasPendingMarker
         )
     }
 
     @discardableResult
-    func navigateFromCLI(_ url: String, expectedURL: String? = nil) -> Bool {
+    func navigateFromCLI(
+        _ url: String,
+        expectedURL: String? = nil,
+        expectedOperationID: UUID? = nil
+    ) -> Bool {
+        guard expectedOperationID.map({ diffViewerLoadingOperationID == $0 }) != false else {
+            return false
+        }
         guard expectedURL.map(hasCurrentURL) != false else { return false }
         if let internalURL = URL(string: url),
            internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
             guard CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: internalURL) else { return false }
+            if expectedOperationID != nil,
+               CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: internalURL)?
+                .requestPath
+                .hasSuffix("-opening.html") == true {
+                diffViewerLoadingOwnedOpeningURL = internalURL.absoluteString
+            }
             navigate(to: internalURL)
         } else {
             navigateSmart(url)

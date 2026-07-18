@@ -2881,6 +2881,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var diffViewerImmediatePresentationHost: NSView?
     var diffViewerLoadingOverlay: NSView?
     var diffViewerLoadingOperationID: UUID?
+    var diffViewerLoadingOwnedOpeningURL: String?
     private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
     let automationWatchdog = BrowserAutomationWatchdog()
     let automationDocumentReadiness = BrowserAutomationDocumentReadiness()
@@ -3960,6 +3961,13 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func reconcileDiffViewerLoadingOverlayAfterNavigationCommit(to url: URL?) {
+        if let url,
+           url != DiffViewerLoadingPage.url,
+           url.absoluteString != diffViewerLoadingOwnedOpeningURL,
+           !browserIsTemporaryHistoryURL(url) {
+            diffViewerLoadingOperationID = nil
+            diffViewerLoadingOwnedOpeningURL = nil
+        }
         guard diffViewerLoadingOverlay != nil,
               url != DiffViewerLoadingPage.url,
               !browserIsTemporaryHistoryURL(url) else {

@@ -43,6 +43,7 @@ extension CMUXCLI {
         _ payload: [String: Any],
         _ expectedURL: URL,
         _ completedURL: URL,
+        _ expectedOperationID: String?,
         _ socketPath: String,
         _ explicitPassword: String?
     ) throws {
@@ -56,13 +57,17 @@ extension CMUXCLI {
             launchIfNeeded: false
         )
         defer { client.close() }
+        var params: [String: Any] = [
+            "surface_id": surface,
+            "url": completedURL.absoluteString,
+            "expected_url": expectedURL.absoluteString,
+        ]
+        if let expectedOperationID {
+            params["expected_operation_id"] = expectedOperationID
+        }
         _ = try client.sendV2(
             method: "browser.navigate",
-            params: [
-                "surface_id": surface,
-                "url": completedURL.absoluteString,
-                "expected_url": expectedURL.absoluteString,
-            ]
+            params: params
         )
     }
 
