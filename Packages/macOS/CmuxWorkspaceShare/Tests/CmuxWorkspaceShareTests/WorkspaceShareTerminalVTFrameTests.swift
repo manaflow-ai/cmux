@@ -68,6 +68,17 @@ struct WorkspaceShareTerminalVTFrameTests {
                 data: Data([1])
             )
         }
+        #expect(throws: WorkspaceShareTerminalVTFrameError.invalidDimensions) {
+            try WorkspaceShareTerminalVTFrame(
+                surfaceId: surfaceId,
+                generation: 1,
+                stateSeq: 1,
+                columns: 1_000,
+                rows: 201,
+                kind: .snapshot,
+                data: Data([1])
+            )
+        }
         #expect(throws: WorkspaceShareTerminalVTFrameError.invalidDataSize) {
             try WorkspaceShareTerminalVTFrame(
                 surfaceId: surfaceId,

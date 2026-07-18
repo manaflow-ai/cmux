@@ -106,6 +106,8 @@ describe("viewer collaboration payloads", () => {
     expect(validTerminalVTPayload({ ...payload, generation: 0 })).toBe(false);
     expect(validTerminalVTPayload({ ...payload, stateSeq: Number.MAX_SAFE_INTEGER + 1 })).toBe(false);
     expect(validTerminalVTPayload({ ...payload, columns: 1_001 })).toBe(false);
+    expect(validTerminalVTPayload({ ...payload, columns: 1_000, rows: 200 })).toBe(true);
+    expect(validTerminalVTPayload({ ...payload, columns: 1_000, rows: 201 })).toBe(false);
     expect(validTerminalVTPayload({ ...payload, kind: "delta" })).toBe(false);
     expect(validTerminalVTPayload({ ...payload, dataB64: "***=" })).toBe(false);
     expect(validTerminalVTPayload({ ...payload, participant: {} })).toBe(false);
