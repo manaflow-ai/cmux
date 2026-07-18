@@ -38,7 +38,6 @@ enum {
 typedef enum {
     CMUX_SUBMISSION_RETRYABLE,
     CMUX_SUBMISSION_QUEUED,
-    CMUX_SUBMISSION_HANDOFF_UNACKNOWLEDGED,
     CMUX_SUBMISSION_UNSUPPORTED,
     CMUX_SUBMISSION_REJECTED,
 } CMUXSubmissionResult;
@@ -558,6 +557,23 @@ static bool cmux_pwrite_all(
     return true;
 }
 
+static bool cmux_store_shared_memory(
+    int descriptor,
+    const unsigned char *bytes,
+    size_t count
+) {
+    if (count == 0 || ftruncate(descriptor, (off_t)count) != 0) {
+        return false;
+    }
+    void *mapping = mmap(NULL, count, PROT_READ | PROT_WRITE, MAP_SHARED, descriptor, 0);
+    if (mapping == MAP_FAILED) {
+        return false;
+    }
+    memcpy(mapping, bytes, count);
+    munmap(mapping, count);
+    return true;
+}
+
 static int cmux_open_private_outbox_directory(const char *path) {
     if (path == NULL || path[0] != '/') {
         return -1;
@@ -639,23 +655,6 @@ static bool cmux_publish_outbox(
             (unsigned long long)random
         );
 
-        const int shared_memory = shm_open(
-            shared_memory_name,
-            O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC,
-            0600
-        );
-        if (shared_memory < 0) {
-            continue;
-        }
-        bool record_ready = fchmod(shared_memory, 0600) == 0
-            && ftruncate(shared_memory, (off_t)command->count) == 0
-            && cmux_pwrite_all(shared_memory, command->bytes, command->count);
-        close(shared_memory);
-        if (!record_ready) {
-            shm_unlink(shared_memory_name);
-            continue;
-        }
-
         char marker[512];
         const int marker_count = snprintf(
             marker,
@@ -677,16 +676,40 @@ static bool cmux_publish_outbox(
             0600
         );
         if (marker_descriptor < 0) {
-            shm_unlink(shared_memory_name);
             continue;
         }
-        record_ready = fchmod(marker_descriptor, 0600) == 0
+        bool record_ready = fchmod(marker_descriptor, 0600) == 0
             && cmux_pwrite_all(
                 marker_descriptor,
                 (const unsigned char *)marker,
                 (size_t)marker_count
-            );
+        );
         close(marker_descriptor);
+        if (!record_ready) {
+            unlinkat(directory, pending_name, 0);
+            continue;
+        }
+
+        // Publish the discoverable pending manifest before allocating shared
+        // memory. A helper killed at any later point leaves a name the app can
+        // either recover after the grace period or clean without leaking an
+        // unreachable kernel object.
+        const int shared_memory = shm_open(
+            shared_memory_name,
+            O_CREAT | O_EXCL | O_RDWR,
+            0600
+        );
+        if (shared_memory < 0) {
+            unlinkat(directory, pending_name, 0);
+            continue;
+        }
+        struct stat shared_memory_status = {0};
+        record_ready = fcntl(shared_memory, F_SETFD, FD_CLOEXEC) == 0
+            && fstat(shared_memory, &shared_memory_status) == 0
+            && shared_memory_status.st_uid == geteuid()
+            && (shared_memory_status.st_mode & 0077) == 0
+            && cmux_store_shared_memory(shared_memory, command->bytes, command->count);
+        close(shared_memory);
         if (!record_ready
             || renameat(directory, pending_name, directory, ready_name) != 0) {
             unlinkat(directory, pending_name, 0);
@@ -900,14 +923,10 @@ static CMUXSubmissionResult cmux_read_queued_ack(int socket_fd, int64_t deadline
             if (cmux_wait_for_socket(socket_fd, POLLIN, deadline)) {
                 continue;
             }
-            // The complete request already reached the local Unix socket.
-            // Closing our side leaves those bytes readable after EOF, so the
-            // app retains ownership even when its durable ack misses this
-            // foreground deadline. Retrying every such handoff would create a
-            // fork/CLI storm precisely while the app is overloaded.
-            if (cmux_monotonic_milliseconds() >= deadline) {
-                return CMUX_SUBMISSION_HANDOFF_UNACKNOWLEDGED;
-            }
+            // Socket bytes are not durable acceptance. The normal advertised
+            // path has already published to the bounded outbox; if that path
+            // was unavailable, retry rather than losing an app-crash race.
+            return CMUX_SUBMISSION_RETRYABLE;
         }
         return CMUX_SUBMISSION_RETRYABLE;
     }
@@ -1377,6 +1396,7 @@ int main(int argument_count, char **arguments) {
         : NULL;
     const char *socket_path = getenv("CMUX_SOCKET_PATH");
     const char *capability = getenv("CMUX_SOCKET_CAPABILITY");
+    const char *outbox_capability = getenv("CMUX_AGENT_HOOK_OUTBOX_CAPABILITY");
     const char *queue_protocol = getenv("CMUX_AGENT_HOOK_ENQUEUE_V1");
     const char *outbox_directory = getenv("CMUX_AGENT_HOOK_OUTBOX_DIR");
     const bool queue_protocol_advertised = queue_protocol != NULL
@@ -1400,10 +1420,10 @@ int main(int argument_count, char **arguments) {
         );
     if (queue_protocol_advertised
         && command_built
-        && cmux_capability_is_valid(capability)
+        && cmux_capability_is_valid(outbox_capability)
         && outbox_directory != NULL
         && outbox_directory[0] != '\0'
-        && cmux_publish_outbox(outbox_directory, capability, &command)) {
+        && cmux_publish_outbox(outbox_directory, outbox_capability, &command)) {
         submission = CMUX_SUBMISSION_QUEUED;
     } else if (queue_protocol_advertised
         && command_built
@@ -1418,8 +1438,7 @@ int main(int argument_count, char **arguments) {
         );
     }
 
-    const bool needs_fallback = submission != CMUX_SUBMISSION_QUEUED
-        && submission != CMUX_SUBMISSION_HANDOFF_UNACKNOWLEDGED;
+    const bool needs_fallback = submission != CMUX_SUBMISSION_QUEUED;
     if (needs_fallback) {
         // Emit and detach the caller-visible descriptors before forking. The
         // worker can then start whenever the scheduler permits without
