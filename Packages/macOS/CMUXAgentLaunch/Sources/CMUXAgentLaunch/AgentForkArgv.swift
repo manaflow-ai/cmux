@@ -132,10 +132,10 @@ public struct AgentForkArgv: Sendable, Equatable {
                 return nil
             }
             return [parts.executable, "--fork", sessionId] + preserved
-        case "pi":
+        case "pi", "campfire":
             return withForkSessionValue(
-                kind: "pi",
-                executable: "pi",
+                kind: kind,
+                executable: kind,
                 sessionId: sessionId,
                 executablePath: executablePath,
                 arguments: arguments
