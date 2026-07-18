@@ -1122,14 +1122,22 @@ impl ClientRegistry {
         client: u64,
         surface: SurfaceId,
         stream: OutboundStream,
-    ) -> anyhow::Result<Option<ClientAnnouncement>> {
+    ) -> anyhow::Result<()> {
         let mut clients = self.clients.lock().unwrap();
         let record =
             clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         record.attached.entry(surface).or_default().streams.insert(stream.id, stream);
+        Ok(())
+    }
+
+    fn announce_attached(&self, client: u64) -> anyhow::Result<Option<ClientAnnouncement>> {
+        let mut clients = self.clients.lock().unwrap();
+        let record =
+            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         if record.announced_attached {
             return Ok(None);
         }
+        anyhow::ensure!(!record.attached.is_empty(), "client {client} has no attached surfaces");
         record.announced_attached = true;
         Ok(Some((record.transport.as_str().to_string(), record.name.clone(), record.kind.clone())))
     }
@@ -2336,11 +2344,7 @@ fn mark_client_attached(
     stream: OutboundStream,
     initial_size: Option<(u16, u16)>,
 ) -> anyhow::Result<()> {
-    if let Some((transport, name, kind)) =
-        mux.control_clients.attach_surface(client, surface, stream.clone())?
-    {
-        mux.emit(MuxEvent::ClientAttached { client, transport, name, kind });
-    }
+    mux.control_clients.attach_surface(client, surface, stream.clone())?;
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
         let rows = rows.max(1);
@@ -2356,6 +2360,13 @@ fn mark_client_attached(
         if changed {
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
         }
+    }
+    Ok(())
+}
+
+fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<()> {
+    if let Some((transport, name, kind)) = mux.control_clients.announce_attached(client)? {
+        mux.emit(MuxEvent::ClientAttached { client, transport, name, kind });
     }
     Ok(())
 }
@@ -3211,6 +3222,7 @@ fn handle_command(
                     unmark_client_attached(mux, client, surface_id, &outbound_stream);
                     return Err(error.into());
                 }
+                announce_client_attached(mux, client)?;
                 return Ok(json!({}));
             }
             if surface.kind() == SurfaceKind::Browser {
@@ -3312,6 +3324,7 @@ fn handle_command(
                     unmark_client_attached(mux, client, surface_id, &outbound_stream);
                     return Err(error.into());
                 }
+                announce_client_attached(mux, client)?;
                 return Ok(json!({}));
             }
             mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
@@ -3415,6 +3428,7 @@ fn handle_command(
                 unmark_client_attached(mux, client, surface_id, &outbound_stream);
                 return Err(error.into());
             }
+            announce_client_attached(mux, client)?;
             Ok(json!({}))
         }
     }
@@ -4373,7 +4387,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_attach_setup_does_not_announce_client() {
+    fn failed_attach_setup_does_not_announce_or_suppress_retry() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
         let writer = test_writer();
@@ -4387,6 +4401,16 @@ mod tests {
         );
         assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::ClientAttached { .. })));
         assert!(!mux.control_clients.attached_client_ids().contains(&client));
+
+        let retry_stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        mark_client_attached(&mux, client, surface.id, retry_stream, Some((80, 24))).unwrap();
+        assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::ClientAttached { .. })));
+        announce_client_attached(&mux, client).unwrap();
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientAttached { client: attached, .. }) if attached == client
+        ));
     }
 
     #[test]
