@@ -9332,12 +9332,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         // Workspace IDs can change when a persisted terminal surface is
-        // restored. The stable surface ID is authoritative only when the
-        // claimed workspace no longer exists; if both workspaces are live,
-        // retain the mismatch rejection so stale routing cannot redirect a
-        // Feed card into another active workspace.
+        // restored. A dormant manager may still retain the old workspace, so
+        // the stable surface's live owner wins across managers. Within one
+        // manager, keep rejecting a mismatched workspace/surface pair so a
+        // stale card cannot redirect into a sibling workspace.
         if located.workspaceId != claimedWorkspaceID,
-           tabManagerFor(tabId: claimedWorkspaceID) != nil {
+           let claimedManager = tabManagerFor(tabId: claimedWorkspaceID),
+           claimedManager === located.tabManager {
             return false
         }
         let targetWorkspaceID = located.workspaceId
