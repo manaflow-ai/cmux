@@ -34,7 +34,6 @@ concurrency:
 jobs:
   benchmark:
     name: ${{ matrix.scenario }}
-    if: ${{ github.event_name != 'workflow_dispatch' || matrix.scenario == inputs.scenario }}
     runs-on: ${{ inputs.runner || vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 55
     env:
@@ -43,11 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario:
-          - universal-wmo
-          - universal-singlefile
-          - arm64-wmo
-          - x86_64-wmo
+        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["universal-wmo","universal-singlefile","arm64-wmo","x86_64-wmo"]') }}
     steps:
       - name: Checkout benchmark ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
