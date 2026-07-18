@@ -37,6 +37,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if let resizeDidEndObserver {
             NotificationCenter.default.removeObserver(resizeDidEndObserver)
         }
+        previewBailoutTask?.cancel()
     }
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
@@ -131,6 +132,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         selectedScrollTargetWorkspaceId: UUID?
     ) {
         guard let containerView else { return }
+        // Authoritative render: reconciles any optimistic preview, so the
+        // preview bailout stands down.
+        applyGeneration &+= 1
+        previewBailoutTask?.cancel()
+        previewBailoutTask = nil
         self.actions = actions
         actions.attachScrollView(containerView.scrollView)
         configureDropViews(in: containerView, actions: actions)
@@ -412,14 +418,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // visible row peeled. Drop the queued selection and restore visible
         // cells from their stored models before drop targets paint.
         selectionCoalescer.cancel()
-        if let table = containerView?.tableView {
-            let visible = table.rows(in: table.visibleRect)
-            if visible.length > 0 {
-                reconfigureVisibleRows(
-                    IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
-                )
-            }
-        }
+        previewBailoutTask?.cancel()
+        previewBailoutTask = nil
+        restoreVisibleCellPaint()
         if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
             positionAppKitDropIndicator()
         }
@@ -462,9 +463,47 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 // preview selection; a replaced header preview must peel too.
                 (cellView as? SidebarGroupHeaderTableCellView)?.clearOptimisticAnchorActive()
             }
+            workspaceCell?.showOptimisticSelectionHighlight()
+        } else {
+            // A modifier click joins the multi-selection: preview the dim
+            // multi-select tint, not the full active treatment (which made
+            // every cmd-click flash bright and settle dim).
+            workspaceCell?.showOptimisticMultiSelection()
         }
-        workspaceCell?.showOptimisticSelectionHighlight()
         headerCell?.showOptimisticAnchorActive()
+        // Optimistic paint is only reconciled by an authoritative apply, and
+        // some presses never produce one (drag that lands where it started,
+        // press swallowed by the drag threshold, selection unchanged). Left
+        // alone, those strand the peel — the sidebar shows NO selection until
+        // an unrelated change repaints. Restore truth if no apply arrives.
+        schedulePreviewBailout()
+    }
+
+    private var applyGeneration: UInt64 = 0
+    private var previewBailoutTask: Task<Void, Never>?
+    private let previewBailoutClock = ContinuousClock()
+
+    private func schedulePreviewBailout() {
+        previewBailoutTask?.cancel()
+        let generation = applyGeneration
+        // Injected-Clock sleep with cancellation (bounded-delay policy); the
+        // authoritative apply cancels it and bumps the generation.
+        previewBailoutTask = Task { [weak self, previewBailoutClock] in
+            try? await previewBailoutClock.sleep(for: .milliseconds(400))
+            guard let self, !Task.isCancelled, self.applyGeneration == generation else { return }
+            self.previewBailoutTask = nil
+            self.restoreVisibleCellPaint()
+        }
+    }
+
+    private func restoreVisibleCellPaint() {
+        guard let table = containerView?.tableView else { return }
+        let visible = table.rows(in: table.visibleRect)
+        for row in visible.lowerBound..<(visible.lowerBound + visible.length) {
+            let cellView = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+            (cellView as? SidebarWorkspaceRowTableCellView)?.restoreStoredModelPaint()
+            (cellView as? SidebarGroupHeaderTableCellView)?.clearOptimisticAnchorActive()
+        }
     }
 
     func middleClick(row: Int) {

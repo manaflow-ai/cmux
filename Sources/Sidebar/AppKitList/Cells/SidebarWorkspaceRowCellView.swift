@@ -124,6 +124,27 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         needsLayout = true
     }
 
+    /// Modifier-click preview: a cmd/shift press JOINS the multi-selection,
+    /// so it paints the dim multi-select tint — painting the full active
+    /// treatment made every cmd-click flash bright blue and then settle
+    /// dim once the authoritative state landed.
+    func showOptimisticMultiSelection() {
+        guard let model, !model.isActive, !model.isMultiSelected else { return }
+        var optimistic = model
+        optimistic.isMultiSelected = true
+        applyModel(optimistic)
+        needsLayout = true
+    }
+
+    /// Restores the stored (authoritative) model's paint, undoing any
+    /// optimistic treatment. Used by the preview bailout when no
+    /// authoritative apply arrives to reconcile.
+    func restoreStoredModelPaint() {
+        guard let model else { return }
+        applyModel(model)
+        needsLayout = true
+    }
+
     /// True when a press at this view should not repaint selection (the
     /// close button closes without selecting).
     func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
