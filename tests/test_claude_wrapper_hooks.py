@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import plistlib
 import shutil
 import socket
 import subprocess
@@ -24,6 +25,20 @@ SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def write_helper_info(path: Path, bundle_identifier: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as file:
+        plistlib.dump(
+            {
+                "CFBundleExecutable": "cmux-cua-driver",
+                "CFBundleIdentifier": bundle_identifier,
+                "CFBundleName": "cmux Computer Use",
+                "CFBundlePackageType": "APPL",
+            },
+            file,
+        )
 
 
 def read_lines(path: Path) -> list[str]:
@@ -52,7 +67,7 @@ def run_wrapper(
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
-        wrapper_dir = tmp / "wrapper-bin"
+        wrapper_dir = tmp / "cmux.app" / "Contents" / "Resources" / "bin"
         real_dir = tmp / "real-bin"
         bundled_dir = tmp / "bundled cli"
         wrapper_dir.mkdir(parents=True, exist_ok=True)
@@ -82,6 +97,9 @@ printf '%s\\n' "${CLAUDECODE-__UNSET__}" > "$FAKE_REAL_CLAUDECODE_LOG"
 printf '%s\\n' "${NODE_OPTIONS-__UNSET__}" > "$FAKE_REAL_NODE_OPTIONS_LOG"
 printf '%s\\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-__UNSET__}" > "$FAKE_REAL_LAUNCH_ARGV_B64_LOG"
 printf '%s\\n' "${CMUX_CLAUDE_HOOK_CMUX_BIN-__UNSET__}" > "$FAKE_HOOK_CMUX_BIN_LOG"
+if [[ -n "${FAKE_HELPER_INFO_PLIST:-}" && -f "$FAKE_HELPER_INFO_PLIST" ]]; then
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FAKE_HELPER_INFO_PLIST" >&2
+fi
 for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
 done
@@ -915,15 +933,56 @@ def computer_use_sandbox(
     disabled: bool = False,
     managed_sideload_source: str | None = None,
     path_helper_trap: bool = False,
+    stale_helper_bundle_id: str | None = None,
 ):
     def setup(tmp: Path, env: dict) -> None:
+        sandbox_home = tmp / "home"
+        sandbox_home.mkdir()
+        env["HOME"] = str(sandbox_home)
         env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
         env.pop("CMUX_CUA_DRIVER", None)
         if bundled_driver:
             make_executable(
-                tmp / "wrapper-bin" / "cmux-cua-driver",
+                tmp / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-cua-driver",
                 "#!/usr/bin/env bash\nexit 0\n",
             )
+            helper_driver = (
+                tmp
+                / "cmux.app"
+                / "Contents"
+                / "Library"
+                / "cmux Computer Use.app"
+                / "Contents"
+                / "MacOS"
+                / "cmux-cua-driver"
+            )
+            helper_driver.parent.mkdir(parents=True)
+            make_executable(
+                helper_driver,
+                "#!/usr/bin/env bash\nexit 0\n",
+            )
+            write_helper_info(
+                helper_driver.parents[1] / "Info.plist",
+                "com.cmuxterm.test.current.computer-use",
+            )
+            if stale_helper_bundle_id is not None:
+                stale_driver = (
+                    sandbox_home
+                    / "Library"
+                    / "Application Support"
+                    / "cmux"
+                    / "computer-use"
+                    / "helper"
+                    / "cmux Computer Use.app"
+                    / "Contents"
+                    / "MacOS"
+                    / "cmux-cua-driver"
+                )
+                stale_driver.parent.mkdir(parents=True, exist_ok=True)
+                make_executable(stale_driver, "#!/usr/bin/env bash\nexit 0\n")
+                stale_info = stale_driver.parents[1] / "Info.plist"
+                write_helper_info(stale_info, stale_helper_bundle_id)
+                env["FAKE_HELPER_INFO_PLIST"] = str(stale_info)
         if override_driver:
             env["CMUX_CUA_DRIVER"] = "/bin/echo"
         if group_writable_override:
@@ -996,28 +1055,53 @@ def extract_injected_mcp_config(argv: list[str]) -> dict | None:
     return json.loads(argv[index].split("=", 1)[1])
 
 
-def expect_computer_use_env_scrubbed(server: dict, failures: list[str], context: str) -> None:
+def expect_computer_use_env_scrubbed(
+    server: dict,
+    failures: list[str],
+    context: str,
+    *,
+    helper_owned: bool,
+) -> None:
     env = server.get("env")
+    expect(isinstance(env, dict), f"{context}: expected MCP env, got {server}", failures)
+    if not isinstance(env, dict):
+        return
+    expected_common = {
+        "CUA_DRIVER_DEFAULT_SESSION": "cmux-surface:test",
+        "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
+        "CUA_DRIVER_RS_UPDATE_CHECK": "false",
+        "CUA_DRIVER_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
+        "CUA_DRIVER_CURSOR_BLOOM": "#2d8cff",
+        "CUA_DRIVER_CURSOR_LABEL": "cmux",
+        "NODE_OPTIONS": "",
+        "BUN_OPTIONS": "",
+    }
+    for key, value in expected_common.items():
+        expect(env.get(key) == value, f"{context}: expected {key}={value!r}, got {env}", failures)
+    state_dir = env.get("CUA_DRIVER_STATE_DIR", "")
     expect(
-        env
-        == {
-            "CUA_DRIVER_EMBEDDED": "1",
-            "CUA_DRIVER_DEFAULT_SESSION": "cmux-surface:test",
-            "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
-            "CUA_DRIVER_RS_UPDATE_CHECK": "false",
-            "CUA_DRIVER_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
-            "CUA_DRIVER_CURSOR_BLOOM": "#2d8cff",
-            "CUA_DRIVER_CURSOR_LABEL": "cmux",
-            "CUA_DRIVER_STATE_DIR": str(Path.home() / "Library/Application Support/cmux/computer-use/state"),
-            "NODE_OPTIONS": "",
-            "BUN_OPTIONS": "",
-        },
-        f"{context}: expected embedded env, network opt-outs, and runtime preload scrub, got {server}",
+        state_dir.endswith("/Library/Application Support/cmux/computer-use/state"),
+        f"{context}: unexpected state directory {state_dir!r}",
         failures,
     )
+    if helper_owned:
+        expect("CUA_DRIVER_EMBEDDED" not in env, f"{context}: helper path must not be embedded: {env}", failures)
+        helper_app = Path(env.get("CUA_DRIVER_DAEMON_APP", ""))
+        expect(helper_app.name == "cmux Computer Use.app", f"{context}: unexpected helper {helper_app}", failures)
+        expect("CuaDriver" not in str(helper_app), f"{context}: must not expose CuaDriver: {helper_app}", failures)
+    else:
+        expect(env.get("CUA_DRIVER_EMBEDDED") == "1", f"{context}: expected embedded bare override: {env}", failures)
+        expect("CUA_DRIVER_DAEMON_APP" not in env, f"{context}: bare override must not name a helper: {env}", failures)
 
 
-def expect_cua_driver_config(config: dict | None, failures: list[str], context: str, expected_name: str) -> None:
+def expect_cua_driver_config(
+    config: dict | None,
+    failures: list[str],
+    context: str,
+    expected_name: str,
+    *,
+    helper_owned: bool,
+) -> None:
     expect(config is not None, f"{context}: expected --mcp-config=<json>", failures)
     if config is None:
         return
@@ -1029,8 +1113,20 @@ def expect_cua_driver_config(config: dict | None, failures: list[str], context: 
         failures,
     )
     args = server.get("args", [])
-    expect(args == ["--embedded"], f"{context}: expected embedded driver args, got {config}", failures)
-    expect_computer_use_env_scrubbed(server, failures, context)
+    if helper_owned:
+        expect(
+            len(args) == 3 and args[:2] == ["mcp", "--socket"],
+            f"{context}: expected helper daemon proxy args, got {config}",
+            failures,
+        )
+        expect(
+            isinstance(command, str) and "cmux Computer Use.app" in Path(command).parts,
+            f"{context}: expected command from branded helper bundle, got {command}",
+            failures,
+        )
+    else:
+        expect(args == ["--embedded"], f"{context}: expected embedded bare override args, got {config}", failures)
+    expect_computer_use_env_scrubbed(server, failures, context, helper_owned=helper_owned)
 
 
 def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> None:
@@ -1047,7 +1143,13 @@ def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> 
         failures,
     )
     config = extract_injected_mcp_config(real_argv)
-    expect_cua_driver_config(config, failures, "computer use inject", "cmux-cua-driver")
+    expect_cua_driver_config(
+        config,
+        failures,
+        "computer use inject",
+        "cmux-cua-driver",
+        helper_owned=True,
+    )
     inject_index = injected_mcp_config_index(real_argv)
     expect(
         inject_index is not None and inject_index < real_argv.index("hello"),
@@ -1060,6 +1162,27 @@ def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> 
     expect(
         injected_mcp_config_index(captured) is None and "--mcp-config" not in captured,
         f"computer use inject: captured launch argv must not include the injected flag, got {captured}",
+        failures,
+    )
+
+
+def test_stale_standalone_helper_identity_is_replaced(failures: list[str]) -> None:
+    code, _, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(
+            stale_helper_bundle_id="com.cmuxterm.test.stale.computer-use"
+        ),
+    )
+    expect(code == 0, f"stale helper identity: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "com.cmuxterm.test.current.computer-use" in stderr,
+        f"stale helper identity: expected current helper bundle id, got {stderr!r}",
+        failures,
+    )
+    expect(
+        "com.cmuxterm.test.stale.computer-use" not in stderr,
+        f"stale helper identity: reused stale helper bundle id: {stderr!r}",
         failures,
     )
 
@@ -1087,7 +1210,13 @@ def test_computer_use_driver_does_not_require_external_runtime_auth(failures: li
     )
     expect(code == 0, f"computer use no external auth: wrapper exited {code}: {stderr}", failures)
     config = extract_injected_mcp_config(real_argv)
-    expect_cua_driver_config(config, failures, "computer use no external auth", "cmux-cua-driver")
+    expect_cua_driver_config(
+        config,
+        failures,
+        "computer use no external auth",
+        "cmux-cua-driver",
+        helper_owned=True,
+    )
 
 
 def test_computer_use_uses_trusted_cua_driver_override(failures: list[str]) -> None:
@@ -1098,7 +1227,13 @@ def test_computer_use_uses_trusted_cua_driver_override(failures: list[str]) -> N
     )
     expect(code == 0, f"computer use override: wrapper exited {code}: {stderr}", failures)
     config = extract_injected_mcp_config(real_argv)
-    expect_cua_driver_config(config, failures, "computer use override", "echo")
+    expect_cua_driver_config(
+        config,
+        failures,
+        "computer use override",
+        "echo",
+        helper_owned=False,
+    )
 
 
 def test_computer_use_driver_skipped_for_strict_mcp_config(failures: list[str]) -> None:
@@ -2252,6 +2387,7 @@ def main() -> int:
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cua_driver_when_available(failures)
+    test_stale_standalone_helper_identity_is_replaced(failures)
     test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_driver_does_not_require_external_runtime_auth(failures)
     test_computer_use_uses_trusted_cua_driver_override(failures)
