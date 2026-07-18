@@ -6,11 +6,11 @@ import Testing
 /// Deterministic end-to-end replays of the update reaction pipeline: a real ``UpdateController``
 /// (reaction task, ``AttemptUpdateCoordinator``, ``InstallWatchdog``, prompt dismissal) driven
 /// through a fake ``UpdaterHandle`` and a deadline-controlled clock, with Sparkle's emissions
-/// replayed onto the model exactly as the production `cmux-update.log` recorded them.
+/// replayed onto the model in the same order as Sparkle's production callbacks.
 ///
 /// The real Sparkle install path only runs in release-channel builds (DEV builds suppress the
-/// appcast), so this harness is the only pre-merge way to reproduce pipeline bugs like the
-/// NIGHTLY double-idle install loop (https://github.com/manaflow-ai/cmux/pull/7174).
+/// appcast), so this harness is the pre-merge regression surface for the lifecycle between an
+/// accepted install and Sparkle's download callback.
 @MainActor
 @Suite struct UpdateControllerPipelineTests {
     private func updateAvailable(_ version: String, replyingInto box: ChoiceBox) -> UpdateState {
@@ -46,12 +46,77 @@ import Testing
 
     // MARK: - Replays
 
-    /// The production bug, replayed end to end from the user's `cmux-update.log`: Install is
-    /// pressed while "Update Available" shows, the stale prompt is dismissed (idle #1), Sparkle's
-    /// dismiss callback answers (idle #2), the fresh check restarts and resolves the newer
-    /// nightly. The shipped nightly aborted on idle #2 and never sent any reply; the fixed
-    /// pipeline must dismiss the stale prompt and install the freshly resolved one.
-    @Test func productionDoubleIdleSequenceReachesInstall() async {
+    /// Sparkle's dismissal callback is deliberately identity-free, so the authoritative cycle-end
+    /// signal must terminate an aborted manual check instead of leaving its spinner permanently
+    /// visible. The surfaced error remains actionable and starts a genuinely new check on retry.
+    @Test func finishedManualCycleCannotLeaveCheckingStateStale() {
+        let harness = Harness()
+
+        harness.controller.checkForUpdates()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
+        harness.controller.driver.dismissUpdateInstallation()
+        guard case .checking = harness.model.state else {
+            Issue.record("identity-free dismissal unexpectedly mutated the active manual check")
+            return
+        }
+
+        harness.finishSparkleCycle()
+        guard case .error(let failure) = harness.model.state else {
+            Issue.record("finished manual cycle left stale state: \(harness.model.state)")
+            return
+        }
+        #expect((failure.error as NSError).code == UpdateStateModel.foregroundCycleEndedCode)
+
+        failure.retry()
+        #expect(harness.updater.checkForUpdatesCallCount == 2)
+    }
+
+    /// The same terminal reconciliation applies after an update prompt was shown: once Sparkle
+    /// says that manual session is over, cmux must not leave an action backed by the dead session.
+    @Test func finishedManualCycleCannotLeaveUpdatePromptStale() {
+        let harness = Harness()
+        let prompt = ChoiceBox()
+
+        harness.controller.checkForUpdates()
+        harness.model.setState(updateAvailable("0.64.16", replyingInto: prompt))
+        harness.controller.driver.dismissUpdateInstallation()
+        guard case .updateAvailable = harness.model.state else {
+            Issue.record("identity-free dismissal unexpectedly mutated the active prompt")
+            return
+        }
+
+        harness.finishSparkleCycle()
+        #expect(errorCode(for: harness.model.state) == UpdateStateModel.foregroundCycleEndedCode)
+        #expect(prompt.choice == nil)
+    }
+
+    /// A failed updater start is already an actionable terminal. Check orchestration must not
+    /// replace it with preparation/readiness state, and Retry must preserve the original intent.
+    @Test func updaterStartupFailureStopsCheckAndRetryResumesIntent() {
+        let harness = Harness()
+        let startupError = NSError(domain: "test.updater.start", code: 41)
+        harness.updater.startError = startupError
+
+        harness.controller.checkForUpdates()
+
+        #expect(harness.updater.checkForUpdatesCallCount == 0)
+        guard case .error(let failure) = harness.model.state else {
+            Issue.record("startup failure was overwritten by \(harness.model.state)")
+            return
+        }
+        #expect((failure.error as NSError).domain == startupError.domain)
+
+        harness.updater.startError = nil
+        failure.retry()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        #expect(harness.updater.sessionInProgress)
+    }
+
+    /// End-to-end accepted-install lifecycle: retire the old prompt, wait for Sparkle's cycle-end
+    /// signal, re-resolve the newest nightly, retain visible ownership through the install reply,
+    /// and end only when Sparkle starts downloading.
+    @Test func dismissedPromptCycleThenFreshInstallReachesDownload() async {
         let harness = Harness()
         let stalePrompt = ChoiceBox()
         let freshPrompt = ChoiceBox()
@@ -59,20 +124,46 @@ import Testing
         harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
         harness.controller.attemptUpdate()
 
-        // The controller dismisses the stale prompt and starts exactly one fresh check.
+        // The controller dismisses the stale prompt but waits for the authoritative cycle end.
+        #expect(harness.updater.checkForUpdatesCallCount == 0)
+        harness.finishSparkleCycle()
         await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
         #expect(stalePrompt.choice == .dismiss)
 
-        // Sparkle's dismissUpdateInstallation answers the dismissal (idle #2 — the emission that
-        // used to abort the install), then the fresh check runs and resolves the newer nightly.
-        // Emitted back-to-back deliberately: the drain-ordered reactions must observe each one.
-        harness.model.setState(.idle)
+        // The identity-free dismiss callback cannot mutate the new session.
+        harness.controller.driver.dismissUpdateInstallation()
         harness.model.setState(.checking(.init(cancel: {})))
         harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
 
-        // The freshly resolved update is confirmed — the reply the shipped nightly never sent.
+        // Install ownership remains visible until Sparkle actually starts downloading.
         await waitUntil("install confirm") { freshPrompt.choice == .install }
-        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+        #expect(harness.model.state == .startingDownload)
+        #expect(harness.controller.attemptCoordinator.isMonitoring)
+        harness.controller.driver.dismissUpdateInstallation()
+        #expect(harness.model.state == .startingDownload)
+        harness.controller.driver.showDownloadInitiated(cancellation: {})
+        await waitUntil("download ownership") { !harness.controller.attemptCoordinator.isMonitoring }
+        guard case .downloading = harness.model.state else {
+            Issue.record("download callback did not advance startingDownload; state=\(harness.model.state)")
+            return
+        }
+    }
+
+    /// Regression for #8368: dismissing the old prompt does not synchronously end Sparkle's
+    /// update cycle. Starting the replacement check before Sparkle reports that the old cycle
+    /// finished is documented to refocus/no-op, which silently strands the accepted install.
+    @Test func installWaitsForDismissedSparkleCycleBeforeStartingFreshCheck() async {
+        let harness = Harness()
+        let stalePrompt = ChoiceBox()
+
+        harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
+        harness.controller.attemptUpdate()
+
+        #expect(stalePrompt.choice == .dismiss)
+
+        // No Sparkle cycle-finished signal has arrived, so starting a new check is not safe yet.
+        #expect(harness.updater.checkForUpdatesCallCount == 0)
+        #expect(harness.model.showsPill)
     }
 
     /// Transitions queued before the Install click belong to the prompt-producing check, not the
@@ -88,6 +179,7 @@ import Testing
         harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
         harness.controller.attemptUpdate()
         #expect(stalePrompt.choice == .dismiss)
+        harness.finishSparkleCycle()
         await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
 
         for _ in 0..<20 {
@@ -98,7 +190,7 @@ import Testing
         harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
 
         await waitUntil("fresh prompt to be confirmed") { freshPrompt.choice == .install }
-        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+        #expect(harness.controller.attemptCoordinator.isMonitoring)
     }
 
     /// When Sparkle is not ready yet, the readiness placeholder must not look like the fresh check
@@ -118,7 +210,7 @@ import Testing
         harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
 
         await waitUntil("fresh prompt to be confirmed") { freshPrompt.choice == .install }
-        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+        #expect(harness.controller.attemptCoordinator.isMonitoring)
     }
 
     /// If Sparkle never becomes ready during an install attempt, the readiness timeout is the
@@ -133,7 +225,10 @@ import Testing
         #expect(harness.updater.checkForUpdatesCallCount == 0)
         #expect(harness.controller.attemptCoordinator.isMonitoring)
         #expect(harness.controller.installWatchdog.isArmed)
-        #expect(harness.model.state.isIdle)
+        guard case .preparingCheck = harness.model.state else {
+            Issue.record("install readiness wait should stay visible")
+            return
+        }
 
         await waitUntil("not-ready error") {
             errorCode(for: harness.model.state) == UpdateStateModel.updaterNotReadyCode
@@ -166,8 +261,8 @@ import Testing
         harness.updater.canCheckForUpdates = false
         harness.controller.checkForUpdates()
 
-        guard case .checking = harness.model.state else {
-            Issue.record("manual readiness wait should show checking, got \(harness.model.state)")
+        guard case .preparingCheck = harness.model.state else {
+            Issue.record("manual readiness wait should show preparingCheck, got \(harness.model.state)")
             return
         }
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
@@ -179,25 +274,38 @@ import Testing
         #expect(!harness.controller.installWatchdog.isArmed)
     }
 
-    /// If the fresh check never restarts (no `.checking` ever arrives), the watchdog must turn
-    /// the silent stall into a visible "Update Didn't Start" error, resolve the re-emitted stale
-    /// prompt with a proper dismiss reply, and kill the attempt so a later unrelated resolution
-    /// is not auto-installed.
+    /// Readiness can change during the final bounded suspension. The controller must observe that
+    /// edge before publishing a false timeout.
+    @Test func readinessOnFinalRetryStartsPendingCheck() async {
+        let harness = Harness()
+        // One read before entering the wait, then twenty loop reads, then the final boundary read.
+        harness.updater.scriptedCanCheckForUpdates = Array(repeating: false, count: 21) + [true]
+
+        harness.controller.checkForUpdates()
+
+        await waitUntil("final readiness read to start the check") {
+            harness.updater.checkForUpdatesCallCount == 1
+        }
+        #expect(harness.updater.sessionInProgress)
+        if case .error = harness.model.state {
+            Issue.record("final readiness edge incorrectly surfaced an error")
+        }
+    }
+
+    /// If Sparkle accepts the fresh check call but emits no user-driver callback, the watchdog must
+    /// turn the stall into a visible error and kill the attempt so a later unrelated resolution is
+    /// not auto-installed.
     @Test func watchdogSurfacesErrorWhenFreshCheckNeverRestarts() async {
         let harness = Harness()
         let stalePrompt = ChoiceBox()
 
         harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
         harness.controller.attemptUpdate()
+        harness.finishSparkleCycle()
         await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
 
-        // Sparkle answers the dismissal, re-emits the stale prompt… and then nothing.
-        harness.model.setState(.idle)
-        let reEmittedPrompt = ChoiceBox()
-        harness.model.setState(updateAvailable("0.64.15", replyingInto: reEmittedPrompt))
-        await waitUntil("prompt to be observed") { harness.controller.attemptCoordinator.isMonitoring }
-
-        await harness.clock.fireDeadlines()
+        // Sparkle accepted the new check call but never emitted any user-driver callback.
+        await harness.clock.fireDeadlineWhenReady()
 
         await waitUntil("watchdog error") {
             if case .error(let failure) = harness.model.state {
@@ -205,9 +313,6 @@ import Testing
             }
             return false
         }
-        // The pending Sparkle prompt was resolved, not dropped.
-        #expect(reEmittedPrompt.choice == .dismiss)
-
         // The attempt is dead: a later unrelated resolution must not auto-install.
         let laterPrompt = ChoiceBox()
         harness.model.setState(updateAvailable("0.64.17", replyingInto: laterPrompt))
@@ -219,20 +324,18 @@ import Testing
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
     }
 
-    /// If the delayed re-check is dropped outright — the stale prompt is dismissed (idle) and
-    /// then nothing ever emits, not even `.checking` — the watchdog must still surface the
-    /// visible error rather than leaving the user at a silently empty pill.
+    /// If the old Sparkle cycle never finishes, the preparation phase stays visible until the
+    /// watchdog surfaces an error rather than leaving the user at a silently empty pill.
     @Test func watchdogSurfacesErrorWhenRecheckIsDropped() async {
         let harness = Harness()
         let stalePrompt = ChoiceBox()
 
         harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
         harness.controller.attemptUpdate()
-        await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
+        #expect(harness.updater.checkForUpdatesCallCount == 0)
 
-        // Sparkle answers the dismissal… and then nothing at all: the flow sits at idle.
-        harness.model.setState(.idle)
-        await harness.clock.fireDeadlines()
+        // The old cycle never finishes; the visible preparation phase eventually becomes error.
+        await harness.clock.fireDeadlineWhenReady()
 
         await waitUntil("watchdog error") {
             if case .error(let failure) = harness.model.state {
@@ -243,30 +346,53 @@ import Testing
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
     }
 
-    /// If the resolved prompt vanishes before the confirm hand-off runs (the user dismissed it
-    /// mid-drain, so the live state has moved past the drained snapshot), the controller must
-    /// not reply to the already-answered snapshot, and must disarm the watchdog so the leftover
-    /// deadline can't fire a spurious error afterwards.
-    @Test func vanishedPromptSkipsHandOffAndDisarms() async {
+    /// Regression for #8368: an unattributed idle transition can be a stale/background Sparkle
+    /// callback, not a user cancellation. If it removes the freshly resolved prompt before the
+    /// confirm hand-off, the accepted install must remain visible or become a retryable error.
+    @Test func unattributedPromptLossCannotSilentlyEndAcceptedInstall() async {
         let harness = Harness()
         let stalePrompt = ChoiceBox()
 
         harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
         harness.controller.attemptUpdate()
+        harness.finishSparkleCycle()
         await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
 
-        // Dismiss callback, fresh check restarts, resolution and the user's dismissal land
+        // Dismiss callback, fresh check restart, resolution, and an unattributed stale idle land
         // back-to-back: by the time the confirm hand-off runs, the prompt is gone.
-        harness.model.setState(.idle)
         harness.model.setState(.checking(.init(cancel: {})))
         let freshPrompt = ChoiceBox()
         harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
         harness.model.setState(.idle)
 
-        await waitUntil("watchdog to disarm") { !harness.controller.installWatchdog.isArmed }
+        await waitUntil("prompt-loss error") {
+            errorCode(for: harness.model.state) == UpdateStateModel.installDidNotStartCode
+        }
         #expect(freshPrompt.choice == nil)
-        await harness.clock.fireDeadlines()
-        #expect(harness.model.state.isIdle)
+    }
+
+    /// A retryable accepted-install failure must also resolve the Sparkle terminal it replaces.
+    /// Otherwise Sparkle still owns an unanswered session and the Retry action can no-op behind
+    /// the visible error.
+    @Test func acceptedInstallFailureAcknowledgesReplacedSparkleTerminal() async {
+        let harness = Harness()
+        let stalePrompt = ChoiceBox()
+        var didAcknowledgeNotFound = false
+
+        harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
+        harness.controller.attemptUpdate()
+        harness.finishSparkleCycle()
+        await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
+
+        harness.model.setState(.checking(.init(cancel: {})))
+        harness.model.setState(.notFound(.init(acknowledgement: {
+            didAcknowledgeNotFound = true
+        })))
+
+        await waitUntil("accepted-install error") {
+            errorCode(for: harness.model.state) == UpdateStateModel.installDidNotStartCode
+        }
+        #expect(didAcknowledgeNotFound)
     }
 
     /// If the live prompt is still visible but already answered before the queued confirm
@@ -278,9 +404,9 @@ import Testing
 
         harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
         harness.controller.attemptUpdate()
+        harness.finishSparkleCycle()
         await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
 
-        harness.model.setState(.idle)
         harness.model.setState(.checking(.init(cancel: {})))
         let freshPrompt = ChoiceBox()
         harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
@@ -307,13 +433,17 @@ import Testing
 
         harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
         harness.controller.attemptUpdate()
+        harness.finishSparkleCycle()
         await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
         #expect(harness.controller.installWatchdog.isArmed)
 
-        // Dismiss callback, fresh check starts, user hits Cancel in the checking popover.
-        harness.model.setState(.idle)
-        harness.model.setState(.checking(.init(cancel: {})))
-        harness.model.setState(.idle)
+        // The real cancellation closure notifies the lifecycle owner before returning to idle.
+        harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
+        guard case .checking(let checking) = harness.model.state else {
+            Issue.record("driver did not surface checking")
+            return
+        }
+        checking.cancel()
 
         await waitUntil("watchdog to disarm") { !harness.controller.installWatchdog.isArmed }
         await harness.clock.fireDeadlines()

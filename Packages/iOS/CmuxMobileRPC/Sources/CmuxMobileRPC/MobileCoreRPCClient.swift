@@ -22,6 +22,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     let session: MobileCoreRPCSession
     private let stackTokenGate: RPCStackTokenGate
     private let stackTokenForceRefreshGate: RPCStackTokenGate
+    private let lifecycleGate: MobileRPCClientLifecycleGate
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -30,6 +31,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
+    ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
+    ///     transport dial lifecycle events. The observer must return immediately.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
@@ -40,7 +43,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
-        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000
+        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000,
+        transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) -> Void)? = nil
     ) {
         self.runtime = runtime
         self.route = route
@@ -52,6 +56,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        let lifecycleGate = MobileRPCClientLifecycleGate()
+        self.lifecycleGate = lifecycleGate
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
@@ -60,7 +66,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if route.kind == .iroh,
            let provider = runtime.independentEventByteStreamProvider {
             independentEventFactory = {
-                try await provider(transportRequest)
+                let admission = try lifecycleGate.beginIndependentEventAdmission()
+                let stream = try await provider(transportRequest)
+                return try await lifecycleGate.finishIndependentEventAdmission(
+                    admission,
+                    stream: stream
+                )
             }
         } else {
             independentEventFactory = nil
@@ -70,17 +81,30 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
-            makeTransport: { [runtime, transportRequest] in
-                try runtime.transportFactory.makeTransport(for: transportRequest)
+            makeTransport: { [runtime, transportRequest, lifecycleGate] in
+                try lifecycleGate.makeTransport {
+                    try runtime.transportFactory.makeTransport(for: transportRequest)
+                }
             },
-            makeIndependentEventByteStream: independentEventFactory
+            makeIndependentEventByteStream: independentEventFactory,
+            diagnosticTransport: route.kind.diagnosticTransportKind,
+            transportConnectObserver: transportConnectObserver
         )
     }
 
     /// Tear down the persistent transport (called when the client is
     /// replaced or the user signs out).
     public func disconnect() async {
+        retire()
         await session.tearDown(error: .connectionClosed)
+    }
+
+    /// Synchronously prevent this client from allocating another transport.
+    /// Shell ownership changes call this before scheduling actor-isolated
+    /// teardown, closing the window where an already-queued RPC could reopen a
+    /// client that is no longer authoritative.
+    public func retire() {
+        lifecycleGate.retire()
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
@@ -212,6 +236,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
               request["method"] as? String == "mobile.events.subscribe",
               var params = request["params"] as? [String: Any],
               params["event_transport"] == nil,
+              let streamID = params["stream_id"] as? String,
               let remaining = try? deadline.remainingNanoseconds() else {
             return requestData
         }
@@ -220,6 +245,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             Self.independentEventPreparationTimeoutNanoseconds
         )
         guard await session.prepareIndependentServerEvents(
+            forSubscriptionStreamID: streamID,
             timeoutNanoseconds: preparationTimeout
         ) else {
             return requestData

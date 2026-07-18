@@ -19,7 +19,8 @@ enum PairedMacInstanceTagUpdate {
 @MainActor
 extension MobileShellComposite {
     /// Persist a connection only with authority proven by authenticated status.
-    /// Returns false when a no-tag fresh attach finds an existing tagged owner.
+    /// Returns false when persistence fails or a no-tag fresh attach finds an
+    /// existing tagged owner.
     @discardableResult
     func persistPairedMacFromTicket(
         _ ticket: CmxAttachTicket,
@@ -132,6 +133,7 @@ extension MobileShellComposite {
                 )
                 self.hasKnownPairedMac = true
             } catch {
+                accepted = false
                 pairedMacPersistenceLog.error(
                     "paired mac upsert failed: \(String(describing: error), privacy: .public)"
                 )

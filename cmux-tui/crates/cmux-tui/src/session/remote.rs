@@ -280,11 +280,15 @@ impl RemoteSurface {
         *self.reported_size.lock().unwrap() = Some(size);
     }
 
-    pub(super) fn clear_reported_size(&self, size: (u16, u16)) {
+    pub(super) fn clear_reported_size_if(&self, size: (u16, u16)) {
         let mut reported = self.reported_size.lock().unwrap();
         if *reported == Some(size) {
             *reported = None;
         }
+    }
+
+    pub(super) fn clear_reported_size(&self) {
+        *self.reported_size.lock().unwrap() = None;
     }
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {
@@ -360,6 +364,12 @@ impl RemoteSurface {
     }
 }
 
+#[derive(Default)]
+struct SubscriptionRecoveryState {
+    generation: u64,
+    in_flight: bool,
+}
+
 pub struct RemoteSession {
     writer: Mutex<Box<dyn transport::Stream>>,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
@@ -370,7 +380,7 @@ pub struct RemoteSession {
     tree: Mutex<RemoteTreeCache>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
-    subscription_recovery_in_flight: AtomicBool,
+    subscription_recovery: Mutex<SubscriptionRecoveryState>,
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
@@ -403,7 +413,7 @@ impl RemoteSession {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
-            subscription_recovery_in_flight: AtomicBool::new(false),
+            subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
@@ -508,7 +518,7 @@ impl RemoteSession {
                 let retry_after_ms = value.get("retry_after_ms").and_then(Value::as_u64);
                 let reservation_id = value.get("reservation_id").and_then(Value::as_u64);
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.clear_reported_size((cols.max(1), rows.max(1)));
+                    surface.clear_reported_size_if((cols.max(1), rows.max(1)));
                 }
                 self.emit(MuxEvent::SurfaceResizeFailed {
                     surface: id,
@@ -702,6 +712,37 @@ impl RemoteSession {
                     self.emit(MuxEvent::ScrollChanged { surface, offset, at_bottom });
                 }
             }
+            Some("client-attached") => {
+                let Some(client) = value.get("client").and_then(Value::as_u64) else {
+                    return;
+                };
+                self.emit(MuxEvent::ClientAttached {
+                    client,
+                    transport: value
+                        .get("transport")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    name: value.get("name").and_then(Value::as_str).map(str::to_string),
+                    kind: value.get("kind").and_then(Value::as_str).map(str::to_string),
+                });
+            }
+            Some("client-changed") => {
+                let Some(client) = value.get("client").and_then(Value::as_u64) else {
+                    return;
+                };
+                self.emit(MuxEvent::ClientChanged {
+                    client,
+                    name: value.get("name").and_then(Value::as_str).map(str::to_string),
+                    kind: value.get("kind").and_then(Value::as_str).map(str::to_string),
+                });
+            }
+            Some("client-detached") => {
+                if let Some(client) = value.get("client").and_then(Value::as_u64) {
+                    self.emit(MuxEvent::ClientDetached(client));
+                }
+            }
+            Some("client-list-invalidated") => self.emit(MuxEvent::ClientListInvalidated),
             Some("pairing-requested") => {
                 let challenge = PairingChallenge {
                     id: value.get("request").and_then(Value::as_u64).unwrap_or_default(),
@@ -724,42 +765,59 @@ impl RemoteSession {
     }
 
     fn start_subscription_recovery(self: &Arc<Self>) {
-        if self.subscription_recovery_in_flight.swap(true, Ordering::AcqRel) {
-            return;
+        {
+            let mut recovery = self.subscription_recovery.lock().unwrap();
+            recovery.generation = recovery.generation.wrapping_add(1).max(1);
+            if recovery.in_flight {
+                return;
+            }
+            recovery.in_flight = true;
         }
         self.emit(MuxEvent::Status("event subscription overflowed; resubscribing".to_string()));
         let session = self.clone();
         let spawn =
             std::thread::Builder::new().name("remote-resubscribe".into()).spawn(move || {
-                let first = session.request(json!({"cmd": "subscribe"}));
-                let result = match first {
-                    Err(error) if Self::subscription_recovery_is_retryable(&error) => {
-                        session.request(json!({"cmd": "subscribe"}))
+                loop {
+                    let recovery_generation =
+                        session.subscription_recovery.lock().unwrap().generation;
+                    let first = session.request(json!({"cmd": "subscribe"}));
+                    let result = match first {
+                        Err(error) if Self::subscription_recovery_is_retryable(&error) => {
+                            session.request(json!({"cmd": "subscribe"}))
+                        }
+                        result => result,
+                    };
+                    let mut recovery = session.subscription_recovery.lock().unwrap();
+                    if recovery.generation != recovery_generation {
+                        drop(recovery);
+                        continue;
                     }
-                    result => result,
-                };
-                session.subscription_recovery_in_flight.store(false, Ordering::Release);
-                match result {
-                    Ok(_) => {
-                        session.emit(MuxEvent::Status(
-                            "event subscription overflowed; resubscribed".to_string(),
-                        ));
-                        session.emit(MuxEvent::TreeChanged);
+                    match result {
+                        Ok(_) => {
+                            session.emit(MuxEvent::Status(
+                                "event subscription overflowed; resubscribed".to_string(),
+                            ));
+                            session.emit(MuxEvent::TreeChanged);
+                            session.emit(MuxEvent::ClientListInvalidated);
+                        }
+                        Err(error) => {
+                            session.emit(MuxEvent::Status(format!(
+                                "event subscription overflowed; resubscribe failed: {error}"
+                            )));
+                            session.emit(MuxEvent::Empty);
+                        }
                     }
-                    Err(error) => {
-                        session.emit(MuxEvent::Status(format!(
-                            "event subscription overflowed; resubscribe failed: {error}"
-                        )));
-                        session.emit(MuxEvent::Empty);
-                    }
+                    recovery.in_flight = false;
+                    return;
                 }
             });
         if let Err(error) = spawn {
-            self.subscription_recovery_in_flight.store(false, Ordering::Release);
+            let mut recovery = self.subscription_recovery.lock().unwrap();
             self.emit(MuxEvent::Status(format!(
                 "event subscription overflowed; resubscribe failed: {error}"
             )));
             self.emit(MuxEvent::Empty);
+            recovery.in_flight = false;
         }
     }
 
@@ -1203,7 +1261,7 @@ mod tests {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
-            subscription_recovery_in_flight: AtomicBool::new(false),
+            subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
@@ -1348,6 +1406,42 @@ mod tests {
             "title": "after-refresh",
         }));
         assert!(events.try_iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn client_presence_events_reach_remote_tui_subscribers() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+
+        session.handle_line(json!({
+            "event": "client-attached",
+            "client": 7,
+            "transport": "unix",
+            "name": "small",
+            "kind": "tui",
+        }));
+        session.handle_line(json!({
+            "event": "client-changed",
+            "client": 7,
+            "name": "small",
+            "kind": "tui",
+        }));
+        session.handle_line(json!({"event": "client-detached", "client": 7}));
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientAttached { client: 7, .. })
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientChanged { client: 7, .. })
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientDetached(7))
+        ));
     }
 
     #[test]
@@ -1653,7 +1747,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn subscription_overflow_resubscribes_and_invalidates_tree() {
+    fn subscription_overflow_resubscribes_and_invalidates_authoritative_snapshots() {
         let (client, server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
         let events = session.subscribe();
@@ -1671,14 +1765,54 @@ mod tests {
         session.handle_line(json!({"id": command["id"], "ok": true, "data": {}}));
         assert!(session.tree_is_stale());
         let mut saw_status = false;
-        loop {
+        let mut saw_tree = false;
+        let mut saw_clients = false;
+        while !saw_tree || !saw_clients {
             match events.recv_timeout(Duration::from_secs(1)).unwrap() {
                 MuxEvent::Status(_) => saw_status = true,
-                MuxEvent::TreeChanged => break,
+                MuxEvent::TreeChanged => saw_tree = true,
+                MuxEvent::ClientListInvalidated => saw_clients = true,
                 _ => {}
             }
         }
         assert!(saw_status);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn subscription_overflow_during_recovery_forces_another_resubscribe() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        let mut server = BufReader::new(server);
+
+        session.handle_line(json!({"event": "overflow", "error": "first stream overflow"}));
+        let mut line = String::new();
+        server.read_line(&mut line).unwrap();
+        let first: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(first.get("cmd").and_then(Value::as_str), Some("subscribe"));
+
+        session.handle_line(json!({"event": "overflow", "error": "replacement overflow"}));
+        session.handle_line(json!({"id": first["id"], "ok": true, "data": {}}));
+
+        line.clear();
+        server.read_line(&mut line).unwrap();
+        let second: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(second.get("cmd").and_then(Value::as_str), Some("subscribe"));
+        assert_ne!(second["id"], first["id"]);
+        session.handle_line(json!({"id": second["id"], "ok": true, "data": {}}));
+
+        loop {
+            if matches!(
+                events.recv_timeout(Duration::from_secs(1)).unwrap(),
+                MuxEvent::ClientListInvalidated
+            ) {
+                break;
+            }
+        }
+        let recovery = session.subscription_recovery.lock().unwrap();
+        assert!(!recovery.in_flight);
+        assert_eq!(recovery.generation, 2);
     }
 
     #[cfg(unix)]
@@ -1714,7 +1848,7 @@ mod tests {
                 break;
             }
         }
-        assert!(!session.subscription_recovery_in_flight.load(Ordering::Acquire));
+        assert!(!session.subscription_recovery.lock().unwrap().in_flight);
     }
 
     #[test]

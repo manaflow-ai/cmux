@@ -75,7 +75,7 @@ extension ContentView {
             panelId: panelId,
             isRemoteContext: isRemoteContext
         )
-        var selection = Self.commandPaletteImmediateForkExecutionSnapshotSelection(
+        let selection = Self.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
             panelId: panelId,
             isRemoteTerminal: isRemoteContext,

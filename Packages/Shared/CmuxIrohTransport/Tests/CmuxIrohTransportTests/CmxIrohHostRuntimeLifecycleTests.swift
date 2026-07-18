@@ -208,6 +208,7 @@ extension CmxIrohHostRuntimeTests {
         #expect(lan.binding == CmxIrohBrokerBindingMetadata(binding: fixture.binding))
         #expect(lan.rendezvous == fixture.discovery.lanRendezvous)
         #expect(await runtime.localDirectAddresses() == ["192.168.1.10:50906"])
+        await lanPolicies.waitForCount(1)
         #expect(await lanPolicies.contexts() == [lan])
         #expect(await lanPolicies.addresses() == [["192.168.1.10:50906"]])
 
