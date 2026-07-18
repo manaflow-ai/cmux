@@ -3,16 +3,25 @@ import CMUXAgentLaunch
 import Darwin
 
 final class SessionsListClaudeTranscriptLookupCache {
+    private struct ConfigurationIndex {
+        var projectRootsByWorkflowSession: [String: [String]]
+        var transcriptPathBySession: [String: String]
+    }
+
     private let homeDirectory: String
+    private let fileManager: FileManager
     private var defaultRoots: [String]?
     private var projectDirsByConfigRoot: [String: [String]] = [:]
     private var transcriptPathByProjectRootAndSession: [String: String] = [:]
     private var missingTranscriptPathByProjectRootAndSession: Set<String> = []
     private var transcriptPathByConfigRootAndSession: [String: String] = [:]
     private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
+    private var configurationIndexByRoot: [String: ConfigurationIndex] = [:]
+    private var workflowTranscriptsByProjectRoot: [String: [(sessionId: String, path: String)]] = [:]
 
-    init(homeDirectory: String) {
+    init(homeDirectory: String, fileManager: FileManager = .default) {
         self.homeDirectory = homeDirectory
+        self.fileManager = fileManager
     }
 
     func configRoots(record: ClaudeHookSessionRecord) -> [String] {
@@ -20,7 +29,7 @@ final class SessionsListClaudeTranscriptLookupCache {
             return [
                 ClaudeConfigDirectoryPath.preferredPath(
                     expandedPath(configured),
-                    fileManager: .default,
+                    fileManager: fileManager,
                     homeDirectory: homeDirectory
                 ),
             ]
@@ -38,7 +47,7 @@ final class SessionsListClaudeTranscriptLookupCache {
 
         let accountRoot = (homeDirectory as NSString).appendingPathComponent(".codex-accounts/claude")
         if directoryExists(atPath: accountRoot),
-           let accountDirs = try? FileManager.default.contentsOfDirectory(atPath: accountRoot) {
+           let accountDirs = try? fileManager.contentsOfDirectory(atPath: accountRoot) {
             for accountDir in accountDirs.sorted() {
                 appendRoot((accountRoot as NSString).appendingPathComponent(accountDir))
             }
@@ -47,7 +56,7 @@ final class SessionsListClaudeTranscriptLookupCache {
         appendRoot(
             ClaudeConfigDirectoryPath.preferredPath(
                 (homeDirectory as NSString).appendingPathComponent(".subrouter/codex/claude"),
-                fileManager: .default,
+                fileManager: fileManager,
                 homeDirectory: homeDirectory
             )
         )
@@ -80,18 +89,33 @@ final class SessionsListClaudeTranscriptLookupCache {
         if let cached = transcriptPathByConfigRootAndSession[key] { return cached }
         if missingTranscriptPathByConfigRootAndSession.contains(key) { return nil }
 
-        for projectDir in projectDirs(configRoot: standardizedRoot) {
-            if let path = transcriptPath(
-                configRoot: standardizedRoot,
-                projectDirName: projectDir,
-                sessionId: sessionId
-            ) {
-                transcriptPathByConfigRootAndSession[key] = path
-                return path
-            }
+        if let path = configurationIndex(configRoot: standardizedRoot)
+            .transcriptPathBySession[sessionId] {
+            transcriptPathByConfigRootAndSession[key] = path
+            return path
         }
         missingTranscriptPathByConfigRootAndSession.insert(key)
         return nil
+    }
+
+    func workflowProjectRoots(configRoot: String, sessionId: String) -> [String] {
+        let standardizedRoot = (configRoot as NSString).standardizingPath
+        return configurationIndex(configRoot: standardizedRoot)
+            .projectRootsByWorkflowSession[sessionId] ?? []
+    }
+
+    func singleSiblingTranscript(
+        projectRoots: [String],
+        excludingSessionId excludedSessionId: String
+    ) -> (sessionId: String, path: String)? {
+        var matches: [(sessionId: String, path: String)] = []
+        for projectRoot in projectRoots {
+            matches.append(contentsOf: workflowTranscripts(inProjectRoot: projectRoot).filter {
+                $0.sessionId != excludedSessionId
+            })
+        }
+        guard matches.count == 1 else { return nil }
+        return matches[0]
     }
 
     func projectDirs(configRoot: String) -> [String] {
@@ -99,7 +123,7 @@ final class SessionsListClaudeTranscriptLookupCache {
         if let cached = projectDirsByConfigRoot[standardizedRoot] { return cached }
         let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
         guard directoryExists(atPath: projectsRoot),
-              let projectDirs = try? FileManager.default.contentsOfDirectory(atPath: projectsRoot) else {
+              let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else {
             projectDirsByConfigRoot[standardizedRoot] = []
             return []
         }
@@ -122,9 +146,9 @@ final class SessionsListClaudeTranscriptLookupCache {
 
     private func regularNonEmptyFileExists(atPath path: String) -> Bool {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
               !isDirectory.boolValue,
-              let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let attrs = try? fileManager.attributesOfItem(atPath: path),
               let size = attrs[.size] as? NSNumber else {
             return false
         }
@@ -133,7 +157,97 @@ final class SessionsListClaudeTranscriptLookupCache {
 
     private func directoryExists(atPath path: String) -> Bool {
         var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+        return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private func configurationIndex(configRoot: String) -> ConfigurationIndex {
+        let standardizedRoot = (configRoot as NSString).standardizingPath
+        if let cached = configurationIndexByRoot[standardizedRoot] { return cached }
+
+        let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
+        var projectRootsByWorkflowSession: [String: [String]] = [:]
+        var transcriptPathBySession: [String: String] = [:]
+        for projectDir in projectDirs(configRoot: standardizedRoot) {
+            let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
+            guard directoryExists(atPath: projectRoot),
+                  let children = try? fileManager.contentsOfDirectory(atPath: projectRoot) else {
+                continue
+            }
+
+            // Preserve the old lookup preference: a direct transcript in one
+            // project wins over that project's nested messages transcript.
+            for child in children where child.hasSuffix(".jsonl") {
+                let sessionId = String(child.dropLast(".jsonl".count))
+                guard transcriptPathBySession[sessionId] == nil else { continue }
+                let path = (projectRoot as NSString).appendingPathComponent(child)
+                if regularNonEmptyFileExists(atPath: path) {
+                    transcriptPathBySession[sessionId] = path
+                }
+            }
+
+            for child in children {
+                let childPath = (projectRoot as NSString).appendingPathComponent(child)
+                guard directoryExists(atPath: childPath) else { continue }
+                projectRootsByWorkflowSession[child, default: []].append(projectRoot)
+                guard transcriptPathBySession[child] == nil else { continue }
+                let nestedPath = (((childPath as NSString)
+                    .appendingPathComponent("messages") as NSString)
+                    .appendingPathComponent("\(child).jsonl"))
+                if regularNonEmptyFileExists(atPath: nestedPath) {
+                    transcriptPathBySession[child] = nestedPath
+                }
+            }
+        }
+        let index = ConfigurationIndex(
+            projectRootsByWorkflowSession: projectRootsByWorkflowSession,
+            transcriptPathBySession: transcriptPathBySession
+        )
+        configurationIndexByRoot[standardizedRoot] = index
+        return index
+    }
+
+    private func workflowTranscripts(inProjectRoot projectRoot: String) -> [(sessionId: String, path: String)] {
+        let standardizedRoot = (projectRoot as NSString).standardizingPath
+        if let cached = workflowTranscriptsByProjectRoot[standardizedRoot] { return cached }
+        var matches: [(sessionId: String, path: String)] = []
+        collectWorkflowTranscripts(
+            inDirectory: standardizedRoot,
+            remainingDirectoryDepth: 4,
+            matches: &matches
+        )
+        workflowTranscriptsByProjectRoot[standardizedRoot] = matches
+        return matches
+    }
+
+    private func collectWorkflowTranscripts(
+        inDirectory directory: String,
+        remainingDirectoryDepth: Int,
+        matches: inout [(sessionId: String, path: String)]
+    ) {
+        guard directoryExists(atPath: directory),
+              let children = try? fileManager.contentsOfDirectory(atPath: directory) else {
+            return
+        }
+        for child in children {
+            let childPath = (directory as NSString).appendingPathComponent(child)
+            if child.hasSuffix(".jsonl") {
+                let sessionId = String(child.dropLast(".jsonl".count))
+                guard !sessionId.isEmpty,
+                      sessionId != ".",
+                      sessionId != "..",
+                      sessionId.range(of: #"[\\/]"#, options: .regularExpression) == nil,
+                      regularNonEmptyFileExists(atPath: childPath) else {
+                    continue
+                }
+                matches.append((sessionId, childPath))
+            } else if remainingDirectoryDepth > 0 {
+                collectWorkflowTranscripts(
+                    inDirectory: childPath,
+                    remainingDirectoryDepth: remainingDirectoryDepth - 1,
+                    matches: &matches
+                )
+            }
+        }
     }
 
     private func normalized(_ value: String?) -> String? {
@@ -159,9 +273,10 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord,
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> [String: Any] {
-        let diagnosticRecord = agent == "claude"
-            ? sessionsListResolvedClaudeWorkflowRecord(record, lookup: claudeTranscriptLookup)
-            : record
+        // The list projection resolves Claude workflow aliases before it builds
+        // the payload. Reuse that record instead of repeating transcript lookup
+        // while adding diagnostics for the same row.
+        let diagnosticRecord = record
         let storedPIDExists = sessionsListStoredPIDExists(diagnosticRecord.pid)
         let hookRecordRestorable = sessionsListHookRecordRestorable(
             agent: agent,

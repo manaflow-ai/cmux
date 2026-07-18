@@ -20,8 +20,8 @@ extension CMUXCLI {
             roots: roots,
             lookup: lookup
         )
-        guard let resolved = sessionsListSingleClaudeSiblingTranscript(
-            in: candidateProjectDirs,
+        guard let resolved = lookup.singleSiblingTranscript(
+            projectRoots: candidateProjectDirs,
             excludingSessionId: record.sessionId
         ) else {
             return record
@@ -41,13 +41,7 @@ extension CMUXCLI {
         var projectDirs: [String] = []
         var seen: Set<String> = []
 
-        func appendIfWorkflowContainer(projectRoot: String) {
-            let workflowContainer = (projectRoot as NSString).appendingPathComponent(record.sessionId)
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: workflowContainer, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                return
-            }
+        func append(projectRoot: String) {
             let standardized = (projectRoot as NSString).standardizingPath
             guard seen.insert(standardized).inserted else { return }
             projectDirs.append(standardized)
@@ -59,66 +53,23 @@ extension CMUXCLI {
         ].compactMap { $0 }
         for root in roots {
             let projectsRoot = (root as NSString).appendingPathComponent("projects")
+            let indexedProjectRoots = lookup.workflowProjectRoots(
+                configRoot: root,
+                sessionId: record.sessionId
+            )
+            let indexedProjectRootSet = Set(indexedProjectRoots)
             for cwd in cwdCandidates {
-                appendIfWorkflowContainer(
-                    projectRoot: (projectsRoot as NSString)
-                        .appendingPathComponent(sessionsListEncodeClaudeProjectDir(cwd))
-                )
+                let projectRoot = ((projectsRoot as NSString)
+                    .appendingPathComponent(sessionsListEncodeClaudeProjectDir(cwd)) as NSString)
+                    .standardizingPath
+                if indexedProjectRootSet.contains(projectRoot) {
+                    append(projectRoot: projectRoot)
+                }
             }
-            for projectDir in lookup.projectDirs(configRoot: root) {
-                appendIfWorkflowContainer(
-                    projectRoot: (projectsRoot as NSString).appendingPathComponent(projectDir)
-                )
+            for projectRoot in indexedProjectRoots {
+                append(projectRoot: projectRoot)
             }
         }
         return projectDirs
-    }
-
-    private func sessionsListSingleClaudeSiblingTranscript(
-        in projectDirs: [String],
-        excludingSessionId excludedSessionId: String
-    ) -> (sessionId: String, path: String)? {
-        var matches: [(sessionId: String, path: String)] = []
-        for projectDir in projectDirs {
-            sessionsListCollectClaudeTranscripts(
-                inDirectory: projectDir,
-                excludingSessionId: excludedSessionId,
-                remainingDirectoryDepth: 4,
-                matches: &matches
-            )
-        }
-        guard matches.count == 1, let match = matches.first else { return nil }
-        return match
-    }
-
-    private func sessionsListCollectClaudeTranscripts(
-        inDirectory directory: String,
-        excludingSessionId excludedSessionId: String,
-        remainingDirectoryDepth: Int,
-        matches: inout [(sessionId: String, path: String)]
-    ) {
-        guard sessionsListDirectoryExists(atPath: directory),
-              let children = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
-            return
-        }
-        for child in children {
-            let childPath = (directory as NSString).appendingPathComponent(child)
-            if child.hasSuffix(".jsonl") {
-                let sessionId = String(child.dropLast(".jsonl".count))
-                guard sessionId != excludedSessionId,
-                      sessionsListClaudeSessionIdIsSafeFilename(sessionId),
-                      sessionsListRegularNonEmptyFileExists(atPath: childPath) else {
-                    continue
-                }
-                matches.append((sessionId, childPath))
-            } else if remainingDirectoryDepth > 0 {
-                sessionsListCollectClaudeTranscripts(
-                    inDirectory: childPath,
-                    excludingSessionId: excludedSessionId,
-                    remainingDirectoryDepth: remainingDirectoryDepth - 1,
-                    matches: &matches
-                )
-            }
-        }
     }
 }
