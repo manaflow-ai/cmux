@@ -733,6 +733,102 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(malformed.hibernationResumeAttemptId == nil)
     }
 
+    @Test func exactLaunchCaptureRecoversCollapsedPiAndOMPProcessModes() throws {
+        for provider in ["pi", "omp"] {
+            try withCollapsedInterpreterProcess(
+                title: provider,
+                hostExecutableName: "cmux.app/Contents/MacOS/cmux"
+            ) { pid, root in
+                let unassisted = AgentHookSessionLineageResolver().resolve(
+                    agentName: provider,
+                    sessionId: "\(provider)-collapsed-unassisted",
+                    pid: pid,
+                    environment: [:]
+                )
+                #expect(unassisted.processDescribesAgent, Comment(rawValue: provider))
+                #expect(unassisted.processLaunchMode == .unknown, Comment(rawValue: provider))
+
+                var environment = exactAgentLaunchEnvironment(
+                    kind: provider,
+                    arguments: [provider]
+                )
+                environment["CMUX_CLAUDE_HOOK_STATE_PATH"] = root
+                    .appendingPathComponent("\(provider)-hook-sessions.json").path
+                environment["CMUX_AGENT_SESSION_REGISTRY_PATH"] = root
+                    .appendingPathComponent("\(provider)-sessions.sqlite3").path
+                environment["CMUX_RUNTIME_ID"] = "\(provider)-collapsed-runtime"
+
+                let recovered = AgentHookSessionLineageResolver().resolve(
+                    agentName: provider,
+                    sessionId: "\(provider)-collapsed-recovered",
+                    pid: pid,
+                    environment: environment
+                )
+                #expect(recovered.processLaunchMode == .interactive, Comment(rawValue: provider))
+                #expect(recovered.restoreAuthority, Comment(rawValue: provider))
+                #expect(recovered.relationship == nil, Comment(rawValue: provider))
+
+                let store = ClaudeHookSessionStore(processEnv: environment, agentName: provider)
+                let sessionID = "\(provider)-collapsed-store"
+                #expect(try store.upsert(
+                    sessionId: sessionID,
+                    workspaceId: "workspace-\(provider)",
+                    surfaceId: "surface-\(provider)",
+                    cwd: root.path,
+                    pid: pid,
+                    isRestorable: true,
+                    markActive: true
+                ))
+                let record = try #require(try store.lookup(sessionId: sessionID))
+                let activeRunID = try #require(record.activeRunId)
+                #expect(record.restoreAuthority, Comment(rawValue: provider))
+                #expect(
+                    record.runs?.first { $0.runId == activeRunID }?.restoreAuthority == true,
+                    Comment(rawValue: provider)
+                )
+            }
+        }
+    }
+
+    @Test func inheritedCrossProviderCaptureCannotRecoverCollapsedProcessMode() throws {
+        try withCollapsedInterpreterProcess(
+            title: "pi",
+            hostExecutableName: "cmux.app/Contents/MacOS/cmux"
+        ) { pid, _ in
+            let lineage = AgentHookSessionLineageResolver().resolve(
+                agentName: "pi",
+                sessionId: "pi-cross-provider-capture",
+                pid: pid,
+                environment: exactAgentLaunchEnvironment(
+                    kind: "claude",
+                    arguments: ["claude", "--model", "sonnet"]
+                )
+            )
+
+            #expect(lineage.processDescribesAgent)
+            #expect(lineage.processLaunchMode == .unknown)
+        }
+    }
+
+    @Test func exactLaunchCaptureNeverOverridesNestedAgentAuthority() throws {
+        try withCollapsedInterpreterProcess(title: "pi", hostExecutableName: "codex") { pid, _ in
+            let lineage = AgentHookSessionLineageResolver().resolve(
+                agentName: "pi",
+                sessionId: "nested-pi-collapsed-title",
+                pid: pid,
+                environment: exactAgentLaunchEnvironment(
+                    kind: "pi",
+                    arguments: ["pi"]
+                )
+            )
+
+            #expect(lineage.processLaunchMode == .interactive)
+            #expect(lineage.relationship == .spawned)
+            #expect(!lineage.restoreAuthority)
+            #expect(lineage.parentRunId != nil)
+        }
+    }
+
     @MainActor
     @Test func staleResumeRollbackCannotRevokeNewerAttempt() throws {
         let root = FileManager.default.temporaryDirectory
@@ -1223,5 +1319,70 @@ extension CMUXCLIErrorOutputRegressionTests {
             surfaceID,
             registry
         )
+    }
+
+    private func exactAgentLaunchEnvironment(
+        kind: String,
+        arguments: [String]
+    ) -> [String: String] {
+        var bytes = Data()
+        for argument in arguments {
+            bytes.append(contentsOf: argument.utf8)
+            bytes.append(0)
+        }
+        return [
+            "CMUX_AGENT_LAUNCH_KIND": kind,
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": arguments.first ?? kind,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": bytes.base64EncodedString(),
+        ]
+    }
+
+    private func withCollapsedInterpreterProcess(
+        title: String,
+        hostExecutableName: String,
+        body: (Int, URL) throws -> Void
+    ) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-collapsed-agent-title-\(UUID().uuidString)", isDirectory: true)
+        let host = root.appendingPathComponent(hostExecutableName)
+        try FileManager.default.createDirectory(
+            at: host.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(atPath: "/bin/bash", toPath: host.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let launcher = Process()
+        let readyPipe = Pipe()
+        launcher.executableURL = host
+        launcher.arguments = [
+            "-c",
+            "exec -a \(title) /usr/bin/ruby -e 'sleep 30' & child=$!; printf '%s\\n' \"$child\"; wait \"$child\"",
+        ]
+        launcher.standardOutput = readyPipe
+        launcher.standardError = FileHandle.nullDevice
+        try launcher.run()
+        var childPID: Int?
+        defer {
+            if let childPID {
+                kill(pid_t(childPID), SIGTERM)
+            } else if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? readyPipe.fileHandleForReading.close()
+        }
+
+        var pidBytes = Data()
+        while let byte = try readyPipe.fileHandleForReading.read(upToCount: 1)?.first,
+              byte != UInt8(ascii: "\n") {
+            pidBytes.append(byte)
+        }
+        let resolvedPID = try #require(
+            Int(String(decoding: pidBytes, as: UTF8.self))
+        )
+        childPID = resolvedPID
+
+        try body(resolvedPID, root)
     }
 }
