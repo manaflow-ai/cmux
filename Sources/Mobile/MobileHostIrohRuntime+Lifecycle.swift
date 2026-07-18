@@ -151,8 +151,12 @@ extension MobileHostIrohRuntime {
         return false
     }
 
-    func configure(auth: AuthCoordinator) {
+    func configure(
+        auth: AuthCoordinator,
+        terminalDataPlane: any MobileTerminalDataPlane
+    ) {
         self.auth = auth
+        self.terminalDataPlane = terminalDataPlane
         authObservationTask?.cancel()
         authObservationTask = Task { @MainActor [weak self] in
             await auth.awaitBootstrapped()

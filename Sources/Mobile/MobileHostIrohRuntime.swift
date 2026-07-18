@@ -92,6 +92,7 @@ final class MobileHostIrohRuntime {
     let bindingPersistenceQueue = MobileHostIrohPersistenceQueue()
 
     weak var auth: AuthCoordinator?
+    var terminalDataPlane: (any MobileTerminalDataPlane)?
     var authObservationTask: Task<Void, Never>?
     var transitionTask: Task<Void, Never>?
     var runtime: CmxIrohHostRuntime?

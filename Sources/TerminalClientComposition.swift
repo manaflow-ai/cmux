@@ -16,6 +16,7 @@ final class TerminalClientComposition {
     let nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator?
     let remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry?
     let browserEndpointFactory: any TerminalBackendBrowserEndpointCreating
+    let mobileTerminalDataPlane: any MobileTerminalDataPlane
     /// Whether Swift can present a canonical browser endpoint. Production
     /// supports frontend-native WebKit endpoints, not daemon PNG frames.
     let canonicalBrowserProjectionAvailable: Bool
@@ -31,6 +32,7 @@ final class TerminalClientComposition {
         nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator? = nil,
         remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry? = nil,
         browserEndpointFactory: (any TerminalBackendBrowserEndpointCreating)? = nil,
+        mobileTerminalDataPlane: any MobileTerminalDataPlane = EmbeddedMobileTerminalDataPlane(),
         canonicalBrowserProjectionAvailable: Bool = false
     ) {
         self.terminalPanelFactory = terminalPanelFactory
@@ -45,6 +47,7 @@ final class TerminalClientComposition {
         self.remoteTmuxSurfaceRegistry = remoteTmuxSurfaceRegistry
         self.browserEndpointFactory = browserEndpointFactory
             ?? UnsupportedTerminalBackendBrowserEndpointFactory()
+        self.mobileTerminalDataPlane = mobileTerminalDataPlane
         self.canonicalBrowserProjectionAvailable = canonicalBrowserProjectionAvailable
     }
 
@@ -59,6 +62,8 @@ final class TerminalClientComposition {
     static func persistent<Client>(
         backendClient: Client,
         dependencies: TerminalSurfaceRuntimeDependencies,
+        mobileTerminalDataPlane: any MobileTerminalDataPlane =
+            UnavailablePersistentMobileTerminalDataPlane(),
         topologyFailureReporter: @escaping @MainActor (String) -> Void = { _ in }
     ) -> TerminalClientComposition where Client: TerminalBackendClient & TerminalBackendTopologyMutating {
         let registry = TerminalBackendPresentationRegistry()
@@ -126,6 +131,7 @@ final class TerminalClientComposition {
                     nativeBrowserRuntimeCoordinator?.claimedSourceURL(surfaceID: surfaceID)
                 }
             ),
+            mobileTerminalDataPlane: mobileTerminalDataPlane,
             canonicalBrowserProjectionAvailable: true
         )
     }

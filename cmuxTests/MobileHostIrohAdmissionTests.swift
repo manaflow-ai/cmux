@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileRPC
+import CmuxTerminalBackend
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -253,6 +254,29 @@ extension MobileHostAuthorizationTests {
         #expect(tcpPayload["mac_device_id"] == nil)
     }
 
+    @Test func persistentStatusAdvertisesNoncanonicalByteStreamFidelity() throws {
+        let payload = MobileHostService.publicStatusPayload(
+            routes: [],
+            profile: .backendCompatibility
+        )
+        let capabilities = try #require(payload["capabilities"] as? [String])
+
+        #expect(payload["terminal_fidelity"] as? String == "noncanonical_byte_stream")
+        #expect(capabilities.contains("terminal.byte_stream.compat.v1"))
+        #expect(!capabilities.contains("terminal.render_grid.v1"))
+
+        let embedded = MobileHostService.publicStatusPayload(
+            routes: [],
+            profile: .embeddedGhostty
+        )
+        let embeddedCapabilities = try #require(
+            embedded["capabilities"] as? [String]
+        )
+        #expect(embedded["terminal_fidelity"] as? String == "render_grid")
+        #expect(embeddedCapabilities.contains("terminal.render_grid.v1"))
+        #expect(!embeddedCapabilities.contains("terminal.byte_stream.compat.v1"))
+    }
+
     @Test func testIrohTerminalLaneInputFramingSurvivesQUICChunkBoundaries() throws {
         var buffer = Data([0, 0])
         #expect(try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer).isEmpty)
@@ -264,6 +288,177 @@ extension MobileHostAuthorizationTests {
                 == ["é"]
         )
         #expect(buffer.isEmpty)
+    }
+
+    @Test func persistentReplayHandoffsAreBoundedAndExpire() async throws {
+        let factory = RecordingMobileCompatibilitySessionFactory(
+            sequences: [10, 20, 30]
+        )
+        let sleeper = ManualMobileCompatibilitySleep()
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID in
+                await factory.make(surfaceID: surfaceID)
+            },
+            maximumPendingReplayCount: 2,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { duration in
+                try await sleeper.sleep(duration)
+            }
+        )
+
+        _ = try await plane.replay(surfaceID: UUID())
+        _ = try await plane.replay(surfaceID: UUID())
+        _ = try await plane.replay(surfaceID: UUID())
+        #expect(await plane.pendingReplayCountForTesting() == 2)
+        let sessions = await factory.allSessions()
+        #expect(sessions.count == 3)
+        #expect(await sessions[0].closeCount() == 1)
+        #expect(await sessions[1].closeCount() == 0)
+        #expect(await sessions[2].closeCount() == 0)
+
+        await waitForMobileCompatibilityWaiterCount(2, sleeper: sleeper)
+        await sleeper.resumeAll()
+        await waitForPendingReplayCount(0, plane: plane)
+        #expect(await sessions[1].closeCount() == 1)
+        #expect(await sessions[2].closeCount() == 1)
+    }
+
+    @Test func persistentReplayHandoffsEvictFIFOAtTheGlobalByteBudget() async throws {
+        let factory = RecordingMobileCompatibilitySessionFactory(
+            sequences: [6, 6, 6],
+            replayByteCounts: [6, 6, 6]
+        )
+        let sleeper = ManualMobileCompatibilitySleep()
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID in
+                await factory.make(surfaceID: surfaceID)
+            },
+            maximumPendingReplayCount: 4,
+            maximumPendingReplayBytes: 12,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { duration in
+                try await sleeper.sleep(duration)
+            }
+        )
+
+        _ = try await plane.replay(surfaceID: UUID())
+        _ = try await plane.replay(surfaceID: UUID())
+        _ = try await plane.replay(surfaceID: UUID())
+
+        let sessions = await factory.allSessions()
+        #expect(await plane.pendingReplayCountForTesting() == 2)
+        #expect(await plane.pendingReplayBytesForTesting() == 12)
+        #expect(await sessions[0].closeCount() == 1)
+        #expect(await sessions[1].closeCount() == 0)
+        #expect(await sessions[2].closeCount() == 0)
+        await plane.closePendingReplays()
+    }
+
+    @Test func persistentReplayHandoffUsesFIFOAndRejectsWrongCursorSynchronously() async throws {
+        let surfaceID = UUID()
+        let factory = RecordingMobileCompatibilitySessionFactory(
+            sequences: [41, 41]
+        )
+        let sleeper = ManualMobileCompatibilitySleep()
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID in
+                await factory.make(surfaceID: surfaceID)
+            },
+            maximumPendingReplayCount: 4,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { duration in
+                try await sleeper.sleep(duration)
+            }
+        )
+
+        _ = try await plane.replay(surfaceID: surfaceID)
+        _ = try await plane.replay(surfaceID: surfaceID)
+        let sessions = await factory.allSessions()
+        #expect(sessions.count == 2)
+
+        do {
+            _ = try await plane.openLane(surfaceID: surfaceID, cursor: 99)
+            Issue.record("wrong cursor unexpectedly returned a lane")
+        } catch {
+            #expect(error as? MobileTerminalDataPlaneError == .cursorGap)
+        }
+        #expect(await plane.pendingReplayCountForTesting() == 2)
+        #expect(await sessions[0].eventClaimCount() == 0)
+        #expect(await sessions[1].eventClaimCount() == 0)
+
+        let firstLane = try await plane.openLane(surfaceID: surfaceID, cursor: 41)
+        #expect(await sessions[0].eventClaimCount() == 1)
+        #expect(await sessions[1].eventClaimCount() == 0)
+        await firstLane.close()
+
+        let secondLane = try await plane.openLane(surfaceID: surfaceID, cursor: 41)
+        #expect(await sessions[1].eventClaimCount() == 1)
+        await secondLane.close()
+        #expect(await plane.pendingReplayCountForTesting() == 0)
+    }
+
+    @Test func consumedReplayCancelsExpiryAndLaneFramesHaveOneConsumer() async throws {
+        let surfaceID = UUID()
+        let factory = RecordingMobileCompatibilitySessionFactory(sequences: [7])
+        let sleeper = ManualMobileCompatibilitySleep()
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID in
+                await factory.make(surfaceID: surfaceID)
+            },
+            maximumPendingReplayCount: 1,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { duration in
+                try await sleeper.sleep(duration)
+            }
+        )
+
+        _ = try await plane.replay(surfaceID: surfaceID)
+        await waitForMobileCompatibilityWaiterCount(1, sleeper: sleeper)
+        let lane = try await plane.openLane(surfaceID: surfaceID, cursor: 7)
+        await waitForMobileCompatibilityWaiterCount(0, sleeper: sleeper)
+
+        _ = try await lane.frames()
+        do {
+            _ = try await lane.frames()
+            Issue.record("a second frame consumer was accepted")
+        } catch {
+            #expect(error as? MobileTerminalDataPlaneError == .streamAlreadyClaimed)
+        }
+        let session = try #require((await factory.allSessions()).first)
+        #expect(await session.closeCount() == 0)
+        await lane.close()
+        #expect(await session.closeCount() == 1)
+    }
+
+    @Test func persistentSlowPhoneOverflowsItsTwoSlotLaneAndClosesOnlyItsSession() async throws {
+        #expect(PersistentMobileTerminalDataPlane.maximumBufferedEventsPerCompatibilityStage == 2)
+        #expect(PersistentMobileTerminalDataPlane.maximumBufferedFramesPerLane == 2)
+
+        let surfaceID = UUID()
+        let factory = RecordingMobileCompatibilitySessionFactory(sequences: [7])
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { surfaceID in
+                await factory.make(surfaceID: surfaceID)
+            },
+            maximumPendingReplayCount: 1,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { _ in }
+        )
+        let lane = try await plane.openLane(surfaceID: surfaceID, cursor: 7)
+        let frames = try await lane.frames()
+        let session = try #require((await factory.allSessions()).first)
+
+        await session.emitOutput(startSequence: 7, data: Data("a".utf8))
+        await session.emitOutput(startSequence: 8, data: Data("b".utf8))
+        await waitForMobileCompatibilityCloseCount(1, session: session)
+
+        var iterator = frames.makeAsyncIterator()
+        #expect(try await iterator.next()?.kind == .replay)
+        #expect(try await iterator.next()?.data == Data("a".utf8))
+        await #expect(throws: MobileTerminalDataPlaneError.streamOverflow) {
+            _ = try await iterator.next()
+        }
+        #expect(await session.closeCount() == 1)
     }
 
     @Test func testIrohDefaultArtifactLaneHandlerRejectsUntilConsumerRegisters() async throws {
@@ -331,4 +526,154 @@ private actor MobileHostIrohPersistenceGate {
         continuation?.resume()
         continuation = nil
     }
+}
+
+private actor RecordingMobileCompatibilitySessionFactory {
+    private var sequences: [UInt64]
+    private var replayByteCounts: [Int]
+    private var sessions: [RecordingMobileCompatibilitySession] = []
+
+    init(sequences: [UInt64], replayByteCounts: [Int] = []) {
+        self.sequences = sequences
+        self.replayByteCounts = replayByteCounts
+    }
+
+    func make(surfaceID: UUID) -> MobileBackendTerminalCompatibilityAttachment {
+        let sequence = sequences.isEmpty ? 0 : sequences.removeFirst()
+        let requestedReplayBytes = replayByteCounts.isEmpty ? 4 : replayByteCounts.removeFirst()
+        let replayBytes = min(requestedReplayBytes, Int(clamping: sequence))
+        let snapshot = BackendTerminalCompatibilitySnapshot(
+            surfaceID: SurfaceID(rawValue: surfaceID),
+            runtimeEpoch: 1,
+            generation: 1,
+            sequence: sequence,
+            columns: 80,
+            rows: 24,
+            replay: Data(repeating: 0x61, count: replayBytes)
+        )
+        let session = RecordingMobileCompatibilitySession(snapshot: snapshot)
+        sessions.append(session)
+        return MobileBackendTerminalCompatibilityAttachment(
+            session: session,
+            snapshot: snapshot
+        )
+    }
+
+    func allSessions() -> [RecordingMobileCompatibilitySession] {
+        sessions
+    }
+}
+
+private actor RecordingMobileCompatibilitySession:
+    MobileBackendTerminalCompatibilitySession {
+    private let snapshot: BackendTerminalCompatibilitySnapshot
+    private let stream: AsyncThrowingStream<BackendTerminalCompatibilityEvent, any Error>
+    private let continuation:
+        AsyncThrowingStream<BackendTerminalCompatibilityEvent, any Error>.Continuation
+    private var eventClaims = 0
+    private var closes = 0
+
+    init(snapshot: BackendTerminalCompatibilitySnapshot) {
+        let pair = AsyncThrowingStream<BackendTerminalCompatibilityEvent, any Error>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+        self.snapshot = snapshot
+        stream = pair.stream
+        continuation = pair.continuation
+        pair.continuation.yield(.snapshot(snapshot))
+    }
+
+    func events() throws -> AsyncThrowingStream<BackendTerminalCompatibilityEvent, any Error> {
+        eventClaims += 1
+        return stream
+    }
+
+    func sendInput(_: String) async throws {}
+
+    func close() {
+        guard closes == 0 else { return }
+        closes += 1
+        continuation.finish()
+    }
+
+    func emitOutput(startSequence: UInt64, data: Data) {
+        continuation.yield(.output(BackendTerminalCompatibilityOutput(
+            surfaceID: snapshot.surfaceID,
+            runtimeEpoch: snapshot.runtimeEpoch,
+            generation: snapshot.generation,
+            startSequence: startSequence,
+            nextSequence: startSequence + UInt64(data.count),
+            data: data
+        )))
+    }
+
+    func eventClaimCount() -> Int { eventClaims }
+    func closeCount() -> Int { closes }
+}
+
+private actor ManualMobileCompatibilitySleep {
+    private var waiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+
+    func sleep(_: Duration) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    waiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancel(id: id) }
+        }
+    }
+
+    func waiterCount() -> Int { waiters.count }
+
+    func resumeAll() {
+        let pending = Array(waiters.values)
+        waiters.removeAll()
+        for waiter in pending { waiter.resume() }
+    }
+
+    private func cancel(id: UUID) {
+        waiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+}
+
+@MainActor
+private func waitForMobileCompatibilityWaiterCount(
+    _ count: Int,
+    sleeper: ManualMobileCompatibilitySleep
+) async {
+    for _ in 0 ..< 100 {
+        if await sleeper.waiterCount() == count { return }
+        await Task.yield()
+    }
+    Issue.record("timed out waiting for \(count) pending replay timers")
+}
+
+@MainActor
+private func waitForPendingReplayCount(
+    _ count: Int,
+    plane: PersistentMobileTerminalDataPlane
+) async {
+    for _ in 0 ..< 100 {
+        if await plane.pendingReplayCountForTesting() == count { return }
+        await Task.yield()
+    }
+    Issue.record("timed out waiting for \(count) pending replay handoffs")
+}
+
+@MainActor
+private func waitForMobileCompatibilityCloseCount(
+    _ count: Int,
+    session: RecordingMobileCompatibilitySession
+) async {
+    for _ in 0 ..< 100 {
+        if await session.closeCount() == count { return }
+        await Task.yield()
+    }
+    Issue.record("timed out waiting for \(count) closed compatibility sessions")
 }

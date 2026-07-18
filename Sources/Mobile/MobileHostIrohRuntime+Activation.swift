@@ -8,6 +8,7 @@ import Foundation
 extension MobileHostIrohRuntime {
     func activate(accountID: String, revision: UInt64) async throws {
         guard let auth else { throw CmxIrohHostRuntimeError.inactive }
+        guard let terminalDataPlane else { throw CmxIrohHostRuntimeError.inactive }
         let tag = Self.currentTag()
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
@@ -202,7 +203,10 @@ extension MobileHostIrohRuntime {
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
                 )
-                let laneRouter = MobileHostIrohApplicationLaneRouter(session: session)
+                let laneRouter = MobileHostIrohApplicationLaneRouter(
+                    session: session,
+                    terminalDataPlane: terminalDataPlane
+                )
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         await MobileHostService.acceptTransport(

@@ -15,13 +15,18 @@ extension MobileHostService {
     /// still gated by the same-account Stack-auth check the rest of the mobile
     /// data plane enforces.
     nonisolated static var mobileHostCapabilities: [String] {
-        let capabilities = [
+        mobileHostCapabilities(for: .embeddedGhostty)
+    }
+
+    nonisolated static func mobileHostCapabilities(
+        for profile: MobileTerminalDataPlaneProfile
+    ) -> [String] {
+        var capabilities = [
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
             "notification.reconcile.v1",
             "terminal.bytes.v1",
-            "terminal.render_grid.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "terminal.artifact.v1",
@@ -43,6 +48,14 @@ extension MobileHostService {
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
         ]
+        switch profile {
+        case .embeddedGhostty:
+            capabilities.append("terminal.render_grid.v1")
+        case .backendCompatibility:
+            if let compatibilityCapability = profile.compatibilityCapability {
+                capabilities.append(compatibilityCapability)
+            }
+        }
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.
         let suppressed = Set(

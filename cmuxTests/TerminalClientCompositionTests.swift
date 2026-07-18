@@ -46,6 +46,7 @@ struct TerminalClientCompositionTests {
         defer { panel.close() }
 
         #expect(composition.terminalBackendClient != nil)
+        #expect(composition.mobileTerminalDataPlane.profile == .backendCompatibility)
         #expect(panel.surface.isExternallyManaged)
         #expect(panel.surface.surface == nil)
         #expect(!panel.surface.isRendererRealized)
@@ -53,6 +54,13 @@ struct TerminalClientCompositionTests {
         #expect(!panel.surface.debugHasHeadlessStartupWindowForTesting())
 
         await client.waitForEnsureCount(1)
+    }
+
+    @Test @MainActor
+    func embeddedCompositionKeepsTheProcessLocalMobileDataPlane() {
+        let composition = TerminalClientComposition.embedded()
+
+        #expect(composition.mobileTerminalDataPlane.profile == .embeddedGhostty)
     }
 
     @Test @MainActor

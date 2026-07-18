@@ -126,6 +126,8 @@ class TerminalController {
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    private var mobileTerminalDataPlane: any MobileTerminalDataPlane =
+        EmbeddedMobileTerminalDataPlane()
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
@@ -830,6 +832,12 @@ class TerminalController {
     func attachAuth(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.authCoordinator = coordinator
         self.browserSignInFlow = browserSignIn
+    }
+
+    func configureMobileTerminalDataPlane(
+        _ terminalDataPlane: any MobileTerminalDataPlane
+    ) {
+        mobileTerminalDataPlane = terminalDataPlane
     }
 
     func start(
@@ -13878,7 +13886,9 @@ class TerminalController {
         case "mobile.terminal.paste_image", "terminal.paste_image":
             result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
-            result = v2MobileTerminalReplay(params: request.params)
+            result = await v2MobileTerminalReplayForMobileDataPlane(
+                params: request.params
+            )
         case "mobile.terminal.viewport", "terminal.viewport":
             result = v2MobileTerminalViewport(params: request.params)
         case "mobile.terminal.scroll", "terminal.scroll":
@@ -14054,10 +14064,14 @@ class TerminalController {
         // paths, so the advertised capabilities can never drift. Includes
         // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
         // the iOS client uses to show or hide rename/pin.
-        let capabilities = MobileHostService.mobileHostCapabilities
+        let terminalDataPlaneProfile = mobileTerminalDataPlane.profile
+        let capabilities = MobileHostService.mobileHostCapabilities(
+            for: terminalDataPlaneProfile
+        )
         guard includePrivateMetadata else {
             return .ok(MobileHostService.publicStatusPayload(
-                routes: status.routes
+                routes: status.routes,
+                profile: terminalDataPlaneProfile
             ))
         }
 
@@ -14069,7 +14083,7 @@ class TerminalController {
             "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
             "host_service": status.payload,
             "workspace_count": workspaceCount,
-            "terminal_fidelity": "render_grid",
+            "terminal_fidelity": terminalDataPlaneProfile.terminalFidelity,
             "capabilities": capabilities,
         ])
     }
@@ -14278,6 +14292,79 @@ class TerminalController {
             }
         }
         return .ok(payload)
+    }
+
+    /// Network replay uses the data plane selected by the process terminal
+    /// composition. The control socket keeps its existing process-local replay
+    /// behavior, while persistent mode never reaches the Ghostty byte tee.
+    func v2MobileTerminalReplayForMobileDataPlane(
+        params: [String: Any]
+    ) async -> V2CallResult {
+        guard mobileTerminalDataPlane.profile == .backendCompatibility else {
+            return v2MobileTerminalReplay(params: params)
+        }
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(
+            params: params,
+            requireTerminal: true
+        ), let surfaceID = resolved.surfaceId,
+           let terminalPanel = resolved.workspace.terminalPanel(for: surfaceID) else {
+            return .err(
+                code: "not_found",
+                message: "Terminal surface not found",
+                data: nil
+            )
+        }
+        let hasViewportReportFields = params["client_id"] != nil
+            || params["viewport_columns"] != nil
+            || params["viewport_rows"] != nil
+        if hasViewportReportFields,
+           v2String(params, "client_id") == nil
+               || v2Int(params, "viewport_columns") == nil
+               || v2Int(params, "viewport_rows") == nil {
+            return .err(
+                code: "invalid_params",
+                message: "Invalid mobile viewport report",
+                data: nil
+            )
+        }
+        _ = applyMobileViewportReport(
+            params: params,
+            terminalPanel: terminalPanel,
+            reason: "mobile.terminal.replay"
+        )
+        do {
+            let replay = try await mobileTerminalDataPlane.replay(
+                surfaceID: surfaceID
+            )
+            return .ok([
+                "workspace_id": resolved.workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "seq": replay.sequence,
+                "columns": replay.columns,
+                "rows": replay.rows,
+                "snapshot_format": replay.snapshotFormat,
+                "snapshot_data_b64": replay.data.base64EncodedString(),
+                "terminal_fidelity": replay.fidelity,
+            ])
+        } catch MobileTerminalDataPlaneError.surfaceNotFound {
+            return .err(
+                code: "not_found",
+                message: "Terminal surface not found",
+                data: nil
+            )
+        } catch {
+            return .err(
+                code: "terminal_unavailable",
+                message: "Terminal replay unavailable",
+                data: nil
+            )
+        }
     }
 
     /// Record (or clear) a paired device's reported terminal grid, recompute

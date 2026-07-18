@@ -300,9 +300,17 @@ struct cmuxApp: App {
                     await terminalBackendServiceModel.reportCompatibility(compatibility)
                 }
             )
+            let mobileTerminalDataPlane = PersistentMobileTerminalDataPlane(
+                readinessProvider: {
+                    try await terminalBackendServiceBootstrap.ensureRegistered()
+                },
+                socketPath: terminalBackendRuntimePaths.socketURL.path,
+                processInstanceUUID: Self.terminalBackendProcessInstanceUUID
+            )
             terminalClientComposition = .persistent(
                 backendClient: backendClient,
                 dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+                mobileTerminalDataPlane: mobileTerminalDataPlane,
                 topologyFailureReporter: { message in
                     terminalBackendServiceModel.reportTopologyFailure(message)
                 }
