@@ -334,6 +334,10 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public CmuxStream attachSurface(long surface) throws CmuxException {
+        return attachSurface(surface, null, null);
+    }
+
+    public CmuxStream attachSurface(long surface, Integer cols, Integer rows) throws CmuxException {
         int negotiated = protocol != null ? protocol : identify().protocol();
         if (negotiated > 7 || (negotiated > 5 && !allowProtocolV6Attach)) {
             throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);
@@ -341,6 +345,8 @@ public final class CmuxClient implements AutoCloseable {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("cmd", "attach-surface");
         params.put("surface", surface);
+        if (cols != null) params.put("cols", cols);
+        if (rows != null) params.put("rows", rows);
         params.put("id", nextId());
         return CmuxStream.open(socketPath, timeout, params);
     }

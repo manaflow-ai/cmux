@@ -146,6 +146,12 @@ pub struct WorkspaceSelectorOptions<'a> {
     pub expected_revision: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AttachSurfaceOptions {
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ReadScreenResult {
     pub text: String,
@@ -677,6 +683,14 @@ impl CmuxClient {
     }
 
     pub fn attach_surface(&mut self, surface: u64) -> Result<CmuxStream> {
+        self.attach_surface_with_options(surface, AttachSurfaceOptions::default())
+    }
+
+    pub fn attach_surface_with_options(
+        &mut self,
+        surface: u64,
+        options: AttachSurfaceOptions,
+    ) -> Result<CmuxStream> {
         let protocol = match self.protocol {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
@@ -686,7 +700,10 @@ impl CmuxClient {
                 "unsupported attach protocol {protocol}"
             )));
         }
-        self.open_stream("attach-surface", surface_params(surface))
+        let mut params = surface_params(surface);
+        insert_opt(&mut params, "cols", options.cols);
+        insert_opt(&mut params, "rows", options.rows);
+        self.open_stream("attach-surface", params)
     }
 
     fn open_stream(&mut self, cmd: &str, mut params: Map<String, Value>) -> Result<CmuxStream> {

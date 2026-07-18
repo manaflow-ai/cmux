@@ -2079,7 +2079,7 @@ Example:
 | name | `attach-surface` |
 | status | implemented |
 | since | protocol 5 |
-| `mode` field | protocol 7 additive extension |
+| `mode`, `cols`, `rows` fields | protocol 7 additive extensions |
 
 Attaches the connection to a PTY surface stream. In protocol v5, the server first sends a `vt-state` event for the current surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
 
@@ -2087,12 +2087,16 @@ Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output
 
 Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is absent, is the exact protocol-v6 attach behavior above. `mode:"render"` selects the authoritative styled-cell stream specified in [`render.md`](render.md): `render-state -> (render-delta | scroll-changed)* -> detached`. A client must require `identify.protocol >= 7` before selecting render mode.
 
+Protocol v7 also accepts paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `surface` | `Id` | required | Must identify a live PTY surface |
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
+| `cols` | `uint16` | default null | Protocol 7; paired with `rows`, clamped to at least 1 |
+| `rows` | `uint16` | default null | Protocol 7; paired with `cols`, clamped to at least 1 |
 
 Result:
 
@@ -2107,6 +2111,7 @@ Errors:
 | `unknown surface <id>` | Surface id does not exist |
 | `browser panes are not supported over attach yet` | Surface is a browser |
 | `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
+| `attach-surface cols and rows must be supplied together` | Only one initial dimension is supplied |
 | `render attach requires protocol 7` | Server does not implement render mode |
 | terminal error string | VT replay generation fails |
 | thread spawn error string | Server cannot create the attach writer thread |
@@ -2117,7 +2122,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `attach-surface` |
-| Flags | `--surface <id> [--mode bytes|render]` |
+| Flags | `--surface <id> [--mode bytes|render] [--cols <n> --rows <n>]` |
 | Plain stdout | JSON event object per line |
 | JSON stdout | JSON event object per line |
 | Exit codes | common; runs until `detached`, connection closes, or interrupted |

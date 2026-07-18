@@ -99,7 +99,7 @@ export interface SendOptions {
   paste?: boolean;
 }
 export interface SubscribeOptions { treeEvents?: "coarse" | "deltas" }
-export interface AttachSurfaceOptions { mode?: "bytes" | "render" }
+export interface AttachSurfaceOptions { mode?: "bytes" | "render"; cols?: number; rows?: number }
 
 interface PendingResponse {
   resolve: (response: CmuxResponse<unknown>) => void;
@@ -527,8 +527,8 @@ export class CmuxClient {
     );
   }
 
-  attachSurface(surface: Id, options?: { mode?: "bytes" }): Promise<CmuxStream<DecodedAttachEvent>>;
-  attachSurface(surface: Id, options: { mode: "render" }): Promise<CmuxStream<RenderAttachEvent>>;
+  attachSurface(surface: Id, options?: AttachSurfaceOptions & { mode?: "bytes" }): Promise<CmuxStream<DecodedAttachEvent>>;
+  attachSurface(surface: Id, options: AttachSurfaceOptions & { mode: "render" }): Promise<CmuxStream<RenderAttachEvent>>;
   attachSurface(
     surface: Id,
     options: AttachSurfaceOptions,
@@ -547,9 +547,13 @@ export class CmuxClient {
     if (mode === "bytes" && protocol > 5 && !this.allowProtocolV6Attach) {
       throw new CmuxProtocolError(`byte attach for protocol ${protocol} is disabled`);
     }
-    const request: CmuxRequest = options.mode === undefined
-      ? { cmd: "attach-surface", surface }
-      : { cmd: "attach-surface", surface, mode };
+    const request: CmuxRequest = {
+      cmd: "attach-surface",
+      surface,
+      ...(options.mode === undefined ? {} : { mode }),
+      ...(options.cols === undefined ? {} : { cols: options.cols }),
+      ...(options.rows === undefined ? {} : { rows: options.rows }),
+    };
     if (mode === "render") {
       return this.openStream(
         request,

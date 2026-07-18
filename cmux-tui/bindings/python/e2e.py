@@ -47,7 +47,7 @@ def main() -> int:
                 raise AssertionError("same-size resize emitted surface-resized")
         finally:
             events.close()
-        attach = client.attach_surface(created.surface)
+        attach = client.attach_surface(created.surface, cols=100, rows=31)
         try:
             first = next(attach)
             assert first.event == "vt-state", first

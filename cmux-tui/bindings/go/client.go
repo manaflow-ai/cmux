@@ -375,7 +375,16 @@ func (c *Client) Subscribe(ctx context.Context) (*Stream, error) {
 	return c.openStream(ctx, map[string]any{"id": c.nextRequestID(), "cmd": "subscribe"})
 }
 
+type AttachSurfaceOptions struct {
+	Cols *uint16
+	Rows *uint16
+}
+
 func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, error) {
+	return c.AttachSurfaceWithOptions(ctx, surface, AttachSurfaceOptions{})
+}
+
+func (c *Client) AttachSurfaceWithOptions(ctx context.Context, surface uint64, opts AttachSurfaceOptions) (*Stream, error) {
 	protocol := c.protocol
 	if protocol == nil {
 		info, err := c.Identify(ctx)
@@ -387,7 +396,14 @@ func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, er
 	if *protocol > 7 || (*protocol > 5 && !c.allowProtocolV6Attach) {
 		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", *protocol)}
 	}
-	return c.openStream(ctx, map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface})
+	params := map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface}
+	if opts.Cols != nil {
+		params["cols"] = *opts.Cols
+	}
+	if opts.Rows != nil {
+		params["rows"] = *opts.Rows
+	}
+	return c.openStream(ctx, params)
 }
 
 func (c *Client) openStream(ctx context.Context, request map[string]any) (*Stream, error) {

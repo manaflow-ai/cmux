@@ -315,6 +315,8 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   cmd: "attach-surface";
   surface: Id;
   mode?: "bytes" | "render";
+  cols?: number;
+  rows?: number;
 }
 
 export interface WaitForRequest extends CmuxRequestBase {

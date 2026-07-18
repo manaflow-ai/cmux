@@ -35,7 +35,10 @@ fn main() -> Result<()> {
         Err(err) => return Err(err),
     }
 
-    let mut attach = client.attach_surface(created.surface)?;
+    let mut attach = client.attach_surface_with_options(
+        created.surface,
+        cmux_client::AttachSurfaceOptions { cols: Some(100), rows: Some(31) },
+    )?;
     let first = attach.recv()?;
     assert!(matches!(first, Event::VtState(_)), "first attach event was {first:?}");
     client.send(created.surface, Some(&format!("printf '{later}\\n'\r")), None)?;

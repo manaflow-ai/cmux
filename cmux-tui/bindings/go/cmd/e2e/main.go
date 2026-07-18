@@ -96,7 +96,7 @@ func run() error {
 		return fmt.Errorf("same-size resize emitted event or failed oddly: %v", err)
 	}
 
-	attach, err := client.AttachSurface(ctx, created.Surface)
+	attach, err := client.AttachSurfaceWithOptions(ctx, created.Surface, cmux.AttachSurfaceOptions{Cols: &cols, Rows: &rows})
 	if err != nil {
 		return err
 	}

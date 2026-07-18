@@ -661,13 +661,20 @@ class CmuxClient:
     def subscribe_with_request(self, request: Dict[str, Any]) -> EventStream:
         return EventStream(self, request)
 
-    def attach_surface(self, surface: int) -> AttachStream:
+    def attach_surface(
+        self, surface: int, *, cols: Optional[int] = None, rows: Optional[int] = None
+    ) -> AttachStream:
         protocol = self._protocol if self._protocol is not None else self.identify().protocol
         if protocol > 7:
             raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 7")
         if protocol > 5 and not self.allow_protocol_v6_attach:
             raise ProtocolError("protocol v6 attach streams require resized replay handling")
-        return AttachStream(self, {"cmd": "attach-surface", "surface": surface})
+        request: Dict[str, Any] = {"cmd": "attach-surface", "surface": surface}
+        if cols is not None:
+            request["cols"] = cols
+        if rows is not None:
+            request["rows"] = rows
+        return AttachStream(self, request)
 
 
 def default_socket_path(session: str) -> str:
