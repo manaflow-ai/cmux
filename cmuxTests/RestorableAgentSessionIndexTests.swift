@@ -1859,6 +1859,48 @@ struct RestorableAgentSessionIndexTests {
         )
     }
 
+    @Test
+    func testRejectedOneShotCaptureIsExcludedFromAppRestoreIndex() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-rejected-one-shot-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessionID = "rejected-one-shot"
+        var record = driftedAgentHookRecord(
+            launcher: "opencode",
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            panelId: panelID,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "opencode",
+            "executablePath": "/usr/local/bin/opencode",
+            "arguments": ["/usr/local/bin/opencode", "run", "one-shot prompt"],
+            "workingDirectory": dir.path,
+            "capturedAt": 10,
+            "source": "rejected",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "opencode-hook-sessions.json",
+            sessions: [sessionID: record]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceID, panelId: panelID),
+            "A rejected one-shot capture must not become restorable after an app restart."
+        )
+    }
+
     private func writeHookStore(
         root: URL,
         storeFilename: String,
