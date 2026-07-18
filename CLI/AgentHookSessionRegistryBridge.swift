@@ -71,6 +71,26 @@ struct AgentHookSessionRegistryBridge {
     private static let maximumLegacySessions = 20_000
     private static let maximumLegacyGraphNodes = 20_000
 
+    struct InspectionStorageLimits {
+        var recordBytes: Int64
+        var providerBytes: Int64
+        var selectionBytes: Int64
+        var legacyFileBytes: Int64
+
+        static let production = InspectionStorageLimits(
+            recordBytes: AgentHookSessionRegistryBridge.maximumInspectionRecordBytes,
+            providerBytes: AgentHookSessionRegistryBridge.maximumInspectionProviderBytes,
+            selectionBytes: AgentHookSessionRegistryBridge.maximumInspectionSelectionBytes,
+            legacyFileBytes: AgentHookSessionRegistryBridge.maximumLegacyFileBytes
+        )
+    }
+
+    typealias InspectionAdmissionLoader = (
+        CmuxAgentSessionRegistry.LegacySource,
+        CmuxAgentSessionRegistry.LegacyStamp,
+        Int
+    ) throws -> CmuxAgentSessionRegistry.HookLegacySourceAdmission
+
     struct InspectionSourcePreflight {
         var provider: String
         var registryPath: String
@@ -78,6 +98,11 @@ struct AgentHookSessionRegistryBridge {
         var metrics: CmuxAgentSessionRegistry.HookStorageMetrics
         var legacyBytes: Int64
         var legacyMetrics: CmuxAgentSessionRegistry.HookLegacySourceMetrics? = nil
+    }
+
+    struct InspectionPreflightResult {
+        var admissions: [CmuxAgentSessionRegistry.HookLegacySourceAdmission]
+        var warnings: [AgentHookSessionStoreLoadWarning]
     }
 
     let provider: String
@@ -125,31 +150,51 @@ struct AgentHookSessionRegistryBridge {
                     .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
             )
         }.sorted { $0.provider < $1.provider }
-        try preflightInspectionSources(
+        let preflight = try preflightInspectionSources(
             sources,
             registry: registry,
             registryPath: registryURL.path,
             fileManager: fileManager,
             maximumLegacyGraphNodes: max(0, maximumLegacyGraphNodes)
         )
+        let admissions = preflight.admissions
         do {
             return AgentHookSessionRegistrySnapshots(
-                snapshots: try registry.snapshotsImportingLegacy(
+                snapshots: try registry.snapshotsImportingAdmittedLegacy(
                     sources: sources,
-                    fileManager: fileManager
+                    admissions: admissions,
+                    maximumGraphNodes: max(0, maximumLegacyGraphNodes)
                 ),
-                warnings: []
+                warnings: preflight.warnings
             )
+        } catch let error as CmuxAgentSessionRegistry.HookInspectionGraphUnionLimitError {
+            throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+        } catch let error as CmuxAgentSessionRegistry.HookGraphNodeInspectionLimitError {
+            throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+        } catch let error as CmuxAgentSessionRegistry.HookGraphNodeMalformedRecordError {
+            throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+        } catch let error as CmuxAgentSessionRegistry.HookInspectionStorageLimitError {
+            throw inspectionStorageLoadFailure(error, registryPath: registryURL.path)
         } catch {
             var recovered: [String: CmuxAgentSessionRegistry.Snapshot] = [:]
-            var warnings: [AgentHookSessionStoreLoadWarning] = []
+            var warnings = preflight.warnings
             for source in sources {
                 do {
-                    recovered[source.provider] = try registry.snapshotImportingLegacy(
-                        provider: source.provider,
-                        legacyURL: source.url,
-                        fileManager: fileManager
-                    )
+                    recovered[source.provider] = try registry.snapshotsImportingAdmittedLegacy(
+                        sources: [source],
+                        admissions: admissions.filter {
+                            $0.source.provider == source.provider
+                        },
+                        maximumGraphNodes: max(0, maximumLegacyGraphNodes)
+                    )[source.provider] ?? .init(records: [], activeSlots: [])
+                } catch let error as CmuxAgentSessionRegistry.HookInspectionGraphUnionLimitError {
+                    throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+                } catch let error as CmuxAgentSessionRegistry.HookGraphNodeInspectionLimitError {
+                    throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+                } catch let error as CmuxAgentSessionRegistry.HookGraphNodeMalformedRecordError {
+                    throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+                } catch let error as CmuxAgentSessionRegistry.HookInspectionStorageLimitError {
+                    throw inspectionStorageLoadFailure(error, registryPath: registryURL.path)
                 } catch {
                     guard let fallback = try? registry.snapshot(provider: source.provider),
                           !fallback.records.isEmpty else {
@@ -183,8 +228,24 @@ struct AgentHookSessionRegistryBridge {
                     ))
                 }
             }
+            let consistent: [String: CmuxAgentSessionRegistry.Snapshot]
+            do {
+                consistent = try registry.snapshotsImportingAdmittedLegacy(
+                    sources: sources,
+                    admissions: [],
+                    maximumGraphNodes: max(0, maximumLegacyGraphNodes)
+                )
+            } catch let error as CmuxAgentSessionRegistry.HookInspectionGraphUnionLimitError {
+                throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+            } catch let error as CmuxAgentSessionRegistry.HookGraphNodeInspectionLimitError {
+                throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+            } catch let error as CmuxAgentSessionRegistry.HookGraphNodeMalformedRecordError {
+                throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+            } catch let error as CmuxAgentSessionRegistry.HookInspectionStorageLimitError {
+                throw inspectionStorageLoadFailure(error, registryPath: registryURL.path)
+            }
             return AgentHookSessionRegistrySnapshots(
-                snapshots: recovered,
+                snapshots: consistent,
                 warnings: warnings
             )
         }
@@ -218,13 +279,14 @@ struct AgentHookSessionRegistryBridge {
                     .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
             )
         }.sorted { $0.provider < $1.provider }
-        try preflightInspectionSources(
+        let preflight = try preflightInspectionSources(
             sources,
             registry: registry,
             registryPath: registryURL.path,
             fileManager: fileManager,
             maximumLegacyGraphNodes: max(0, maximumLegacyGraphNodes)
         )
+        let admissions = preflight.admissions
         let maximumRecordsPerProvider = max(0, maximumRecordsPerProvider)
         let decoder = JSONDecoder()
         func validateRecord(
@@ -261,18 +323,27 @@ struct AgentHookSessionRegistryBridge {
             }
         }
         do {
-            let bounded = try registry.boundedRecentSnapshotsImportingLegacy(
+            let bounded = try registry.boundedRecentSnapshotsImportingAdmittedLegacy(
                 sources: sources,
+                admissions: admissions,
                 maximumRecordsPerProvider: maximumRecordsPerProvider,
-                fileManager: fileManager,
+                maximumGraphNodes: max(0, maximumLegacyGraphNodes),
                 validateRecord: validateRecord,
                 validateActiveSlot: validateActiveSlot
             )
             return AgentHookSessionRegistrySnapshots(
                 snapshots: bounded.mapValues(\.snapshot),
-                warnings: [],
+                warnings: preflight.warnings,
                 totalRecordCounts: bounded.mapValues(\.totalRecordCount)
             )
+        } catch let error as CmuxAgentSessionRegistry.HookInspectionGraphUnionLimitError {
+            throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+        } catch let error as CmuxAgentSessionRegistry.HookGraphNodeInspectionLimitError {
+            throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+        } catch let error as CmuxAgentSessionRegistry.HookGraphNodeMalformedRecordError {
+            throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+        } catch let error as CmuxAgentSessionRegistry.HookInspectionStorageLimitError {
+            throw inspectionStorageLoadFailure(error, registryPath: registryURL.path)
         } catch {
             guard error is CmuxAgentSessionRegistry.HookListProjectionValidationError
                     || error is CmuxAgentSessionRegistry.HookLegacySourceImportError else {
@@ -281,13 +352,16 @@ struct AgentHookSessionRegistryBridge {
             var recovered: [String: CmuxAgentSessionRegistry.Snapshot] = [:]
             var totalRecordCounts: [String: Int] = [:]
             var validationFailures: Set<String> = []
-            var warnings: [AgentHookSessionStoreLoadWarning] = []
+            var warnings = preflight.warnings
             for source in sources {
                 do {
-                    let bounded = try registry.boundedRecentSnapshotsImportingLegacy(
+                    let bounded = try registry.boundedRecentSnapshotsImportingAdmittedLegacy(
                         sources: [source],
+                        admissions: admissions.filter {
+                            $0.source.provider == source.provider
+                        },
                         maximumRecordsPerProvider: maximumRecordsPerProvider,
-                        fileManager: fileManager,
+                        maximumGraphNodes: max(0, maximumLegacyGraphNodes),
                         validateRecord: validateRecord,
                         validateActiveSlot: validateActiveSlot
                     )[source.provider] ?? CmuxAgentSessionRegistry.BoundedRecentSnapshot(
@@ -296,6 +370,14 @@ struct AgentHookSessionRegistryBridge {
                     )
                     recovered[source.provider] = bounded.snapshot
                     totalRecordCounts[source.provider] = bounded.totalRecordCount
+                } catch let error as CmuxAgentSessionRegistry.HookInspectionGraphUnionLimitError {
+                    throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+                } catch let error as CmuxAgentSessionRegistry.HookGraphNodeInspectionLimitError {
+                    throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+                } catch let error as CmuxAgentSessionRegistry.HookGraphNodeMalformedRecordError {
+                    throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+                } catch let error as CmuxAgentSessionRegistry.HookInspectionStorageLimitError {
+                    throw inspectionStorageLoadFailure(error, registryPath: registryURL.path)
                 } catch let failure as CmuxAgentSessionRegistry.HookListProjectionValidationError
                     where failure.provider == source.provider {
                     recovered[source.provider] = .init(records: [], activeSlots: [])
@@ -368,6 +450,34 @@ struct AgentHookSessionRegistryBridge {
                         throw failure
                     }
                 }
+            }
+            let validSources = sources.filter {
+                !validationFailures.contains($0.provider)
+            }
+            let consistent: [String: CmuxAgentSessionRegistry.BoundedRecentSnapshot]
+            do {
+                consistent = try registry.boundedRecentSnapshotsImportingAdmittedLegacy(
+                    sources: validSources,
+                    admissions: [],
+                    maximumRecordsPerProvider: maximumRecordsPerProvider,
+                    maximumGraphNodes: max(0, maximumLegacyGraphNodes),
+                    validateRecord: validateRecord,
+                    validateActiveSlot: validateActiveSlot
+                )
+            } catch let error as CmuxAgentSessionRegistry.HookInspectionGraphUnionLimitError {
+                throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+            } catch let error as CmuxAgentSessionRegistry.HookGraphNodeInspectionLimitError {
+                throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+            } catch let error as CmuxAgentSessionRegistry.HookGraphNodeMalformedRecordError {
+                throw inspectionGraphLoadFailure(error, registryPath: registryURL.path)
+            } catch let error as CmuxAgentSessionRegistry.HookInspectionStorageLimitError {
+                throw inspectionStorageLoadFailure(error, registryPath: registryURL.path)
+            }
+            recovered = consistent.mapValues(\.snapshot)
+            totalRecordCounts = consistent.mapValues(\.totalRecordCount)
+            for provider in validationFailures {
+                recovered[provider] = .init(records: [], activeSlots: [])
+                totalRecordCounts[provider] = 0
             }
             return AgentHookSessionRegistrySnapshots(
                 snapshots: recovered,
@@ -828,52 +938,111 @@ struct AgentHookSessionRegistryBridge {
         return store
     }
 
-    private static func preflightInspectionSources(
+    static func preflightInspectionSources(
         _ sources: [CmuxAgentSessionRegistry.LegacySource],
         registry: CmuxAgentSessionRegistry,
         registryPath: String,
         fileManager: FileManager,
-        maximumLegacyGraphNodes: Int
-    ) throws {
+        maximumLegacyGraphNodes: Int,
+        limits: InspectionStorageLimits = .production,
+        admissionLoader: InspectionAdmissionLoader? = nil
+    ) throws -> InspectionPreflightResult {
         var preflights: [InspectionSourcePreflight] = []
-        var remainingLegacyGraphNodes = maximumLegacyGraphNodes
-        var selectedRegistryRecords = 0
+        var admissions: [CmuxAgentSessionRegistry.HookLegacySourceAdmission] = []
+        var warnings: [AgentHookSessionStoreLoadWarning] = []
         var selectedLegacyGraphNodes = 0
+        let loadAdmission: InspectionAdmissionLoader = admissionLoader ?? {
+            source, stamp, remainingGraphNodes in
+            try registry.hookLegacySourceAdmission(
+                source: source,
+                expectedStamp: stamp,
+                fileManager: fileManager,
+                maximumBytes: max(0, limits.legacyFileBytes),
+                maximumSessions: maximumLegacySessions,
+                maximumGraphNodes: remainingGraphNodes,
+                maximumRecordBytes: max(0, limits.recordBytes)
+            )
+        }
         for source in sources {
             let storageMetrics = try registry.hookStorageMetrics(provider: source.provider)
-            selectedRegistryRecords += storageMetrics.recordCount
-            if selectedRegistryRecords > maximumLegacyGraphNodes {
-                throw AgentHookSessionStoreLoadFailure(
-                    provider: source.provider,
-                    path: registryPath,
-                    code: .storageLimitExceeded,
-                    scope: .registryGraphNodes,
-                    observedCount: Int64(selectedRegistryRecords),
-                    maximumCount: Int64(maximumLegacyGraphNodes),
-                    canonicalPath: registryPath
-                )
-            }
-            remainingLegacyGraphNodes = max(
-                0,
-                maximumLegacyGraphNodes - selectedRegistryRecords - selectedLegacyGraphNodes
-            )
-            let stamp = CmuxAgentSessionRegistry.LegacyStamp.read(
+            let initialStamp = CmuxAgentSessionRegistry.LegacyStamp.read(
                 path: source.url.path,
                 fileManager: fileManager
             )
-            let changedLegacyBytes: Int64
-            let legacyMetrics: CmuxAgentSessionRegistry.HookLegacySourceMetrics?
-            if let stamp,
-               try !registry.legacySourceIsCurrent(provider: source.provider, stamp: stamp) {
-                changedLegacyBytes = stamp.size
+            let sourceChanged = if let initialStamp {
+                try !registry.legacySourceIsCurrent(
+                    provider: source.provider,
+                    stamp: initialStamp
+                )
+            } else {
+                false
+            }
+            let changedLegacyBytes = sourceChanged ? max(0, initialStamp?.size ?? 0) : 0
+            preflights.append(InspectionSourcePreflight(
+                provider: source.provider,
+                registryPath: registryPath,
+                legacyPath: source.url.path,
+                metrics: storageMetrics,
+                legacyBytes: changedLegacyBytes
+            ))
+            // The aggregate cap applies to retained source bytes. Check it
+            // incrementally before reading this compatibility revision so a
+            // set of individually valid files cannot allocate past the cap.
+            try validateInspectionStorage(preflights, limits: limits)
+
+            guard sourceChanged, var expectedStamp = initialStamp else { continue }
+            var admissionAttempts = 0
+            admissionLoop: while admissionAttempts < 2 {
+                if try registry.legacySourceIsCurrent(
+                    provider: source.provider,
+                    stamp: expectedStamp
+                ) {
+                    preflights[preflights.index(before: preflights.endIndex)].legacyBytes = 0
+                    break admissionLoop
+                }
+                preflights[preflights.index(before: preflights.endIndex)].legacyBytes =
+                    max(0, expectedStamp.size)
+                try validateInspectionStorage(preflights, limits: limits)
                 do {
-                    legacyMetrics = try registry.hookLegacySourceMetrics(
-                        at: source.url,
-                        maximumBytes: maximumLegacyFileBytes,
-                        maximumSessions: maximumLegacySessions,
-                        maximumGraphNodes: remainingLegacyGraphNodes,
-                        maximumRecordBytes: maximumInspectionRecordBytes
+                    let admission = try loadAdmission(
+                        source,
+                        expectedStamp,
+                        max(0, maximumLegacyGraphNodes - selectedLegacyGraphNodes)
                     )
+                    admissions.append(admission)
+                    preflights[preflights.index(before: preflights.endIndex)].legacyMetrics =
+                        admission.metrics
+                    selectedLegacyGraphNodes += admission.metrics.graphNodeCount
+                    break admissionLoop
+                } catch is CmuxAgentSessionRegistry.HookLegacySourceRevisionChangedError {
+                    admissionAttempts += 1
+                    if admissionAttempts < 2,
+                       let latestStamp = CmuxAgentSessionRegistry.LegacyStamp.read(
+                           path: source.url.path,
+                           fileManager: fileManager
+                       ) {
+                        expectedStamp = latestStamp
+                        continue admissionLoop
+                    }
+                    guard canonicalInspectionFallbackIsValid(
+                        registry: registry,
+                        provider: source.provider,
+                        limits: limits
+                    ) else {
+                        throw AgentHookSessionStoreLoadFailure(
+                            provider: source.provider,
+                            path: source.url.path,
+                            code: .legacySourceImportFailed
+                        )
+                    }
+                    preflights[preflights.index(before: preflights.endIndex)].legacyBytes = 0
+                    warnings.append(AgentHookSessionStoreLoadWarning(
+                        provider: source.provider,
+                        path: source.url.path,
+                        code: .legacySourceImportFailed,
+                        fallback: .registry
+                    ))
+                    break admissionLoop
                 } catch let error as CmuxAgentSessionRegistry.HookLegacySourceInspectionLimitError {
                     throw legacyInspectionFailure(
                         provider: source.provider,
@@ -898,21 +1067,114 @@ struct AgentHookSessionRegistryBridge {
                         code: .legacySourceImportFailed
                     )
                 }
-                selectedLegacyGraphNodes += legacyMetrics?.graphNodeCount ?? 0
-            } else {
-                changedLegacyBytes = 0
-                legacyMetrics = nil
             }
-            preflights.append(InspectionSourcePreflight(
-                provider: source.provider,
-                registryPath: registryPath,
-                legacyPath: source.url.path,
-                metrics: storageMetrics,
-                legacyBytes: changedLegacyBytes,
-                legacyMetrics: legacyMetrics
-            ))
         }
-        try validateInspectionStorage(preflights)
+        try validateInspectionStorage(preflights, limits: limits)
+        return InspectionPreflightResult(admissions: admissions, warnings: warnings)
+    }
+
+    private static func canonicalInspectionFallbackIsValid(
+        registry: CmuxAgentSessionRegistry,
+        provider: String,
+        limits: InspectionStorageLimits
+    ) -> Bool {
+        guard let snapshot = try? registry.hookBoundedSnapshot(
+            provider: provider,
+            maximumRecords: maximumLegacySessions,
+            maximumProviderBytes: max(0, limits.providerBytes),
+            maximumRecordBytes: max(0, limits.recordBytes)
+        ), !snapshot.records.isEmpty else {
+            return false
+        }
+        let decoder = JSONDecoder()
+        do {
+            var recordsByID: [String: ClaudeHookSessionRecord] = [:]
+            recordsByID.reserveCapacity(snapshot.records.count)
+            for stored in snapshot.records {
+                let record = try decoder.decode(ClaudeHookSessionRecord.self, from: stored.json)
+                guard record.sessionId == stored.sessionID else { return false }
+                recordsByID[stored.sessionID] = record
+            }
+            for stored in snapshot.activeSlots {
+                let slot = try decoder.decode(ClaudeHookActiveSessionRecord.self, from: stored.json)
+                guard slot.sessionId == stored.sessionID else { return false }
+                let owner = recordsByID[stored.sessionID]
+                switch stored.scope {
+                case .workspace:
+                    guard owner?.workspaceId == stored.scopeID else { return false }
+                case .surface:
+                    guard owner?.surfaceId == stored.scopeID else { return false }
+                }
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func inspectionGraphLoadFailure(
+        _ error: CmuxAgentSessionRegistry.HookInspectionGraphUnionLimitError,
+        registryPath: String
+    ) -> AgentHookSessionStoreLoadFailure {
+        AgentHookSessionStoreLoadFailure(
+            provider: error.provider,
+            path: error.path,
+            code: .storageLimitExceeded,
+            scope: .legacyGraphNodes,
+            observedCount: error.observed,
+            maximumCount: error.maximum,
+            canonicalPath: registryPath
+        )
+    }
+
+    private static func inspectionGraphLoadFailure(
+        _ error: CmuxAgentSessionRegistry.HookGraphNodeInspectionLimitError,
+        registryPath: String
+    ) -> AgentHookSessionStoreLoadFailure {
+        AgentHookSessionStoreLoadFailure(
+            provider: error.provider,
+            path: registryPath,
+            code: .storageLimitExceeded,
+            scope: .registryGraphNodes,
+            observedCount: error.observed,
+            maximumCount: error.maximum,
+            canonicalPath: registryPath
+        )
+    }
+
+    private static func inspectionGraphLoadFailure(
+        _ error: CmuxAgentSessionRegistry.HookGraphNodeMalformedRecordError,
+        registryPath: String
+    ) -> AgentHookSessionStoreLoadFailure {
+        AgentHookSessionStoreLoadFailure(
+            provider: error.provider,
+            path: registryPath,
+            code: .authoritativeSnapshotDecodeFailed,
+            scope: .registryRecord,
+            sessionID: error.sessionID,
+            canonicalPath: registryPath
+        )
+    }
+
+    private static func inspectionStorageLoadFailure(
+        _ error: CmuxAgentSessionRegistry.HookInspectionStorageLimitError,
+        registryPath: String
+    ) -> AgentHookSessionStoreLoadFailure {
+        let scope: AgentHookSessionStoreLoadFailure.Scope = switch error.scope {
+        case .record: .registryRecord
+        case .provider: .registryProvider
+        case .selection: .selectionMaterialization
+        }
+        return AgentHookSessionStoreLoadFailure(
+            provider: error.provider,
+            path: registryPath,
+            code: .storageLimitExceeded,
+            scope: scope,
+            sessionID: error.sessionID,
+            observedBytes: error.observed,
+            maximumBytes: error.maximum,
+            canonicalPath: registryPath
+        )
     }
 
     private static func legacyInspectionFailure(
@@ -958,12 +1220,17 @@ struct AgentHookSessionRegistryBridge {
     }
 
     static func validateInspectionStorage(
-        _ sources: [InspectionSourcePreflight]
+        _ sources: [InspectionSourcePreflight],
+        limits: InspectionStorageLimits = .production
     ) throws {
+        let recordBytesLimit = max(0, limits.recordBytes)
+        let providerBytesLimit = max(0, limits.providerBytes)
+        let selectionBytesLimit = max(0, limits.selectionBytes)
+        let legacyFileBytesLimit = max(0, limits.legacyFileBytes)
         var selectedBytes: Int64 = 0
         for source in sources {
             let metrics = source.metrics
-            if metrics.largestRecordBytes > maximumInspectionRecordBytes {
+            if metrics.largestRecordBytes > recordBytesLimit {
                 throw AgentHookSessionStoreLoadFailure(
                     provider: source.provider,
                     path: source.registryPath,
@@ -971,27 +1238,27 @@ struct AgentHookSessionRegistryBridge {
                     scope: .registryRecord,
                     sessionID: metrics.largestRecordSessionID,
                     observedBytes: metrics.largestRecordBytes,
-                    maximumBytes: maximumInspectionRecordBytes
+                    maximumBytes: recordBytesLimit
                 )
             }
-            if metrics.totalBytes > maximumInspectionProviderBytes {
+            if metrics.totalBytes > providerBytesLimit {
                 throw AgentHookSessionStoreLoadFailure(
                     provider: source.provider,
                     path: source.registryPath,
                     code: .storageLimitExceeded,
                     scope: .registryProvider,
                     observedBytes: metrics.totalBytes,
-                    maximumBytes: maximumInspectionProviderBytes
+                    maximumBytes: providerBytesLimit
                 )
             }
-            if source.legacyBytes > maximumLegacyFileBytes {
+            if source.legacyBytes > legacyFileBytesLimit {
                 throw AgentHookSessionStoreLoadFailure(
                     provider: source.provider,
                     path: source.legacyPath,
                     code: .storageLimitExceeded,
                     scope: .legacyFile,
                     observedBytes: source.legacyBytes,
-                    maximumBytes: maximumLegacyFileBytes,
+                    maximumBytes: legacyFileBytesLimit,
                     canonicalPath: source.registryPath
                 )
             }
@@ -999,26 +1266,26 @@ struct AgentHookSessionRegistryBridge {
                 source.legacyBytes
             )
             let boundedProviderBytes: Int64 = providerOverflow ? .max : providerBytes
-            if boundedProviderBytes > maximumInspectionProviderBytes {
+            if boundedProviderBytes > providerBytesLimit {
                 throw AgentHookSessionStoreLoadFailure(
                     provider: source.provider,
                     path: source.legacyBytes > 0 ? source.legacyPath : source.registryPath,
                     code: .storageLimitExceeded,
                     scope: .providerMaterialization,
                     observedBytes: boundedProviderBytes,
-                    maximumBytes: maximumInspectionProviderBytes
+                    maximumBytes: providerBytesLimit
                 )
             }
             let (sum, overflow) = selectedBytes.addingReportingOverflow(boundedProviderBytes)
             selectedBytes = overflow ? .max : sum
-            if selectedBytes > maximumInspectionSelectionBytes {
+            if selectedBytes > selectionBytesLimit {
                 throw AgentHookSessionStoreLoadFailure(
                     provider: source.provider,
                     path: source.registryPath,
                     code: .storageLimitExceeded,
                     scope: .selectionMaterialization,
                     observedBytes: selectedBytes,
-                    maximumBytes: maximumInspectionSelectionBytes
+                    maximumBytes: selectionBytesLimit
                 )
             }
         }

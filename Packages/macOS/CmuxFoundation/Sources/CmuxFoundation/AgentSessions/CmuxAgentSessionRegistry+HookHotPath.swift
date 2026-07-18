@@ -682,7 +682,7 @@ extension CmuxAgentSessionRegistry {
         return records
     }
 
-    private func hookStorageMetrics(
+    func hookStorageMetrics(
         database: OpaquePointer,
         provider: String
     ) throws -> HookStorageMetrics {
@@ -1560,17 +1560,35 @@ extension CmuxAgentSessionRegistry {
                 }
             }
         }
-        guard try schemaVersion(database) < 6 else { return }
-        try transaction(database, retryBeginContention: false) {
-            guard try schemaVersion(database) < 6 else { return }
-            try execute(
-                database,
-                sql: """
-                ALTER TABLE agent_legacy_sources
-                    ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;
-                PRAGMA user_version=6;
-                """
-            )
+        if try schemaVersion(database) < 6 {
+            try transaction(database, retryBeginContention: false) {
+                guard try schemaVersion(database) < 6 else { return }
+                try execute(
+                    database,
+                    sql: """
+                    ALTER TABLE agent_legacy_sources
+                        ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;
+                    PRAGMA user_version=6;
+                    """
+                )
+            }
+        }
+        if try schemaVersion(database) < 7 {
+            try transaction(database, retryBeginContention: false) {
+                guard try schemaVersion(database) < 7 else { return }
+                try execute(
+                    database,
+                    sql: """
+                    ALTER TABLE agent_legacy_sources ADD COLUMN device_id INTEGER;
+                    ALTER TABLE agent_legacy_sources ADD COLUMN inode INTEGER;
+                    ALTER TABLE agent_legacy_sources ADD COLUMN modified_seconds INTEGER;
+                    ALTER TABLE agent_legacy_sources ADD COLUMN modified_nanoseconds INTEGER;
+                    ALTER TABLE agent_legacy_sources ADD COLUMN changed_seconds INTEGER;
+                    ALTER TABLE agent_legacy_sources ADD COLUMN changed_nanoseconds INTEGER;
+                    PRAGMA user_version=7;
+                    """
+                )
+            }
         }
     }
 
@@ -2138,13 +2156,7 @@ extension CmuxAgentSessionRegistry {
               openedStat.st_ino == pathStat.st_ino else {
             throw mutationConflictError()
         }
-        let modifiedAt = TimeInterval(openedStat.st_mtimespec.tv_sec)
-            + TimeInterval(openedStat.st_mtimespec.tv_nsec) / 1_000_000_000
-        return LegacyStamp(
-            path: stateURL.path,
-            size: Int64(openedStat.st_size),
-            modifiedAt: modifiedAt
-        )
+        return LegacyStamp(path: stateURL.path, metadata: openedStat)
     }
 
     /// Reads compatibility JSON from one descriptor with a strict allocation cap.
@@ -2163,16 +2175,27 @@ extension CmuxAgentSessionRegistry {
         at url: URL,
         maximumBytes: Int64
     ) throws -> Data {
-        var pathMetadata = stat()
-        guard stat(url.path, &pathMetadata) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        guard pathMetadata.st_mode & S_IFMT == S_IFREG else {
-            throw POSIXError(.EFTYPE)
-        }
+        try readHookLegacySourceRevisionUnvalidated(
+            at: url,
+            maximumBytes: maximumBytes
+        ).data
+    }
 
+    struct HookLegacySourceDescriptorRevision {
+        var data: Data
+        var stamp: LegacyStamp
+    }
+
+    /// Opens one compatibility revision and derives its stamp from that same
+    /// descriptor. A path replacement after `open` cannot change the bytes or
+    /// stamp returned to the caller.
+    func readHookLegacySourceRevisionUnvalidated(
+        at url: URL,
+        maximumBytes: Int64
+    ) throws -> HookLegacySourceDescriptorRevision {
+        let maximumBytes = max(0, maximumBytes)
         // O_NONBLOCK closes the race between the path check and open: if the
-        // path is swapped for a FIFO, opening the descriptor still cannot hang.
+        // path names a FIFO, opening the descriptor still cannot hang.
         let descriptor = open(url.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
         guard descriptor >= 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
@@ -2214,6 +2237,24 @@ extension CmuxAgentSessionRegistry {
                 maximumBytes: maximumBytes
             )
         }
-        return data
+        var finalMetadata = stat()
+        guard fstat(descriptor, &finalMetadata) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard metadata.st_dev == finalMetadata.st_dev,
+            metadata.st_ino == finalMetadata.st_ino,
+            metadata.st_size == finalMetadata.st_size,
+            metadata.st_mtimespec.tv_sec == finalMetadata.st_mtimespec.tv_sec,
+            metadata.st_mtimespec.tv_nsec == finalMetadata.st_mtimespec.tv_nsec,
+            metadata.st_ctimespec.tv_sec == finalMetadata.st_ctimespec.tv_sec,
+            metadata.st_ctimespec.tv_nsec == finalMetadata.st_ctimespec.tv_nsec,
+            Int64(data.count) == Int64(metadata.st_size)
+        else {
+            throw HookLegacySourceRevisionChangedError(path: url.path)
+        }
+        return HookLegacySourceDescriptorRevision(
+            data: data,
+            stamp: LegacyStamp(path: url.path, metadata: metadata)
+        )
     }
 }

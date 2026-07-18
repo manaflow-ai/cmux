@@ -1759,6 +1759,252 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         #expect(metrics.largestRecordSessionID == "alpha")
     }
 
+    @Test("admitted inspection imports the scanned sidecar revision, not a later rewrite")
+    func admittedInspectionPinsScannedLegacyBytes() throws {
+        let fixture = try makeFixture()
+        let source = CmuxAgentSessionRegistry.LegacySource(
+            provider: "codex",
+            url: fixture.legacyURL
+        )
+        func sidecar(sessionID: String) throws -> Data {
+            try JSONSerialization.data(
+                withJSONObject: [
+                    "version": 2,
+                    "sessions": [
+                        sessionID: [
+                            "sessionId": sessionID,
+                            "workspaceId": "workspace-\(sessionID)",
+                            "surfaceId": "surface-\(sessionID)",
+                            "startedAt": 1.0,
+                            "updatedAt": 1.0,
+                            "runs": [["runId": "run-\(sessionID)"]],
+                        ]
+                    ],
+                ], options: [.sortedKeys])
+        }
+
+        try sidecar(sessionID: "admitted").write(to: source.url, options: .atomic)
+        let stamp = try #require(CmuxAgentSessionRegistry.LegacyStamp.read(path: source.url.path))
+        let admission = try fixture.registry.hookLegacySourceAdmission(
+            source: source,
+            expectedStamp: stamp
+        )
+        #expect(admission.wasIssuedByHookLegacyScanner)
+        try sidecar(sessionID: "later").write(to: source.url, options: .atomic)
+
+        let snapshot = try #require(
+            fixture.registry.snapshotsImportingAdmittedLegacy(
+                sources: [source],
+                admissions: [admission],
+                maximumGraphNodes: 1
+            )[source.provider])
+        #expect(snapshot.records.map(\.sessionID) == ["admitted"])
+        let laterStamp = try #require(
+            CmuxAgentSessionRegistry.LegacyStamp.read(path: source.url.path))
+        #expect(
+            try !fixture.registry.legacySourceIsCurrent(
+                provider: source.provider,
+                stamp: laterStamp
+            ))
+    }
+
+    @Test(
+        "admitted inspection validates the graph after replacing an unpublished legacy generation")
+    func admittedInspectionCountsPostReplacementGraph() throws {
+        let fixture = try makeFixture()
+        let source = CmuxAgentSessionRegistry.LegacySource(
+            provider: "codex",
+            url: fixture.legacyURL
+        )
+        func sidecar(sessionID: String) throws -> Data {
+            try JSONSerialization.data(
+                withJSONObject: [
+                    "version": 2,
+                    "sessions": [
+                        sessionID: [
+                            "sessionId": sessionID,
+                            "workspaceId": "workspace-\(sessionID)",
+                            "surfaceId": "surface-\(sessionID)",
+                            "startedAt": 1.0,
+                            "updatedAt": 1.0,
+                            "runs": [["runId": "run-\(sessionID)"]],
+                        ]
+                    ],
+                ], options: [.sortedKeys])
+        }
+
+        let previous = try sidecar(sessionID: "previous")
+        try previous.write(to: source.url, options: .atomic)
+        let previousStamp = try #require(
+            CmuxAgentSessionRegistry.LegacyStamp.read(
+                path: source.url.path
+            ))
+        try fixture.registry.importLegacyStoreJSON(
+            provider: source.provider,
+            stamp: previousStamp,
+            json: previous
+        )
+
+        let replacement = try sidecar(sessionID: "replacement")
+        try replacement.write(to: source.url, options: .atomic)
+        let replacementStamp = try #require(
+            CmuxAgentSessionRegistry.LegacyStamp.read(
+                path: source.url.path
+            ))
+        let admission = try fixture.registry.hookLegacySourceAdmission(
+            source: source,
+            expectedStamp: replacementStamp
+        )
+        let snapshot = try #require(
+            fixture.registry.snapshotsImportingAdmittedLegacy(
+                sources: [source],
+                admissions: [admission],
+                maximumGraphNodes: 1
+            )[source.provider])
+
+        #expect(snapshot.records.map(\.sessionID) == ["replacement"])
+    }
+
+    @Test("published projections preserve omitted sessions during admitted graph validation")
+    func admittedInspectionPreservesPublishedProjectionOmissions() throws {
+        let fixture = try makeFixture()
+        let source = CmuxAgentSessionRegistry.LegacySource(
+            provider: "codex",
+            url: fixture.legacyURL
+        )
+        func sidecar(sessionID: String) throws -> Data {
+            try JSONSerialization.data(
+                withJSONObject: [
+                    "version": 2,
+                    "sessions": [
+                        sessionID: [
+                            "sessionId": sessionID,
+                            "workspaceId": "workspace-\(sessionID)",
+                            "surfaceId": "surface-\(sessionID)",
+                            "startedAt": 1.0,
+                            "updatedAt": 1.0,
+                            "runs": [["runId": "run-\(sessionID)"]],
+                        ]
+                    ],
+                ], options: [.sortedKeys])
+        }
+
+        let published = try sidecar(sessionID: "published")
+        try published.write(to: source.url, options: .atomic)
+        let publishedStamp = try #require(
+            CmuxAgentSessionRegistry.LegacyStamp.read(
+                path: source.url.path
+            ))
+        try fixture.registry.importLegacyStoreJSON(
+            provider: source.provider,
+            stamp: publishedStamp,
+            json: published
+        )
+        try fixture.registry.markHookLegacyProjection(
+            provider: source.provider,
+            revision: 1,
+            stamp: publishedStamp
+        )
+
+        let partial = try sidecar(sessionID: "partial")
+        try partial.write(to: source.url, options: .atomic)
+        let partialStamp = try #require(
+            CmuxAgentSessionRegistry.LegacyStamp.read(
+                path: source.url.path
+            ))
+        let admission = try fixture.registry.hookLegacySourceAdmission(
+            source: source,
+            expectedStamp: partialStamp
+        )
+
+        #expect(throws: CmuxAgentSessionRegistry.HookInspectionGraphUnionLimitError.self) {
+            try fixture.registry.snapshotsImportingAdmittedLegacy(
+                sources: [source],
+                admissions: [admission],
+                maximumGraphNodes: 1
+            )
+        }
+        #expect(
+            try fixture.registry.snapshot(provider: source.provider).records.map(\.sessionID)
+                == ["published"])
+    }
+
+    @Test("admitted inspection validates against canonical rows committed after admission")
+    func admittedInspectionUsesLatestCanonicalGraphSnapshot() throws {
+        let fixture = try makeFixture()
+        let source = CmuxAgentSessionRegistry.LegacySource(
+            provider: "codex",
+            url: fixture.legacyURL
+        )
+        let legacy = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 2,
+                "sessions": [
+                    "legacy": [
+                        "sessionId": "legacy",
+                        "workspaceId": "workspace-legacy",
+                        "surfaceId": "surface-legacy",
+                        "startedAt": 1.0,
+                        "updatedAt": 1.0,
+                        "runs": [["runId": "legacy-run"]],
+                    ]
+                ],
+            ], options: [.sortedKeys])
+        try legacy.write(to: source.url, options: .atomic)
+        let stamp = try #require(CmuxAgentSessionRegistry.LegacyStamp.read(path: source.url.path))
+        let admission = try fixture.registry.hookLegacySourceAdmission(
+            source: source,
+            expectedStamp: stamp
+        )
+        try fixture.registry.apply(
+            provider: source.provider,
+            records: [
+                try record(
+                    provider: source.provider,
+                    sessionID: "canonical-a",
+                    workspaceID: "workspace-a",
+                    surfaceID: "surface-a",
+                    updatedAt: 2,
+                    extra: ["runs": [["runId": "canonical-run-a"]]]
+                ),
+                try record(
+                    provider: source.provider,
+                    sessionID: "canonical-b",
+                    workspaceID: "workspace-b",
+                    surfaceID: "surface-b",
+                    updatedAt: 2,
+                    extra: ["runs": [["runId": "canonical-run-b"]]]
+                ),
+            ])
+
+        #expect(throws: CmuxAgentSessionRegistry.HookInspectionGraphUnionLimitError.self) {
+            try fixture.registry.snapshotsImportingAdmittedLegacy(
+                sources: [source],
+                admissions: [admission],
+                maximumGraphNodes: 2
+            )
+        }
+        #expect(try fixture.registry.snapshot(provider: source.provider).records.count == 2)
+    }
+
+    @Test("graph admission rejects a legacy map key and embedded session mismatch")
+    func legacyGraphAdmissionRejectsEmbeddedSessionMismatch() throws {
+        let fixture = try makeFixture()
+        let source = CmuxAgentSessionRegistry.LegacySource(
+            provider: "codex",
+            url: fixture.legacyURL
+        )
+        try Data(#"{"sessions":{"outer":{"sessionId":"inner","runs":[]}}}"#.utf8)
+            .write(to: source.url, options: .atomic)
+        let stamp = try #require(CmuxAgentSessionRegistry.LegacyStamp.read(path: source.url.path))
+        #expect(throws: CmuxAgentSessionRegistry.HookLegacySourceMalformedError.self) {
+            try fixture.registry.hookLegacySourceAdmission(
+                source: source,
+                expectedStamp: stamp
+            )
+        }
+    }
+
     @Test("bounded legacy reads accept the older flat session-map layout")
     func legacyScannerAcceptsFlatSessionMaps() throws {
         let fixture = try makeFixture()

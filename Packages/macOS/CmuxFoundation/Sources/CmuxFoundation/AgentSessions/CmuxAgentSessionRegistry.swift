@@ -142,20 +142,69 @@ public struct CmuxAgentSessionRegistry: Sendable {
         public var path: String
         public var size: Int64
         public var modifiedAt: TimeInterval
+        public var deviceID: Int64?
+        public var inode: Int64?
+        public var modifiedSeconds: Int64?
+        public var modifiedNanoseconds: Int64?
+        public var changedSeconds: Int64?
+        public var changedNanoseconds: Int64?
 
-        public init(path: String, size: Int64, modifiedAt: TimeInterval) {
+        public init(
+            path: String,
+            size: Int64,
+            modifiedAt: TimeInterval,
+            deviceID: Int64? = nil,
+            inode: Int64? = nil,
+            modifiedSeconds: Int64? = nil,
+            modifiedNanoseconds: Int64? = nil,
+            changedSeconds: Int64? = nil,
+            changedNanoseconds: Int64? = nil
+        ) {
             self.path = path
             self.size = size
             self.modifiedAt = modifiedAt
+            self.deviceID = deviceID
+            self.inode = inode
+            self.modifiedSeconds = modifiedSeconds
+            self.modifiedNanoseconds = modifiedNanoseconds
+            self.changedSeconds = changedSeconds
+            self.changedNanoseconds = changedNanoseconds
+        }
+
+        init(path: String, metadata: stat) {
+            let modifiedSeconds = Int64(metadata.st_mtimespec.tv_sec)
+            let modifiedNanoseconds = Int64(metadata.st_mtimespec.tv_nsec)
+            self.init(
+                path: path,
+                size: Int64(metadata.st_size),
+                modifiedAt: TimeInterval(modifiedSeconds)
+                    + TimeInterval(modifiedNanoseconds) / 1_000_000_000,
+                deviceID: Int64(metadata.st_dev),
+                inode: Int64(bitPattern: UInt64(metadata.st_ino)),
+                modifiedSeconds: modifiedSeconds,
+                modifiedNanoseconds: modifiedNanoseconds,
+                changedSeconds: Int64(metadata.st_ctimespec.tv_sec),
+                changedNanoseconds: Int64(metadata.st_ctimespec.tv_nsec)
+            )
+        }
+
+        var hasDurableRevisionIdentity: Bool {
+            deviceID != nil
+                && inode != nil
+                && modifiedSeconds != nil
+                && modifiedNanoseconds != nil
+                && changedSeconds != nil
+                && changedNanoseconds != nil
         }
 
         public static func read(path: String, fileManager: FileManager = .default) -> LegacyStamp? {
-            guard let attributes = try? fileManager.attributesOfItem(atPath: path),
-                  let size = (attributes[.size] as? NSNumber)?.int64Value,
-                  let modifiedAt = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 else {
+            _ = fileManager
+            var metadata = stat()
+            guard stat(path, &metadata) == 0,
+                  metadata.st_mode & S_IFMT == S_IFREG else {
                 return nil
             }
-            return LegacyStamp(path: path, size: size, modifiedAt: modifiedAt)
+            return LegacyStamp(path: path, metadata: metadata)
         }
     }
 
@@ -643,7 +692,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
         var activeSlots: [ActiveSlot]
     }
 
-    private func legacyPayload(provider: String, json: Data) throws -> LegacyPayload {
+    func legacyPayload(provider: String, json: Data) throws -> LegacyPayload {
         guard let root = try JSONSerialization.jsonObject(with: json) as? [String: Any],
               let sessions = root["sessions"] as? [String: Any] else {
             throw CocoaError(.fileReadCorruptFile)

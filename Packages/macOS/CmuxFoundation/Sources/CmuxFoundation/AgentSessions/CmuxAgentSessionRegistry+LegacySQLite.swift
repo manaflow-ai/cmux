@@ -48,10 +48,23 @@ extension CmuxAgentSessionRegistry {
         provider: String,
         stamp: LegacyStamp
     ) throws -> LegacySourceState {
+        guard let deviceID = stamp.deviceID,
+            let inode = stamp.inode,
+            let modifiedSeconds = stamp.modifiedSeconds,
+            let modifiedNanoseconds = stamp.modifiedNanoseconds,
+            let changedSeconds = stamp.changedSeconds,
+            let changedNanoseconds = stamp.changedNanoseconds
+        else {
+            return .changed
+        }
         let statement = try prepare(
             database,
             """
-            SELECT size, modified_at, quarantined FROM agent_legacy_sources
+            SELECT size, quarantined,
+                   device_id, inode,
+                   modified_seconds, modified_nanoseconds,
+                   changed_seconds, changed_nanoseconds
+            FROM agent_legacy_sources
             WHERE provider = ?1 AND path = ?2
             """
         )
@@ -62,10 +75,21 @@ extension CmuxAgentSessionRegistry {
             return .changed
         }
         guard sqlite3_column_int64(statement, 0) == stamp.size,
-              abs(sqlite3_column_double(statement, 1) - stamp.modifiedAt) < 0.000_001 else {
+              sqlite3_column_type(statement, 2) != SQLITE_NULL,
+              sqlite3_column_int64(statement, 2) == deviceID,
+              sqlite3_column_type(statement, 3) != SQLITE_NULL,
+              sqlite3_column_int64(statement, 3) == inode,
+              sqlite3_column_type(statement, 4) != SQLITE_NULL,
+              sqlite3_column_int64(statement, 4) == modifiedSeconds,
+              sqlite3_column_type(statement, 5) != SQLITE_NULL,
+              sqlite3_column_int64(statement, 5) == modifiedNanoseconds,
+              sqlite3_column_type(statement, 6) != SQLITE_NULL,
+              sqlite3_column_int64(statement, 6) == changedSeconds,
+              sqlite3_column_type(statement, 7) != SQLITE_NULL,
+              sqlite3_column_int64(statement, 7) == changedNanoseconds else {
             return .changed
         }
-        return sqlite3_column_int(statement, 2) == 0 ? .imported : .quarantined
+        return sqlite3_column_int(statement, 1) == 0 ? .imported : .quarantined
     }
 
     func replaceLegacy(
@@ -162,14 +186,23 @@ extension CmuxAgentSessionRegistry {
             database,
             """
             INSERT INTO agent_legacy_sources (
-                provider, path, size, modified_at, imported_at, quarantined
+                provider, path, size, modified_at, imported_at, quarantined,
+                device_id, inode,
+                modified_seconds, modified_nanoseconds,
+                changed_seconds, changed_nanoseconds
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
             ON CONFLICT(provider, path) DO UPDATE SET
                 size = excluded.size,
                 modified_at = excluded.modified_at,
                 imported_at = excluded.imported_at,
-                quarantined = excluded.quarantined
+                quarantined = excluded.quarantined,
+                device_id = excluded.device_id,
+                inode = excluded.inode,
+                modified_seconds = excluded.modified_seconds,
+                modified_nanoseconds = excluded.modified_nanoseconds,
+                changed_seconds = excluded.changed_seconds,
+                changed_nanoseconds = excluded.changed_nanoseconds
             """
         )
         defer { sqlite3_finalize(statement) }
@@ -179,6 +212,24 @@ extension CmuxAgentSessionRegistry {
         sqlite3_bind_double(statement, 4, stamp.modifiedAt)
         sqlite3_bind_double(statement, 5, Date().timeIntervalSince1970)
         sqlite3_bind_int(statement, 6, quarantined ? 1 : 0)
+        bindOptionalInt64(stamp.deviceID, to: 7, in: statement)
+        bindOptionalInt64(stamp.inode, to: 8, in: statement)
+        bindOptionalInt64(stamp.modifiedSeconds, to: 9, in: statement)
+        bindOptionalInt64(stamp.modifiedNanoseconds, to: 10, in: statement)
+        bindOptionalInt64(stamp.changedSeconds, to: 11, in: statement)
+        bindOptionalInt64(stamp.changedNanoseconds, to: 12, in: statement)
         try stepDone(statement, database: database, operation: "write legacy checkpoint")
+    }
+
+    private func bindOptionalInt64(
+        _ value: Int64?,
+        to index: Int32,
+        in statement: OpaquePointer
+    ) {
+        if let value {
+            sqlite3_bind_int64(statement, index, value)
+        } else {
+            sqlite3_bind_null(statement, index)
+        }
     }
 }

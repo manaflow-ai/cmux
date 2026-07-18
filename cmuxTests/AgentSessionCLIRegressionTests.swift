@@ -2501,7 +2501,6 @@ extension CMUXCLIErrorOutputRegressionTests {
                 sessionID: "session-a",
                 runIDs: ["run-a", "run-added-by-legacy"]
             ),
-            "session-b": sessionObject(sessionID: "session-b", runIDs: ["run-b"]),
         ])
         var extraRunFailure: AgentHookSessionStoreLoadFailure?
         do {

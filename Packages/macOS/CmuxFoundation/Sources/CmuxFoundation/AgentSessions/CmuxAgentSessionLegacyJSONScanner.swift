@@ -12,7 +12,6 @@ extension CmuxAgentSessionRegistry {
         public var largestRecordBytes: Int64
         /// Session owning `largestRecordBytes`.
         public var largestRecordSessionID: String?
-
         /// Creates compatibility-file structural metrics.
         public init(
             sessionCount: Int,
@@ -82,6 +81,40 @@ extension CmuxAgentSessionRegistry {
         }
     }
 
+    /// One exact compatibility revision admitted for a later transactional
+    /// import. Retaining the scanned bytes prevents a newer file revision from
+    /// entering between allocation preflight and SQLite import.
+    public struct HookLegacySourceAdmission: Sendable {
+        public let source: LegacySource
+        public let stamp: LegacyStamp
+        public let json: Data
+        public let metrics: HookLegacySourceMetrics
+        private let scannerIssued: Bool
+
+        fileprivate init(
+            source: LegacySource,
+            stamp: LegacyStamp,
+            json: Data,
+            metrics: HookLegacySourceMetrics
+        ) {
+            self.source = source
+            self.stamp = stamp
+            self.json = json
+            self.metrics = metrics
+            scannerIssued = true
+        }
+
+        var wasIssuedByHookLegacyScanner: Bool { scannerIssued }
+    }
+
+    public struct HookLegacySourceRevisionChangedError: Error, Equatable, Sendable {
+        public var path: String
+
+        public init(path: String) {
+            self.path = path
+        }
+    }
+
     /// Scans compatibility JSON before `JSONSerialization` can allocate its
     /// full object graph. Strings, escapes, nesting, duplicate session keys, and
     /// duplicate run IDs are handled with JSON semantics. Both the canonical
@@ -104,12 +137,48 @@ extension CmuxAgentSessionRegistry {
         )
     }
 
+    /// Reads, validates, and pins one exact compatibility revision. The caller
+    /// can import `json` later without reopening the source path.
+    public func hookLegacySourceAdmission(
+        source: LegacySource,
+        expectedStamp: LegacyStamp,
+        fileManager: FileManager = .default,
+        maximumBytes: Int64 = 64 * 1_024 * 1_024,
+        maximumSessions: Int = 20_000,
+        maximumGraphNodes: Int = 20_000,
+        maximumRecordBytes: Int64 = 4 * 1_024 * 1_024
+    ) throws -> HookLegacySourceAdmission {
+        _ = fileManager
+        let revision = try readHookLegacySourceRevisionUnvalidated(
+            at: source.url,
+            maximumBytes: maximumBytes
+        )
+        guard revision.stamp == expectedStamp else {
+            throw HookLegacySourceRevisionChangedError(path: source.url.path)
+        }
+        let metrics = try scanHookLegacySourceData(
+            revision.data,
+            path: source.url.path,
+            maximumSessions: maximumSessions,
+            maximumGraphNodes: maximumGraphNodes,
+            maximumRecordBytes: maximumRecordBytes,
+            validateRecordIdentity: true
+        )
+        return HookLegacySourceAdmission(
+            source: source,
+            stamp: revision.stamp,
+            json: revision.data,
+            metrics: metrics
+        )
+    }
+
     func scanHookLegacySourceData(
         _ data: Data,
         path: String,
         maximumSessions: Int = 20_000,
         maximumGraphNodes: Int = 20_000,
-        maximumRecordBytes: Int64 = 4 * 1_024 * 1_024
+        maximumRecordBytes: Int64 = 4 * 1_024 * 1_024,
+        validateRecordIdentity: Bool = false
     ) throws -> HookLegacySourceMetrics {
         try data.withUnsafeBytes { rawBuffer in
             var scanner = HookLegacyJSONScanner(
@@ -117,7 +186,8 @@ extension CmuxAgentSessionRegistry {
                 path: path,
                 maximumSessions: max(0, maximumSessions),
                 maximumGraphNodes: max(0, maximumGraphNodes),
-                maximumRecordBytes: max(0, maximumRecordBytes)
+                maximumRecordBytes: max(0, maximumRecordBytes),
+                validateRecordIdentity: validateRecordIdentity
             )
             return try scanner.scan()
         }
@@ -130,11 +200,17 @@ private struct HookLegacyJSONScanner {
         var bytes: Int64
     }
 
+    private struct SessionRecordMetrics {
+        var runIDs: Set<String>
+        var embeddedSessionID: String?
+    }
+
     let bytes: UnsafeBufferPointer<UInt8>
     let path: String
     let maximumSessions: Int
     let maximumGraphNodes: Int
     let maximumRecordBytes: Int64
+    let validateRecordIdentity: Bool
     private let maximumNestingDepth = 512
     private let maximumKeyBytes = 1_536
     private let maximumIdentifierBytes = 16 * 1_024
@@ -145,13 +221,15 @@ private struct HookLegacyJSONScanner {
         path: String,
         maximumSessions: Int,
         maximumGraphNodes: Int,
-        maximumRecordBytes: Int64
+        maximumRecordBytes: Int64,
+        validateRecordIdentity: Bool
     ) {
         self.bytes = bytes
         self.path = path
         self.maximumSessions = maximumSessions
         self.maximumGraphNodes = maximumGraphNodes
         self.maximumRecordBytes = maximumRecordBytes
+        self.validateRecordIdentity = validateRecordIdentity
     }
 
     mutating func scan() throws -> CmuxAgentSessionRegistry.HookLegacySourceMetrics {
@@ -228,16 +306,18 @@ private struct HookLegacyJSONScanner {
             let recordMetrics: RecordMetrics?
             switch peek() {
             case 0x7B:
-                let runIDs = try parseSessionRecord(
+                let sessionMetrics = try parseSessionRecord(
                     sessionID: sessionID,
                     recordStart: recordStart
                 )
+                try validateSessionIdentity(sessionID, metrics: sessionMetrics)
                 recordMetrics = .init(
-                    graphNodes: max(1, runIDs.count),
+                    graphNodes: max(1, sessionMetrics.runIDs.count),
                     bytes: Int64(offset - recordStart)
                 )
             case 0x5B:
                 try skipValue(depth: 1)
+                if validateRecordIdentity { throw malformed() }
                 recordMetrics = .init(
                     graphNodes: 1,
                     bytes: Int64(offset - recordStart)
@@ -318,7 +398,11 @@ private struct HookLegacyJSONScanner {
             try expect(0x3A)
             try skipWhitespace()
             let recordStart = offset
-            let runIDs = try parseSessionRecord(sessionID: sessionID, recordStart: recordStart)
+            let sessionMetrics = try parseSessionRecord(
+                sessionID: sessionID,
+                recordStart: recordStart
+            )
+            try validateSessionIdentity(sessionID, metrics: sessionMetrics)
             let recordBytes = Int64(offset - recordStart)
             guard recordBytes <= maximumRecordBytes else {
                 throw limit(
@@ -329,7 +413,7 @@ private struct HookLegacyJSONScanner {
                 )
             }
             let recordMetrics = RecordMetrics(
-                graphNodes: max(1, runIDs.count),
+                graphNodes: max(1, sessionMetrics.runIDs.count),
                 bytes: recordBytes
             )
             if let previous = records.updateValue(recordMetrics, forKey: sessionID) {
@@ -370,11 +454,17 @@ private struct HookLegacyJSONScanner {
     private mutating func parseSessionRecord(
         sessionID: String,
         recordStart: Int
-    ) throws -> Set<String> {
+    ) throws -> SessionRecordMetrics {
         try expect(0x7B)
         try skipWhitespace()
         var runIDs: Set<String> = []
-        if consume(0x7D) { return runIDs }
+        var embeddedSessionID: String?
+        if consume(0x7D) {
+            return SessionRecordMetrics(
+                runIDs: runIDs,
+                embeddedSessionID: embeddedSessionID
+            )
+        }
         while true {
             let key = try parseString(maximumCapturedBytes: maximumKeyBytes, overflowIsError: false)
             try skipWhitespace()
@@ -382,6 +472,17 @@ private struct HookLegacyJSONScanner {
             try skipWhitespace()
             if key == "runs" {
                 runIDs = try parseRuns(sessionID: sessionID)
+            } else if key == "sessionId" {
+                if peek() == 0x22 {
+                    embeddedSessionID = try parseString(
+                        maximumCapturedBytes: maximumIdentifierBytes,
+                        overflowIsError: true,
+                        sessionID: sessionID
+                    )
+                } else {
+                    try skipValue(depth: 2)
+                    embeddedSessionID = nil
+                }
             } else {
                 try skipValue(depth: 2)
             }
@@ -399,7 +500,19 @@ private struct HookLegacyJSONScanner {
             try expect(0x2C)
             try skipWhitespace()
         }
-        return runIDs
+        return SessionRecordMetrics(
+            runIDs: runIDs,
+            embeddedSessionID: embeddedSessionID
+        )
+    }
+
+    private func validateSessionIdentity(
+        _ sessionID: String,
+        metrics: SessionRecordMetrics
+    ) throws {
+        guard !validateRecordIdentity || metrics.embeddedSessionID == sessionID else {
+            throw malformed()
+        }
     }
 
     private mutating func parseRuns(sessionID: String) throws -> Set<String> {

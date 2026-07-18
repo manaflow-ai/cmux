@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SQLite3
 import Testing
@@ -97,6 +98,85 @@ struct CmuxAgentSessionRegistryTests {
         let snapshots = try fixture.registry.snapshotsImportingLegacy(sources: [source, source])
 
         #expect(snapshots["codex"]?.records.map(\.sessionID) == ["one"])
+    }
+
+    @Test("same-size legacy replacements and in-place rewrites are not treated as current")
+    func sameSizeLegacyRewritesAreChanged() throws {
+        let fixture = try Fixture()
+        let legacyURL = fixture.directory.appendingPathComponent("legacy.json")
+        try Data("AAAA".utf8).write(to: legacyURL, options: .atomic)
+        let first = try #require(CmuxAgentSessionRegistry.LegacyStamp.read(path: legacyURL.path))
+        try fixture.registry.markLegacySource(provider: "codex", stamp: first)
+
+        #expect(
+            try fixture.registry.legacySourceIsCurrent(
+                provider: "codex",
+                stamp: first
+            ))
+
+        try Data("BBBB".utf8).write(to: legacyURL, options: .atomic)
+        try restoreModificationTime(of: legacyURL, from: first)
+        let replaced = try #require(CmuxAgentSessionRegistry.LegacyStamp.read(path: legacyURL.path))
+        #expect(replaced.size == first.size)
+        #expect(replaced.modifiedSeconds == first.modifiedSeconds)
+        #expect(replaced.modifiedNanoseconds == first.modifiedNanoseconds)
+        #expect(replaced.inode != first.inode)
+        #expect(
+            try !fixture.registry.legacySourceIsCurrent(
+                provider: "codex",
+                stamp: replaced
+            ))
+
+        try fixture.registry.markLegacySource(provider: "codex", stamp: replaced)
+        let handle = try FileHandle(forWritingTo: legacyURL)
+        try handle.write(contentsOf: Data("CCCC".utf8))
+        try handle.synchronize()
+        try handle.close()
+        try restoreModificationTime(of: legacyURL, from: replaced)
+        let rewritten = try #require(
+            CmuxAgentSessionRegistry.LegacyStamp.read(path: legacyURL.path))
+        #expect(rewritten.size == replaced.size)
+        #expect(rewritten.inode == replaced.inode)
+        #expect(rewritten.modifiedSeconds == replaced.modifiedSeconds)
+        #expect(rewritten.modifiedNanoseconds == replaced.modifiedNanoseconds)
+        #expect(
+            rewritten.changedSeconds != replaced.changedSeconds
+                || rewritten.changedNanoseconds != replaced.changedNanoseconds
+        )
+        #expect(
+            try !fixture.registry.legacySourceIsCurrent(
+                provider: "codex",
+                stamp: rewritten
+            ))
+    }
+
+    @Test("legacy checkpoints without durable revision columns refresh once after migration")
+    func legacyCheckpointWithoutDurableIdentityIsChanged() throws {
+        let fixture = try Fixture()
+        let legacyURL = fixture.directory.appendingPathComponent("legacy.json")
+        try Data("legacy".utf8).write(to: legacyURL, options: .atomic)
+        let stamp = try #require(CmuxAgentSessionRegistry.LegacyStamp.read(path: legacyURL.path))
+        _ = try fixture.registry.snapshot(provider: "codex")
+
+        var database: OpaquePointer?
+        #expect(sqlite3_open(fixture.registry.url.path, &database) == SQLITE_OK)
+        let connection = try #require(database)
+        defer { sqlite3_close(connection) }
+        let escapedPath = stamp.path.replacingOccurrences(of: "'", with: "''")
+        let insert = """
+            INSERT INTO agent_legacy_sources (
+                provider, path, size, modified_at, imported_at, quarantined
+            ) VALUES (
+                'codex', '\(escapedPath)', \(stamp.size), \(stamp.modifiedAt), 0, 0
+            )
+            """
+        #expect(sqlite3_exec(connection, insert, nil, nil, nil) == SQLITE_OK)
+
+        #expect(
+            try !fixture.registry.legacySourceIsCurrent(
+                provider: "codex",
+                stamp: stamp
+            ))
     }
 
     @Test("restore preflight isolates a malformed legacy provider")
@@ -1267,6 +1347,23 @@ struct CmuxAgentSessionRegistryTests {
         let attributes = try FileManager.default.attributesOfItem(atPath: sharedDirectory.path)
         let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
         #expect(permissions.intValue & 0o777 == 0o755)
+    }
+
+    private func restoreModificationTime(
+        of url: URL,
+        from stamp: CmuxAgentSessionRegistry.LegacyStamp
+    ) throws {
+        let seconds = try #require(stamp.modifiedSeconds)
+        let nanoseconds = try #require(stamp.modifiedNanoseconds)
+        var times = [
+            timespec(tv_sec: 0, tv_nsec: Int(UTIME_OMIT)),
+            timespec(tv_sec: Int(seconds), tv_nsec: Int(nanoseconds)),
+        ]
+        let result: Int32 = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return Int32(-1) }
+            return utimensat(AT_FDCWD, path, &times, 0)
+        }
+        #expect(result == 0)
     }
 
     private struct Fixture {
