@@ -179,6 +179,8 @@ export interface TerminalColors {
   cursor_style?: "block" | "underline" | "bar" | null;
   /** Protocol v6 additive extension. Older servers omit this field. */
   cursor_blink?: boolean | null;
+  /** Protocol v7 sparse application-authored OSC 4 overrides by palette index. */
+  palette?: Record<string, ColorHex>;
 }
 
 /** Initial base64 VT replay for an attached PTY surface. */
@@ -193,13 +195,21 @@ export interface VtStateEvent {
 }
 
 /** Live base64 PTY bytes after the attach snapshot. */
-export interface OutputEvent { event: "output"; surface: Id; data: Base64 }
+export interface OutputEvent {
+  event: "output";
+  surface: Id;
+  data: Base64;
+  /** Present when output and its complete color state are one transition. */
+  colors?: TerminalColors;
+}
 
 interface ResizedEventBase {
   event: "resized";
   surface: Id;
   cols: number;
   rows: number;
+  /** Present when the theme-portable replay and colors are one transition. */
+  colors?: TerminalColors;
 }
 
 /** A replacement replay using the protocol-v7 field or protocol-v6 compatibility field. */

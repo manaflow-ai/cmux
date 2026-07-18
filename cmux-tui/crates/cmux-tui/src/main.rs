@@ -234,18 +234,11 @@ fn main() {
 }
 
 fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
-    if args.iter().map(String::as_str).ne(["--bootstrap-stdio"]) {
-        anyhow::bail!("hidden mode requires --bootstrap-stdio");
-    }
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut reader = stdin.lock();
     let mut writer = stdout.lock();
-    // This first slice establishes the private bootstrap and versioned wire
-    // boundary. The long-lived PTY/admin/data loops will consume the returned
-    // owner state when process isolation is wired into Surface::spawn.
-    let _host = cmux_tui_core::terminal_host::bootstrap_stdio_once(&mut reader, &mut writer)?;
-    Ok(())
+    cmux_tui_core::terminal_host_runtime::serve_terminal_host_stdio(args, &mut reader, &mut writer)
 }
 
 fn run_attach(args: Args) -> anyhow::Result<()> {
@@ -274,16 +267,25 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
-    let mux = if args.ephemeral {
-        Mux::new(args.session.clone(), surface_options)
+    let state_root = if args.ephemeral {
+        None
     } else {
-        let state_root = match args.state {
+        Some(match args.state {
             Some(path) => path,
             None if explicit_socket => socket_path.with_extension("state"),
             None => cmux_tui_core::platform::workspace_state_dir()
                 .ok_or_else(|| anyhow::anyhow!("cannot determine durable state directory"))?,
-        };
-        Mux::open_persistent(args.session.clone(), surface_options, &state_root)?
+        })
+    };
+    if let Some(state_root) = state_root.as_deref() {
+        surface_options.terminal_host_root = Some(
+            cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
+        );
+    }
+    let mux = if let Some(state_root) = state_root.as_deref() {
+        Mux::open_persistent(args.session.clone(), surface_options, state_root)?
+    } else {
+        Mux::new(args.session.clone(), surface_options)
     };
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.

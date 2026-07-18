@@ -19,6 +19,7 @@ use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::pairing::PairingBroker;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
+use crate::terminal_host_runtime::TerminalHostIdentity;
 use crate::workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryCommit, RegistryWorkspace, WorkspaceMutation,
     WorkspaceRegistry,
@@ -529,7 +530,7 @@ impl Mux {
         let workspace_id_by_key =
             workspaces.iter().map(|workspace| (workspace.key.clone(), workspace.id)).collect();
         surface_options.browser_session_name = session.clone();
-        Ok(Arc::new(Mux {
+        let mux = Arc::new(Mux {
             workspace_registry: Mutex::new(registry),
             state: Mutex::new(State {
                 workspaces,
@@ -561,7 +562,67 @@ impl Mux {
             #[cfg(test)]
             test_surface_runtime,
             session,
-        }))
+        });
+        #[cfg(unix)]
+        mux.adopt_terminal_hosts()?;
+        Ok(mux)
+    }
+
+    #[cfg(unix)]
+    fn adopt_terminal_hosts(self: &Arc<Self>) -> anyhow::Result<()> {
+        let options = self.surface_options.lock().unwrap().clone();
+        let Some(root) = options.terminal_host_root.clone() else {
+            return Ok(());
+        };
+        for (record_path, record) in
+            crate::terminal_host_runtime::load_terminal_host_records(&root)?
+        {
+            if record.workspace_key.is_empty() {
+                continue;
+            }
+            let workspace_id = self.state.lock().unwrap().workspaces.iter().find_map(|workspace| {
+                (workspace.key == record.workspace_key).then_some(workspace.id)
+            });
+            let Some(workspace_id) = workspace_id else { continue };
+            let id = self.next_id();
+            let surface = match Surface::adopt_hosted(
+                id,
+                options.clone(),
+                Arc::downgrade(self),
+                record,
+                record_path.clone(),
+            ) {
+                Ok(surface) => surface,
+                // A failed connection can be a transient host startup or
+                // descriptor-pressure failure. The host owns cleanup of its
+                // record on exit; deleting the capability here would turn a
+                // retryable interruption into permanent terminal loss.
+                Err(_) => continue,
+            };
+            let (pane_id, pane) = self.make_pane(surface.id);
+            let screen_id = self.next_id();
+            {
+                let mut state = self.state.lock().unwrap();
+                let Some(workspace) =
+                    state.workspaces.iter_mut().find(|workspace| workspace.id == workspace_id)
+                else {
+                    surface.disconnect_for_daemon_shutdown();
+                    continue;
+                };
+                workspace.screens.push(Screen {
+                    id: screen_id,
+                    name: None,
+                    root: Node::Leaf(pane_id),
+                    active_pane: pane_id,
+                    zoomed_pane: None,
+                });
+                workspace.active_screen = workspace.screens.len() - 1;
+                state.panes.insert(pane_id, pane);
+                insert_surface_checked(&mut state, surface.clone())?;
+            }
+            self.reap_if_dead(&surface);
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -782,7 +843,7 @@ impl Mux {
         };
         #[cfg(not(test))]
         let surface = Surface::spawn(id, opts, Arc::downgrade(self))?;
-        self.state.lock().unwrap().surfaces.insert(id, surface.clone());
+        insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
         Ok(surface)
     }
 
@@ -817,7 +878,7 @@ impl Mux {
         };
         #[cfg(not(test))]
         let surface = Surface::spawn(id, opts, Arc::downgrade(self))?;
-        self.state.lock().unwrap().surfaces.insert(id, surface.clone());
+        insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
         Ok(surface)
     }
 
@@ -1299,6 +1360,79 @@ impl Mux {
         self.state.lock().unwrap().surfaces.get(&id).cloned()
     }
 
+    /// Resolve a process-stable terminal UUID to this daemon generation's
+    /// local surface id. This is lookup-only: absence during startup adoption
+    /// is retryable and never creates a replacement shell.
+    pub fn resolve_terminal(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<(SurfaceId, TerminalHostIdentity)>> {
+        validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
+        let state = self.state.lock().unwrap();
+        unique_terminal_match(
+            terminal_id,
+            state.surfaces.values().filter(|surface| !surface.is_dead()).filter_map(|surface| {
+                surface.terminal_host_identity().map(|identity| (surface.id, identity))
+            }),
+        )
+    }
+
+    /// Atomically resolve, incarnation-check, and remove a hosted terminal by
+    /// process-stable identity. The host is terminated only after the state
+    /// lock has made the removal authoritative for this daemon generation.
+    pub fn close_terminal(
+        &self,
+        terminal_id: &str,
+        terminal_incarnation: &str,
+    ) -> anyhow::Result<Option<SurfaceId>> {
+        validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
+        validate_terminal_hex(terminal_incarnation, "invalid_terminal_incarnation")?;
+        let notifications = self.surface_notifications();
+        let (target, removed, changed_screens, empty, delta) = {
+            let mut state = self.state.lock().unwrap();
+            let Some((target, identity)) = unique_terminal_match(
+                terminal_id,
+                state.surfaces.values().filter(|surface| !surface.is_dead()).filter_map(
+                    |surface| {
+                        surface.terminal_host_identity().map(|identity| (surface.id, identity))
+                    },
+                ),
+            )?
+            else {
+                return Ok(None);
+            };
+            if identity.incarnation != terminal_incarnation {
+                anyhow::bail!("terminal_incarnation_mismatch");
+            }
+            let changed_screen = surface_screen_id(&state, target);
+            let delta = close_surface_delta(&state, &notifications, target);
+            let removed = remove_surface(&mut state, target);
+            (
+                target,
+                removed,
+                changed_screen.into_iter().collect::<Vec<_>>(),
+                state.workspaces.is_empty(),
+                delta,
+            )
+        };
+        if let Some(surface) = removed {
+            self.purge_surface_side_tables(surface.id);
+            surface.kill();
+            if let Some(delta) = delta {
+                self.emit(MuxEvent::TreeDelta(delta));
+            } else {
+                self.emit(MuxEvent::TreeChanged);
+            }
+            for screen in changed_screens {
+                self.emit(MuxEvent::LayoutChanged(screen));
+            }
+        }
+        if empty {
+            self.emit(MuxEvent::Empty);
+        }
+        Ok(Some(target))
+    }
+
     /// Run `f` with the session state.
     ///
     /// The state lock is held for the duration of `f`; do not call back
@@ -1423,7 +1557,7 @@ impl Mux {
     pub fn shutdown(&self) {
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
-            surface.kill();
+            surface.disconnect_for_daemon_shutdown();
         }
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
@@ -1604,8 +1738,12 @@ impl Mux {
                 surface.resize_reporting_acceptance(cols, rows, Box::new(|_| {}))?;
             return Ok((reservation_id.is_some(), reservation_id));
         }
+        let reports_asynchronously = surface.resize_reports_asynchronously();
         if !surface.resize(cols, rows)? {
             return Ok((false, None));
+        }
+        if reports_asynchronously {
+            return Ok((true, None));
         }
         let (cols, rows) = surface.size();
         self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows, reservation_id: None });
@@ -3108,6 +3246,20 @@ impl Mux {
     fn reap_if_dead(&self, surface: &Arc<Surface>) {
         if surface.is_dead() {
             self.close_surface(surface.id);
+            return;
+        }
+        let workspace_key = {
+            let state = self.state.lock().unwrap();
+            state.workspaces.iter().find_map(|workspace| {
+                workspace
+                    .screens
+                    .iter()
+                    .any(|screen| screen_tabs(&state, screen).contains(&surface.id))
+                    .then(|| workspace.key.clone())
+            })
+        };
+        if let Some(workspace_key) = workspace_key {
+            let _ = surface.persist_host_workspace(&workspace_key);
         }
     }
 
@@ -3678,6 +3830,51 @@ impl Mux {
     }
 }
 
+fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::Result<()> {
+    if state.surfaces.contains_key(&surface.id) {
+        anyhow::bail!("duplicate_surface_id");
+    }
+    if let Some(identity) = surface.terminal_host_identity()
+        && unique_terminal_match(
+            &identity.terminal_id,
+            state.surfaces.values().filter_map(|surface| {
+                surface.terminal_host_identity().map(|identity| (surface.id, identity))
+            }),
+        )?
+        .is_some()
+    {
+        anyhow::bail!("duplicate_terminal_id");
+    }
+    state.surfaces.insert(surface.id, surface);
+    Ok(())
+}
+
+fn validate_terminal_hex(value: &str, error: &'static str) -> anyhow::Result<()> {
+    if value.len() != crate::terminal_host::TERMINAL_ID_LEN * 2
+        || !value.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        anyhow::bail!(error);
+    }
+    Ok(())
+}
+
+fn unique_terminal_match(
+    terminal_id: &str,
+    identities: impl IntoIterator<Item = (SurfaceId, TerminalHostIdentity)>,
+) -> anyhow::Result<Option<(SurfaceId, TerminalHostIdentity)>> {
+    let mut found = None;
+    for (surface, identity) in identities {
+        if identity.terminal_id != terminal_id {
+            continue;
+        }
+        if found.is_some() {
+            anyhow::bail!("duplicate_terminal_id");
+        }
+        found = Some((surface, identity));
+    }
+    Ok(found)
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -3694,7 +3891,7 @@ impl Drop for Mux {
     fn drop(&mut self) {
         if let Ok(state) = self.state.get_mut() {
             for surface in state.surfaces.values() {
-                surface.kill();
+                surface.disconnect_for_daemon_shutdown();
             }
         }
         if let Ok(runtime) = self.browser_runtime.get_mut()
@@ -4081,6 +4278,35 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    #[test]
+    fn stable_terminal_lookup_never_chooses_between_duplicate_ids() {
+        let terminal_id = "00112233445566778899aabbccddeeff";
+        let identities = vec![
+            (
+                10,
+                TerminalHostIdentity {
+                    terminal_id: terminal_id.into(),
+                    incarnation: "11111111111111111111111111111111".into(),
+                },
+            ),
+            (
+                20,
+                TerminalHostIdentity {
+                    terminal_id: terminal_id.into(),
+                    incarnation: "22222222222222222222222222222222".into(),
+                },
+            ),
+        ];
+
+        assert_eq!(
+            unique_terminal_match(terminal_id, identities.clone()).unwrap_err().to_string(),
+            "duplicate_terminal_id"
+        );
+        let unique =
+            unique_terminal_match(terminal_id, identities.into_iter().take(1)).unwrap().unwrap();
+        assert_eq!(unique.0, 10);
     }
 
     #[test]

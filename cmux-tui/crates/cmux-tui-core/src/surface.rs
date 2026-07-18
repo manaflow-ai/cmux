@@ -8,6 +8,7 @@
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::ops::Deref;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
@@ -17,6 +18,7 @@ use std::time::{Duration, Instant};
 
 use ghostty_vt::{
     Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Terminal,
+    TerminalColorOverrides,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
@@ -27,6 +29,8 @@ use crate::browser::BrowserSurface;
 pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
 };
+#[cfg(unix)]
+use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
 use cmux_tui_cdp::BrowserMode;
 
 /// How to spawn surface children.
@@ -63,6 +67,9 @@ pub struct SurfaceOptions {
     pub browser_max_capture_megapixels: f64,
     /// Optional maximum browser capture scale, further reduced to honor the megapixel cap.
     pub browser_capture_scale: Option<f64>,
+    /// Durable per-terminal host records. When set, PTYs are created in a
+    /// dedicated process and this surface becomes an adoptable mirror.
+    pub terminal_host_root: Option<PathBuf>,
 }
 
 impl Default for SurfaceOptions {
@@ -87,6 +94,7 @@ impl Default for SurfaceOptions {
             browser_ephemeral: false,
             browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             browser_capture_scale: None,
+            terminal_host_root: None,
         }
     }
 }
@@ -119,7 +127,7 @@ impl Default for DefaultColors {
 }
 
 /// Effective colors exposed to attached terminal clients.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalColors {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
@@ -128,11 +136,30 @@ pub struct TerminalColors {
     pub selection_fg: Option<Rgb>,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
+    /// Complete sparse application-authored OSC 4 state. Missing entries
+    /// mean reset to the receiving frontend's palette defaults.
+    pub palette: [Option<Rgb>; 256],
+}
+
+impl Default for TerminalColors {
+    fn default() -> Self {
+        Self {
+            fg: None,
+            bg: None,
+            cursor: None,
+            selection_bg: None,
+            selection_fg: None,
+            cursor_style: None,
+            cursor_blink: None,
+            palette: [None; 256],
+        }
+    }
 }
 
 impl TerminalColors {
     fn from_terminal(term: &mut Terminal, defaults: DefaultColors) -> Self {
         let (fg, bg, cursor) = term.effective_colors();
+        let palette = term.color_overrides().palette;
         let cursor_visual = term.cursor_overridden().then(|| {
             RenderState::new()
                 .and_then(|mut state| {
@@ -150,6 +177,7 @@ impl TerminalColors {
             selection_fg: defaults.selection_fg,
             cursor_style: cursor_visual.map(|(style, _)| style).or(defaults.cursor_style),
             cursor_blink: cursor_visual.map(|(_, blink)| blink).or(defaults.cursor_blink),
+            palette,
         }
     }
 }
@@ -169,8 +197,121 @@ pub struct AttachStream {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachFrame {
     Output(Vec<u8>),
+    /// One parser transition: consumers must apply `output` and replace the
+    /// complete color state before rendering or notifying observers.
+    OutputWithColors {
+        output: Vec<u8>,
+        colors: Box<TerminalColors>,
+    },
+    Resized {
+        cols: u16,
+        rows: u16,
+        replay: Vec<u8>,
+    },
+    /// One parser transition: `replay` is theme-portable, so `colors` is part
+    /// of the same replacement snapshot rather than a subsequent callback.
+    ResizedWithColors {
+        cols: u16,
+        rows: u16,
+        replay: Vec<u8>,
+        colors: Box<TerminalColors>,
+    },
+    ColorsChanged(Box<TerminalColors>),
+}
+
+/// A host frame is not actionable until its wire-level atomicity contract is
+/// satisfied. In particular, a renderer must never expose output or a resize
+/// whose authoritative color state is still sitting in the socket.
+#[cfg(unix)]
+#[derive(Debug)]
+enum HostedTransition {
+    Output(Vec<u8>),
+    OutputWithColors { output: Vec<u8>, colors: TerminalColorOverrides },
+    ResizedWithColors { cols: u16, rows: u16, replay: Vec<u8>, colors: TerminalColorOverrides },
+    Metadata(MessageKind),
+    Exit,
+    ResyncRequired,
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+enum PendingHostedTransition {
+    Output(Vec<u8>),
     Resized { cols: u16, rows: u16, replay: Vec<u8> },
-    ColorsChanged(TerminalColors),
+}
+
+#[cfg(unix)]
+struct HostedFrameStager {
+    expected_sequence: u64,
+    pending: Option<PendingHostedTransition>,
+}
+
+#[cfg(unix)]
+impl HostedFrameStager {
+    fn new(sequence_boundary: u64) -> Self {
+        Self { expected_sequence: sequence_boundary.wrapping_add(1), pending: None }
+    }
+
+    fn push(&mut self, frame: Frame) -> Result<Option<HostedTransition>, &'static str> {
+        if frame.version != PROTOCOL_VERSION || frame.request_id != 0 {
+            return Err("invalid live-frame envelope");
+        }
+        if frame.sequence != self.expected_sequence {
+            return Err("non-contiguous live-frame sequence");
+        }
+        self.expected_sequence = self.expected_sequence.wrapping_add(1);
+
+        if let Some(pending) = self.pending.take() {
+            if frame.kind != MessageKind::Colors || frame.flags != 0 {
+                return Err("coupled frame was not followed by Colors");
+            }
+            let colors =
+                crate::terminal_host_runtime::decode_terminal_color_overrides(&frame.payload)
+                    .map_err(|_| "invalid Colors payload")?;
+            return Ok(Some(match pending {
+                PendingHostedTransition::Output(output) => {
+                    HostedTransition::OutputWithColors { output, colors }
+                }
+                PendingHostedTransition::Resized { cols, rows, replay } => {
+                    HostedTransition::ResizedWithColors { cols, rows, replay, colors }
+                }
+            }));
+        }
+
+        match frame.kind {
+            MessageKind::Output => match frame.flags {
+                0 => Ok(Some(HostedTransition::Output(frame.payload))),
+                FLAG_COLORS_FOLLOW => {
+                    self.pending = Some(PendingHostedTransition::Output(frame.payload));
+                    Ok(None)
+                }
+                _ => Err("unknown Output flags"),
+            },
+            MessageKind::Resized => {
+                if frame.flags != FLAG_COLORS_FOLLOW || frame.payload.len() < 4 {
+                    return Err("invalid Resized frame");
+                }
+                let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]).max(1);
+                let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]).max(1);
+                self.pending = Some(PendingHostedTransition::Resized {
+                    cols,
+                    rows,
+                    replay: frame.payload[4..].to_vec(),
+                });
+                Ok(None)
+            }
+            MessageKind::Title | MessageKind::Pwd | MessageKind::Bell if frame.flags == 0 => {
+                Ok(Some(HostedTransition::Metadata(frame.kind)))
+            }
+            MessageKind::Exit if frame.flags == 0 => Ok(Some(HostedTransition::Exit)),
+            MessageKind::ResyncRequired if frame.flags == 0 => {
+                Ok(Some(HostedTransition::ResyncRequired))
+            }
+            MessageKind::Colors => Err("unpaired Colors frame"),
+            _ if frame.flags != 0 => Err("flags are not valid for this message kind"),
+            _ => Err("message kind is not valid on the live stream"),
+        }
+    }
 }
 
 const ATTACH_STREAM_CAPACITY: usize = 256;
@@ -211,8 +352,14 @@ impl AttachFrame {
         size_of::<Self>()
             + match self {
                 Self::Output(bytes) => bytes.capacity(),
+                Self::OutputWithColors { output, .. } => {
+                    output.capacity() + size_of::<TerminalColors>()
+                }
                 Self::Resized { replay, .. } => replay.capacity(),
-                Self::ColorsChanged(_) => 0,
+                Self::ResizedWithColors { replay, .. } => {
+                    replay.capacity() + size_of::<TerminalColors>()
+                }
+                Self::ColorsChanged(_) => size_of::<TerminalColors>(),
             }
     }
 }
@@ -373,13 +520,17 @@ pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
-    writer: Mutex<Box<dyn Write + Send>>,
-    master: Mutex<Box<dyn MasterPty + Send>>,
-    killer: Mutex<Box<dyn ChildKiller + Send>>,
+    runtime: Mutex<PtyRuntime>,
     pid: Option<u32>,
     command: Vec<String>,
     cwd: Option<String>,
     dead: AtomicBool,
+    /// The daemon is intentionally dropping its compatibility proxy while
+    /// leaving the terminal host alive for a later daemon to adopt.
+    owner_detaching: AtomicBool,
+    /// The host socket ended without a sequenced Exit. Closing this proxy
+    /// must retain the host record so a fresh snapshot can recover it.
+    host_connection_lost: AtomicBool,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     dirty: AtomicBool,
@@ -400,6 +551,38 @@ pub struct PtySurface {
     frame_requests: SyncSender<u64>,
 }
 
+enum PtyRuntime {
+    Local {
+        writer: Box<dyn Write + Send>,
+        master: Box<dyn MasterPty + Send>,
+        killer: Box<dyn ChildKiller + Send>,
+    },
+    #[cfg(unix)]
+    Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
+}
+
+#[cfg(unix)]
+fn hosted_terminal_callbacks(
+    id: SurfaceId,
+    mux: Weak<Mux>,
+    pending_responses: Arc<Mutex<Vec<u8>>>,
+    title_changed: Arc<AtomicBool>,
+) -> Callbacks {
+    Callbacks {
+        on_pty_write: Some(Box::new(move |bytes| {
+            pending_responses.lock().unwrap().extend_from_slice(bytes);
+        })),
+        on_title_changed: Some(Box::new(move || {
+            title_changed.store(true, Ordering::Relaxed);
+        })),
+        on_bell: Some(Box::new(move || {
+            if let Some(mux) = mux.upgrade() {
+                mux.emit(MuxEvent::Bell(id));
+            }
+        })),
+    }
+}
+
 impl std::fmt::Debug for Surface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Surface").field("id", &self.id).field("kind", &self.kind()).finish()
@@ -412,6 +595,13 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
+        #[cfg(unix)]
+        if let Some(root) = opts.terminal_host_root.clone() {
+            let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+            let attachment =
+                crate::terminal_host_runtime::launch_terminal_host(&opts, &root, default_colors)?;
+            return Self::spawn_hosted(id, opts, mux, attachment);
+        }
         let pty = native_pty_system().openpty(PtySize {
             rows: opts.rows,
             cols: opts.cols,
@@ -486,13 +676,13 @@ impl Surface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
-            writer: Mutex::new(writer),
-            master: Mutex::new(pty.master),
-            killer: Mutex::new(killer),
+            runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master, killer }),
             pid,
             command: argv,
             cwd,
             dead: AtomicBool::new(false),
+            owner_detaching: AtomicBool::new(false),
+            host_connection_lost: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
@@ -523,13 +713,21 @@ impl Surface {
                     };
                     let pty = surface.as_pty().expect("surface reader got non-pty surface");
                     let mut scroll_changed = None;
+                    let defaults =
+                        mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
                     let generation = {
                         let mut term = pty.term.lock().unwrap();
                         let before = terminal_scroll_position(&term);
+                        let colors_before = term.color_overrides();
                         term.vt_write(&buf[..n]);
                         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                         let after = terminal_scroll_position(&term);
                         pty.broadcast_attach_output(&buf[..n]);
+                        if term.color_overrides() != colors_before {
+                            pty.broadcast_attach_frame(AttachFrame::ColorsChanged(Box::new(
+                                TerminalColors::from_terminal(&mut term, defaults),
+                            )));
+                        }
                         if title_changed.swap(false, Ordering::Relaxed) {
                             let title = term.title().unwrap_or_default();
                             *pty.title.lock().unwrap() = title.clone();
@@ -581,6 +779,307 @@ impl Surface {
         Ok(surface)
     }
 
+    #[cfg(unix)]
+    fn spawn_hosted(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        mut attachment: crate::terminal_host_runtime::HostAttachment,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let mut reader = attachment.take_reader()?;
+        let capability_responses = attachment.capability_responses();
+        let snapshot = attachment.snapshot.clone();
+        let mut applied_color_overrides = snapshot.colors.clone();
+        let pending_responses: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+        let title_changed = Arc::new(AtomicBool::new(false));
+        let callbacks = hosted_terminal_callbacks(
+            id,
+            mux.clone(),
+            pending_responses.clone(),
+            title_changed.clone(),
+        );
+        let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
+        if let Some(mux) = mux.upgrade() {
+            let colors = mux.default_colors();
+            term.set_default_colors(colors.fg, colors.bg, colors.cursor);
+            term.set_default_palette(&colors.palette);
+            term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+        }
+        term.vt_write(&snapshot.replay);
+        let initial_color_delta =
+            terminal_color_override_delta(&Default::default(), &snapshot.colors);
+        if !initial_color_delta.is_empty() {
+            term.vt_write(&initial_color_delta);
+        }
+        // Query replies represented in a replay have already been answered by
+        // the authoritative host; never send them a second time on adoption.
+        pending_responses.lock().unwrap().clear();
+        let title = term.title().unwrap_or_default();
+        let pwd = term.pwd();
+        let mut mouse_encoders = MouseEncoders::new()?;
+        mouse_encoders.sync_from_terminal(&term);
+        let sequence_boundary = snapshot.sequence_boundary;
+        let render_state = RenderState::new()?;
+        let (frame_requests, frame_rx) = sync_channel(1);
+        let surface = Arc::new(Surface::Pty(PtySurface {
+            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
+            term: Mutex::new(term),
+            mouse_encoders: Mutex::new(mouse_encoders),
+            runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
+            pid: snapshot.pid,
+            command: snapshot.command,
+            cwd: snapshot.cwd,
+            dead: AtomicBool::new(false),
+            owner_detaching: AtomicBool::new(false),
+            host_connection_lost: AtomicBool::new(false),
+            dirty: AtomicBool::new(true),
+            title: Mutex::new(title),
+            pwd: Mutex::new(pwd),
+            size: Mutex::new((snapshot.cols, snapshot.rows)),
+            mux: mux.clone(),
+            taps: Mutex::new(Vec::new()),
+            render: Mutex::new(RenderHub {
+                state: Box::new(render_state),
+                built_generation: 0,
+                latest: None,
+                taps: Vec::new(),
+            }),
+            render_generation: AtomicU64::new(1),
+            frame_requests,
+        }));
+        spawn_frame_producer(&surface, frame_rx)?;
+
+        std::thread::Builder::new().name(format!("surface-{id}-host")).spawn({
+            let surface = surface.clone();
+            let scrollback = opts.scrollback;
+            move || {
+                let mut stager = HostedFrameStager::new(sequence_boundary);
+                let mut received_exit = false;
+                'host_stream: while let Ok(Some(frame)) = crate::terminal_host_protocol::read_frame(
+                    &mut reader,
+                    crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+                ) {
+                    let Some(pty) = surface.as_pty() else { break };
+                    if frame.kind == MessageKind::Capability && frame.request_id != 0 {
+                        if frame.version != PROTOCOL_VERSION
+                            || frame.flags != 0
+                            || frame.sequence != 0
+                        {
+                            break;
+                        }
+                        capability_responses.resolve(&frame);
+                        continue;
+                    }
+                    let Ok(transition) = stager.push(frame) else {
+                        break;
+                    };
+                    let Some(transition) = transition else { continue };
+                    match transition {
+                        transition @ (HostedTransition::Output(_)
+                        | HostedTransition::OutputWithColors { .. }) => {
+                            let (output, colors) = match transition {
+                                HostedTransition::Output(output) => (output, None),
+                                HostedTransition::OutputWithColors { output, colors } => {
+                                    (output, Some(colors))
+                                }
+                                _ => unreachable!(),
+                            };
+                            let mut scroll_changed = None;
+                            let mut title_update = None;
+                            let defaults =
+                                mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+                            let generation = {
+                                let mut term = pty.term.lock().unwrap();
+                                let before = terminal_scroll_position(&term);
+                                term.vt_write(&output);
+                                if let Some(colors) = colors.as_ref() {
+                                    let delta = terminal_color_override_delta(
+                                        &applied_color_overrides,
+                                        colors,
+                                    );
+                                    if !delta.is_empty() {
+                                        term.vt_write(&delta);
+                                    }
+                                    applied_color_overrides = colors.clone();
+                                } else if term.color_overrides() != applied_color_overrides {
+                                    // An unflagged Output that changed colors
+                                    // violated the producer's iff contract.
+                                    break 'host_stream;
+                                }
+                                pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                                let after = terminal_scroll_position(&term);
+                                // The parser already contains the complete
+                                // coupled state before any attach observer can
+                                // see the Output or ColorsChanged callback.
+                                if colors.is_some() {
+                                    pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
+                                        output,
+                                        colors: Box::new(TerminalColors::from_terminal(
+                                            &mut term, defaults,
+                                        )),
+                                    });
+                                } else {
+                                    pty.broadcast_attach_output(&output);
+                                }
+                                if title_changed.swap(false, Ordering::Relaxed) {
+                                    let title = term.title().unwrap_or_default();
+                                    *pty.title.lock().unwrap() = title.clone();
+                                    title_update = Some(title);
+                                }
+                                if let Some(pwd) = term.pwd() {
+                                    *pty.pwd.lock().unwrap() = Some(pwd);
+                                }
+                                if before != after {
+                                    scroll_changed = Some(after);
+                                    broadcast_render_scroll_locked(pty, after);
+                                }
+                                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+                            };
+                            pty.request_frame(generation);
+                            if let Some(title) = title_update
+                                && let Some(mux) = mux.upgrade()
+                            {
+                                mux.emit(MuxEvent::TitleChanged {
+                                    surface: surface.id,
+                                    title: title.into(),
+                                });
+                            }
+                            if let Some((offset, at_bottom)) = scroll_changed
+                                && let Some(mux) = mux.upgrade()
+                            {
+                                mux.emit(MuxEvent::ScrollChanged {
+                                    surface: surface.id,
+                                    offset,
+                                    at_bottom,
+                                });
+                            }
+                            let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
+                            if !responses.is_empty() {
+                                let _ = surface.write_bytes(&responses);
+                            }
+                        }
+                        HostedTransition::ResizedWithColors { cols, rows, replay, colors } => {
+                            let defaults =
+                                mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+                            let callbacks = hosted_terminal_callbacks(
+                                id,
+                                mux.clone(),
+                                pending_responses.clone(),
+                                title_changed.clone(),
+                            );
+                            let Ok(mut replacement) =
+                                Terminal::new(cols, rows, scrollback, callbacks)
+                            else {
+                                break;
+                            };
+                            replacement.set_default_colors(
+                                defaults.fg,
+                                defaults.bg,
+                                defaults.cursor,
+                            );
+                            replacement.set_default_palette(&defaults.palette);
+                            replacement
+                                .set_default_cursor(defaults.cursor_style, defaults.cursor_blink);
+                            replacement.vt_write(&replay);
+                            let delta = terminal_color_override_delta(&Default::default(), &colors);
+                            if !delta.is_empty() {
+                                replacement.vt_write(&delta);
+                            }
+                            // Replay query responses were already answered by
+                            // the host; never send them again from the mirror.
+                            pending_responses.lock().unwrap().clear();
+                            title_changed.store(false, Ordering::Relaxed);
+                            let title = replacement.title().unwrap_or_default();
+                            let pwd = replacement.pwd();
+                            let mut scroll_changed = None;
+                            let generation = {
+                                let mut term = pty.term.lock().unwrap();
+                                let before = terminal_scroll_position(&term);
+                                *term = replacement;
+                                pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                                *pty.size.lock().unwrap() = (cols, rows);
+                                *pty.title.lock().unwrap() = title.clone();
+                                *pty.pwd.lock().unwrap() = pwd;
+                                applied_color_overrides = colors;
+                                let after = terminal_scroll_position(&term);
+                                if before != after {
+                                    scroll_changed = Some(after);
+                                    broadcast_render_scroll_locked(pty, after);
+                                }
+                                // Both attach notifications are queued only
+                                // after the authoritative replay and complete
+                                // color state have replaced the old parser.
+                                pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
+                                    cols,
+                                    rows,
+                                    replay,
+                                    colors: Box::new(TerminalColors::from_terminal(
+                                        &mut term, defaults,
+                                    )),
+                                });
+                                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+                            };
+                            pty.request_frame(generation);
+                            if let Some(mux) = mux.upgrade() {
+                                mux.emit(MuxEvent::TitleChanged {
+                                    surface: surface.id,
+                                    title: title.into(),
+                                });
+                                mux.emit(MuxEvent::SurfaceResized {
+                                    surface: surface.id,
+                                    cols,
+                                    rows,
+                                    reservation_id: None,
+                                });
+                                if let Some((offset, at_bottom)) = scroll_changed {
+                                    mux.emit(MuxEvent::ScrollChanged {
+                                        surface: surface.id,
+                                        offset,
+                                        at_bottom,
+                                    });
+                                }
+                            }
+                        }
+                        // The mirror derives these from the preceding Output;
+                        // the sequenced metadata frames are still consumed so
+                        // they cannot hide a stream gap.
+                        HostedTransition::Metadata(_kind) => {}
+                        HostedTransition::Exit => {
+                            received_exit = true;
+                            break;
+                        }
+                        HostedTransition::ResyncRequired => break,
+                    }
+                }
+                if surface.as_pty().is_some_and(|pty| pty.owner_detaching.load(Ordering::Acquire)) {
+                    return;
+                }
+                if let Some(pty) = surface.as_pty() {
+                    if !received_exit {
+                        pty.host_connection_lost.store(true, Ordering::Release);
+                    }
+                    pty.dead.store(true, Ordering::Release);
+                }
+                if let Some(mux) = mux.upgrade() {
+                    mux.surface_exited(surface.id);
+                }
+            }
+        })?;
+        Ok(surface)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn adopt_hosted(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        record: crate::terminal_host_runtime::TerminalHostRecord,
+        record_path: PathBuf,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let attachment = crate::terminal_host_runtime::adopt_terminal_host(record, record_path)?;
+        Self::spawn_hosted(id, opts, mux, attachment)
+    }
+
     #[cfg(test)]
     pub(crate) fn spawn_for_test(
         id: SurfaceId,
@@ -616,20 +1115,24 @@ impl Surface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
-            writer: Mutex::new(Box::new(std::io::sink())),
-            master: Mutex::new(Box::new(TestMasterPty {
-                size: Mutex::new(PtySize {
-                    rows: opts.rows,
-                    cols: opts.cols,
-                    pixel_width: 0,
-                    pixel_height: 0,
+            runtime: Mutex::new(PtyRuntime::Local {
+                writer: Box::new(std::io::sink()),
+                master: Box::new(TestMasterPty {
+                    size: Mutex::new(PtySize {
+                        rows: opts.rows,
+                        cols: opts.cols,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    }),
                 }),
-            })),
-            killer: Mutex::new(Box::new(TestChildKiller)),
+                killer: Box::new(TestChildKiller),
+            }),
             pid: Some(id as u32),
             command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
             cwd: opts.cwd,
             dead: AtomicBool::new(false),
+            owner_detaching: AtomicBool::new(false),
+            host_connection_lost: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
@@ -676,9 +1179,15 @@ impl Surface {
                 "browser surface does not accept PTY bytes",
             ));
         };
-        let mut writer = pty.writer.lock().unwrap();
-        writer.write_all(bytes)?;
-        writer.flush()
+        let mut runtime = pty.runtime.lock().unwrap();
+        match &mut *runtime {
+            PtyRuntime::Local { writer, .. } => {
+                writer.write_all(bytes)?;
+                writer.flush()
+            }
+            #[cfg(unix)]
+            PtyRuntime::Hosted(host) => host.send(MessageKind::Input, bytes),
+        }
     }
 
     /// Write a protocol input payload, conditionally applying bracketed-paste
@@ -693,11 +1202,21 @@ impl Surface {
         if bytes.is_empty() {
             return Ok(());
         }
+        #[cfg(unix)]
+        {
+            let runtime = pty.runtime.lock().unwrap();
+            if let PtyRuntime::Hosted(host) = &*runtime {
+                return host.send(MessageKind::Paste, bytes);
+            }
+        }
         let bracketed = {
             let term = pty.term.lock().unwrap();
             term.mode(2004, false)
         };
-        let mut writer = pty.writer.lock().unwrap();
+        let mut runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+            unreachable!("hosted paste returned above")
+        };
         if bracketed {
             writer.write_all(b"\x1b[200~")?;
         }
@@ -843,7 +1362,7 @@ impl Surface {
             let colors = TerminalColors::from_terminal(&mut term, colors);
             let mut taps = pty.taps.lock().unwrap();
             if !taps.is_empty() {
-                taps.retain(|tap| tap.try_send(AttachFrame::ColorsChanged(colors)));
+                taps.retain(|tap| tap.try_send(AttachFrame::ColorsChanged(Box::new(colors))));
             }
             drop(taps);
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
@@ -896,6 +1415,24 @@ impl Surface {
         match self {
             Surface::Pty(pty) => Ok(pty.resize(cols, rows)),
             Surface::Browser(browser) => browser.resize(cols, rows),
+        }
+    }
+
+    /// Hosted PTYs acknowledge a resize with an authoritative replay/color
+    /// pair. The mux must wait for that pair before publishing the new grid.
+    pub(crate) fn resize_reports_asynchronously(&self) -> bool {
+        match self {
+            Surface::Pty(pty) => {
+                #[cfg(unix)]
+                {
+                    matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Hosted(_))
+                }
+                #[cfg(not(unix))]
+                {
+                    false
+                }
+            }
+            Surface::Browser(_) => true,
         }
     }
 
@@ -972,6 +1509,36 @@ impl Surface {
         self.as_pty().and_then(|pty| pty.cwd.clone())
     }
 
+    /// Process-stable identity for hosted terminals. Surface ids remain
+    /// daemon-local compatibility handles and may change after adoption.
+    pub fn terminal_host_identity(
+        &self,
+    ) -> Option<crate::terminal_host_runtime::TerminalHostIdentity> {
+        #[cfg(unix)]
+        if let Some(pty) = self.as_pty()
+            && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+        {
+            return Some(host.identity());
+        }
+        None
+    }
+
+    /// Ask the host to mint a one-use renderer credential. The durable owner
+    /// secret remains confined to the daemon and its private state record.
+    pub fn mint_renderer_grant(
+        &self,
+        ttl: Duration,
+    ) -> anyhow::Result<crate::terminal_host_runtime::RendererGrant> {
+        #[cfg(unix)]
+        if let Some(pty) = self.as_pty()
+            && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+        {
+            return host.mint_renderer_grant(ttl);
+        }
+        let _ = ttl;
+        anyhow::bail!("surface is not backed by a terminal host")
+    }
+
     pub fn is_dead(&self) -> bool {
         match self {
             Surface::Pty(pty) => pty.dead.load(Ordering::Acquire),
@@ -1046,10 +1613,53 @@ impl Surface {
     pub fn kill(&self) {
         match self {
             Surface::Pty(pty) => {
-                let _ = pty.killer.lock().unwrap().kill();
+                let mut runtime = pty.runtime.lock().unwrap();
+                match &mut *runtime {
+                    PtyRuntime::Local { killer, .. } => {
+                        let _ = killer.kill();
+                    }
+                    #[cfg(unix)]
+                    PtyRuntime::Hosted(host) => {
+                        if pty.host_connection_lost.load(Ordering::Acquire) {
+                            host.disconnect();
+                            return;
+                        }
+                        let _ = host.terminate();
+                        crate::terminal_host_runtime::remove_terminal_host_record(
+                            &host.record_path,
+                        );
+                    }
+                }
             }
             Surface::Browser(browser) => browser.kill(),
         }
+    }
+
+    pub(crate) fn disconnect_for_daemon_shutdown(&self) {
+        match self {
+            #[cfg(unix)]
+            Surface::Pty(pty) => {
+                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+                    pty.owner_detaching.store(true, Ordering::Release);
+                    host.disconnect();
+                    return;
+                }
+                self.kill();
+            }
+            #[cfg(not(unix))]
+            Surface::Pty(_) => self.kill(),
+            Surface::Browser(browser) => browser.kill(),
+        }
+    }
+
+    pub(crate) fn persist_host_workspace(&self, workspace_key: &str) -> anyhow::Result<()> {
+        #[cfg(unix)]
+        if let Some(pty) = self.as_pty()
+            && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
+        {
+            return host.persist_workspace(workspace_key);
+        }
+        Ok(())
     }
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {
@@ -1193,7 +1803,7 @@ impl MasterPty for TestMasterPty {
     }
 
     #[cfg(unix)]
-    fn tty_name(&self) -> Option<std::path::PathBuf> {
+    fn tty_name(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -1277,6 +1887,19 @@ impl PtySurface {
     /// final clamped size actually changed.
     fn resize(&self, cols: u16, rows: u16) -> bool {
         let (cols, rows) = (cols.max(1), rows.max(1));
+        #[cfg(unix)]
+        {
+            let runtime = self.runtime.lock().unwrap();
+            if let PtyRuntime::Hosted(host) = &*runtime {
+                if *self.size.lock().unwrap() == (cols, rows) {
+                    return false;
+                }
+                // Do not speculatively reflow the mirror. The host returns a
+                // Resized+Colors pair containing the canonical post-resize
+                // replay, which the reader installs as one transition.
+                return host.send_viewer_size(cols, rows).is_ok();
+            }
+        }
         {
             let mut size = self.size.lock().unwrap();
             if *size == (cols, rows) {
@@ -1288,12 +1911,16 @@ impl PtySurface {
         // attach marker, so attach mirrors observe bytes and resizes in
         // the exact order the server terminal applied them.
         let mut term = self.term.lock().unwrap();
-        let _ = self.master.lock().unwrap().resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        });
+        {
+            let mut runtime = self.runtime.lock().unwrap();
+            match &mut *runtime {
+                PtyRuntime::Local { master, .. } => {
+                    let _ = master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+                }
+                #[cfg(unix)]
+                PtyRuntime::Hosted(_) => unreachable!("hosted resize returned above"),
+            }
+        }
         // Nominal cell metrics; only pixel size reports observe these.
         let _ = term.resize(cols, rows, 8, 16);
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
@@ -1302,6 +1929,48 @@ impl PtySurface {
         let _ = self.build_frame_locked(&mut term, generation, false);
         true
     }
+}
+
+fn terminal_color_override_delta(
+    previous: &TerminalColorOverrides,
+    next: &TerminalColorOverrides,
+) -> Vec<u8> {
+    fn dynamic_color(output: &mut Vec<u8>, set_code: u16, reset_code: u16, color: Option<Rgb>) {
+        match color {
+            Some(color) => output.extend_from_slice(
+                format!(
+                    "\x1b]{set_code};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+                    color.r, color.g, color.b
+                )
+                .as_bytes(),
+            ),
+            None => output.extend_from_slice(format!("\x1b]{reset_code}\x1b\\").as_bytes()),
+        }
+    }
+
+    let mut output = Vec::new();
+    if previous.foreground != next.foreground {
+        dynamic_color(&mut output, 10, 110, next.foreground);
+    }
+    if previous.background != next.background {
+        dynamic_color(&mut output, 11, 111, next.background);
+    }
+    if previous.cursor != next.cursor {
+        dynamic_color(&mut output, 12, 112, next.cursor);
+    }
+    for index in 0..256 {
+        if previous.palette[index] == next.palette[index] {
+            continue;
+        }
+        match next.palette[index] {
+            Some(color) => output.extend_from_slice(
+                format!("\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color.r, color.g, color.b)
+                    .as_bytes(),
+            ),
+            None => output.extend_from_slice(format!("\x1b]104;{index}\x1b\\").as_bytes()),
+        }
+    }
+    output
 }
 
 const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
@@ -1356,6 +2025,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn terminal_color_override_delta_sets_and_resets_sparse_state() {
+        let mut colors = TerminalColorOverrides {
+            foreground: Some(Rgb { r: 1, g: 2, b: 3 }),
+            background: Some(Rgb { r: 4, g: 5, b: 6 }),
+            cursor: Some(Rgb { r: 7, g: 8, b: 9 }),
+            ..Default::default()
+        };
+        colors.palette[42] = Some(Rgb { r: 10, g: 11, b: 12 });
+        let mut terminal = Terminal::new(10, 2, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(&terminal_color_override_delta(&Default::default(), &colors));
+        assert_eq!(terminal.color_overrides(), colors);
+
+        terminal.vt_write(&terminal_color_override_delta(&colors, &Default::default()));
+        assert_eq!(terminal.color_overrides(), Default::default());
+    }
+
+    #[test]
     fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {
         let lifecycle = AttachLifecycle::default();
         let (sender, _receiver) = sync_channel(1);
@@ -1389,6 +2075,79 @@ mod tests {
         assert!(tap.try_send(AttachFrame::Output(vec![1])));
         assert!(!tap.try_send(AttachFrame::Output(vec![2])));
         assert!(lifecycle.overflowed());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_stager_exposes_coupled_state_only_after_colors() {
+        let mut stager = HostedFrameStager::new(40);
+        let mut resize = Frame::new(MessageKind::Resized, {
+            let mut payload = Vec::from([101, 0, 37, 0]);
+            payload.extend_from_slice(b"authoritative replay");
+            payload
+        });
+        resize.flags = FLAG_COLORS_FOLLOW;
+        resize.sequence = 41;
+
+        // A delayed Colors frame cannot expose a resize attach callback or a
+        // renderable transition with the old theme.
+        assert!(stager.push(resize).unwrap().is_none());
+
+        let colors = TerminalColorOverrides {
+            foreground: Some(Rgb { r: 1, g: 2, b: 3 }),
+            ..Default::default()
+        };
+        let mut colors_frame = Frame::new(
+            MessageKind::Colors,
+            crate::terminal_host_runtime::encode_terminal_color_overrides(&colors),
+        );
+        colors_frame.sequence = 42;
+        match stager.push(colors_frame).unwrap().unwrap() {
+            HostedTransition::ResizedWithColors { cols, rows, replay, colors: received } => {
+                assert_eq!((cols, rows), (101, 37));
+                assert_eq!(replay, b"authoritative replay");
+                assert_eq!(received, colors);
+            }
+            other => panic!("unexpected staged transition: {other:?}"),
+        }
+
+        let mut output = Frame::new(MessageKind::Output, b"\x1b]10;red\x1b\\".to_vec());
+        output.flags = FLAG_COLORS_FOLLOW;
+        output.sequence = 43;
+        assert!(stager.push(output).unwrap().is_none());
+        let mut colors_frame = Frame::new(
+            MessageKind::Colors,
+            crate::terminal_host_runtime::encode_terminal_color_overrides(&colors),
+        );
+        colors_frame.sequence = 44;
+        assert!(matches!(
+            stager.push(colors_frame).unwrap(),
+            Some(HostedTransition::OutputWithColors { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_stager_fails_closed_on_invalid_flags_and_pairing() {
+        let mut stager = HostedFrameStager::new(0);
+        let mut resized = Frame::new(MessageKind::Resized, vec![80, 0, 24, 0]);
+        resized.sequence = 1;
+        assert!(stager.push(resized).is_err(), "Resized must declare Colors follow");
+
+        let mut stager = HostedFrameStager::new(0);
+        let mut output = Frame::new(MessageKind::Output, vec![]);
+        output.flags = FLAG_COLORS_FOLLOW | (1 << 7);
+        output.sequence = 1;
+        assert!(stager.push(output).is_err(), "unknown flags must fail closed");
+
+        let mut stager = HostedFrameStager::new(0);
+        let mut output = Frame::new(MessageKind::Output, vec![]);
+        output.flags = FLAG_COLORS_FOLLOW;
+        output.sequence = 1;
+        assert!(stager.push(output).unwrap().is_none());
+        let mut exit = Frame::new(MessageKind::Exit, vec![]);
+        exit.sequence = 2;
+        assert!(stager.push(exit).is_err(), "a coupled frame requires Colors exactly next");
     }
 
     #[test]

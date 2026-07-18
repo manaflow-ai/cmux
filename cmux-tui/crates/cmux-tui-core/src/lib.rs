@@ -22,6 +22,7 @@ pub mod platform;
 pub mod server;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
+pub mod terminal_host_runtime;
 
 pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};

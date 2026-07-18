@@ -1,8 +1,8 @@
 //! Terminal-host identities, capability handshakes, and process bootstrap.
 //!
-//! This module intentionally does not own workspace state or spawn a PTY yet.
-//! It is the separable security and process-mode foundation for moving each
-//! PTY into an independently adoptable host.
+//! This module intentionally does not own workspace state or PTYs. It is the
+//! separable security foundation used by `terminal_host_runtime`, where each
+//! PTY lives in an independently adoptable process.
 
 use std::fmt;
 use std::io::{Read, Write};
@@ -126,9 +126,8 @@ impl CapabilityRights {
     pub const RESIZE: Self = Self(1 << 2);
     pub const TERMINATE: Self = Self(1 << 3);
     pub const MINT_CAPABILITY: Self = Self(1 << 4);
-    pub const ADMIN: Self = Self(
-        Self::READ.0 | Self::INPUT.0 | Self::RESIZE.0 | Self::TERMINATE.0 | Self::MINT_CAPABILITY.0,
-    );
+    pub const RENDERER: Self = Self(Self::READ.0 | Self::INPUT.0 | Self::RESIZE.0);
+    pub const ADMIN: Self = Self(Self::RENDERER.0 | Self::TERMINATE.0 | Self::MINT_CAPABILITY.0);
     const KNOWN_BITS: u32 = Self::ADMIN.0;
 
     pub const fn empty() -> Self {
@@ -190,9 +189,7 @@ impl ClientRole {
     fn allowed_rights(self) -> CapabilityRights {
         match self {
             Self::DaemonMirror => CapabilityRights::READ,
-            Self::Renderer => {
-                CapabilityRights::READ | CapabilityRights::INPUT | CapabilityRights::RESIZE
-            }
+            Self::Renderer => CapabilityRights::RENDERER,
             Self::Admin => CapabilityRights::ADMIN,
         }
     }
@@ -507,9 +504,8 @@ impl HostReady {
     }
 }
 
-/// State established through the private parent-to-host bootstrap pipe.
-/// The token is retained for the future owner/admin loop and is never echoed
-/// in the ready response.
+/// State established through the private parent-to-host bootstrap pipe. The
+/// token is retained for the owner/admin loop and never echoed in Ready.
 pub struct BootstrappedHost {
     pub terminal_id: TerminalId,
     pub incarnation: HostIncarnation,
@@ -533,8 +529,8 @@ impl fmt::Debug for BootstrappedHost {
 }
 
 /// Perform the private, one-frame process bootstrap used by the hidden
-/// `__terminal-host --bootstrap-stdio` mode. PTY ownership and the long-lived
-/// admin/data socket loop will be layered on the returned state.
+/// `__terminal-host --bootstrap-stdio` mode. The runtime layers PTY ownership
+/// and the long-lived admin/data socket loop on the returned state.
 pub fn bootstrap_stdio_once(
     reader: &mut impl Read,
     writer: &mut impl Write,

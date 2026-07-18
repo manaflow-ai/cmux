@@ -41,6 +41,7 @@ import type {
   ReloadConfigResult,
   ResizeSurfaceResult,
   ReportAgentResult,
+  ResolveTerminalResult,
   RunResult,
   RenderAttachEvent,
   SidebarPluginResult,
@@ -57,6 +58,7 @@ import type {
   ZoomPaneResult,
   AgentReportSource,
   AgentState,
+  CloseTerminalResult,
   DeclarativeLayout,
   FocusDirectionResult,
 } from "./protocol/index.js";
@@ -445,6 +447,15 @@ export class CmuxClient {
     return this.request("sidebar-plugin", { cols, rows, relaunch });
   }
   vtState(surface: Id): Promise<VtStateResult> { return this.request("vt-state", { surface }); }
+  resolveTerminal(terminalId: string): Promise<ResolveTerminalResult> {
+    return this.request("resolve-terminal", { terminal_id: terminalId });
+  }
+  closeTerminal(terminalId: string, terminalIncarnation: string): Promise<CloseTerminalResult> {
+    return this.request("close-terminal", {
+      terminal_id: terminalId,
+      terminal_incarnation: terminalIncarnation,
+    });
+  }
   newTab(options: NewTabOptions = {}): Promise<SurfaceResult> { return this.request("new-tab", options); }
   newBrowserTab(url: string, options: NewBrowserTabOptions = {}): Promise<SurfaceResult> {
     return this.request("new-browser-tab", { url, ...options });
