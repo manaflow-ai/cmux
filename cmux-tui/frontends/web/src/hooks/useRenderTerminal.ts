@@ -521,6 +521,14 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
       } finally {
         stream?.close();
+        if (!cancelled) {
+          reportedFit = null;
+          try {
+            await client.releaseSurfaceSize(surface);
+          } catch (error) {
+            onError(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
       }
     })();
 
@@ -552,6 +560,8 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       frames.clear();
       frameBatch.cancel();
       stream?.close();
+      reportedFit = null;
+      void client.releaseSurfaceSize(surface).catch(onError);
       stage?.style.removeProperty("--surface-background");
       releaseTerminalSelection(host);
       if (controllerRef.current === controller) controllerRef.current = null;

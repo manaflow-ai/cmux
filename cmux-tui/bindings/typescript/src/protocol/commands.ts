@@ -50,8 +50,9 @@ export type ListClientsResult = ClientInfo[];
 export interface DetachClientRequest extends CmuxRequestBase { cmd: "detach-client"; client: Id }
 export interface SetClientSizingRequest extends CmuxRequestBase {
   cmd: "set-client-sizing";
-  client: Id;
+  client?: Id;
   enabled: boolean;
+  exclusive?: boolean;
 }
 
 export interface ReloadConfigRequest extends CmuxRequestBase { cmd: "reload-config" }

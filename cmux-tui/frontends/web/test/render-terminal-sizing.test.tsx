@@ -116,15 +116,18 @@ describe("render terminal sizing", () => {
     const client = {
       attachSurface: vi.fn(async () => streams.shift()!),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
     } as unknown as CmuxClient;
 
-    render(<Harness client={client} />);
+    const view = render(<Harness client={client} />);
 
-    await waitFor(() => expect(client.attachSurface).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(client.resizeSurface).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(client.attachSurface).toHaveBeenCalledTimes(2), { timeout: 10_000 });
+    await waitFor(() => expect(client.resizeSurface).toHaveBeenCalledTimes(2), { timeout: 10_000 });
     expect(client.resizeSurface).toHaveBeenNthCalledWith(1, 7, 80, 24);
     expect(client.resizeSurface).toHaveBeenNthCalledWith(2, 7, 80, 24);
-  });
+    view.unmount();
+    expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7);
+  }, 20_000);
 
   it("does not publish a viewer resize while the attachment is disconnected", async () => {
     let resizeCallback: ResizeObserverCallback | null = null;
@@ -160,6 +163,7 @@ describe("render terminal sizing", () => {
     const client = {
       attachSurface: vi.fn(async () => stream),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
     } as unknown as CmuxClient;
 
     render(<Harness client={client} />);
@@ -171,5 +175,24 @@ describe("render terminal sizing", () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     expect(client.resizeSurface).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases sizing when the render consumer terminates", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const client = {
+      attachSurface: vi.fn(async () => new TestStream([
+        { event: "detached", surface: 7 },
+      ])),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+
+    render(<Harness client={client} />);
+
+    await waitFor(() => expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7));
   });
 });

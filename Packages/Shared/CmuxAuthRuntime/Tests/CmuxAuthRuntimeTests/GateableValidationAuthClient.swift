@@ -28,6 +28,7 @@ actor GateableValidationAuthClient: AuthClient {
     /// so tests can tell WHICH exchange's write the store currently holds:
     /// exchange N stores `"access-N"` / `"refresh-N"` in write order.
     private var exchangeCounter = 0
+    private var currentUserStartCount = 0
     private let validationGate = Gate()
     private let teamsGate = Gate()
     private let credentialGate = Gate()
@@ -106,6 +107,7 @@ actor GateableValidationAuthClient: AuthClient {
     // MARK: - AuthClient
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
+        currentUserStartCount += 1
         let wasGated = validationGate.armed
         await parkIfArmed(validationGate)
         if wasGated, let error = gatedValidationError {
@@ -114,6 +116,8 @@ actor GateableValidationAuthClient: AuthClient {
         }
         return user
     }
+
+    func observedCurrentUserStartCount() -> Int { currentUserStartCount }
 
     func listTeams() async throws -> [CMUXAuthTeam] {
         await parkIfArmed(teamsGate)

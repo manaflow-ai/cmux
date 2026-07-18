@@ -1326,16 +1326,18 @@ fn create_empty_workspace_is_visible_and_materialized_in_place() {
     assert_eq!(snapshot["data"]["workspaces"][0]["key"], key);
     assert!(snapshot["data"]["workspaces"][0]["screens"].as_array().unwrap().is_empty());
 
-    let stale = socket_request(
-        &mut writer,
-        &mut reader,
+    writeln!(
+        writer,
+        "{}",
         serde_json::json!({
             "id": 21,
             "cmd": "create-workspace",
             "name": "stale",
             "expected_revision": 0,
-        }),
-    );
+        })
+    )
+    .unwrap();
+    let stale = read_json_line(&mut reader).expect("stale create-workspace response");
     assert_eq!(stale["ok"], false);
     assert_eq!(stale["error"], "workspace revision conflict: expected 0, current 1");
 
