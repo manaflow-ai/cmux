@@ -1920,6 +1920,86 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn explicit_state_root_never_restricts_a_preexisting_shared_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = TestDirectory::new("shared-root");
+        fs::create_dir(&directory.0).unwrap();
+        fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let store = StateStore::new(&directory.0);
+        let error = store.open_session("main").err().expect("shared root must be rejected");
+
+        assert!(error.to_string().contains("private directory"));
+        assert_eq!(fs::metadata(&directory.0).unwrap().permissions().mode() & 0o777, 0o755);
+        assert!(!directory.0.join("locks").exists());
+        assert!(!directory.0.join("sessions").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creating_a_dedicated_state_root_preserves_its_existing_parent_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = TestDirectory::new("shared-parent");
+        fs::create_dir(&directory.0).unwrap();
+        fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o755)).unwrap();
+        let store = StateStore::new(directory.0.join("dedicated-state"));
+
+        let opened = store.open_session("main").unwrap();
+        drop(opened.durable);
+
+        assert_eq!(fs::metadata(&directory.0).unwrap().permissions().mode() & 0o777, 0o755);
+        assert_eq!(fs::metadata(store.root()).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn state_root_symlink_is_rejected_without_touching_its_target() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let directory = TestDirectory::new("root-symlink");
+        fs::create_dir(&directory.0).unwrap();
+        let target = directory.0.join("target");
+        fs::create_dir(&target).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).unwrap();
+        let linked_root = directory.0.join("state-link");
+        symlink(&target, &linked_root).unwrap();
+
+        let error = StateStore::new(&linked_root)
+            .open_session("main")
+            .err()
+            .expect("symlink root must be rejected");
+
+        assert!(error.to_string().contains("symbolic link"));
+        assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o700);
+        assert!(fs::read_dir(&target).unwrap().next().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn state_child_directory_symlink_is_rejected_without_writing_through_it() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let directory = TestDirectory::new("child-symlink");
+        fs::create_dir(&directory.0).unwrap();
+        fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o700)).unwrap();
+        let target = directory.0.join("external-sessions");
+        fs::create_dir(&target).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).unwrap();
+        symlink(&target, directory.0.join("sessions")).unwrap();
+
+        let error = StateStore::new(&directory.0)
+            .open_session("main")
+            .err()
+            .expect("symlink child must be rejected");
+
+        assert!(error.to_string().contains("symbolic link"));
+        assert!(fs::read_dir(&target).unwrap().next().is_none());
+    }
+
     #[test]
     fn journal_recovers_synced_mutation_without_checkpoint() {
         let directory = TestDirectory::new("append-before-checkpoint");
