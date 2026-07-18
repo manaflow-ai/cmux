@@ -215,6 +215,90 @@ extension CMUXCLIErrorOutputRegressionTests {
         ).count == 2)
     }
 
+    @Test func terminalObservationCanonicalizationPreservesDistinctKernelProcessLifetimes() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let first = makeTerminalObservation(
+            state: .idle,
+            lifecycleAuthoritative: false,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            publishedAt: 100,
+            processStartSeconds: 100
+        )
+        let reusedPID = makeTerminalObservation(
+            state: .working,
+            lifecycleAuthoritative: false,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            publishedAt: 200,
+            processStartSeconds: 101
+        )
+
+        #expect(AgentTerminalObservationJoiner().merge(
+            nodes: [], observations: [first, reusedPID], activeSessionBySurface: [:]
+        ).count == 2)
+    }
+
+    @Test func terminalObservationCanonicalizationBreaksExactClockTiesDeterministically() {
+        let surfaceID = UUID()
+        let lowerWorkspace = makeTerminalObservation(
+            state: .working,
+            lifecycleAuthoritative: false,
+            workspaceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            surfaceID: surfaceID,
+            revision: 5,
+            publishedAt: 200
+        )
+        let higherWorkspace = makeTerminalObservation(
+            state: .idle,
+            lifecycleAuthoritative: false,
+            workspaceID: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            surfaceID: surfaceID,
+            revision: 5,
+            publishedAt: 200
+        )
+
+        for observations in [[lowerWorkspace, higherWorkspace], [higherWorkspace, lowerWorkspace]] {
+            let canonical = AgentTerminalObservationJoiner().merge(
+                nodes: [], observations: observations, activeSessionBySurface: [:]
+            )
+
+            #expect(canonical.count == 1)
+            #expect(canonical.first?.terminalObservation == higherWorkspace)
+        }
+    }
+
+    @Test func terminalObservationCanonicalizationTreatsProviderAsProcessMetadata() {
+        let surfaceID = UUID()
+        let staleProvider = makeTerminalObservation(
+            state: .working,
+            lifecycleAuthoritative: false,
+            surfaceID: surfaceID,
+            revision: 4,
+            publishedAt: 100
+        )
+        let currentProvider = makeTerminalObservation(
+            state: .idle,
+            lifecycleAuthoritative: false,
+            workspaceID: staleProvider.workspaceID,
+            surfaceID: surfaceID,
+            revision: 5,
+            publishedAt: 200,
+            sessionProviderID: "claude"
+        )
+
+        for observations in [[staleProvider, currentProvider], [currentProvider, staleProvider]] {
+            let canonical = AgentTerminalObservationJoiner().merge(
+                nodes: [], observations: observations, activeSessionBySurface: [:]
+            )
+
+            #expect(canonical.count == 1)
+            #expect(canonical.first?.provider == "claude")
+            #expect(canonical.first?.terminalObservation == currentProvider)
+        }
+    }
+
     @Test func olderCompatibilityWriterCannotHideCurrentCodexRunFromAgentsTree() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -940,6 +1024,24 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
+    @Test func sessionOnlyGraphParentTieOrderingIsIndependentOfInputOrder() {
+        let codex = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "shared-session", runID: "shared-run", updatedAt: 200
+        )
+        let claude = makeAgentSessionGraphTestNode(
+            provider: "claude", sessionID: "shared-session", runID: "shared-run", updatedAt: 200
+        )
+        let edge = AgentSessionGraphEdge(
+            fromRunId: nil, fromSessionId: "shared-session",
+            toNodeId: "missing-child", toRunId: "child-run", relationship: .resumed
+        )
+        let expected = [codex.nodeId, claude.nodeId].min()
+
+        for nodes in [[codex, claude], [claude, codex]] {
+            #expect(AgentSessionGraphEdgeResolver(nodes: nodes).parentNodeId(for: edge) == expected)
+        }
+    }
+
     @Test func repeatedRunGraphResolutionStaysLinearAtTenThousandEdges() {
         let count = 10_000
         var parents: [AgentSessionGraphNode] = []
@@ -982,6 +1084,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                 }
             }
         }
+        print("10,000 repeated-run edge resolutions took \(elapsed)")
 
         #expect(mismatches == 0)
         #expect(
@@ -1380,7 +1483,9 @@ private func makeTerminalObservation(
     surfaceID: UUID = UUID(),
     surfaceGeneration: UInt64 = 9,
     revision: UInt64 = 4,
-    publishedAt: TimeInterval = 200
+    publishedAt: TimeInterval = 200,
+    sessionProviderID: String? = nil,
+    processStartSeconds: Int64 = 100
 ) -> CmuxAgentTerminalObservation {
     CmuxAgentTerminalObservation(
         runtimeID: "runtime-test",
@@ -1389,11 +1494,11 @@ private func makeTerminalObservation(
         surfaceGeneration: surfaceGeneration,
         revision: revision,
         familyID: "codex",
-        sessionProviderID: lifecycleAuthoritative ? "claude" : "codex",
+        sessionProviderID: sessionProviderID ?? (lifecycleAuthoritative ? "claude" : "codex"),
         lifecycleAuthoritative: lifecycleAuthoritative,
         state: state,
         pid: 42,
-        processStartSeconds: 100,
+        processStartSeconds: processStartSeconds,
         processStartMicroseconds: 123,
         cwd: "/tmp/project",
         publishedAt: publishedAt
