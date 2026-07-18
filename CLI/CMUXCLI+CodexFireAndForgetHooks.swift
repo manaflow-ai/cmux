@@ -140,6 +140,9 @@ extension CMUXCLI {
         let encodedEnvironmentArguments = codexQueuedHookEnvironmentKeys
             .map { "\"\($0)\" \"${\($0):-}\"" }
             .joined(separator: " ")
+        let rawEnvironmentFields = codexQueuedHookEnvironmentKeys
+            .map { "\"\($0)\":\"'\"${\($0):-}\"'\"" }
+            .joined(separator: ",")
         return [
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
@@ -147,10 +150,13 @@ extension CMUXCLI {
             "export CMUX_CODEX_PID=\"$agent_pid\"",
             "delivery_id=\"${CMUX_AGENT_HOOK_DELIVERY_ID:-codex-${agent_pid:-unknown}-\(subcommand)-$$-${RANDOM:-0}-${RANDOM:-0}}\"",
             "encode_cmux_hook_environment() { while [ \"$#\" -ge 2 ]; do printf '%s\\0%s\\0' \"$1\" \"$2\"; shift 2; done; }",
-            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ]; then payload_b64=\"$(/usr/bin/base64 | /usr/bin/tr -d '\\n')\"; environment_b64=\"$(encode_cmux_hook_environment \(encodedEnvironmentArguments) | /usr/bin/base64 | /usr/bin/tr -d '\\n')\"; if [ -n \"${CMUX_SOCKET_PATH:-}\" ] && [ -n \"${CMUX_SOCKET_CAPABILITY:-}\" ] && [ -x /usr/bin/nc ]; then request='{" +
+            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ]; then payload_b64=\"$(/usr/bin/base64 -b 0)\"; cmux_hook_environment_json_safe=1; for value in \(encodedEnvironmentArguments); do case \"$value\" in *[!A-Za-z0-9_./:@%+=,~#-]*) cmux_hook_environment_json_safe=0; break ;; esac; done; if [ -n \"${CMUX_SOCKET_PATH:-}\" ] && [ -n \"${CMUX_SOCKET_CAPABILITY:-}\" ] && [ -x /usr/bin/nc ]; then if [ \"$cmux_hook_environment_json_safe\" = 1 ]; then request='{" +
                 "\"id\":\"hook-'\"$delivery_id\"'\",\"method\":\"agent.hook.enqueue\",\"params\":{" +
                 "\"delivery_id\":\"'\"$delivery_id\"'\",\"agent\":\"codex\",\"subcommand\":\"\(subcommand)\"," +
-                "\"payload_b64\":\"'\"$payload_b64\"'\",\"environment_b64\":\"'\"$environment_b64\"'\"}}'; " +
+                "\"payload_b64\":\"'\"$payload_b64\"'\",\"environment\":{\(rawEnvironmentFields)}}}'; else environment_b64=\"$(encode_cmux_hook_environment \(encodedEnvironmentArguments) | /usr/bin/base64 -b 0)\"; request='{" +
+                "\"id\":\"hook-'\"$delivery_id\"'\",\"method\":\"agent.hook.enqueue\",\"params\":{" +
+                "\"delivery_id\":\"'\"$delivery_id\"'\",\"agent\":\"codex\",\"subcommand\":\"\(subcommand)\"," +
+                "\"payload_b64\":\"'\"$payload_b64\"'\",\"environment_b64\":\"'\"$environment_b64\"'\"}}'; fi; " +
                 "attempt=0; response=''; while [ \"$attempt\" -lt 3 ]; do response=\"$(printf '_cmux_capability_v1 %s %s\\n' \"$CMUX_SOCKET_CAPABILITY\" \"$request\" | /usr/bin/nc -U -w 1 \"$CMUX_SOCKET_PATH\" 2>/dev/null || true)\"; case \"$response\" in *'\"queued\":true'*) break ;; esac; attempt=$((attempt + 1)); done; " +
                 "case \"$response\" in *'\"queued\":true'*) echo '{}' ;; *) if [ -n \"$cmux_cli\" ]; then printf '%s' \"$payload_b64\" | /usr/bin/base64 -D | CMUX_CODEX_PID=\"$agent_pid\" CMUX_AGENT_HOOK_DELIVERY_ID=\"$delivery_id\" \"$cmux_cli\" \(fallbackArguments) || echo '{}'; else echo '{}'; fi ;; esac; " +
                 "elif [ -n \"$cmux_cli\" ]; then printf '%s' \"$payload_b64\" | /usr/bin/base64 -D | CMUX_CODEX_PID=\"$agent_pid\" CMUX_AGENT_HOOK_DELIVERY_ID=\"$delivery_id\" \"$cmux_cli\" \(fallbackArguments) || echo '{}'; else echo '{}'; fi; else /bin/cat >/dev/null 2>&1 || true; echo '{}'; fi",
@@ -160,7 +166,10 @@ extension CMUXCLI {
     func enqueueCodexWrapperHook(commandArgs: [String], client: SocketClient) throws {
         guard let subcommand = commandArgs.first?.lowercased(),
               Set(Self.codexWrapperInjectionEvents.map { $0.cmuxSubcommand }).contains(subcommand) else {
-            throw CLIError(message: "Usage: cmux hooks codex enqueue <session-start|prompt-submit|stop|pre-tool-use|post-tool-use|notification>")
+            throw CLIError(message: String(
+                localized: "cli.hooks.codex.enqueue.usage",
+                defaultValue: "Usage: cmux hooks codex enqueue <session-start|prompt-submit|stop|pre-tool-use|post-tool-use|notification>"
+            ))
         }
         let processEnvironment = ProcessInfo.processInfo.environment
         var environment: [String: String] = [:]

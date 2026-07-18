@@ -8,14 +8,15 @@ nonisolated private let agentHookDeliveryLogger = Logger(
     category: "AgentHookDelivery"
 )
 
-/// Persists wrapper hooks before acknowledgement, then delivers them through
-/// one bounded child-process lane.
+/// Commits wrapper hooks to a local WAL before acknowledgement, then delivers
+/// them through one bounded child-process lane. The WAL survives app-process
+/// crashes; SQLite keeps it consistent across a machine crash.
 actor AgentHookDeliveryQueue {
     private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     private let databaseURL: URL
     // SQLite serializes this FULLMUTEX connection. `enqueue` must remain
-    // synchronous so the socket cannot acknowledge before the durable insert.
+    // synchronous so the socket cannot acknowledge before the committed insert.
     nonisolated(unsafe) private let database: OpaquePointer?
     nonisolated private let databaseInitializationError: String?
     private let executableURLProvider: @Sendable () -> URL?
@@ -73,8 +74,8 @@ actor AgentHookDeliveryQueue {
         }
     }
 
-    /// Durably inserts an event before the socket acknowledges it. Duplicate
-    /// delivery IDs with identical contents are successful no-ops.
+    /// Commits an event before the socket acknowledges it. Duplicate delivery
+    /// IDs with identical contents are successful no-ops.
     nonisolated func enqueue(_ event: AgentHookDeliveryEvent) throws {
         guard let database else {
             throw Self.failure(
@@ -595,7 +596,12 @@ actor AgentHookDeliveryQueue {
         sqlite3_busy_timeout(database, 250)
         let setupStatements = [
             "PRAGMA journal_mode = WAL;",
-            "PRAGMA synchronous = FULL;",
+            // WAL + NORMAL commits each event before acknowledgement and
+            // survives app-process crashes without forcing one fsync per hook.
+            // The database remains consistent after a machine crash, although
+            // the OS may lose the last acknowledged transactions. This is still
+            // stronger than the previous detached, memory-only delivery path.
+            "PRAGMA synchronous = NORMAL;",
             "PRAGMA wal_autocheckpoint = 1000;",
             """
             CREATE TABLE IF NOT EXISTS agent_hook_deliveries (
