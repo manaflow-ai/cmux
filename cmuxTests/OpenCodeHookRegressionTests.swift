@@ -1,5 +1,6 @@
-import XCTest
+import CmuxFoundation
 import Darwin
+import XCTest
 
 final class OpenCodeHookRegressionTests: XCTestCase {
     private struct ProcessRunResult {
