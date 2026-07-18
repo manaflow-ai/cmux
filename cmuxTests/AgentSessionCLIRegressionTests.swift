@@ -444,6 +444,68 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.stdout.contains("duplicate-session"))
     }
 
+    @Test func agentsTreeTextPreservesDepthFirstOrderingAndGuideBytes() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-tree-guides-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeAgentTreeStore(
+            parentIndices: [nil, 0, 1, 0],
+            to: root.appendingPathComponent("opencode-hook-sessions.json")
+        )
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "tree", "--agent", "opencode", "--all",
+                "--state-dir", root.path,
+            ],
+            environment: isolatedAgentTreeEnvironment(home: root),
+            timeout: 5
+        )
+
+        let expected = [
+            "opencode session-00000 IDLE restore-owner workspace:workspace-00000 surface:surface-00000",
+            "├── opencode session-00001 IDLE child workspace:workspace-00001 surface:surface-00001",
+            "│   └── opencode session-00002 IDLE child workspace:workspace-00002 surface:surface-00002",
+            "└── opencode session-00003 IDLE child workspace:workspace-00003 surface:surface-00003",
+            "",
+        ].joined(separator: "\n")
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout == expected, Comment(rawValue: result.stdout))
+    }
+
+    @Test func agentsTreeTextDoesNotOverflowTheStackBeyondTwoThousandFiveHundredLevels() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-tree-deep-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeAgentTreeStore(
+            parentIndices: (0..<3_000).map { $0 == 0 ? nil : $0 - 1 },
+            to: root.appendingPathComponent("opencode-hook-sessions.json")
+        )
+
+        let command = [
+            "exec",
+            shellQuoteAgentTreeArgument(cliPath),
+            "agents tree --agent opencode --all --depth 3000",
+            "--state-dir \(shellQuoteAgentTreeArgument(root.path))",
+            "> /dev/null",
+        ].joined(separator: " ")
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: isolatedAgentTreeEnvironment(home: root),
+            timeout: 30
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+    }
+
     @Test func sessionOnlyGraphParentsStayWithinTheChildProvider() {
         func node(provider: String, sessionID: String, runID: String, updatedAt: TimeInterval) -> AgentSessionGraphNode {
             AgentSessionGraphNode(
@@ -702,6 +764,64 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect((result.stdout + result.stderr).contains("--agent requires a value"))
     }
 
+}
+
+private func writeAgentTreeStore(parentIndices: [Int?], to url: URL) throws {
+    var sessions: [String: Any] = [:]
+    sessions.reserveCapacity(parentIndices.count)
+    for (index, parentIndex) in parentIndices.enumerated() {
+        let sessionID = String(format: "session-%05d", index)
+        let runID = String(format: "run-%05d", index)
+        var run: [String: Any] = [
+            "runId": runID,
+            "restoreAuthority": parentIndex == nil,
+            "startedAt": Double(index),
+            "updatedAt": Double(index),
+        ]
+        var record: [String: Any] = [
+            "sessionId": sessionID,
+            "workspaceId": String(format: "workspace-%05d", index),
+            "surfaceId": String(format: "surface-%05d", index),
+            "runId": runID,
+            "activeRunId": runID,
+            "restoreAuthority": parentIndex == nil,
+            "foregroundState": "idle",
+            "attentionState": "none",
+            "sessionState": "active",
+            "startedAt": Double(index),
+            "updatedAt": Double(index),
+        ]
+        if let parentIndex {
+            let parentSessionID = String(format: "session-%05d", parentIndex)
+            let parentRunID = String(format: "run-%05d", parentIndex)
+            run["parentRunId"] = parentRunID
+            run["parentSessionId"] = parentSessionID
+            run["relationship"] = "spawned"
+            record["parentRunId"] = parentRunID
+            record["parentSessionId"] = parentSessionID
+            record["relationship"] = "spawned"
+        }
+        record["runs"] = [run]
+        sessions[sessionID] = record
+    }
+    try JSONSerialization.data(
+        withJSONObject: ["version": 2, "sessions": sessions],
+        options: [.sortedKeys]
+    ).write(to: url, options: .atomic)
+}
+
+private func isolatedAgentTreeEnvironment(home: URL) -> [String: String] {
+    var environment = ProcessInfo.processInfo.environment
+    for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+        environment.removeValue(forKey: key)
+    }
+    environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    environment["HOME"] = home.path
+    return environment
+}
+
+private func shellQuoteAgentTreeArgument(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
 }
 
 private func makeTerminalObservation(
