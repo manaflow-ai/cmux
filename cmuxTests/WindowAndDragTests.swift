@@ -3286,6 +3286,58 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(WorkspaceFloatingDockChromeMetrics.tabBarLeadingInset, 140)
     }
 
+    func testWorkspaceFloatingDockMountsSharedTitlebarDragHandleAcrossEmptyChrome() throws {
+        _ = NSApplication.shared
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { parent.orderOut(nil) }
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Draggable Dock",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            isPresented: true,
+            noteFilePath: nil,
+            seedsDefaultNote: false,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+
+        let controller = WorkspaceFloatingDockWindowController(
+            dock: dock,
+            parentWindow: parent,
+            onCloseRequest: { _ in },
+            onCreateRequest: {}
+        )
+        defer { controller.teardown() }
+        controller.show(focus: false)
+
+        let panel = try XCTUnwrap(controller.window)
+        panel.displayIfNeeded()
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let dragHandle = try XCTUnwrap(Self.findView(
+            rootedAt: panel.contentView,
+            identifier: WindowDragHandleView.viewIdentifier
+        ))
+        let contentView = try XCTUnwrap(panel.contentView)
+        let dragFrame = dragHandle.convert(dragHandle.bounds, to: contentView)
+
+        XCTAssertEqual(
+            dragFrame.minX,
+            WorkspaceFloatingDockChromeMetrics.trafficLightClearance,
+            accuracy: 2
+        )
+        XCTAssertEqual(dragFrame.maxX, contentView.bounds.maxX, accuracy: 2)
+        XCTAssertEqual(dragFrame.maxY, contentView.bounds.maxY, accuracy: 2)
+        XCTAssertEqual(dragFrame.height, WindowChromeMetrics.bonsplitTabBarHeight, accuracy: 2)
+    }
+
     func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {
         let url = try temporaryTextFile(contents: "", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
