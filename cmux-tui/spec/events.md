@@ -1,15 +1,16 @@
 # Event Contract
 
-This file specifies event lines emitted by protocol v8, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
+This file specifies event lines emitted by protocols v8 and v9, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
 
 The schema notation and `Id`, `Workspace`, `Screen`, `Pane`, and `Tab` types come from [`commands.md`](commands.md#notation). `Cursor`, `Row`, and `Run` come from [`render.md`](render.md#shared-render-types).
 
-Implemented event lines can appear on two stream types:
+Implemented event lines can appear on the following stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `renderer-config-invalidated`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `renderer-config-invalidated`, `renderer-worker-changed`, `renderer-presentation-ready`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `empty`, `overflow` |
 | Canonical topology stream v8 | `subscribe-topology` command | `topology-delta`, `topology-resnapshot-required`; registered v9 readers also receive `terminal-activity` and their own `terminal-activity-receipt` |
+| Renderer lifecycle stream v9 | `subscribe-renderer-lifecycle` command | `renderer-config-invalidated`, `renderer-worker-changed`, `renderer-presentation-ready`, `renderer-lifecycle-overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -23,6 +24,13 @@ Every entity-scoped event carries its subject id in the field named below. Tree 
 Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. The table's canonical protocol-v7 subscribe and attach event-name sets are otherwise disjoint: an attach stream never emits tree/client/global events, and a v7 subscribe stream never emits render, byte, or attach-viewport events. The wire-compatibility exception is `scroll-changed`: protocol v6 already delivers that attach event name to legacy subscribe consumers. That legacy delivery is retained and recorded in the compatibility column; event instances remain ordered within the registration that produced them.
 
 Protocol-v8 topology events belong only to the `subscribe-topology` registration. They contain canonical workspace structure and stable UUID subjects, excluding presentations and dynamic terminal, notification, agent, PTY, and render state. Legacy focus, selection, zoom, and `subscribe` behavior is unchanged and does not advance the structural topology revision.
+
+Protocol-v9 renderer lifecycle events have a dedicated
+`subscribe-renderer-lifecycle` registration for trusted frontends. The mux
+filters this lane before its bounded mailbox. It receives only renderer config
+invalidation, worker changes, and presentation-ready events. It never receives
+surface output, terminal activity, tree changes, topology deltas, or attach
+frames. The legacy broad `subscribe` delivery remains unchanged.
 
 With `terminal-activity-v1`, a registered protocol-v9 topology subscription also receives persisted `terminal-activity` facts and receipt events only for its registered reader UUID. `terminal-activity` has `surface_uuid`, `sequence`, `kind`, notification id, and level. `terminal-activity-receipt` has `reader_uuid`, `surface_uuid`, and `seen_sequence`. The daemon persists each value before emitting it. Overflow closes the connection, and the client recovers with a new activity snapshot.
 
@@ -50,7 +58,10 @@ With `terminal-activity-v1`, a registered protocol-v9 topology subscription also
 | `bell` | subscribe | `surface` | protocol 5 |
 | `notification` | subscribe | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
-| `renderer-config-invalidated` | subscribe | session | protocol 8 with `renderer-semantic-scene-v1` |
+| `renderer-config-invalidated` | subscribe; renderer lifecycle | session | protocol 8 with `renderer-semantic-scene-v1`; dedicated stream in protocol 9 |
+| `renderer-worker-changed` | subscribe; renderer lifecycle | `workspace_uuid` | protocol 9 with `renderer-worker-supervision-v1`; dedicated stream requires `renderer-lifecycle-subscription-v1` |
+| `renderer-presentation-ready` | subscribe; renderer lifecycle | `workspace_uuid` | protocol 9 with `renderer-worker-supervision-v1`; dedicated stream requires `renderer-lifecycle-subscription-v1` |
+| `renderer-lifecycle-overflow` | renderer lifecycle | session | protocol 9 with `renderer-lifecycle-subscription-v1`; terminal event |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
@@ -75,6 +86,14 @@ For a single subscription, ordinary events are delivered in the order the mux br
 Protocol v7 treats `title-changed` as a latest-state notification. A slow subscriber retains at most one pending title per surface. Repeated pending titles for the same surface coalesce to the newest `title` and take the newest event's position relative to ordinary events. Subscribers are independent, and a pending title is discarded when its surface exits.
 
 Each subscription retains at most 4,096 pending events. If a client falls behind that bound, the server drains the accepted backlog, emits `overflow`, and ends that subscription. A subscribe client must open a new subscription and fetch `list-workspaces` to reconcile state. An attach client must reattach the named surface.
+
+Each renderer lifecycle subscription also retains at most 4,096 pending events,
+after filtering. One connection may register one renderer lifecycle stream, and
+one daemon permits 256 live streams. A mailbox or bounded transport overflow
+ends that stream with the exact object
+`{"event":"renderer-lifecycle-overflow"}`. Recovery uses a new connection and
+the authoritative `renderer-workers` snapshot before rebuilding
+presentations.
 
 `subscribe` registers the event receiver before the command response is written. A client must not treat the `subscribe` response as an event-stream barrier.
 
@@ -109,6 +128,32 @@ object{
 ```
 
 Discard the topology cursor, fetch `topology-snapshot`, and open a new `subscribe-topology` stream on a new connection. The old stream sends no later topology delta. Mailbox overflow includes `current_revision`; bounded transport-queue overflow may omit it.
+
+### renderer-lifecycle-overflow
+
+| Field | Value |
+| --- | --- |
+| event | `renderer-lifecycle-overflow` |
+| status | implemented |
+| since | protocol 9 with capability `renderer-lifecycle-subscription-v1` |
+
+Payload:
+
+```text
+object{event:"renderer-lifecycle-overflow"}
+```
+
+Meaning: The dedicated renderer lifecycle consumer stopped draining before
+the bounded mux mailbox or transport queue filled. This is the last event on
+that stream. The consumer must open a new connection, fetch
+`renderer-workers`, rebuild renderer presentations from authoritative daemon
+state, and subscribe again.
+
+Example:
+
+```json
+{"event":"renderer-lifecycle-overflow"}
+```
 
 ### overflow
 
@@ -612,6 +657,83 @@ Example:
 ```json
 {"event":"config-reload-requested"}
 ```
+
+### renderer-worker-changed
+
+| Field | Value |
+| --- | --- |
+| event | `renderer-worker-changed` |
+| status | implemented |
+| since | protocol 9 with capability `renderer-worker-supervision-v1`; dedicated stream requires `renderer-lifecycle-subscription-v1` |
+
+Payload:
+
+```text
+object{
+  event:"renderer-worker-changed",
+  workspace_uuid:Uuid,
+  prior_renderer_epoch:uint64,
+  prior_process_id:uint32|null,
+  prior_process_start_time_seconds:uint64|null,
+  prior_process_start_time_microseconds:uint64|null,
+  renderer_epoch:uint64|null,
+  pid:uint32|null,
+  process_start_time_seconds:uint64|null,
+  process_start_time_microseconds:uint64|null,
+  effective_user_id:uint32|null,
+  scene_capabilities:uint64|null,
+  state:"starting"|"ready"|"backoff"|null,
+  restart_count:uint64|null,
+  retry_after_milliseconds:uint64|null,
+  reason:string|null
+}
+```
+
+Meaning: The authoritative renderer worker lifetime for one workspace changed.
+The prior epoch and process token fence late frames from the retired process.
+Non-null current fields describe the replacement worker or backoff state.
+Null current fields mean the workspace has no live renderer demand. A frontend
+must never accept a frame whose workspace, epoch, PID, and process start token
+do not match the current worker state.
+
+### renderer-presentation-ready
+
+| Field | Value |
+| --- | --- |
+| event | `renderer-presentation-ready` |
+| status | implemented |
+| since | protocol 9 with capability `renderer-worker-supervision-v1`; dedicated stream requires `renderer-lifecycle-subscription-v1` |
+
+Payload:
+
+```text
+object{
+  event:"renderer-presentation-ready",
+  workspace_uuid:Uuid,
+  renderer_epoch:uint64,
+  worker_pid:uint32,
+  worker_process_start_time_seconds:uint64,
+  worker_process_start_time_microseconds:uint64,
+  worker_effective_user_id:uint32,
+  terminal_id:Uuid,
+  terminal_epoch:uint64,
+  presentation_id:Uuid,
+  presentation_generation:uint64,
+  canonical_sequence:uint64,
+  presentation_sequence:uint64,
+  columns:uint32,
+  rows:uint32,
+  cell_width:uint32,
+  cell_height:uint32,
+  padding:object{top:uint32,right:uint32,bottom:uint32,left:uint32}
+}
+```
+
+Meaning: The authenticated workspace renderer published a presentation whose
+semantic scene and presentation configuration have reached the supplied
+sequences. Every worker identity, terminal epoch, presentation generation, and
+sequence field is a freshness fence. A frontend composites the frame only
+while all fences still match its current daemon state.
 
 ### renderer-config-invalidated
 

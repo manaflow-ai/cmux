@@ -237,7 +237,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":9,"capabilities":["durable-session-identity-v1","canonical-topology-snapshot-v1","presentation-registry-v1","projection-state-reconnect-v1","render-attach-v1","stable-entity-uuid-v1","terminal-control-lease-v1","terminal-input-idempotency-v1","terminal-ordered-input-v1","topology-resume-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":9,"capabilities":["durable-session-identity-v1","canonical-topology-snapshot-v1","presentation-registry-v1","projection-state-reconnect-v1","renderer-lifecycle-subscription-v1","render-attach-v1","stable-entity-uuid-v1","terminal-control-lease-v1","terminal-input-idempotency-v1","terminal-ordered-input-v1","topology-resume-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
 ```
 
 ### ping
@@ -286,7 +286,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":9,"capabilities":["durable-session-identity-v1","canonical-topology-snapshot-v1","presentation-registry-v1","projection-state-reconnect-v1","render-attach-v1","stable-entity-uuid-v1","terminal-control-lease-v1","terminal-input-idempotency-v1","terminal-ordered-input-v1","topology-resume-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":9,"capabilities":["durable-session-identity-v1","canonical-topology-snapshot-v1","presentation-registry-v1","projection-state-reconnect-v1","renderer-lifecycle-subscription-v1","render-attach-v1","stable-entity-uuid-v1","terminal-control-lease-v1","terminal-input-idempotency-v1","terminal-ordered-input-v1","topology-resume-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
 ```
 
 ### open-presentation
@@ -2595,6 +2595,65 @@ The daemon retains at most 512 deltas and 16 MiB of serialized history. Each sub
 The registration response and replay events may interleave. Route by `event` and `id`; do not treat the response as a stream barrier.
 
 CLI mapping: verb `subscribe-topology`; flags `--daemon-instance-id <uuid> --session-id <uuid> --revision <n>`; stdout is one event JSON object per line. An immediate `resnapshot-required` result is printed and exits with code `1`.
+
+### subscribe-renderer-lifecycle
+
+| Field | Value |
+| --- | --- |
+| name | `subscribe-renderer-lifecycle` |
+| status | implemented |
+| since | protocol 9, capability `renderer-lifecycle-subscription-v1` |
+| permission | registered trusted `Frontend` connection |
+
+Registers a bounded stream for renderer process, presentation readiness, and
+renderer configuration lifecycle. The mux filters events before the stream
+mailbox, so surface output and topology churn do not consume this lane's
+capacity.
+
+Params: none.
+
+Result:
+
+```text
+object{}
+```
+
+After registration, the connection receives only:
+
+```text
+RendererWorkerChanged | RendererPresentationReady | RendererConfigInvalidated |
+object{event:"renderer-lifecycle-overflow"}
+```
+
+Their JSON event names are `renderer-worker-changed`,
+`renderer-presentation-ready`, `renderer-config-invalidated`, and the terminal
+overflow marker `renderer-lifecycle-overflow`. The overflow object is exactly
+`{"event":"renderer-lifecycle-overflow"}` and ends the stream. A client must
+open a new connection, fetch `renderer-workers`, rebuild the required
+presentations, and subscribe again.
+
+One connection may open one renderer lifecycle stream. One daemon permits 256
+live renderer lifecycle streams. Admission reserves the per-connection claim
+and global permit before registering the mux mailbox or spawning the output
+thread. The connection lifecycle read guard covers that setup race; the global
+permit, rather than the lifecycle lock, remains held until the output thread
+ends.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| registered protocol v9 capability required | Connection did not negotiate protocol 9 |
+| trusted frontend required | Connection is not a server-authorized frontend |
+| connection already has a renderer lifecycle subscription | A second stream was requested on the same connection |
+| renderer lifecycle subscription limit reached | The daemon already has 256 live streams |
+| thread spawn error string | Server cannot create the event writer thread |
+
+The response and event lines may interleave. Route by `event` and `id`; do not
+treat the response as a stream barrier.
+
+CLI mapping: none. Trusted frontends issue this command on their persistent
+control connection.
 
 ### attach-surface
 
