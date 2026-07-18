@@ -76,4 +76,26 @@ enum RemoteTmuxSessionListParser {
         }
         return sessions
     }
+
+    /// Splits raw `tmux …list… -F` output (delimited with ``fieldDelimiter``) into
+    /// rows of exactly `fieldCount` fields, rejoining any trailing free-text field.
+    ///
+    /// Splits on any newline via `Character.isNewline`, which matches `\n`, `\r`,
+    /// AND the `\r\n` grapheme cluster (a plain `split(separator: "\n")` misses
+    /// `\r\n`, leaving a stray `\r` on the last field of CRLF output).
+    static func splitRows(_ output: String, fieldCount: Int) -> [[String]] {
+        precondition(fieldCount >= 1)
+        return output.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
+            .compactMap { rawLine in
+                let line = String(rawLine)
+                if line.isEmpty { return nil }
+                let fields = line.components(separatedBy: fieldDelimiter)
+                guard fields.count >= fieldCount else { return nil }
+                // Keep the first fieldCount-1 fields verbatim; rejoin the rest as the
+                // trailing free-text field.
+                var row = Array(fields[0..<(fieldCount - 1)])
+                row.append(fields[(fieldCount - 1)...].joined(separator: fieldDelimiter))
+                return row
+            }
+    }
 }
