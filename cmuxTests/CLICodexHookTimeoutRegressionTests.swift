@@ -3,18 +3,6 @@ import Testing
 
 @Suite(.serialized)
 struct CLICodexHookTimeoutRegressionTests {
-    @Test func persistentCodexHooksPreferTheWrapperProcessIdentity() throws {
-        let definition = try #require(CMUXCLI.agentDef(named: "codex"))
-        let command = CMUXCLI.codexFireAndForgetAgentHookShellCommand(
-            "cmux hooks codex stop",
-            for: definition,
-            ownership: .persistent,
-            target: .wrapperEnvironment
-        )
-
-        #expect(command.contains(#"agent_pid="${CMUX_CODEX_PID:-${PPID:-}}""#))
-    }
-
     @Test func codexHookInstallReplacesSynchronousBundledHook() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -51,15 +39,21 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(sessionStartHooks.count == 1, "Installer should install one session-start hook")
         #expect(sessionStartHooks.allSatisfy { $0.body.contains("hooks codex session-start") })
         #expect(sessionStartHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
-        #expect(sessionStartHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
+        #expect(sessionStartHooks.allSatisfy {
+            $0.body.contains(#"agent_pid="${CMUX_CODEX_PID:-${PPID:-}}""#)
+        })
         #expect(promptHooks.count == 1, "Installer should collapse duplicate prompt hooks")
         #expect(promptHooks.allSatisfy { $0.body.contains("hooks codex prompt-submit") })
         #expect(promptHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
-        #expect(promptHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
+        #expect(promptHooks.allSatisfy {
+            $0.body.contains(#"agent_pid="${CMUX_CODEX_PID:-${PPID:-}}""#)
+        })
         #expect(stopHooks.count == 1, "Installer should install one stop hook")
         #expect(stopHooks.allSatisfy { $0.body.contains("hooks codex stop") })
         #expect(stopHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
-        #expect(stopHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
+        #expect(stopHooks.allSatisfy {
+            $0.body.contains(#"agent_pid="${CMUX_CODEX_PID:-${PPID:-}}""#)
+        })
         let expectedFeedEvents: Set<String> = [
             "PreToolUse",
             "PermissionRequest",
@@ -673,7 +667,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
     }
 
-    private func bundledCLIPath() throws -> String {
+    func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
 }
