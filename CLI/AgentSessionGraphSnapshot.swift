@@ -248,6 +248,13 @@ struct AgentSessionRunCanonicalizer: Sendable {
     ) -> Bool {
         guard let lhs, let rhs else { return false }
         return lhs.id != rhs.id
+            || optionalValuesConflict(lhs.socketPath, rhs.socketPath)
+            || optionalValuesConflict(lhs.bundleIdentifier, rhs.bundleIdentifier)
+    }
+
+    private func optionalValuesConflict<T: Equatable>(_ lhs: T?, _ rhs: T?) -> Bool {
+        guard let lhs, let rhs else { return false }
+        return lhs != rhs
     }
 
     private func preferredRuntime(
