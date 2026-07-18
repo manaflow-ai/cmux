@@ -137,4 +137,23 @@ struct BrowserDesignModeComposerHostingViewTests {
         #expect(!removed)
         #expect(controller.snapshot?.selections == [selection])
     }
+
+    @Test func mixedTokenDeletionPreservesOnlyTheAttachmentRange() {
+        let content = NSMutableAttributedString(string: "A\u{FFFC}BC")
+        content.addAttribute(
+            .attachment,
+            value: NSTextAttachment(),
+            range: NSRange(location: 1, length: 1)
+        )
+
+        let ranges = BrowserDesignModeTokenDeletion.textRangesOutsideAttachments(
+            in: content,
+            range: NSRange(location: 0, length: content.length)
+        )
+
+        #expect(ranges == [
+            NSRange(location: 0, length: 1),
+            NSRange(location: 2, length: 2),
+        ])
+    }
 }

@@ -853,6 +853,48 @@ describe("browser design-mode runtime", () => {
     expect(card?.style.boxShadow).not.toContain("rgba(10, 132, 255, 0.55)");
   });
 
+  test("annotation cards evict the oldest retained image after the bounded stack fills", () => {
+    const { dom, messages, runtime } = fixture(`<main><button>B</button></main>`);
+    const doc = dom.window.document;
+    const at = (name: string, x: number, y: number) => doc.dispatchEvent(
+      new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
+    );
+
+    runtime.setMode("draw");
+    let firstSelector = "";
+    let lastSelector = "";
+    for (let index = 0; index < 10; index += 1) {
+      at("pointerdown", 20 + index, 20 + index);
+      at("pointermove", 60 + index, 60 + index);
+      at("pointerup", 60 + index, 60 + index);
+      const request = messages.slice().reverse().find(
+        (message) => (message as { type?: string }).type === "annotation_capture_requested",
+      ) as { request: { id: string } } | undefined;
+      const annotationID = request?.request.id ?? "";
+      const descriptor = runtime.prepareAnnotationCapture(annotationID);
+      const snapshot = runtime.completeAnnotationCapture(
+        annotationID,
+        0,
+        0,
+        128,
+        128,
+        `data:image/png;base64,Y2FyZC0${index}`,
+        descriptor?.scroll_x ?? 0,
+        descriptor?.scroll_y ?? 0,
+        descriptor?.viewport.width ?? 0,
+        descriptor?.viewport.height ?? 0,
+      );
+      const selector = snapshot.selections?.at(-1)?.selector ?? "";
+      if (index === 0) firstSelector = selector;
+      lastSelector = selector;
+    }
+
+    const selectors = runtime.snapshot().selections?.map((selection) => selection.selector) ?? [];
+    expect(selectors).toHaveLength(8);
+    expect(selectors).not.toContain(firstSelector);
+    expect(selectors).toContain(lastSelector);
+  });
+
   test("a drag switches select mode to draw while clicks remain element picks", () => {
     const { dom, messages, runtime } = fixture(`<main><button id="b">B</button></main>`);
     const doc = dom.window.document;
