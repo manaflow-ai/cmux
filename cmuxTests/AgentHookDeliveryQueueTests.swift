@@ -158,7 +158,7 @@ struct AgentHookDeliveryQueueTests {
             active="$TMPDIR/active-$CMUX_AGENT_HOOK_DELIVERY_ID"
             /bin/mkdir "$active"
             set -- "$TMPDIR"/active-*
-            printf '%s\n' "$#" >> "$TMPDIR/active-counts"
+            printf '%s\n' "$#" >> "$TMPDIR/concurrency-counts"
             /bin/sleep 0.15
             /bin/rmdir "$active"
             printf '%s\n' "$CMUX_AGENT_HOOK_DELIVERY_ID" >> "$TMPDIR/delivered"
@@ -183,7 +183,7 @@ struct AgentHookDeliveryQueueTests {
         await queue.waitUntilCurrentDrainFinishes()
         let elapsed = started.duration(to: ContinuousClock().now)
 
-        let activeCounts = try lines(at: root.appendingPathComponent("active-counts")).compactMap(Int.init)
+        let activeCounts = try lines(at: root.appendingPathComponent("concurrency-counts")).compactMap(Int.init)
         let maximumActive = try #require(activeCounts.max())
         #expect(maximumActive > 1)
         #expect(activeCounts.allSatisfy { $0 <= 32 })
@@ -260,7 +260,7 @@ struct AgentHookDeliveryQueueTests {
         #expect(firstIndex < laterIndex)
     }
 
-    @Test func hungChildIsKilledWithinDeadlineAndLaterEventRuns() async throws {
+    @Test func hungChildIsKilledWithinDeadlineAndIndependentKeyRuns() async throws {
         let root = try temporaryDirectory(named: "timeout")
         defer { try? FileManager.default.removeItem(at: root) }
         let scriptURL = root.appendingPathComponent("deliver.sh")
@@ -292,7 +292,7 @@ struct AgentHookDeliveryQueueTests {
         let later = try #require(makeEvent(
             deliveryID: "timeout-later",
             payload: Data("later".utf8),
-            environment: testEnvironment(root: root)
+            environment: testEnvironment(root: root, surfaceID: "surface:timeout-later")
         ))
 
         let started = ContinuousClock().now
@@ -308,6 +308,72 @@ struct AgentHookDeliveryQueueTests {
         #expect(laterStatus?["state"] == "delivered")
         #expect(elapsed < .seconds(2))
         #expect(try lines(at: root.appendingPathComponent("delivered")) == ["timeout-later"])
+    }
+
+    @Test func timedOutDeliveryKillsTermIgnoringProcessGroup() async throws {
+        let root = try temporaryDirectory(named: "process-group-timeout")
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        let leaderPIDFile = root.appendingPathComponent("leader.pid")
+        let descendantPIDFile = root.appendingPathComponent("descendant.pid")
+        defer {
+            for pidFile in [leaderPIDFile, descendantPIDFile] {
+                if let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
+                   let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    Darwin.kill(pid, SIGKILL)
+                }
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            exec /usr/bin/python3 -c '
+            import os
+            import signal
+
+            os.setpgid(0, 0)
+            with open(os.environ["CMUX_AGENT_LAUNCH_CWD"], "w") as handle:
+                handle.write(str(os.getpid()))
+            descendant = os.fork()
+            if descendant == 0:
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                with open(os.environ["CMUX_AGENT_LAUNCH_EXECUTABLE"], "w") as handle:
+                    handle.write(str(os.getpid()))
+                while True:
+                    signal.pause()
+            while True:
+                signal.pause()
+            '
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 0.2,
+            terminationGrace: 0.05,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        var environment = testEnvironment(root: root)
+        environment["CMUX_AGENT_LAUNCH_CWD"] = leaderPIDFile.path
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = descendantPIDFile.path
+        let event = try #require(makeEvent(
+            deliveryID: "timeout-process-group",
+            payload: Data("hang".utf8),
+            environment: environment
+        ))
+
+        try queue.enqueue(event)
+        await queue.waitUntilCurrentDrainFinishes()
+
+        for pidFile in [leaderPIDFile, descendantPIDFile] {
+            let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
+            let pid = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
+            errno = 0
+            #expect(Darwin.kill(pid, 0) == -1)
+            #expect(errno == ESRCH)
+        }
     }
 
     private func makeEvent(
