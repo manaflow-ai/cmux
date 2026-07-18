@@ -42,7 +42,8 @@ use crate::state_store::{
 };
 use crate::surface::{
     DefaultColors, ExternalTerminalClaimReceipt, ExternalTerminalOutputReceipt,
-    ExternalTerminalOwner, Surface, SurfaceOptions,
+    ExternalTerminalOwner, InputAuthorityPermit, Surface, SurfaceOptions,
+    TerminalLaunchCompletionPhase,
 };
 use crate::terminal_activity::{
     LEGACY_TERMINAL_ACTIVITY_READER_UUID, NotificationLevel, TerminalActivityFact,
@@ -61,6 +62,17 @@ use crate::{
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+const TERMINAL_INITIAL_INPUT_DEADLINE: Duration = Duration::from_secs(30);
+
+fn terminal_initial_input_deadline() -> Duration {
+    #[cfg(test)]
+    if let Ok(milliseconds) = std::env::var("CMUX_TEST_TERMINAL_INITIAL_INPUT_DEADLINE_MS")
+        && let Ok(milliseconds) = milliseconds.parse::<u64>()
+    {
+        return Duration::from_millis(milliseconds.max(1));
+    }
+    TERMINAL_INITIAL_INPUT_DEADLINE
+}
 
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
@@ -355,6 +367,24 @@ const MAX_TERMINAL_LAUNCH_STRING_BYTES: usize = 64 * 1024;
 const MAX_TERMINAL_LAUNCH_CWD_BYTES: usize = 16 * 1024;
 const MAX_TERMINAL_LAUNCH_ENVIRONMENT_NAME_BYTES: usize = 4 * 1024;
 const MAX_TERMINAL_LAUNCH_AGGREGATE_BYTES: usize = 2 * 1024 * 1024;
+const TERMINAL_INITIAL_INPUT_CANONICAL_LINE_MAX_BYTES: usize = 512;
+
+fn validate_terminal_initial_input(label: &str, input: &str) -> anyhow::Result<()> {
+    let mut line_bytes = 0;
+    for byte in input.bytes() {
+        line_bytes += 1;
+        if line_bytes > TERMINAL_INITIAL_INPUT_CANONICAL_LINE_MAX_BYTES {
+            anyhow::bail!(
+                "{label} contains a line longer than the canonical-safe maximum of \
+                 {TERMINAL_INITIAL_INPUT_CANONICAL_LINE_MAX_BYTES} bytes including newline"
+            );
+        }
+        if byte == b'\n' {
+            line_bytes = 0;
+        }
+    }
+    Ok(())
+}
 
 fn validate_ensure_terminal_request(request: &EnsureTerminalRequest) -> anyhow::Result<()> {
     if request.workspace_uuid.as_uuid().is_nil() || request.surface_uuid.as_uuid().is_nil() {
@@ -366,11 +396,12 @@ fn validate_ensure_terminal_request(request: &EnsureTerminalRequest) -> anyhow::
     if request.argv.as_ref().is_some_and(Vec::is_empty) {
         anyhow::bail!("ensure-terminal argv must be non-empty when supplied");
     }
-    if request
-        .env
-        .iter()
-        .any(|(name, value)| name.is_empty() || name.contains(['=', '\0']) || value.contains('\0'))
-    {
+    if request.env.iter().any(|(name, value)| {
+        name.is_empty()
+            || name.contains(['=', '\0'])
+            || value.contains('\0')
+            || crate::launch_gate::is_reserved_environment_name(name)
+    }) {
         anyhow::bail!("ensure-terminal environment contains an invalid name or value");
     }
     if request
@@ -381,6 +412,9 @@ fn validate_ensure_terminal_request(request: &EnsureTerminalRequest) -> anyhow::
         anyhow::bail!(
             "ensure-terminal initial_input exceeds {MAX_ENSURE_TERMINAL_INITIAL_INPUT_BYTES} bytes"
         );
+    }
+    if let Some(initial_input) = request.initial_input.as_deref() {
+        validate_terminal_initial_input("ensure-terminal initial_input", initial_input)?;
     }
     Ok(())
 }
@@ -422,6 +456,9 @@ fn validate_terminal_launch_request(request: &TerminalLaunchRequest) -> anyhow::
         if !valid_terminal_environment_name(name) {
             anyhow::bail!("terminal launch environment contains an invalid name");
         }
+        if crate::launch_gate::is_reserved_environment_name(name) {
+            anyhow::bail!("terminal launch environment contains a reserved launch-gate name");
+        }
         validate_terminal_launch_text(
             "environment name",
             name,
@@ -441,6 +478,9 @@ fn validate_terminal_launch_request(request: &TerminalLaunchRequest) -> anyhow::
         anyhow::bail!(
             "terminal launch initial_input exceeds {MAX_ENSURE_TERMINAL_INITIAL_INPUT_BYTES} bytes"
         );
+    }
+    if let Some(initial_input) = request.initial_input.as_deref() {
+        validate_terminal_initial_input("terminal launch initial_input", initial_input)?;
     }
     let aggregate_bytes = request.cwd.as_ref().map_or(0, String::len)
         + request.command.as_ref().map_or(0, String::len)
@@ -529,6 +569,33 @@ pub(crate) struct TerminalLaunchRequest {
     pub initial_input: Option<String>,
     pub wait_after_command: bool,
 }
+
+enum PreparedTerminalGate {
+    Real(crate::launch_gate::TerminalLaunchGate),
+    #[cfg(test)]
+    Test,
+}
+
+struct PreparedTerminalLaunch {
+    surface: Arc<Surface>,
+    launch: Option<PersistedLaunchRecipe>,
+    gate: Option<PreparedTerminalGate>,
+    input_authority: Option<InputAuthorityPermit>,
+    initial_input: Vec<u8>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalLaunchAtomicityPhase {
+    BeforeFsync,
+    AfterFsync,
+    BeforeRelease,
+    AfterRelease,
+    AfterInitialInput,
+}
+
+#[cfg(test)]
+type TerminalLaunchAtomicityProbe = Arc<dyn Fn(TerminalLaunchAtomicityPhase) + Send + Sync>;
 
 /// Fences one canonical topology mutation to an exact daemon snapshot and
 /// supplies the durable key used to replay retries without applying twice.
@@ -849,6 +916,8 @@ struct CanonicalState {
     persisted_snapshot_count: u64,
     #[cfg(test)]
     topology_index_rebuild_count: u64,
+    #[cfg(test)]
+    terminal_launch_atomicity_probe: Option<TerminalLaunchAtomicityProbe>,
 }
 
 impl CanonicalState {
@@ -888,6 +957,8 @@ impl CanonicalState {
             persisted_snapshot_count: 0,
             #[cfg(test)]
             topology_index_rebuild_count: 1,
+            #[cfg(test)]
+            terminal_launch_atomicity_probe: None,
         }
     }
 
@@ -1007,6 +1078,10 @@ impl CanonicalState {
         let snapshot = self
             .persisted_snapshot(topology_revision)
             .expect("canonical state must remain persistable after a committed mutation");
+        #[cfg(test)]
+        if let Some(probe) = &self.terminal_launch_atomicity_probe {
+            probe(TerminalLaunchAtomicityPhase::BeforeFsync);
+        }
         self.durable
             .as_mut()
             .expect("durable session checked above")
@@ -1019,6 +1094,10 @@ impl CanonicalState {
                 eprintln!("cmux-tui: fatal canonical persistence failure: {error}");
                 std::process::abort();
             });
+        #[cfg(test)]
+        if let Some(probe) = &self.terminal_launch_atomicity_probe {
+            probe(TerminalLaunchAtomicityPhase::AfterFsync);
+        }
     }
 
     fn retain_deleted_targets(
@@ -1202,7 +1281,9 @@ fn persisted_snapshot(
                     anyhow::anyhow!("terminal {} has no durable launch recipe", surface.uuid)
                 })?,
             },
-            crate::SurfaceKind::Browser => PersistedSurfaceKind::Browser,
+            crate::SurfaceKind::Browser => PersistedSurfaceKind::Browser {
+                presentation: crate::state_store::PersistedBrowserPresentationMode::DaemonRendered,
+            },
         };
         surfaces.push(PersistedSurface { uuid: surface.uuid, name: surface.name(), kind });
     }
@@ -1756,6 +1837,8 @@ pub struct Mux {
     #[cfg(test)]
     ensure_terminal_initial_writes: AtomicU64,
     #[cfg(test)]
+    terminal_launch_gate_releases: AtomicU64,
+    #[cfg(test)]
     ensure_terminal_batch_fail_spawn_at: AtomicU64,
     #[cfg(test)]
     ensure_terminal_batch_before_publish: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -1918,6 +2001,8 @@ impl Mux {
             #[cfg(test)]
             ensure_terminal_initial_writes: AtomicU64::new(0),
             #[cfg(test)]
+            terminal_launch_gate_releases: AtomicU64::new(0),
+            #[cfg(test)]
             ensure_terminal_batch_fail_spawn_at: AtomicU64::new(0),
             #[cfg(test)]
             ensure_terminal_batch_before_publish: Mutex::new(None),
@@ -1960,7 +2045,7 @@ impl Mux {
                     self.state.lock().unwrap().surfaces.insert(id, surface.clone());
                     (surface, None)
                 }
-                PersistedSurfaceKind::Browser => {
+                PersistedSurfaceKind::Browser { .. } => {
                     let opts = self.surface_options.lock().unwrap().clone();
                     let cell_pixels = *self.cell_pixels.lock().unwrap();
                     let surface = browser::new_surface_with_uuid(
@@ -2141,7 +2226,7 @@ impl Mux {
             launch.cwd.as_deref().is_some_and(|cwd| !std::path::Path::new(cwd).is_dir());
         let original_cwd = if cwd_unavailable { Some(native_home()?) } else { launch.cwd.clone() };
         let spawn_saved = |cwd| {
-            self.spawn_surface_with_allocated_identity(
+            self.restore_already_durable_surface_with_allocated_identity(
                 id,
                 uuid,
                 cwd,
@@ -2164,7 +2249,7 @@ impl Mux {
             }
             Err(_) => {
                 let surface = self
-                    .spawn_surface_with_allocated_identity(
+                    .restore_already_durable_surface_with_allocated_identity(
                         id,
                         uuid,
                         Some(native_home()?),
@@ -2271,62 +2356,13 @@ impl Mux {
         self.pairing.pending()
     }
 
-    fn spawn_surface_with_command(
-        self: &Arc<Self>,
-        cwd: Option<String>,
-        size: Option<(u16, u16)>,
-        command: Option<Vec<String>>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.spawn_surface_with(cwd, command, size)
-    }
-
-    fn spawn_surface_with(
-        self: &Arc<Self>,
-        cwd: Option<String>,
-        command: Option<Vec<String>>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let (id, uuid) = self.entity_ids.surface();
-        self.spawn_surface_with_allocated_identity(
-            id,
-            uuid,
-            cwd,
-            command,
-            Vec::new(),
-            None,
-            size,
-            None,
-        )
-    }
-
-    fn spawn_surface_with_launch(
-        self: &Arc<Self>,
-        launch: &TerminalLaunchRequest,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let (id, uuid) = self.entity_ids.surface();
-        let (surface, recipe) = self.create_surface_for_launch(id, uuid, launch, size)?;
-        let mut state = self.state.lock().unwrap();
-        state.launch_recipes.insert(uuid, recipe);
-        state.surfaces.insert(id, surface.clone());
-        drop(state);
-        #[cfg(test)]
-        if let Some((registered, resume)) =
-            self.test_surface_registered_barriers.lock().unwrap().take()
-        {
-            registered.wait();
-            resume.wait();
-        }
-        Ok(surface)
-    }
-
-    fn create_surface_for_launch(
+    fn prepare_surface_for_launch(
         self: &Arc<Self>,
         id: SurfaceId,
         uuid: SurfaceUuid,
         launch: &TerminalLaunchRequest,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<(Arc<Surface>, PersistedLaunchRecipe)> {
+    ) -> anyhow::Result<PreparedTerminalLaunch> {
         validate_terminal_launch_request(launch)?;
         let command = match (&launch.argv, &launch.command) {
             (Some(argv), None) => Some(argv.clone()),
@@ -2336,7 +2372,7 @@ impl Mux {
             (None, None) => None,
             (Some(_), Some(_)) => unreachable!("launch validation rejects two command forms"),
         };
-        self.create_surface_with_allocated_identity(
+        self.prepare_surface_with_allocated_identity(
             id,
             uuid,
             launch.cwd.clone(),
@@ -2345,22 +2381,91 @@ impl Mux {
             Some(launch.wait_after_command),
             size,
             None,
+            launch.initial_input.clone(),
         )
     }
 
-    fn write_terminal_initial_input(
-        &self,
-        surface: &Arc<Surface>,
-        launch: &TerminalLaunchRequest,
-    ) -> anyhow::Result<()> {
-        if let Some(initial_input) = launch.initial_input.as_ref().filter(|input| !input.is_empty())
-        {
-            surface.write_bytes(initial_input.as_bytes())?;
+    /// Finish a topology-visible terminal launch after its journal record is
+    /// durable. Any failure is process-fatal: returning an error would invite
+    /// a retry after some startup bytes may already have crossed the PTY.
+    fn complete_committed_terminal_launch(self: &Arc<Self>, mut prepared: PreparedTerminalLaunch) {
+        let gate = prepared.gate.take().expect("prepared terminal retains its launch gate");
+        let input_authority =
+            prepared.input_authority.take().expect("prepared terminal retains input authority");
+        let had_initial_input = !prepared.initial_input.is_empty();
+        let phase = self.terminal_launch_completion_probe(had_initial_input);
+        let result = match gate {
+            PreparedTerminalGate::Real(gate) => prepared.surface.complete_gated_launch(
+                input_authority,
+                gate,
+                std::mem::take(&mut prepared.initial_input),
+                terminal_initial_input_deadline(),
+                phase,
+            ),
+            #[cfg(test)]
+            PreparedTerminalGate::Test => {
+                if let Some(phase) = &phase {
+                    phase(TerminalLaunchCompletionPhase::BeforeRelease);
+                }
+                if let Some(phase) = &phase {
+                    phase(TerminalLaunchCompletionPhase::AfterRelease);
+                }
+                if let Some(phase) = &phase {
+                    phase(TerminalLaunchCompletionPhase::AfterInitialInput);
+                }
+                drop(input_authority);
+                Ok(())
+            }
+        };
+        if let Err(error) = result {
+            eprintln!(
+                "cmux-tui: fatal terminal launch completion failure after durable commit: {error}"
+            );
+            std::process::abort();
         }
-        Ok(())
     }
 
-    fn spawn_surface_with_allocated_identity(
+    fn terminal_launch_completion_probe(
+        self: &Arc<Self>,
+        had_initial_input: bool,
+    ) -> Option<Arc<dyn Fn(TerminalLaunchCompletionPhase) + Send + Sync>> {
+        #[cfg(test)]
+        {
+            let mux = Arc::downgrade(self);
+            let probe = self.state.lock().unwrap().terminal_launch_atomicity_probe.clone();
+            return Some(Arc::new(move |phase| {
+                let Some(mux) = mux.upgrade() else { return };
+                let phase = match phase {
+                    TerminalLaunchCompletionPhase::BeforeRelease => {
+                        TerminalLaunchAtomicityPhase::BeforeRelease
+                    }
+                    TerminalLaunchCompletionPhase::AfterRelease => {
+                        mux.terminal_launch_gate_releases.fetch_add(1, Ordering::Relaxed);
+                        TerminalLaunchAtomicityPhase::AfterRelease
+                    }
+                    TerminalLaunchCompletionPhase::AfterInitialInput => {
+                        if had_initial_input {
+                            mux.ensure_terminal_initial_writes.fetch_add(1, Ordering::Relaxed);
+                        }
+                        TerminalLaunchAtomicityPhase::AfterInitialInput
+                    }
+                };
+                if let Some(probe) = &probe {
+                    probe(phase);
+                }
+            }));
+        }
+        #[cfg(not(test))]
+        {
+            let _ = had_initial_input;
+            None
+        }
+    }
+
+    /// Recreate one terminal whose topology and launch recipe were fsynced by
+    /// an earlier daemon. New topology mutations must use
+    /// `prepare_surface_with_allocated_identity` instead.
+    fn restore_already_durable_surface_with_allocated_identity(
         self: &Arc<Self>,
         id: SurfaceId,
         uuid: SurfaceUuid,
@@ -2371,7 +2476,7 @@ impl Mux {
         size: Option<(u16, u16)>,
         scrollback: Option<usize>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let (surface, launch) = self.create_surface_with_allocated_identity(
+        let (surface, launch) = self.create_already_durable_surface_with_allocated_identity(
             id,
             uuid,
             cwd,
@@ -2398,7 +2503,7 @@ impl Mux {
     /// Spawn one terminal without publishing it into canonical state. Batch
     /// materialization uses this seam so a partial spawn failure cannot leak
     /// runtimes or an incomplete topology to readers.
-    fn create_surface_with_allocated_identity(
+    fn create_already_durable_surface_with_allocated_identity(
         self: &Arc<Self>,
         id: SurfaceId,
         uuid: SurfaceUuid,
@@ -2409,6 +2514,78 @@ impl Mux {
         size: Option<(u16, u16)>,
         scrollback: Option<usize>,
     ) -> anyhow::Result<(Arc<Surface>, PersistedLaunchRecipe)> {
+        let (surface, launch, gate, input_authority) = self
+            .create_surface_with_allocated_identity_mode(
+                id,
+                uuid,
+                cwd,
+                command,
+                extra_env,
+                wait_after_command,
+                size,
+                scrollback,
+                false,
+            )?;
+        debug_assert!(gate.is_none());
+        debug_assert!(input_authority.is_none());
+        Ok((surface, launch))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_surface_with_allocated_identity(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        uuid: SurfaceUuid,
+        cwd: Option<String>,
+        command: Option<Vec<String>>,
+        extra_env: Vec<(String, String)>,
+        wait_after_command: Option<bool>,
+        size: Option<(u16, u16)>,
+        scrollback: Option<usize>,
+        initial_input: Option<String>,
+    ) -> anyhow::Result<PreparedTerminalLaunch> {
+        let (surface, launch, gate, input_authority) = self
+            .create_surface_with_allocated_identity_mode(
+                id,
+                uuid,
+                cwd,
+                command,
+                extra_env,
+                wait_after_command,
+                size,
+                scrollback,
+                true,
+            )?;
+        Ok(PreparedTerminalLaunch {
+            surface,
+            launch: Some(launch),
+            gate,
+            input_authority,
+            initial_input: initial_input
+                .filter(|input| !input.is_empty())
+                .unwrap_or_default()
+                .into_bytes(),
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_surface_with_allocated_identity_mode(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        uuid: SurfaceUuid,
+        cwd: Option<String>,
+        command: Option<Vec<String>>,
+        extra_env: Vec<(String, String)>,
+        wait_after_command: Option<bool>,
+        size: Option<(u16, u16)>,
+        scrollback: Option<usize>,
+        gated: bool,
+    ) -> anyhow::Result<(
+        Arc<Surface>,
+        PersistedLaunchRecipe,
+        Option<PreparedTerminalGate>,
+        Option<InputAuthorityPermit>,
+    )> {
         let mut opts = self.surface_options.lock().unwrap().clone();
         if cwd.is_some() {
             opts.cwd = cwd;
@@ -2433,13 +2610,25 @@ impl Mux {
         opts.cols = cols;
         opts.rows = rows;
         #[cfg(test)]
-        let surface = if self.test_surface_runtime {
-            Surface::spawn_for_test_with_uuid(id, uuid, opts, Arc::downgrade(self))?
+        let (surface, gate) = if self.test_surface_runtime {
+            (
+                Surface::spawn_for_test_with_uuid(id, uuid, opts, Arc::downgrade(self))?,
+                gated.then_some(PreparedTerminalGate::Test),
+            )
+        } else if gated {
+            let (surface, gate) = Surface::prepare_with_uuid(id, uuid, opts, Arc::downgrade(self))?;
+            (surface, Some(PreparedTerminalGate::Real(gate)))
         } else {
-            Surface::spawn_with_uuid(id, uuid, opts, Arc::downgrade(self))?
+            (Surface::spawn_with_uuid(id, uuid, opts, Arc::downgrade(self))?, None)
         };
         #[cfg(not(test))]
-        let surface = Surface::spawn_with_uuid(id, uuid, opts, Arc::downgrade(self))?;
+        let (surface, gate) = if gated {
+            let (surface, gate) = Surface::prepare_with_uuid(id, uuid, opts, Arc::downgrade(self))?;
+            (surface, Some(PreparedTerminalGate::Real(gate)))
+        } else {
+            (Surface::spawn_with_uuid(id, uuid, opts, Arc::downgrade(self))?, None)
+        };
+        let input_authority = gated.then(|| surface.reserve_input_authority()).transpose()?;
         let launch = PersistedLaunchRecipe::sanitized(
             surface.spawn_argv().ok_or_else(|| anyhow::anyhow!("spawned terminal has no argv"))?,
             surface.spawn_cwd(),
@@ -2454,15 +2643,7 @@ impl Mux {
             persisted_scrollback,
             surface.wait_after_command(),
         );
-        Ok((surface, launch))
-    }
-
-    fn spawn_surface(
-        self: &Arc<Self>,
-        cwd: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.spawn_surface_with_command(cwd, size, None)
+        Ok((surface, launch, gate, input_authority))
     }
 
     fn spawn_sidebar_plugin_surface(
@@ -2470,6 +2651,8 @@ impl Mux {
         options: &SidebarPluginOptions,
         size: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
+        // The sidebar plugin is an ephemeral TUI helper. It has no durable
+        // topology identity or launch recipe, so there is no commit to gate.
         if options.command.is_empty() {
             anyhow::bail!("sidebar plugin command is empty");
         }
@@ -4543,27 +4726,18 @@ impl Mux {
         }
 
         let (surface_id, _) = self.entity_ids.surface();
-        let surface = self.spawn_surface_with_allocated_identity(
+        let mut prepared = self.prepare_surface_with_allocated_identity(
             surface_id,
             request.surface_uuid,
-            request.cwd,
-            request.argv,
-            request.env,
+            request.cwd.clone(),
+            request.argv.clone(),
+            request.env.clone(),
             Some(request.wait_after_command),
             Some((request.cols, request.rows)),
             None,
+            request.initial_input.clone(),
         )?;
-        if let Some(initial_input) =
-            request.initial_input.as_ref().filter(|input| !input.is_empty())
-        {
-            #[cfg(test)]
-            self.ensure_terminal_initial_writes.fetch_add(1, Ordering::Relaxed);
-            if let Err(error) = surface.write_bytes(initial_input.as_bytes()) {
-                self.state.lock().unwrap().discard_surface_runtime(surface.id);
-                surface.kill();
-                return Err(error.into());
-            }
-        }
+        let surface = prepared.surface.clone();
         let notifications = self.surface_notifications();
         let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
@@ -4571,10 +4745,14 @@ impl Mux {
                 .indexed_surface_id_by_uuid(request.surface_uuid)
                 .is_some_and(|existing| existing != surface.id)
             {
-                state.discard_surface_runtime(surface.id);
                 surface.kill();
                 anyhow::bail!("ensure-terminal surface UUID was created concurrently");
             }
+            state.surfaces.insert(surface.id, surface.clone());
+            state.launch_recipes.insert(
+                request.surface_uuid,
+                prepared.launch.take().expect("unpublished terminal has launch recipe"),
+            );
 
             if let Some(workspace_index) =
                 state.indexed_workspace_index_by_uuid(request.workspace_uuid)
@@ -4696,6 +4874,7 @@ impl Mux {
                 )
             }
         };
+        self.complete_committed_terminal_launch(prepared);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(placement)
@@ -4787,8 +4966,7 @@ impl Mux {
 
         struct SpawnedTerminal {
             request_index: usize,
-            surface: Arc<Surface>,
-            launch: Option<PersistedLaunchRecipe>,
+            prepared: PreparedTerminalLaunch,
         }
 
         let mut spawned: Vec<SpawnedTerminal> = Vec::with_capacity(missing.len());
@@ -4800,12 +4978,12 @@ impl Mux {
                 == spawned.len() as u64 + 1
             {
                 for spawned in &spawned {
-                    spawned.surface.kill();
+                    spawned.prepared.surface.kill();
                 }
                 anyhow::bail!("injected ensure-terminal batch spawn failure");
             }
             let (surface_id, _) = self.entity_ids.surface();
-            let created = self.create_surface_with_allocated_identity(
+            let created = self.prepare_surface_with_allocated_identity(
                 surface_id,
                 request.surface_uuid,
                 request.cwd.clone(),
@@ -4814,31 +4992,19 @@ impl Mux {
                 Some(request.wait_after_command),
                 Some((request.cols, request.rows)),
                 None,
+                request.initial_input.clone(),
             );
-            let (surface, launch) = match created {
+            let prepared = match created {
                 Ok(created) => created,
                 Err(error) => {
                     for spawned in &spawned {
-                        spawned.surface.kill();
+                        spawned.prepared.surface.kill();
                     }
                     return Err(error);
                 }
             };
-            if let Some(initial_input) =
-                request.initial_input.as_ref().filter(|input| !input.is_empty())
-            {
-                #[cfg(test)]
-                self.ensure_terminal_initial_writes.fetch_add(1, Ordering::Relaxed);
-                if let Err(error) = surface.write_bytes(initial_input.as_bytes()) {
-                    surface.kill();
-                    for spawned in &spawned {
-                        spawned.surface.kill();
-                    }
-                    return Err(error.into());
-                }
-            }
             spawned_position_by_request[request_index] = Some(spawned.len());
-            spawned.push(SpawnedTerminal { request_index, surface, launch: Some(launch) });
+            spawned.push(SpawnedTerminal { request_index, prepared });
         }
 
         #[cfg(test)]
@@ -4968,12 +5134,17 @@ impl Mux {
             // lock so readers see either the old topology or the full batch.
             for terminal in &mut spawned {
                 let request = &requests[terminal.request_index];
-                let previous_surface =
-                    state.surfaces.insert(terminal.surface.id, terminal.surface.clone());
+                let previous_surface = state
+                    .surfaces
+                    .insert(terminal.prepared.surface.id, terminal.prepared.surface.clone());
                 debug_assert!(previous_surface.is_none());
                 let previous_launch = state.launch_recipes.insert(
                     request.surface_uuid,
-                    terminal.launch.take().expect("unpublished terminal has launch recipe"),
+                    terminal
+                        .prepared
+                        .launch
+                        .take()
+                        .expect("unpublished terminal has launch recipe"),
                 );
                 debug_assert!(previous_launch.is_none());
             }
@@ -4986,7 +5157,7 @@ impl Mux {
                     .map(|request_index| {
                         let position = spawned_position_by_request[*request_index]
                             .expect("missing request has spawned runtime");
-                        spawned[position].surface.id
+                        spawned[position].prepared.surface.id
                     })
                     .collect::<Vec<_>>();
                 if location.new_workspace {
@@ -5029,7 +5200,7 @@ impl Mux {
                 for request_index in request_indices {
                     let position = spawned_position_by_request[*request_index]
                         .expect("missing request has spawned runtime");
-                    let surface = &spawned[position].surface;
+                    let surface = &spawned[position].prepared.surface;
                     placements[*request_index] = Some(EnsureTerminalPlacement {
                         created: true,
                         workspace: location.workspace,
@@ -5049,15 +5220,17 @@ impl Mux {
 
         if let Err(error) = transaction {
             for terminal in &spawned {
-                terminal.surface.kill();
+                terminal.prepared.surface.kill();
             }
             return Err(error);
         }
 
-        self.emit(MuxEvent::TreeChanged);
-        for terminal in &spawned {
-            self.reap_if_dead(&terminal.surface);
+        for terminal in spawned {
+            let surface = terminal.prepared.surface.clone();
+            self.complete_committed_terminal_launch(terminal.prepared);
+            self.reap_if_dead(&surface);
         }
+        self.emit(MuxEvent::TreeChanged);
         Ok(placements
             .into_iter()
             .map(|placement| placement.expect("every terminal resolved or materialized"))
@@ -5281,12 +5454,9 @@ impl Mux {
             }
         }
         let (surface_id, _) = self.entity_ids.surface();
-        let (surface, recipe) =
-            self.create_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
-        if let Err(error) = self.write_terminal_initial_input(&surface, &launch) {
-            surface.kill();
-            return Err(error);
-        }
+        let mut prepared =
+            self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+        let surface = prepared.surface.clone();
         let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
             let mut state = self.state.lock().unwrap();
             match self.canonical_mutation_start(
@@ -5312,7 +5482,10 @@ impl Mux {
             let (screen_id, screen_uuid) = self.entity_ids.screen();
             let (workspace_id, _) = self.entity_ids.workspace();
             state.surfaces.insert(surface.id, surface.clone());
-            state.launch_recipes.insert(surface_uuid, recipe);
+            state.launch_recipes.insert(
+                surface_uuid,
+                prepared.launch.take().expect("unpublished terminal has launch recipe"),
+            );
             state.panes.insert(
                 pane_id,
                 Pane {
@@ -5361,6 +5534,7 @@ impl Mux {
                 return Err(error);
             }
         };
+        self.complete_committed_terminal_launch(prepared);
         self.emit(MuxEvent::TreeChanged);
         self.reap_if_dead(&surface);
         Ok(placement)
@@ -5432,12 +5606,9 @@ impl Mux {
             launch.cwd = inherited_cwd.and_then(|surface| surface.pwd());
         }
         let (surface_id, _) = self.entity_ids.surface();
-        let (surface, recipe) =
-            self.create_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
-        if let Err(error) = self.write_terminal_initial_input(&surface, &launch) {
-            surface.kill();
-            return Err(error);
-        }
+        let mut prepared =
+            self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+        let surface = prepared.surface.clone();
         let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
             let mut state = self.state.lock().unwrap();
             match self.canonical_mutation_start(
@@ -5465,7 +5636,10 @@ impl Mux {
                 anyhow::bail!("canonical materialized surface UUID appeared during spawn");
             }
             state.surfaces.insert(surface.id, surface.clone());
-            state.launch_recipes.insert(surface_uuid, recipe);
+            state.launch_recipes.insert(
+                surface_uuid,
+                prepared.launch.take().expect("unpublished terminal has launch recipe"),
+            );
             let pane = state
                 .panes
                 .get_mut(&target_pane)
@@ -5498,6 +5672,7 @@ impl Mux {
                 return Err(error);
             }
         };
+        self.complete_committed_terminal_launch(prepared);
         self.emit(MuxEvent::TreeChanged);
         self.reap_if_dead(&surface);
         Ok(placement)
@@ -5773,13 +5948,10 @@ impl Mux {
             launch.cwd = inherited_cwd;
         }
         let (new_surface_id, _) = self.entity_ids.surface();
-        let (new_surface, recipe) =
-            self.create_surface_for_launch(new_surface_id, surface_uuid, &launch, resolved_size)?;
+        let mut prepared =
+            self.prepare_surface_for_launch(new_surface_id, surface_uuid, &launch, resolved_size)?;
+        let new_surface = prepared.surface.clone();
         new_surface.set_name(inherited_name);
-        if let Err(error) = self.write_terminal_initial_input(&new_surface, &launch) {
-            new_surface.kill();
-            return Err(error);
-        }
 
         let _terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
@@ -5818,7 +5990,10 @@ impl Mux {
                 })?;
             state.discard_surface_runtime(current_surface_id);
             state.surfaces.insert(new_surface.id, new_surface.clone());
-            state.launch_recipes.insert(surface_uuid, recipe);
+            state.launch_recipes.insert(
+                surface_uuid,
+                prepared.launch.take().expect("unpublished terminal has launch recipe"),
+            );
             let pane = state
                 .panes
                 .get_mut(&pane_id)
@@ -5847,6 +6022,7 @@ impl Mux {
                 return Err(error);
             }
         };
+        self.complete_committed_terminal_launch(prepared);
 
         self.terminal_authority.retire_terminal(surface_uuid);
         let renderer_presentations = self
@@ -6293,12 +6469,9 @@ impl Mux {
             launch.cwd = inherited_cwd.and_then(|surface| surface.pwd());
         }
         let (surface_id, _) = self.entity_ids.surface();
-        let (surface, recipe) =
-            self.create_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
-        if let Err(error) = self.write_terminal_initial_input(&surface, &launch) {
-            surface.kill();
-            return Err(error);
-        }
+        let mut prepared =
+            self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+        let surface = prepared.surface.clone();
         let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
             let mut state = self.state.lock().unwrap();
             match self.canonical_mutation_start(&state, expectation, "new-tab", &payload_digest)? {
@@ -6312,7 +6485,10 @@ impl Mux {
                 anyhow::bail!("canonical surface UUID appeared during spawn");
             }
             state.surfaces.insert(surface.id, surface.clone());
-            state.launch_recipes.insert(surface_uuid, recipe);
+            state.launch_recipes.insert(
+                surface_uuid,
+                prepared.launch.take().expect("unpublished terminal has launch recipe"),
+            );
             let pane = state
                 .panes
                 .get_mut(&pane_id)
@@ -6342,6 +6518,7 @@ impl Mux {
                 return Err(error);
             }
         };
+        self.complete_committed_terminal_launch(prepared);
         self.emit(MuxEvent::TreeChanged);
         self.reap_if_dead(&surface);
         Ok(placement)
@@ -6410,12 +6587,9 @@ impl Mux {
             launch.cwd = inherited_cwd.and_then(|surface| surface.pwd());
         }
         let (surface_id, _) = self.entity_ids.surface();
-        let (surface, recipe) =
-            self.create_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
-        if let Err(error) = self.write_terminal_initial_input(&surface, &launch) {
-            surface.kill();
-            return Err(error);
-        }
+        let mut prepared =
+            self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+        let surface = prepared.surface.clone();
         let transaction = (|| -> anyhow::Result<(CanonicalSurfacePlacement, ScreenId)> {
             let mut state = self.state.lock().unwrap();
             match self.canonical_mutation_start(
@@ -6442,7 +6616,10 @@ impl Mux {
                 anyhow::bail!("canonical target pane disappeared before split commit");
             }
             state.surfaces.insert(surface.id, surface.clone());
-            state.launch_recipes.insert(surface_uuid, recipe);
+            state.launch_recipes.insert(
+                surface_uuid,
+                prepared.launch.take().expect("unpublished terminal has launch recipe"),
+            );
             state.panes.insert(
                 pane_id,
                 Pane {
@@ -6483,6 +6660,7 @@ impl Mux {
                 return Err(error);
             }
         };
+        self.complete_committed_terminal_launch(prepared);
         self.emit(MuxEvent::TreeChanged);
         self.emit(MuxEvent::LayoutChanged(screen));
         self.reap_if_dead(&surface);
@@ -7242,18 +7420,21 @@ impl Mux {
         size: Option<(u16, u16)>,
         launch: TerminalLaunchRequest,
     ) -> anyhow::Result<Arc<Surface>> {
-        let surface = self.spawn_surface_with_launch(&launch, size)?;
-        if let Err(error) = self.write_terminal_initial_input(&surface, &launch) {
-            self.state.lock().unwrap().discard_surface_runtime(surface.id);
-            surface.kill();
-            return Err(error);
-        }
+        let (surface_id, surface_uuid) = self.entity_ids.surface();
+        let mut prepared =
+            self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+        let surface = prepared.surface.clone();
         let (pane_id, pane) = self.make_pane(surface.id);
         let (screen_id, screen_uuid) = self.entity_ids.screen();
         let (ws_id, workspace_uuid) = self.entity_ids.workspace();
         let notifications = self.surface_notifications();
         let delta = {
             let mut state = self.state.lock().unwrap();
+            state.launch_recipes.insert(
+                surface_uuid,
+                prepared.launch.take().expect("prepared terminal retains its launch recipe"),
+            );
+            state.surfaces.insert(surface_id, surface.clone());
             let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
             state.panes.insert(pane_id, pane);
             state.workspaces.push(Workspace {
@@ -7297,6 +7478,7 @@ impl Mux {
                 entity,
             }
         };
+        self.complete_committed_terminal_launch(prepared);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
@@ -7312,7 +7494,12 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RunPlacement> {
         if new_workspace {
-            let surface = self.spawn_surface_with_command(cwd, size, Some(argv))?;
+            let launch =
+                TerminalLaunchRequest { cwd, argv: Some(argv), ..TerminalLaunchRequest::default() };
+            let (surface_id, surface_uuid) = self.entity_ids.surface();
+            let mut prepared =
+                self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+            let surface = prepared.surface.clone();
             if let Some(name) = name.as_ref() {
                 surface.set_name(Some(name.clone()));
             }
@@ -7322,6 +7509,11 @@ impl Mux {
             let notifications = self.surface_notifications();
             let delta = {
                 let mut state = self.state.lock().unwrap();
+                state.launch_recipes.insert(
+                    surface_uuid,
+                    prepared.launch.take().expect("prepared terminal retains its launch recipe"),
+                );
+                state.surfaces.insert(surface_id, surface.clone());
                 let workspace_name =
                     name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
                 state.panes.insert(pane_id, pane);
@@ -7366,6 +7558,7 @@ impl Mux {
                     entity,
                 }
             };
+            self.complete_committed_terminal_launch(prepared);
             self.emit(MuxEvent::TreeDelta(delta));
             self.reap_if_dead(&surface);
             return Ok(RunPlacement {
@@ -7393,7 +7586,12 @@ impl Mux {
         };
 
         let cwd = cwd.or_else(|| self.pane_cwd(target));
-        let surface = self.spawn_surface_with_command(cwd, size, Some(argv))?;
+        let launch =
+            TerminalLaunchRequest { cwd, argv: Some(argv), ..TerminalLaunchRequest::default() };
+        let (surface_id, surface_uuid) = self.entity_ids.surface();
+        let mut prepared =
+            self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+        let surface = prepared.surface.clone();
         if let Some(name) = name {
             surface.set_name(Some(name));
         }
@@ -7402,14 +7600,16 @@ impl Mux {
         let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
             let Some((wi, si)) = state.screen_of(target) else {
-                state.discard_surface_runtime(surface.id);
                 surface.kill();
                 anyhow::bail!("pane disappeared while creating tab");
             };
+            state.launch_recipes.insert(
+                surface_uuid,
+                prepared.launch.take().expect("prepared terminal retains its launch recipe"),
+            );
+            state.surfaces.insert(surface_id, surface.clone());
             let Some(pane) = state.panes.get_mut(&target) else {
-                state.discard_surface_runtime(surface.id);
-                surface.kill();
-                anyhow::bail!("pane disappeared while creating tab");
+                unreachable!("screen lookup guarantees the pane exists");
             };
             pane.tabs.push(surface.id);
             pane.active_tab = pane.tabs.len() - 1;
@@ -7447,6 +7647,7 @@ impl Mux {
             };
             (placement, delta)
         };
+        self.complete_committed_terminal_launch(prepared);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(placement)
@@ -7473,19 +7674,34 @@ impl Mux {
                 _ => {}
             }
         }
-        let surface = self.spawn_surface(None, size)?;
+        let (surface_id, surface_uuid) = self.entity_ids.surface();
+        let mut prepared = self.prepare_surface_for_launch(
+            surface_id,
+            surface_uuid,
+            &TerminalLaunchRequest::default(),
+            size,
+        )?;
+        let surface = prepared.surface.clone();
         let (pane_id, pane) = self.make_pane(surface.id);
         let (screen_id, screen_uuid) = self.entity_ids.screen();
         let notifications = self.surface_notifications();
         let attached = {
             let mut state = self.state.lock().unwrap();
-            let active = state.active_workspace;
-            let ws = match workspace {
-                Some(id) => state.workspaces.iter_mut().find(|w| w.id == id),
-                None => state.workspaces.get_mut(active),
+            let workspace_index = match workspace {
+                Some(id) => state.workspaces.iter().position(|w| w.id == id),
+                None => Some(state.active_workspace),
             };
-            match ws {
-                Some(ws) => {
+            match workspace_index {
+                Some(workspace_index) if workspace_index < state.workspaces.len() => {
+                    state.launch_recipes.insert(
+                        surface_uuid,
+                        prepared
+                            .launch
+                            .take()
+                            .expect("prepared terminal retains its launch recipe"),
+                    );
+                    state.surfaces.insert(surface_id, surface.clone());
+                    let ws = &mut state.workspaces[workspace_index];
                     ws.screens.push(Screen {
                         id: screen_id,
                         uuid: screen_uuid,
@@ -7523,16 +7739,14 @@ impl Mux {
                         entity,
                     })
                 }
-                None => {
-                    state.discard_surface_runtime(surface.id);
-                    None
-                }
+                _ => None,
             }
         };
         let Some(delta) = attached else {
             surface.kill();
             anyhow::bail!("workspace disappeared while creating screen");
         };
+        self.complete_committed_terminal_launch(prepared);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
@@ -7578,61 +7792,66 @@ impl Mux {
         };
 
         launch.cwd = launch.cwd.or_else(|| self.pane_cwd(target));
-        let surface = self.spawn_surface_with_launch(&launch, size)?;
-        if let Err(error) = self.write_terminal_initial_input(&surface, &launch) {
-            self.state.lock().unwrap().discard_surface_runtime(surface.id);
-            surface.kill();
-            return Err(error);
-        }
+        let (surface_id, surface_uuid) = self.entity_ids.surface();
+        let mut prepared =
+            self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+        let surface = prepared.surface.clone();
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
         let attached = {
             let mut state = self.state.lock().unwrap();
-            match state.panes.get_mut(&target) {
-                Some(pane) => {
-                    pane.tabs.push(surface.id);
-                    pane.active_tab = pane.tabs.len() - 1;
-                    pane.active_at = active_at;
-                    let index = pane.tabs.len() - 1;
-                    let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
-                    let workspace = state.workspaces[wi].id;
-                    let screen = state.workspaces[wi].screens[si].id;
-                    let targets = topology_targets(
-                        &state,
-                        Some(workspace),
-                        Some(screen),
-                        Some(target),
-                        Some(surface.id),
-                    );
-                    state.commit_topology(TopologyOperation::SurfaceAttached, targets);
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &notifications,
-                        TreeDeltaKind::TabAdded,
-                        surface.id,
-                    )
-                    .expect("new tab is present in tree snapshot");
-                    Some(TreeDelta {
-                        kind: TreeDeltaKind::TabAdded,
-                        workspace,
-                        screen: Some(screen),
-                        pane: Some(target),
-                        surface: Some(surface.id),
-                        index: Some(index),
-                        entity,
-                    })
+            if state.panes.contains_key(&target) {
+                state.launch_recipes.insert(
+                    surface_uuid,
+                    prepared.launch.take().expect("prepared terminal retains its launch recipe"),
+                );
+                state.surfaces.insert(surface_id, surface.clone());
+                match state.panes.get_mut(&target) {
+                    Some(pane) => {
+                        pane.tabs.push(surface.id);
+                        pane.active_tab = pane.tabs.len() - 1;
+                        pane.active_at = active_at;
+                        let index = pane.tabs.len() - 1;
+                        let (wi, si) =
+                            state.screen_of(target).expect("live pane belongs to a screen");
+                        let workspace = state.workspaces[wi].id;
+                        let screen = state.workspaces[wi].screens[si].id;
+                        let targets = topology_targets(
+                            &state,
+                            Some(workspace),
+                            Some(screen),
+                            Some(target),
+                            Some(surface.id),
+                        );
+                        state.commit_topology(TopologyOperation::SurfaceAttached, targets);
+                        let entity = crate::server::tree_entity_json(
+                            &state,
+                            &notifications,
+                            TreeDeltaKind::TabAdded,
+                            surface.id,
+                        )
+                        .expect("new tab is present in tree snapshot");
+                        Some(TreeDelta {
+                            kind: TreeDeltaKind::TabAdded,
+                            workspace,
+                            screen: Some(screen),
+                            pane: Some(target),
+                            surface: Some(surface.id),
+                            index: Some(index),
+                            entity,
+                        })
+                    }
+                    None => unreachable!("pane presence checked while holding canonical state"),
                 }
-                None => {
-                    // Pane disappeared between validation and attach.
-                    state.discard_surface_runtime(surface.id);
-                    None
-                }
+            } else {
+                None
             }
         };
         let Some(delta) = attached else {
             surface.kill();
             anyhow::bail!("pane disappeared while creating tab");
         };
+        self.complete_committed_terminal_launch(prepared);
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
@@ -7902,13 +8121,14 @@ impl Mux {
         if !ratio.is_finite() || ratio <= 0.0 || ratio >= 1.0 {
             anyhow::bail!("split ratio must be finite and between zero and one");
         }
-        launch.cwd = launch.cwd.or_else(|| self.pane_cwd(target));
-        let surface = self.spawn_surface_with_launch(&launch, size)?;
-        if let Err(error) = self.write_terminal_initial_input(&surface, &launch) {
-            self.state.lock().unwrap().discard_surface_runtime(surface.id);
-            surface.kill();
-            return Err(error);
+        if !self.state.lock().unwrap().panes.contains_key(&target) {
+            anyhow::bail!("pane {target} not found");
         }
+        launch.cwd = launch.cwd.or_else(|| self.pane_cwd(target));
+        let (surface_id, surface_uuid) = self.entity_ids.surface();
+        let mut prepared =
+            self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+        let surface = prepared.surface.clone();
         let (pane_id, pane_uuid) = self.entity_ids.pane();
         let active_at = self.next_active_at();
         let mut done = false;
@@ -7930,6 +8150,11 @@ impl Mux {
                 }
             }
             if done {
+                state.launch_recipes.insert(
+                    surface_uuid,
+                    prepared.launch.take().expect("prepared terminal retains its launch recipe"),
+                );
+                state.surfaces.insert(surface_id, surface.clone());
                 state.panes.insert(
                     pane_id,
                     Pane {
@@ -7965,14 +8190,13 @@ impl Mux {
                     index: Some(screen_pane_index(&state, changed_screen.unwrap(), pane_id)),
                     entity,
                 });
-            } else {
-                state.discard_surface_runtime(surface.id);
             }
         }
         if !done {
             surface.kill();
             anyhow::bail!("pane {target} not found");
         }
+        self.complete_committed_terminal_launch(prepared);
         self.emit(MuxEvent::TreeDelta(delta.expect("successful split has a tree delta")));
         if let Some(screen) = changed_screen {
             self.emit(MuxEvent::LayoutChanged(screen));
@@ -8713,17 +8937,17 @@ impl Mux {
 
         let mut created = Vec::new();
         let mut panes = Vec::new();
-        let mut spawned = Vec::new();
+        let mut prepared = Vec::new();
         let root =
-            match self.instantiate_layout(layout, size, &mut panes, &mut created, &mut spawned) {
+            match self.instantiate_layout(layout, size, &mut panes, &mut created, &mut prepared) {
                 Ok(root) => root,
                 Err(err) => {
-                    self.discard_spawned(spawned);
+                    Self::discard_prepared_terminals(prepared);
                     return Err(err);
                 }
             };
         let Some(active_pane) = created.first().map(|pane| pane.pane) else {
-            self.discard_spawned(spawned);
+            Self::discard_prepared_terminals(prepared);
             anyhow::bail!("layout must contain at least one leaf");
         };
         let (screen_id, screen_uuid) = self.entity_ids.screen();
@@ -8733,17 +8957,16 @@ impl Mux {
             if let Some(id) = workspace
                 && !state.workspaces.iter().any(|candidate| candidate.id == id)
             {
-                // The workspace may disappear while child processes are
-                // spawning. Remove those surfaces under this same state lock
-                // before exposing any pane or screen from the new layout.
-                for surface in &spawned {
-                    state.discard_surface_runtime(surface.id);
-                }
                 drop(state);
-                for surface in spawned {
-                    surface.kill();
-                }
+                Self::discard_prepared_terminals(prepared);
                 anyhow::bail!("workspace {id} disappeared while applying layout");
+            }
+            for terminal in &mut prepared {
+                state.launch_recipes.insert(
+                    terminal.surface.uuid,
+                    terminal.launch.take().expect("prepared terminal retains its launch recipe"),
+                );
+                state.surfaces.insert(terminal.surface.id, terminal.surface.clone());
             }
             for (pane_id, pane) in panes {
                 state.panes.insert(pane_id, pane);
@@ -8847,6 +9070,10 @@ impl Mux {
                 }
             }
         };
+        let spawned = prepared.iter().map(|terminal| terminal.surface.clone()).collect::<Vec<_>>();
+        for terminal in prepared {
+            self.complete_committed_terminal_launch(terminal);
+        }
         self.emit(MuxEvent::TreeDelta(delta));
         self.emit(MuxEvent::LayoutChanged(screen_id));
         for surface in spawned {
@@ -8861,43 +9088,40 @@ impl Mux {
         size: Option<(u16, u16)>,
         panes: &mut Vec<(PaneId, Pane)>,
         created: &mut Vec<AppliedPane>,
-        spawned: &mut Vec<Arc<Surface>>,
+        prepared: &mut Vec<PreparedTerminalLaunch>,
     ) -> anyhow::Result<Node> {
         match layout {
             LayoutSpec::Leaf(spec) => {
                 if spec.command.as_ref().is_some_and(|argv| argv.is_empty()) {
                     anyhow::bail!("leaf command must not be empty");
                 }
-                let surface =
-                    self.spawn_surface_with(spec.cwd.clone(), spec.command.clone(), size)?;
+                let (surface_id, surface_uuid) = self.entity_ids.surface();
+                let launch = TerminalLaunchRequest {
+                    cwd: spec.cwd.clone(),
+                    argv: spec.command.clone(),
+                    ..TerminalLaunchRequest::default()
+                };
+                let terminal =
+                    self.prepare_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+                let surface = terminal.surface.clone();
                 let (pane_id, pane) = self.make_pane(surface.id);
                 created.push(AppliedPane { pane: pane_id, surface: surface.id });
                 panes.push((pane_id, pane));
-                spawned.push(surface);
+                prepared.push(terminal);
                 Ok(Node::Leaf(pane_id))
             }
             LayoutSpec::Split { dir, ratio, a, b } => Ok(Node::Split {
                 dir: *dir,
                 ratio: clamp_split_ratio(*ratio),
-                a: Box::new(self.instantiate_layout(a, size, panes, created, spawned)?),
-                b: Box::new(self.instantiate_layout(b, size, panes, created, spawned)?),
+                a: Box::new(self.instantiate_layout(a, size, panes, created, prepared)?),
+                b: Box::new(self.instantiate_layout(b, size, panes, created, prepared)?),
             }),
         }
     }
 
-    fn discard_spawned(&self, spawned: Vec<Arc<Surface>>) {
-        if spawned.is_empty() {
-            return;
-        }
-        let ids = spawned.iter().map(|surface| surface.id).collect::<Vec<_>>();
-        {
-            let mut state = self.state.lock().unwrap();
-            for id in &ids {
-                state.discard_surface_runtime(*id);
-            }
-        }
-        for surface in spawned {
-            surface.kill();
+    fn discard_prepared_terminals(prepared: Vec<PreparedTerminalLaunch>) {
+        for terminal in prepared {
+            terminal.surface.kill();
         }
     }
 
@@ -9499,7 +9723,23 @@ mod tests {
     use super::*;
     use ghostty_vt::Rgb;
     use std::collections::HashMap;
-    use std::sync::mpsc::TryRecvError;
+    use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
+
+    const LARGE_INITIAL_INPUT_PREFIX: &str = "\u{1b}[200~日本語🙂";
+
+    fn canonical_safe_initial_input(total_bytes: usize) -> String {
+        assert_eq!(total_bytes % TERMINAL_INITIAL_INPUT_CANONICAL_LINE_MAX_BYTES, 0);
+        assert!(LARGE_INITIAL_INPUT_PREFIX.len() < 511);
+        let mut input = Vec::with_capacity(total_bytes);
+        input.extend_from_slice(LARGE_INITIAL_INPUT_PREFIX.as_bytes());
+        input.resize(511, b'x');
+        input.push(b'\n');
+        while input.len() < total_bytes {
+            input.extend(std::iter::repeat_n(b'x', 511));
+            input.push(b'\n');
+        }
+        String::from_utf8(input).unwrap()
+    }
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
@@ -9525,6 +9765,683 @@ mod tests {
             expected_revision,
             request_id,
         }
+    }
+
+    #[test]
+    fn durable_terminal_launch_waits_at_fsync_and_release_barriers() {
+        let directory = PersistenceTestDirectory::new("terminal-launch-barriers");
+        let store = StateStore::new(&directory.0);
+        let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+            .unwrap();
+        let (phase_tx, phase_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let resume_rx = Arc::new(Mutex::new(resume_rx));
+        mux.state.lock().unwrap().terminal_launch_atomicity_probe = Some(Arc::new(move |phase| {
+            phase_tx.send(phase).unwrap();
+            resume_rx.lock().unwrap().recv().unwrap();
+        }));
+
+        let worker_mux = mux.clone();
+        let worker = std::thread::spawn(move || {
+            worker_mux.canonical_new_workspace(
+                canonical_expectation(&worker_mux, uuid::Uuid::new_v4(), 0),
+                WorkspaceUuid::new(),
+                SurfaceUuid::new(),
+                Some("atomic".to_string()),
+                Some((80, 24)),
+                TerminalLaunchRequest {
+                    argv: Some(vec!["/bin/sh".to_string()]),
+                    initial_input: Some("first command\n".to_string()),
+                    ..TerminalLaunchRequest::default()
+                },
+            )
+        });
+
+        let expected = [
+            TerminalLaunchAtomicityPhase::BeforeFsync,
+            TerminalLaunchAtomicityPhase::AfterFsync,
+            TerminalLaunchAtomicityPhase::BeforeRelease,
+            TerminalLaunchAtomicityPhase::AfterRelease,
+            TerminalLaunchAtomicityPhase::AfterInitialInput,
+        ];
+        for phase in expected {
+            assert_eq!(phase_rx.recv_timeout(Duration::from_secs(2)).unwrap(), phase);
+            match phase {
+                TerminalLaunchAtomicityPhase::BeforeFsync
+                | TerminalLaunchAtomicityPhase::AfterFsync
+                | TerminalLaunchAtomicityPhase::BeforeRelease => {
+                    assert_eq!(mux.ensure_terminal_initial_writes.load(Ordering::Relaxed), 0);
+                    assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 0);
+                }
+                TerminalLaunchAtomicityPhase::AfterRelease => {
+                    assert_eq!(mux.ensure_terminal_initial_writes.load(Ordering::Relaxed), 0);
+                    assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 1);
+                }
+                TerminalLaunchAtomicityPhase::AfterInitialInput => {
+                    assert_eq!(mux.ensure_terminal_initial_writes.load(Ordering::Relaxed), 1);
+                    assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 1);
+                }
+            }
+            resume_tx.send(()).unwrap();
+        }
+        worker.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn every_durable_terminal_creation_route_uses_the_launch_gate() {
+        let directory = PersistenceTestDirectory::new("terminal-launch-route-census");
+        let store = StateStore::new(&directory.0);
+        let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+            .unwrap();
+        let phases = Arc::new(Mutex::new(Vec::new()));
+        let captured = phases.clone();
+        mux.state.lock().unwrap().terminal_launch_atomicity_probe =
+            Some(Arc::new(move |phase| captured.lock().unwrap().push(phase)));
+
+        let first = mux.new_workspace(Some("legacy".to_string()), None).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_tab(Some(first_pane), None, None).unwrap();
+        mux.split(first_pane, SplitDir::Right, None).unwrap();
+        let first_workspace = mux.with_state(|state| state.workspaces[0].id);
+        mux.new_screen(Some(first_workspace), None).unwrap();
+        mux.run_command_surface(
+            vec!["/bin/sh".to_string()],
+            Some(first_pane),
+            false,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        mux.apply_layout(
+            Some(first_workspace),
+            None,
+            &LayoutSpec::Leaf(LayoutLeafSpec { cwd: None, command: None }),
+            None,
+        )
+        .unwrap();
+
+        let canonical_workspace_uuid = WorkspaceUuid::new();
+        let canonical_surface_uuid = SurfaceUuid::new();
+        let canonical_workspace = mux
+            .canonical_new_workspace(
+                canonical_expectation(
+                    &mux,
+                    uuid::Uuid::new_v4(),
+                    mux.canonical_topology_revision(),
+                ),
+                canonical_workspace_uuid,
+                canonical_surface_uuid,
+                None,
+                None,
+                TerminalLaunchRequest::default(),
+            )
+            .unwrap();
+        mux.canonical_materialize_terminal(
+            canonical_expectation(&mux, uuid::Uuid::new_v4(), mux.canonical_topology_revision()),
+            canonical_workspace_uuid,
+            SurfaceUuid::new(),
+            None,
+            TerminalLaunchRequest::default(),
+        )
+        .unwrap();
+        mux.canonical_new_tab(
+            canonical_expectation(&mux, uuid::Uuid::new_v4(), mux.canonical_topology_revision()),
+            canonical_workspace.pane_uuid,
+            SurfaceUuid::new(),
+            None,
+            TerminalLaunchRequest::default(),
+        )
+        .unwrap();
+        mux.canonical_split_pane(
+            canonical_expectation(&mux, uuid::Uuid::new_v4(), mux.canonical_topology_revision()),
+            canonical_workspace.pane_uuid,
+            SurfaceUuid::new(),
+            SplitDir::Right,
+            false,
+            0.5,
+            None,
+            TerminalLaunchRequest::default(),
+        )
+        .unwrap();
+        mux.canonical_respawn_terminal(
+            canonical_expectation(&mux, uuid::Uuid::new_v4(), mux.canonical_topology_revision()),
+            canonical_surface_uuid,
+            None,
+            TerminalLaunchRequest::default(),
+        )
+        .unwrap();
+
+        mux.ensure_terminal(ensure_request(WorkspaceUuid::new(), SurfaceUuid::new(), "once\n"))
+            .unwrap();
+        mux.ensure_terminals(vec![
+            ensure_request(WorkspaceUuid::new(), SurfaceUuid::new(), "first\n"),
+            ensure_request(WorkspaceUuid::new(), SurfaceUuid::new(), "second\n"),
+        ])
+        .unwrap();
+
+        let phases = phases.lock().unwrap();
+        assert_eq!(
+            phases
+                .iter()
+                .filter(|phase| **phase == TerminalLaunchAtomicityPhase::BeforeFsync)
+                .count(),
+            13
+        );
+        assert_eq!(
+            phases
+                .iter()
+                .filter(|phase| **phase == TerminalLaunchAtomicityPhase::AfterFsync)
+                .count(),
+            13
+        );
+        assert_eq!(
+            phases
+                .iter()
+                .filter(|phase| **phase == TerminalLaunchAtomicityPhase::BeforeRelease)
+                .count(),
+            14
+        );
+        assert_eq!(
+            phases
+                .iter()
+                .filter(|phase| **phase == TerminalLaunchAtomicityPhase::AfterRelease)
+                .count(),
+            14
+        );
+        assert_eq!(
+            phases
+                .iter()
+                .filter(|phase| **phase == TerminalLaunchAtomicityPhase::AfterInitialInput)
+                .count(),
+            14
+        );
+        assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 14);
+    }
+
+    #[test]
+    fn source_census_keeps_ungated_terminal_spawn_recovery_only() {
+        let source = include_str!("mux.rs");
+        assert_eq!(
+            source
+                .matches(concat!("restore_already_durable_", "surface_with_allocated_identity("))
+                .count(),
+            3,
+            "only the definition and two recovery attempts may use the ungated durable helper",
+        );
+        assert_eq!(
+            source
+                .matches(concat!("create_already_durable_", "surface_with_allocated_identity("))
+                .count(),
+            2,
+            "the ungated constructor must remain private to recovery",
+        );
+        for removed_entrypoint in [
+            concat!("spawn_surface_", "with_launch("),
+            concat!("write_terminal_", "initial_input("),
+            concat!("spawn_surface_", "with_command("),
+        ] {
+            assert!(
+                !source.contains(removed_entrypoint),
+                "durable creation must not regain legacy spawn entrypoint {removed_entrypoint}",
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_creation_rejects_caller_supplied_launch_gate_environment() {
+        let mux = test_mux();
+        for name in ["CMUX_INTERNAL_LAUNCH_GATE_SOCKET", "CMUX_INTERNAL_LAUNCH_GATE_TOKEN"] {
+            let launch_error = mux
+                .canonical_new_workspace(
+                    canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+                    WorkspaceUuid::new(),
+                    SurfaceUuid::new(),
+                    None,
+                    None,
+                    TerminalLaunchRequest {
+                        env: vec![(name.to_string(), "attacker".to_string())],
+                        ..TerminalLaunchRequest::default()
+                    },
+                )
+                .unwrap_err();
+            assert!(launch_error.to_string().contains("reserved launch-gate name"));
+
+            let mut request = ensure_request(WorkspaceUuid::new(), SurfaceUuid::new(), "");
+            request.env.push((name.to_string(), "attacker".to_string()));
+            let ensure_error = mux.ensure_terminal(request).unwrap_err();
+            assert!(ensure_error.to_string().contains("invalid name or value"));
+        }
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert!(mux.state.lock().unwrap().surfaces.is_empty());
+    }
+
+    #[test]
+    fn initial_input_lines_enforce_canonical_safe_boundary() {
+        let accepted = format!("{}\n{}", "x".repeat(511), "y".repeat(512));
+        let accepted_launch = TerminalLaunchRequest {
+            initial_input: Some(accepted.clone()),
+            ..TerminalLaunchRequest::default()
+        };
+        validate_terminal_launch_request(&accepted_launch).unwrap();
+        validate_ensure_terminal_request(&ensure_request(
+            WorkspaceUuid::new(),
+            SurfaceUuid::new(),
+            &accepted,
+        ))
+        .unwrap();
+
+        for rejected in [format!("{}\n", "x".repeat(512)), "x".repeat(513)] {
+            let launch_error = validate_terminal_launch_request(&TerminalLaunchRequest {
+                initial_input: Some(rejected.clone()),
+                ..TerminalLaunchRequest::default()
+            })
+            .unwrap_err();
+            assert!(launch_error.to_string().contains("512 bytes including newline"));
+
+            let ensure_error = validate_ensure_terminal_request(&ensure_request(
+                WorkspaceUuid::new(),
+                SurfaceUuid::new(),
+                &rejected,
+            ))
+            .unwrap_err();
+            assert!(ensure_error.to_string().contains("512 bytes including newline"));
+        }
+    }
+
+    fn receive_test_datagram(
+        receiver: &std::os::unix::net::UnixDatagram,
+        timeout: Duration,
+    ) -> std::io::Result<Vec<u8>> {
+        receiver.set_read_timeout(Some(timeout))?;
+        let mut message = vec![0u8; 64];
+        let length = receiver.recv(&mut message)?;
+        message.truncate(length);
+        Ok(message)
+    }
+
+    #[test]
+    fn large_initial_input_reader_entrypoint() {
+        let Some(socket) = std::env::var_os("CMUX_TEST_LARGE_INPUT_SOCKET") else {
+            return;
+        };
+        assert!(std::env::var_os("CMUX_INTERNAL_LAUNCH_GATE_SOCKET").is_none());
+        assert!(std::env::var_os("CMUX_INTERNAL_LAUNCH_GATE_TOKEN").is_none());
+        let expected =
+            std::env::var("CMUX_TEST_LARGE_INPUT_LENGTH").unwrap().parse::<usize>().unwrap();
+        let ordered_suffix = std::env::var_os("CMUX_TEST_LARGE_INPUT_ORDERED_SUFFIX").is_some();
+        let expected_input = canonical_safe_initial_input(expected);
+        let suffix_bytes = if ordered_suffix { 2 } else { 0 };
+        let mut input = vec![0u8; expected + suffix_bytes];
+        let stdin = std::io::stdin();
+        let mut reader = std::io::BufReader::with_capacity(257, stdin.lock());
+        for byte in &mut input {
+            std::io::Read::read_exact(&mut reader, std::slice::from_mut(byte)).unwrap();
+        }
+        assert_eq!(&input[..expected], expected_input.as_bytes());
+        if ordered_suffix {
+            assert_eq!(&input[expected..], b"y\n");
+        }
+        let completion = std::os::unix::net::UnixDatagram::unbound().unwrap();
+        completion.connect(socket).unwrap();
+        assert_eq!(completion.send(b"clean\n").unwrap(), 6);
+    }
+
+    #[test]
+    fn one_megabyte_initial_input_is_delivered_once_after_exec_in_order() {
+        const INPUT_BYTES: usize = 1024 * 1024;
+
+        let directory = PersistenceTestDirectory::new("large-initial-input");
+        std::fs::create_dir_all(&directory.0).unwrap();
+        let socket = std::path::PathBuf::from("/tmp").join(format!(
+            "cmux-li-{}-{}.sock",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let receiver = std::os::unix::net::UnixDatagram::bind(&socket).unwrap();
+        let store = StateStore::new(&directory.0.join("store"));
+        let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        let request_id = uuid::Uuid::new_v4();
+        let workspace_uuid = WorkspaceUuid::new();
+        let surface_uuid = SurfaceUuid::new();
+        let executable = std::env::current_exe().unwrap();
+        let launch = TerminalLaunchRequest {
+            argv: Some(vec![
+                executable.to_string_lossy().into_owned(),
+                "--exact".to_string(),
+                "mux::tests::large_initial_input_reader_entrypoint".to_string(),
+                "--nocapture".to_string(),
+            ]),
+            env: vec![
+                ("CMUX_TEST_LARGE_INPUT_SOCKET".to_string(), socket.to_string_lossy().into_owned()),
+                ("CMUX_TEST_LARGE_INPUT_LENGTH".to_string(), INPUT_BYTES.to_string()),
+                ("CMUX_TEST_LARGE_INPUT_ORDERED_SUFFIX".to_string(), "1".to_string()),
+            ],
+            initial_input: Some(canonical_safe_initial_input(INPUT_BYTES)),
+            wait_after_command: true,
+            ..TerminalLaunchRequest::default()
+        };
+        let expectation = canonical_expectation(&mux, request_id, 0);
+        let (before_release_tx, before_release_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let resume_rx = Arc::new(Mutex::new(resume_rx));
+        mux.state.lock().unwrap().terminal_launch_atomicity_probe = Some(Arc::new(move |phase| {
+            if phase == TerminalLaunchAtomicityPhase::BeforeRelease {
+                before_release_tx.send(()).unwrap();
+                resume_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+        let launch_mux = mux.clone();
+        let first_launch = launch.clone();
+        let launch_worker = std::thread::spawn(move || {
+            launch_mux.canonical_new_workspace(
+                expectation,
+                workspace_uuid,
+                surface_uuid,
+                None,
+                Some((80, 24)),
+                first_launch,
+            )
+        });
+        before_release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let surface = mux.surface_by_uuid(surface_uuid).unwrap();
+        let (write_done_tx, write_done_rx) = std::sync::mpsc::channel();
+        let write_worker = std::thread::spawn(move || {
+            surface.write_bytes(b"y\n").unwrap();
+            write_done_tx.send(()).unwrap();
+        });
+        assert!(
+            matches!(
+                write_done_rx.recv_timeout(Duration::from_millis(50)),
+                Err(RecvTimeoutError::Timeout)
+            ),
+            "ordinary PTY input bypassed the launch input reservation"
+        );
+        resume_tx.send(()).unwrap();
+        launch_worker.join().unwrap().unwrap();
+        write_done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        write_worker.join().unwrap();
+        let replay = mux
+            .canonical_new_workspace(
+                expectation,
+                workspace_uuid,
+                surface_uuid,
+                None,
+                Some((80, 24)),
+                launch,
+            )
+            .unwrap();
+        assert!(replay.receipt.replayed);
+        let completion =
+            receive_test_datagram(&receiver, Duration::from_secs(5)).unwrap_or_else(|error| {
+                let terminal = mux
+                    .surface_by_uuid(surface_uuid)
+                    .unwrap()
+                    .try_with_terminal(|terminal| terminal.plain_text())
+                    .unwrap()
+                    .unwrap();
+                panic!("reader did not complete: {error}; terminal output: {terminal:?}");
+            });
+        assert_eq!(completion, b"clean\n");
+        assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 1);
+        drop(receiver);
+        std::fs::remove_file(socket).unwrap();
+    }
+
+    #[test]
+    fn initial_input_non_reader_entrypoint() {
+        let Some(marker) = std::env::var_os("CMUX_TEST_NON_READER_EXIT_MARKER") else {
+            return;
+        };
+        unsafe {
+            libc::signal(libc::SIGHUP, libc::SIG_IGN);
+        }
+        let original_parent = unsafe { libc::getppid() };
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while unsafe { libc::getppid() } == original_parent && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::fs::write(marker, b"parent-exited").unwrap();
+    }
+
+    #[test]
+    fn initial_input_missing_reader_child_aborts() {
+        let Some(root) = std::env::var_os("CMUX_TEST_MISSING_READER_ROOT") else {
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        let target_exit_marker = root.join("target-exited");
+        let store = StateStore::new(root.join("store"));
+        let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        let executable = std::env::current_exe().unwrap();
+        mux.canonical_new_workspace(
+            canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+            WorkspaceUuid::new(),
+            SurfaceUuid::new(),
+            None,
+            Some((80, 24)),
+            TerminalLaunchRequest {
+                argv: Some(vec![
+                    executable.to_string_lossy().into_owned(),
+                    "--exact".to_string(),
+                    "mux::tests::initial_input_non_reader_entrypoint".to_string(),
+                    "--nocapture".to_string(),
+                ]),
+                env: vec![(
+                    "CMUX_TEST_NON_READER_EXIT_MARKER".to_string(),
+                    target_exit_marker.to_string_lossy().into_owned(),
+                )],
+                initial_input: Some(canonical_safe_initial_input(1024 * 1024)),
+                ..TerminalLaunchRequest::default()
+            },
+        )
+        .unwrap();
+        panic!("missing initial-input reader returned instead of aborting");
+    }
+
+    #[test]
+    fn missing_initial_input_reader_fails_stop_after_durable_commit() {
+        let directory = PersistenceTestDirectory::new("missing-initial-input-reader");
+        std::fs::create_dir_all(&directory.0).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("mux::tests::initial_input_missing_reader_child_aborts")
+            .arg("--nocapture")
+            .env("CMUX_TEST_MISSING_READER_ROOT", &directory.0)
+            .env("CMUX_TEST_TERMINAL_INITIAL_INPUT_DEADLINE_MS", "100")
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "missing-reader child unexpectedly returned success");
+        assert!(directory.0.join("target-exited").is_file());
+        let reopened = StateStore::new(directory.0.join("store")).open_session("main").unwrap();
+        assert_eq!(reopened.snapshot.topology_revision, 1);
+        assert_eq!(reopened.snapshot.surfaces.len(), 1);
+    }
+
+    #[test]
+    fn executable_disappearance_after_ready_child_aborts() {
+        let Some(root) = std::env::var_os("CMUX_TEST_DISAPPEARING_EXECUTABLE_ROOT") else {
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        let executable = root.join("disappearing-command");
+        let user_marker = root.join("user-command-ran");
+        std::fs::write(&executable, format!("#!/bin/sh\nprintf ran > {}\n", user_marker.display()))
+            .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let remove = executable.clone();
+        let store = StateStore::new(root.join("store"));
+        let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        mux.state.lock().unwrap().terminal_launch_atomicity_probe = Some(Arc::new(move |phase| {
+            if phase == TerminalLaunchAtomicityPhase::BeforeFsync {
+                std::fs::remove_file(&remove).unwrap();
+            }
+        }));
+        mux.canonical_new_workspace(
+            canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+            WorkspaceUuid::new(),
+            SurfaceUuid::new(),
+            None,
+            None,
+            TerminalLaunchRequest {
+                argv: Some(vec![executable.to_string_lossy().into_owned()]),
+                ..TerminalLaunchRequest::default()
+            },
+        )
+        .unwrap();
+        panic!("disappearing executable returned instead of aborting");
+    }
+
+    #[test]
+    fn executable_disappearance_after_ready_is_fail_stop_without_user_code() {
+        let directory = PersistenceTestDirectory::new("disappearing-executable");
+        std::fs::create_dir_all(&directory.0).unwrap();
+        let gate_exit_marker = directory.0.join("gate-exited");
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("mux::tests::executable_disappearance_after_ready_child_aborts")
+            .arg("--nocapture")
+            .env("CMUX_TEST_DISAPPEARING_EXECUTABLE_ROOT", &directory.0)
+            .env(crate::launch_gate::test_support::EXIT_MARKER_ENV, &gate_exit_marker)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "disappearing-executable child returned success");
+        assert!(gate_exit_marker.is_file());
+        assert!(!directory.0.join("user-command-ran").exists());
+        let reopened = StateStore::new(directory.0.join("store")).open_session("main").unwrap();
+        assert_eq!(reopened.snapshot.topology_revision, 1);
+        assert_eq!(reopened.snapshot.surfaces.len(), 1);
+    }
+
+    #[test]
+    fn launch_gate_validates_executable_before_topology_commit() {
+        let directory = PersistenceTestDirectory::new("precommit-executable-validation");
+        std::fs::create_dir_all(&directory.0).unwrap();
+        let plain = directory.0.join("plain");
+        std::fs::write(&plain, b"plain").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let folder = directory.0.join("folder");
+        std::fs::create_dir(&folder).unwrap();
+        let store = StateStore::new(directory.0.join("store"));
+        let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+
+        for argv0 in [directory.0.join("missing"), plain, folder] {
+            let error = mux
+                .canonical_new_workspace(
+                    canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+                    WorkspaceUuid::new(),
+                    SurfaceUuid::new(),
+                    None,
+                    None,
+                    TerminalLaunchRequest {
+                        argv: Some(vec![argv0.to_string_lossy().into_owned()]),
+                        ..TerminalLaunchRequest::default()
+                    },
+                )
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("launch gate")
+                    || error.to_string().contains("failed to fill whole buffer")
+                    || error.to_string().contains("early eof"),
+                "unexpected precommit validation error: {error:#}"
+            );
+        }
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert!(mux.state.lock().unwrap().surfaces.is_empty());
+    }
+
+    #[test]
+    fn unready_helper_ignoring_hup_is_killed_without_committing_or_execing() {
+        let directory = PersistenceTestDirectory::new("unready-helper-ignores-hup");
+        std::fs::create_dir_all(&directory.0).unwrap();
+        let user_marker = directory.0.join("user-command-ran");
+        let executable = directory.0.join("must-not-exec");
+        std::fs::write(&executable, format!("#!/bin/sh\nprintf ran > {}\n", user_marker.display()))
+            .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let store = StateStore::new(directory.0.join("store"));
+        let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        let started = Instant::now();
+        let error = mux
+            .canonical_new_workspace(
+                canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+                WorkspaceUuid::new(),
+                SurfaceUuid::new(),
+                None,
+                None,
+                TerminalLaunchRequest {
+                    argv: Some(vec![executable.to_string_lossy().into_owned()]),
+                    env: vec![
+                        (
+                            crate::launch_gate::test_support::FAIL_BEFORE_READY_ENV.to_string(),
+                            "1".to_string(),
+                        ),
+                        (
+                            crate::launch_gate::test_support::IGNORE_HUP_ENV.to_string(),
+                            "1".to_string(),
+                        ),
+                    ],
+                    ..TerminalLaunchRequest::default()
+                },
+            )
+            .unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(2), "unready helper cleanup wedged");
+        assert!(!user_marker.exists());
+        assert_eq!(mux.canonical_topology_revision(), 0);
+        assert!(mux.state.lock().unwrap().surfaces.is_empty());
+        assert!(error.to_string().contains("launch gate") || error.to_string().contains("buffer"));
+    }
+
+    #[test]
+    fn launch_gate_executes_exact_relative_and_path_resolutions() {
+        let directory = PersistenceTestDirectory::new("executable-resolution");
+        std::fs::create_dir_all(&directory.0).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let relative = directory.0.join("relative-tool");
+        std::fs::write(&relative, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&relative, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let bin = directory.0.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let path_tool = bin.join("path-tool");
+        std::fs::write(&path_tool, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&path_tool, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let store = StateStore::new(directory.0.join("store"));
+        let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+
+        mux.canonical_new_workspace(
+            canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+            WorkspaceUuid::new(),
+            SurfaceUuid::new(),
+            None,
+            None,
+            TerminalLaunchRequest {
+                cwd: Some(directory.0.to_string_lossy().into_owned()),
+                argv: Some(vec!["./relative-tool".to_string()]),
+                wait_after_command: true,
+                ..TerminalLaunchRequest::default()
+            },
+        )
+        .unwrap();
+        mux.canonical_new_workspace(
+            canonical_expectation(&mux, uuid::Uuid::new_v4(), 1),
+            WorkspaceUuid::new(),
+            SurfaceUuid::new(),
+            None,
+            None,
+            TerminalLaunchRequest {
+                cwd: Some(directory.0.to_string_lossy().into_owned()),
+                argv: Some(vec!["path-tool".to_string()]),
+                env: vec![("PATH".to_string(), "bin".to_string())],
+                wait_after_command: true,
+                ..TerminalLaunchRequest::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(mux.canonical_topology_revision(), 2);
+        assert_eq!(mux.terminal_launch_gate_releases.load(Ordering::Relaxed), 2);
     }
 
     #[test]

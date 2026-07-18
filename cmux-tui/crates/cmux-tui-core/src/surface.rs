@@ -14,15 +14,16 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
-use std::sync::{Arc, Mutex, TryLockError, Weak};
+use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use ghostty_vt::{
     Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderSceneHighlight,
     RenderSceneHighlightKind, RenderState, Rgb, Scrollbar, SearchSelection, SelectionAdjustment,
     SelectionPoint, SelectionSnapshot, Terminal,
 };
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use sha2::{Digest, Sha256};
 
 use crate::accessibility::{
@@ -647,6 +648,7 @@ pub struct PtySurface {
     term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     interaction: Mutex<TerminalInteractionState>,
+    input_authority: Arc<InputAuthority>,
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
@@ -691,6 +693,160 @@ pub struct PtySurface {
     frame_requests: SyncSender<u64>,
 }
 
+#[derive(Default)]
+struct InputAuthority {
+    held: Mutex<bool>,
+    available: Condvar,
+}
+
+/// An owned terminal-input reservation that can cross into the bounded
+/// launch-completion thread without exposing the writer itself.
+pub(crate) struct InputAuthorityPermit {
+    authority: Arc<InputAuthority>,
+}
+
+impl InputAuthority {
+    fn acquire(self: &Arc<Self>) -> InputAuthorityPermit {
+        let mut held = self.held.lock().unwrap();
+        while *held {
+            held = self.available.wait(held).unwrap();
+        }
+        *held = true;
+        drop(held);
+        InputAuthorityPermit { authority: self.clone() }
+    }
+}
+
+impl Drop for InputAuthorityPermit {
+    fn drop(&mut self) {
+        let mut held = self.authority.held.lock().unwrap();
+        debug_assert!(*held);
+        *held = false;
+        self.authority.available.notify_one();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn terminate_unready_launch_helper(
+    child: &mut (dyn Child + Send + Sync),
+    expected_process_id: Option<u32>,
+) -> anyhow::Result<()> {
+    const HUP_GRACE: Duration = Duration::from_millis(100);
+    const KILL_GRACE: Duration = Duration::from_secs(1);
+
+    let process_id = child
+        .process_id()
+        .ok_or_else(|| anyhow::anyhow!("unready launch helper has no process identity"))?;
+    if Some(process_id) != expected_process_id {
+        anyhow::bail!(
+            "unready launch helper identity changed: expected {expected_process_id:?}, got {process_id}"
+        );
+    }
+    let queue = unsafe { libc::kqueue() };
+    if queue < 0 {
+        return Err(std::io::Error::last_os_error()).context("create launch-helper exit watcher");
+    }
+    struct Queue(libc::c_int);
+    impl Drop for Queue {
+        fn drop(&mut self) {
+            unsafe {
+                libc::close(self.0);
+            }
+        }
+    }
+    let queue = Queue(queue);
+    let change = libc::kevent {
+        ident: process_id as libc::uintptr_t,
+        filter: libc::EVFILT_PROC,
+        flags: libc::EV_ADD | libc::EV_ONESHOT,
+        fflags: libc::NOTE_EXIT,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
+    if unsafe { libc::kevent(queue.0, &change, 1, std::ptr::null_mut(), 0, std::ptr::null()) } < 0 {
+        return Err(std::io::Error::last_os_error()).context("watch unready launch helper");
+    }
+
+    let mut killer = child.clone_killer();
+    let _ = killer.kill();
+    if !wait_for_launch_helper_exit(queue.0, HUP_GRACE)? {
+        let status = unsafe { libc::kill(process_id as libc::pid_t, libc::SIGKILL) };
+        if status != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(error).context("kill unready launch helper");
+            }
+        }
+        if !wait_for_launch_helper_exit(queue.0, KILL_GRACE)? {
+            anyhow::bail!("unready launch helper {process_id} did not exit after SIGKILL");
+        }
+    }
+    match child.try_wait()? {
+        Some(_) => Ok(()),
+        None => anyhow::bail!("unready launch helper exit was signaled but could not be reaped"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_launch_helper_exit(queue: libc::c_int, timeout: Duration) -> std::io::Result<bool> {
+    let timeout = libc::timespec {
+        tv_sec: timeout.as_secs().try_into().unwrap_or(libc::time_t::MAX),
+        tv_nsec: timeout.subsec_nanos().into(),
+    };
+    let mut event = std::mem::MaybeUninit::<libc::kevent>::zeroed();
+    let count =
+        unsafe { libc::kevent(queue, std::ptr::null(), 0, event.as_mut_ptr(), 1, &timeout) };
+    if count < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if count == 0 {
+        return Ok(false);
+    }
+    let event = unsafe { event.assume_init() };
+    if event.flags & libc::EV_ERROR != 0 && event.data != 0 {
+        return Err(std::io::Error::from_raw_os_error(event.data as i32));
+    }
+    Ok(true)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn terminate_unready_launch_helper(
+    mut child: Box<dyn Child + Send + Sync>,
+    expected_process_id: Option<u32>,
+) -> anyhow::Result<()> {
+    let process_id = child
+        .process_id()
+        .ok_or_else(|| anyhow::anyhow!("unready launch helper has no process identity"))?;
+    if Some(process_id) != expected_process_id {
+        anyhow::bail!(
+            "unready launch helper identity changed: expected {expected_process_id:?}, got {process_id}"
+        );
+    }
+    child.kill()?;
+    let (result_tx, result_rx) = sync_channel(1);
+    std::thread::Builder::new().name(format!("launch-helper-{process_id}-reaper")).spawn(
+        move || {
+            let _ = result_tx.send(child.wait());
+        },
+    )?;
+    match result_rx.recv_timeout(Duration::from_secs(1)) {
+        Ok(result) => result.map(|_| ()).map_err(Into::into),
+        Err(RecvTimeoutError::Timeout) => {
+            anyhow::bail!("unready launch helper {process_id} did not exit before deadline")
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            anyhow::bail!("unready launch helper reaper disconnected")
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalLaunchCompletionPhase {
+    BeforeRelease,
+    AfterRelease,
+    AfterInitialInput,
+}
+
 const TERMINAL_ACCESSIBILITY_FRAME_CACHE_CAPACITY: usize = 3;
 
 impl std::fmt::Debug for Surface {
@@ -706,6 +862,31 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let (surface, gate) = Self::spawn_with_uuid_mode(id, uuid, opts, mux, false)?;
+        debug_assert!(gate.is_none());
+        Ok(surface)
+    }
+
+    /// Open the PTY and start a same-PID launch helper without executing the
+    /// requested argv. The caller must release the returned gate only after
+    /// its canonical topology commit is durable.
+    pub(crate) fn prepare_with_uuid(
+        id: SurfaceId,
+        uuid: crate::SurfaceUuid,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+    ) -> anyhow::Result<(Arc<Surface>, crate::launch_gate::TerminalLaunchGate)> {
+        let (surface, gate) = Self::spawn_with_uuid_mode(id, uuid, opts, mux, true)?;
+        Ok((surface, gate.expect("gated terminal spawn returns a launch gate")))
+    }
+
+    fn spawn_with_uuid_mode(
+        id: SurfaceId,
+        uuid: crate::SurfaceUuid,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        gated: bool,
+    ) -> anyhow::Result<(Arc<Surface>, Option<crate::launch_gate::TerminalLaunchGate>)> {
         let semantic_identity = SemanticSceneTerminalIdentity::random(uuid)?;
         let pty = native_pty_system().openpty(PtySize {
             rows: opts.rows,
@@ -719,11 +900,31 @@ impl Surface {
             .clone()
             .filter(|argv| !argv.is_empty())
             .unwrap_or_else(|| vec![platform::default_shell()]);
-        let mut cmd = CommandBuilder::new(&argv[0]);
-        cmd.args(&argv[1..]);
+        if opts
+            .extra_env
+            .iter()
+            .any(|(name, _)| crate::launch_gate::is_reserved_environment_name(name))
+        {
+            anyhow::bail!("terminal environment uses a reserved launch-gate name");
+        }
+        let pending_gate =
+            gated.then(|| crate::launch_gate::PendingTerminalLaunchGate::new(&argv)).transpose()?;
+        let mut cmd = match pending_gate.as_ref() {
+            Some(gate) => gate.helper_command()?,
+            None => {
+                let mut command = CommandBuilder::new(&argv[0]);
+                command.args(&argv[1..]);
+                command
+            }
+        };
         cmd.env("TERM", &opts.term);
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
+        }
+        if let Some(gate) = &pending_gate {
+            // Private gate routing is authoritative even if a lower-level
+            // caller bypassed the request validator above.
+            gate.apply_private_environment(&mut cmd);
         }
         let cwd = opts
             .cwd
@@ -735,6 +936,21 @@ impl Surface {
 
         let mut child = pty.slave.spawn_command(cmd)?;
         let pid = child.process_id();
+        let gate = match pending_gate.map(|gate| gate.finish(pid)).transpose() {
+            Ok(gate) => gate,
+            Err(error) => {
+                #[cfg(target_os = "macos")]
+                let cleanup = terminate_unready_launch_helper(child.as_mut(), pid);
+                #[cfg(not(target_os = "macos"))]
+                let cleanup = terminate_unready_launch_helper(child, pid);
+                if let Err(cleanup) = cleanup {
+                    return Err(error).context(format!(
+                        "launch gate failed and helper cleanup also failed: {cleanup:#}"
+                    ));
+                }
+                return Err(error);
+            }
+        };
         drop(pty.slave);
         let killer = child.clone_killer();
         #[cfg(unix)]
@@ -790,6 +1006,7 @@ impl Surface {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
             interaction: Mutex::new(TerminalInteractionState::default()),
+            input_authority: Arc::new(InputAuthority::default()),
             writer: Mutex::new(writer),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
@@ -899,7 +1116,7 @@ impl Surface {
             let _ = child.wait();
         })?;
 
-        Ok(surface)
+        Ok((surface, gate))
     }
 
     /// Create Ghostty parser, semantic scene, and renderer state without
@@ -950,6 +1167,7 @@ impl Surface {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
             interaction: Mutex::new(TerminalInteractionState::default()),
+            input_authority: Arc::new(InputAuthority::default()),
             writer: Mutex::new(Box::new(std::io::sink())),
             master: Mutex::new(Box::new(ParserOnlyMasterPty::new(opts.cols, opts.rows))),
             killer: Mutex::new(Box::new(ParserOnlyChildKiller)),
@@ -1046,6 +1264,7 @@ impl Surface {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
             interaction: Mutex::new(TerminalInteractionState::default()),
+            input_authority: Arc::new(InputAuthority::default()),
             writer: Mutex::new(Box::new(std::io::sink())),
             master: Mutex::new(Box::new(TestMasterPty {
                 size: Mutex::new(PtySize {
@@ -1411,6 +1630,7 @@ impl Surface {
         if let Some(external) = &pty.external {
             return external.write_input(bytes);
         }
+        let _authority = pty.input_authority.acquire();
         let mut writer = pty.writer.lock().unwrap();
         writer.write_all(bytes)?;
         writer.flush()
@@ -1444,6 +1664,7 @@ impl Surface {
             }
             return external.write_input(&encoded);
         }
+        let _authority = pty.input_authority.acquire();
         let mut writer = pty.writer.lock().unwrap();
         if bracketed {
             writer.write_all(b"\x1b[200~")?;
@@ -1453,6 +1674,76 @@ impl Surface {
             writer.write_all(b"\x1b[201~")?;
         }
         writer.flush()
+    }
+
+    pub(crate) fn reserve_input_authority(&self) -> anyhow::Result<InputAuthorityPermit> {
+        let pty = self
+            .as_pty()
+            .ok_or_else(|| anyhow::anyhow!("surface {} is not a terminal", self.id))?;
+        if pty.external.is_some() {
+            anyhow::bail!("external terminal does not own a launch gate");
+        }
+        Ok(pty.input_authority.acquire())
+    }
+
+    /// Complete one durable launch while retaining exclusive input order.
+    ///
+    /// The same writer lock remains held while the helper execs and while the
+    /// complete startup payload is written afterward, so protocol input cannot
+    /// interleave with one-time startup input. The caller treats any error or
+    /// deadline as fail-stop because the topology commit already crossed its
+    /// durability boundary.
+    pub(crate) fn complete_gated_launch(
+        self: &Arc<Self>,
+        permit: InputAuthorityPermit,
+        gate: crate::launch_gate::TerminalLaunchGate,
+        initial_input: Vec<u8>,
+        deadline: Duration,
+        phase: Option<Arc<dyn Fn(TerminalLaunchCompletionPhase) + Send + Sync>>,
+    ) -> anyhow::Result<()> {
+        let pty = self
+            .as_pty()
+            .ok_or_else(|| anyhow::anyhow!("surface {} is not a terminal", self.id))?;
+        if !Arc::ptr_eq(&permit.authority, &pty.input_authority) {
+            anyhow::bail!("terminal launch input reservation belongs to another surface");
+        }
+        let surface = self.clone();
+        let (result_tx, result_rx) = sync_channel(1);
+        std::thread::Builder::new().name(format!("surface-{}-launch", self.id)).spawn(
+            move || {
+                let result = (|| -> anyhow::Result<()> {
+                    let pty =
+                        surface.as_pty().expect("gated terminal launch retained its PTY surface");
+                    let mut writer = pty.writer.lock().unwrap();
+                    if let Some(phase) = &phase {
+                        phase(TerminalLaunchCompletionPhase::BeforeRelease);
+                    }
+                    gate.release()?;
+                    if let Some(phase) = &phase {
+                        phase(TerminalLaunchCompletionPhase::AfterRelease);
+                    }
+                    if !initial_input.is_empty() {
+                        writer.write_all(&initial_input)?;
+                    }
+                    writer.flush()?;
+                    if let Some(phase) = &phase {
+                        phase(TerminalLaunchCompletionPhase::AfterInitialInput);
+                    }
+                    Ok(())
+                })();
+                drop(permit);
+                let _ = result_tx.send(result);
+            },
+        )?;
+        match result_rx.recv_timeout(deadline) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => {
+                anyhow::bail!("terminal initial-input delivery deadline elapsed")
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                anyhow::bail!("terminal launch completion thread disconnected")
+            }
+        }
     }
 
     /// Run `f` with exclusive access to the terminal state.

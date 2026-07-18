@@ -14,6 +14,7 @@ pub mod build_identity;
 mod connection_security;
 mod event_bus;
 mod identity;
+mod launch_gate;
 mod model;
 mod mux;
 mod pairing;
@@ -79,6 +80,11 @@ pub use topology::{
 
 pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::{CursorShape, Rgb};
+
+#[doc(hidden)]
+pub fn launch_gate_entrypoint(args: &[String]) -> Option<anyhow::Result<()>> {
+    launch_gate::run_if_requested(args)
+}
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;

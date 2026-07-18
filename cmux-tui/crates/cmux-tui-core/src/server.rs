@@ -8901,6 +8901,9 @@ mod tests {
         let acknowledgement_path = std::env::var_os("CMUX_TEST_DURABILITY_ACK")
             .map(PathBuf::from)
             .expect("durability child acknowledgement path");
+        let command_marker = std::env::var_os("CMUX_TEST_DURABILITY_COMMAND_MARKER")
+            .map(PathBuf::from)
+            .expect("durability child command marker path");
         let store = crate::state_store::StateStore::new(PathBuf::from(root));
         let mux = Mux::recover_from_state_store(
             "durability-fail-stop",
@@ -8914,7 +8917,7 @@ mod tests {
         let lease = topology_lease(&registration);
         let message = json!({
             "id": 71,
-            "cmd": "canonical-new-browser-workspace",
+            "cmd": "canonical-new-workspace",
             "request_id": uuid::Uuid::new_v4(),
             "daemon_instance_id": mux.daemon_instance_id,
             "session_id": mux.session_id,
@@ -8923,7 +8926,12 @@ mod tests {
             "topology_lease_generation": lease.generation,
             "workspace_uuid": WorkspaceUuid::new(),
             "surface_uuid": SurfaceUuid::new(),
-            "url": "about:blank",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                format!("printf ran > {}", command_marker.display()),
+            ],
+            "initial_input": "must-not-cross-precommit-barrier\n",
         })
         .to_string();
 
@@ -8939,12 +8947,16 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         let acknowledgement_path = root.join("acknowledgements.jsonl");
+        let command_marker = root.join("user-command-ran");
+        let gate_exit_marker = root.join("gate-exited");
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("--exact")
             .arg("server::tests::durable_append_failure_child_aborts_before_response")
             .arg("--nocapture")
             .env("CMUX_TEST_DURABILITY_ROOT", &root)
             .env("CMUX_TEST_DURABILITY_ACK", &acknowledgement_path)
+            .env("CMUX_TEST_DURABILITY_COMMAND_MARKER", &command_marker)
+            .env(crate::launch_gate::test_support::EXIT_MARKER_ENV, &gate_exit_marker)
             .env("CMUX_TEST_FAIL_DURABLE_APPEND", "1")
             .output()
             .unwrap();
@@ -8955,6 +8967,8 @@ mod tests {
             acknowledgements.is_empty(),
             "mutation response escaped before durable append: {acknowledgements}"
         );
+        assert!(gate_exit_marker.is_file(), "blocked launch helper did not observe daemon EOF");
+        assert!(!command_marker.exists(), "user command executed despite failed durable append");
         let reopened = crate::state_store::StateStore::new(&root)
             .open_session("durability-fail-stop")
             .unwrap();

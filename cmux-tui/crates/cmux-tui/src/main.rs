@@ -218,8 +218,15 @@ fn version_string() -> String {
 }
 
 fn main() {
-    install_signal_handlers();
     let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    if let Some(result) = cmux_tui_core::launch_gate_entrypoint(&raw_args) {
+        if let Err(error) = result {
+            eprintln!("cmux-tui launch gate: {error}");
+            std::process::exit(126);
+        }
+        return;
+    }
+    install_signal_handlers();
     if raw_args.first().map(|arg| arg.as_str()) == Some("help") {
         cli::print_help(USAGE);
         std::process::exit(0);
