@@ -30,8 +30,8 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ghostty_vt::{
-    KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput, RenderState,
-    Screen,
+    CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
+    RenderState, Rgb, Screen,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
@@ -2415,6 +2415,12 @@ enum PtyMouseReleaseCapture {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OuterCursorSpec {
+    Reset,
+    Terminal { color: Rgb, shape: CursorShape, blinking: bool },
+}
+
 #[derive(Clone)]
 struct DeferredInput {
     event: Event,
@@ -2484,6 +2490,12 @@ pub struct App {
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
+    /// Terminal grid dimensions from the frame actually drawn for each
+    /// surface. Pointer routing uses this snapshot so resize transitions do
+    /// not target blank pane margins or wait on the PTY's terminal lock.
+    pub rendered_terminal_sizes: HashMap<SurfaceId, (u16, u16)>,
+    desired_outer_cursor: OuterCursorSpec,
+    applied_outer_cursor: Option<OuterCursorSpec>,
     pub graphics_writer: Option<GraphicsWriter>,
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
@@ -2823,6 +2835,9 @@ pub fn run(
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
+        rendered_terminal_sizes: HashMap::new(),
+        desired_outer_cursor: OuterCursorSpec::Reset,
+        applied_outer_cursor: None,
         graphics_writer,
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
@@ -2902,6 +2917,9 @@ fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> 
     let mut stdout = std::io::stdout();
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
+    // Cursor color and DECSCUSR shape are outer-terminal global state. Always
+    // restore both, including panic/startup-failure paths.
+    let _ = write!(stdout, "\x1b]112\x07\x1b[0 q");
     // Restore the conventional host behavior where Shift bypasses capture.
     let _ = write!(stdout, "\x1b[>0s");
     let _ = stdout.execute(DisableBracketedPaste);
@@ -3278,6 +3296,7 @@ impl App {
             self.drag = None;
         }
         self.render_states.remove(&surface);
+        self.rendered_terminal_sizes.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
         self.mux_titles.remove(surface);
@@ -3403,7 +3422,28 @@ impl App {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock().unwrap();
         terminal.draw(|f| crate::ui::draw(self, f))?;
+        if let Some(sequence) =
+            outer_cursor_escape_if_changed(self.applied_outer_cursor, self.desired_outer_cursor)
+        {
+            let mut stdout = std::io::stdout();
+            stdout.write_all(sequence.as_bytes())?;
+            stdout.flush()?;
+            self.applied_outer_cursor = Some(self.desired_outer_cursor);
+        }
         Ok(())
+    }
+
+    pub(crate) fn reset_frame_cursor_spec(&mut self) {
+        self.desired_outer_cursor = OuterCursorSpec::Reset;
+    }
+
+    pub(crate) fn use_terminal_cursor_spec(
+        &mut self,
+        color: Rgb,
+        shape: CursorShape,
+        blinking: bool,
+    ) {
+        self.desired_outer_cursor = OuterCursorSpec::Terminal { color, shape, blinking };
     }
 
     fn frame_only_browser_update(&self, id: SurfaceId) -> bool {
@@ -4262,6 +4302,9 @@ impl App {
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
                 self.render_states.clear();
+                // Keep the dimensions of the frame that remains visible until
+                // the next draw publishes a replacement. Clearing this cache
+                // would briefly make newly exposed blank margins clickable.
                 self.sidebar_plugin_surface = None;
                 Ok(RenderAction::Draw)
             }
@@ -5928,9 +5971,7 @@ impl App {
         {
             return PtyMousePressResult::NotOwned;
         }
-        let Some(content) = self.terminal_input_rect(&area) else {
-            return PtyMousePressResult::NotOwned;
-        };
+        let content = self.canonical_pty_content(area.surface, area.content);
         if !content.contains(x, y) {
             return PtyMousePressResult::NotOwned;
         }
@@ -6242,12 +6283,10 @@ impl App {
         {
             return false;
         }
-        let Some(content) = self.terminal_input_rect(&area) else { return false };
-        if !content.contains(x, y) {
-            return false;
-        }
+        let content = self.canonical_pty_content(area.surface, area.content);
         if action == MouseAction::Motion {
-            return self.forward_pty_mouse_motion_if_uncontended(
+            let inside = content.contains(x, y);
+            let owned = self.forward_pty_mouse_motion_if_uncontended(
                 area.surface,
                 content,
                 (x, y),
@@ -6255,6 +6294,19 @@ impl App {
                 modifiers,
                 any_button_pressed,
             );
+            // A no-button motion outside the canonical viewport is
+            // intentionally suppressed by Ghostty. Reset dedupe so re-entering
+            // through the same edge cell still reports a fresh hover sample.
+            if !inside
+                && !any_button_pressed
+                && let Some(surface) = self.session.surface(area.surface)
+            {
+                surface.reset_mouse_motion_dedupe();
+            }
+            return owned;
+        }
+        if !content.contains(x, y) {
+            return false;
         }
         self.forward_pty_mouse_to_surface(
             area.surface,
@@ -6560,7 +6612,11 @@ impl App {
         self.pane_areas
             .iter()
             .find(|area| area.surface == surface)
-            .and_then(|area| self.terminal_input_rect(area))
+            .map(|area| self.canonical_pty_content(surface, area.content))
+    }
+
+    fn canonical_pty_content(&self, surface: SurfaceId, content: Rect) -> Rect {
+        canonical_terminal_content(content, self.rendered_terminal_sizes.get(&surface).copied())
     }
 
     fn cancel_pty_release_reservation(&self) {
@@ -7385,6 +7441,10 @@ impl App {
             }
             return Ok(RenderAction::None);
         }
+        let canonical_content = self.canonical_pty_content(surface_id, area.content);
+        if !canonical_content.contains(x, y) {
+            return Ok(RenderAction::None);
+        }
         if area.content.contains(x, y)
             && self.forward_pty_mouse_at(
                 x,
@@ -7444,6 +7504,11 @@ impl App {
         }
         if self.active_pane() != Some(area.pane) {
             self.focus_pane_after_input(area.pane);
+        }
+        if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+            && !self.canonical_pty_content(area.surface, area.content).contains(x, y)
+        {
+            return Ok(RenderAction::None);
         }
         if area.content.contains(x, y)
             && self.forward_pty_mouse_at(
@@ -7519,6 +7584,43 @@ impl App {
                 click_count: dispatch.click_count,
             },
         });
+    }
+}
+
+fn canonical_terminal_content(content: Rect, rendered_size: Option<(u16, u16)>) -> Rect {
+    let (cols, rows) = rendered_size.unwrap_or((content.width, content.height));
+    Rect {
+        x: content.x,
+        y: content.y,
+        width: content.width.min(cols),
+        height: content.height.min(rows),
+    }
+}
+
+fn outer_cursor_escape_if_changed(
+    applied: Option<OuterCursorSpec>,
+    desired: OuterCursorSpec,
+) -> Option<String> {
+    (applied != Some(desired)).then(|| outer_cursor_escape(desired))
+}
+
+fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
+    match spec {
+        OuterCursorSpec::Reset => "\x1b]112\x07\x1b[0 q".to_string(),
+        OuterCursorSpec::Terminal { color, shape, blinking } => {
+            let style = match (shape, blinking) {
+                (CursorShape::Block, true) => 1,
+                (CursorShape::Block, false) => 2,
+                (CursorShape::Underline, true) => 3,
+                (CursorShape::Underline, false) => 4,
+                (CursorShape::Bar, true) => 5,
+                (CursorShape::Bar, false) => 6,
+                // DECSCUSR has no hollow-block form. A steady block preserves
+                // shape and avoids inventing blink behavior.
+                (CursorShape::BlockHollow, _) => 2,
+            };
+            format!("\x1b]12;#{:02x}{:02x}{:02x}\x07\x1b[{style} q", color.r, color.g, color.b)
+        }
     }
 }
 
@@ -7631,11 +7733,13 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
         ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
-        PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
+        OuterCursorSpec, PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState,
+        PtyFailureIngress,
         PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
         SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
-        client_menu_item, forward_mux_event, forward_mux_events, pane_context_menu_groups,
+        canonical_terminal_content, client_menu_item, forward_mux_event, forward_mux_events,
+        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
         pane_parts_for_rect, preserve_client_view, record_surface_resize_dispatch_result,
         sidebar_plugin_status_settles_passive_claim,
     };
@@ -7654,7 +7758,8 @@ mod tests {
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
-        KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput, RenderState,
+        CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
+        RenderState, Rgb,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -8456,9 +8561,9 @@ mod tests {
     }
 
     #[test]
-    fn foreign_viewport_rejects_pty_mouse_input_outside_rendered_grid() {
+    fn pty_mouse_uses_the_canonical_rendered_grid_during_resize_margins() {
         let mux = Mux::new(
-            "foreign-viewport-mouse-test",
+            "mouse-canonical-grid-test",
             SurfaceOptions {
                 command: Some(vec![
                     "/bin/sh".to_string(),
@@ -8468,14 +8573,13 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((12, 5))).unwrap();
-        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
 
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         let pane = app.tree.active_screen().unwrap().active_pane;
         let content = Rect { x: 2, y: 3, width: 20, height: 8 };
-        let live = Rect { x: content.x, y: content.y, width: 12, height: 5 };
         app.pane_areas.push(PaneArea {
             pane,
             surface: surface.id,
@@ -8485,104 +8589,157 @@ mod tests {
             content,
             track: None,
         });
-        app.rendered_terminal_bounds.insert(surface.id, live);
+        // The pane has already grown, but the only frame visible to the user
+        // is still 12x5. The remaining cells are renderer-owned margins.
+        app.rendered_terminal_sizes.insert(surface.id, (12, 5));
+        app.handle(AppEvent::Input(Event::Resize(40, 12))).unwrap();
+        assert_eq!(
+            app.rendered_terminal_sizes.get(&surface.id),
+            Some(&(12, 5)),
+            "outer resize must retain the dimensions of the still-visible frame"
+        );
 
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: live.x + live.width - 1,
-            row: live.y + live.height - 1,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
-        assert_eq!(app.encode_buf, b"\x1b[<0;12;5M");
-        assert!(matches!(app.drag, Some(Drag::PtyMouse { content: rect, .. }) if rect == live));
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
-            column: live.x + live.width - 1,
-            row: live.y + live.height - 1,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
-
-        app.encode_buf.clear();
-        let dead_column = live.x + live.width;
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
+        let outside = (content.x + 15, content.y + 2);
+        assert_eq!(
+            app.begin_pty_mouse_drag(outside.0, outside.1, MouseButton::Left, KeyModifiers::NONE,),
+            PtyMousePressResult::NotOwned
+        );
+        assert!(app.drag.is_none());
         assert!(app.encode_buf.is_empty());
-        assert!(app.drag.is_none());
-        assert!(app.selection.is_none());
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Right),
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
-        assert!(app.menu.is_some());
-        app.menu = None;
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-        assert!(app.selection.is_none());
-        assert!(app.drag.is_none());
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: live.x + 1,
-            row: live.y + 1,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-        assert!(matches!(app.drag, Some(Drag::Select { content: rect, .. }) if rect == live));
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Drag(MouseButton::Left),
-            column: content.x + content.width - 1,
-            row: content.y + content.height - 1,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-        assert_eq!(app.selection.map(|selection| selection.head), Some((11, 4)));
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
-            column: content.x + content.width - 1,
-            row: content.y + content.height - 1,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::ScrollDown,
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
+        assert_eq!(
+            app.handle_scroll(outside.0, outside.1, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
+        );
+        assert!(app.encode_buf.is_empty());
+        assert_eq!(
+            app.handle_horizontal_scroll(outside.0, outside.1, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
+        );
         assert!(app.encode_buf.is_empty());
 
-        app.rendered_terminal_bounds.remove(&surface.id);
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: live.x,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
+        // Leaving through a blank margin suppresses no-button motion, then
+        // clears Ghostty's cell dedupe so the same edge cell reports on reentry.
+        let edge = (content.x + 11, content.y + 2);
+        assert!(app.forward_pty_mouse_at(
+            edge.0,
+            edge.1,
+            MouseAction::Motion,
+            None,
+            KeyModifiers::NONE,
+            false,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<35;12;3M");
+        assert!(!app.forward_pty_mouse_at(
+            outside.0,
+            outside.1,
+            MouseAction::Motion,
+            None,
+            KeyModifiers::NONE,
+            false,
+        ));
         assert!(app.encode_buf.is_empty());
-        assert!(app.selection.is_none());
+        assert!(app.forward_pty_mouse_at(
+            edge.0,
+            edge.1,
+            MouseAction::Motion,
+            None,
+            KeyModifiers::NONE,
+            false,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<35;12;3M");
+
+        // A press that starts inside keeps capture while crossing the margin;
+        // Ghostty reports the edge cell and, critically, always emits release.
+        let inside = (content.x + 4, content.y + 2);
+        assert_eq!(
+            app.begin_pty_mouse_drag(inside.0, inside.1, MouseButton::Left, KeyModifiers::NONE,),
+            PtyMousePressResult::Started
+        );
+        assert_eq!(app.encode_buf, b"\x1b[<0;5;3M");
+        assert!(app.forward_pty_mouse_drag(
+            outside.0,
+            outside.1,
+            MouseButton::Left,
+            KeyModifiers::NONE,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<32;12;3M");
+        assert!(app.finish_pty_mouse_drag(
+            outside.0,
+            outside.1,
+            MouseButton::Left,
+            KeyModifiers::NONE,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<0;12;3m");
         assert!(app.drag.is_none());
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn canonical_terminal_content_clamps_to_the_visible_pane() {
+        let content = Rect { x: 7, y: 11, width: 20, height: 8 };
+        assert_eq!(canonical_terminal_content(content, None), content);
+        assert_eq!(
+            canonical_terminal_content(content, Some((12, 5))),
+            Rect { x: 7, y: 11, width: 12, height: 5 }
+        );
+        assert_eq!(
+            canonical_terminal_content(content, Some((40, 30))),
+            content,
+            "a stale larger frame must never claim cells outside its pane"
+        );
+    }
+
+    #[test]
+    fn outer_cursor_escapes_cover_color_shape_blink_and_reset() {
+        let color = Rgb { r: 0x12, g: 0x34, b: 0x56 };
+        let terminal = |shape, blinking| OuterCursorSpec::Terminal { color, shape, blinking };
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Block, true)),
+            "\x1b]12;#123456\x07\x1b[1 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Block, false)),
+            "\x1b]12;#123456\x07\x1b[2 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Underline, true)),
+            "\x1b]12;#123456\x07\x1b[3 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Underline, false)),
+            "\x1b]12;#123456\x07\x1b[4 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Bar, true)),
+            "\x1b]12;#123456\x07\x1b[5 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Bar, false)),
+            "\x1b]12;#123456\x07\x1b[6 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::BlockHollow, true)),
+            "\x1b]12;#123456\x07\x1b[2 q",
+            "DECSCUSR has no hollow block, so it degrades to steady block"
+        );
+        assert_eq!(outer_cursor_escape(OuterCursorSpec::Reset), "\x1b]112\x07\x1b[0 q");
+    }
+
+    #[test]
+    fn outer_cursor_state_suppresses_redundant_global_terminal_writes() {
+        let desired = OuterCursorSpec::Terminal {
+            color: Rgb { r: 1, g: 2, b: 3 },
+            shape: CursorShape::Bar,
+            blinking: false,
+        };
+        assert!(outer_cursor_escape_if_changed(None, desired).is_some());
+        assert!(outer_cursor_escape_if_changed(Some(desired), desired).is_none());
+        assert!(outer_cursor_escape_if_changed(Some(desired), OuterCursorSpec::Reset).is_some());
+        assert!(
+            outer_cursor_escape_if_changed(Some(OuterCursorSpec::Reset), OuterCursorSpec::Reset)
+                .is_none()
+        );
     }
 
     #[test]
@@ -11370,6 +11527,9 @@ mod tests {
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
+            rendered_terminal_sizes: HashMap::new(),
+            desired_outer_cursor: OuterCursorSpec::Reset,
+            applied_outer_cursor: None,
             graphics_writer: None,
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
