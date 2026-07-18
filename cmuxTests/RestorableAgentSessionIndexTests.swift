@@ -1177,6 +1177,55 @@ struct RestorableAgentSessionIndexTests {
         )
     }
 
+    @Test
+    func testClaudeSessionDoesNotSearchUnrelatedProjectDirectoriesForResume() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-unrelated-project-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let recordedCwd = root.appendingPathComponent("recorded-repo", isDirectory: true)
+        let unrelatedCwd = root.appendingPathComponent("unrelated-repo", isDirectory: true)
+        try fm.createDirectory(at: recordedCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: unrelatedCwd, withIntermediateDirectories: true)
+
+        let sessionId = "dddddddd-4444-4444-4444-dddddddddddd"
+        let unrelatedTranscriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(expectedClaudeProjectDirName(unrelatedCwd.path), isDirectory: true)
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(
+            sessionId: sessionId,
+            transcriptURL: unrelatedTranscriptURL,
+            cwd: unrelatedCwd
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                sessionId: hookRecord(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: recordedCwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: nil,
+                    isRestorable: true,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        #expect(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId) == nil,
+            "A matching ID under another project is not evidence that this panel owns that conversation"
+        )
+    }
+
     private func makeClaudeTranscriptCacheFixture(
         prefix: String,
         sessionId: String,
