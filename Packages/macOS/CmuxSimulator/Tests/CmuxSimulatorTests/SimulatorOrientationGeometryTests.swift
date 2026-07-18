@@ -3,6 +3,31 @@ import Testing
 
 @Suite("Simulator orientation geometry")
 struct SimulatorOrientationGeometryTests {
+    @Test("Landscape presentation follows the device chrome rotation")
+    func landscapePresentationMatchesChrome() {
+        let landscapeLeft = SimulatorOrientationGeometry(
+            rawWidth: 400,
+            rawHeight: 800,
+            requestedOrientation: .landscapeLeft
+        )
+        let landscapeRight = SimulatorOrientationGeometry(
+            rawWidth: 400,
+            rawHeight: 800,
+            requestedOrientation: .landscapeRight
+        )
+
+        #expect(landscapeLeft.presentationRotationDegrees == 90)
+        #expect(landscapeRight.presentationRotationDegrees == -90)
+        expectEqual(
+            landscapeLeft.rawPoint(for: SimulatorPoint(x: 0.2, y: 0.3)),
+            SimulatorPoint(x: 0.3, y: 0.8)
+        )
+        expectEqual(
+            landscapeRight.rawPoint(for: SimulatorPoint(x: 0.2, y: 0.3)),
+            SimulatorPoint(x: 0.7, y: 0.2)
+        )
+    }
+
     @Test("Core Animation presentation keeps landscape content upright")
     func landscapePresentationDirection() {
         let landscapeLeft = SimulatorOrientationGeometry(
