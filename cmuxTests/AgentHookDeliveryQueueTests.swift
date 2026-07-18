@@ -1195,7 +1195,7 @@ struct AgentHookDeliveryQueueTests {
             #!/bin/sh
             printf '%s' "$$" > "$TMPDIR/descendant.pid"
             : > "$TMPDIR/first-descendant-active"
-            /bin/sleep 0.5
+            /bin/sleep 0.8
             /bin/rm -f "$TMPDIR/first-descendant-active"
             """
         )
@@ -1221,7 +1221,19 @@ struct AgentHookDeliveryQueueTests {
         ))
 
         try queue.enqueue(first)
+        let firstLeaderCompleted = await waitUntil(timeout: .seconds(2)) {
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("first-descendant-active").path
+            ) && (try? await queue.diagnosticStatus(for: first.deliveryID)?["state"]) == "delivered"
+        }
+        #expect(firstLeaderCompleted)
         try queue.enqueue(later)
+        let laterStartedDuringDescendant = await waitUntil(timeout: .seconds(0.4)) {
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("later-started-before-descendant-exit").path
+            )
+        }
+        #expect(laterStartedDuringDescendant)
         await queue.waitUntilCurrentDrainFinishes()
 
         #expect(FileManager.default.fileExists(
