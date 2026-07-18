@@ -35,7 +35,7 @@ struct AgentHibernationResumePlan: Sendable {
     let kind: RestorableAgentKind
     let sessionId: String
     let hibernatedAt: Date
-    let startupInput: String
+    let temporaryDirectory: URL
 
     func matches(_ state: AgentHibernationPanelState) -> Bool {
         kind == state.agent.kind
@@ -767,22 +767,18 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func agentHibernationResumePlan(
-        fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> AgentHibernationResumePlan? {
         guard let state = agentHibernationState,
               surface.canPrepareAgentHibernationResume,
-              let startupInput = state.agent.resumeStartupInput(
-                  fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory
-              ) else {
+              state.agent.resumeCommand != nil else {
             return nil
         }
         return AgentHibernationResumePlan(
             kind: state.agent.kind,
             sessionId: state.agent.sessionId,
             hibernatedAt: state.hibernatedAt,
-            startupInput: startupInput
+            temporaryDirectory: temporaryDirectory
         )
     }
 
@@ -792,11 +788,14 @@ final class TerminalPanel: Panel, ObservableObject {
     ) -> AgentHibernationResumePreparation {
         guard let state = agentHibernationState,
               plan.matches(state),
-              surface.canPrepareAgentHibernationResume else {
+              surface.canPrepareAgentHibernationResume,
+              let startupInput = state.agent.resumeStartupInput(
+                  temporaryDirectory: plan.temporaryDirectory
+              ) else {
             return .unavailable
         }
         agentHibernationState = nil
-        surface.prepareAgentHibernationResume(initialInput: plan.startupInput)
+        surface.prepareAgentHibernationResume(initialInput: startupInput)
         requestViewReattach()
         surface.requestBackgroundSurfaceStartIfNeeded()
         return .resumed(queuedStartupInput: true)
