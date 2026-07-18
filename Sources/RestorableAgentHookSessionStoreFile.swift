@@ -48,6 +48,9 @@ extension RestorableAgentHookSessionStoreFile {
             )
             return decode(snapshot: snapshot, decoder: decoder)
         } catch {
+            if let snapshot = try? registry.snapshot(provider: provider) {
+                return decode(snapshot: snapshot, decoder: decoder)
+            }
             guard fileManager.fileExists(atPath: legacyURL.path),
                   let data = try? Data(contentsOf: legacyURL) else { return nil }
             return try? decoder.decode(Self.self, from: data)

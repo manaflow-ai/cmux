@@ -19,12 +19,26 @@ extension RestorableAgentSessionIndex {
             registryURL = firstSource.fileURL.deletingLastPathComponent()
                 .appendingPathComponent(CmuxAgentSessionRegistry.filename, isDirectory: false)
         }
-        return try? CmuxAgentSessionRegistry(url: registryURL).snapshotsImportingLegacy(
-            sources: sources.map {
-                CmuxAgentSessionRegistry.LegacySource(provider: $0.kind.rawValue, url: $0.fileURL)
-            },
-            fileManager: fileManager
-        )
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let legacySources = sources.map {
+            CmuxAgentSessionRegistry.LegacySource(provider: $0.kind.rawValue, url: $0.fileURL)
+        }
+        do {
+            return try registry.snapshotsImportingLegacy(
+                sources: legacySources,
+                fileManager: fileManager
+            )
+        } catch {
+            var recovered: [String: CmuxAgentSessionRegistry.Snapshot] = [:]
+            for source in legacySources {
+                recovered[source.provider] = (try? registry.snapshotImportingLegacy(
+                    provider: source.provider,
+                    legacyURL: source.url,
+                    fileManager: fileManager
+                )) ?? (try? registry.snapshot(provider: source.provider))
+            }
+            return recovered.isEmpty ? nil : recovered
+        }
     }
 
     static func agentHookState(
