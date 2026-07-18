@@ -125,4 +125,51 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(stored.writerGeneration == CmuxAgentSessionRegistry.currentWriterGeneration + 1)
         #expect(stored.json == recordJSON)
     }
+
+    @Test func hookMutationPrunesTheInactiveRecordAddedBeyondTheRetentionCap() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-retention-cap-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let now = Date().timeIntervalSince1970
+        let records = try (0..<10_000).map { index in
+            let sessionID = "retained-\(index)"
+            let updatedAt = now + Double(index) / 100_000
+            return CmuxAgentSessionRegistry.Record(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: updatedAt,
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": sessionID,
+                    "workspaceId": "workspace-\(index)",
+                    "surfaceId": "surface-\(index)",
+                    "startedAt": now,
+                    "updatedAt": updatedAt,
+                ], options: [.sortedKeys])
+            )
+        }
+        try registry.apply(provider: "codex", records: records)
+        let store = ClaudeHookSessionStore(
+            processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            ],
+            agentName: "codex"
+        )
+
+        #expect(try store.upsert(
+            sessionId: "newest",
+            workspaceId: "workspace-new",
+            surfaceId: "surface-new",
+            cwd: root.path
+        ))
+
+        let snapshot = try registry.snapshot(provider: "codex")
+        #expect(snapshot.records.count == 10_000)
+        #expect(snapshot.records.contains { $0.sessionID == "newest" })
+        #expect(!snapshot.records.contains { $0.sessionID == "retained-0" })
+    }
 }

@@ -201,6 +201,56 @@ struct CmuxAgentSessionRegistryTests {
         #expect(updated.count == 16)
     }
 
+    @Test("concurrent inserts replay retention decisions from the latest membership")
+    func concurrentInsertsReplayRetentionDecision() async throws {
+        let fixture = try Fixture(busyTimeoutMilliseconds: 25)
+        let records = try (0..<9_999).map { index in
+            try fixture.record(sessionID: "session-\(index)", updatedAt: Double(index), generation: 1)
+        }
+        try fixture.registry.apply(provider: "codex", records: records)
+        let additions = try (0..<2).map { index in
+            try fixture.record(
+                sessionID: "concurrent-\(index)",
+                updatedAt: 20_000 + Double(index),
+                generation: 1
+            )
+        }
+        let registry = fixture.registry
+        let rendezvous = FirstMutationRendezvous(participantCount: additions.count)
+
+        let successes = await withTaskGroup(of: Bool.self, returning: Int.self) { group in
+            for addition in additions {
+                group.addTask {
+                    var isFirstAttempt = true
+                    do {
+                        return try registry.mutateSnapshot(provider: "codex") { snapshot in
+                            if isFirstAttempt {
+                                isFirstAttempt = false
+                                rendezvous.wait()
+                            }
+                            snapshot.records.append(addition)
+                            if snapshot.records.count > 10_000,
+                               let oldest = snapshot.records.min(by: { $0.updatedAt < $1.updatedAt }) {
+                                snapshot.records.removeAll { $0.sessionID == oldest.sessionID }
+                            }
+                            return true
+                        }
+                    } catch {
+                        return false
+                    }
+                }
+            }
+            var count = 0
+            for await success in group where success { count += 1 }
+            return count
+        }
+
+        #expect(successes == additions.count)
+        let stored = try fixture.registry.snapshot(provider: "codex")
+        #expect(stored.records.count == 10_000)
+        #expect(Set(stored.records.map(\.sessionID)).isSuperset(of: additions.map(\.sessionID)))
+    }
+
     @Test("WAL snapshots stay readable while another connection owns the writer lock")
     func snapshotDoesNotJoinWriterContention() throws {
         let fixture = try Fixture(busyTimeoutMilliseconds: 10)
@@ -276,6 +326,27 @@ struct CmuxAgentSessionRegistryTests {
 
         func legacyStore(sessions: [String: [String: Any]]) throws -> Data {
             try JSONSerialization.data(withJSONObject: ["version": 2, "sessions": sessions], options: [.sortedKeys])
+        }
+    }
+
+    private final class FirstMutationRendezvous: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var remaining: Int
+
+        init(participantCount: Int) {
+            remaining = participantCount
+        }
+
+        func wait() {
+            condition.lock()
+            remaining -= 1
+            if remaining == 0 {
+                condition.broadcast()
+            } else {
+                let deadline = Date(timeIntervalSinceNow: 1)
+                while remaining > 0, condition.wait(until: deadline) {}
+            }
+            condition.unlock()
         }
     }
 }
