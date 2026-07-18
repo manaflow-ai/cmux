@@ -3,13 +3,11 @@ import Foundation
 
 extension AgentHibernationTranscriptGuard {
     enum PostTeardownSnapshotDisposal: Sendable {
-        /// Normal hibernation monitor: a healthy live transcript makes the
-        /// snapshot redundant, so it is deleted on completion.
+        /// Normal hibernation monitor: delete only after restore or a stable
+        /// byte proof that the live transcript contains the snapshot.
         case deleteWhenSafe
-        /// Forfeit monitor for a snapshot whose live path provably diverged:
-        /// "live has turns" no longer implies "live contains the snapshot", so
-        /// on completion an unrestored snapshot moves to the session's retained
-        /// recovery slot instead of being deleted.
+        /// Forfeit monitor: on completion, move an uncommitted snapshot to the
+        /// session's retained recovery slot instead of leaving UUID copies.
         case retainForRecovery(sessionId: String?)
     }
 
@@ -24,21 +22,25 @@ extension AgentHibernationTranscriptGuard {
         shouldContinue: @Sendable () async -> Bool = { true },
         shouldRestoreOnCancellation: @Sendable () async -> Bool = { true }
     ) async {
-        var canDeleteSnapshot = false
+        var snapshotIsCommitted = false
         var retainSnapshot = false
-        var restoredSnapshot = false
 
-        func markSnapshotDeletableIfSafe() {
+        func refreshSnapshotCommitProof() {
             let restored = restoreIfClobbered(snapshot, fileManager: fileManager)
-            let safe = transcriptHasConversationTurns(atPath: snapshot.transcriptPath, fileManager: fileManager)
-            restoredSnapshot = restoredSnapshot || restored
-            canDeleteSnapshot = restored || safe
+            // A populated live transcript can still be a divergent rewrite.
+            // Only a successful restore or stable exact/prefix byte proof makes
+            // the protected copy redundant.
+            snapshotIsCommitted = restored || file(
+                atPath: snapshot.transcriptPath,
+                stablyContainsPrefixAtPath: snapshot.snapshotPath,
+                fileManager: fileManager
+            )
         }
 
         func restoreBeforeStoppedReturn() async {
             retainSnapshot = true
             guard await shouldRestoreOnCancellation() else { return }
-            markSnapshotDeletableIfSafe()
+            refreshSnapshotCommitProof()
         }
 
         func stopIfNoLongerCurrent() async -> Bool {
@@ -50,14 +52,14 @@ extension AgentHibernationTranscriptGuard {
         }
 
         defer {
-            if !retainSnapshot, !Task.isCancelled, canDeleteSnapshot {
+            if !retainSnapshot, !Task.isCancelled {
                 switch snapshotDisposal {
                 case .deleteWhenSafe:
-                    try? fileManager.removeItem(atPath: snapshot.snapshotPath)
+                    if snapshotIsCommitted {
+                        try? fileManager.removeItem(atPath: snapshot.snapshotPath)
+                    }
                 case .retainForRecovery(let sessionId):
-                    if restoredSnapshot {
-                        // The snapshot's content was committed back to the live
-                        // path, so the copy is genuinely redundant.
+                    if snapshotIsCommitted {
                         try? fileManager.removeItem(atPath: snapshot.snapshotPath)
                     } else {
                         retainSnapshotForRecovery(snapshot, sessionId: sessionId, fileManager: fileManager)
@@ -103,7 +105,7 @@ extension AgentHibernationTranscriptGuard {
                 return
             }
             if await stopIfNoLongerCurrent() { return }
-            markSnapshotDeletableIfSafe()
+            refreshSnapshotCommitProof()
         }
 
         for delaySeconds in backstopDelaysSeconds {
@@ -119,7 +121,7 @@ extension AgentHibernationTranscriptGuard {
                 return
             }
             if await stopIfNoLongerCurrent() { return }
-            markSnapshotDeletableIfSafe()
+            refreshSnapshotCommitProof()
         }
     }
 }
