@@ -424,7 +424,7 @@ struct AgentLaunchCaptureTrustTests {
                     "fix this",
                 ],
                 kind: "campfire"
-            ) == .unknown
+            ) == .oneShot
         )
     }
 }
