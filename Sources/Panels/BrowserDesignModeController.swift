@@ -407,26 +407,29 @@ final class BrowserDesignModeController {
 
     func setInteractionMode(_ mode: BrowserDesignModeInteractionMode) async {
         guard phase.isEnabled, mode != interactionMode, let webView else { return }
-        interactionMode = mode
-        if mode == .select {
-            // Cancellation releases suspension points, while the revision
-            // prevents any already-returning capture from committing a card.
-            operationRevision &+= 1
-            if annotationCaptureTask != nil {
-                annotationCaptureTask?.cancel()
-                annotationCaptureTask = nil
-                annotationCaptureTaskID = nil
-                screenshotEvaluator.cancelAll()
-            }
-            phase = .active(annotation: .idle)
-        }
         do {
             let value = try await evaluate(
                 "return globalThis.__cmuxDesignMode?.setMode(mode);",
                 arguments: ["mode": mode.rawValue],
                 in: webView
             )
-            apply(try BrowserDesignModeSupport.decodeSnapshot(value))
+            let next = try BrowserDesignModeSupport.decodeSnapshot(value)
+            guard phase.isEnabled else { return }
+            interactionMode = mode
+            if mode == .select {
+                // The page runtime has now abandoned its annotation. Mirror
+                // that authoritative transition and prevent an older native
+                // capture continuation from committing afterward.
+                operationRevision &+= 1
+                if annotationCaptureTask != nil {
+                    annotationCaptureTask?.cancel()
+                    annotationCaptureTask = nil
+                    annotationCaptureTaskID = nil
+                    screenshotEvaluator.cancelAll()
+                }
+                phase = .active(annotation: .idle)
+            }
+            apply(next)
         } catch {
             BrowserDesignModeSupport.record(error, operation: "setMode")
         }
