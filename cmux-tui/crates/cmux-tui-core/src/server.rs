@@ -1454,7 +1454,9 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
     let mut policy = CommandAdmissionPolicy {
         wire_max: STANDARD_COMMAND_MAX_BYTES,
         decoded_max: STANDARD_COMMAND_DECODE_MAX_BYTES,
-        permission: None,
+        // Unknown and newly added commands fail closed as control mutations.
+        // Read-only commands must be explicitly granted below.
+        permission: Some(ConnectionPermission::Control),
         protocol_v9: false,
     };
     match command {
@@ -1479,6 +1481,31 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             policy.decoded_max = BULK_COMMAND_DECODE_MAX_BYTES;
         }
         _ => {}
+    }
+    if matches!(
+        command,
+        "identify"
+            | "ping"
+            | "register-client"
+            | "topology-snapshot"
+            | "terminal-activity-snapshot"
+            | "list-workspaces"
+            | "export-layout"
+            | "read-screen"
+            | "read-scrollback"
+            | "wait-for"
+            | "terminal-state"
+            | "ids"
+            | "list-agents"
+            | "vt-state"
+            | "pane-neighbor"
+            | "process-info"
+            | "set-client-info"
+            | "subscribe"
+            | "subscribe-topology"
+            | "attach-surface"
+    ) {
+        policy.permission = None;
     }
     if matches!(
         command,
@@ -8053,6 +8080,61 @@ mod tests {
     }
 
     #[test]
+    fn command_admission_is_fail_closed_with_an_explicit_read_only_allowlist() {
+        for command in [
+            "identify",
+            "ping",
+            "register-client",
+            "topology-snapshot",
+            "terminal-activity-snapshot",
+            "list-workspaces",
+            "export-layout",
+            "read-screen",
+            "read-scrollback",
+            "wait-for",
+            "terminal-state",
+            "ids",
+            "list-agents",
+            "vt-state",
+            "pane-neighbor",
+            "process-info",
+            "set-client-info",
+            "subscribe",
+            "subscribe-topology",
+            "attach-surface",
+        ] {
+            assert_eq!(command_admission_policy(command).permission, None, "{command}");
+        }
+        for command in [
+            "focus-direction",
+            "terminal-input",
+            "terminal-geometry",
+            "new-workspace",
+            "close-workspace",
+            "future-unclassified-command",
+        ] {
+            assert_eq!(
+                command_admission_policy(command).permission,
+                Some(ConnectionPermission::Control),
+                "{command}"
+            );
+        }
+        for command in [
+            "open-presentation",
+            "renderer-workers",
+            "configure-renderer-presentation",
+            "list-clients",
+            "pairing-response",
+        ] {
+            assert_eq!(
+                command_admission_policy(command).permission,
+                Some(ConnectionPermission::Frontend),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
     fn hostile_json_is_rejected_before_state_mutation_or_typed_tree_allocation() {
         let mux = test_mux();
         let (writer, outbound) = test_writer_and_outbound();
@@ -8152,6 +8234,13 @@ mod tests {
             &mux,
             unaffiliated,
             &json!({"cmd": "close-workspace"}).to_string(),
+            &unaffiliated_writer,
+        ));
+        assert_rejected_response(&unaffiliated_outbound, "trusted frontend or automation");
+        assert!(handle_message(
+            &mux,
+            unaffiliated,
+            &json!({"cmd": "focus-direction"}).to_string(),
             &unaffiliated_writer,
         ));
         assert_rejected_response(&unaffiliated_outbound, "trusted frontend or automation");
