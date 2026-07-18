@@ -1,8 +1,7 @@
 public import CmuxTerminalDomain
 
-/// Compatibility aliases for the persistent-runtime contract now owned by
-/// `CmuxTerminalDomain`. Existing clients can keep importing `CmuxTerminal`
-/// while the production frontend moves to the Ghostty-free product.
+/// Frontend-owned names for the Ghostty-free persistent-terminal contract.
+/// The explicit aliases keep clients independent of transitive-import rules.
 public typealias TerminalExternalPresentation =
     CmuxTerminalDomain.TerminalExternalPresentation
 public typealias TerminalExternalPresentationLease =

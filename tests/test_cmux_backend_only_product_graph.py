@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import re
 import stat
 import subprocess
 import sys
@@ -16,6 +17,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VERIFIER = ROOT / "scripts" / "verify-cmux-backend-only-product.py"
 TERMINAL_PACKAGE = ROOT / "Packages/macOS/CmuxTerminal"
+TERMINAL_DOMAIN_CONTRACT = (
+    ROOT
+    / "Packages/macOS/CmuxTerminalCore"
+    / "Sources/CmuxTerminalDomain/Runtime/TerminalExternalRuntime.swift"
+)
+FRONTEND_EXPORT_TEST = (
+    TERMINAL_PACKAGE
+    / "Tests/CmuxTerminalFrontendTests/TerminalFrontendDomainExportTests.swift"
+)
+FRONTEND_DOMAIN_EXPORTS = (
+    TERMINAL_PACKAGE
+    / "Sources/CmuxTerminalFrontend/Exports/CmuxTerminalDomainExports.swift"
+)
 
 
 def run_verifier(
@@ -156,6 +170,53 @@ def test_repository_frontend_product_has_a_ghostty_free_closure() -> None:
     assert target_names.isdisjoint(
         {"CmuxTerminal", "CmuxTerminalCore", "GhosttyKit", "GhosttyRuntimeTestStubs"}
     )
+    domain_sources = next(
+        source_root
+        for source_root in report["source_roots"]
+        if source_root["target"] == "CmuxTerminalDomain"
+    )
+    assert "Runtime/TerminalExternalRuntime.swift" in {
+        source["path"] for source in domain_sources["files"]
+    }
+    assert TERMINAL_DOMAIN_CONTRACT.is_file()
+
+    contract_source = TERMINAL_DOMAIN_CONTRACT.read_text(encoding="utf-8")
+    contract_types = set(
+        re.findall(
+            r"(?m)^public (?:struct|enum|protocol) (Terminal(?:External|Accessibility)\w+)",
+            contract_source,
+        )
+    )
+    frontend_alias_source = FRONTEND_DOMAIN_EXPORTS.read_text(encoding="utf-8")
+    frontend_aliases = dict(
+        re.findall(
+            r"(?m)^public typealias (Terminal(?:External|Accessibility)\w+)\s*=\s*"
+            r"CmuxTerminalDomain\.(Terminal(?:External|Accessibility)\w+)",
+            frontend_alias_source,
+        )
+    )
+    assert len(contract_types) == 40
+    assert frontend_aliases == {name: name for name in contract_types}
+
+    export_test = FRONTEND_EXPORT_TEST.read_text(encoding="utf-8")
+    imported_modules = {
+        line.split()[1]
+        for line in export_test.splitlines()
+        if line.startswith("import ")
+    }
+    assert imported_modules == {"CmuxTerminalFrontend", "Testing"}
+    exported_value_types = set(
+        re.findall(
+            r"(?m)^\s+(Terminal(?:External|Accessibility)\w+)\.self,?$",
+            export_test,
+        )
+    )
+    assert exported_value_types == contract_types - {
+        "TerminalExternalPresentationLease",
+        "TerminalExternalRuntime",
+    }
+    assert "any TerminalExternalPresentationLease" in export_test
+    assert "any TerminalExternalRuntime" in export_test
     assert len(report["graph_sha256"]) == 64
 
 
