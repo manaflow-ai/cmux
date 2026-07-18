@@ -73,6 +73,42 @@ struct WorkstreamStoreTests {
         #expect(!store.hasMorePersistedItems)
     }
 
+    @Test("removing an item hides it immediately and after restart")
+    func removeItemPersists() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-store-remove-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: tmp)
+            try? FileManager.default.removeItem(
+                at: WorkstreamPersistence.removedItemsFileURL(for: tmp)
+            )
+        }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let kept = WorkstreamItem(
+            workstreamId: "kept",
+            source: .opencode,
+            kind: .sessionStart,
+            payload: .sessionStart
+        )
+        let removed = WorkstreamItem(
+            workstreamId: "removed",
+            source: .opencode,
+            kind: .sessionEnd,
+            payload: .sessionEnd
+        )
+        try await persistence.append(kept)
+        try await persistence.append(removed)
+
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await store.start()
+        #expect(try await store.removeItem(id: removed.id))
+        #expect(store.items.map(\.id) == [kept.id])
+
+        let restored = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await restored.start()
+        #expect(restored.items.map(\.id) == [kept.id])
+    }
+
     @Test("expireAbandonedItems expires items whose agent PID is dead")
     func expireAbandoned() {
         let clock = TestClock(initial: Date(timeIntervalSince1970: 0))

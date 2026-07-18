@@ -137,6 +137,41 @@ import Testing
         #expect(manager.selectedTabId == selectedBeforeRoute)
     }
 
+    @Test func feedFocusSelectsAndFlashesTheOriginatingTerminal() throws {
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let targetWorkspace = try #require(manager.selectedWorkspace)
+        let targetPanel = try #require(targetWorkspace.focusedTerminalPanel)
+        let targetSurfaceID = try #require(
+            targetWorkspace.surfaceIdFromPanelId(targetPanel.id)?.uuid
+        )
+        let feedWorkspace = manager.addWorkspace()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+        GhosttySurfaceScrollView.resetFlashCounts()
+
+        #expect(manager.selectedTabId == feedWorkspace.id)
+        #expect(appDelegate.routeFeedFocus(
+            workspaceId: targetWorkspace.id.uuidString,
+            surfaceId: targetSurfaceID.uuidString
+        ))
+        #expect(manager.selectedTabId == targetWorkspace.id)
+        #expect(targetWorkspace.focusedPanelId == targetPanel.id)
+        #expect(GhosttySurfaceScrollView.flashCount(for: targetPanel.id) == 1)
+    }
+
+    @Test func resolvedQuestionSelectionsRemainAvailableForPresentation() {
+        let status = WorkstreamStatus.resolved(
+            .question(selections: ["Answering a question"]),
+            at: Date(timeIntervalSince1970: 1)
+        )
+
+        #expect(
+            QuestionActionArea.resolvedSelections(in: status)
+                == ["Answering a question"]
+        )
+    }
+
     @Test func stopDraftClearsOnlyAfterMatchingSuccessfulDelivery() {
         var failed = FeedStopDraft(reply: "retry this")
         failed.finishSend(submittedReply: "retry this", succeeded: false)
