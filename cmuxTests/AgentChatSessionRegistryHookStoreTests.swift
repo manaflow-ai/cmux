@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import Darwin
 import CMUXAgentLaunch
+import CmuxFoundation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,6 +11,51 @@ import CMUXAgentLaunch
 #endif
 
 struct AgentChatSessionRegistryHookStoreTests {
+    @Test func hookStoreFindsCanonicalSessionBeyondLegacyProjection() throws {
+        let home = try temporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+
+        let targetSessionID = "chat-session-older-than-projection"
+        let targetWorkspaceID = UUID().uuidString
+        let targetSurfaceID = UUID().uuidString
+        let targetTranscriptPath = "/tmp/\(targetSessionID).jsonl"
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        var records = try (0..<300).map { index in
+            try canonicalHookRecord(
+                provider: "claude",
+                sessionID: String(format: "recent-%03d", index),
+                workspaceID: UUID().uuidString,
+                surfaceID: UUID().uuidString,
+                transcriptPath: "/tmp/recent-\(index).jsonl",
+                updatedAt: TimeInterval(1_000 + index)
+            )
+        }
+        records.append(try canonicalHookRecord(
+            provider: "claude",
+            sessionID: targetSessionID,
+            workspaceID: targetWorkspaceID,
+            surfaceID: targetSurfaceID,
+            transcriptPath: targetTranscriptPath,
+            updatedAt: 1
+        ))
+        try registry.apply(provider: "claude", records: records)
+        try writeCanonicalLegacyProjection(
+            records: Array(records.prefix(256)),
+            to: stateDirectory.appendingPathComponent("claude-hook-sessions.json")
+        )
+
+        let store = AgentChatHookSessionStore(homeDirectory: home)
+        let entry = try #require(store.entry(agentSource: "claude", sessionID: targetSessionID))
+        #expect(entry.workspaceID == targetWorkspaceID)
+        #expect(entry.surfaceID == targetSurfaceID)
+        #expect(entry.transcriptPath == targetTranscriptPath)
+        #expect(store.entries(agentSource: "claude").count == 301)
+    }
+
     @Test func mobileChatObserverDetectsCmuxLaunchedOpaqueClaudeWrapper() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -281,5 +327,45 @@ struct AgentChatSessionRegistryHookStoreTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         try data.write(to: directory.appendingPathComponent("claude-hook-sessions.json"))
+    }
+
+    private func canonicalHookRecord(
+        provider: String,
+        sessionID: String,
+        workspaceID: String,
+        surfaceID: String,
+        transcriptPath: String,
+        updatedAt: TimeInterval
+    ) throws -> CmuxAgentSessionRegistry.Record {
+        let json = try JSONSerialization.data(withJSONObject: [
+            "sessionId": sessionID,
+            "workspaceId": workspaceID,
+            "surfaceId": surfaceID,
+            "cwd": "/tmp/project",
+            "transcriptPath": transcriptPath,
+            "pid": 999_999,
+            "updatedAt": updatedAt,
+        ], options: [.sortedKeys])
+        return CmuxAgentSessionRegistry.Record(
+            provider: provider,
+            sessionID: sessionID,
+            updatedAt: updatedAt,
+            json: json
+        )
+    }
+
+    private func writeCanonicalLegacyProjection(
+        records: [CmuxAgentSessionRegistry.Record],
+        to url: URL
+    ) throws {
+        var sessions: [String: Any] = [:]
+        for record in records {
+            sessions[record.sessionID] = try JSONSerialization.jsonObject(with: record.json)
+        }
+        let data = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": sessions,
+        ], options: [.sortedKeys])
+        try data.write(to: url, options: .atomic)
     }
 }

@@ -1,4 +1,5 @@
 import CmuxWorkspaces
+import CmuxFoundation
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -902,6 +903,93 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             entry.resumeCommand,
             "cd -- '/tmp/grok custom state' 2>/dev/null || [ ! -d '/tmp/grok custom state' ] && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' '\(sessionId)' '-m' 'grok-4'"
         )
+    }
+
+    func testGrokVaultFindsCanonicalObservedHomeBeyondLegacyProjection() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-canonical-home-\(UUID().uuidString)", isDirectory: true)
+        let homeDirectory = tempDir.appendingPathComponent("home", isDirectory: true)
+        let stateDirectory = homeDirectory.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cwd = "/tmp/grok canonical observed home"
+        let targetSessionID = "grok-session-older-than-projection"
+        let targetGrokHome = tempDir.appendingPathComponent("canonical-grok-home", isDirectory: true)
+        let historyURL = targetGrokHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(targetSessionID, isDirectory: true)
+            .appendingPathComponent("chat_history.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"type":"user","content":"Find canonical GROK_HOME","model":"grok-4"}"#
+            .write(to: historyURL, atomically: true, encoding: .utf8)
+
+        func record(
+            sessionID: String,
+            grokHome: String,
+            updatedAt: TimeInterval
+        ) throws -> CmuxAgentSessionRegistry.Record {
+            let json = try JSONSerialization.data(withJSONObject: [
+                "sessionId": sessionID,
+                "updatedAt": updatedAt,
+                "launchCommand": ["environment": ["GROK_HOME": grokHome]],
+            ], options: [.sortedKeys])
+            return CmuxAgentSessionRegistry.Record(
+                provider: "grok",
+                sessionID: sessionID,
+                updatedAt: updatedAt,
+                json: json
+            )
+        }
+
+        var records = try (0..<300).map { index in
+            try record(
+                sessionID: String(format: "recent-%03d", index),
+                grokHome: tempDir.appendingPathComponent("recent-\(index)").path,
+                updatedAt: TimeInterval(1_000 + index)
+            )
+        }
+        records.append(try record(
+            sessionID: targetSessionID,
+            grokHome: targetGrokHome.path,
+            updatedAt: 1
+        ))
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try registry.apply(provider: "grok", records: records)
+
+        var projectedSessions: [String: Any] = [:]
+        for projected in records.prefix(256) {
+            projectedSessions[projected.sessionID] = try JSONSerialization.jsonObject(with: projected.json)
+        }
+        let projection = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": projectedSessions,
+        ], options: [.sortedKeys])
+        try projection.write(
+            to: stateDirectory.appendingPathComponent("grok-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let entries = await SessionIndexStore.loadGrokEntries(
+            registration: .builtInGrok,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10,
+            environment: [:],
+            homeDirectory: homeDirectory.path
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.sessionId, targetSessionID)
+        XCTAssertEqual(entry.title, "Find canonical GROK_HOME")
+        XCTAssertEqual(entry.cwd, cwd)
     }
 
     func testRegisteredGrokSessionDirectoryUsesNativeDirectoryLayout() async throws {

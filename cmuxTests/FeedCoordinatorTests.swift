@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxFoundation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,6 +11,51 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test func feedJumpResolverFindsCanonicalSessionBeyondLegacyProjection() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-canonical-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let targetSessionID = "session-older-than-projection"
+        let targetWorkspaceID = UUID().uuidString
+        let targetSurfaceID = UUID().uuidString
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        var records = try (0..<300).map { index in
+            try canonicalRecord(
+                provider: "codex",
+                sessionID: String(format: "recent-%03d", index),
+                workspaceID: UUID().uuidString,
+                surfaceID: UUID().uuidString,
+                updatedAt: TimeInterval(1_000 + index)
+            )
+        }
+        records.append(try canonicalRecord(
+            provider: "codex",
+            sessionID: targetSessionID,
+            workspaceID: targetWorkspaceID,
+            surfaceID: targetSurfaceID,
+            updatedAt: 1
+        ))
+        try registry.apply(provider: "codex", records: records)
+        try writeLegacyProjection(
+            records: Array(records.prefix(256)),
+            to: stateDirectory.appendingPathComponent("codex-hook-sessions.json")
+        )
+
+        let target = FeedJumpResolver.lookup(
+            agent: "codex",
+            sessionId: targetSessionID,
+            homeDirectory: home,
+            environment: [:]
+        )
+        #expect(target?.workspaceId == targetWorkspaceID)
+        #expect(target?.surfaceId == targetSurfaceID)
+    }
+
     @Test func feedJumpResolverKeepsHyphenatedProviderIdentity() {
         #expect(
             FeedJumpResolver.parse(
@@ -43,6 +89,42 @@ struct FeedCoordinatorTests {
             )?.agent == nil
         )
         #expect(FeedJumpResolver.parse("hermes-agent-")?.agent == nil)
+    }
+
+    private func canonicalRecord(
+        provider: String,
+        sessionID: String,
+        workspaceID: String,
+        surfaceID: String,
+        updatedAt: TimeInterval
+    ) throws -> CmuxAgentSessionRegistry.Record {
+        let json = try JSONSerialization.data(withJSONObject: [
+            "sessionId": sessionID,
+            "workspaceId": workspaceID,
+            "surfaceId": surfaceID,
+            "updatedAt": updatedAt,
+        ], options: [.sortedKeys])
+        return CmuxAgentSessionRegistry.Record(
+            provider: provider,
+            sessionID: sessionID,
+            updatedAt: updatedAt,
+            json: json
+        )
+    }
+
+    private func writeLegacyProjection(
+        records: [CmuxAgentSessionRegistry.Record],
+        to url: URL
+    ) throws {
+        var sessions: [String: Any] = [:]
+        for record in records {
+            sessions[record.sessionID] = try JSONSerialization.jsonObject(with: record.json)
+        }
+        let data = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": sessions,
+        ], options: [.sortedKeys])
+        try data.write(to: url, options: .atomic)
     }
 
     @Test func feedJumpResolverRejectsProviderPathTraversal() {

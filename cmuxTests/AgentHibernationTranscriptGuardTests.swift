@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxFoundation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,6 +10,45 @@ import Testing
 
 @Suite
 struct AgentHibernationTranscriptGuardTests {
+    @Test
+    func recordedTranscriptFindsCanonicalSessionBeyondLegacyProjection() throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+
+        let targetSessionID = "claude-session-older-than-projection"
+        let transcript = home.appendingPathComponent("transcripts/\(targetSessionID).jsonl")
+        try writeFile(populatedTranscript, to: transcript)
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        var records = try (0..<300).map { index in
+            try canonicalTranscriptRecord(
+                sessionID: String(format: "recent-%03d", index),
+                transcriptPath: "/tmp/recent-\(index).jsonl",
+                updatedAt: TimeInterval(1_000 + index)
+            )
+        }
+        records.append(try canonicalTranscriptRecord(
+            sessionID: targetSessionID,
+            transcriptPath: transcript.path,
+            updatedAt: 1
+        ))
+        try registry.apply(provider: "claude", records: records)
+        try writeTranscriptLegacyProjection(
+            records: Array(records.prefix(256)),
+            to: stateDirectory.appendingPathComponent("claude-hook-sessions.json")
+        )
+
+        #expect(
+            AgentHibernationTranscriptGuard.resolveTranscriptPath(
+                agent: agent(sessionId: targetSessionID, workingDirectory: nil),
+                homeDirectory: home.path
+            ) == transcript.path
+        )
+    }
+
     @Test
     func transcriptHasConversationTurnsClassifiesTranscriptLines() throws {
         let directory = try temporaryDirectory()
@@ -471,6 +511,39 @@ struct AgentHibernationTranscriptGuardTests {
     private func outcomeIsUnableToProtect(_ outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome) -> Bool { guard case .unableToProtect = outcome else { return false }; return true }
 
     private func writeFile(_ content: String, to url: URL) throws { try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true); try content.write(to: url, atomically: true, encoding: .utf8) }
+
+    private func canonicalTranscriptRecord(
+        sessionID: String,
+        transcriptPath: String,
+        updatedAt: TimeInterval
+    ) throws -> CmuxAgentSessionRegistry.Record {
+        let json = try JSONSerialization.data(withJSONObject: [
+            "sessionId": sessionID,
+            "transcriptPath": transcriptPath,
+            "updatedAt": updatedAt,
+        ], options: [.sortedKeys])
+        return CmuxAgentSessionRegistry.Record(
+            provider: "claude",
+            sessionID: sessionID,
+            updatedAt: updatedAt,
+            json: json
+        )
+    }
+
+    private func writeTranscriptLegacyProjection(
+        records: [CmuxAgentSessionRegistry.Record],
+        to url: URL
+    ) throws {
+        var sessions: [String: Any] = [:]
+        for record in records {
+            sessions[record.sessionID] = try JSONSerialization.jsonObject(with: record.json)
+        }
+        let data = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": sessions,
+        ], options: [.sortedKeys])
+        try data.write(to: url, options: .atomic)
+    }
 
     private func agent(
         kind: RestorableAgentKind = .claude,
