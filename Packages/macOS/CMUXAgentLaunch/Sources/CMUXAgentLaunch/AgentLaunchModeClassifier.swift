@@ -188,14 +188,26 @@ public enum AgentLaunchModeClassifier {
         } else {
             return .unknown
         }
-        if containsOption(interactiveOptions(for: "rovodev"), in: runArguments, policy: policy) {
-            return .interactive
-        }
-        if containsOption(unknownOptions(for: "rovodev"), in: runArguments, policy: policy)
-            || containsUnknownOption(in: runArguments, policy: policy) {
+        let hasInteractiveOption = containsOption(
+            interactiveOptions(for: "rovodev"),
+            in: runArguments,
+            policy: policy
+        )
+        let hasOneShotOption = containsOption(
+            oneShotOptions(for: "rovodev"),
+            in: runArguments,
+            policy: policy
+        )
+        let hasUnknownOption = containsOption(
+            unknownOptions(for: "rovodev"),
+            in: runArguments,
+            policy: policy
+        ) || containsUnknownOption(in: runArguments, policy: policy)
+        if hasUnknownOption || (hasInteractiveOption && hasOneShotOption) {
             return .unknown
         }
-        if containsOption(oneShotOptions(for: "rovodev"), in: runArguments, policy: policy) {
+        if hasInteractiveOption { return .interactive }
+        if hasOneShotOption {
             return .oneShot
         }
         return firstPositional(in: runArguments, policy: policy) == nil ? .interactive : .oneShot
