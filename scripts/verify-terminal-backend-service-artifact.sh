@@ -123,7 +123,7 @@ PACKAGED_BUILD_ID="$(tr -d '[:space:]' < "$BUILD_ID_FILE")"
   echo "error: terminal backend build ID is not a lowercase SHA-256: $PACKAGED_BUILD_ID" >&2
   exit 1
 }
-REPORTED_BUILD_ID="$($EXECUTABLE --build-id)"
+REPORTED_BUILD_ID="$("$EXECUTABLE" --build-id)"
 [[ "$REPORTED_BUILD_ID" == "$PACKAGED_BUILD_ID" ]] || {
   echo "error: terminal backend reports build ID $REPORTED_BUILD_ID, packaged sidecar has $PACKAGED_BUILD_ID" >&2
   exit 1
