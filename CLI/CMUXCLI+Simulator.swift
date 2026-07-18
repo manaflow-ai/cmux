@@ -519,7 +519,6 @@ extension CMUXCLI {
         )
         var params = try simulatorRoutingParams(
             normalizedSurface: surface,
-            client: client,
             window: window
         )
 
