@@ -181,7 +181,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         try JSONSerialization.data(withJSONObject: oldWriterStore, options: [.sortedKeys])
             .write(to: stateURL, options: .atomic)
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = isolatedAgentTreeEnvironment(home: root)
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         let result = runProcess(
@@ -523,7 +523,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
             .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
-        var environment = ProcessInfo.processInfo.environment
+        var environment = isolatedAgentTreeEnvironment(home: root)
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
 
@@ -817,6 +817,113 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
+    @Test func runOnlyGraphParentsRemainAmbiguousWithinTheChildProvider() {
+        let first = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "first", runID: "shared-run", updatedAt: 300
+        )
+        let second = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "second", runID: "shared-run", updatedAt: 200
+        )
+        let child = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "child", runID: "child-run", updatedAt: 400
+        )
+        let edge = AgentSessionGraphEdge(
+            fromRunId: "shared-run", fromSessionId: nil,
+            toNodeId: child.nodeId, toRunId: child.runId, relationship: .spawned
+        )
+
+        #expect(
+            AgentSessionGraphEdgeResolver(nodes: [first, second, child]).parentNodeId(for: edge) == nil
+        )
+    }
+
+    @Test func graphParentTieOrderingSurvivesSelfExclusion() {
+        let first = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "shared-session", runID: "a-run", updatedAt: 200
+        )
+        let second = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "shared-session", runID: "b-run", updatedAt: 200
+        )
+        let edge = AgentSessionGraphEdge(
+            fromRunId: nil, fromSessionId: "shared-session",
+            toNodeId: first.nodeId, toRunId: first.runId, relationship: .resumed
+        )
+
+        #expect(
+            AgentSessionGraphEdgeResolver(nodes: [second, first]).parentNodeId(for: edge) == second.nodeId
+        )
+    }
+
+    @Test func repeatedRunGraphResolutionStaysLinearAtTenThousandEdges() {
+        let count = 10_000
+        var parents: [AgentSessionGraphNode] = []
+        var children: [AgentSessionGraphNode] = []
+        var edges: [AgentSessionGraphEdge] = []
+        parents.reserveCapacity(count)
+        children.reserveCapacity(count)
+        edges.reserveCapacity(count)
+
+        for index in 0..<count {
+            let parent = makeAgentSessionGraphTestNode(
+                provider: index.isMultiple(of: 2) ? "codex" : "claude",
+                sessionID: "parent-\(index)",
+                runID: "shared-run",
+                updatedAt: TimeInterval(count - index)
+            )
+            let child = makeAgentSessionGraphTestNode(
+                provider: "codex",
+                sessionID: "child-\(index)",
+                runID: "child-run-\(index)",
+                updatedAt: TimeInterval(count + index)
+            )
+            parents.append(parent)
+            children.append(child)
+            edges.append(AgentSessionGraphEdge(
+                fromRunId: parent.runId,
+                fromSessionId: parent.sessionId,
+                toNodeId: child.nodeId,
+                toRunId: child.runId,
+                relationship: .spawned
+            ))
+        }
+
+        let resolver = AgentSessionGraphEdgeResolver(nodes: parents + children)
+        var mismatches = 0
+        let elapsed = ContinuousClock().measure {
+            for index in edges.indices {
+                if resolver.parentNodeId(for: edges[index]) != parents[index].nodeId {
+                    mismatches += 1
+                }
+            }
+        }
+
+        #expect(mismatches == 0)
+        #expect(
+            elapsed < .seconds(1),
+            Comment(rawValue: "10,000 repeated-run edge resolutions took \(elapsed)")
+        )
+    }
+
+    @Test func agentsTreeTextDeduplicatesRepeatedChildEdges() {
+        let root = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "root", runID: "root-run", updatedAt: 100
+        )
+        let child = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "child", runID: "child-run", updatedAt: 200
+        )
+        let edge = AgentSessionGraphEdge(
+            fromRunId: root.runId, fromSessionId: root.sessionId,
+            toNodeId: child.nodeId, toRunId: child.runId, relationship: .spawned
+        )
+        let lines = Array(AgentTreeTextLineSequence(
+            snapshot: AgentSessionGraphSnapshot(nodes: [root, child], edges: [edge, edge]),
+            maximumDepth: 64
+        ))
+
+        #expect(lines.count == 2)
+        #expect(lines.last?.hasPrefix("└── ") == true, Comment(rawValue: lines.joined(separator: "\n")))
+    }
+
     @Test func explicitEndedFiltersBypassDefaultHistorySuppression() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -986,7 +1093,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             options: []
         ).write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = isolatedAgentTreeEnvironment(home: root)
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         let result = runProcess(
@@ -1229,6 +1336,35 @@ private func makeTerminalNodeCandidate(
         restoreAuthority: true,
         startedAt: 100,
         updatedAt: 150,
+        endedAt: nil
+    )
+}
+
+private func makeAgentSessionGraphTestNode(
+    provider: String,
+    sessionID: String,
+    runID: String,
+    updatedAt: TimeInterval
+) -> AgentSessionGraphNode {
+    AgentSessionGraphNode(
+        provider: provider,
+        sessionId: sessionID,
+        runId: runID,
+        pid: nil,
+        processStartedAt: nil,
+        cmuxRuntime: nil,
+        workspaceId: "workspace-\(sessionID)",
+        surfaceId: "surface-\(sessionID)",
+        processState: .unknown,
+        sessionState: .active,
+        foregroundState: .idle,
+        attentionState: .none,
+        activity: AgentActivitySnapshot(state: .idle, busy: false, modes: [], counts: .init()),
+        effectiveState: .idle,
+        workloads: [],
+        restoreAuthority: true,
+        startedAt: 100,
+        updatedAt: updatedAt,
         endedAt: nil
     )
 }
