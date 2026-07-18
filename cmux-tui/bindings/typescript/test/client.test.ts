@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CmuxClient } from "../src/client.js";
+import { CmuxClient, CmuxStream } from "../src/client.js";
 import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
 import type { TreeDeltaEvent } from "../src/protocol/index.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
@@ -20,6 +20,124 @@ class ScriptedTransport implements Transport {
     for (const handler of this.messageHandlers) handler(json);
   }
 }
+
+test("stream fails closed at the default buffered-event cap", async () => {
+  let cleanups = 0;
+  const stream = new CmuxStream<{ event: string }>(100, () => { cleanups += 1; });
+
+  for (let index = 0; index <= 256; index += 1) {
+    stream.push({ event: `event-${index}` });
+  }
+
+  await assert.rejects(() => stream.next(), /stream event buffer overflow/);
+  assert.equal(cleanups, 1);
+});
+
+test("async iteration reports buffered-event overflow before the first pull", async () => {
+  const stream = new CmuxStream<{ event: string }>(100, () => undefined, 1);
+  stream.push({ event: "first" });
+  stream.push({ event: "overflow" });
+
+  const iterator = stream[Symbol.asyncIterator]();
+  await assert.rejects(() => iterator.next(), /stream event buffer overflow/);
+});
+
+test("attachSurface rejects oversized encoded data before decoding", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit({ event: "vt-state", surface: 7, cols: 80, rows: 24, data: "A".repeat(9) });
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+    maxAttachEncodedChars: 8,
+  } as CmuxClientOptionsWithSecurityLimits);
+
+  await assert.rejects(
+    () => client.attachSurface(7),
+    /vt-state data exceeds 8 encoded characters/,
+  );
+  await client.close();
+});
+
+test("shared attach rejects buffered overflow before its success response", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+      });
+      return;
+    }
+    assert.equal(request.cmd, "attach-surface");
+    connection.emit({ event: "output", surface: 7, data: "YQ==" });
+    connection.emit({ event: "output", surface: 7, data: "Yg==" });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport,
+    timeoutMs: 100,
+    maxBufferedEvents: 1,
+  } as ConstructorParameters<typeof CmuxClient>[0] & { maxBufferedEvents: number });
+
+  await assert.rejects(() => client.attachSurface(7), /stream event buffer overflow/);
+  await client.close();
+});
+
+test("attach buffering enforces aggregate bytes and browser-frame limits", async () => {
+  for (const events of [
+    [
+      { event: "output", surface: 7, data: "YWJj" },
+      { event: "output", surface: 7, data: "ZGVm" },
+    ],
+    [{ event: "frame", surface: 7, data: "AAAAA" }],
+    [{
+      event: "browser-state",
+      surface: 7,
+      frame: { seq: 1, width: 80, height: 24, data: "AAAAA" },
+    }],
+    [{
+      event: "browser-state",
+      surface: 7,
+      title: "A".repeat(5),
+      frame: null,
+    }],
+  ]) {
+    const transport = new ScriptedTransport((request, connection) => {
+      if (request.cmd === "identify") {
+        connection.emit({
+          id: request.id,
+          ok: true,
+          data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+        });
+        return;
+      }
+      for (const event of events) connection.emit(event);
+      connection.emit({ id: request.id, ok: true, data: {} });
+    });
+    const client = new CmuxClient({
+      transport,
+      timeoutMs: 100,
+      maxAttachEncodedChars: 4,
+    } as CmuxClientOptionsWithSecurityLimits);
+
+    await assert.rejects(() => client.attachSurface(7), /exceeds 4/);
+    await client.close();
+  }
+});
+
+type CmuxClientOptionsWithSecurityLimits = ConstructorParameters<typeof CmuxClient>[0] & {
+  maxAttachEncodedChars: number;
+};
 
 test("legacy resize response defaults to accepted", async () => {
   const transport = new ScriptedTransport((request, connection) => {
@@ -319,6 +437,7 @@ test("listClients returns the exact client presence response shape", async () =>
     attached: [31],
     sizes: [{ surface: 31, cols: 126, rows: 38 }],
     self: true,
+    size_participating: true,
   }];
   const transport = new ScriptedTransport((request, connection) => {
     assert.deepEqual(request, { id: 1, cmd: "list-clients" });
@@ -327,6 +446,39 @@ test("listClients returns the exact client presence response shape", async () =>
   const client = new CmuxClient({ transport });
 
   assert.deepEqual(await client.listClients(), response);
+  await client.close();
+});
+
+test("setClientSizing serializes client participation", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, {
+      id: 1,
+      cmd: "set-client-sizing",
+      client: 7,
+      enabled: false,
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.setClientSizing(7, false);
+  await client.close();
+});
+
+test("client sizing modes serialize as one atomic command", async () => {
+  const expected = [
+    { id: 1, cmd: "set-client-sizing", client: 7, enabled: true, exclusive: true },
+    { id: 2, cmd: "set-client-sizing", enabled: true },
+  ];
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, expected.shift());
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.useOnlyClientSizing(7);
+  await client.useAllClientSizing();
+  assert.equal(expected.length, 0);
   await client.close();
 });
 

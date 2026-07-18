@@ -52,31 +52,26 @@ actor AppContextSerialGate {
 
 /// Test-only main-window context seams, kept in the test target per the
 /// debug-seam policy and reaching internal AppDelegate state via
-/// `@testable import`. Tests register a context and tear it down through the
-/// same removal path the real window-close flow uses, including per-window
-/// Dock teardown.
+/// `@testable import`. Tests register a windowless context and tear it down
+/// through the same removal path the real window-close flow uses, including
+/// per-window Dock teardown.
 extension AppDelegate {
     @discardableResult
     func registerMainWindowContextForTesting(
         windowId: UUID = UUID(),
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil,
-        window: NSWindow? = nil
+        fileExplorerState: FileExplorerState? = nil
     ) -> UUID {
         tabManager.windowId = windowId
-        if let window {
-            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-            _ = tabManager.setOwningWindow(window)
-        }
-        mainWindowContexts[window.map(ObjectIdentifier.init) ?? ObjectIdentifier(tabManager)] = MainWindowContext(
+        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: SidebarState(),
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
-            window: window
+            window: nil
         )
         // Context-based tests exercise observer pipelines without a live phone
         // subscriber; force presence on so the graph attaches (pre-gate

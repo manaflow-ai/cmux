@@ -361,6 +361,7 @@ extension MobileShellComposite {
             await refreshWorkspaces()
             return .failure(.notConnected(hostDisplayName: hostDisplayName))
         }
+        let generation = connectionGeneration
         do {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
             _ = try await client.sendRequest(request)
@@ -390,7 +391,11 @@ extension MobileShellComposite {
             // unavailable/reconnect UI; a failed write to a secondary Mac must not
             // tear the foreground session down.
             if target.isForeground {
-                markMacConnectionUnavailableIfNeeded(after: error)
+                handleMacAvailabilityFailureIfCurrent(
+                    after: error,
+                    expectedClient: client,
+                    expectedGeneration: generation
+                )
             }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             await refreshAfterWorkspaceMutation(target)
@@ -433,7 +438,7 @@ extension MobileShellComposite {
             return .rejected(hostDisplayName: hostDisplayName)
         }
         switch connectionError {
-        case .connectionClosed:
+        case .connectionClosed, .transportWriteTimedOut:
             return .notConnected(hostDisplayName: hostDisplayName)
         case .requestTimedOut:
             return .requestTimedOut(hostDisplayName: hostDisplayName)

@@ -1,5 +1,11 @@
+public import CMUXMobileCore
+
 /// Failures at the authenticated HTTP trust-broker boundary.
-public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
+public enum CmxIrohTrustBrokerClientError:
+    CmxRetryAfterProviding,
+    Equatable,
+    Sendable
+{
     /// The authenticated broker could not be reached through the current network.
     case connectivity
     case invalidBaseURL

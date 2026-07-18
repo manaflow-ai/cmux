@@ -202,10 +202,16 @@ extension MobileShellComposite {
         evaluatePresenceSubscription()
         let shouldResync = shouldResyncTerminalOutputOnForeground()
         lastBackgroundedAt = nil
-        if shouldResync, !queuedManualHostReapproval {
+        // Persisted connections let the recovery owner probe first. Restarting
+        // their listener here can make a dead MobileCoreRPCClient reopen its old
+        // transport before the probe decides to replace it, creating two owners
+        // for one foreground transition. Preview/legacy clients have no stored
+        // route to redial, so retain their same-client resubscribe fallback.
+        // A queued manual-host reapproval owns the teardown instead.
+        if shouldResync, pairedMacStore == nil, !queuedManualHostReapproval {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
-        recoverForegroundConnectionIfNeeded()
+        recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
@@ -397,6 +403,18 @@ extension MobileShellComposite {
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
+    }
+
+    /// Returns the completed result when an async stored reconnect must stop.
+    /// A newer generation owns the work (`false`); an already-live foreground
+    /// client satisfies the request without another dial (`true`).
+    func storedMacReconnectInterruptionResult(generation: Int) -> Bool? {
+        guard generation == storedMacReconnectGeneration else { return false }
+        guard !hasActiveMacConnection else {
+            finishStoredMacReconnectAttempt(generation: generation)
+            return true
+        }
+        return nil
     }
 
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route

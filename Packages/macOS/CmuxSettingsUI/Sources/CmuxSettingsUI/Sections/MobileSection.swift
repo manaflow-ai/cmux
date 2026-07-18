@@ -12,6 +12,7 @@ public struct MobileSection: View {
     @State private var port: DefaultsValueModel<Int>
     @State private var manualHost: DefaultsValueModel<String>
     @State private var displayName: DefaultsValueModel<String>
+    @State private var artifactFolderAccess: DefaultsValueModel<MobileArtifactFolderAccess>
     @State private var status: MobilePairingStatusModel
 
     private let manualHostAdvertisability = MobilePairingManualHostAdvertisability()
@@ -51,6 +52,10 @@ public struct MobileSection: View {
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
         _manualHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingManualHost))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
+        _artifactFolderAccess = State(initialValue: DefaultsValueModel(
+            store: defaultsStore,
+            key: catalog.mobile.artifactFolderAccess
+        ))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
         self.hostActions = hostActions
     }
@@ -107,6 +112,8 @@ public struct MobileSection: View {
                 manualHostStatusRow
                 SettingsCardDivider()
                 displayNameRow
+                SettingsCardDivider()
+                artifactFolderAccessRow
                 if iOSPairingHost.current {
                     SettingsCardDivider()
                     diagnostics
@@ -126,6 +133,7 @@ public struct MobileSection: View {
             port,
             displayName,
             manualHost,
+            artifactFolderAccess,
             status,
         ]
         models.forEach { $0.startObserving() }
@@ -362,6 +370,52 @@ public struct MobileSection: View {
         guard canApplyManualHost else { return }
         manualHost.set(trimmedManualHost)
         editedManualHost = nil
+    }
+
+    @ViewBuilder
+    private var artifactFolderAccessRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("mobile.artifactFolderAccess"),
+            String(localized: "settings.mobile.artifactFolderAccess", defaultValue: "Folder Access"),
+            subtitle: artifactFolderAccessSubtitle
+        ) {
+            Picker(
+                "",
+                selection: Binding(
+                    get: { artifactFolderAccess.current },
+                    set: { artifactFolderAccess.set($0) }
+                )
+            ) {
+                Text(String(
+                    localized: "settings.mobile.artifactFolderAccess.subtree",
+                    defaultValue: "Entire Subtree"
+                ))
+                .tag(MobileArtifactFolderAccess.subtree)
+                Text(String(
+                    localized: "settings.mobile.artifactFolderAccess.oneLevel",
+                    defaultValue: "One Level"
+                ))
+                .tag(MobileArtifactFolderAccess.oneLevel)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("SettingsMobileArtifactFolderAccessPicker")
+        }
+    }
+
+    private var artifactFolderAccessSubtitle: String {
+        switch artifactFolderAccess.current {
+        case .subtree:
+            String(
+                localized: "settings.mobile.artifactFolderAccess.subtitleSubtree",
+                defaultValue: "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."
+            )
+        case .oneLevel:
+            String(
+                localized: "settings.mobile.artifactFolderAccess.subtitleOneLevel",
+                defaultValue: "Limits iOS to immediate children of referenced or visible folders."
+            )
+        }
     }
 
     /// Read-only connection count and the reachable routes the phone can use.

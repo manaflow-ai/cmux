@@ -1,15 +1,19 @@
+public import CMUXMobileCore
+internal import CmuxMobileSupport
 public import Foundation
 import CmuxMobileSupport
 
 /// Errors surfaced while connecting to or talking with a paired Mac over the
 /// mobile-sync RPC transport.
-public enum MobileShellConnectionError: LocalizedError {
+public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProviding {
     /// The server returned a response that could not be parsed.
     case invalidResponse
     /// The persistent transport closed.
     case connectionClosed
     /// A request exceeded its timeout deadline.
     case requestTimedOut
+    /// A request timed out while its frame was blocked in the transport write.
+    case transportWriteTimedOut
     /// A manual-host route was not approved for Stack-authenticated mobile sync.
     case insecureManualRoute
     /// The attach ticket expired and no fallback was available.
@@ -35,9 +39,9 @@ public enum MobileShellConnectionError: LocalizedError {
                 "mobile.connection.closed",
                 defaultValue: "Mobile sync connection closed"
             )
-        case .requestTimedOut:
+        case .requestTimedOut, .transportWriteTimedOut:
             return L10n.string(
-                "mobile.connection.timedOut",
+                "mobile.connection.requestTimedOut",
                 defaultValue: "Mobile sync request timed out"
             )
         case .insecureManualRoute:
@@ -56,6 +60,25 @@ public enum MobileShellConnectionError: LocalizedError {
             return message
         case let .rpcError(_, message):
             return message
+        }
+    }
+
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .invalidResponse, .rpcError:
+            .protocolViolation
+        case .connectionClosed:
+            .connectionClosed
+        case .requestTimedOut, .transportWriteTimedOut:
+            .timedOut
+        case .insecureManualRoute:
+            .unsupportedRoute
+        case .attachTicketExpired:
+            .credentialUnavailable
+        case .authorizationFailed:
+            .authorizationFailed
+        case .accountMismatch:
+            .accountMismatch
         }
     }
 }

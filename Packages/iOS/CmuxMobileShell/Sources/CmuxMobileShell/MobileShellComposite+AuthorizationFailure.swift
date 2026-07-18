@@ -112,7 +112,7 @@ extension MobileShellComposite {
                 || normalizedMessage.contains("invalid token")
                 || normalizedMessage.contains("expired token")
                 || normalizedMessage.contains("token expired")
-        case .invalidResponse, .connectionClosed, .requestTimedOut:
+        case .invalidResponse, .connectionClosed, .requestTimedOut, .transportWriteTimedOut:
             return false
         }
     }

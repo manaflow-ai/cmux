@@ -14,6 +14,10 @@ struct MobileCoreRPCPendingFailure: Error {
         Self(underlying: MobileShellConnectionError.requestTimedOut)
     }
 
+    static var transportWriteTimedOut: Self {
+        Self(underlying: MobileShellConnectionError.transportWriteTimedOut)
+    }
+
     static func authorizationFailed(_ message: String) -> Self {
         Self(underlying: MobileShellConnectionError.authorizationFailed(message))
     }
