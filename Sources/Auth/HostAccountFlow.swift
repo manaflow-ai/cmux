@@ -65,12 +65,41 @@ final class HostAccountFlow: AccountFlow {
         coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
     }
 
+    var isAuthenticated: Bool {
+        coordinator.isAuthenticated
+    }
+
+    var isPresentingSignIn: Bool {
+        browserSignIn.isPresentingSignIn
+    }
+
     var signInIsSlow: Bool {
         browserSignIn.signInIsSlow
     }
 
+    var lastSignInFailureDescription: String? {
+        browserSignIn.lastFailure?.errorDescription
+    }
+
     func startSignIn() {
         browserSignIn.beginSignIn()
+    }
+
+    /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
+    /// allowing socket callers to await a bounded result.
+    func signIn(timeout: TimeInterval) async -> Bool {
+        await browserSignIn.signIn(timeout: timeout)
+    }
+
+    /// Issues the manual hosted Stack sign-in URL through the same callback
+    /// state owner as interactive sign-in.
+    var manualSignInURL: URL {
+        browserSignIn.manualSignInURL
+    }
+
+    /// Completes an external hosted Stack callback through the shared attempt.
+    func handleCallbackURL(_ url: URL) async -> Bool {
+        await browserSignIn.handleCallbackURL(url)
     }
 
     func openSignInInDefaultBrowser() {
@@ -80,6 +109,14 @@ final class HostAccountFlow: AccountFlow {
 
     func signOut() async {
         await browserSignIn.signOut()
+        isProActive = false
+        canManageBilling = false
+    }
+
+    /// Socket variant of sign-out. The underlying sign-out continues if the
+    /// caller's deadline expires, matching the browser flow contract.
+    func signOut(timeout: TimeInterval) async {
+        await browserSignIn.signOut(timeout: timeout)
         isProActive = false
         canManageBilling = false
     }

@@ -24,7 +24,7 @@ struct MobilePairingView: View {
     /// The shared auth coordinator, observed so the view re-runs `refresh()`
     /// when sign-in completes or settles. Captured once; stable post-startup.
     private let coordinator: AuthCoordinator? = AppDelegate.shared?.auth?.coordinator
-    private let browserSignIn: HostBrowserSignInFlow? = AppDelegate.shared?.auth?.browserSignIn
+    private let accountFlow: HostAccountFlow? = AppDelegate.shared?.auth?.accountFlow
 
     private static let tailscaleDownloadURL = URL(string: "https://tailscale.com/download")!
     /// Where a Mac user goes to get cmux for iPhone while the beta is invite-only.
@@ -46,7 +46,7 @@ struct MobilePairingView: View {
         .onChange(of: coordinator?.isAuthenticated ?? false) { _, _ in
             Task { await model.refresh() }
         }
-        .onChange(of: browserSignIn?.isPresentingSignIn ?? false) { _, signingIn in
+        .onChange(of: accountFlow?.isPresentingSignIn ?? false) { _, signingIn in
             // When the browser flow settles (success or cancel), re-evaluate so a
             // cancelled sign-in returns to the signed-out state instead of spinning.
             if !signingIn { Task { await model.refresh() } }
@@ -258,7 +258,7 @@ struct MobilePairingView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let lastFailure = browserSignIn?.lastFailure?.errorDescription, !lastFailure.isEmpty {
+            if let lastFailure = accountFlow?.lastSignInFailureDescription, !lastFailure.isEmpty {
                 Text(lastFailure)
                     .font(.caption)
                     .multilineTextAlignment(.center)
@@ -275,14 +275,14 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private var loadingContent: some View {
-        if browserSignIn?.isPresentingSignIn == true {
+        if accountFlow?.isPresentingSignIn == true {
             VStack(spacing: 12) {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
                     Text(String(localized: "mobile.pairing.signIn.connecting", defaultValue: "Connecting…"))
                         .foregroundStyle(.secondary)
                 }
-                if browserSignIn?.signInIsSlow == true {
+                if accountFlow?.signInIsSlow == true {
                     slowSignInFallback
                 }
             }
@@ -308,8 +308,7 @@ struct MobilePairingView: View {
             .fixedSize(horizontal: false, vertical: true)
 
             Button {
-                guard let url = browserSignIn?.activeAttemptSignInURL else { return }
-                NSWorkspace.shared.open(url)
+                accountFlow?.openSignInInDefaultBrowser()
             } label: {
                 Text(String(
                     localized: "mobile.pairing.signIn.openInBrowser",
