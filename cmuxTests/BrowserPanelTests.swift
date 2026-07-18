@@ -1025,6 +1025,20 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertFalse(DiffViewerLoadingPage.owns(url: completedURL, expectedURL: expectedURL))
     }
 
+    func testDiffViewerLoadingOwnershipYieldsToProvisionalUserNavigation() throws {
+        let expectedURL = DiffViewerLoadingPage.url.absoluteString
+        let userURL = try XCTUnwrap(URL(string: "https://example.com/user-navigation"))
+
+        let ownershipURL = DiffViewerLoadingPage.ownershipURL(
+            committedURL: DiffViewerLoadingPage.url,
+            provisionalURL: userURL,
+            isProvisionalNavigationActive: true
+        )
+
+        XCTAssertEqual(ownershipURL, userURL)
+        XCTAssertFalse(DiffViewerLoadingPage.owns(url: ownershipURL, expectedURL: expectedURL))
+    }
+
     func testDiffViewerPendingOwnershipPreservesRenderedOpeningPageError() throws {
         let token = UUID().uuidString.lowercased()
         let openingURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(

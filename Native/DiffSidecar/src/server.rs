@@ -2206,13 +2206,16 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::process::Command;
     use std::time::Duration;
 
     use tokio::io::AsyncWriteExt;
+    use tokio::sync::watch;
 
     use crate::PROTOCOL_VERSION;
-    use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
+    use crate::protocol::{AgentProvider, DiffCommand, DiffRequest, DiffResult};
+    use crate::trajectory::AgentTurnIdentity;
 
     use super::{
         AllowedFile, DiffSource, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
@@ -2221,6 +2224,30 @@ mod tests {
         reserve_session_owner, run_git_patch_with_limit, session_lease_lock_is_active,
         valid_group_id,
     };
+
+    #[test]
+    fn canceled_trajectory_scan_is_evicted_without_removing_replacement() {
+        let identity = AgentTurnIdentity::new(AgentProvider::Codex, "replacement-session");
+        let (canceled_sender, canceled_receiver) = watch::channel(None);
+        let mut scans = HashMap::from([(identity.clone(), canceled_sender.clone())]);
+        drop(canceled_receiver);
+
+        assert!(remove_trajectory_scan_if_current(
+            &mut scans,
+            &identity,
+            &canceled_sender
+        ));
+        assert!(!scans.contains_key(&identity));
+
+        let (replacement_sender, _replacement_receiver) = watch::channel(None);
+        scans.insert(identity.clone(), replacement_sender);
+        assert!(!remove_trajectory_scan_if_current(
+            &mut scans,
+            &identity,
+            &canceled_sender
+        ));
+        assert!(scans.contains_key(&identity));
+    }
 
     #[tokio::test]
     async fn handshake_reports_transport_capabilities() {
