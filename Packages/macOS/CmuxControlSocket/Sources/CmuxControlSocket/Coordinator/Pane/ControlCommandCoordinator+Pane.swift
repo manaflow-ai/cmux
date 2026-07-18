@@ -377,7 +377,8 @@ extension ControlCommandCoordinator {
             return remoteRoutedCreationResult(
                 windowID: windowID,
                 workspaceID: workspaceID,
-                typeRawValue: typeRawValue
+                typeRawValue: typeRawValue,
+                operation: .splitWindow
             )
         case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
             return .ok(.object([

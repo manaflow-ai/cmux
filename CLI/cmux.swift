@@ -17655,9 +17655,7 @@ struct CMUXCLI {
         return parts.joined(separator: " ")
     }
 
-    /// Summary for surface.split / surface.create responses, which report
-    /// `accepted: true` (and no surface id) when the request was routed to a
-    /// remote tmux mirror — the new pane arrives asynchronously.
+    /// Summary for remote-tmux creations whose pane or window arrives asynchronously.
     func v2CreationSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
         guard (payload["accepted"] as? Bool) == true else {
             return v2OKSummary(payload, idFormat: idFormat, kinds: kinds)
@@ -17666,7 +17664,9 @@ struct CMUXCLI {
         if let handle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
             parts.append(handle)
         }
-        parts.append("(routed to remote tmux; the new pane arrives asynchronously)")
+        parts.append((payload["remote_tmux_operation"] as? String) == "new-window"
+            ? String(localized: "cli.creation.remoteTmux.newWindow", defaultValue: "(routed to remote tmux; the new window arrives asynchronously)")
+            : String(localized: "cli.creation.remoteTmux.newPane", defaultValue: "(routed to remote tmux; the new pane arrives asynchronously)"))
         return parts.joined(separator: " ")
     }
 
