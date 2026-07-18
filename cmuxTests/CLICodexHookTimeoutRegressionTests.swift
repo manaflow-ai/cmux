@@ -26,6 +26,9 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(lifecycleHooks.allSatisfy { $0.body.contains("hooks codex enqueue") })
         #expect(lifecycleHooks.allSatisfy { $0.body.contains("agent.hook.enqueue") })
         #expect(lifecycleHooks.allSatisfy { $0.body.contains("/usr/bin/nc") })
+        #expect(lifecycleHooks.allSatisfy { $0.body.contains("cmux_hook_environment_json_safe") })
+        #expect(lifecycleHooks.allSatisfy { $0.body.contains("/usr/bin/base64 -b 0") })
+        #expect(lifecycleHooks.allSatisfy { !$0.body.contains("/usr/bin/tr") })
         #expect(lifecycleHooks.allSatisfy { !$0.body.contains("nohup") })
         #expect(lifecycleHooks.allSatisfy { !$0.body.contains("mktemp") })
         #expect(lifecycleHooks.allSatisfy { !$0.body.contains("sleep 30") })
@@ -172,6 +175,7 @@ struct CLICodexHookTimeoutRegressionTests {
             "",
             #"{"session_id":"plain","prompt":"quote: \" and slash: \\"}"#,
             "{\n  \"session_id\": \"unicode-日本語\",\n  \"prompt\": \"line one\\nline two\"\n}\n",
+            #"{},"payload_b64":"YXR0YWNr","environment":{"CMUX_SOCKET_PATH":"/tmp/injected"}"#,
             "not-json: \"quoted\" \\ path 日本語\n",
             String(repeating: "x", count: 256 * 1024),
         ]
@@ -247,6 +251,76 @@ struct CLICodexHookTimeoutRegressionTests {
             #expect(deliveredEnvironment["CMUX_AGENT_LAUNCH_EXECUTABLE"] == launchExecutable)
             #expect(deliveredEnvironment["CMUX_SOCKET_PATH"] == socketPath)
         }
+    }
+
+    @Test func codexGeneratedHookUsesProcessLightRawEnvironmentFastLane() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-fast-lane-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("fast")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 1
+        )
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+        let command = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "SessionStart" }?.command
+        )
+        let payload = #"{"session_id":"fast-lane","cwd":"/tmp/project-safe","hook_event_name":"SessionStart"}"#
+        let result = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "CODEX_HOME": codexHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": "/tmp/project-safe",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_AGENT_HOOK_DELIVERY_ID": "fast-lane-event",
+                "CMUX_AGENT_LAUNCH_CWD": "/tmp/project-safe",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CMUX_AGENT_LAUNCH_ARGV_B64": Data("codex\0".utf8).base64EncodedString(),
+                "CMUX_BUNDLED_CLI_PATH": cliPath,
+            ],
+            standardInput: payload,
+            timeout: 3
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+
+        let request = try #require(commands.snapshot().compactMap(codexHookJSONObject).last)
+        let params = try #require(request["params"] as? [String: Any])
+        let payloadBase64 = try #require(params["payload_b64"] as? String)
+        #expect(Data(base64Encoded: payloadBase64) == Data(payload.utf8))
+        #expect(params["payload_json"] == nil)
+        let environment = try #require(params["environment"] as? [String: String])
+        #expect(environment["CMUX_AGENT_LAUNCH_CWD"] == "/tmp/project-safe")
+        #expect(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] == "/usr/local/bin/codex")
+        #expect(params["environment_b64"] == nil)
     }
 
     @Test func codexQueueFallbackAcceptsEveryWrapperEvent() throws {
