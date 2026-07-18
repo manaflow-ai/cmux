@@ -25,6 +25,106 @@ import struct CmuxSettings.FileRouteSettingsStore
 @testable import cmux
 #endif
 
+@MainActor
+private final class WorkspaceShareDecisionRecorder {
+    var attempts: [(String, WorkspaceShareAccessDecision)] = []
+    var failuresRemaining = 0
+
+    func send(userID: String, decision: WorkspaceShareAccessDecision) throws {
+        attempts.append((userID, decision))
+        if failuresRemaining > 0 {
+            failuresRemaining -= 1
+            throw WorkspaceShareChatModelTests.TestFailure.send
+        }
+    }
+}
+
+@MainActor
+final class WorkspaceShareChatModelTests: XCTestCase {
+    enum TestFailure: Error {
+        case send
+    }
+
+    func testPermissionCardsSurviveChatSnapshotsAndResolveExactlyOnce() async throws {
+        let recorder = WorkspaceShareDecisionRecorder()
+        let model = makeModel(recorder: recorder)
+        let request = try accessRequest(userID: "viewer-1", email: "viewer@example.com")
+
+        XCTAssertEqual(model.receive(request), .queued)
+        XCTAssertEqual(model.receive(request), .duplicate)
+        model.replaceMessages([])
+        XCTAssertEqual(model.pendingAccess.map(\.request), [request])
+
+        let decisionTask = try XCTUnwrap(model.decide(userID: request.userId, as: .allow))
+        await decisionTask.value
+
+        XCTAssertEqual(recorder.attempts.count, 1)
+        XCTAssertEqual(recorder.attempts.first?.0, request.userId)
+        XCTAssertEqual(recorder.attempts.first?.1, .allow)
+        XCTAssertTrue(model.pendingAccess.isEmpty)
+        XCTAssertNil(model.decide(userID: request.userId, as: .deny))
+    }
+
+    func testFailedDecisionStaysVisibleAndCanRetry() async throws {
+        let recorder = WorkspaceShareDecisionRecorder()
+        recorder.failuresRemaining = 1
+        let model = makeModel(recorder: recorder)
+        let request = try accessRequest(userID: "viewer-2", email: "retry@example.com")
+        XCTAssertEqual(model.receive(request), .queued)
+
+        await model.decide(userID: request.userId, as: .allow)?.value
+        XCTAssertEqual(model.pendingAccess.first?.state, .failed)
+
+        await model.decide(userID: request.userId, as: .allow)?.value
+        XCTAssertEqual(recorder.attempts.count, 2)
+        XCTAssertTrue(model.pendingAccess.isEmpty)
+    }
+
+    func testOverflowIsExplicitlyDeniedAndFreezeDrainsPendingUsers() throws {
+        let recorder = WorkspaceShareDecisionRecorder()
+        let model = makeModel(recorder: recorder)
+        for index in 0..<WorkspaceShareChatModel.maximumPendingAccessCount {
+            XCTAssertEqual(
+                model.receive(try accessRequest(
+                    userID: "viewer-\(index)",
+                    email: "viewer-\(index)@example.com"
+                )),
+                .queued
+            )
+        }
+        let overflow = try accessRequest(userID: "overflow", email: "overflow@example.com")
+        XCTAssertEqual(model.receive(overflow), .deniedOverflow)
+
+        let drained = model.freezeAndDrainPending()
+        XCTAssertEqual(drained.count, WorkspaceShareChatModel.maximumPendingAccessCount)
+        XCTAssertTrue(model.pendingAccess.isEmpty)
+        XCTAssertEqual(model.receive(overflow), .ignoredAfterStop)
+    }
+
+    private func makeModel(recorder: WorkspaceShareDecisionRecorder) -> WorkspaceShareChatModel {
+        WorkspaceShareChatModel(
+            shareURL: URL(string: "https://cmux.com/share/test")!,
+            decisionSender: { userID, decision in
+                try recorder.send(userID: userID, decision: decision)
+            },
+            onSendChat: { _ in },
+            onStopSharing: {}
+        )
+    }
+
+    private func accessRequest(userID: String, email: String) throws -> WorkspaceShareAccessRequest {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "connectionId": "connection-\(userID)",
+            "userId": userID,
+            "email": email,
+            "displayName": "Viewer \(userID)",
+            "color": 3,
+            "requestedAt": 1_700_000_000_000,
+        ])
+        return try JSONDecoder().decode(WorkspaceShareAccessRequest.self, from: data)
+    }
+}
+
 private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
     nonisolated(unsafe) var tabFrames: [CGRect] = []
 

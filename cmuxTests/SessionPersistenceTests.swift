@@ -36,6 +36,44 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotSkipsTransientFixedFloatingDock() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(
+            title: "Workspace chat",
+            isPresented: true,
+            persistence: .transient,
+            closeBehavior: .hide,
+            contentPolicy: .fixed,
+            seedsDefaultNote: false
+        ))
+        let model = WorkspaceShareChatModel(
+            shareURL: URL(string: "https://cmux.com/share/test")!,
+            decisionSender: { _, _ in },
+            onSendChat: { _ in },
+            onStopSharing: {}
+        )
+        let panel = WorkspaceShareChatPanel(model: model)
+
+        XCTAssertEqual(
+            dock.store.installRuntimePanel(
+                panel,
+                surfaceKind: SurfaceKind.workspaceShareChat.rawValue,
+                focus: false
+            ),
+            panel.id
+        )
+        XCTAssertNil(dock.notePanel)
+        XCTAssertEqual(dock.store.panels.count, 1)
+        XCTAssertNil(dock.store.newSurface(
+            kind: .terminal,
+            inPane: try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first),
+            focus: false
+        ))
+        XCTAssertNil(workspace.floatingDockSessionSnapshots())
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresFloatingDockContentsAndLayout() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
