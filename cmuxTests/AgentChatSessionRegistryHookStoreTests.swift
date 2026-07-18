@@ -87,6 +87,82 @@ struct AgentChatSessionRegistryHookStoreTests {
         #expect(entry.workingDirectory == "/tmp/flat-chat")
     }
 
+    @MainActor
+    @Test func hookStoreSeedIsBoundedButExactHistoryRemainsAvailable() async throws {
+        let home = try temporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+
+        let activeOldSessionID = "active-old-session"
+        let exactOldSessionID = "inactive-old-session"
+        let activeWorkspaceID = UUID().uuidString
+        let activeSurfaceID = UUID().uuidString
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        var records = try (0..<700).map { index in
+            try canonicalHookRecord(
+                provider: "claude",
+                sessionID: String(format: "recent-%03d", index),
+                workspaceID: UUID().uuidString,
+                surfaceID: UUID().uuidString,
+                transcriptPath: "/tmp/recent-\(index).jsonl",
+                updatedAt: TimeInterval(1_000 + index)
+            )
+        }
+        records.append(try canonicalHookRecord(
+            provider: "claude",
+            sessionID: activeOldSessionID,
+            workspaceID: activeWorkspaceID,
+            surfaceID: activeSurfaceID,
+            transcriptPath: "/tmp/active-old.jsonl",
+            updatedAt: 1
+        ))
+        records.append(try canonicalHookRecord(
+            provider: "claude",
+            sessionID: exactOldSessionID,
+            workspaceID: UUID().uuidString,
+            surfaceID: UUID().uuidString,
+            transcriptPath: "/tmp/inactive-old.jsonl",
+            updatedAt: 2
+        ))
+        let slotJSON = try JSONSerialization.data(withJSONObject: [
+            "sessionId": activeOldSessionID,
+            "updatedAt": 1.0,
+        ], options: [.sortedKeys])
+        try registry.apply(
+            provider: "claude",
+            records: records,
+            activeSlots: [
+                .init(
+                    provider: "claude",
+                    scope: .surface,
+                    scopeID: activeSurfaceID,
+                    sessionID: activeOldSessionID,
+                    updatedAt: 1,
+                    json: slotJSON
+                ),
+            ]
+        )
+
+        let store = AgentChatHookSessionStore(homeDirectory: home)
+        let seeded = store.entries(agentSource: "claude")
+        #expect(seeded.count == AgentChatHookSessionStore.maximumSeedRecords)
+        #expect(seeded.first?.sessionID == activeOldSessionID)
+        #expect(seeded.contains { $0.sessionID == activeOldSessionID })
+        #expect(!seeded.contains { $0.sessionID == exactOldSessionID })
+        #expect(store.entry(agentSource: "claude", sessionID: exactOldSessionID) != nil)
+
+        let chatRegistry = AgentChatSessionRegistry(hookStore: store)
+        var appliedCount = 0
+        chatRegistry.onRecordChanged = { _, _ in appliedCount += 1 }
+        await chatRegistry.seedFromHookStores(agentSources: ["claude"])
+        #expect(appliedCount == AgentChatHookSessionStore.maximumSeedRecords)
+        #expect(chatRegistry.record(sessionID: activeOldSessionID) != nil)
+        #expect(chatRegistry.record(sessionID: exactOldSessionID) == nil)
+    }
+
     @Test func mobileChatObserverDetectsCmuxLaunchedOpaqueClaudeWrapper() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()

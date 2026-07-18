@@ -992,6 +992,90 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.cwd, cwd)
     }
 
+    func testGrokObservedHomeDiscoveryBoundsCanonicalRootsAndRetainsActiveOwner() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-home-budget-\(UUID().uuidString)", isDirectory: true)
+        let homeDirectory = tempDir.appendingPathComponent("home", isDirectory: true)
+        let stateDirectory = homeDirectory.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        func record(
+            sessionID: String,
+            grokHome: String,
+            updatedAt: TimeInterval
+        ) throws -> CmuxAgentSessionRegistry.Record {
+            let json = try JSONSerialization.data(withJSONObject: [
+                "sessionId": sessionID,
+                "updatedAt": updatedAt,
+                "launchCommand": ["environment": ["GROK_HOME": grokHome]],
+            ], options: [.sortedKeys])
+            return .init(
+                provider: "grok",
+                sessionID: sessionID,
+                updatedAt: updatedAt,
+                json: json
+            )
+        }
+
+        let activeSessionID = "active-old"
+        let activeHome = tempDir.appendingPathComponent("active-old-home").path
+        let activeSurfaceID = UUID().uuidString
+        var records = try (0..<700).map { index in
+            try record(
+                sessionID: String(format: "recent-%03d", index),
+                grokHome: tempDir.appendingPathComponent("recent-home-\(index)").path,
+                updatedAt: TimeInterval(1_000 + index)
+            )
+        }
+        records.append(try record(
+            sessionID: activeSessionID,
+            grokHome: activeHome,
+            updatedAt: 1
+        ))
+        let slotJSON = try JSONSerialization.data(withJSONObject: [
+            "sessionId": activeSessionID,
+            "updatedAt": 1.0,
+        ], options: [.sortedKeys])
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try registry.apply(
+            provider: "grok",
+            records: records,
+            activeSlots: [
+                .init(
+                    provider: "grok",
+                    scope: .surface,
+                    scopeID: activeSurfaceID,
+                    sessionID: activeSessionID,
+                    updatedAt: 1,
+                    json: slotJSON
+                ),
+            ]
+        )
+
+        let homes = GrokSessionLocator.observedGrokHomes(
+            homeDirectory: homeDirectory.path,
+            environment: [:]
+        )
+        XCTAssertEqual(homes.count, GrokSessionLocator.maximumObservedGrokHomes)
+        XCTAssertEqual(homes.first, activeHome)
+        XCTAssertEqual(homes.dropFirst().first, tempDir.appendingPathComponent("recent-home-699").path)
+
+        let suppliedHomes = (0..<100).map {
+            tempDir.appendingPathComponent("supplied-home-\($0)").path
+        }
+        let roots = GrokSessionLocator.sessionRoots(
+            registration: .builtInGrok,
+            cwdFilter: nil,
+            environment: [:],
+            homeDirectory: homeDirectory.path,
+            observedGrokHomes: suppliedHomes
+        )
+        XCTAssertEqual(roots.count, GrokSessionLocator.maximumObservedGrokHomes + 1)
+    }
+
     func testRegisteredGrokSessionDirectoryUsesNativeDirectoryLayout() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-grok-vault-\(UUID().uuidString)", isDirectory: true)
