@@ -48,6 +48,14 @@ protocol BackendOnlyHostSessionControlling: Sendable {
         for connection: BackendOnlyHostConnection
     ) async -> TopologySnapshot?
 
+    func updateProjectionState(
+        for connection: BackendOnlyHostConnection,
+        logicalPresentationID: UUID,
+        claimID: UUID,
+        expectedGeneration: UInt64,
+        workspaces: [BackendProjectionWorkspaceState]
+    ) async throws -> BackendProjectionState
+
     func invalidate(_ connection: BackendOnlyHostConnection) async
 }
 
@@ -163,6 +171,21 @@ public actor BackendOnlySessionController: BackendOnlyHostSessionControlling {
         for connection: BackendOnlyHostConnection
     ) async -> TopologySnapshot? {
         await connection.session.currentSnapshot()
+    }
+
+    func updateProjectionState(
+        for connection: BackendOnlyHostConnection,
+        logicalPresentationID: UUID,
+        claimID: UUID,
+        expectedGeneration: UInt64,
+        workspaces: [BackendProjectionWorkspaceState]
+    ) async throws -> BackendProjectionState {
+        try await connection.session.updateProjectionState(
+            logicalPresentationID: logicalPresentationID,
+            claimID: claimID,
+            expectedGeneration: expectedGeneration,
+            workspaces: workspaces
+        )
     }
 
     func invalidate(_ stale: BackendOnlyHostConnection) async {

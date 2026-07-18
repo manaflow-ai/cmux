@@ -4,6 +4,17 @@ public import SwiftUI
 
 @MainActor
 public final class BackendOnlyHostModel: ObservableObject {
+    private struct PendingProjectionWrite: Sendable {
+        let connection: BackendOnlyHostConnection
+        let claimID: UUID
+        let workspace: BackendProjectionWorkspaceState
+    }
+
+    private struct ProjectionWriteAttempt: Sendable {
+        let pending: PendingProjectionWrite
+        let expectedGeneration: UInt64
+    }
+
     public enum Phase: Equatable {
         case connecting
         case ready
@@ -29,7 +40,11 @@ public final class BackendOnlyHostModel: ObservableObject {
     private var eventTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
     private var connectionCycleID: UUID?
-    private var projectionUpdateTask: Task<BackendProjectionState?, Never>?
+    // One writer owns the admitted RPC. Rapid selections overwrite one pending
+    // value, bounding persistence work at one in-flight plus one queued write.
+    private var projectionUpdateTask: Task<Void, Never>?
+    private var projectionWriterID: UUID?
+    private var pendingProjectionWrite: PendingProjectionWrite?
     private var projection: BackendProjectionState?
 
     public convenience init(
@@ -94,6 +109,11 @@ public final class BackendOnlyHostModel: ObservableObject {
 
     func awaitCurrentConnectionCycle() async {
         let task = connectTask
+        await task?.value
+    }
+
+    func awaitProjectionPersistence() async {
+        let task = projectionUpdateTask
         await task?.value
     }
 
@@ -275,9 +295,8 @@ public final class BackendOnlyHostModel: ObservableObject {
         guard isCurrent(ended) else { return }
 
         connection = nil
+        cancelProjectionPersistence()
         projection = nil
-        projectionUpdateTask?.cancel()
-        projectionUpdateTask = nil
         topology = nil
         retireActiveRuntime()
         phase = .connecting
@@ -343,42 +362,106 @@ public final class BackendOnlyHostModel: ObservableObject {
     }
 
     private func persistProjectionSelection() {
-        guard let connection,
+        guard let controller,
+              let connection,
               let projection,
               let claimID = projection.claimID,
+              projection.logicalPresentationID == logicalPresentationID,
               let selectedWorkspaceID,
               let workspace = workspaces.first(
                 where: { $0.uuid.rawValue == selectedWorkspaceID }
               ),
               let screen = workspace.screens.first
-        else { return }
-
-        let prior = projectionUpdateTask
-        let currentProjection = projection
-        let logicalPresentationID = logicalPresentationID
-        projectionUpdateTask = Task { @MainActor [weak self] in
-            let current = await prior?.value ?? currentProjection
-            guard current.claimID == claimID else { return nil }
-            do {
-                let updated = try await connection.session.updateProjectionState(
-                    logicalPresentationID: logicalPresentationID,
-                    claimID: claimID,
-                    expectedGeneration: current.generation,
-                    workspaces: [
-                        BackendProjectionWorkspaceState(
-                            workspaceID: workspace.uuid,
-                            selectedScreenID: screen.uuid
-                        ),
-                    ]
-                )
-                guard self?.connection?.session === connection.session else {
-                    return nil
-                }
-                self?.projection = updated
-                return updated
-            } catch {
-                return nil
-            }
+        else {
+            pendingProjectionWrite = nil
+            return
         }
+
+        pendingProjectionWrite = PendingProjectionWrite(
+            connection: connection,
+            claimID: claimID,
+            workspace: BackendProjectionWorkspaceState(
+                workspaceID: workspace.uuid,
+                selectedScreenID: screen.uuid
+            )
+        )
+        startProjectionWriterIfNeeded(controller: controller)
+    }
+
+    private func startProjectionWriterIfNeeded(
+        controller: any BackendOnlyHostSessionControlling
+    ) {
+        guard projectionUpdateTask == nil, pendingProjectionWrite != nil else { return }
+        let writerID = UUID()
+        projectionWriterID = writerID
+        let logicalPresentationID = logicalPresentationID
+        projectionUpdateTask = Task { @MainActor [weak self, controller] in
+            while !Task.isCancelled,
+                  let attempt = self?.takeNextProjectionWrite(writerID: writerID) {
+                let updated: BackendProjectionState?
+                do {
+                    updated = try await controller.updateProjectionState(
+                        for: attempt.pending.connection,
+                        logicalPresentationID: logicalPresentationID,
+                        claimID: attempt.pending.claimID,
+                        expectedGeneration: attempt.expectedGeneration,
+                        workspaces: [attempt.pending.workspace]
+                    )
+                } catch {
+                    updated = nil
+                }
+
+                guard !Task.isCancelled, let self else { return }
+                guard self.projectionWriterID == writerID else { return }
+                guard self.connection?.session === attempt.pending.connection.session,
+                      self.projection?.claimID == attempt.pending.claimID
+                else {
+                    self.pendingProjectionWrite = nil
+                    break
+                }
+                if let updated,
+                   updated.logicalPresentationID == logicalPresentationID,
+                   updated.claimID == attempt.pending.claimID,
+                   updated.generation > attempt.expectedGeneration {
+                    self.projection = updated
+                }
+                // A failed attempt is never retried on its own. The loop runs
+                // again only when a selection made during the RPC replaced the
+                // single pending slot with a newer desired workspace.
+            }
+            self?.finishProjectionWriter(writerID: writerID)
+        }
+    }
+
+    private func takeNextProjectionWrite(
+        writerID: UUID
+    ) -> ProjectionWriteAttempt? {
+        guard projectionWriterID == writerID,
+              let pending = pendingProjectionWrite
+        else { return nil }
+        pendingProjectionWrite = nil
+        guard connection?.session === pending.connection.session,
+              let projection,
+              projection.logicalPresentationID == logicalPresentationID,
+              projection.claimID == pending.claimID
+        else { return nil }
+        return ProjectionWriteAttempt(
+            pending: pending,
+            expectedGeneration: projection.generation
+        )
+    }
+
+    private func finishProjectionWriter(writerID: UUID) {
+        guard projectionWriterID == writerID else { return }
+        projectionWriterID = nil
+        projectionUpdateTask = nil
+    }
+
+    private func cancelProjectionPersistence() {
+        let task = projectionUpdateTask
+        projectionWriterID = nil
+        projectionUpdateTask = nil
+        pendingProjectionWrite = nil
+        task?.cancel()
     }
 }
