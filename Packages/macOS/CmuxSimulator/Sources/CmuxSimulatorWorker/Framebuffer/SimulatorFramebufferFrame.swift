@@ -10,9 +10,11 @@ struct SimulatorFramebufferFrame: @unchecked Sendable {
     let surface: IOSurface
     let width: Int
     let height: Int
+    let geometry: SimulatorSurfaceGeometry?
 
     init(surface: IOSurface, geometry: SimulatorSurfaceGeometry? = nil) {
         self.surface = surface
+        self.geometry = geometry
         let size = SimulatorFramebufferTargetSize(
             sourceWidth: IOSurfaceGetWidth(surface),
             sourceHeight: IOSurfaceGetHeight(surface),

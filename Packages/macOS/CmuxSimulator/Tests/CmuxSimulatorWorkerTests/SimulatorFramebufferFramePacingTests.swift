@@ -21,19 +21,17 @@ struct SimulatorFramebufferFramePacingTests {
         ] as CFDictionary))
         let publisher = try await SimulatorFramebufferFramePublisher(
             initialSurface: surface,
+            minimumFrameInterval: .seconds(10),
             onFrameTransportChange: { _ in }
         )
         defer { publisher.cancel() }
 
-        let clock = ContinuousClock()
         for _ in 0..<20 {
             publisher.enqueue(surface)
-            try await clock.sleep(for: .milliseconds(2))
         }
-        try await clock.sleep(for: .milliseconds(80))
 
         let sequence = try publishedSequence(in: publisher.initialDescriptor)
-        #expect(sequence <= 5)
+        #expect(sequence == 1)
     }
 
     private func publishedSequence(
