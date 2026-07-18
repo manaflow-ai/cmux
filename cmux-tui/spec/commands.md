@@ -63,9 +63,11 @@ object{
 
 ```text
 object{type:"leaf",pane:Id}
-| object{type:"split",dir:"right"|"down",ratio:float32,a:Layout,b:Layout}
+| object{type:"split",split:Id,dir:"right"|"down",ratio:float32,a:Layout,b:Layout}
 | object{type:"stack",panes:array<Id>,expanded:Id}
 ```
+
+`split` is stable for the lifetime of that split node. Ratio changes, pane focus, tab changes, and leaf swaps preserve it. Collapsing the split removes the id. A later split receives a new id. Protocol v6 and older canonical layouts omit this field.
 
 `DeclarativeLayout`:
 
@@ -1047,6 +1049,51 @@ Example:
 ```json
 {"id":11,"cmd":"set-ratio","pane":2,"dir":"right","ratio":0.7}
 {"id":11,"ok":true,"data":{}}
+```
+
+`set-ratio` remains supported in protocol v7 for existing clients. Its pane-and-direction lookup can be ambiguous when same-direction splits are nested, so new frontends should use `set-split-ratio` with the canonical layout's stable split id.
+
+### set-split-ratio
+
+| Field | Value |
+| --- | --- |
+| name | `set-split-ratio` |
+| status | implemented |
+| since | protocol 7 |
+
+Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `split` | `Id` | required | Stable split id from `list-workspaces` or `export-layout` |
+| `ratio` | `float32` | required | Clamped to `0.05..0.95` |
+
+Result: `object{}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown split <id>` | No live split node has the id |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `set-split-ratio` |
+| Flags | `--split <id> --ratio <number>` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":12,"cmd":"set-split-ratio","split":9,"ratio":0.7}
+{"id":12,"ok":true,"data":{}}
 ```
 
 ### pane-neighbor

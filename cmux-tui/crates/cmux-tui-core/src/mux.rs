@@ -18,8 +18,8 @@ use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::pairing::PairingBroker;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::{
-    PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SurfaceId,
-    WorkspaceId,
+    PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
+    SurfaceId, WorkspaceId,
 };
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
@@ -1972,6 +1972,7 @@ impl Mux {
         let cwd = self.pane_cwd(target);
         let surface = self.spawn_surface(cwd, size)?;
         let pane_id = self.next_id();
+        let split_id = self.next_id();
         let active_at = self.next_active_at();
         let mut done = false;
         let mut changed_screen = None;
@@ -1982,7 +1983,7 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             'outer: for ws in state.workspaces.iter_mut() {
                 for screen in ws.screens.iter_mut() {
-                    if screen.root.split_leaf(target, dir, pane_id) {
+                    if screen.root.split_leaf(target, split_id, dir, pane_id) {
                         screen.active_pane = pane_id;
                         // A directional split damages the automatic layout.
                         // The next Alt-N can establish a fresh Zellij layout
@@ -2068,7 +2069,10 @@ impl Mux {
                     });
                     panes.retain(|pane| screen.root.contains(*pane));
                     panes.push(pane_id);
-                    screen.root = crate::zellij_default_pane_layout(&panes)
+                    screen.root =
+                        crate::layout::zellij_default_pane_layout_with_ids(&panes, &mut || {
+                            self.next_id()
+                        })
                         .expect("new pane layout always has at least one pane");
                     screen.active_pane = pane_id;
                     screen.zoomed_pane = None;
@@ -2111,7 +2115,7 @@ impl Mux {
             let changed_screen = surface_screen_id(&state, target);
             let delta = close_surface_delta(&state, &notifications, target);
             (
-                remove_surface(&mut state, target),
+                remove_surface(self, &mut state, target),
                 changed_screen.into_iter().collect::<Vec<_>>(),
                 state.workspaces.is_empty(),
                 delta,
@@ -2144,7 +2148,7 @@ impl Mux {
             );
             let mut removed = Vec::new();
             for surface in tabs {
-                if let Some(surface) = remove_surface(&mut state, surface) {
+                if let Some(surface) = remove_surface(self, &mut state, surface) {
                     removed.push(surface);
                 }
             }
@@ -2437,6 +2441,25 @@ impl Mux {
         }
     }
 
+    /// Set one split ratio by its stable split-tree node id.
+    pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> bool {
+        let ratio = clamp_split_ratio(ratio);
+        let changed_screen =
+            {
+                let mut state = self.state.lock().unwrap();
+                state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(
+                    |screen| screen.root.set_split_ratio(split, ratio).then_some(screen.id),
+                )
+            };
+        if let Some(screen) = changed_screen {
+            self.emit(MuxEvent::TreeChanged);
+            self.emit(MuxEvent::LayoutChanged(screen));
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn pane_neighbor(&self, pane: PaneId, dir: Direction) -> anyhow::Result<Option<PaneId>> {
         self.with_state(|state| {
             let Some((wi, si)) = state.screen_of(pane) else {
@@ -2676,6 +2699,7 @@ impl Mux {
                 Ok(Node::Leaf(pane_id))
             }
             LayoutSpec::Split { dir, ratio, a, b } => Ok(Node::Split {
+                id: self.next_id(),
                 dir: *dir,
                 ratio: clamp_split_ratio(*ratio),
                 a: Box::new(self.instantiate_layout(a, size, panes, created, spawned)?),
@@ -2707,7 +2731,7 @@ impl Mux {
         let active_at = self.next_active_at();
         let moved = {
             let mut state = self.state.lock().unwrap();
-            let moved = move_tab_in_state(&mut state, surface, pane, index);
+            let moved = move_tab_in_state(self, &mut state, surface, pane, index);
             if moved {
                 stamp_pane(&mut state, pane, active_at);
             }
@@ -3029,7 +3053,7 @@ fn close_workspace_delta(
 /// Remove one surface from the state: detach it from its
 /// pane, and collapse emptied panes/screens/workspaces. Returns whether
 /// anything was removed. Runs under the state lock.
-fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> {
+fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> {
     let removed = state.surfaces.remove(&target);
     let Some(pane_id) = state.pane_of(target) else {
         return removed;
@@ -3062,7 +3086,9 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
         Some(mut root) => {
             if let Some(panes) = zellij_auto_layout.as_mut() {
                 panes.retain(|pane| *pane != pane_id);
-                if let Some(layout) = crate::zellij_default_pane_layout(panes) {
+                if let Some(layout) =
+                    crate::layout::zellij_default_pane_layout_with_ids(panes, &mut || mux.next_id())
+                {
                     root = layout;
                 } else {
                     zellij_auto_layout = None;
@@ -3103,7 +3129,7 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
     removed
 }
 
-fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
+fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {
     state.panes.remove(&pane_id);
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return;
@@ -3121,7 +3147,9 @@ fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
         Some(mut root) => {
             if let Some(panes) = zellij_auto_layout.as_mut() {
                 panes.retain(|pane| *pane != pane_id);
-                if let Some(layout) = crate::zellij_default_pane_layout(panes) {
+                if let Some(layout) =
+                    crate::layout::zellij_default_pane_layout_with_ids(panes, &mut || mux.next_id())
+                {
                     root = layout;
                 } else {
                     zellij_auto_layout = None;
@@ -3158,6 +3186,7 @@ fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
 }
 
 fn move_tab_in_state(
+    mux: &Mux,
     state: &mut State,
     surface: SurfaceId,
     target_pane: PaneId,
@@ -3199,7 +3228,7 @@ fn move_tab_in_state(
     }
 
     if state.panes.get(&source_pane).is_some_and(|pane| pane.tabs.is_empty()) {
-        collapse_empty_pane(state, source_pane);
+        collapse_empty_pane(mux, state, source_pane);
     }
 
     let Some(target) = state.panes.get_mut(&target_pane) else {
@@ -3781,9 +3810,11 @@ mod tests {
                     id: 1,
                     name: None,
                     root: Node::Split {
+                        id: 10,
                         dir: SplitDir::Right,
                         ratio: 0.5,
                         a: Box::new(Node::Split {
+                            id: 11,
                             dir: SplitDir::Right,
                             ratio: 0.5,
                             a: Box::new(Node::Leaf(p1)),
@@ -3819,7 +3850,7 @@ mod tests {
     fn node_shape(node: &Node) -> String {
         match node {
             Node::Leaf(_) => "leaf".to_string(),
-            Node::Split { dir, ratio, a, b } => {
+            Node::Split { dir, ratio, a, b, .. } => {
                 let dir = match dir {
                     SplitDir::Right => "right",
                     SplitDir::Down => "down",
@@ -3882,7 +3913,7 @@ mod tests {
             fn from_node(node: &Node) -> LayoutSpec {
                 match node {
                     Node::Leaf(_) => leaf_spec(),
-                    Node::Split { dir, ratio, a, b } => {
+                    Node::Split { dir, ratio, a, b, .. } => {
                         split_spec(*dir, *ratio, from_node(a), from_node(b))
                     }
                     Node::Stack { .. } => panic!("apply-layout does not construct stacks"),
@@ -4444,6 +4475,59 @@ mod tests {
         });
 
         assert!(!mux.set_ratio(9999, SplitDir::Right, 0.4));
+    }
+
+    #[test]
+    fn set_split_ratio_updates_only_the_exact_split_and_clamps() {
+        let mux = test_mux();
+        seed_split_ratio_tree(&mux);
+        let events = mux.subscribe();
+
+        assert!(mux.set_split_ratio(10, 2.0));
+        mux.with_state(|s| {
+            let Node::Split { id, ratio: root_ratio, a, .. } = &s.workspaces[0].screens[0].root
+            else {
+                panic!("root should be split");
+            };
+            assert_eq!(*id, 10);
+            assert_eq!(*root_ratio, 0.95);
+            let Node::Split { id, ratio: inner_ratio, .. } = a.as_ref() else {
+                panic!("first child should be split");
+            };
+            assert_eq!(*id, 11);
+            assert_eq!(*inner_ratio, 0.5);
+        });
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(1)));
+        assert!(!mux.set_split_ratio(9999, 0.4));
+    }
+
+    #[test]
+    fn dynamically_created_split_ids_remain_stable_across_tree_edits() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let p1 = mux.with_state(|s| s.pane_of(first.id).unwrap());
+        let second = mux.split(p1, SplitDir::Right, None).unwrap();
+        let p2 = mux.with_state(|s| s.pane_of(second.id).unwrap());
+        let original = mux.with_state(|s| {
+            let Node::Split { id, .. } = &s.workspaces[0].screens[0].root else {
+                panic!("root should be split");
+            };
+            *id
+        });
+
+        let third = mux.split(p2, SplitDir::Down, None).unwrap();
+        let p3 = mux.with_state(|s| s.pane_of(third.id).unwrap());
+        assert!(mux.swap_panes(p1, p3));
+        assert!(mux.set_split_ratio(original, 0.7));
+
+        mux.with_state(|s| {
+            let Node::Split { id, ratio, .. } = &s.workspaces[0].screens[0].root else {
+                panic!("root should remain split");
+            };
+            assert_eq!(*id, original);
+            assert_eq!(*ratio, 0.7);
+        });
     }
 
     #[test]

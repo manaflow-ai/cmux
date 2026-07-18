@@ -298,6 +298,10 @@ func (c *Client) SetRatio(ctx context.Context, pane uint64, dir string, ratio fl
 	return c.request(ctx, "set-ratio", map[string]any{"pane": pane, "dir": dir, "ratio": ratio}, nil)
 }
 
+func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32) error {
+	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
+}
+
 func (c *Client) SetDefaultColors(ctx context.Context, fg, bg *string) error {
 	params := map[string]any{}
 	if fg != nil {

@@ -137,7 +137,15 @@ pub enum Layout {
     #[serde(rename = "leaf")]
     Leaf { pane: u64 },
     #[serde(rename = "split")]
-    Split { dir: String, ratio: f32, a: Box<Layout>, b: Box<Layout> },
+    Split {
+        /// Stable split id, present on protocol v7 and newer servers.
+        #[serde(default)]
+        split: Option<u64>,
+        dir: String,
+        ratio: f32,
+        a: Box<Layout>,
+        b: Box<Layout>,
+    },
     #[serde(rename = "stack")]
     Stack { panes: Vec<u64>, expanded: u64 },
 }
@@ -443,6 +451,13 @@ impl CmuxClient {
         params.insert("dir".to_string(), Value::from(dir));
         params.insert("ratio".to_string(), Value::from(ratio));
         self.request::<Empty>("set-ratio", params).map(|_| ())
+    }
+
+    pub fn set_split_ratio(&mut self, split: u64, ratio: f32) -> Result<()> {
+        let mut params = Map::new();
+        params.insert("split".to_string(), Value::from(split));
+        params.insert("ratio".to_string(), Value::from(ratio));
+        self.request::<Empty>("set-split-ratio", params).map(|_| ())
     }
 
     pub fn set_default_colors(&mut self, fg: Option<&str>, bg: Option<&str>) -> Result<()> {

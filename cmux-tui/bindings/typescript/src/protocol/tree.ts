@@ -3,7 +3,15 @@ import type { Id, Size, SplitDirection } from "./common.js";
 /** The canonical pane split tree. */
 export type Layout =
   | { type: "leaf"; pane: Id }
-  | { type: "split"; dir: SplitDirection; ratio: number; a: Layout; b: Layout }
+  | {
+      type: "split";
+      /** Stable split id. Absent only when connected to a pre-v7 server. */
+      split?: Id;
+      dir: SplitDirection;
+      ratio: number;
+      a: Layout;
+      b: Layout;
+    }
   | { type: "stack"; panes: Id[]; expanded: Id };
 
 /** A declarative split tree used by `apply-layout`. */

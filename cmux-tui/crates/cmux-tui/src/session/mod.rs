@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::{
     BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
-    SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
+    SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
     SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{MouseInput, RenderState, Terminal};
@@ -714,21 +714,15 @@ impl Session {
         }
     }
 
-    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) -> anyhow::Result<()> {
+    pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.set_ratio(pane, dir, ratio);
+                mux.set_split_ratio(split, ratio);
                 Ok(())
             }
-            Session::Remote(remote) => {
-                let dir = match dir {
-                    SplitDir::Right => "right",
-                    SplitDir::Down => "down",
-                };
-                remote
-                    .request(json!({"cmd": "set-ratio", "pane": pane, "dir": dir, "ratio": ratio}))
-                    .map(|_| ())
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "set-split-ratio", "split": split, "ratio": ratio}))
+                .map(|_| ()),
         }
     }
 

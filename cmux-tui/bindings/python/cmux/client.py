@@ -97,6 +97,7 @@ class Size:
 class Layout:
     type: str
     pane: Optional[int] = None
+    split: Optional[int] = None
     dir: Optional[str] = None
     ratio: Optional[float] = None
     a: Optional["Layout"] = None
@@ -440,6 +441,10 @@ class CmuxClient:
         self._request("set-ratio", pane=pane, dir=dir, ratio=ratio)
         return EmptyResult()
 
+    def set_split_ratio(self, split: int, ratio: float) -> EmptyResult:
+        self._request("set-split-ratio", split=split, ratio=ratio)
+        return EmptyResult()
+
     def pane_neighbor(self, pane: int, dir: str) -> Dict[str, Any]:
         return self._request("pane-neighbor", pane=pane, dir=dir)
 
@@ -556,7 +561,7 @@ class CmuxClient:
         if protocol > 8:
             raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 8")
         if protocol > 5 and not self.allow_protocol_v6_attach:
-            raise ProtocolError("protocol v6 attach streams require resized replay handling")
+            raise ProtocolError("protocol v6+ attach streams require resized replay handling")
         return AttachStream(self, {"cmd": "attach-surface", "surface": surface})
 
     def _require_protocol(self, minimum: int, feature: str) -> None:
@@ -606,6 +611,7 @@ def _parse_layout(value: Dict[str, Any]) -> Layout:
     if value.get("type") == "split":
         return Layout(
             type="split",
+            split=int(value["split"]) if value.get("split") is not None else None,
             dir=value.get("dir"),
             ratio=float(value.get("ratio", 0.0)),
             a=_parse_layout(value.get("a", {})),

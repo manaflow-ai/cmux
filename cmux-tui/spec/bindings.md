@@ -2,7 +2,7 @@
 
 Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
 
-All bindings must expose the implemented protocol v8 commands, events, and socket transport. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
+All bindings must expose the implemented protocol v8 commands, events, transports, stable split ids, stack layouts, and `set-split-ratio` API. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
 
 ## Shared Requirements
 

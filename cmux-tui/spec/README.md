@@ -14,7 +14,7 @@ The spec version tracks the mux protocol version.
 | Additive command, event, field, CLI flag, binding helper, or transport option | Minor protocol version |
 | Removal, rename, incompatible type change, changed error semantics, or changed ordering guarantee | Major protocol version |
 
-Protocol v7 is the implemented baseline. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
+Protocol v7 is the implemented baseline. It adds stable ids to canonical split nodes and exact split-ratio mutation while preserving the protocol-v5 `set-ratio` command. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
 
 Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"bytes"`, and `subscribe.tree_events` defaults to `"coarse"`, so absent v7 selectors retain exact v6 attach and tree-event behavior. A v7 server reports `identify.protocol == 7`; clients must require that value before selecting render mode or using other v7-only fields and commands.
 
