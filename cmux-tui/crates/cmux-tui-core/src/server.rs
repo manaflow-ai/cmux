@@ -8540,7 +8540,7 @@ mod tests {
                 protocol_max: 8,
                 client_uuid: uuid::Uuid::new_v4(),
                 process_instance_uuid: uuid::Uuid::new_v4(),
-                client_kind: None,
+                client_kind: Some("swift-shell".to_string()),
             },
             &writer,
         )
@@ -8552,7 +8552,7 @@ mod tests {
             "x".repeat(1024 * 1024)
         );
         assert!(handle_message(&mux, stale, &stale_request, &writer));
-        assert_rejected_response(&outbound, "registered protocol v9 capability");
+        assert_rejected_response(&outbound, "same-UID trusted frontend or automation");
         assert_eq!(mux.control_clients.inbound_budget().usage(), before_budget);
 
         let remote = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
@@ -9379,7 +9379,8 @@ mod tests {
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
-        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (client, _, _) =
+            register_v9_client_kind(&mux, &writer, ClientTransport::Unix, "swift-shell");
         let events = mux.subscribe();
         mux.resize_surface_for_client(surface.id, client, 80, 24).unwrap();
 
@@ -9611,7 +9612,9 @@ mod tests {
         .unwrap_err();
         let message = error.to_string();
         assert!(
-            message.contains("protocol v9") || message.contains("requires register-client"),
+            message.contains("trusted local connection")
+                || message.contains("protocol v9")
+                || message.contains("requires register-client"),
             "unexpected unregistered accessibility error: {message}"
         );
 
@@ -11096,7 +11099,7 @@ mod tests {
 
         let mux = test_mux();
         let writer = test_writer();
-        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (client, _) = register_v9_client(&mux, &writer);
         let identities = (0..TERMINAL_COUNT)
             .map(|_| (WorkspaceUuid::new(), SurfaceUuid::new()))
             .collect::<Vec<_>>();
