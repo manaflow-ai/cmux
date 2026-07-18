@@ -298,6 +298,13 @@ struct BrowserWebExtensionsManagerTests {
         let profileDataStore = WKWebsiteDataStore.nonPersistent()
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = extensionDataStore
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: "window.extensionOwned = true",
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
 
         let webView = BrowserPanel.makeWebView(
             profileID: UUID(),
@@ -306,6 +313,7 @@ struct BrowserWebExtensionsManagerTests {
         )
 
         #expect(webView.configuration.websiteDataStore === extensionDataStore)
+        #expect(webView.configuration.userContentController.userScripts.count == 1)
     }
 
     @available(macOS 15.4, *)
