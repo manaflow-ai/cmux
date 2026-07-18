@@ -61,6 +61,57 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func forkFromHibernatedParentLeavesParentRecoveryStateUnchanged() async throws {
+        let workspace = Workspace()
+        let parentPanelId = try #require(workspace.focusedPanelId)
+        let parentPanel = try #require(workspace.terminalPanel(for: parentPanelId))
+        let snapshot = makeForkableClaudeSnapshot(
+            sessionId: "hibernated-fork-parent"
+        )
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: parentPanelId)
+        let hibernatedAt = Date(timeIntervalSince1970: 200)
+        let lastActivityAt = Date(timeIntervalSince1970: 100)
+        #expect(parentPanel.enterAgentHibernation(
+            agent: snapshot,
+            lastActivityAt: lastActivityAt,
+            hibernatedAt: hibernatedAt
+        ))
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let beforeTerminal = try #require(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == parentPanelId }?.terminal
+        )
+        let beforeBytes = try encoder.encode(beforeTerminal)
+        let beforePendingInput = parentPanel.surface.debugPendingSocketInputForTesting()
+        let panelIdsBefore = Set(workspace.panels.keys)
+
+        #expect(await workspace.forkAgentConversationFromContextMenu(
+            fromPanelId: parentPanelId,
+            destination: .newTab
+        ))
+
+        let childPanelIds = Set(workspace.panels.keys).subtracting(panelIdsBefore)
+        #expect(childPanelIds.count == 1)
+        let afterState = try #require(parentPanel.agentHibernationState)
+        #expect(afterState.agent == snapshot)
+        #expect(afterState.hibernatedAt == hibernatedAt)
+        #expect(afterState.lastActivityAt == lastActivityAt)
+        #expect(parentPanel.isAgentHibernated)
+        #expect(parentPanel.surface.debugPendingSocketInputForTesting() == beforePendingInput)
+        let afterTerminal = try #require(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == parentPanelId }?.terminal
+        )
+        #expect(try encoder.encode(afterTerminal) == beforeBytes)
+        let childPanel = try #require(
+            childPanelIds.first.flatMap { workspace.terminalPanel(for: $0) }
+        )
+        #expect(childPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @Test
     func liveAgentIndexLoaderUsesProcessDetectedPanelWhenHookBindingIsStale() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
