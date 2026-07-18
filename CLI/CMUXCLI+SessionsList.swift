@@ -2,6 +2,10 @@ import CmuxFoundation
 import Foundation
 
 struct SessionListEntryAccumulator {
+    private static let deterministicStringKeys = [
+        "session_id", "agent", "run_id", "workspace_id", "surface_id", "identity_source",
+    ]
+
     private struct Entry {
         var updatedAt: TimeInterval
         var payload: [String: Any]
@@ -67,15 +71,25 @@ struct SessionListEntryAccumulator {
 
     private static func isOrderedBefore(_ lhs: Entry, _ rhs: Entry) -> Bool {
         if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
-        return sessionID(lhs.payload) < sessionID(rhs.payload)
+        for key in deterministicStringKeys {
+            let lhsValue = stringValue(lhs.payload, key: key)
+            let rhsValue = stringValue(rhs.payload, key: key)
+            if lhsValue != rhsValue { return lhsValue < rhsValue }
+        }
+        let lhsPID = lhs.payload["pid"] as? Int ?? Int.min
+        let rhsPID = rhs.payload["pid"] as? Int ?? Int.min
+        if lhsPID != rhsPID { return lhsPID < rhsPID }
+        let lhsStartedAt = lhs.payload["process_started_at"] as? TimeInterval ?? -TimeInterval.infinity
+        let rhsStartedAt = rhs.payload["process_started_at"] as? TimeInterval ?? -TimeInterval.infinity
+        return lhsStartedAt < rhsStartedAt
     }
 
     private static func isWorse(_ lhs: Entry, than rhs: Entry) -> Bool {
         isOrderedBefore(rhs, lhs)
     }
 
-    private static func sessionID(_ payload: [String: Any]) -> String {
-        (payload["session_id"] as? String) ?? ""
+    private static func stringValue(_ payload: [String: Any], key: String) -> String {
+        (payload[key] as? String) ?? ""
     }
 }
 
