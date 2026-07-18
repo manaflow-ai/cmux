@@ -220,4 +220,62 @@ struct BackendOnlyRendererWorkerTransitionTests {
             )
         }
     }
+
+    @Test("config floor rejects an in-flight stale receipt after invalidation")
+    func configFloorRejectsInFlightStaleReceipt() throws {
+        let first = BackendOnlyRendererConfigIdentity(
+            revision: 1,
+            digest: try BackendRendererConfigDigest(
+                validating: String(repeating: "a", count: 64)
+            )
+        )
+        let second = BackendOnlyRendererConfigIdentity(
+            revision: 2,
+            digest: try BackendRendererConfigDigest(
+                validating: String(repeating: "b", count: 64)
+            )
+        )
+        let invalidation = try BackendRendererConfigInvalidated(
+            revision: second.revision,
+            digest: second.digest,
+            reason: "ghostty-config-reloaded",
+            defaultColors: [:]
+        )
+        var floor = BackendOnlyRendererConfigFloor()
+        try floor.accept(first)
+
+        #expect(try floor.record(invalidation))
+        #expect(try floor.satisfies(first) == false)
+        #expect(throws: BackendOnlyRendererConfigRefreshError.staleReceipt) {
+            try floor.accept(first)
+        }
+
+        try floor.accept(second)
+        #expect(try floor.satisfies(second))
+        #expect(floor.identity == second)
+    }
+
+    @Test("config floor rejects one revision with conflicting digests")
+    func configFloorRejectsConflictingDigest() throws {
+        let accepted = BackendOnlyRendererConfigIdentity(
+            revision: 2,
+            digest: try BackendRendererConfigDigest(
+                validating: String(repeating: "a", count: 64)
+            )
+        )
+        let invalidation = try BackendRendererConfigInvalidated(
+            revision: 2,
+            digest: try BackendRendererConfigDigest(
+                validating: String(repeating: "b", count: 64)
+            ),
+            reason: "ghostty-config-reloaded",
+            defaultColors: [:]
+        )
+        var floor = BackendOnlyRendererConfigFloor()
+        try floor.accept(accepted)
+
+        #expect(throws: BackendOnlyRendererConfigRefreshError.inconsistentRevision) {
+            _ = try floor.record(invalidation)
+        }
+    }
 }
