@@ -9,6 +9,65 @@ import os
 /// `remoteTmux` beta flag and delegates to `AppDelegate`'s
 /// ``RemoteTmuxController``.
 extension TerminalController {
+    /// `remote.tmux.new_workspace` — create a NEW tmux session on the host backing
+    /// a remote-tmux workspace, over its already-open control connection, so it
+    /// links into the shared view and registers as its own cmux workspace (the CLI
+    /// analogue of Cmd-N on a remote connection). Rides the existing stream, so it
+    /// never opens a second SSH connection (which would hit single-use 2FA).
+    ///
+    /// Params: `workspace_id` (required UUID of an existing remote mirror, to locate
+    /// the host + window), optional `name` (desired session title). On success
+    /// returns the new `workspace_id` (+ `surface_id` when its first tab has
+    /// reconciled); if the session was created but its mirror has not surfaced yet,
+    /// returns `session_name` with `pending: true` (the session exists, so callers
+    /// must not retry).
+    nonisolated func v2RemoteTmuxNewWorkspace(id: Any?, params: [String: Any]) -> String {
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.workspaceRequired", defaultValue: "workspace_id is required"))
+        }
+        let name = v2String(params, "name")
+        // Fail closed on a name tmux can't carry on the control stream (control/
+        // newline bytes), rather than silently creating an auto-named session.
+        if let name, RemoteTmuxHost.controlModeCommandName(name) == nil {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.invalidName", defaultValue: "name contains characters that are not allowed in a session name"))
+        }
+        // Outer timeout stays above createRemoteWorkspace's surface deadline so a
+        // slow reconcile returns the partial (session-created) result rather than a
+        // bare timeout that would hide the new session's name.
+        return v2VmCall(id: id, timeoutSeconds: 45) {
+            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController }) else {
+                throw RemoteTmuxError.unreachable("app not ready")
+            }
+            let outcome = await controller.createRemoteWorkspace(referenceWorkspaceId: workspaceId, name: name)
+            switch outcome {
+            case let .created(newWorkspaceId, surfaceId):
+                var payload: [String: Any] = [
+                    "workspace_id": newWorkspaceId.uuidString,
+                    "pending": false,
+                ]
+                if let surfaceId { payload["surface_id"] = surfaceId.uuidString }
+                return payload
+            case let .createdPending(sessionName):
+                return [
+                    "session_name": sessionName,
+                    "pending": true,
+                ]
+            case .notLinked:
+                throw RemoteTmuxError.unreachable("workspace is not a live remote tmux mirror")
+            case .createFailed:
+                throw RemoteTmuxError.unreachable("failed to create a new tmux session on the host")
+            case .createIndeterminate:
+                // The create reply was lost after the stream was connected: a session
+                // may or may not have been created. Surface it as its own condition so
+                // the CLI does not report a clean failure that invites a duplicate retry.
+                throw RemoteTmuxError.unreachable("remote tmux session create result unknown (stream timeout); check list-workspaces before retrying")
+            }
+        }
+    }
+
     /// `remote.tmux.sessions` — list the tmux sessions on a host.
     ///
     /// Params: `host` (required SSH destination/alias), optional `port` (Int),
