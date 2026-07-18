@@ -343,7 +343,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             let present = Set(attachmentIdentities(in: storage))
             var appended = false
             for selection in effective where !present.contains(selection.selector) {
-                storage.append(BrowserDesignModeTokenAttachment.attributedToken(for: selection, at: 0))
+                storage.append(attributedToken(for: selection))
                 appended = true
             }
 
@@ -474,6 +474,13 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                   let selections = controller.snapshot?.selections,
                   let position = selections.firstIndex(where: { $0.selector == token.identity })
             else { return }
+            if let event = NSApp.currentEvent {
+                let point = view.convert(event.locationInWindow, from: nil)
+                if token.deleteHitRect(in: cellFrame).contains(point) {
+                    token.performRemoval()
+                    return
+                }
+            }
             // The XPath is the element's copyable identity: clicking a pill
             // puts the full path on the clipboard and flashes the element.
             let selection = selections[position]
@@ -553,7 +560,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                     storage.append(NSAttributedString(string: string, attributes: typingAttributes))
                 case .token(let identity):
                     guard let selection = selections.first(where: { $0.selector == identity }) else { continue }
-                    storage.append(BrowserDesignModeTokenAttachment.attributedToken(for: selection, at: 0))
+                    storage.append(attributedToken(for: selection))
                 }
             }
             syncing = false
@@ -570,12 +577,101 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             let text = storage.string.replacingOccurrences(of: "\u{FFFC}", with: "")
             return String(text.drop(while: { $0 == " " }))
         }
+
+        private func attributedToken(for selection: BrowserDesignModeSelection) -> NSAttributedString {
+            BrowserDesignModeTokenAttachment.attributedToken(for: selection) { [weak self] identity in
+                self?.removeToken(identity: identity)
+            }
+        }
+
+        private func removeToken(identity: String) {
+            guard let textView, let storage = textView.textStorage else { return }
+            var tokenRange: NSRange?
+            storage.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: storage.length)
+            ) { value, range, stop in
+                guard let attachment = value as? BrowserDesignModeTokenAttachment,
+                      attachment.identity == identity else { return }
+                tokenRange = range
+                stop.pointee = true
+            }
+            guard let tokenRange,
+                  textView.shouldChangeText(in: tokenRange, replacementString: "") else { return }
+            storage.deleteCharacters(in: tokenRange)
+            textView.setSelectedRange(NSRange(location: tokenRange.location, length: 0))
+            textView.didChangeText()
+        }
     }
 }
 
 /// Text view that draws the placeholder after the trailing token when no
 /// change text has been typed yet.
 final class BrowserDesignModeTokenTextView: NSTextView {
+    private var tokenTrackingArea: NSTrackingArea?
+    private(set) var hoveredTokenIdentity: String? {
+        didSet {
+            guard oldValue != hoveredTokenIdentity else { return }
+            needsDisplay = true
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tokenTrackingArea { removeTrackingArea(tokenTrackingArea) }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        tokenTrackingArea = trackingArea
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        hoveredTokenIdentity = tokenFrames().first(where: {
+            $0.frame.insetBy(dx: -2, dy: -2).contains(convert(event.locationInWindow, from: nil))
+        })?.identity
+        super.mouseMoved(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoveredTokenIdentity = nil
+        super.mouseExited(with: event)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        for token in tokenFrames() where token.identity == hoveredTokenIdentity {
+            addCursorRect(token.cell.deleteHitRect(in: token.frame), cursor: .pointingHand)
+        }
+    }
+
+    private func tokenFrames() -> [(identity: String, cell: BrowserDesignModeTokenCell, frame: NSRect)] {
+        guard let storage = textStorage, let layoutManager, let textContainer else { return [] }
+        var tokens: [(String, BrowserDesignModeTokenCell, NSRect)] = []
+        storage.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: storage.length)
+        ) { value, range, _ in
+            guard let attachment = value as? BrowserDesignModeTokenAttachment,
+                  let cell = attachment.attachmentCell as? BrowserDesignModeTokenCell else { return }
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: range,
+                actualCharacterRange: nil
+            )
+            let containerFrame = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            tokens.append((
+                attachment.identity,
+                cell,
+                containerFrame.offsetBy(dx: textContainerInset.width, dy: textContainerInset.height)
+            ))
+        }
+        return tokens
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let storage = textStorage,
@@ -642,18 +738,24 @@ enum BrowserDesignModeTokenStyle {
 final class BrowserDesignModeTokenAttachment: NSTextAttachment {
     let identity: String
 
-    init(selection: BrowserDesignModeSelection) {
+    init(
+        selection: BrowserDesignModeSelection,
+        onRemove: @escaping @MainActor (String) -> Void
+    ) {
         identity = selection.selector
         super.init(data: nil, ofType: nil)
-        attachmentCell = BrowserDesignModeTokenCell(selection: selection)
+        attachmentCell = BrowserDesignModeTokenCell(selection: selection, onRemove: onRemove)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    static func attributedToken(for selection: BrowserDesignModeSelection, at index: Int) -> NSAttributedString {
+    static func attributedToken(
+        for selection: BrowserDesignModeSelection,
+        onRemove: @escaping @MainActor (String) -> Void
+    ) -> NSAttributedString {
         let token = NSMutableAttributedString(
-            attachment: BrowserDesignModeTokenAttachment(selection: selection)
+            attachment: BrowserDesignModeTokenAttachment(selection: selection, onRemove: onRemove)
         )
         // Hovering a pill shows its (middle-truncated) XPath; clicking the
         // pill copies the full path.
@@ -680,109 +782,5 @@ final class BrowserDesignModeTokenAttachment: NSTextAttachment {
             range: NSRange(location: 0, length: token.length)
         )
         return token
-    }
-}
-
-/// Draws a token as an inline pill: element-kind glyph plus tag name in blue.
-final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
-    let identity: String
-    private let tagTitle: String
-    private let icon: NSImage?
-    private let tint: NSColor
-    private let titleAttributes: [NSAttributedString.Key: Any]
-
-    /// Parses the runtime's palette hex (#RRGGBB); falls back to accent blue.
-    private static func tintColor(fromHex hex: String) -> NSColor {
-        var value: UInt64 = 0
-        let trimmed = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
-        guard trimmed.count == 6, Scanner(string: trimmed).scanHexInt64(&value) else {
-            return BrowserDesignModeTokenStyle.blue
-        }
-        return NSColor(
-            calibratedRed: CGFloat((value >> 16) & 0xFF) / 255,
-            green: CGFloat((value >> 8) & 0xFF) / 255,
-            blue: CGFloat(value & 0xFF) / 255,
-            alpha: 1
-        )
-    }
-
-    init(selection: BrowserDesignModeSelection) {
-        identity = selection.selector
-        tagTitle = selection.tagName
-        let tint = Self.tintColor(fromHex: selection.color)
-        self.tint = tint
-        titleAttributes = [
-            // Same point size as the typed text so pills read as inline words;
-            // medium weight alone marks them as tags.
-            .font: NSFont.systemFont(ofSize: 13.5, weight: .medium),
-            .foregroundColor: tint,
-        ]
-        let configuration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
-        let symbol = NSImage(
-            systemSymbolName: BrowserDesignModeTagSymbol.symbol(forTag: selection.tagName),
-            accessibilityDescription: selection.tagName
-        )?.withSymbolConfiguration(configuration)
-        // Tint once; draw(withFrame:in:) runs on every text-view redraw.
-        icon = symbol.map { base in
-            NSImage(size: base.size, flipped: false) { rect in
-                base.draw(in: rect)
-                tint.set()
-                rect.fill(using: .sourceAtop)
-                return true
-            }
-        }
-        super.init(textCell: "")
-        setAccessibilityLabel(selection.tagName)
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError("unsupported") }
-
-    private var titleSize: NSSize {
-        (tagTitle as NSString).size(withAttributes: titleAttributes)
-    }
-
-    override func cellSize() -> NSSize {
-        // Width includes the visual breathing room between pills (no literal
-        // space characters live in the storage).
-        let iconWidth: CGFloat = icon == nil ? 0 : 13
-        return NSSize(
-            width: titleSize.width + iconWidth + 16,
-            height: BrowserDesignModeTokenStyle.naturalLineHeight
-        )
-    }
-
-    override func cellBaselineOffset() -> NSPoint {
-        // With the field's fixed 20pt lines, AppKit pins each baseline at
-        // AppKit pins each baseline at fragmentBottom - maxDescent, so a cell
-        // descending deeper than the font shifts text on rows that gain or
-        // lose a pill. With the cell sized to naturalLineHeight, this offset
-        // makes its ascent and descent match the font's exactly — pill rows
-        // and text rows keep identical fragments and baselines.
-        NSPoint(x: 0, y: BrowserDesignModeTokenStyle.font.descender)
-    }
-
-    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
-        // Cursor-style: plain tinted icon + tag name, no pill background.
-        // Share the surrounding text's baseline so pills read as inline words.
-        let baseline = cellFrame.minY + cellFrame.height
-            + BrowserDesignModeTokenStyle.font.descender
-        let titleFont = titleAttributes[.font] as? NSFont
-            ?? BrowserDesignModeTokenStyle.font
-        var textX = cellFrame.minX + 8
-        if let icon {
-            let iconRect = NSRect(
-                x: textX,
-                y: baseline - titleFont.capHeight / 2 - icon.size.height / 2,
-                width: icon.size.width,
-                height: icon.size.height
-            )
-            icon.draw(in: iconRect)
-            textX = iconRect.maxX + 3
-        }
-        (tagTitle as NSString).draw(
-            at: NSPoint(x: textX, y: baseline - titleFont.ascender),
-            withAttributes: titleAttributes
-        )
     }
 }

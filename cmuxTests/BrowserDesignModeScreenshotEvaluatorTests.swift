@@ -289,6 +289,20 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect((elements[0]["selection"] as? [String: Any])?["selector"] as? String == "#first")
         #expect((elements[1]["selection"] as? [String: Any])?["selector"] as? String == "#second")
         #expect(elements.allSatisfy { ($0["screenshot_path"] as? String)?.isEmpty == false })
+
+        controller.requestedChange = "Keep the second selection"
+        await controller.removeSelection(at: 0)
+        #expect(controller.snapshot?.selections.map(\.selector) == ["#second"])
+        #expect(controller.requestedChange == "Keep the second selection")
+
+        await controller.copySelection()
+
+        let reducedPrompt = try #require(copiedPrompt)
+        let reducedPayload = try payload(from: reducedPrompt)
+        let reducedElements = try #require(reducedPayload["elements"] as? [[String: Any]])
+        #expect(reducedElements.count == 1)
+        #expect((reducedElements[0]["selection"] as? [String: Any])?["selector"] as? String == "#second")
+        #expect(reducedPayload["requested_change"] as? String == "Keep the second selection")
         _ = navigationDelegate
     }
 
