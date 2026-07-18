@@ -426,6 +426,65 @@ struct FeedCoordinatorTests {
         #expect(changes.first?["summary"] as? String == "file summary")
     }
 
+    @Test func nonBlockingIngestAcknowledgesOnlyAfterStoreMutationAndDeduplicates() async throws {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "codex-queued-feed-test",
+            hookEventName: .preToolUse,
+            source: "codex",
+            cwd: "/tmp",
+            toolName: "Read",
+            toolInputJSON: #"{"path":"README.md"}"#,
+            requestId: "queued-feed-delivery-id"
+        )
+        let started = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let firstResult = IngestResultBox()
+
+        await MainActor.run {
+            DispatchQueue.global(qos: .userInitiated).async {
+                started.signal()
+                firstResult.value = FeedCoordinator.shared.ingestBlocking(
+                    event: event,
+                    waitTimeout: 0
+                )
+                finished.signal()
+            }
+            #expect(started.wait(timeout: .now() + 1) == .success)
+            #expect(
+                finished.wait(timeout: .now() + 0.05) == .timedOut,
+                "An acknowledged feed.push must wait until its MainActor store mutation finishes"
+            )
+        }
+
+        #expect(finished.wait(timeout: .now() + 1) == .success)
+        guard case .acknowledged(let firstItemId?) = firstResult.value else {
+            Issue.record("Expected acknowledged ingest with a concrete item id")
+            return
+        }
+        #expect(await MainActor.run { FeedCoordinator.shared.store.items.count } == 1)
+
+        let duplicateFinished = DispatchSemaphore(value: 0)
+        let duplicateResult = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            duplicateResult.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0
+            )
+            duplicateFinished.signal()
+        }
+        #expect(duplicateFinished.wait(timeout: .now() + 1) == .success)
+        guard case .acknowledged(let duplicateItemId?) = duplicateResult.value else {
+            Issue.record("Expected duplicate ingest to acknowledge the existing item")
+            return
+        }
+        #expect(duplicateItemId == firstItemId)
+        #expect(await MainActor.run { FeedCoordinator.shared.store.items.count } == 1)
+    }
+
     @Test func blockingIngestExpiresItemWhenHookTimesOut() async {
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)

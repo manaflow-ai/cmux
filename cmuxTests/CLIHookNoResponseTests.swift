@@ -3,6 +3,12 @@ import CmuxControlSocket
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 @_silgen_name("shm_open")
 private func cmuxTestShmOpen(
     _ name: UnsafePointer<CChar>,
@@ -275,6 +281,262 @@ struct CLIHookNoResponseTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
+    }
+
+    @Test func queuedCodexFeedTargetsRequireV2Acknowledgement() throws {
+        let targets = [
+            "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact",
+            "PostCompact", "SubagentStart", "SubagentStop",
+        ]
+
+        for (index, event) in targets.enumerated() {
+            let cliPath = try Self.bundledCLIPath()
+            let socketPath = Self.makeSocketPath("feed-ack-\(index)")
+            let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 1)
+            let state = MockSocketServerState()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-feed-ack-\(event)-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+                try? FileManager.default.removeItem(at: root)
+            }
+
+            let server = Self.startMockServerAllowingNoResponse(
+                listenerFD: listenerFD,
+                state: state,
+                fulfillWhen: { line in
+                    Self.jsonObject(line)?["method"] as? String == "feed.push"
+                }
+            ) { line in
+                guard let request = Self.jsonObject(line),
+                      request["method"] as? String == "feed.push",
+                      let id = request["id"] as? String else {
+                    return Self.malformedRequestResponse(raw: line)
+                }
+                return Self.v2Response(id: id, ok: false, error: [
+                    "code": "feed_unavailable",
+                    "message": "intentional queued feed rejection",
+                ])
+            }
+
+            let result = Self.runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "feed", "--source", "codex", "--event", event],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": root.path,
+                    "TMPDIR": root.path,
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                    "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+                    "CMUX_CODEX_PID": "626262",
+                    "CMUX_AGENT_HOOK_DELIVERY_ID": "queued-feed-ack-\(index)",
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                standardInput: """
+                {"hook_event_name":"\(event)","session_id":"queued-feed-session-\(index)","cwd":"\(root.path)","tool_name":"Read","tool_input":{"path":"README.md"}}
+                """,
+                timeout: 2
+            )
+
+            #expect(server.wait(timeout: 2), "\(event): socket server did not observe feed.push")
+            #expect(!result.timedOut, "\(event): \(result.stderr)")
+            #expect(result.status != 0, "\(event): a rejected acknowledged feed must fail the delivery CLI")
+            let feedRequests = state.snapshot().compactMap(Self.jsonObject).filter {
+                $0["method"] as? String == "feed.push"
+            }
+            #expect(feedRequests.count == 1)
+            #expect(feedRequests.first?["id"] as? String != nil)
+        }
+    }
+
+    @Test func queuedCodexLifecycleFeedTargetsRequireV2Acknowledgement() throws {
+        let targets = [
+            (subcommand: "session-start", event: "SessionStart"),
+            (subcommand: "prompt-submit", event: "UserPromptSubmit"),
+            (subcommand: "stop", event: "Stop"),
+        ]
+
+        for (index, target) in targets.enumerated() {
+            let cliPath = try Self.bundledCLIPath()
+            let socketPath = Self.makeSocketPath("life-ack-\(index)")
+            let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 4)
+            let state = MockSocketServerState()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-life-ack-\(target.subcommand)-\(UUID().uuidString)", isDirectory: true)
+            let workspaceID = "33333333-3333-3333-3333-333333333333"
+            let surfaceID = "44444444-4444-4444-4444-444444444444"
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+                try? FileManager.default.removeItem(at: root)
+            }
+
+            let server = Self.startMultiConnectionMockServerAllowingNoResponse(
+                listenerFD: listenerFD,
+                state: state,
+                connectionLimit: 2,
+                fulfillWhen: { line in
+                    Self.jsonObject(line)?["method"] as? String == "feed.push"
+                }
+            ) { line in
+                guard let request = Self.jsonObject(line) else { return "OK" }
+                guard let method = request["method"] as? String else {
+                    return Self.malformedRequestResponse(id: request["id"] as? String, raw: line)
+                }
+                guard let id = request["id"] as? String else {
+                    return Self.malformedRequestResponse(raw: line)
+                }
+                switch method {
+                case "feed.push":
+                    return Self.v2Response(id: id, ok: false, error: [
+                        "code": "feed_unavailable",
+                        "message": "intentional queued lifecycle feed rejection",
+                    ])
+                case "surface.list":
+                    return Self.surfaceListResponse(id: id, surfaceId: surfaceID)
+                case "agent.resolve_delivery_target":
+                    return Self.v2Response(id: id, ok: false, error: [
+                        "code": "not_found",
+                        "message": "no process binding in fixture",
+                    ])
+                case "workspace.set_auto_title":
+                    return Self.v2Response(id: id, ok: true, result: ["enabled": false])
+                default:
+                    return Self.v2Response(id: id, ok: true, result: ["ok": true])
+                }
+            }
+
+            let result = Self.runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "codex", target.subcommand],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": root.path,
+                    "TMPDIR": root.path,
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_WORKSPACE_ID": workspaceID,
+                    "CMUX_SURFACE_ID": surfaceID,
+                    "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                    "CMUX_AGENT_LAUNCH_KIND": "codex",
+                    "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
+                    "CMUX_AGENT_LAUNCH_CWD": root.path,
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": Self.base64NULSeparated(["/usr/local/bin/codex"]),
+                    "CMUX_AGENT_HOOK_DELIVERY_ID": "queued-lifecycle-ack-\(index)",
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                standardInput: """
+                {"hook_event_name":"\(target.event)","session_id":"queued-lifecycle-session-\(index)","turn_id":"turn-\(index)","cwd":"\(root.path)"}
+                """,
+                timeout: 3
+            )
+
+            #expect(server.wait(timeout: 2), "\(target.event): socket server did not observe feed.push")
+            #expect(!result.timedOut, "\(target.event): \(result.stderr)")
+            #expect(result.status != 0, "\(target.event): rejected feed telemetry must fail queued lifecycle delivery")
+            let feedRequests = state.snapshot().compactMap(Self.jsonObject).filter {
+                $0["method"] as? String == "feed.push"
+            }
+            #expect(feedRequests.count == 1)
+            #expect(feedRequests.first?["id"] as? String != nil)
+        }
+    }
+
+    @Test func rejectedQueuedFeedStaysPendingAndRetriesAfterAcknowledgement() async throws {
+        let cliPath = try Self.bundledCLIPath()
+        let socketPath = Self.makeSocketPath("feed-retry")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 2)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-retry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let server = Self.startMultiConnectionMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            connectionLimit: 2,
+            fulfillWhen: { line in
+                Self.jsonObject(line)?["method"] as? String == "feed.push"
+            }
+        ) { line in
+            guard let request = Self.jsonObject(line),
+                  request["method"] as? String == "feed.push",
+                  let id = request["id"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            let attempt = state.snapshot().compactMap(Self.jsonObject).filter {
+                $0["method"] as? String == "feed.push"
+            }.count
+            if attempt == 1 {
+                return Self.v2Response(id: id, ok: false, error: [
+                    "code": "feed_unavailable",
+                    "message": "intentional first delivery rejection",
+                ])
+            }
+            return Self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+        }
+
+        let environment = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "TMPDIR": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+            "CMUX_CODEX_PID": "626262",
+        ]
+        var environmentData = Data()
+        for key in environment.keys.sorted() {
+            environmentData.append(contentsOf: key.utf8)
+            environmentData.append(0)
+            environmentData.append(contentsOf: (environment[key] ?? "").utf8)
+            environmentData.append(0)
+        }
+        let deliveryID = "queued-feed-retry"
+        let payload = Data(
+            #"{"hook_event_name":"PreToolUse","session_id":"queued-feed-retry-session","tool_name":"Read"}"#.utf8
+        )
+        let event = try #require(AgentHookDeliveryEvent(params: [
+            "delivery_id": deliveryID,
+            "agent": "codex",
+            "subcommand": "feed:PreToolUse",
+            "payload_b64": payload.base64EncodedString(),
+            "environment_b64": environmentData.base64EncodedString(),
+        ]))
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { URL(fileURLWithPath: cliPath) },
+            processTimeout: 2,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+
+        try queue.enqueue(event)
+        #expect(server.wait(timeout: 2), "socket server did not observe first feed.push")
+        await queue.waitUntilCurrentDrainFinishes()
+        let rejected = try await queue.diagnosticStatus(for: deliveryID)
+        #expect(rejected?["state"] == "pending")
+        #expect(rejected?["attempts"] == "1")
+        #expect(rejected?["last_error"]?.contains("status") == true)
+
+        try await queue.retryPendingDeliveries()
+        await queue.waitUntilCurrentDrainFinishes()
+        let delivered = try await queue.diagnosticStatus(for: deliveryID)
+        #expect(delivered?["state"] == "delivered")
+        #expect(delivered?["attempts"] == "2")
+        #expect(state.snapshot().compactMap(Self.jsonObject).filter {
+            $0["method"] as? String == "feed.push"
+        }.count == 2)
     }
 
     @Test func nativeCodexAdmissionPublishesAuthenticatedOutboxWithoutSocketOrWorker() throws {
