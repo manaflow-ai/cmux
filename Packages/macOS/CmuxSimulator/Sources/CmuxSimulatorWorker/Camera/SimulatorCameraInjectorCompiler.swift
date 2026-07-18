@@ -8,6 +8,14 @@ struct SimulatorCameraInjectorCompiler: Sendable {
         "SimCamFrameSource.m.txt",
         "SimCamSwizzles.m.txt",
     ]
+    private static let headerNames = [
+        "SimCamFakes.h",
+        "SimCamFrameSource.h",
+        "SimCamLog.h",
+        "SimCamSwizzles.h",
+        "include/SimCamShared.h",
+    ]
+    private static let buildInputNames = sourceNames + headerNames
     private let subprocessRunner: SimulatorSubprocessRunner
     private let fileSystem: SimulatorCameraFileSystem
     private let resourceDirectory: URL?
@@ -30,11 +38,11 @@ struct SimulatorCameraInjectorCompiler: Sendable {
                 "The bundled synthetic-camera injector sources are missing."
             )
         }
-        let sources: [SimulatorBuildSource] = try Self.sourceNames.map { name in
+        let buildInputs: [SimulatorBuildSource] = try Self.buildInputNames.map { name in
             let url = resources.appendingPathComponent(name)
             guard let data = fileSystem.contents(atPath: url.path) else {
                 throw SimulatorWorkerFailure.frameworkUnavailable(
-                    "The bundled camera injector source \(name) is missing."
+                    "The bundled camera injector build input \(name) is missing."
                 )
             }
             return SimulatorBuildSource(name: name, data: data)
@@ -46,7 +54,7 @@ struct SimulatorCameraInjectorCompiler: Sendable {
             )
         }.resolve()
         let cacheKey = SimulatorBuildInputs(
-            sources: sources,
+            sources: buildInputs,
             compileArguments: compileArguments(
                 sdkPath: "<SDKROOT>",
                 resourcesPath: "<RESOURCE_ROOT>",
