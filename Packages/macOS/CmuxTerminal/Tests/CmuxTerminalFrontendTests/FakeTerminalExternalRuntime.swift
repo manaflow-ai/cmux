@@ -12,7 +12,22 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
     private(set) var adoptedWorkspaceIDs: [UUID] = []
     private(set) var mutations: [TerminalExternalRuntimeMutation] = []
     private(set) var accessibilityEnableCount = 0
+    private(set) var selectionReadCount = 0
+    private(set) var accessibilityLinkActivations: [(
+        link: TerminalAccessibilityLink,
+        snapshot: TerminalAccessibilitySnapshot
+    )] = []
     var stubbedIngressResults: [TerminalExternalIngressResult] = []
+    var stubbedSelection: TerminalExternalSelection? = TerminalExternalSelection(
+        text: "selected",
+        start: TerminalExternalCellPoint(column: 1, row: 2),
+        end: TerminalExternalCellPoint(column: 3, row: 2),
+        topLeft: TerminalExternalCellPoint(column: 1, row: 2),
+        bottomRight: TerminalExternalCellPoint(column: 3, row: 2),
+        rectangle: false
+    )
+    var stubbedAccessibilitySnapshots: [TerminalAccessibilitySnapshot] = []
+    var stubbedAccessibilityLinkTarget: String?
     private var stubbedIngressResultIndex = 0
 
     func attachPresentation(
@@ -47,14 +62,8 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
     }
 
     func readSelection() async -> TerminalExternalSelection? {
-        TerminalExternalSelection(
-            text: "selected",
-            start: TerminalExternalCellPoint(column: 1, row: 2),
-            end: TerminalExternalCellPoint(column: 3, row: 2),
-            topLeft: TerminalExternalCellPoint(column: 1, row: 2),
-            bottomRight: TerminalExternalCellPoint(column: 3, row: 2),
-            rectangle: false
-        )
+        selectionReadCount += 1
+        return stubbedSelection
     }
 
     func enableAccessibility() {
@@ -62,15 +71,21 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
     }
 
     func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
-        AsyncStream { $0.finish() }
+        let snapshots = stubbedAccessibilitySnapshots
+        return AsyncStream { continuation in
+            for snapshot in snapshots {
+                continuation.yield(snapshot)
+            }
+            continuation.finish()
+        }
     }
 
     func activateAccessibilityLink(
         _ link: TerminalAccessibilityLink,
         snapshot: TerminalAccessibilitySnapshot
     ) async -> String? {
-        _ = snapshot
-        return link.target
+        accessibilityLinkActivations.append((link, snapshot))
+        return stubbedAccessibilityLinkTarget ?? link.target
     }
 
     func activateHyperlink(
