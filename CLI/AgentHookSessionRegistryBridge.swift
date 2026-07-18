@@ -1014,53 +1014,62 @@ struct AgentHookSessionRegistryBridge {
                         admission.metrics
                     selectedLegacyGraphNodes += admission.metrics.graphNodeCount
                     break admissionLoop
-                } catch is CmuxAgentSessionRegistry.HookLegacySourceRevisionChangedError {
-                    admissionAttempts += 1
-                    if admissionAttempts < 2,
-                       let latestStamp = CmuxAgentSessionRegistry.LegacyStamp.read(
-                           path: source.url.path,
-                           fileManager: fileManager
-                       ) {
-                        expectedStamp = latestStamp
-                        continue admissionLoop
+                } catch {
+                    let latestStamp = CmuxAgentSessionRegistry.LegacyStamp.read(
+                        path: source.url.path,
+                        fileManager: fileManager
+                    )
+                    let pathRevisionChanged = if let latestStamp {
+                        latestStamp != expectedStamp
+                    } else {
+                        true
                     }
-                    guard canonicalInspectionFallbackIsValid(
-                        registry: registry,
-                        provider: source.provider,
-                        limits: limits
-                    ) else {
+                    if error is CmuxAgentSessionRegistry.HookLegacySourceRevisionChangedError
+                        || pathRevisionChanged {
+                        admissionAttempts += 1
+                        if admissionAttempts < 2, let latestStamp {
+                            expectedStamp = latestStamp
+                            continue admissionLoop
+                        }
+                        guard canonicalInspectionFallbackIsValid(
+                            registry: registry,
+                            provider: source.provider,
+                            limits: limits
+                        ) else {
+                            throw AgentHookSessionStoreLoadFailure(
+                                provider: source.provider,
+                                path: source.url.path,
+                                code: .legacySourceImportFailed
+                            )
+                        }
+                        preflights[preflights.index(before: preflights.endIndex)].legacyBytes = 0
+                        warnings.append(AgentHookSessionStoreLoadWarning(
+                            provider: source.provider,
+                            path: source.url.path,
+                            code: .legacySourceImportFailed,
+                            fallback: .registry
+                        ))
+                        break admissionLoop
+                    }
+                    if let error = error as? CmuxAgentSessionRegistry.HookLegacySourceInspectionLimitError {
+                        throw legacyInspectionFailure(
+                            provider: source.provider,
+                            error: error,
+                            aggregateMaximumGraphNodes: maximumLegacyGraphNodes,
+                            registryPath: registryPath
+                        )
+                    }
+                    if let error = error as? CmuxAgentSessionRegistry.HookLegacySourceSizeError {
                         throw AgentHookSessionStoreLoadFailure(
                             provider: source.provider,
                             path: source.url.path,
-                            code: .legacySourceImportFailed
+                            code: .storageLimitExceeded,
+                            scope: .legacyFile,
+                            observedBytes: error.observedBytes,
+                            maximumBytes: error.maximumBytes,
+                            canonicalPath: registryPath
                         )
                     }
-                    preflights[preflights.index(before: preflights.endIndex)].legacyBytes = 0
-                    warnings.append(AgentHookSessionStoreLoadWarning(
-                        provider: source.provider,
-                        path: source.url.path,
-                        code: .legacySourceImportFailed,
-                        fallback: .registry
-                    ))
-                    break admissionLoop
-                } catch let error as CmuxAgentSessionRegistry.HookLegacySourceInspectionLimitError {
-                    throw legacyInspectionFailure(
-                        provider: source.provider,
-                        error: error,
-                        aggregateMaximumGraphNodes: maximumLegacyGraphNodes,
-                        registryPath: registryPath
-                    )
-                } catch let error as CmuxAgentSessionRegistry.HookLegacySourceSizeError {
-                    throw AgentHookSessionStoreLoadFailure(
-                        provider: source.provider,
-                        path: source.url.path,
-                        code: .storageLimitExceeded,
-                        scope: .legacyFile,
-                        observedBytes: error.observedBytes,
-                        maximumBytes: error.maximumBytes,
-                        canonicalPath: registryPath
-                    )
-                } catch {
                     throw AgentHookSessionStoreLoadFailure(
                         provider: source.provider,
                         path: source.url.path,
