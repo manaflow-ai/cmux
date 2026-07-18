@@ -15,6 +15,9 @@ When we change the fork, update this document and the parent submodule SHA.
 Current cmux pinned fork patch head: `11dd30a9b`. It adds indented hard-newline
 link continuations on top of `bb30526cd` and is published through
 https://github.com/manaflow-ai/ghostty/pull/124.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11dd30a9b4e10169ea4a3ddfa7f6a51243f155fc-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Indented hard-newline link continuations
 
