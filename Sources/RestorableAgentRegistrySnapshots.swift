@@ -48,9 +48,14 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager,
         decoder: JSONDecoder
     ) -> RestorableAgentHookSessionStoreFile? {
-        snapshots?[kind.rawValue].map {
-            RestorableAgentHookSessionStoreFile.decode(snapshot: $0, decoder: decoder)
-        } ?? RestorableAgentHookSessionStoreFile.load(
+        if let snapshot = snapshots?[kind.rawValue],
+           let state = try? RestorableAgentHookSessionStoreFile.decode(
+               snapshot: snapshot,
+               decoder: decoder
+           ) {
+            return state
+        }
+        return RestorableAgentHookSessionStoreFile.load(
             provider: kind.rawValue,
             legacyURL: fileURL,
             environment: ProcessInfo.processInfo.environment,

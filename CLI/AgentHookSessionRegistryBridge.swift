@@ -194,17 +194,28 @@ struct AgentHookSessionRegistryBridge {
     ) throws -> ClaudeHookSessionStoreFile {
         var state = ClaudeHookSessionStoreFile()
         for stored in snapshot.records {
-            guard let record = try? decoder.decode(ClaudeHookSessionRecord.self, from: stored.json) else { continue }
+            let record = try decoder.decode(ClaudeHookSessionRecord.self, from: stored.json)
+            guard record.sessionId == stored.sessionID else {
+                throw ProjectionError.recordIdentityMismatch
+            }
             state.sessions[stored.sessionID] = record
         }
         for slot in snapshot.activeSlots {
-            guard let record = try? decoder.decode(ClaudeHookActiveSessionRecord.self, from: slot.json) else { continue }
+            let record = try decoder.decode(ClaudeHookActiveSessionRecord.self, from: slot.json)
+            guard record.sessionId == slot.sessionID else {
+                throw ProjectionError.slotIdentityMismatch
+            }
             switch slot.scope {
             case .workspace: state.activeSessionsByWorkspace[slot.scopeID] = record
             case .surface: state.activeSessionsBySurface[slot.scopeID] = record
             }
         }
         return state
+    }
+
+    private enum ProjectionError: Error {
+        case recordIdentityMismatch
+        case slotIdentityMismatch
     }
 
     private struct SlotValue {

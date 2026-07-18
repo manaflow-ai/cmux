@@ -10,15 +10,20 @@ extension RestorableAgentHookSessionStoreFile {
     static func decode(
         snapshot: CmuxAgentSessionRegistry.Snapshot,
         decoder: JSONDecoder
-    ) -> Self {
+    ) throws -> Self {
         var state = Self()
         for stored in snapshot.records {
-            guard let record = try? decoder.decode(RestorableAgentHookSessionRecord.self, from: stored.json) else {
-                continue
+            let record = try decoder.decode(RestorableAgentHookSessionRecord.self, from: stored.json)
+            guard record.sessionId == stored.sessionID else {
+                throw ProjectionError.recordIdentityMismatch
             }
             state.sessions[stored.sessionID] = record
         }
         return state
+    }
+
+    private enum ProjectionError: Error {
+        case recordIdentityMismatch
     }
 
     /// Loads the authoritative registry snapshot, importing changed legacy JSON
@@ -46,10 +51,11 @@ extension RestorableAgentHookSessionStoreFile {
                 legacyURL: legacyURL,
                 fileManager: fileManager
             )
-            return decode(snapshot: snapshot, decoder: decoder)
+            return try decode(snapshot: snapshot, decoder: decoder)
         } catch {
-            if let snapshot = try? registry.snapshot(provider: provider) {
-                return decode(snapshot: snapshot, decoder: decoder)
+            if let snapshot = try? registry.snapshot(provider: provider),
+               let state = try? decode(snapshot: snapshot, decoder: decoder) {
+                return state
             }
             guard fileManager.fileExists(atPath: legacyURL.path),
                   let data = try? Data(contentsOf: legacyURL) else { return nil }
