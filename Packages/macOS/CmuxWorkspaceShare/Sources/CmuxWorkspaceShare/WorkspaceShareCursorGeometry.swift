@@ -10,6 +10,7 @@ public enum WorkspaceShareCursorGeometry {
     public static let viewHeight = 30.0
     public static let scale = 1.5
     public static let strokeWidth = 1.7
+    public static let hotspotInset = 0.5
 
     /// Sky's kite silhouette from Austin's computer-use PR 7151.
     public static let elements: [Element] = [

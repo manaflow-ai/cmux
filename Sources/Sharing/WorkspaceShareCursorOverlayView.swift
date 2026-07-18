@@ -37,8 +37,10 @@ struct WorkspaceShareCursorOverlayView: View {
                     }
                 }
                 .offset(
-                    x: containerFrame.minX + pointer.x * containerFrame.width,
+                    x: containerFrame.minX + pointer.x * containerFrame.width
+                        - WorkspaceShareCursorGeometry.hotspotInset,
                     y: containerFrame.minY + pointer.y * containerFrame.height
+                        - WorkspaceShareCursorGeometry.hotspotInset
                 )
             }
         }
@@ -85,7 +87,6 @@ private struct WorkspaceShareCursorGlyph: View {
             width: WorkspaceShareCursorGeometry.viewWidth,
             height: WorkspaceShareCursorGeometry.viewHeight
         )
-        .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
         .accessibilityHidden(true)
     }
 

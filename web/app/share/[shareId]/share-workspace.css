@@ -366,7 +366,6 @@ body {
   position: absolute;
   z-index: 20;
   pointer-events: none;
-  transform: translate(-2px, -2px);
   transition: left 55ms linear, top 55ms linear;
 }
 

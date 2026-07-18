@@ -15,6 +15,7 @@ import type { RenderedGhosttyTerminal } from "../../../services/share/ghosttyTer
 import type { TextDocumentView } from "../../../services/share/textDocument";
 import {
   SHARE_CURSOR_PATH_DATA,
+  SHARE_CURSOR_HOTSPOT_INSET,
   SHARE_CURSOR_SCALE,
   SHARE_CURSOR_STROKE_WIDTH,
   SHARE_CURSOR_VIEW_BOX,
@@ -506,7 +507,14 @@ function RemotePointer({
 }) {
   const participantColor = color(participant.color);
   return (
-    <div className="share-remote-pointer" style={{ left: `${x * 100}%`, top: `${y * 100}%` }}>
+    <div
+      className="share-remote-pointer"
+      style={{
+        left: `${x * 100}%`,
+        top: `${y * 100}%`,
+        transform: `translate(-${SHARE_CURSOR_HOTSPOT_INSET}px, -${SHARE_CURSOR_HOTSPOT_INSET}px)`,
+      }}
+    >
       <svg width="24" height="30" viewBox={SHARE_CURSOR_VIEW_BOX} aria-hidden="true">
         <g transform={`scale(${SHARE_CURSOR_SCALE})`}>
           <path
