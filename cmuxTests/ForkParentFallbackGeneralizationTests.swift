@@ -217,14 +217,17 @@ struct ForkParentFallbackGeneralizationTests {
         #expect(detected[fixture.forkKey] == nil)
     }
 
-    @Test func unsupportedOmpForkFlagDoesNotOverrideLatestSessionInference() throws {
+    @Test func unsupportedOmpForkFlagWithoutExplicitIdentityFailsClosed() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
         let sessionDirectory = try piSessionDirectory(fixture: fixture)
         let parentPath = sessionDirectory.appendingPathComponent("parent-omp.jsonl").path
-        let childPath = sessionDirectory.appendingPathComponent("child-omp.jsonl").path
         try writeSessionFile(URL(fileURLWithPath: parentPath), modifiedAt: 20)
-        try writeSessionFile(URL(fileURLWithPath: childPath), modifiedAt: 30, parentSessionId: parentPath)
+        try writeSessionFile(
+            sessionDirectory.appendingPathComponent("child-omp.jsonl"),
+            modifiedAt: 30,
+            parentSessionId: parentPath
+        )
 
         let registry = CmuxVaultAgentRegistry(registrations: [.builtInOmp])
         let detected = detectedSnapshots(
@@ -236,8 +239,7 @@ struct ForkParentFallbackGeneralizationTests {
             processPath: "/usr/local/bin/omp"
         )
 
-        #expect(detected[fixture.forkKey]?.snapshot.sessionId == childPath)
-        #expect(detected[fixture.forkKey]?.sessionIDSource == .inferredLatestSessionFile)
+        #expect(detected[fixture.forkKey] == nil)
     }
 
     @Test func unsupportedOmpForkFlagDoesNotChangeExplicitSessionAuthority() throws {

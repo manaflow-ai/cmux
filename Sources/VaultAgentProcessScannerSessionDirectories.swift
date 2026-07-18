@@ -7,19 +7,39 @@ import Foundation
 struct PiSessionDirectoryIndex {
     private struct Candidate {
         let url: URL
-        let modifiedAt: Date
+    }
+
+    private enum CandidateResolution {
+        case none
+        case unique(Candidate)
+        case ambiguous
+
+        var candidate: Candidate? {
+            guard case .unique(let candidate) = self else { return nil }
+            return candidate
+        }
+
+        static func merging(_ lhs: CandidateResolution, _ rhs: CandidateResolution) -> CandidateResolution {
+            switch (lhs, rhs) {
+            case (.ambiguous, _), (_, .ambiguous):
+                return .ambiguous
+            case (.none, let resolution), (let resolution, .none):
+                return resolution
+            case (.unique(let lhs), .unique(let rhs)):
+                return lhs.url.path == rhs.url.path ? .unique(lhs) : .ambiguous
+            }
+        }
     }
 
     private struct DirectorySnapshot {
-        let newest: Candidate?
-        let exactByBasename: [String: Candidate]
+        let exactByBasename: [String: CandidateResolution]
         let prefixLookup: PrefixLookupIndex
     }
 
     /// Pi accepts a prefix of its UUID session ID. Session filenames add
     /// a timestamp before that UUID, so both the basename and UUID suffix are
-    /// searchable keys. A range-max tree keeps ambiguous-prefix resolution on
-    /// the existing newest-file policy without scanning every candidate.
+    /// searchable keys. A segment tree resolves a prefix only when every
+    /// matching key names the same file, without scanning every candidate.
     private struct PrefixLookupIndex {
         private struct Entry {
             let key: String
@@ -28,7 +48,7 @@ struct PiSessionDirectoryIndex {
 
         private let entries: [Entry]
         private let leafBase: Int
-        private let preferredByTreeNode: [Candidate?]
+        private let resolutionByTreeNode: [CandidateResolution]
 
         init(candidates: [Candidate]) {
             var entries: [Entry] = []
@@ -49,19 +69,19 @@ struct PiSessionDirectoryIndex {
             var leafBase = 1
             while leafBase < entries.count { leafBase *= 2 }
             self.leafBase = leafBase
-            var tree = [Candidate?](repeating: nil, count: leafBase * 2)
+            var tree = [CandidateResolution](repeating: .none, count: leafBase * 2)
             for (index, entry) in entries.enumerated() {
-                tree[leafBase + index] = entry.candidate
+                tree[leafBase + index] = .unique(entry.candidate)
             }
             if leafBase > 1 {
                 for index in stride(from: leafBase - 1, through: 1, by: -1) {
-                    tree[index] = Self.preferred(tree[index * 2], tree[index * 2 + 1])
+                    tree[index] = CandidateResolution.merging(tree[index * 2], tree[index * 2 + 1])
                 }
             }
-            self.preferredByTreeNode = tree
+            self.resolutionByTreeNode = tree
         }
 
-        func preferredCandidate(forPrefix prefix: String) -> (candidate: Candidate?, visitCount: Int) {
+        func uniqueCandidate(forPrefix prefix: String) -> (candidate: Candidate?, visitCount: Int) {
             var lower = 0
             var upper = entries.count
             while lower < upper {
@@ -89,35 +109,29 @@ struct PiSessionDirectoryIndex {
 
             var left = leafBase + rangeStart
             var right = leafBase + lower
-            var preferred: Candidate?
+            var resolution = CandidateResolution.none
             var visitCount = 0
             while left < right {
                 if left % 2 == 1 {
-                    preferred = Self.preferred(preferred, preferredByTreeNode[left])
+                    resolution = CandidateResolution.merging(resolution, resolutionByTreeNode[left])
                     visitCount += 1
                     left += 1
                 }
                 if right % 2 == 1 {
                     right -= 1
-                    preferred = Self.preferred(preferred, preferredByTreeNode[right])
+                    resolution = CandidateResolution.merging(resolution, resolutionByTreeNode[right])
                     visitCount += 1
                 }
                 left /= 2
                 right /= 2
             }
-            return (preferred, visitCount)
+            return (resolution.candidate, visitCount)
         }
 
         private static func uuidSuffix(in basename: String) -> String? {
             guard let separator = basename.lastIndex(of: "_") else { return nil }
             let suffix = String(basename[basename.index(after: separator)...])
             return UUID(uuidString: suffix) == nil ? nil : suffix
-        }
-
-        private static func preferred(_ lhs: Candidate?, _ rhs: Candidate?) -> Candidate? {
-            guard let lhs else { return rhs }
-            guard let rhs else { return lhs }
-            return PiSessionDirectoryIndex.isPreferred(lhs, over: rhs) ? lhs : rhs
         }
     }
 
@@ -135,17 +149,13 @@ struct PiSessionDirectoryIndex {
         self.fileManager = fileManager
     }
 
-    mutating func newestJSONLFile(in directory: String) -> URL? {
-        directorySnapshot(in: directory)?.newest?.url
-    }
-
     mutating func resolvedSessionPath(_ session: String, in directory: String) -> String? {
         guard let snapshot = directorySnapshot(in: directory) else { return nil }
         if let exact = snapshot.exactByBasename[session] {
-            return exact.url.path
+            return exact.candidate?.url.path
         }
 
-        let lookup = snapshot.prefixLookup.preferredCandidate(forPrefix: session)
+        let lookup = snapshot.prefixLookup.uniqueCandidate(forPrefix: session)
         candidateQueryVisitCount += lookup.visitCount
         return lookup.candidate?.url.path
     }
@@ -167,7 +177,7 @@ struct PiSessionDirectoryIndex {
               isDirectory.boolValue,
               let enumerator = fileManager.enumerator(
                   at: URL(fileURLWithPath: standardizedDirectory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                  includingPropertiesForKeys: [.isRegularFileKey],
                   options: [.skipsHiddenFiles]
               ) else {
             cachedDirectories[standardizedDirectory] = .unavailable
@@ -175,43 +185,26 @@ struct PiSessionDirectoryIndex {
         }
 
         var candidates: [Candidate] = []
-        var newest: Candidate?
-        var exactByBasename: [String: Candidate] = [:]
+        var exactByBasename: [String: CandidateResolution] = [:]
         for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let values = try? url.resourceValues(
-                forKeys: [.contentModificationDateKey, .isRegularFileKey]
-            )
-            guard values?.isRegularFile == true,
-                  let modifiedAt = values?.contentModificationDate else {
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values?.isRegularFile == true else {
                 continue
             }
-            let candidate = Candidate(url: url, modifiedAt: modifiedAt)
+            let candidate = Candidate(url: url)
             candidates.append(candidate)
-            if Self.isPreferred(candidate, over: newest) {
-                newest = candidate
-            }
             let basename = url.deletingPathExtension().lastPathComponent
-            if Self.isPreferred(candidate, over: exactByBasename[basename]) {
-                exactByBasename[basename] = candidate
-            }
+            exactByBasename[basename] = CandidateResolution.merging(
+                exactByBasename[basename] ?? .none,
+                .unique(candidate)
+            )
         }
         let snapshot = DirectorySnapshot(
-            newest: newest,
             exactByBasename: exactByBasename,
             prefixLookup: PrefixLookupIndex(candidates: candidates)
         )
         cachedDirectories[standardizedDirectory] = .files(snapshot)
         return snapshot
-    }
-
-    /// Prefer a newer file, then the lexicographically first path when mtimes
-    /// tie. Directory enumeration order is filesystem-dependent.
-    private static func isPreferred(_ candidate: Candidate, over current: Candidate?) -> Bool {
-        guard let current else { return true }
-        if candidate.modifiedAt != current.modifiedAt {
-            return candidate.modifiedAt > current.modifiedAt
-        }
-        return candidate.url.path < current.url.path
     }
 }
 

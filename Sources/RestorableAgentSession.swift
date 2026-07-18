@@ -951,7 +951,6 @@ struct RestorableAgentSessionIndex: Sendable {
 
     enum ProcessDetectedSessionIDSource: Equatable, Sendable {
         case explicit
-        case inferredLatestSessionFile
         case forkParentFallback
         case relaunchOnly
     }
@@ -972,17 +971,6 @@ struct RestorableAgentSessionIndex: Sendable {
     private struct PanelKindKey: Hashable {
         let panelKey: PanelKey
         let kind: RestorableAgentKind
-    }
-
-    private struct PanelIDKindKey: Hashable {
-        let panelId: UUID
-        let kind: RestorableAgentKind
-    }
-
-    private struct PanelIDKindCandidate {
-        let panelKey: PanelKey
-        let entry: Entry
-        let isAmbiguous: Bool
     }
 
     private let entriesByPanel: [PanelKey: Entry]
@@ -1148,12 +1136,12 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
+        var hookIdentityByPanelID: [UUID: SessionKey] = [:]
+        var ambiguousHookPanelIDs = Set<UUID>()
         let hookSources = hookKinds.map {
             ($0.kind, $0.registration, $0.kind.hookStoreFileURL(homeDirectory: homeDirectory))
         }
         let registrySnapshots = agentRegistrySnapshots(hookSources.map { (kind: $0.0, fileURL: $0.2) }, fileManager: fileManager)
-        var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
-
         for (kind, registration, fileURL) in hookSources {
             guard let state = agentHookState(kind: kind, fileURL: fileURL,
                                              snapshots: registrySnapshots, fileManager: fileManager,
@@ -1207,7 +1195,14 @@ struct RestorableAgentSessionIndex: Sendable {
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
-                let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
+                // Workspace UUIDs can rotate on restore, but a surface-only fallback is safe
+                // only when every surviving hook record agrees on the session identity.
+                if let existingIdentity = hookIdentityByPanelID[panelId],
+                   existingIdentity != sessionKey {
+                    ambiguousHookPanelIDs.insert(panelId)
+                } else {
+                    hookIdentityByPanelID[panelId] = sessionKey
+                }
                 let liveProcessID = liveScopedProcessID(
                     for: effectiveRecord,
                     kind: kind,
@@ -1231,25 +1226,6 @@ struct RestorableAgentSessionIndex: Sendable {
                     incoming: entry
                 ) {
                     hookCandidatesByPanelAndKind[panelKindKey] = entry
-                }
-                if let existingPanelIDCandidate = hookCandidatesByPanelIdAndKind[panelIDKindKey] {
-                    let shouldReplace = shouldReplaceHookEntry(
-                        existing: existingPanelIDCandidate.entry,
-                        incoming: entry
-                    )
-                    hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
-                        panelKey: shouldReplace ? key : existingPanelIDCandidate.panelKey,
-                        entry: shouldReplace ? entry : existingPanelIDCandidate.entry,
-                        isAmbiguous: existingPanelIDCandidate.isAmbiguous ||
-                            existingPanelIDCandidate.panelKey != key ||
-                            existingPanelIDCandidate.entry.snapshot.sessionId != entry.snapshot.sessionId
-                    )
-                } else {
-                    hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
-                        panelKey: key,
-                        entry: entry,
-                        isAmbiguous: false
-                    )
                 }
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesBySession[sessionKey],
@@ -1281,17 +1257,6 @@ struct RestorableAgentSessionIndex: Sendable {
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]
-            let sameKindPanelIDCandidate = hookCandidatesByPanelIdAndKind[
-                PanelIDKindKey(panelId: key.panelId, kind: detected.snapshot.kind)
-            ]
-            // Panel-only restore is safe only when this surface/kind maps back to exactly one
-            // old workspace/session pair. Stale hook stores can otherwise reuse a surface id
-            // across old workspaces, or record multiple sessions for the same old workspace and
-            // surface after an agent restart. In either case, shouldReplaceHookEntry would pick
-            // one session by recency, so the panel-only fallback must stay ambiguous.
-            let sameKindStablePanelCandidate = sameKindPanelCandidate ?? (
-                sameKindPanelIDCandidate?.isAmbiguous == false ? sameKindPanelIDCandidate?.entry : nil
-            )
             if detected.sessionIDSource == .forkParentFallback,
                let panelCandidate = sameKindPanelCandidate,
                Self.hookCandidateRepresentsDetectedProcess(
@@ -1305,13 +1270,6 @@ struct RestorableAgentSessionIndex: Sendable {
                 // A nested fork process inside another agent's pane must not displace
                 // that pane's hook-backed identity.
                 continue
-            } else if detected.sessionIDSource == .inferredLatestSessionFile,
-                      let panelCandidate = sameKindStablePanelCandidate {
-                // Latest-file detection is ambiguous when multiple panels or restored workspaces share a
-                // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
-                // live process evidence for the restored panel. The workspace UUID can rotate during
-                // session restore, but the surface id is intentionally reused on the normal restore path.
-                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -1381,7 +1339,8 @@ struct RestorableAgentSessionIndex: Sendable {
         }
         return RestorableAgentSessionIndex(
             entriesByPanel: resolved,
-            processEvidenceByPanel: processEvidenceByPanel
+            processEvidenceByPanel: processEvidenceByPanel,
+            ambiguousPanelIDs: ambiguousHookPanelIDs
         )
     }
 
@@ -2103,12 +2062,30 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(
         entriesByPanel: [PanelKey: Entry],
-        processEvidenceByPanel: [PanelKey: AgentHibernationProcessEvidence]
+        processEvidenceByPanel: [PanelKey: AgentHibernationProcessEvidence],
+        ambiguousPanelIDs: Set<UUID> = []
     ) {
         self.entriesByPanel = entriesByPanel
         self.processEvidenceByPanel = processEvidenceByPanel
         var entriesByPanelId: [UUID: Entry] = [:]
+        var identityByPanelID: [UUID: SessionKey] = [:]
+        var ambiguousPanelIDs = ambiguousPanelIDs
         for (key, entry) in entriesByPanel {
+            // Never resolve a workspace-rotated lookup by recency when this surface has
+            // represented more than one conversation.
+            guard !ambiguousPanelIDs.contains(key.panelId) else { continue }
+            let identity = SessionKey(
+                kind: entry.snapshot.kind,
+                sessionId: entry.snapshot.sessionId
+            )
+            if let existingIdentity = identityByPanelID[key.panelId],
+               existingIdentity != identity {
+                ambiguousPanelIDs.insert(key.panelId)
+                entriesByPanelId.removeValue(forKey: key.panelId)
+                identityByPanelID.removeValue(forKey: key.panelId)
+                continue
+            }
+            identityByPanelID[key.panelId] = identity
             let existing = entriesByPanelId[key.panelId]
             if existing == nil || entry.updatedAt >= (existing?.updatedAt ?? 0) {
                 entriesByPanelId[key.panelId] = entry

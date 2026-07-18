@@ -680,30 +680,18 @@ private extension CmuxVaultAgentSessionIDSource {
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
         case .piSessionFile:
             let carriesForkParentFlag = registration.processArgumentsCarryForkParentFlag(process.arguments)
-            if let session = process.piCompatibleSessionID {
-                let sessionId = PiSessionLocator.resolvedSessionPath(
-                    session,
-                    for: process,
-                    registration: registration,
-                    fileManager: fileManager,
-                    piSessionDirectoryIndex: &piSessionDirectoryIndex
-                ) ?? session
-                return VaultAgentSessionIDResolution(
-                    sessionId: sessionId,
-                    source: carriesForkParentFlag ? .forkParentFallback : .explicit
-                )
-            }
-            if carriesForkParentFlag {
-                return nil
-            }
-            guard let sessionId = PiSessionLocator.latestSessionPath(
+            guard let session = process.piCompatibleSessionID else { return nil }
+            let sessionId = PiSessionLocator.resolvedSessionPath(
+                session,
                 for: process,
                 registration: registration,
+                fileManager: fileManager,
                 piSessionDirectoryIndex: &piSessionDirectoryIndex
-            ) else {
-                return nil
-            }
-            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
+            ) ?? session
+            return VaultAgentSessionIDResolution(
+                sessionId: sessionId,
+                source: carriesForkParentFlag ? .forkParentFallback : .explicit
+            )
         case .grokSessionDirectory:
             if let session = process.arguments.grokResumeSessionID {
                 return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
@@ -810,16 +798,6 @@ enum PiSessionLocator {
             .replacingOccurrences(of: ":", with: "-")
         guard !sanitized.isEmpty else { return nil }
         return "--\(sanitized)--"
-    }
-
-    fileprivate static func latestSessionPath(
-        for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration,
-        piSessionDirectoryIndex: inout PiSessionDirectoryIndex
-    ) -> String? {
-        piSessionDirectoryIndex.newestJSONLFile(
-            in: candidateSessionDirectory(for: process, registration: registration)
-        )?.path
     }
 
     fileprivate static func resolvedSessionPath(

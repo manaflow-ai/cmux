@@ -139,7 +139,7 @@ struct OmpSupportTests {
         }
     }
 
-    @Test func directProcessDetectionUsesExplicitSessionSelectorsBeforeLatestFallback() throws {
+    @Test func directProcessDetectionUsesExplicitSessionSelectors() throws {
         struct Selector {
             let name: String
             let arguments: [String]
@@ -239,14 +239,14 @@ struct OmpSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-        let latest = try Self.writeSessionFile(
+        let session = try Self.writeSessionFile(
             id: "omp-agent-dir-session",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
         )
 
         let detected = try #require(Self.detectedOmpSnapshot(
-            arguments: ["/Users/example/.bun/bin/omp"],
+            arguments: ["/Users/example/.bun/bin/omp", "--session", "omp-agent-dir-session"],
             environment: [
                 "PWD": workspace.path,
                 "PI_CODING_AGENT_DIR": agentRoot.path,
@@ -254,7 +254,7 @@ struct OmpSupportTests {
         ))
 
         #expect(detected.kind == RestorableAgentKind.custom("omp"))
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(session.path))
         #expect(detected.workingDirectory == workspace.path)
     }
 
@@ -272,14 +272,14 @@ struct OmpSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-        let latest = try Self.writeSessionFile(
+        let session = try Self.writeSessionFile(
             id: "omp-config-dir-session",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
         )
 
         let detected = try #require(Self.detectedOmpSnapshot(
-            arguments: ["/Users/example/.bun/bin/omp"],
+            arguments: ["/Users/example/.bun/bin/omp", "--session", "omp-config-dir-session"],
             environment: [
                 "HOME": home.path,
                 "PWD": workspace.path,
@@ -288,7 +288,7 @@ struct OmpSupportTests {
         ))
 
         #expect(detected.kind == RestorableAgentKind.custom("omp"))
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(session.path))
         #expect(detected.workingDirectory == workspace.path)
     }
 
@@ -327,7 +327,7 @@ struct OmpSupportTests {
             sessionDirectory: customRoot.path
         )
         let detected = try #require(Self.detectedOmpSnapshot(
-            arguments: ["/Users/example/.bun/bin/omp"],
+            arguments: ["/Users/example/.bun/bin/omp", "--session", "omp-custom-session-dir-session"],
             environment: [
                 "PWD": workspace.path,
                 "PI_CODING_AGENT_DIR": environmentRoot.path,
@@ -351,7 +351,7 @@ struct OmpSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-        let latest = try Self.writeSessionFile(
+        let session = try Self.writeSessionFile(
             id: "omp-bun-session",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
@@ -363,6 +363,8 @@ struct OmpSupportTests {
             arguments: [
                 "/opt/homebrew/bin/bun",
                 "/Users/example/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/main.ts",
+                "--session",
+                "omp-bun-session",
                 "--model",
                 "anthropic/claude-sonnet-4-5",
             ],
@@ -373,17 +375,19 @@ struct OmpSupportTests {
         ))
 
         #expect(detected.kind == RestorableAgentKind.custom("omp"))
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(session.path))
         #expect(detected.workingDirectory == workspace.path)
         #expect(detected.launchCommand?.executablePath == "omp")
         #expect(detected.launchCommand?.arguments == [
             "omp",
+            "--session",
+            "omp-bun-session",
             "--model",
             "anthropic/claude-sonnet-4-5",
         ])
     }
 
-    @Test func hostedOmpIgnoresRuntimePreloadFlagsBeforeAgentScript() throws {
+    @Test func hostedOmpRuntimePreloadIsNotSessionIdentity() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-hosted-runtime-preload-")
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
@@ -393,13 +397,13 @@ struct OmpSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-        let latest = try Self.writeSessionFile(
+        _ = try Self.writeSessionFile(
             id: "omp-hosted-latest-session",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
         )
 
-        let detected = try #require(Self.detectedOmpSnapshot(
+        let detected = Self.detectedOmpSnapshot(
             processName: "node",
             processPath: "/opt/homebrew/bin/node",
             arguments: [
@@ -412,14 +416,9 @@ struct OmpSupportTests {
                 "PWD": workspace.path,
                 "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
             ]
-        ))
+        )
 
-        #expect(detected.kind == RestorableAgentKind.custom("omp"))
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
-        #expect(detected.sessionId != "/tmp/preload-session-module.js")
-        #expect(detected.workingDirectory == workspace.path)
-        #expect(detected.launchCommand?.executablePath == "omp")
-        #expect(detected.launchCommand?.arguments == ["omp"])
+        #expect(detected == nil)
     }
 
     @Test func hostedOmpParsesSessionSelectorsAfterAgentScript() throws {
@@ -512,7 +511,6 @@ struct OmpSupportTests {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-pi-session-index-")
         defer { try? FileManager.default.removeItem(at: root) }
 
-        var expectedLatest: URL?
         var sessionFiles: [(id: String, url: URL)] = []
         for index in 0..<1_000 {
             let sessionID = String(format: "%08x-0000-4000-8000-000000000000", index)
@@ -521,17 +519,10 @@ struct OmpSupportTests {
                 isDirectory: false
             )
             try "{}\n".write(to: url, atomically: false, encoding: .utf8)
-            let modifiedAt = Date(timeIntervalSince1970: TimeInterval(index))
-            try FileManager.default.setAttributes(
-                [.modificationDate: modifiedAt],
-                ofItemAtPath: url.path
-            )
-            expectedLatest = url
             sessionFiles.append((id: sessionID, url: url))
         }
 
         var index = PiSessionDirectoryIndex(fileManager: .default)
-        #expect(index.newestJSONLFile(in: root.path) == expectedLatest)
         for session in sessionFiles {
             let candidate = index.resolvedSessionPath(String(session.id.prefix(8)), in: root.path)
             let resolved = try #require(candidate)
@@ -541,12 +532,11 @@ struct OmpSupportTests {
         let exactCandidate = index.resolvedSessionPath(exactBasename, in: root.path)
         let exact = try #require(exactCandidate)
         #expect(Self.normalizedPath(exact) == Self.normalizedPath(sessionFiles[500].url.path))
-        #expect(index.newestJSONLFile(in: root.path) == expectedLatest)
         #expect(index.directoryEnumerationCount == 1)
         #expect(index.candidateQueryVisitCount <= 2_000)
     }
 
-    @Test func piSessionDirectoryIndexChoosesNewestAmbiguousUUIDPrefix() throws {
+    @Test func piSessionDirectoryIndexRejectsAmbiguousUUIDPrefix() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-pi-session-prefix-tie-")
         defer { try? FileManager.default.removeItem(at: root) }
         let older = try Self.writeSessionFile(
@@ -561,14 +551,19 @@ struct OmpSupportTests {
         )
 
         var index = PiSessionDirectoryIndex(fileManager: .default)
-        let candidate = index.resolvedSessionPath("019e1c86-def0", in: root.path)
-        let resolved = try #require(candidate)
-        #expect(Self.normalizedPath(resolved) == Self.normalizedPath(newer.path))
-        #expect(Self.normalizedPath(resolved) != Self.normalizedPath(older.path))
+        #expect(index.resolvedSessionPath("019e1c86-def0", in: root.path) == nil)
+        #expect(
+            Self.normalizedPath(index.resolvedSessionPath("019e1c86-def0-72c9-90d4-8543db20f981", in: root.path) ?? "")
+                == Self.normalizedPath(older.path)
+        )
+        #expect(
+            Self.normalizedPath(index.resolvedSessionPath("019e1c86-def0-72c9-90d4-8543db20f982", in: root.path) ?? "")
+                == Self.normalizedPath(newer.path)
+        )
         #expect(index.resolvedSessionPath("def0-72c9", in: root.path) == nil)
     }
 
-    @Test func piSessionDirectoryIndexBreaksEqualMtimeTiesByStablePath() throws {
+    @Test func piSessionDirectoryIndexRejectsDuplicateExactBasename() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-pi-session-tie-")
         defer { try? FileManager.default.removeItem(at: root) }
         let firstDirectory = root.appendingPathComponent("a", isDirectory: true)
@@ -576,7 +571,7 @@ struct OmpSupportTests {
         try FileManager.default.createDirectory(at: firstDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: secondDirectory, withIntermediateDirectories: true)
         let modifiedAt = Date(timeIntervalSince1970: 1_000)
-        let first = try Self.writeSessionFile(
+        _ = try Self.writeSessionFile(
             id: "same-session",
             in: firstDirectory,
             modifiedAt: modifiedAt
@@ -588,8 +583,7 @@ struct OmpSupportTests {
         )
 
         var index = PiSessionDirectoryIndex(fileManager: .default)
-        #expect(index.newestJSONLFile(in: root.path) == first)
-        #expect(index.resolvedSessionPath("same-session", in: root.path) == first.path)
+        #expect(index.resolvedSessionPath("same-session", in: root.path) == nil)
         #expect(index.directoryEnumerationCount == 1)
         #expect(index.candidateQueryVisitCount == 0)
     }
