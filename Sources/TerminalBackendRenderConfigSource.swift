@@ -9,8 +9,8 @@ struct TerminalBackendRenderConfigSnapshot: Equatable, Sendable {
 
 /// Process-scoped owner of finalized Ghostty configuration exported to renderer workers.
 ///
-/// One notification observer serves every terminal. Visible runtimes subscribe to the
-/// newest-state stream; dormant runtimes only cache the next generation and do no IPC.
+/// One notification observer and one router subscription serve every terminal. Visible
+/// runtimes receive keyed callbacks; dormant runtimes retain their last immutable generation.
 @MainActor
 final class TerminalBackendRenderConfigSource {
     typealias Serializer = @MainActor () -> Data?
@@ -53,6 +53,12 @@ final class TerminalBackendRenderConfigSource {
     }
 
     var current: TerminalBackendRenderConfigSnapshot? { snapshotValue }
+
+#if DEBUG
+    func debugActiveUpdateSubscriberCountForTesting() -> Int {
+        continuations.count
+    }
+#endif
 
     func updates() -> AsyncStream<TerminalBackendRenderConfigSnapshot> {
         let identifier = UUID()

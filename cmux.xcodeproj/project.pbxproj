@@ -1735,6 +1735,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CBAD00000000000000000104 /* TerminalBackendClientCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000204 /* TerminalBackendClientCoordinator.swift */; };
 		CBAD00000000000000000105 /* TerminalBackendClientError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000205 /* TerminalBackendClientError.swift */; };
 		CBAD00000000000000000106 /* TerminalBackendConnectedSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000206 /* TerminalBackendConnectedSession.swift */; };
+		CBAD00000000000000000124 /* TerminalBackendFrontendEventRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000224 /* TerminalBackendFrontendEventRouter.swift */; };
 		CBAD00000000000000000107 /* TerminalBackendMutationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000207 /* TerminalBackendMutationOutcome.swift */; };
 		CBAD00000000000000000108 /* TerminalBackendMutationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000208 /* TerminalBackendMutationQueue.swift */; };
 		CBAD00000000000000000109 /* TerminalBackendPresentationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000209 /* TerminalBackendPresentationDescriptor.swift */; };
@@ -3818,6 +3819,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CBAD00000000000000000204 /* TerminalBackendClientCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendClientCoordinator.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000205 /* TerminalBackendClientError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendClientError.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000206 /* TerminalBackendConnectedSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendConnectedSession.swift; sourceTree = "<group>"; };
+		CBAD00000000000000000224 /* TerminalBackendFrontendEventRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendFrontendEventRouter.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000207 /* TerminalBackendMutationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendMutationOutcome.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000208 /* TerminalBackendMutationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendMutationQueue.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000209 /* TerminalBackendPresentationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendPresentationDescriptor.swift; sourceTree = "<group>"; };
@@ -4527,6 +4529,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000299 /* TerminalBackendRenderDiagnostics.swift */,
 				CBAD00000000000000000203 /* TerminalBackendClient.swift */,
 				CBAD00000000000000000204 /* TerminalBackendClientCoordinator.swift */,
+				CBAD00000000000000000224 /* TerminalBackendFrontendEventRouter.swift */,
 				CBAD00000000000000000205 /* TerminalBackendClientError.swift */,
 				CBAD00000000000000000206 /* TerminalBackendConnectedSession.swift */,
 				CBAD00000000000000000207 /* TerminalBackendMutationOutcome.swift */,
@@ -7987,6 +7990,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000104 /* TerminalBackendClientCoordinator.swift in Sources */,
 				CBAD00000000000000000105 /* TerminalBackendClientError.swift in Sources */,
 				CBAD00000000000000000106 /* TerminalBackendConnectedSession.swift in Sources */,
+				CBAD00000000000000000124 /* TerminalBackendFrontendEventRouter.swift in Sources */,
 				CBAD00000000000000000107 /* TerminalBackendMutationOutcome.swift in Sources */,
 				CBAD00000000000000000108 /* TerminalBackendMutationQueue.swift in Sources */,
 				CBAD00000000000000000109 /* TerminalBackendPresentationDescriptor.swift in Sources */,

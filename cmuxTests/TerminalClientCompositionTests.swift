@@ -694,6 +694,7 @@ struct TerminalClientCompositionTests {
         #expect(runtimes[0].enqueue(.visibility(true)).accepted)
         #expect(runtimes[1].enqueue(.visibility(true)).accepted)
         await runtimes[0].debugWaitForFrontendEventRouteCountForTesting(2)
+        await runtimes[0].debugWaitForFrontendConfigDeliveryCountForTesting(2)
 
         router = await runtimes[0].debugFrontendEventRouterSnapshotForTesting()
         #expect(router.activeRouteCount == 2)
@@ -779,6 +780,8 @@ struct TerminalClientCompositionTests {
         #expect(runtime.enqueue(.reparent(workspaceID: targetWorkspaceID)).accepted)
         #expect(runtime.enqueue(.focus(false)).accepted)
         await client.waitForMutationCount(2)
+        #expect(runtime.enqueue(.visibility(true)).accepted)
+        await runtime.debugWaitForFrontendEventRouteCountForTesting(1)
         await client.waitForRendererSubscriberCount(1)
         await client.publish(.connectionLost(first.authorityForTesting))
         await client.waitForEnsureCount(2)
