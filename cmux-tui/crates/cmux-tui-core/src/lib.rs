@@ -15,6 +15,7 @@ mod mux;
 mod pairing;
 mod short_id;
 mod surface;
+mod workspace_registry;
 
 pub mod layout;
 pub mod platform;
@@ -31,8 +32,8 @@ pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
     NotificationEvent, NotificationLevel, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
-    SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, WorkspacePlacement,
-    ZoomMode, ZoomState,
+    SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, WorkspaceMutationResult,
+    WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use short_id::assign_short_ids;
@@ -40,6 +41,10 @@ pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
     BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, RenderAttachFrame,
     RenderAttachStream, Surface, SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors,
+};
+pub use workspace_registry::{
+    FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,
+    RegistryWorkspace, WorkspaceMutation, WorkspaceRegistry,
 };
 
 pub use cmux_tui_cdp::BrowserMode;

@@ -47,8 +47,8 @@ use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
     LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
     Rgb, ScreenId, SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification,
-    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId, ZoomMode,
-    assign_short_ids,
+    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId, WorkspaceMutation,
+    ZoomMode, assign_short_ids,
 };
 
 pub const PROTOCOL_VERSION: u32 = 7;
@@ -97,6 +97,22 @@ enum Command {
     },
     ClearWindowTitle,
     ListWorkspaces,
+    GetFrontendProjection {
+        frontend: String,
+        scope: String,
+        subject_key: String,
+    },
+    PutFrontendProjection {
+        frontend: String,
+        scope: String,
+        subject_key: String,
+        schema_version: u32,
+        #[serde(default)]
+        expected_projection_revision: Option<u64>,
+        projection: Value,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
     ExportLayout {
         #[serde(default)]
         screen: Option<ScreenId>,
@@ -293,9 +309,8 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
-        /// Compare-and-swap guard for the ordered registry.
-        #[serde(default)]
-        expected_revision: Option<u64>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     /// Create a terminal inside an existing workspace selected by stable key
     /// or legacy numeric id.
@@ -377,8 +392,8 @@ enum Command {
         #[serde(default)]
         key: Option<String>,
         index: usize,
-        #[serde(default)]
-        expected_revision: Option<u64>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     SetDefaultColors {
         #[serde(default)]
@@ -402,8 +417,8 @@ enum Command {
         workspace: Option<WorkspaceId>,
         #[serde(default)]
         key: Option<String>,
-        #[serde(default)]
-        expected_revision: Option<u64>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     RenamePane {
         pane: PaneId,
@@ -426,8 +441,8 @@ enum Command {
         #[serde(default)]
         key: Option<String>,
         name: String,
-        #[serde(default)]
-        expected_revision: Option<u64>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     ResizeSurface {
         surface: SurfaceId,
@@ -487,6 +502,18 @@ enum Command {
         surface: SurfaceId,
         delta: isize,
     },
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct MutationRequest {
+    #[serde(default)]
+    origin: Option<String>,
+    #[serde(default)]
+    mutation_id: Option<String>,
+    #[serde(default)]
+    expected_generation: Option<String>,
+    #[serde(default)]
+    expected_revision: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -1692,6 +1719,14 @@ fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u
     cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
 }
 
+fn workspace_mutation(request: &MutationRequest) -> anyhow::Result<WorkspaceMutation> {
+    match (&request.mutation_id, &request.origin) {
+        (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone()),
+        (None, None) => Ok(WorkspaceMutation::local("legacy-control")),
+        _ => anyhow::bail!("origin and mutation_id must be provided together"),
+    }
+}
+
 fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
     match dir {
         "left" => Ok(Direction::Left),
@@ -1916,7 +1951,7 @@ pub(crate) fn tree_entity_json(
     }
 }
 
-fn tree_delta_json(delta: &TreeDelta) -> Value {
+fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     let mut value = json!({
         "event": delta.kind.as_str(),
         "workspace": delta.workspace,
@@ -1936,6 +1971,13 @@ fn tree_delta_json(delta: &TreeDelta) -> Value {
     }
     if let Some(revision) = delta.workspace_revision {
         value["workspace_revision"] = json!(revision);
+        if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
+            value["origin"] = json!(event.origin);
+            value["mutation_id"] = json!(event.mutation_id);
+        }
+        let (registry_id, generation) = mux.registry_identity();
+        value["registry_id"] = json!(registry_id);
+        value["generation"] = json!(generation);
     }
     value
 }
@@ -2391,12 +2433,16 @@ fn handle_command(
 ) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => {
+            let (registry_id, generation) = mux.registry_identity();
             let mut identity = json!({
                 "app": "cmux-tui",
                 "version": env!("CARGO_PKG_VERSION"),
                 "protocol": PROTOCOL_VERSION,
                 "session": mux.session,
                 "pid": std::process::id(),
+                "registry_id": registry_id,
+                "generation": generation,
+                "workspace_revision": mux.with_state(|state| state.workspace_revision),
             });
             if let Some(commit) =
                 option_env!("CMUX_TUI_BUILD_COMMIT").or(option_env!("CMUX_MUX_BUILD_COMMIT"))
@@ -2474,7 +2520,48 @@ fn handle_command(
         }
         Command::ListWorkspaces => {
             let notifications = mux.surface_notifications();
-            Ok(mux.with_state(|state| workspaces_json(state, &notifications)))
+            let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
+            let (registry_id, generation) = mux.registry_identity();
+            workspaces["registry_id"] = json!(registry_id);
+            workspaces["generation"] = json!(generation);
+            Ok(workspaces)
+        }
+        Command::GetFrontendProjection { frontend, scope, subject_key } => {
+            let projection = mux.get_frontend_projection(&frontend, &scope, &subject_key)?;
+            Ok(match projection {
+                Some(projection) => serde_json::to_value(projection)?,
+                None => json!({
+                    "frontend": frontend,
+                    "scope": scope,
+                    "subject_key": subject_key,
+                    "schema_version": 0,
+                    "projection_revision": 0,
+                    "projection": null,
+                }),
+            })
+        }
+        Command::PutFrontendProjection {
+            frontend,
+            scope,
+            subject_key,
+            schema_version,
+            expected_projection_revision,
+            projection,
+            mutation,
+        } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let commit = mux.put_frontend_projection(
+                &workspace_mutation,
+                &frontend,
+                &scope,
+                &subject_key,
+                schema_version,
+                expected_projection_revision,
+                &projection,
+            )?;
+            let mut value = serde_json::to_value(commit.projection)?;
+            value["replayed"] = json!(commit.replayed);
+            Ok(value)
         }
         Command::ExportLayout { screen } => {
             mux.with_state(|state| export_layout_json(state, screen))
@@ -2825,13 +2912,24 @@ fn handle_command(
             let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::CreateWorkspace { name, key, expected_revision } => {
-            let placement = mux.create_empty_workspace(name, key, expected_revision)?;
+        Command::CreateWorkspace { name, key, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let placement = mux.create_empty_workspace_with_mutation(
+                name,
+                key,
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
                 "workspace": placement.workspace,
                 "key": placement.key,
                 "index": placement.index,
                 "workspace_revision": placement.revision,
+                "replayed": placement.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
             }))
         }
         Command::CreateTerminal { workspace, key, argv, command, cwd, name, cols, rows } => {
@@ -2933,14 +3031,27 @@ fn handle_command(
             mux.move_tab(surface, pane, index);
             Ok(json!({}))
         }
-        Command::MoveWorkspace { workspace, key, index, expected_revision } => {
-            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            let Some((revision, _)) =
-                mux.move_workspace_at_revision(workspace, index, expected_revision)?
-            else {
-                anyhow::bail!("unknown workspace {workspace}");
-            };
-            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+        Command::MoveWorkspace { workspace, key, index, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.move_workspace_with_mutation(
+                workspace,
+                key.as_deref(),
+                index,
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "index": result.index,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
         }
         Command::SetDefaultColors { fg, bg } => {
             let current = mux.default_colors();
@@ -2976,13 +3087,26 @@ fn handle_command(
             }
             Ok(json!({}))
         }
-        Command::CloseWorkspace { workspace, key, expected_revision } => {
-            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            let Some(revision) = mux.close_workspace_at_revision(workspace, expected_revision)?
-            else {
-                anyhow::bail!("unknown workspace {workspace}");
-            };
-            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+        Command::CloseWorkspace { workspace, key, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.close_workspace_with_mutation(
+                workspace,
+                key.as_deref(),
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "index": result.index,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
         }
         Command::RenamePane { pane, name } => {
             if !mux.rename_pane(pane, name) {
@@ -3002,14 +3126,27 @@ fn handle_command(
             }
             Ok(json!({}))
         }
-        Command::RenameWorkspace { workspace, key, name, expected_revision } => {
-            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            let Some(revision) =
-                mux.rename_workspace_at_revision(workspace, name, expected_revision)?
-            else {
-                anyhow::bail!("unknown workspace {workspace}");
-            };
-            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+        Command::RenameWorkspace { workspace, key, name, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.rename_workspace_with_mutation(
+                workspace,
+                key.as_deref(),
+                name,
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "index": result.index,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
         }
         Command::ResizeSurface { surface, cols, rows } => {
             let (cols, rows) = clamp_terminal_size(cols, rows);
@@ -3072,6 +3209,7 @@ fn handle_command(
                 other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
             };
             let events = mux.subscribe();
+            let event_mux = mux.clone();
             let trusted_pairing_client = mux.control_clients.is_unix(client);
             let pending_pairings =
                 if trusted_pairing_client { mux.pending_pairings() } else { Vec::new() };
@@ -3115,7 +3253,9 @@ fn handle_command(
                             "event": "pairing-resolved",
                             "request": request,
                         }),
-                        MuxEvent::TreeDelta(delta) if tree_deltas => tree_delta_json(delta),
+                        MuxEvent::TreeDelta(delta) if tree_deltas => {
+                            tree_delta_json(delta, &event_mux)
+                        }
                         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
                         _ => subscribed_event_json(&event),
                     };
@@ -3487,6 +3627,22 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         }),
         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
+        MuxEvent::FrontendProjectionChanged {
+            frontend,
+            scope,
+            subject_key,
+            projection_revision,
+            origin,
+            mutation_id,
+        } => json!({
+            "event": "frontend-projection-changed",
+            "frontend": frontend,
+            "scope": scope,
+            "subject_key": subject_key,
+            "projection_revision": projection_revision,
+            "origin": origin,
+            "mutation_id": mutation_id,
+        }),
         MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({
             "event": "client-attached",

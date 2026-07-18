@@ -2,6 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 #[cfg(test)]
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -9,6 +10,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use anyhow::Context;
 use serde_json::Value;
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
@@ -17,6 +19,10 @@ use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::pairing::PairingBroker;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
+use crate::workspace_registry::{
+    FrontendProjection, ProjectionCommit, RegistryCommit, RegistryWorkspace, WorkspaceMutation,
+    WorkspaceRegistry,
+};
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SurfaceId,
     WorkspaceId,
@@ -89,6 +95,14 @@ pub enum MuxEvent {
     /// One protocol-v7 lifecycle mutation. Coarse subscribers project this
     /// back to the legacy `tree-changed` event.
     TreeDelta(TreeDelta),
+    FrontendProjectionChanged {
+        frontend: String,
+        scope: String,
+        subject_key: String,
+        projection_revision: u64,
+        origin: String,
+        mutation_id: String,
+    },
     /// A screen's pane geometry changed. Clients should re-fetch layout.
     LayoutChanged(ScreenId),
     /// A control connection attached its first surface.
@@ -300,6 +314,17 @@ pub struct WorkspacePlacement {
     pub key: String,
     pub index: usize,
     pub revision: u64,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceMutationResult {
+    pub workspace: Option<WorkspaceId>,
+    pub key: String,
+    pub index: Option<usize>,
+    pub revision: u64,
+    pub replayed: bool,
+    pub changed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -426,6 +451,9 @@ impl ClientSizingState {
 
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
+    /// Serializes durable workspace commits and their in-memory/event
+    /// projection. Lock order is always registry, then state.
+    workspace_registry: Mutex<WorkspaceRegistry>,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
     next_id: AtomicU64,
@@ -461,20 +489,71 @@ impl Mux {
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> Arc<Self> {
         let session = session.into();
-        let mut surface_options = surface_options;
+        let registry = WorkspaceRegistry::in_memory(&session)
+            .expect("in-memory workspace registry must initialize");
+        Self::from_workspace_registry(session, surface_options, registry, test_surface_runtime)
+            .expect("in-memory workspace registry must load")
+    }
+
+    pub fn open_persistent(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        state_root: &Path,
+    ) -> anyhow::Result<Arc<Self>> {
+        let session = session.into();
+        let registry = WorkspaceRegistry::open(state_root, &session)?;
+        Self::from_workspace_registry(session, surface_options, registry, false)
+    }
+
+    fn from_workspace_registry(
+        session: String,
+        mut surface_options: SurfaceOptions,
+        registry: WorkspaceRegistry,
+        #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        let snapshot = registry.snapshot()?;
+        let next_id = snapshot
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
+        let workspaces = snapshot
+            .workspaces
+            .into_iter()
+            .map(|workspace| Workspace {
+                id: workspace.id,
+                key: workspace.key,
+                name: workspace.name,
+                screens: Vec::new(),
+                active_screen: 0,
+            })
+            .collect::<Vec<_>>();
+        let workspace_index_by_id = workspaces
+            .iter()
+            .enumerate()
+            .map(|(index, workspace)| (workspace.id, index))
+            .collect();
+        let workspace_id_by_key = workspaces
+            .iter()
+            .map(|workspace| (workspace.key.clone(), workspace.id))
+            .collect();
         surface_options.browser_session_name = session.clone();
-        Arc::new(Mux {
+        Ok(Arc::new(Mux {
+            workspace_registry: Mutex::new(registry),
             state: Mutex::new(State {
-                workspaces: Vec::new(),
-                workspace_index_by_id: HashMap::new(),
-                workspace_id_by_key: HashMap::new(),
-                workspace_revision: 0,
+                workspaces,
+                workspace_index_by_id,
+                workspace_id_by_key,
+                workspace_revision: snapshot.revision,
                 active_workspace: 0,
                 panes: HashMap::new(),
                 surfaces: HashMap::new(),
             }),
             subscribers: MuxEventBroadcaster::default(),
-            next_id: AtomicU64::new(1),
+            next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
@@ -494,7 +573,7 @@ impl Mux {
             #[cfg(test)]
             test_surface_runtime,
             session,
-        })
+        }))
     }
 
     #[cfg(test)]
@@ -550,16 +629,85 @@ impl Mux {
         ))
     }
 
-    fn require_workspace_revision(state: &State, expected: Option<u64>) -> anyhow::Result<()> {
-        if let Some(expected) = expected
-            && expected != state.workspace_revision
-        {
-            anyhow::bail!(
-                "workspace revision conflict: expected {expected}, current {}",
-                state.workspace_revision
-            );
+    fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
+        state
+            .workspaces
+            .iter()
+            .map(|workspace| RegistryWorkspace {
+                id: workspace.id,
+                key: workspace.key.clone(),
+                name: workspace.name.clone(),
+                group_key: self.session.clone(),
+            })
+            .collect()
+    }
+
+    pub fn registry_identity(&self) -> (String, String) {
+        let registry = self.workspace_registry.lock().unwrap();
+        (registry.registry_id().to_string(), registry.generation().to_string())
+    }
+
+    pub fn workspace_registry_event(
+        &self,
+        revision: u64,
+    ) -> anyhow::Result<Option<crate::workspace_registry::RegistryEvent>> {
+        if revision == 0 {
+            return Ok(None);
         }
-        Ok(())
+        Ok(self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .events_after(revision - 1)?
+            .into_iter()
+            .find(|event| event.revision == revision))
+    }
+
+    pub fn get_frontend_projection(
+        &self,
+        frontend: &str,
+        scope: &str,
+        subject_key: &str,
+    ) -> anyhow::Result<Option<FrontendProjection>> {
+        self.workspace_registry.lock().unwrap().get_frontend_projection(
+            frontend,
+            scope,
+            subject_key,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn put_frontend_projection(
+        &self,
+        mutation: &WorkspaceMutation,
+        frontend: &str,
+        scope: &str,
+        subject_key: &str,
+        schema_version: u32,
+        expected_projection_revision: Option<u64>,
+        projection: &Value,
+    ) -> anyhow::Result<ProjectionCommit> {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let commit = registry.put_frontend_projection(
+            mutation,
+            frontend,
+            scope,
+            subject_key,
+            schema_version,
+            expected_projection_revision,
+            projection,
+        )?;
+        if !commit.replayed {
+            self.emit(MuxEvent::FrontendProjectionChanged {
+                frontend: frontend.to_string(),
+                scope: scope.to_string(),
+                subject_key: subject_key.to_string(),
+                projection_revision: commit.projection.projection_revision,
+                origin: mutation.origin.clone(),
+                mutation_id: mutation.id.clone(),
+            });
+        }
+        Ok(commit)
     }
 
     pub fn subscribe(&self) -> MuxEventReceiver {
@@ -1491,9 +1639,46 @@ impl Mux {
         let screen_id = self.next_id();
         let ws_id = self.next_id();
         let notifications = self.surface_notifications();
+        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mut registry = self.workspace_registry.lock().unwrap();
         let delta = {
             let mut state = self.state.lock().unwrap();
             let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+            let index = state.workspaces.len();
+            let mut desired = self.registry_projection(&state);
+            desired.push(RegistryWorkspace {
+                id: ws_id,
+                key: workspace_key.clone(),
+                name: name.clone(),
+                group_key: self.session.clone(),
+            });
+            let commit = match registry.commit(
+                &mutation,
+                &serde_json::json!({
+                    "op": "new-workspace",
+                    "workspace": ws_id,
+                    "key": workspace_key.clone(),
+                    "name": name.clone(),
+                }),
+                None,
+                None,
+                "workspace-added",
+                &workspace_key,
+                &desired,
+                &serde_json::json!({
+                    "workspace": ws_id,
+                    "key": workspace_key.clone(),
+                    "index": index
+                }),
+            ) {
+                Ok(commit) => commit,
+                Err(error) => {
+                    drop(state);
+                    drop(registry);
+                    self.discard_spawned(vec![surface.clone()]);
+                    return Err(error);
+                }
+            };
             state.panes.insert(pane_id, pane);
             state.push_workspace(Workspace {
                 id: ws_id,
@@ -1509,9 +1694,8 @@ impl Mux {
                 active_screen: 0,
             });
             state.active_workspace = state.workspaces.len() - 1;
-            state.workspace_revision = state.workspace_revision.saturating_add(1);
-            let workspace_revision = state.workspace_revision;
-            let index = state.workspaces.len() - 1;
+            state.workspace_revision = commit.revision;
+            let workspace_revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,
                 &notifications,
@@ -1544,20 +1728,77 @@ impl Mux {
         key: Option<String>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<WorkspacePlacement> {
-        let key = match key {
+        let mutation = WorkspaceMutation::local("cmux-tui");
+        self.create_empty_workspace_with_mutation(name, key, None, expected_revision, &mutation)
+    }
+
+    pub fn create_empty_workspace_with_mutation(
+        &self,
+        name: Option<String>,
+        requested_key: Option<String>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<WorkspacePlacement> {
+        let key = match requested_key.as_ref() {
             Some(key) if key.trim().is_empty() => anyhow::bail!("workspace key cannot be empty"),
-            Some(key) => key,
+            Some(key) => key.clone(),
             None => Self::new_workspace_key()?,
         };
+        let requested_name = name.clone();
         let ws_id = self.next_id();
         let notifications = self.surface_notifications();
+        let mut registry = self.workspace_registry.lock().unwrap();
         let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
-            Self::require_workspace_revision(&state, expected_revision)?;
-            if state.workspace_by_key(&key).is_some() {
-                anyhow::bail!("workspace key already exists: {key}");
-            }
             let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+            let index = state.workspaces.len();
+            let mut desired = self.registry_projection(&state);
+            desired.push(RegistryWorkspace {
+                id: ws_id,
+                key: key.clone(),
+                name: name.clone(),
+                group_key: self.session.clone(),
+            });
+            let result = serde_json::json!({
+                "workspace": ws_id,
+                "key": key.clone(),
+                "index": index,
+            });
+            let commit = registry.commit(
+                mutation,
+                &serde_json::json!({
+                    "op": "create-workspace",
+                    "name": requested_name,
+                    "requested_key": requested_key.clone(),
+                }),
+                expected_generation,
+                expected_revision,
+                "workspace-added",
+                &key,
+                &desired,
+                &result,
+            )?;
+            let committed_workspace = commit.result["workspace"]
+                .as_u64()
+                .ok_or_else(|| anyhow::anyhow!("stored create result is missing workspace"))?;
+            let committed_key = commit.result["key"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("stored create result is missing key"))?
+                .to_string();
+            let committed_index = commit.result["index"]
+                .as_u64()
+                .and_then(|value| usize::try_from(value).ok())
+                .ok_or_else(|| anyhow::anyhow!("stored create result is missing index"))?;
+            if commit.replayed {
+                return Ok(WorkspacePlacement {
+                    workspace: committed_workspace,
+                    key: committed_key,
+                    index: committed_index,
+                    revision: commit.revision,
+                    replayed: true,
+                });
+            }
             state.push_workspace(Workspace {
                 id: ws_id,
                 key: key.clone(),
@@ -1566,9 +1807,8 @@ impl Mux {
                 active_screen: 0,
             });
             state.active_workspace = state.workspaces.len() - 1;
-            state.workspace_revision = state.workspace_revision.saturating_add(1);
-            let index = state.workspaces.len() - 1;
-            let revision = state.workspace_revision;
+            state.workspace_revision = commit.revision;
+            let revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,
                 &notifications,
@@ -1577,7 +1817,7 @@ impl Mux {
             )
             .expect("new empty workspace is present in tree snapshot");
             (
-                WorkspacePlacement { workspace: ws_id, key, index, revision },
+                WorkspacePlacement { workspace: ws_id, key, index, revision, replayed: false },
                 TreeDelta {
                     kind: TreeDeltaKind::WorkspaceAdded,
                     workspace: ws_id,
@@ -1613,10 +1853,47 @@ impl Mux {
             let screen_id = self.next_id();
             let ws_id = self.next_id();
             let notifications = self.surface_notifications();
+            let mutation = WorkspaceMutation::local("cmux-tui");
+            let mut registry = self.workspace_registry.lock().unwrap();
             let delta = {
                 let mut state = self.state.lock().unwrap();
                 let workspace_name =
                     name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+                let index = state.workspaces.len();
+                let mut desired = self.registry_projection(&state);
+                desired.push(RegistryWorkspace {
+                    id: ws_id,
+                    key: workspace_key.clone(),
+                    name: workspace_name.clone(),
+                    group_key: self.session.clone(),
+                });
+                let commit = match registry.commit(
+                    &mutation,
+                    &serde_json::json!({
+                        "op": "run-new-workspace",
+                        "workspace": ws_id,
+                        "key": workspace_key.clone(),
+                        "name": workspace_name.clone(),
+                    }),
+                    None,
+                    None,
+                    "workspace-added",
+                    &workspace_key,
+                    &desired,
+                    &serde_json::json!({
+                        "workspace": ws_id,
+                        "key": workspace_key.clone(),
+                        "index": index,
+                    }),
+                ) {
+                    Ok(commit) => commit,
+                    Err(error) => {
+                        drop(state);
+                        drop(registry);
+                        self.discard_spawned(vec![surface.clone()]);
+                        return Err(error);
+                    }
+                };
                 state.panes.insert(pane_id, pane);
                 state.push_workspace(Workspace {
                     id: ws_id,
@@ -1632,9 +1909,8 @@ impl Mux {
                     active_screen: 0,
                 });
                 state.active_workspace = state.workspaces.len() - 1;
-                state.workspace_revision = state.workspace_revision.saturating_add(1);
-                let workspace_revision = state.workspace_revision;
-                let index = state.workspaces.len() - 1;
+                state.workspace_revision = commit.revision;
+                let workspace_revision = commit.revision;
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
@@ -2110,9 +2386,87 @@ impl Mux {
             let screen_id = self.next_id();
             let ws_id = self.next_id();
             let notifications = self.surface_notifications();
+            if let Some(workspace_id) = empty_workspace {
+                let delta = {
+                    let mut state = self.state.lock().unwrap();
+                    let Some(workspace_index) =
+                        state.workspaces.iter().position(|workspace| workspace.id == workspace_id)
+                    else {
+                        state.surfaces.remove(&surface.id);
+                        surface.kill();
+                        anyhow::bail!("workspace disappeared while creating browser tab");
+                    };
+                    state.panes.insert(pane_id, pane);
+                    state.workspaces[workspace_index].screens.push(Screen {
+                        id: screen_id,
+                        name: None,
+                        root: Node::Leaf(pane_id),
+                        active_pane: pane_id,
+                        zoomed_pane: None,
+                    });
+                    state.workspaces[workspace_index].active_screen = 0;
+                    let entity = crate::server::tree_entity_json(
+                        &state,
+                        &notifications,
+                        TreeDeltaKind::ScreenAdded,
+                        screen_id,
+                    )
+                    .expect("first workspace screen is present in tree snapshot");
+                    TreeDelta {
+                        kind: TreeDeltaKind::ScreenAdded,
+                        workspace: workspace_id,
+                        screen: Some(screen_id),
+                        pane: None,
+                        surface: None,
+                        index: Some(0),
+                        entity,
+                        workspace_revision: None,
+                    }
+                };
+                self.emit(MuxEvent::TreeDelta(delta));
+                self.reap_if_dead(&surface);
+                return Ok(surface);
+            }
+            let mutation = WorkspaceMutation::local("cmux-tui");
+            let mut registry = self.workspace_registry.lock().unwrap();
             let delta = {
                 let mut state = self.state.lock().unwrap();
                 let name = format!("{}", state.workspaces.len() + 1);
+                let index = state.workspaces.len();
+                let mut desired = self.registry_projection(&state);
+                desired.push(RegistryWorkspace {
+                    id: ws_id,
+                    key: workspace_key.clone(),
+                    name: name.clone(),
+                    group_key: self.session.clone(),
+                });
+                let commit = match registry.commit(
+                    &mutation,
+                    &serde_json::json!({
+                        "op": "new-browser-workspace",
+                        "workspace": ws_id,
+                        "key": workspace_key.clone(),
+                        "name": name.clone(),
+                    }),
+                    None,
+                    None,
+                    "workspace-added",
+                    &workspace_key,
+                    &desired,
+                    &serde_json::json!({
+                        "workspace": ws_id,
+                        "key": workspace_key.clone(),
+                        "index": index,
+                    }),
+                ) {
+                    Ok(commit) => commit,
+                    Err(error) => {
+                        drop(state);
+                        drop(registry);
+                        self.discard_spawned(vec![surface.clone()]);
+                        return Err(error);
+                    }
+                };
                 state.panes.insert(pane_id, pane);
                 state.push_workspace(Workspace {
                     id: ws_id,
@@ -2128,9 +2482,8 @@ impl Mux {
                     active_screen: 0,
                 });
                 state.active_workspace = state.workspaces.len() - 1;
-                state.workspace_revision = state.workspace_revision.saturating_add(1);
-                let workspace_revision = state.workspace_revision;
-                let index = state.workspaces.len() - 1;
+                state.workspace_revision = commit.revision;
+                let workspace_revision = commit.revision;
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
@@ -2369,25 +2722,15 @@ impl Mux {
     }
 
     /// Close one tab. When it was the pane's last tab, the pane collapses
-    /// out of its split tree (and emptied screens/workspaces are removed).
+    /// out of its split tree. Empty workspace containers remain durable;
+    /// only an explicit close-workspace mutation removes a workspace.
     pub fn close_surface(&self, target: SurfaceId) {
         let notifications = self.surface_notifications();
         let (removed, changed_screens, empty, delta) = {
             let mut state = self.state.lock().unwrap();
             let changed_screen = surface_screen_id(&state, target);
-            let mut delta = close_surface_delta(&state, &notifications, target);
+            let delta = close_surface_delta(&state, &notifications, target);
             let removed = remove_surface(&mut state, target);
-            if removed.is_some()
-                && matches!(
-                    delta.as_ref().map(|delta| delta.kind),
-                    Some(TreeDeltaKind::WorkspaceClosed)
-                )
-            {
-                state.workspace_revision = state.workspace_revision.saturating_add(1);
-                if let Some(delta) = delta.as_mut() {
-                    delta.workspace_revision = Some(state.workspace_revision);
-                }
-            }
             (
                 removed,
                 changed_screen.into_iter().collect::<Vec<_>>(),
@@ -2414,7 +2757,7 @@ impl Mux {
 
     /// Close every surface in `tabs` (helper for pane/screen/workspace
     /// close). Emits events outside the lock.
-    fn close_surfaces(&self, tabs: Vec<SurfaceId>, mut delta: TreeDelta) {
+    fn close_surfaces(&self, tabs: Vec<SurfaceId>, delta: TreeDelta) {
         let (removed, changed_screens, empty) = {
             let mut state = self.state.lock().unwrap();
             let changed_screens = unique_screen_ids(
@@ -2425,10 +2768,6 @@ impl Mux {
                 if let Some(surface) = remove_surface(&mut state, surface) {
                     removed.push(surface);
                 }
-            }
-            if !removed.is_empty() && delta.kind == TreeDeltaKind::WorkspaceClosed {
-                state.workspace_revision = state.workspace_revision.saturating_add(1);
-                delta.workspace_revision = Some(state.workspace_revision);
             }
             (removed, changed_screens, state.workspaces.is_empty())
         };
@@ -2499,14 +2838,59 @@ impl Mux {
         target: WorkspaceId,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<u64>> {
+        let mutation = WorkspaceMutation::local("cmux-tui");
+        let result = self.close_workspace_with_mutation(
+            Some(target),
+            None,
+            None,
+            expected_revision,
+            &mutation,
+        )?;
+        Ok(Some(result.revision))
+    }
+
+    pub fn close_workspace_with_mutation(
+        &self,
+        target: Option<WorkspaceId>,
+        requested_key: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<WorkspaceMutationResult> {
+        let fingerprint = serde_json::json!({
+            "op": "close-workspace",
+            "workspace": target,
+            "key": requested_key,
+        });
         let notifications = self.surface_notifications();
-        let (removed, delta, empty, revision) = {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(commit) = registry.replay(mutation, &fingerprint)? {
+            return workspace_mutation_result(&commit);
+        }
+        let (removed, delta, empty, result) = {
             let mut state = self.state.lock().unwrap();
-            Self::require_workspace_revision(&state, expected_revision)?;
-            let Some(index) = state.workspace_index(target) else {
-                return Ok(None);
-            };
-            let mut delta = close_workspace_delta(&state, &notifications, target)
+            let index = resolve_workspace_index(&state, target, requested_key)?;
+            let workspace_id = state.workspaces[index].id;
+            let key = state.workspaces[index].key.clone();
+            let mut desired = self.registry_projection(&state);
+            desired.remove(index);
+            let committed_result = serde_json::json!({
+                "workspace": workspace_id,
+                "key": key,
+                "index": index,
+                "changed": true,
+            });
+            let commit = registry.commit(
+                mutation,
+                &fingerprint,
+                expected_generation,
+                expected_revision,
+                "workspace-closed",
+                &key,
+                &desired,
+                &committed_result,
+            )?;
+            let mut delta = close_workspace_delta(&state, &notifications, workspace_id)
                 .expect("live workspace has a close delta");
             let active_id =
                 state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);
@@ -2528,10 +2912,10 @@ impl Mux {
             state.active_workspace = active_id
                 .and_then(|id| state.workspace_index(id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
-            state.workspace_revision = state.workspace_revision.saturating_add(1);
-            let revision = state.workspace_revision;
-            delta.workspace_revision = Some(revision);
-            (removed, delta, state.workspaces.is_empty(), revision)
+            state.workspace_revision = commit.revision;
+            delta.workspace_revision = Some(commit.revision);
+            let result = workspace_mutation_result(&commit)?;
+            (removed, delta, state.workspaces.is_empty(), result)
         };
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
@@ -2541,7 +2925,7 @@ impl Mux {
         if empty {
             self.emit(MuxEvent::Empty);
         }
-        Ok(Some(revision))
+        Ok(result)
     }
 
     pub fn rename_workspace(&self, target: WorkspaceId, name: String) -> bool {
@@ -2556,27 +2940,76 @@ impl Mux {
         name: String,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<u64>> {
+        let mutation = WorkspaceMutation::local("cmux-tui");
+        let result = self.rename_workspace_with_mutation(
+            Some(target),
+            None,
+            name,
+            None,
+            expected_revision,
+            &mutation,
+        )?;
+        Ok(Some(result.revision))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn rename_workspace_with_mutation(
+        &self,
+        target: Option<WorkspaceId>,
+        requested_key: Option<&str>,
+        name: String,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<WorkspaceMutationResult> {
+        let fingerprint = serde_json::json!({
+            "op": "rename-workspace",
+            "workspace": target,
+            "key": requested_key,
+            "name": name.clone(),
+        });
         let notifications = self.surface_notifications();
-        let renamed = {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(commit) = registry.replay(mutation, &fingerprint)? {
+            return workspace_mutation_result(&commit);
+        }
+        let (renamed, result) = {
             let mut state = self.state.lock().unwrap();
-            Self::require_workspace_revision(&state, expected_revision)?;
-            let Some(index) = state.workspace_index(target) else {
-                return Ok(None);
-            };
+            let index = resolve_workspace_index(&state, target, requested_key)?;
+            let workspace_id = state.workspaces[index].id;
+            let key = state.workspaces[index].key.clone();
+            let changed = state.workspaces[index].name != name;
+            let mut desired = self.registry_projection(&state);
+            desired[index].name = name.clone();
+            let commit = registry.commit(
+                mutation,
+                &fingerprint,
+                expected_generation,
+                expected_revision,
+                "workspace-renamed",
+                &key,
+                &desired,
+                &serde_json::json!({
+                    "workspace": workspace_id,
+                    "key": key.clone(),
+                    "index": index,
+                    "changed": changed,
+                }),
+            )?;
             state.workspaces[index].name = name;
-            state.workspace_revision = state.workspace_revision.saturating_add(1);
-            let workspace_revision = state.workspace_revision;
+            state.workspace_revision = commit.revision;
+            let workspace_revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,
                 &notifications,
                 TreeDeltaKind::WorkspaceRenamed,
-                target,
+                workspace_id,
             )
             .expect("renamed workspace is present in tree snapshot");
             (
                 TreeDelta {
                     kind: TreeDeltaKind::WorkspaceRenamed,
-                    workspace: target,
+                    workspace: workspace_id,
                     screen: None,
                     pane: None,
                     surface: None,
@@ -2584,11 +3017,11 @@ impl Mux {
                     entity,
                     workspace_revision: Some(workspace_revision),
                 },
-                workspace_revision,
+                workspace_mutation_result(&commit)?,
             )
         };
-        self.emit(MuxEvent::TreeDelta(renamed.0));
-        Ok(Some(renamed.1))
+        self.emit(MuxEvent::TreeDelta(renamed));
+        Ok(result)
     }
 
     /// Set a pane's user-visible name. An empty name clears it (the pane
@@ -2844,6 +3277,7 @@ impl Mux {
         layout: &LayoutSpec,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<AppliedLayout> {
+        let new_workspace_key = Self::new_workspace_key()?;
         {
             let state = self.state.lock().unwrap();
             if let Some(id) = workspace
@@ -2869,9 +3303,50 @@ impl Mux {
             anyhow::bail!("layout must contain at least one leaf");
         };
         let screen_id = self.next_id();
+        let new_workspace_id = self.next_id();
         let notifications = self.surface_notifications();
+        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mut registry = self.workspace_registry.lock().unwrap();
         let delta = {
             let mut state = self.state.lock().unwrap();
+            let created_revision = if workspace.is_none() && state.workspaces.is_empty() {
+                let mut desired = self.registry_projection(&state);
+                desired.push(RegistryWorkspace {
+                    id: new_workspace_id,
+                    key: new_workspace_key.clone(),
+                    name: "1".into(),
+                    group_key: self.session.clone(),
+                });
+                let commit = match registry.commit(
+                    &mutation,
+                    &serde_json::json!({
+                        "op": "apply-layout-new-workspace",
+                        "workspace": new_workspace_id,
+                        "key": new_workspace_key.clone(),
+                    }),
+                    None,
+                    None,
+                    "workspace-added",
+                    &new_workspace_key,
+                    &desired,
+                    &serde_json::json!({
+                        "workspace": new_workspace_id,
+                        "key": new_workspace_key.clone(),
+                        "index": 0,
+                    }),
+                ) {
+                    Ok(commit) => commit,
+                    Err(error) => {
+                        drop(state);
+                        drop(registry);
+                        self.discard_spawned(spawned);
+                        return Err(error);
+                    }
+                };
+                Some(commit.revision)
+            } else {
+                None
+            };
             for (pane_id, pane) in panes {
                 state.panes.insert(pane_id, pane);
             }
@@ -2886,19 +3361,18 @@ impl Mux {
                     id
                 }
                 None if state.workspaces.is_empty() => {
-                    let new_workspace_key = Self::new_workspace_key()?;
-                    let ws_id = self.next_id();
                     state.push_workspace(Workspace {
-                        id: ws_id,
+                        id: new_workspace_id,
                         key: new_workspace_key,
                         name: "1".into(),
                         screens: vec![screen],
                         active_screen: 0,
                     });
                     state.active_workspace = 0;
-                    state.workspace_revision = state.workspace_revision.saturating_add(1);
-                    created_workspace = Some(ws_id);
-                    ws_id
+                    state.workspace_revision =
+                        created_revision.expect("empty workspace registry commit exists");
+                    created_workspace = Some(new_workspace_id);
+                    new_workspace_id
                 }
                 None => {
                     let active = state.active_workspace;
@@ -3014,13 +3488,9 @@ impl Mux {
         let active_at = self.next_active_at();
         let moved = {
             let mut state = self.state.lock().unwrap();
-            let workspace_count = state.workspaces.len();
             let moved = move_tab_in_state(&mut state, surface, pane, index);
             if moved {
                 stamp_pane(&mut state, pane, active_at);
-                if state.workspaces.len() != workspace_count {
-                    state.workspace_revision = state.workspace_revision.saturating_add(1);
-                }
             }
             moved
         };
@@ -3043,35 +3513,83 @@ impl Mux {
         index: usize,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(u64, bool)>> {
+        let mutation = WorkspaceMutation::local("cmux-tui");
+        let result = self.move_workspace_with_mutation(
+            Some(workspace),
+            None,
+            index,
+            None,
+            expected_revision,
+            &mutation,
+        )?;
+        Ok(Some((result.revision, result.changed)))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn move_workspace_with_mutation(
+        &self,
+        workspace: Option<WorkspaceId>,
+        requested_key: Option<&str>,
+        index: usize,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<WorkspaceMutationResult> {
+        let fingerprint = serde_json::json!({
+            "op": "move-workspace",
+            "workspace": workspace,
+            "key": requested_key,
+            "index": index,
+        });
         let notifications = self.surface_notifications();
-        let delta = {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(commit) = registry.replay(mutation, &fingerprint)? {
+            return workspace_mutation_result(&commit);
+        }
+        let (delta, result) = {
             let mut state = self.state.lock().unwrap();
-            Self::require_workspace_revision(&state, expected_revision)?;
-            let Some(old_idx) = state.workspace_index(workspace) else {
-                return Ok(None);
-            };
-            let new_idx = index.min(state.workspaces.len().saturating_sub(1));
-            if new_idx == old_idx {
-                return Ok(Some((state.workspace_revision, false)));
-            }
+            let old_idx = resolve_workspace_index(&state, workspace, requested_key)?;
+            let workspace_id = state.workspaces[old_idx].id;
+            let key = state.workspaces[old_idx].key.clone();
+            let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
+            let new_idx = new_idx.min(state.workspaces.len().saturating_sub(1));
+            let changed = new_idx != old_idx;
+            let mut desired = self.registry_projection(&state);
+            let desired_workspace = desired.remove(old_idx);
+            desired.insert(new_idx, desired_workspace);
+            let commit = registry.commit(
+                mutation,
+                &fingerprint,
+                expected_generation,
+                expected_revision,
+                "workspace-moved",
+                &key,
+                &desired,
+                &serde_json::json!({
+                    "workspace": workspace_id,
+                    "key": key.clone(),
+                    "index": new_idx,
+                    "changed": changed,
+                }),
+            )?;
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
             state.move_workspace(old_idx, new_idx);
             state.active_workspace = active_id
                 .and_then(|id| state.workspace_index(id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
-            state.workspace_revision = state.workspace_revision.saturating_add(1);
-            let workspace_revision = state.workspace_revision;
+            state.workspace_revision = commit.revision;
+            let workspace_revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,
                 &notifications,
                 TreeDeltaKind::WorkspaceMoved,
-                workspace,
+                workspace_id,
             )
             .expect("moved workspace is present in tree snapshot");
-            Some((
+            (
                 TreeDelta {
                     kind: TreeDeltaKind::WorkspaceMoved,
-                    workspace,
+                    workspace: workspace_id,
                     screen: None,
                     pane: None,
                     surface: None,
@@ -3079,15 +3597,11 @@ impl Mux {
                     entity,
                     workspace_revision: Some(workspace_revision),
                 },
-                workspace_revision,
-            ))
+                workspace_mutation_result(&commit)?,
+            )
         };
-        if let Some((delta, revision)) = delta {
-            self.emit(MuxEvent::TreeDelta(delta));
-            Ok(Some((revision, true)))
-        } else {
-            Ok(None)
-        }
+        self.emit(MuxEvent::TreeDelta(delta));
+        Ok(result)
     }
 
     /// Select a tab within a pane (default: the active pane) by index or
@@ -3248,6 +3762,50 @@ fn surface_screen_id(state: &State, surface: SurfaceId) -> Option<ScreenId> {
     Some(state.workspaces[wi].screens[si].id)
 }
 
+fn resolve_workspace_index(
+    state: &State,
+    id: Option<WorkspaceId>,
+    key: Option<&str>,
+) -> anyhow::Result<usize> {
+    if id.is_none() && key.is_none() {
+        anyhow::bail!("workspace or key is required");
+    }
+    let by_id = id.and_then(|id| state.workspaces.iter().position(|workspace| workspace.id == id));
+    let by_key =
+        key.and_then(|key| state.workspaces.iter().position(|workspace| workspace.key == key));
+    match (id, key, by_id, by_key) {
+        (Some(id), _, None, _) => anyhow::bail!("unknown workspace {id}"),
+        (_, Some(key), _, None) => anyhow::bail!("unknown workspace key {key}"),
+        (Some(_), Some(_), Some(left), Some(right)) if left != right => {
+            anyhow::bail!("workspace and key identify different workspaces")
+        }
+        (_, _, Some(index), _) | (_, _, _, Some(index)) => Ok(index),
+        _ => anyhow::bail!("unknown workspace"),
+    }
+}
+
+fn workspace_mutation_result(commit: &RegistryCommit) -> anyhow::Result<WorkspaceMutationResult> {
+    let workspace = commit.result["workspace"].as_u64();
+    let key = commit.result["key"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("stored workspace mutation result is missing key"))?
+        .to_string();
+    let index = commit.result["index"]
+        .as_u64()
+        .map(usize::try_from)
+        .transpose()
+        .context("stored workspace mutation index is invalid")?;
+    let changed = commit.result["changed"].as_bool().unwrap_or(true);
+    Ok(WorkspaceMutationResult {
+        workspace,
+        key,
+        index,
+        revision: commit.revision,
+        replayed: commit.replayed,
+        changed,
+    })
+}
+
 fn screen_pane_index(state: &State, screen: ScreenId, pane: PaneId) -> usize {
     state
         .workspaces
@@ -3330,25 +3888,18 @@ fn close_screen_delta(
         workspace.screens.iter().position(|candidate| candidate.id == screen).map(|si| (wi, si))
     })?;
     let workspace = &state.workspaces[wi];
-    if workspace.screens.len() > 1 {
-        let entity = crate::server::tree_entity_json(
-            state,
-            notifications,
-            TreeDeltaKind::ScreenClosed,
-            screen,
-        )?;
-        return Some(TreeDelta {
-            kind: TreeDeltaKind::ScreenClosed,
-            workspace: workspace.id,
-            screen: Some(screen),
-            pane: None,
-            surface: None,
-            index: Some(si),
-            entity,
-            workspace_revision: None,
-        });
-    }
-    close_workspace_delta(state, notifications, workspace.id)
+    let entity =
+        crate::server::tree_entity_json(state, notifications, TreeDeltaKind::ScreenClosed, screen)?;
+    Some(TreeDelta {
+        kind: TreeDeltaKind::ScreenClosed,
+        workspace: workspace.id,
+        screen: Some(screen),
+        pane: None,
+        surface: None,
+        index: Some(si),
+        entity,
+        workspace_revision: None,
+    })
 }
 
 fn close_workspace_delta(
@@ -3376,7 +3927,8 @@ fn close_workspace_delta(
 }
 
 /// Remove one surface from the state: detach it from its
-/// pane, and collapse emptied panes/screens/workspaces. Returns whether
+/// pane, and collapse emptied panes/screens. Empty workspaces remain as
+/// canonical registry entries. Returns whether
 /// anything was removed. Runs under the state lock.
 fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> {
     let removed = state.surfaces.remove(&target);
@@ -3434,12 +3986,6 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
         }
     }
 
-    // Workspace emptied too: drop it, keeping the active selection stable.
-    let active_id = state.workspaces.get(state.active_workspace).map(|w| w.id);
-    state.remove_workspace(wi);
-    state.active_workspace = active_id
-        .and_then(|id| state.workspace_index(id))
-        .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
     removed
 }
 
@@ -3476,14 +4022,6 @@ fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
             let ws = &mut state.workspaces[wi];
             ws.screens.remove(si);
             ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
-            if !ws.screens.is_empty() {
-                return;
-            }
-            let active_id = state.workspaces.get(state.active_workspace).map(|w| w.id);
-            state.remove_workspace(wi);
-            state.active_workspace = active_id
-                .and_then(|id| state.workspace_index(id))
-                .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
         }
     }
 }
@@ -4374,7 +4912,11 @@ mod tests {
         mux.close_pane(p1);
         mux.close_pane(p3);
         assert_eq!(mux.surface_count(), 0);
-        mux.with_state(|s| assert!(s.workspaces.is_empty()));
+        mux.with_state(|s| {
+            assert_eq!(s.workspaces.len(), 1);
+            assert!(s.workspaces[0].screens.is_empty());
+            assert_eq!(s.workspace_revision, 1);
+        });
     }
 
     #[test]
@@ -4441,9 +4983,14 @@ mod tests {
             assert_eq!(s.workspaces.len(), 1);
         });
 
-        // Closing the last tab collapses the pane, screen, and workspace.
+        // Closing the last tab collapses the pane and screen, while the
+        // canonical workspace remains until an explicit close-workspace.
         mux.close_surface(s1.id);
-        mux.with_state(|s| assert!(s.workspaces.is_empty()));
+        mux.with_state(|s| {
+            assert_eq!(s.workspaces.len(), 1);
+            assert!(s.workspaces[0].screens.is_empty());
+            assert_eq!(s.workspace_revision, 1);
+        });
     }
 
     #[test]
@@ -4686,6 +5233,46 @@ mod tests {
         assert_eq!(closed.kind, TreeDeltaKind::WorkspaceClosed);
         assert_eq!(closed.workspace_revision, Some(3));
         assert!(matches!(events.recv().expect("empty event"), MuxEvent::Empty));
+    }
+
+    #[test]
+    fn persistent_workspace_registry_recovers_exact_identity_order_and_revision() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-mux-persistent-{}", crate::workspace_registry::new_uuid_v4()));
+        let (registry_id, generation) = {
+            let mux = Mux::open_persistent("recover", SurfaceOptions::default(), &root).unwrap();
+            let first = mux
+                .create_empty_workspace(Some("one".into()), Some("stable-one".into()), Some(0))
+                .unwrap();
+            let second = mux
+                .create_empty_workspace(Some("two".into()), Some("stable-two".into()), Some(1))
+                .unwrap();
+            assert_eq!(
+                mux.rename_workspace_at_revision(second.workspace, "renamed".into(), Some(2))
+                    .unwrap(),
+                Some(3)
+            );
+            assert_eq!(
+                mux.move_workspace_at_revision(second.workspace, 0, Some(3)).unwrap(),
+                Some((4, true))
+            );
+            assert_eq!(first.workspace, 1);
+            mux.registry_identity()
+        };
+
+        let recovered = Mux::open_persistent("recover", SurfaceOptions::default(), &root).unwrap();
+        let (recovered_registry_id, recovered_generation) = recovered.registry_identity();
+        assert_eq!(recovered_registry_id, registry_id);
+        assert_ne!(recovered_generation, generation);
+        recovered.with_state(|state| {
+            assert_eq!(state.workspace_revision, 4);
+            assert_eq!(state.workspaces.len(), 2);
+            assert_eq!(state.workspaces[0].key, "stable-two");
+            assert_eq!(state.workspaces[0].name, "renamed");
+            assert_eq!(state.workspaces[1].key, "stable-one");
+            assert!(state.workspaces.iter().all(|workspace| workspace.screens.is_empty()));
+        });
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

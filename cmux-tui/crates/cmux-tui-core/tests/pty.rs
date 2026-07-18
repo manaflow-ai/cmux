@@ -73,10 +73,18 @@ fn socket_request(
     reader: &mut impl BufRead,
     request: serde_json::Value,
 ) -> serde_json::Value {
-    writeln!(writer, "{request}").unwrap();
-    let response = read_json_line(reader).expect("socket response");
+    let response = socket_response(writer, reader, request);
     assert_eq!(response["ok"], true, "request failed: {response}");
     response
+}
+
+fn socket_response(
+    writer: &mut impl Write,
+    reader: &mut impl BufRead,
+    request: serde_json::Value,
+) -> serde_json::Value {
+    writeln!(writer, "{request}").unwrap();
+    read_json_line(reader).expect("socket response")
 }
 
 fn assert_vt_state_size(
@@ -1326,18 +1334,16 @@ fn create_empty_workspace_is_visible_and_materialized_in_place() {
     assert_eq!(snapshot["data"]["workspaces"][0]["key"], key);
     assert!(snapshot["data"]["workspaces"][0]["screens"].as_array().unwrap().is_empty());
 
-    writeln!(
-        writer,
-        "{}",
+    let stale = socket_response(
+        &mut writer,
+        &mut reader,
         serde_json::json!({
             "id": 21,
             "cmd": "create-workspace",
             "name": "stale",
             "expected_revision": 0,
-        })
-    )
-    .unwrap();
-    let stale = read_json_line(&mut reader).expect("stale create-workspace response");
+        }),
+    );
     assert_eq!(stale["ok"], false);
     assert_eq!(stale["error"], "workspace revision conflict: expected 0, current 1");
 
@@ -1397,6 +1403,131 @@ fn create_empty_workspace_is_visible_and_materialized_in_place() {
     );
     assert_eq!(closed["ok"], true, "close by key failed: {closed}");
     assert_eq!(closed["data"]["workspace_revision"], 3);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn workspace_mutations_are_exactly_once_before_guards_and_close_resolution() {
+    let mux = Mux::new(unique_session("test-workspace-dedupe"), SurfaceOptions::default());
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let request = serde_json::json!({
+        "id": 1,
+        "cmd": "create-workspace",
+        "name": "once",
+        "key": "stable-once",
+        "origin": "browser-profile-a",
+        "mutation_id": "create-once",
+        "expected_revision": 0,
+    });
+
+    // Commit the mutation, then throw away the connection without consuming
+    // its response to model a frontend losing the reply.
+    {
+        let stream = connect(&sock_path);
+        let mut writer = stream.try_clone_box().unwrap();
+        writeln!(writer, "{request}").unwrap();
+    }
+    wait_for(
+        || mux.with_state(|state| (state.workspace_revision == 1).then_some(())),
+        Duration::from_secs(5),
+    )
+    .expect("create mutation was not committed");
+
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let retry = socket_request(&mut writer, &mut reader, request.clone());
+    assert_eq!(retry["data"]["workspace_revision"], 1);
+    assert_eq!(retry["data"]["replayed"], true);
+    mux.with_state(|state| {
+        assert_eq!(state.workspace_revision, 1);
+        assert_eq!(state.workspaces.len(), 1);
+    });
+
+    let mismatch = socket_response(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "create-workspace",
+            "name": "different",
+            "key": "stable-once",
+            "origin": "browser-profile-a",
+            "mutation_id": "create-once",
+            "expected_revision": 1,
+        }),
+    );
+    assert_eq!(mismatch["ok"], false);
+    assert!(mismatch["error"].as_str().unwrap().contains("different payload"));
+
+    let generation = retry["data"]["generation"].as_str().unwrap().to_string();
+    let close = serde_json::json!({
+        "id": 3,
+        "cmd": "close-workspace",
+        "key": "stable-once",
+        "origin": "browser-profile-a",
+        "mutation_id": "close-once",
+        "expected_generation": generation,
+        "expected_revision": 1,
+    });
+    let first_close = socket_request(&mut writer, &mut reader, close.clone());
+    assert_eq!(first_close["data"]["workspace_revision"], 2);
+    assert_eq!(first_close["data"]["replayed"], false);
+    let mut stale_guard_retry = close;
+    stale_guard_retry["expected_generation"] = serde_json::json!("stale-generation");
+    stale_guard_retry["expected_revision"] = serde_json::json!(0);
+    let close_retry = socket_request(&mut writer, &mut reader, stale_guard_retry);
+    assert_eq!(close_retry["data"]["workspace_revision"], 2);
+    assert_eq!(close_retry["data"]["replayed"], true);
+    assert_eq!(close_retry["data"]["key"], "stable-once");
+    mux.with_state(|state| assert!(state.workspaces.is_empty()));
+
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn frontend_projection_round_trips_without_advancing_workspace_revision() {
+    let mux = Mux::new(unique_session("test-projection"), SurfaceOptions::default());
+    let sock_path = cmux_tui_core::server::serve(mux, None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let put = serde_json::json!({
+        "id": 1,
+        "cmd": "put-frontend-projection",
+        "frontend": "cmux-browser",
+        "scope": "window-group",
+        "subject_key": "profile-a:window-a",
+        "schema_version": 1,
+        "expected_projection_revision": 0,
+        "projection": {"columns":[{"workspace":"stable-one"}]},
+        "origin": "browser-profile-a",
+        "mutation_id": "projection-one",
+    });
+    let first = socket_request(&mut writer, &mut reader, put.clone());
+    assert_eq!(first["data"]["projection_revision"], 1);
+    assert_eq!(first["data"]["replayed"], false);
+    let retry = socket_request(&mut writer, &mut reader, put);
+    assert_eq!(retry["data"]["projection_revision"], 1);
+    assert_eq!(retry["data"]["replayed"], true);
+    let get = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "get-frontend-projection",
+            "frontend": "cmux-browser",
+            "scope": "window-group",
+            "subject_key": "profile-a:window-a",
+        }),
+    );
+    assert_eq!(get["data"]["projection"]["columns"][0]["workspace"], "stable-one");
+    let list = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id":3,"cmd":"list-workspaces"}),
+    );
+    assert_eq!(list["data"]["workspace_revision"], 0);
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
