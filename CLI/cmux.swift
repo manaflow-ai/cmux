@@ -34693,7 +34693,7 @@ export default CMUXSessionRestore;
                 throw CLIError(message: "Unknown hooks target: \(first)")
             }
             if def.name == "codex", rest.first?.lowercased() == "enqueue" {
-                try enqueueCodexLifecycleHook(commandArgs: Array(rest.dropFirst()), client: client)
+                try enqueueCodexWrapperHook(commandArgs: Array(rest.dropFirst()), client: client)
                 return
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")

@@ -1218,8 +1218,16 @@ class TerminalController {
             guard let event = AgentHookDeliveryEvent(params: request.params) else {
                 return v2Error(id: request.id, code: "invalid_params", message: "Invalid agent hook event")
             }
-            agentHookDeliveryQueue.enqueue(event)
-            return v2Ok(id: request.id, result: ["queued": true])
+            do {
+                try agentHookDeliveryQueue.enqueue(event)
+                return v2Ok(id: request.id, result: ["queued": true])
+            } catch {
+                return v2Error(
+                    id: request.id,
+                    code: "hook_queue_unavailable",
+                    message: "Could not persist agent hook event"
+                )
+            }
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",

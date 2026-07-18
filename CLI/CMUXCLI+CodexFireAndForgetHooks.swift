@@ -1,6 +1,18 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Exact launch and routing context carried by both the direct socket sender
+    /// and the CLI fallback. One list keeps the two paths behaviorally equal.
+    static let codexQueuedHookEnvironmentKeys = [
+        "HOME", "PATH", "PWD", "TMPDIR", "CODEX_HOME",
+        "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
+        "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
+        "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
+        "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_BUNDLE_ID", "CMUX_CODEX_PID",
+        "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS", "CMUX_SURFACE_ID", "CMUX_TAG",
+        "CMUX_WORKSPACE_ID", "CMUX_SOCKET_PATH",
+    ]
+
     /// The per-invocation Codex hook events the wrapper injects, paired with the
     /// cmux subcommand they call and the codex hook timeout (ms). Lifecycle
     /// events are short; feed events (`PreToolUse`/`PermissionRequest`) are long
@@ -125,49 +137,39 @@ extension CMUXCLI {
             ? String(command.dropFirst("cmux hooks codex ".count))
             : command
         let fallbackArguments = "hooks codex enqueue \(subcommand)"
+        let encodedEnvironmentArguments = codexQueuedHookEnvironmentKeys
+            .map { "\"\($0)\" \"${\($0):-}\"" }
+            .joined(separator: " ")
         return [
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\"",
-            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ]; then IFS= read -r payload || payload='{}'; if [ -n \"${CMUX_SOCKET_PATH:-}\" ] && [ -n \"${CMUX_SOCKET_CAPABILITY:-}\" ] && [ -z \"${CODEX_HOME:-}\" ] && [ -x /usr/bin/nc ]; then request='{" +
-                "\"id\":\"hook-'\"$$\"'\",\"method\":\"agent.hook.enqueue\",\"params\":{" +
-                "\"agent\":\"codex\",\"subcommand\":\"\(subcommand)\",\"payload_json\":'\"$payload\"'," +
-                "\"socket_path\":\"'\"$CMUX_SOCKET_PATH\"'\",\"environment\":{" +
-                "\"CMUX_CODEX_PID\":\"'\"$agent_pid\"'\",\"CMUX_SURFACE_ID\":\"'\"$CMUX_SURFACE_ID\"'\"," +
-                "\"CMUX_WORKSPACE_ID\":\"'\"${CMUX_WORKSPACE_ID:-}\"'\",\"CMUX_TAG\":\"'\"${CMUX_TAG:-}\"'\"," +
-                "\"CMUX_AGENT_HOOK_STATE_DIR\":\"'\"${CMUX_AGENT_HOOK_STATE_DIR:-}\"'\"," +
-                "\"CMUX_AGENT_LAUNCH_ARGV_B64\":\"'\"${CMUX_AGENT_LAUNCH_ARGV_B64:-}\"'\"," +
-                "\"CMUX_AGENT_LAUNCH_KIND\":\"'\"${CMUX_AGENT_LAUNCH_KIND:-}\"'\"," +
-                "\"CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS\":\"'\"${CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS:-}\"'\"," +
-                "\"CMUX_AGENT_MANAGED_SUBAGENT\":\"'\"${CMUX_AGENT_MANAGED_SUBAGENT:-}\"'\"," +
-                "\"CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS\":\"'\"${CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS:-}\"'\"}}}'; " +
+            "export CMUX_CODEX_PID=\"$agent_pid\"",
+            "delivery_id=\"${CMUX_AGENT_HOOK_DELIVERY_ID:-codex-${agent_pid:-unknown}-\(subcommand)-$$-${RANDOM:-0}-${RANDOM:-0}}\"",
+            "encode_cmux_hook_environment() { while [ \"$#\" -ge 2 ]; do printf '%s\\0%s\\0' \"$1\" \"$2\"; shift 2; done; }",
+            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ]; then payload_b64=\"$(/usr/bin/base64 | /usr/bin/tr -d '\\n')\"; environment_b64=\"$(encode_cmux_hook_environment \(encodedEnvironmentArguments) | /usr/bin/base64 | /usr/bin/tr -d '\\n')\"; if [ -n \"${CMUX_SOCKET_PATH:-}\" ] && [ -n \"${CMUX_SOCKET_CAPABILITY:-}\" ] && [ -x /usr/bin/nc ]; then request='{" +
+                "\"id\":\"hook-'\"$delivery_id\"'\",\"method\":\"agent.hook.enqueue\",\"params\":{" +
+                "\"delivery_id\":\"'\"$delivery_id\"'\",\"agent\":\"codex\",\"subcommand\":\"\(subcommand)\"," +
+                "\"payload_b64\":\"'\"$payload_b64\"'\",\"environment_b64\":\"'\"$environment_b64\"'\"}}'; " +
                 "attempt=0; response=''; while [ \"$attempt\" -lt 3 ]; do response=\"$(printf '_cmux_capability_v1 %s %s\\n' \"$CMUX_SOCKET_CAPABILITY\" \"$request\" | /usr/bin/nc -U -w 1 \"$CMUX_SOCKET_PATH\" 2>/dev/null || true)\"; case \"$response\" in *'\"queued\":true'*) break ;; esac; attempt=$((attempt + 1)); done; " +
-                "case \"$response\" in *'\"queued\":true'*) echo '{}' ;; *) if [ -n \"$cmux_cli\" ]; then printf '%s' \"$payload\" | CMUX_CODEX_PID=\"$agent_pid\" \"$cmux_cli\" \(fallbackArguments) || echo '{}'; else echo '{}'; fi ;; esac; " +
-                "elif [ -n \"$cmux_cli\" ]; then printf '%s' \"$payload\" | CMUX_CODEX_PID=\"$agent_pid\" \"$cmux_cli\" \(fallbackArguments) || echo '{}'; else echo '{}'; fi; else echo '{}'; fi",
+                "case \"$response\" in *'\"queued\":true'*) echo '{}' ;; *) if [ -n \"$cmux_cli\" ]; then printf '%s' \"$payload_b64\" | /usr/bin/base64 -D | CMUX_CODEX_PID=\"$agent_pid\" CMUX_AGENT_HOOK_DELIVERY_ID=\"$delivery_id\" \"$cmux_cli\" \(fallbackArguments) || echo '{}'; else echo '{}'; fi ;; esac; " +
+                "elif [ -n \"$cmux_cli\" ]; then printf '%s' \"$payload_b64\" | /usr/bin/base64 -D | CMUX_CODEX_PID=\"$agent_pid\" CMUX_AGENT_HOOK_DELIVERY_ID=\"$delivery_id\" \"$cmux_cli\" \(fallbackArguments) || echo '{}'; else echo '{}'; fi; else /bin/cat >/dev/null 2>&1 || true; echo '{}'; fi",
         ].joined(separator: "; ")
     }
 
-    func enqueueCodexLifecycleHook(commandArgs: [String], client: SocketClient) throws {
+    func enqueueCodexWrapperHook(commandArgs: [String], client: SocketClient) throws {
         guard let subcommand = commandArgs.first?.lowercased(),
-              ["session-start", "prompt-submit", "stop"].contains(subcommand) else {
-            throw CLIError(message: "Usage: cmux hooks codex enqueue <session-start|prompt-submit|stop>")
+              Set(Self.codexWrapperInjectionEvents.map { $0.cmuxSubcommand }).contains(subcommand) else {
+            throw CLIError(message: "Usage: cmux hooks codex enqueue <session-start|prompt-submit|stop|pre-tool-use|post-tool-use|notification>")
         }
         let processEnvironment = ProcessInfo.processInfo.environment
-        let forwardedKeys = [
-            "HOME", "PATH", "PWD", "TMPDIR", "CODEX_HOME",
-            "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
-            "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
-            "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
-            "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_BUNDLE_ID", "CMUX_CODEX_PID",
-            "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS", "CMUX_SURFACE_ID", "CMUX_TAG",
-            "CMUX_WORKSPACE_ID",
-        ]
         var environment: [String: String] = [:]
-        for key in forwardedKeys {
+        for key in Self.codexQueuedHookEnvironmentKeys {
             if let value = processEnvironment[key] {
                 environment[key] = value
             }
         }
+        environment["CMUX_SOCKET_PATH"] = client.socketPath
         let payload = String(
             data: FileHandle.standardInput.readDataToEndOfFile(),
             encoding: .utf8
@@ -175,6 +177,8 @@ extension CMUXCLI {
         _ = try client.sendV2(
             method: "agent.hook.enqueue",
             params: [
+                "delivery_id": processEnvironment["CMUX_AGENT_HOOK_DELIVERY_ID"]
+                    ?? "codex-cli-\(getpid())-\(UUID().uuidString.lowercased())",
                 "agent": "codex",
                 "subcommand": subcommand,
                 "payload": payload,
