@@ -695,6 +695,33 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
+    @Test func runOnlyGraphParentsStayWithinTheChildProvider() {
+        func node(provider: String, sessionID: String, runID: String, updatedAt: TimeInterval) -> AgentSessionGraphNode {
+            AgentSessionGraphNode(
+                provider: provider, sessionId: sessionID, runId: runID,
+                pid: nil, processStartedAt: nil, cmuxRuntime: nil,
+                workspaceId: "workspace", surfaceId: "surface-\(provider)-\(sessionID)",
+                processState: .unknown, sessionState: .active,
+                foregroundState: .idle, attentionState: .none,
+                activity: AgentActivitySnapshot(state: .idle, busy: false, modes: [], counts: .init()),
+                effectiveState: .idle, workloads: [], restoreAuthority: true,
+                startedAt: 100, updatedAt: updatedAt, endedAt: nil
+            )
+        }
+        let codexParent = node(provider: "codex", sessionID: "codex-parent", runID: "shared-run", updatedAt: 200)
+        let claudeParent = node(provider: "claude", sessionID: "claude-parent", runID: "shared-run", updatedAt: 300)
+        let child = node(provider: "codex", sessionID: "child", runID: "child-run", updatedAt: 400)
+        let edge = AgentSessionGraphEdge(
+            fromRunId: "shared-run", fromSessionId: nil,
+            toNodeId: child.nodeId, toRunId: child.runId, relationship: .spawned
+        )
+
+        #expect(
+            AgentSessionGraphEdgeResolver(nodes: [codexParent, claudeParent, child]).parentNodeId(for: edge)
+                == codexParent.nodeId
+        )
+    }
+
     @Test func explicitEndedFiltersBypassDefaultHistorySuppression() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
