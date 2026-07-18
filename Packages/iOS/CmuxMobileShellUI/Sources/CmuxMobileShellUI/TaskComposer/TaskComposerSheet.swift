@@ -274,6 +274,9 @@ struct TaskComposerSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(submissionPhase.locksDismissal)
+        .background(TaskComposerInitialFocusCoordinator(
+            isEnabled: !submissionPhase.disablesRequestEditing
+        ))
     }
 
     private var launchRoute: some View {

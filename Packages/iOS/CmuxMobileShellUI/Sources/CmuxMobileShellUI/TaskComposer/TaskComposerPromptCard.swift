@@ -87,10 +87,6 @@ struct TaskComposerPromptCard: View {
             y: 6
         )
         .animation(.easeOut(duration: 0.18), value: isFocused)
-        .onAppear {
-            guard !isDisabled else { return }
-            isFocused = true
-        }
     }
 }
 #endif
