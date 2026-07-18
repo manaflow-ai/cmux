@@ -1755,6 +1755,35 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(published.isEmpty)
     }
 
+    @Test func unboundedAgentListDefersPayloadConstructionUntilSortedTraversal() throws {
+        var payloadConstructionCount = 0
+        var entries = SessionListEntryAccumulator(limit: .max)
+        entries.insert(
+            updatedAt: 100,
+            sortValues: SessionListEntryAccumulator.SortValues(
+                sessionID: "session-a",
+                agent: "opencode",
+                runID: "run-a",
+                workspaceID: "workspace-a",
+                surfaceID: "surface-a",
+                identitySource: "hook_session",
+                pid: nil,
+                processStartedAt: nil
+            ),
+            payloadFactory: {
+                payloadConstructionCount += 1
+                return ["session_id": "session-a"]
+            }
+        )
+
+        #expect(payloadConstructionCount == 0)
+        #expect(entries.retainedCount == 1)
+        try entries.forEachSortedPayload { payload in
+            #expect(try #require(payload["session_id"] as? String) == "session-a")
+        }
+        #expect(payloadConstructionCount == 1)
+    }
+
     @Test func limitedAgentListBoundsTenThousandSameProcessPayloadEnrichmentsToTopK() {
         var enrichmentCount = 0
         var entries = SessionListEntryAccumulator(limit: 100)
