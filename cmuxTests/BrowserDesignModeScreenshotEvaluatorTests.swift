@@ -82,6 +82,32 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(!FileManager.default.fileExists(atPath: pinned.path))
     }
 
+    @Test func releasingLiveAnnotationImmediatelyRestoresScreenshotLimit() async throws {
+        let directory = URL.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode-release-pruning-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BrowserDesignModeScreenshotStore(directory: directory)
+        let surfaceID = UUID()
+        var pinned: [URL] = []
+
+        for value in 0...100 {
+            pinned.append(try await store.save(
+                Data([UInt8(value)]),
+                surfaceID: surfaceID,
+                retention: .liveContext
+            ))
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 101)
+
+        await store.release(pinned[0])
+
+        #expect(!FileManager.default.fileExists(atPath: pinned[0].path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 100)
+        for url in pinned.dropFirst() {
+            await store.remove(url)
+        }
+    }
+
     @Test func synthesizedClickKeepsPageRuntimeOutOfTheNativeComposerInputPath() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
