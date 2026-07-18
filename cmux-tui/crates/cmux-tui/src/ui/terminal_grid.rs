@@ -89,18 +89,16 @@ fn draw_foreign_viewport(
     let dead_style = Style::default().bg(chrome.foreign_viewport_bg).add_modifier(Modifier::DIM);
     for row in 0..live_rows {
         for col in live_cols..max_cols {
-            buf[(rect.x + col as u16, rect.y + row as u16)]
-                .reset()
-                .set_symbol(" ")
-                .set_style(dead_style);
+            let cell = &mut buf[(rect.x + col as u16, rect.y + row as u16)];
+            cell.reset();
+            cell.set_symbol(" ").set_style(dead_style);
         }
     }
     for row in live_rows..max_rows {
         for col in 0..max_cols {
-            buf[(rect.x + col as u16, rect.y + row as u16)]
-                .reset()
-                .set_symbol(" ")
-                .set_style(dead_style);
+            let cell = &mut buf[(rect.x + col as u16, rect.y + row as u16)];
+            cell.reset();
+            cell.set_symbol(" ").set_style(dead_style);
         }
     }
 
