@@ -733,7 +733,7 @@ describe("browser design-mode runtime", () => {
     expect(inkOnly.annotation_phase).toBe("ink_only");
     expect(inkOnly.selection_count).toBe(0);
     expect(inkOnly.can_copy).toBe(false);
-    const requestMessage = messages.findLast(
+    const requestMessage = messages.slice().reverse().find(
       (message) => (message as { type?: string }).type === "annotation_capture_requested",
     ) as { request: { id: string } } | undefined;
     expect(requestMessage).toBeDefined();
@@ -774,7 +774,7 @@ describe("browser design-mode runtime", () => {
     at("pointerdown", 300, 300);
     at("pointermove", 360, 300);
     at("pointerup", 360, 300);
-    const secondRequest = messages.findLast(
+    const secondRequest = messages.slice().reverse().find(
       (message) => (message as { type?: string }).type === "annotation_capture_requested"
         && (message as { request?: { id?: string } }).request?.id !== annotationID,
     ) as { request: { id: string } } | undefined;
@@ -818,7 +818,7 @@ describe("browser design-mode runtime", () => {
     at("pointerdown", 50, 60);
     at("pointermove", 150, 160);
     at("pointerup", 150, 160);
-    const request = messages.findLast(
+    const request = messages.slice().reverse().find(
       (message) => (message as { type?: string }).type === "annotation_capture_requested",
     ) as { request: { id: string } } | undefined;
     const descriptor = runtime.prepareAnnotationCapture(request?.request.id ?? "");
@@ -890,7 +890,7 @@ describe("browser design-mode runtime", () => {
     at("pointerdown", 30, 30);
     at("pointerup", 31, 31);
     expect(runtime.composerState().selection_count).toBe(1);
-    const request = messages.findLast(
+    const request = messages.slice().reverse().find(
       (message) => (message as { type?: string }).type === "annotation_capture_requested",
     ) as { request: { id: string } } | undefined;
     const descriptor = runtime.prepareAnnotationCapture(request?.request.id ?? "");
