@@ -170,7 +170,7 @@ struct CmuxAgentSessionRegistryTests {
             provider: "codex",
             stamp: quarantinedStamp
         ))
-        #expect(try fixture.registry.legacySourceCanBeSkippedForCanonicalRebind(
+        #expect(try fixture.registry.canonicalRebindCanSkipLegacySource(
             provider: "codex",
             stamp: quarantinedStamp
         ))
@@ -181,7 +181,7 @@ struct CmuxAgentSessionRegistryTests {
         let changedStamp = try #require(
             CmuxAgentSessionRegistry.LegacyStamp.read(path: legacyURL.path)
         )
-        #expect(try !fixture.registry.legacySourceCanBeSkippedForCanonicalRebind(
+        #expect(try !fixture.registry.canonicalRebindCanSkipLegacySource(
             provider: "codex",
             stamp: changedStamp
         ))

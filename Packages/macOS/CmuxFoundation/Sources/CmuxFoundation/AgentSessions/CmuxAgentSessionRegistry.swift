@@ -493,7 +493,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
     /// imported or quarantined after canonical restore-owner verification.
     /// Canonical rebinds may skip either state; projection readers still use
     /// `legacySourceIsCurrent` so a quarantined sidecar is repaired normally.
-    public func legacySourceCanBeSkippedForCanonicalRebind(
+    public func canonicalRebindCanSkipLegacySource(
         provider: String,
         stamp: LegacyStamp
     ) throws -> Bool {
