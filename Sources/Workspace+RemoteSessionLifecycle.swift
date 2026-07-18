@@ -62,6 +62,7 @@ extension Workspace {
             }
             guard remoteSessionCleanupControllers[controllerID]?.controller === owner.controller else { continue }
             if succeeded {
+                nativeSSHConnectionBroker.releaseWorkspace(owner.configuration)
                 if owner.configuration.persistentDaemonSlot == nil {
                     remoteSessionCleanupControllers.removeValue(forKey: controllerID)
                 } else if case .persistentSlot = cleanupScope {
@@ -108,6 +109,7 @@ extension Workspace {
             host: WorkspaceRemoteSessionHostAdapter(workspace: self, controllerID: controllerID),
             configuration: configuration,
             proxyBroker: TerminalController.shared.remoteProxyBroker,
+            connectionBroker: nativeSSHConnectionBroker,
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser
             ),

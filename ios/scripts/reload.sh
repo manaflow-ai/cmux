@@ -208,24 +208,49 @@ if [[ "$PROD_AUTH" -eq 1 ]]; then
   fi
 fi
 
-# Bake the web API origin because a launched iOS app does not inherit the
-# tagged macOS process environment. Simulator dogfood uses the matching tag's
-# isolated CMUX_PORT; production-auth builds retain the production origin.
-# CMUX_IOS_API_BASE_URL is the explicit escape hatch for a physical device or
-# another reachable development host.
-CMUX_IOS_API_BASE_URL_VALUE="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-}}"
-if [[ -z "$CMUX_IOS_API_BASE_URL_VALUE" ]]; then
-  if [[ "$PROD_AUTH" -eq 1 ]]; then
-    CMUX_IOS_API_BASE_URL_VALUE="https://cmux.com"
+# Bake service origins because a launched iOS app does not inherit the tagged
+# macOS process environment. A Simulator can reach the matching tag's localhost
+# server. A physical device cannot: localhost is the phone itself, so Debug
+# device builds use staging unless the caller supplies a reachable override.
+# Production-auth builds retain production origins. Explicit overrides always
+# win, including the shared CMUX_DEV_API_BASE_URL used by tagged Mac builds.
+cmux_ios_resolve_api_base_url() {
+  local target="$1"
+  local explicit_base_url="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-}}"
+
+  if [[ -n "$explicit_base_url" ]]; then
+    printf '%s' "$explicit_base_url"
+  elif [[ "$PROD_AUTH" -eq 1 ]]; then
+    printf '%s' "https://cmux.com"
   elif [[ -n "${CMUX_VM_API_BASE_URL:-}" ]]; then
-    CMUX_IOS_API_BASE_URL_VALUE="$CMUX_VM_API_BASE_URL"
+    printf '%s' "$CMUX_VM_API_BASE_URL"
+  elif [[ "$target" == "physical_device" ]]; then
+    printf '%s' "https://cmux-staging.vercel.app"
   elif [[ "${CMUX_PORT:-}" =~ ^[0-9]+$ ]] \
       && (( 10#$CMUX_PORT >= 1 && 10#$CMUX_PORT <= 65535 )); then
-    CMUX_IOS_API_BASE_URL_VALUE="http://localhost:$((10#$CMUX_PORT))"
+    printf 'http://localhost:%d' "$((10#$CMUX_PORT))"
   else
-    CMUX_IOS_API_BASE_URL_VALUE="http://localhost:3000"
+    printf '%s' "http://localhost:3000"
   fi
-fi
+}
+
+# Iroh discovery and grants always use one shared broker. This is staging for
+# Debug builds on both targets and production for --prod-auth builds.
+cmux_ios_resolve_iroh_broker_base_url() {
+  local explicit_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-}}"
+
+  if [[ -n "$explicit_base_url" ]]; then
+    printf '%s' "$explicit_base_url"
+  elif [[ "$PROD_AUTH" -eq 1 ]]; then
+    printf '%s' "https://cmux.com"
+  else
+    printf '%s' "https://cmux-staging.vercel.app"
+  fi
+}
+
+CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url simulator)"
+CMUX_IOS_DEVICE_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url physical_device)"
+CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="$(cmux_ios_resolve_iroh_broker_base_url)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -546,7 +571,8 @@ reload_simulator() {
     CMUX_DEV_TAG="$TAG" \
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE" \
-    CMUX_API_BASE_URL="$CMUX_IOS_API_BASE_URL_VALUE" \
+    CMUX_API_BASE_URL="$CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE" \
+    CMUX_IROH_BROKER_BASE_URL="$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
     SWIFT_OPTIMIZATION_LEVEL=-O \
@@ -587,8 +613,9 @@ PY
     if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
       xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
     elif ! auto_setup_launch simulator "$SIM_ID"; then
-      echo "warning: signed launch failed; launching plain (sign in manually)" >&2
-      xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
+      echo "error: installed $BUNDLE_ID, but signed setup failed; refusing an unpaired fallback launch" >&2
+      echo "error: repair the tagged Mac/Iroh route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
+      return 1
     fi
   fi
 
@@ -663,7 +690,8 @@ reload_device() {
     CMUX_DEV_TAG="$TAG"
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE"
-    CMUX_API_BASE_URL="$CMUX_IOS_API_BASE_URL_VALUE"
+    CMUX_API_BASE_URL="$CMUX_IOS_DEVICE_API_BASE_URL_VALUE"
+    CMUX_IROH_BROKER_BASE_URL="$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE"
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Automatic
@@ -708,13 +736,12 @@ reload_device() {
         echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
       fi
     elif ! auto_setup_launch device "$selected_device_install_id"; then
-      # Auto sign-in/pair failed (e.g. missing dogfood creds, helper, or Mac).
-      # Fall back to a plain launch so the freshly installed app still opens,
-      # matching the simulator path and the previous device behavior.
-      echo "warning: signed launch failed; launching plain (sign in manually)" >&2
-      if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
-        echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
-      fi
+      # A plain fallback can reuse stale pairing state and look dogfood-ready
+      # while the matching tagged Iroh route is absent. Fail closed unless the
+      # caller explicitly requested a plain launch above.
+      echo "error: installed $BUNDLE_ID, but signed setup failed; refusing an unpaired fallback launch" >&2
+      echo "error: repair the tagged Mac/Iroh route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
+      return 1
     fi
   fi
 

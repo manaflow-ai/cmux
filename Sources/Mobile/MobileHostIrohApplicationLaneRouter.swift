@@ -83,6 +83,13 @@ actor MobileHostIrohApplicationLaneRouter {
                 await start(accepted.lane, stream: accepted.stream)
             } catch is CancellationError {
                 break
+            } catch CmxIrohServerSessionError.applicationLaneRejected {
+                if !stopped, !Task.isCancelled {
+                    mobileHostIrohLaneLog.info(
+                        "Rejected one invalid Iroh application lane; session remains active"
+                    )
+                }
+                continue
             } catch {
                 if !stopped, !Task.isCancelled {
                     mobileHostIrohLaneLog.error(

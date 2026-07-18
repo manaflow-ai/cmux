@@ -30,8 +30,8 @@ describe("nextFitSize", () => {
   });
 
   it("applies a pane geometry change over the current server size", () => {
-    // Foreign client set 200x50; our pane later shrank: local fit wins on the
-    // next local interaction.
+    // The shared grid became 200x50; our pane later shrank, so its next local
+    // geometry measurement publishes 96x30.
     expect(nextFitSize({ cols: 200, rows: 50 }, { cols: 96, rows: 30 })).toEqual({ cols: 96, rows: 30 });
   });
 });

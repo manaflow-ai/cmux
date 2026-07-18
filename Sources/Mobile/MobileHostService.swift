@@ -198,6 +198,13 @@ enum MobileHostSyncDecision: Equatable {
     case restart
 }
 
+/// Separates account-authenticated Iroh availability from the opt-in legacy
+/// TCP listener used by Tailscale and other private-network clients.
+struct MobileHostStartupPlan: Equatable {
+    let activatesIroh: Bool
+    let startsLegacyListener: Bool
+}
+
 /// Outcome of an explicit "Apply port" request from settings. A pure value so
 /// ``MobileHostService/portApplyDecision(enabled:currentBoundPort:requestedPort:isAvailable:)``
 /// is unit-testable without binding a real `NWListener`.
@@ -506,6 +513,19 @@ final class MobileHostService {
         return .noop
     }
 
+    /// Iroh is an account-authenticated transport and starts for every signed-in
+    /// Mac. The legacy listener remains opt-in so existing Tailscale and private
+    /// network users keep their route without making it a prerequisite for Iroh.
+    nonisolated static func startupPlan(
+        legacyListenerEnabled: Bool,
+        legacyListenerRunning: Bool
+    ) -> MobileHostStartupPlan {
+        MobileHostStartupPlan(
+            activatesIroh: true,
+            startsLegacyListener: legacyListenerEnabled && !legacyListenerRunning
+        )
+    }
+
     /// Pure pre-bind classification for an explicit "Apply port" request. Returns
     /// the outcome for the cases that need no bind attempt, or `nil` when a real
     /// bind must be tried (pairing on, valid port, different from the bound one).
@@ -676,18 +696,22 @@ final class MobileHostService {
     }
 
     func start() {
-        guard Self.isListeningEnabled else {
+        let plan = Self.startupPlan(
+            legacyListenerEnabled: Self.isListeningEnabled,
+            legacyListenerRunning: listener != nil
+        )
+        guard plan.startsLegacyListener else {
             #if DEBUG
             if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
                 publishRoutesWithoutListenerForXCTest()
-                return
             }
             #endif
-            mobileHostLog.info("mobile host listener disabled; not binding")
-            return
-        }
-        guard listener == nil else {
-            MobileHostIrohRuntime.shared.setDesiredActive(true)
+            if listener == nil {
+                mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
+            }
+            if plan.activatesIroh {
+                MobileHostIrohRuntime.shared.setDesiredActive(true)
+            }
             return
         }
 
@@ -915,6 +939,9 @@ final class MobileHostService {
     /// no caller-supplied store to honor here.
     func syncToSettings() {
         let defaults = UserDefaults.standard
+        // Settings control only the legacy TCP/Tailscale listener. Account-
+        // authenticated Iroh stays available for signed-in Macs.
+        MobileHostIrohRuntime.shared.setDesiredActive(true)
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
@@ -933,7 +960,7 @@ final class MobileHostService {
         case .start:
             start()
         case .stop:
-            stop()
+            stopLegacyListener(reason: "legacy pairing listener disabled")
         case .restart:
             restart()
         }
@@ -1013,7 +1040,7 @@ final class MobileHostService {
                 )
             },
             onAuthorizedRequest: { request in
-                await MobileHostService.shared.retireSupersededIrohConnections(
+                await Self.retireSupersededIrohConnections(
                     newestConnectionID: id
                 )
                 guard let clientID = Self.clientID(from: request.params) else {
@@ -1205,7 +1232,12 @@ final class MobileHostService {
         MobileHostRequestActivity.endConnection()
     }
 
-    private func retireSupersededIrohConnections(newestConnectionID: UUID) async {
+    /// The registry is lock-protected and connection close is actor-isolated,
+    /// so Iroh handoff never needs to queue behind unrelated AppKit work on the
+    /// main actor. This path runs before every authorized RPC.
+    nonisolated private static func retireSupersededIrohConnections(
+        newestConnectionID: UUID
+    ) async {
         let superseded = MobileHostConnectionRegistry.shared
             .removeOlderIrohConnectionsIfNewest(id: newestConnectionID)
         for connection in superseded {
@@ -1954,11 +1986,23 @@ actor MobileHostConnection {
             // it the registration had been lost (events emitted in the gap
             // were never delivered), so it requests a catch-up replay instead
             // of trusting delta continuity.
-            let alreadySubscribed = subscriptions[streamID] != nil
+            let existingSubscription = subscriptions[streamID]
+            let alreadySubscribed = existingSubscription != nil
             let requestedTransport = request.params["event_transport"] as? String
             let selectedTransport: MobileHostEventTransport
-            if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue,
-               await prepareIndependentEventWriter() {
+            if let existingSubscription {
+                // An idempotent subscribe proves the authenticated control
+                // connection and registration. Keep its negotiated lane only
+                // while the client still advertises an active reader. Never
+                // re-probe or re-upgrade here: actual event delivery owns lane
+                // failure detection and atomically falls back to control.
+                if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue {
+                    selectedTransport = existingSubscription.transport
+                } else {
+                    selectedTransport = .control
+                }
+            } else if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue,
+                      await prepareIndependentEventWriter() {
                 selectedTransport = .irohServerEvents
             } else {
                 selectedTransport = .control
