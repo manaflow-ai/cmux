@@ -143,7 +143,11 @@ const nextConfig: NextConfig = {
     root: webRoot,
   },
   outputFileTracingIncludes: {
-    "**/opengraph-image": ["./app/lib/open-graph-fonts/**/*"],
+    "**/opengraph-image": [
+      "./app/lib/open-graph-fonts/**/*",
+      "./app/**/assets/landing-image.png",
+      "./public/logo.png",
+    ],
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +

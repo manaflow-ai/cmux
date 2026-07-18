@@ -19,8 +19,10 @@ test("keeps relay catalog validation inside the Vercel project", () => {
   expect(existsSync(resolvedScript)).toBe(true);
 });
 
-test("includes bundled Open Graph fonts in traced route output", () => {
+test("includes every dynamically read Open Graph asset in traced route output", () => {
   expect(nextConfig.outputFileTracingIncludes?.["**/opengraph-image"]).toEqual([
     "./app/lib/open-graph-fonts/**/*",
+    "./app/**/assets/landing-image.png",
+    "./public/logo.png",
   ]);
 });

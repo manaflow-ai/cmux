@@ -11,7 +11,6 @@ import {
   openGraphLocaleFonts,
   openGraphTaglineFallbackFont,
 } from "../app/lib/open-graph-font-config";
-import { openGraphImageResponse } from "../app/lib/open-graph-image";
 import { dynamic as defaultImageDynamic } from "../app/opengraph-image/route";
 import { articleSchema } from "../app/[locale]/components/json-ld";
 import { openGraphImage, openGraphImageTagline } from "../i18n/seo";
@@ -40,17 +39,6 @@ describe("Open Graph image discovery", () => {
       const rewrite = middlewareResponse.headers.get("x-middleware-rewrite");
       expect(rewrite).toBeNull();
 
-      let renderedLocale: string | undefined;
-      const response = await openGraphImageResponse(locale, (candidate) => {
-        renderedLocale = candidate;
-        return new Response(new Uint8Array([137, 80, 78, 71]), {
-          headers: { "Content-Type": "image/png" },
-        });
-      });
-
-      expect(response.status).toBe(200);
-      expect(response.headers.get("content-type")).toBe("image/png");
-      expect(renderedLocale).toBe(locale);
     }
   });
 

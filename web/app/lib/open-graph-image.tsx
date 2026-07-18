@@ -13,17 +13,15 @@ const size = { width: 1200, height: 630 };
 const S = 2; // render at 2x for sharper images on social platforms
 const SCREENSHOT_INSET = 40;
 const SCREENSHOT_RADIUS = 18;
-type OpenGraphImageRenderer = (locale: string) => Response | Promise<Response>;
 
 export async function openGraphImageResponse(
   locale: string,
-  render: OpenGraphImageRenderer = renderOpenGraphImage,
 ): Promise<Response> {
   if (!routing.locales.includes(locale as Locale)) {
     return new Response(null, { status: 404 });
   }
 
-  return render(locale);
+  return renderOpenGraphImage(locale);
 }
 
 async function readBundledFont(filename: string): Promise<ArrayBuffer> {
