@@ -303,9 +303,6 @@ final class SharedLiveAgentIndex {
                 if let refreshTask = self.refreshTask {
                     await refreshTask.value
                 }
-                if let forkAvailabilityRefreshTask = self.forkAvailabilityRefreshTask {
-                    await forkAvailabilityRefreshTask.value
-                }
                 _ = await self.reload(forcePublish: true)
             }
             refresh = (id, task)

@@ -1954,6 +1954,10 @@ final class Workspace: Identifiable, ObservableObject {
         var preloadsInitialNavigationInBackground: Bool {
             self == .automationPreload
         }
+
+        var opensURLExternallyWhenDisabled: Bool {
+            self == .userInitiated
+        }
     }
 
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
@@ -8056,7 +8060,8 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if creationPolicy.opensURLExternallyWhenDisabled,
+               let externalURL = url ?? initialRequest?.url {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil

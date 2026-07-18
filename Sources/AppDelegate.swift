@@ -6046,6 +6046,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 #endif
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            return false
+        }
         guard let workspace = tabManager?.selectedWorkspace,
               let sourceSurfaceId = workspace.focusedPanelId,
               let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
