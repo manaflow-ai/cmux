@@ -304,28 +304,28 @@ mod tests {
 
         assert_eq!(coordinator.role(), ConnectionRole::ServiceCoordinator);
         assert_eq!(coordinator.registered_kind(), Some(RegisteredClientKind::ServiceCoordinator));
-        assert!(coordinator.permits(ConnectionPermission::ServiceHandoff));
-        assert!(!coordinator.permits(ConnectionPermission::Control));
-        assert!(!coordinator.permits(ConnectionPermission::Frontend));
-        assert!(!coordinator.permits(ConnectionPermission::InputDelegate));
+        assert!(coordinator.role().permits(ConnectionPermission::ServiceHandoff));
+        assert!(!coordinator.role().permits(ConnectionPermission::Control));
+        assert!(!coordinator.role().permits(ConnectionPermission::Frontend));
+        assert!(!coordinator.role().permits(ConnectionPermission::InputDelegate));
         assert!(coordinator.topology_lease().is_none());
 
         let mut websocket = ConnectionAuthorization::websocket();
         websocket.register(9, Some("service-coordinator")).unwrap();
         assert_eq!(websocket.role(), ConnectionRole::RemoteReadOnly);
-        assert!(!websocket.permits(ConnectionPermission::ServiceHandoff));
+        assert!(!websocket.role().permits(ConnectionPermission::ServiceHandoff));
 
         let mut legacy = ConnectionAuthorization::unix(Some(same_user_peer()));
         legacy.register(8, Some("service-coordinator")).unwrap();
         assert_eq!(legacy.role(), ConnectionRole::Unaffiliated);
-        assert!(!legacy.permits(ConnectionPermission::ServiceHandoff));
+        assert!(!legacy.role().permits(ConnectionPermission::ServiceHandoff));
 
         let mut foreign_peer = same_user_peer();
         foreign_peer.user_id = foreign_peer.user_id.wrapping_add(1);
         let mut foreign = ConnectionAuthorization::unix(Some(foreign_peer));
         foreign.register(9, Some("service-coordinator")).unwrap();
         assert_eq!(foreign.role(), ConnectionRole::Unaffiliated);
-        assert!(!foreign.permits(ConnectionPermission::ServiceHandoff));
+        assert!(!foreign.role().permits(ConnectionPermission::ServiceHandoff));
     }
 
     #[test]
