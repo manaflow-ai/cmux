@@ -58,6 +58,9 @@ func TestWorkspaceRegistryTypesDecode(t *testing.T) {
 }
 
 func TestCreateTerminalPreservesExplicitlyEmptyArgv(t *testing.T) {
+	if _, ok := commandMap(CreateTerminalOptions{})["argv"]; ok {
+		t.Fatal("nil argv must remain absent for backward compatibility")
+	}
 	params := commandMap(CreateTerminalOptions{Argv: []string{}})
 	argv, ok := params["argv"].([]any)
 	if !ok || len(argv) != 0 {

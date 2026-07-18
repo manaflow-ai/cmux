@@ -15,11 +15,18 @@ import java.util.Arrays;
 public final class WireCaptureTest {
     public static void main(String[] args) throws Exception {
         byte[] identify = captureIdentify();
-        byte[] attach = captureAttach(9);
+        byte[] attach = captureAttach(9, null, null);
+        byte[] sizedAttach = captureAttach(9, 120, 40);
         printCapture("JAVA identify", identify);
         printCapture("JAVA attach", attach);
+        printCapture("JAVA sized attach", sizedAttach);
         assertLine("identify", "{\"id\":1,\"cmd\":\"identify\"}\n", identify);
         assertLine("attach", "{\"cmd\":\"attach-surface\",\"surface\":9,\"id\":2}\n", attach);
+        assertLine(
+            "sized attach",
+            "{\"cmd\":\"attach-surface\",\"surface\":9,\"cols\":120,\"rows\":40,\"id\":2}\n",
+            sizedAttach
+        );
     }
 
     private static byte[] captureIdentify() throws Exception {
@@ -36,7 +43,7 @@ public final class WireCaptureTest {
         return server.firstLine(0);
     }
 
-    private static byte[] captureAttach(long surface) throws Exception {
+    private static byte[] captureAttach(long surface, Integer cols, Integer rows) throws Exception {
         Path socket = freshSocketPath();
         CaptureServer server = new CaptureServer(socket, new String[] {
             "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":7,\"session\":\"wire\",\"pid\":1}}",
@@ -44,7 +51,7 @@ public final class WireCaptureTest {
         });
         server.start();
         try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
-            try (CmuxClient.CmuxStream ignored = client.attachSurface(surface)) {
+            try (CmuxClient.CmuxStream ignored = client.attachSurface(surface, cols, rows)) {
                 // Opening the stream is enough to capture the attach request.
             }
         } finally {

@@ -375,7 +375,7 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "attach-surface",
         help: "Attach to a surface stream.",
-        allowed: &["surface", "mode"],
+        allowed: &["surface", "mode", "cols", "rows"],
         kind: socket(build_attach_surface, print_empty, true),
     },
     VerbSpec {
@@ -831,6 +831,7 @@ fn build_attach_surface(flags: &FlagMap) -> Result<Value, UsageError> {
         }
         value["mode"] = json!(mode);
     }
+    flags.insert_optional_size(&mut value)?;
     Ok(value)
 }
 
@@ -1537,6 +1538,10 @@ mod tests {
 
     #[test]
     fn protocol_v7_cli_builders_emit_render_tree_paste_and_scrollback_fields() {
+        let attach = VERBS.iter().find(|verb| verb.name == "attach-surface").unwrap();
+        assert!(attach.allowed.contains(&"cols"));
+        assert!(attach.allowed.contains(&"rows"));
+
         let flags = FlagMap {
             values: BTreeMap::from([
                 ("surface".to_string(), "9".to_string()),

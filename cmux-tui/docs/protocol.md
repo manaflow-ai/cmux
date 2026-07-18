@@ -81,7 +81,7 @@ scroll-surface
 {"id":10,"cmd":"move-tab","surface":4,"pane":2,"index":0}
 ```
 
-`move-workspace` moves a workspace to an insertion index.
+`move-workspace` moves a workspace to its final zero-based root index.
 
 ```json
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}
@@ -121,7 +121,7 @@ Browser input, navigation, activation, and browser reconfigure work from `resize
 `attach-surface` streams a PTY or browser surface.
 
 ```json
-{"id":30,"cmd":"attach-surface","surface":4}
+{"id":30,"cmd":"attach-surface","surface":4,"cols":120,"rows":40}
 ```
 
 The server first sends:
@@ -151,7 +151,7 @@ When the stream ends, it sends:
 
 The remote TUI requires protocol v7. It refuses servers reporting any other protocol version because it relies on resized attach replays and authoritative title events.
 
-Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
+Attach clients mirror PTY surfaces locally. A client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state.
 
 When several attach clients render the same surface at different sizes, sizing follows latest local interaction. A client reasserts its visible sizes after key input, mouse input, paste, focus gained, or terminal resize. Mux-driven redraws update local mirrors from `surface-resized` without reasserting an idle client's viewport.
 

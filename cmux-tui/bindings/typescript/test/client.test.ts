@@ -309,7 +309,14 @@ test("attachSurface render mode yields render-state and render-delta from cached
     });
   });
   const attach = new ScriptedTransport((request, transport) => {
-    assert.deepEqual(request, { id: 2, cmd: "attach-surface", surface: 7, mode: "render" });
+    assert.deepEqual(request, {
+      id: 2,
+      cmd: "attach-surface",
+      surface: 7,
+      mode: "render",
+      cols: 120,
+      rows: 40,
+    });
     transport.emit({
       event: "render-state",
       surface: 7,
@@ -348,7 +355,7 @@ test("attachSurface render mode yields render-state and render-delta from cached
 
   assert.equal((await client.identify()).protocol, 7);
   assert.equal(client.protocol, 7);
-  const stream = await client.attachSurface(7, { mode: "render" });
+  const stream = await client.attachSurface(7, { mode: "render", cols: 120, rows: 40 });
   assert.equal(identifyRequests, 1);
   assert.deepEqual(await stream.next(), {
     event: "render-state",

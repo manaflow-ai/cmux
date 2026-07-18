@@ -6940,17 +6940,12 @@ impl App {
         }
         if let Some(Drag::Workspace { workspace, .. }) = self.drag {
             self.drag = None;
-            if let (Some(source), Some(insertion)) = (
-                self.workspace_index(workspace),
-                self.workspace_drop_target_at(x, y),
-            )
+            if let (Some(source), Some(insertion)) =
+                (self.workspace_index(workspace), self.workspace_drop_target_at(x, y))
                 && self.prepare_pty_input_before_mutation()
             {
-                let index = workspace_destination_index(
-                    source,
-                    insertion,
-                    self.tree.workspaces.len(),
-                );
+                let index =
+                    workspace_destination_index(source, insertion, self.tree.workspaces.len());
                 self.session.move_workspace(workspace, index);
             }
             return Ok(RenderAction::Draw);
@@ -7498,8 +7493,9 @@ fn rects_intersect(a: Rect, b: Rect) -> bool {
     a.x < bx2 && ax2 > b.x && a.y < by2 && ay2 > b.y
 }
 
-fn workspace_destination_index(_source: usize, insertion: usize, len: usize) -> usize {
-    insertion.min(len.saturating_sub(1))
+fn workspace_destination_index(source: usize, insertion: usize, len: usize) -> usize {
+    let final_index = if insertion > source { insertion - 1 } else { insertion };
+    final_index.min(len.saturating_sub(1))
 }
 
 fn browser_key_mapping(
@@ -7534,8 +7530,7 @@ mod tests {
         SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
         client_menu_item, forward_mux_event, forward_mux_events, pane_context_menu_groups,
         pane_parts_for_rect, preserve_client_view, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim,
-        workspace_destination_index,
+        sidebar_plugin_status_settles_passive_claim, workspace_destination_index,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
