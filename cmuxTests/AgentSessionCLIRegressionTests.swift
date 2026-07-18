@@ -2157,7 +2157,8 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(payloadConstructionCount == 0)
         #expect(entries.retainedCount == 1)
         try entries.forEachSortedPayload { payload in
-            #expect(try #require(payload["session_id"] as? String) == "session-a")
+            let sessionID = try #require(payload["session_id"] as? String)
+            #expect(sessionID == "session-a")
         }
         #expect(payloadConstructionCount == 1)
     }
@@ -3889,7 +3890,7 @@ private func executeAgentSessionSQLite(at url: URL, sql: String) throws {
     var message: UnsafeMutablePointer<CChar>?
     let status = sqlite3_exec(database, sql, nil, nil, &message)
     guard status == SQLITE_OK else {
-        let description = message.map(String.init(cString:)) ?? "SQLite test setup failed"
+        let description = message.map { String(cString: $0) } ?? "SQLite test setup failed"
         sqlite3_free(message)
         throw NSError(
             domain: "AgentSessionCLIRegressionTests.SQLite",
