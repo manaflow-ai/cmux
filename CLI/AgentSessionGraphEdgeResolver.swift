@@ -27,12 +27,23 @@ struct AgentSessionGraphEdgeResolver: Sendable {
 
     func parentNodeId(for edge: AgentSessionGraphEdge) -> String? {
         if let fromRunId = edge.fromRunId,
-           let candidates = nodesByRunId[fromRunId],
-           let parent = candidates.first(where: { candidate in
-               candidate.nodeId != edge.toNodeId
-                   && (edge.fromSessionId == nil || candidate.sessionId == edge.fromSessionId)
-           }) ?? candidates.first(where: { $0.nodeId != edge.toNodeId }) {
-            return parent.nodeId
+           let candidates = nodesByRunId[fromRunId] {
+            let eligible = candidates.filter { $0.nodeId != edge.toNodeId }
+            if let fromSessionId = edge.fromSessionId {
+                if let parent = eligible.first(where: { $0.sessionId == fromSessionId }) {
+                    return parent.nodeId
+                }
+                // The durable session identity is stronger than a reused run
+                // ID. Fall through to session-only recovery below.
+            } else if eligible.count == 1 {
+                return eligible[0].nodeId
+            } else if let childProvider = nodesByNodeId[edge.toNodeId]?.provider {
+                let sameProvider = eligible.filter { $0.provider == childProvider }
+                if sameProvider.count == 1 { return sameProvider[0].nodeId }
+                // Run IDs are not global. Multiple same-provider candidates,
+                // or several foreign-provider candidates, are ambiguous.
+                return nil
+            }
         }
         guard let fromSessionId = edge.fromSessionId else { return nil }
         let candidates = parentCandidatesBySessionId[fromSessionId] ?? []
