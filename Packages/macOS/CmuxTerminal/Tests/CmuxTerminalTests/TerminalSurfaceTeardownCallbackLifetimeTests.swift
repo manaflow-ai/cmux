@@ -172,6 +172,52 @@ private actor HibernationValidationGate {
         #expect(recorder.events == [.finalValidation, .nativeFree, .teeLeaseRelease])
     }
 
+    @Test func explicitInputDuringProvisionalHibernationRejectsAndFlushesToRestoredRuntime() async {
+        let recorder = TeardownOrderRecorder()
+        let validationGate = HibernationValidationGate()
+        let surface = makeSurface()
+        let runtimeSurface = fakeRuntimeSurface()
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let generation = surface.runtimeSurfaceGeneration
+        surface.pendingSocketInputFlushOverrideForTesting = { items, bytes in
+            #expect(items > 0)
+            #expect(bytes > 0)
+            recorder.record(.pendingInputFlush)
+        }
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer {
+            surface.pendingSocketInputFlushOverrideForTesting = nil
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        let suspension = Task { @MainActor in
+            await surface.suspendRuntimeSurfaceForAgentHibernation(
+                reason: "test.hibernate.inputRace",
+                finalValidation: {
+                    recorder.record(.finalValidation)
+                    return await validationGate.validate()
+                }
+            )
+        }
+        await validationGate.waitUntilValidationStarts()
+
+        #expect(surface.sendInputResult("echo preserved\r") == .queued)
+        #expect(surface.debugPendingSocketInputForTesting().items > 0)
+        await validationGate.resolveValidation(true)
+        let didSuspend = await suspension.value
+
+        #expect(!didSuspend)
+        #expect(surface.surface == runtimeSurface)
+        #expect(surface.runtimeSurfaceGeneration == generation)
+        #expect(surface.debugPendingSocketInputForTesting().items == 0)
+        #expect(recorder.events == [.finalValidation, .pendingInputFlush])
+
+        surface.runtimeSurfaceFreedOutOfBandForTesting = true
+        surface.teardownSurface()
+    }
+
     @Test func resumeCannotReopenRuntimeUntilHibernationFreeCompletes() async {
         let recorder = TeardownOrderRecorder()
         let validationGate = HibernationValidationGate()
