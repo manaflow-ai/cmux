@@ -135,18 +135,18 @@ struct BackendProtocolClientTests {
         await client.close()
     }
 
-    @Test("session event subscription registers the legacy renderer stream")
-    func sessionEventSubscriptionRequest() async throws {
+    @Test("renderer lifecycle subscription registers the dedicated v9 stream")
+    func rendererLifecycleSubscriptionRequest() async throws {
         let transport = ScriptedBackendTransport()
         let client = BackendProtocolClient(transport: transport)
         try await client.connect()
 
-        let task = Task { try await client.subscribe() }
+        let task = Task { try await client.subscribeRendererLifecycle() }
         let request = await transport.nextSent()
         let object = try #require(
             try JSONSerialization.jsonObject(with: request) as? [String: Any]
         )
-        #expect(object["cmd"] as? String == "subscribe")
+        #expect(object["cmd"] as? String == "subscribe-renderer-lifecycle")
         await transport.enqueue(try encodedJSON([
             "id": try #require(object["id"] as? NSNumber).uint64Value,
             "ok": true,

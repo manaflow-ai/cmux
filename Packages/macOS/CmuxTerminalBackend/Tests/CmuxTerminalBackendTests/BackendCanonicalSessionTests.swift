@@ -941,6 +941,7 @@ struct BackendCanonicalSessionTests {
     @Test("snapshot fence resumes into contiguous topology deltas")
     func snapshotThenDelta() async throws {
         let transport = ScriptedBackendTransport()
+        let identity = testRegistrationIdentity()
         let authority = BackendAuthority(
             daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
             sessionID: SessionID(rawValue: UUID())
@@ -952,17 +953,19 @@ struct BackendCanonicalSessionTests {
                 authority: authority,
                 processID: 4321
             ),
-            registrationIdentity: testRegistrationIdentity()
+            registrationIdentity: identity
         )
         let events = await session.events()
         var iterator = events.makeAsyncIterator()
 
         let connectTask = Task { try await session.connect() }
-        try await completeHandshake(
+        try await completeV9Handshake(
             transport: transport,
             authority: authority,
             session: "app-session",
-            processID: 4321
+            processID: 4321,
+            identity: identity,
+            connectionID: UUID()
         )
         let initial = try #require(try await connectTask.value)
         #expect(initial.revision == 0)
@@ -1076,9 +1079,10 @@ struct BackendCanonicalSessionTests {
         await session.close()
     }
 
-    @Test("legacy session overflow fails closed instead of losing renderer invalidations")
-    func legacySessionOverflowFailsClosed() async throws {
+    @Test("renderer lifecycle overflow fails closed instead of losing invalidations")
+    func rendererLifecycleOverflowFailsClosed() async throws {
         let transport = ScriptedBackendTransport()
+        let identity = testRegistrationIdentity()
         let authority = BackendAuthority(
             daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
             sessionID: SessionID(rawValue: UUID())
@@ -1090,17 +1094,19 @@ struct BackendCanonicalSessionTests {
                 authority: authority,
                 processID: 4321
             ),
-            registrationIdentity: testRegistrationIdentity()
+            registrationIdentity: identity
         )
         let events = await session.events()
         var iterator = events.makeAsyncIterator()
 
         let connectTask = Task { try await session.connect() }
-        try await completeHandshake(
+        try await completeV9Handshake(
             transport: transport,
             authority: authority,
             session: "app-session",
-            processID: 4321
+            processID: 4321,
+            identity: identity,
+            connectionID: UUID()
         )
         _ = try await connectTask.value
         guard case .snapshot? = await iterator.next() else {
@@ -1118,7 +1124,7 @@ struct BackendCanonicalSessionTests {
             Issue.record("expected fail-closed session overflow")
             return
         }
-        #expect(message == "session event stream overflow")
+        #expect(message == "renderer lifecycle stream overflow")
         #expect(await session.currentSnapshot() == nil)
         await transport.waitUntilClosed()
     }
@@ -1425,6 +1431,7 @@ struct BackendCanonicalSessionTests {
                     "projection-state-reconnect-v1",
                     "remote-tmux-producer-source-v1",
                     "renderer-semantic-scene-v1",
+                    "renderer-lifecycle-subscription-v1",
                     "renderer-worker-supervision-v1",
                     "reparent-terminal-v1",
                     "stable-entity-uuid-v1",
@@ -1513,9 +1520,11 @@ struct BackendCanonicalSessionTests {
             ]
         ))
 
-        let sessionEvents = try requestObject(await transport.nextSent())
-        #expect(sessionEvents["cmd"] as? String == "subscribe")
-        await transport.enqueue(try response(to: sessionEvents, data: [:]))
+        let rendererLifecycle = try requestObject(await transport.nextSent())
+        #expect(
+            rendererLifecycle["cmd"] as? String == "subscribe-renderer-lifecycle"
+        )
+        await transport.enqueue(try response(to: rendererLifecycle, data: [:]))
     }
 
     private func activitySnapshot(
@@ -1656,9 +1665,6 @@ struct BackendCanonicalSessionTests {
             ]
         ))
 
-        let sessionEvents = try requestObject(await transport.nextSent())
-        #expect(sessionEvents["cmd"] as? String == "subscribe")
-        await transport.enqueue(try response(to: sessionEvents, data: [:]))
     }
 
     private func identifyResponse(
