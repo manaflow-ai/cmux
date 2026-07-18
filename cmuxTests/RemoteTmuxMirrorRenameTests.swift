@@ -50,6 +50,7 @@ struct RemoteTmuxMirrorRenameTests {
             }
             #expect(outcome.workspaceID == harness.workspace.id)
             #expect(outcome.surfaceID == surface.surfaceID)
+            #expect(outcome.paneID == surface.paneID)
             #expect(outcome.extras == .title(title))
             #expect(harness.workspace.panelCustomTitles[containerID] == title)
 

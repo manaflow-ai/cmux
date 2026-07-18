@@ -78,13 +78,16 @@ extension Workspace {
         return locations.first(where: { $0.pane.isFocused }) ?? locations.first
     }
 
-    /// Resolves a control-plane surface identity to the workspace panel that
-    /// owns its tab. Ordinary and single-pane surfaces retain their identity;
-    /// every projected pane in a multi-pane tmux window resolves to the shared
-    /// window container.
-    func controlTabPanelID(for surfaceID: UUID) -> UUID? {
-        if panels[surfaceID] != nil { return surfaceID }
-        return remoteTmuxControlPane(surfaceID: surfaceID)?.containerPanelID
+    /// Resolves a control-plane surface identity to its tab mutation owner and
+    /// exposed pane. Ordinary and single-pane surfaces retain their existing
+    /// identities; every projected pane in a multi-pane tmux window resolves
+    /// to the shared window container while preserving its projected pane ID.
+    func controlTabTarget(for surfaceID: UUID) -> (panelID: UUID, paneID: UUID?)? {
+        if panels[surfaceID] != nil {
+            return (surfaceID, paneId(forPanelId: surfaceID)?.id)
+        }
+        guard let location = remoteTmuxControlPane(surfaceID: surfaceID) else { return nil }
+        return (location.containerPanelID, location.pane.paneID.id)
     }
 
     /// Resolves every mirror-owned surface identity without conflating an

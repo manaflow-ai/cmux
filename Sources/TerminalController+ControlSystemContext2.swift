@@ -52,9 +52,10 @@ extension TerminalController {
         guard let surfaceId = resolvedSurfaceId else {
             return .noFocusedTab
         }
-        guard let panelId = workspace.controlTabPanelID(for: surfaceId) else {
+        guard let tabTarget = workspace.controlTabTarget(for: surfaceId) else {
             return .tabNotFound(surfaceID: surfaceId)
         }
+        let panelId = tabTarget.panelID
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
         let focus = v2FocusAllowed(requested: requestedFocus)
@@ -64,7 +65,7 @@ extension TerminalController {
                 workspaceID: workspace.id,
                 surfaceID: surfaceId,
                 windowID: windowId,
-                paneID: workspace.paneId(forPanelId: panelId)?.id,
+                paneID: tabTarget.paneID,
                 extras: extras
             ))
         }
