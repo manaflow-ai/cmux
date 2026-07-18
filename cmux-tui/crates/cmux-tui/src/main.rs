@@ -9,6 +9,7 @@
 mod app;
 mod browser_input;
 mod cli;
+mod client_registration;
 mod config;
 mod host_colors;
 mod keys;

@@ -7,6 +7,38 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
+fn register_test_tui(writer: &mut impl Write, reader: &mut impl BufRead) {
+    let client_uuid = uuid::Uuid::new_v4();
+    let process_instance_uuid = uuid::Uuid::new_v4();
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "id": 0,
+            "cmd": "register-client",
+            "protocol_min": 9,
+            "protocol_max": 9,
+            "client_uuid": client_uuid,
+            "process_instance_uuid": process_instance_uuid,
+            "client_kind": "tui",
+        })
+    )
+    .unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "TUI registration failed: {response}");
+    let registration = &response["data"];
+    assert_eq!(registration["protocol"], 9);
+    assert_eq!(registration["client_kind"], "tui");
+    assert_eq!(registration["role"], "trusted-frontend");
+    uuid::Uuid::parse_str(
+        registration["topology_lease_id"].as_str().expect("TUI topology lease id"),
+    )
+    .expect("valid TUI topology lease id");
+    assert!(registration["topology_lease_generation"].as_u64().is_some_and(|value| value > 0));
+}
+
 struct HeadlessServer {
     child: Child,
     socket: PathBuf,
@@ -134,6 +166,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let target = transport::connect(&server.socket).unwrap();
     let mut target_writer = target.try_clone_box().unwrap();
     let mut target_reader = BufReader::new(target);
+    register_test_tui(&mut target_writer, &mut target_reader);
     writeln!(
         target_writer,
         r#"{{"id":1,"cmd":"set-client-info","name":"cli-detach-target","kind":"test"}}"#

@@ -38,7 +38,42 @@ fn unique_session(prefix: &str) -> String {
 }
 
 fn connect(path: &Path) -> Box<dyn transport::Stream> {
-    transport::connect(path).unwrap()
+    let stream = transport::connect(path).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+    let client_uuid = uuid::Uuid::new_v4();
+    let process_instance_uuid = uuid::Uuid::new_v4();
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "id": 0,
+            "cmd": "register-client",
+            "protocol_min": 9,
+            "protocol_max": 9,
+            "client_uuid": client_uuid,
+            "process_instance_uuid": process_instance_uuid,
+            "client_kind": "tui",
+        })
+    )
+    .unwrap();
+    let response = read_json_line(&mut reader).expect("TUI registration response");
+    assert_eq!(response["ok"], true, "TUI registration failed: {response}");
+    let registration = &response["data"];
+    assert_eq!(registration["protocol"], 9);
+    assert_eq!(registration["client_uuid"], client_uuid.to_string());
+    assert_eq!(registration["process_instance_uuid"], process_instance_uuid.to_string());
+    assert_eq!(registration["client_kind"], "tui");
+    assert_eq!(registration["role"], "trusted-frontend");
+    uuid::Uuid::parse_str(
+        registration["topology_lease_id"].as_str().expect("TUI topology lease id"),
+    )
+    .expect("valid TUI topology lease id");
+    assert!(
+        registration["topology_lease_generation"].as_u64().is_some_and(|value| value > 0),
+        "TUI registration did not return a live topology lease: {registration}"
+    );
+    stream
 }
 
 fn read_json_line(reader: &mut impl BufRead) -> Option<serde_json::Value> {

@@ -566,18 +566,34 @@ fn run_command(args: CliArgs) -> i32 {
         }
     };
     let socket_path = resolve_socket(&args.global);
-    let mut stream = match transport::connect(&socket_path) {
+    let stream = match transport::connect(&socket_path) {
         Ok(stream) => stream,
         Err(err) => {
             eprintln!("cannot connect to session socket {}: {err}", socket_path.display());
             return 3;
         }
     };
-    if stream_mode {
-        let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
-    } else {
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let mut registration_writer = match stream.try_clone_box() {
+        Ok(writer) => writer,
+        Err(err) => {
+            eprintln!("cannot clone session socket {}: {err}", socket_path.display());
+            return 3;
+        }
+    };
+    let mut reader = BufReader::new(stream);
+    if let Err(error) = crate::client_registration::register_trusted_automation(
+        &mut registration_writer,
+        &mut reader,
+    ) {
+        eprintln!("cannot register trusted local CLI connection: {error}");
+        return 3;
     }
+    drop(registration_writer);
+    if stream_mode {
+        let _ = reader.get_ref().set_read_timeout(Some(Duration::from_millis(250)));
+    }
+
     let mut line = match serde_json::to_vec(&request) {
         Ok(line) => line,
         Err(err) => {
@@ -586,12 +602,11 @@ fn run_command(args: CliArgs) -> i32 {
         }
     };
     line.push(b'\n');
-    if let Err(err) = stream.write_all(&line) {
+    if let Err(err) = reader.get_mut().write_all(&line) {
         eprintln!("transport error: {err}");
         return 3;
     }
 
-    let mut reader = BufReader::new(stream);
     if stream_mode {
         run_stream(reader)
     } else {

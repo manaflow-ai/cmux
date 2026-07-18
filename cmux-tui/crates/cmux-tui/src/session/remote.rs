@@ -506,13 +506,9 @@ impl RemoteSession {
             "protocol_max": 9,
             "client_uuid": client_uuid,
             "process_instance_uuid": process_instance_uuid,
+            "client_kind": "tui",
         }))?;
-        if registration.get("protocol").and_then(Value::as_u64) != Some(9)
-            || registration.get("client_uuid").and_then(Value::as_str)
-                != Some(client_uuid.to_string().as_str())
-        {
-            anyhow::bail!("cmux-tui daemon returned a mismatched protocol-v9 registration");
-        }
+        validate_tui_registration(&registration, client_uuid, process_instance_uuid)?;
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
@@ -1520,6 +1516,39 @@ impl RemoteSession {
     }
 }
 
+fn validate_tui_registration(
+    registration: &Value,
+    client_uuid: Uuid,
+    process_instance_uuid: Uuid,
+) -> anyhow::Result<()> {
+    let registered_client = registration
+        .get("client_uuid")
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok());
+    let registered_process = registration
+        .get("process_instance_uuid")
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok());
+    let lease_id = registration
+        .get("topology_lease_id")
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok());
+    if registration.get("protocol").and_then(Value::as_u64) != Some(9)
+        || registered_client != Some(client_uuid)
+        || registered_process != Some(process_instance_uuid)
+        || registration.get("client_kind").and_then(Value::as_str) != Some("tui")
+        || registration.get("role").and_then(Value::as_str) != Some("trusted-frontend")
+        || lease_id.is_none()
+        || registration
+            .get("topology_lease_generation")
+            .and_then(Value::as_u64)
+            .is_none_or(|generation| generation == 0)
+    {
+        anyhow::bail!("cmux-tui daemon did not grant the expected same-UID protocol-v9 TUI role");
+    }
+    Ok(())
+}
+
 fn local_hostname() -> Option<String> {
     for name in ["HOSTNAME", "COMPUTERNAME"] {
         if let Some(value) = std::env::var_os(name).and_then(|value| value.into_string().ok())
@@ -1649,6 +1678,33 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn tui_registration_requires_exact_identity_role_and_live_lease() {
+        let client_uuid = Uuid::new_v4();
+        let process_instance_uuid = Uuid::new_v4();
+        let mut registration = json!({
+            "protocol": 9,
+            "client_uuid": client_uuid,
+            "process_instance_uuid": process_instance_uuid,
+            "client_kind": "tui",
+            "role": "trusted-frontend",
+            "topology_lease_id": Uuid::new_v4(),
+            "topology_lease_generation": 1,
+        });
+
+        validate_tui_registration(&registration, client_uuid, process_instance_uuid).unwrap();
+
+        registration["client_kind"] = json!("automation");
+        assert!(
+            validate_tui_registration(&registration, client_uuid, process_instance_uuid).is_err()
+        );
+        registration["client_kind"] = json!("tui");
+        registration["topology_lease_id"] = Value::Null;
+        assert!(
+            validate_tui_registration(&registration, client_uuid, process_instance_uuid).is_err()
+        );
+    }
 
     #[cfg(unix)]
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
