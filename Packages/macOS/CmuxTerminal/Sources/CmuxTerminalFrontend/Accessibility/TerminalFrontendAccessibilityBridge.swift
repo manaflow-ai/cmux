@@ -19,9 +19,6 @@ final class TerminalFrontendAccessibilityBridge {
 
     deinit {
         observationTask?.cancel()
-        for element in linkElements {
-            element.invalidate()
-        }
     }
 
     func bind(to owner: TerminalFrontendInteractionView) {
