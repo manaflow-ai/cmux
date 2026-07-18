@@ -628,9 +628,10 @@ test("subscribe deltas mode yields all protocol v7 tree lifecycle events", async
   };
   const workspace = { id: 1, key: "stable", name: "sdk", active: true, screens: [screen] };
   const deltas: TreeDeltaEvent[] = [
-    { event: "workspace-added", workspace: 1, index: 0, entity: workspace },
-    { event: "workspace-closed", workspace: 1, index: 0, entity: workspace },
-    { event: "workspace-renamed", workspace: 1, entity: workspace },
+    { event: "workspace-added", workspace: 1, index: 0, workspace_revision: 1, entity: workspace },
+    { event: "workspace-closed", workspace: 1, index: 0, workspace_revision: 4, entity: workspace },
+    { event: "workspace-renamed", workspace: 1, workspace_revision: 2, entity: workspace },
+    { event: "workspace-moved", workspace: 1, index: 0, workspace_revision: 3, entity: workspace },
     { event: "screen-added", workspace: 1, screen: 2, index: 0, entity: screen },
     { event: "screen-closed", workspace: 1, screen: 2, index: 0, entity: screen },
     { event: "screen-renamed", workspace: 1, screen: 2, entity: screen },

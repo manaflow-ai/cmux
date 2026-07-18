@@ -18,6 +18,7 @@ public record Tree(long workspaceRevision, List<Workspace> workspaces) {
                 workspaces.add(Workspace.from((Map<String, Object>) item));
             }
         }
-        return new Tree(CmuxClient.asLong(data.get("workspace_revision")), workspaces);
+        Object revision = data.get("workspace_revision");
+        return new Tree(revision == null ? 0 : CmuxClient.asLong(revision), workspaces);
     }
 }

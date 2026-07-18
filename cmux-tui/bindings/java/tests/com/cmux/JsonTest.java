@@ -68,6 +68,8 @@ public final class JsonTest {
         ResizeSurfaceResult reserved = ResizeSurfaceResult.from(Map.of("accepted", true, "reservation_id", 41));
         assertEquals(41L, reserved.reservationId(), "resize reservation identity");
         assertTrue(ResizeSurfaceResult.from(Map.of()).accepted(), "legacy resize accepted");
+        Tree legacyTree = Tree.from(Map.of("workspaces", List.of()));
+        assertEquals(0L, legacyTree.workspaceRevision(), "legacy workspace revision");
     }
 
     private static void assertReject(String input) {
