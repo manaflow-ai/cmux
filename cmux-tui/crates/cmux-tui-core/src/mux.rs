@@ -2094,7 +2094,7 @@ impl Mux {
                     break 'outer;
                 }
             }
-            if changed_screen.is_some() {
+            if let Some(screen) = changed_screen {
                 state.panes.insert(
                     pane_id,
                     Pane {
@@ -2105,7 +2105,6 @@ impl Mux {
                         active_at,
                     },
                 );
-                let screen = changed_screen.expect("new pane screen captured");
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
