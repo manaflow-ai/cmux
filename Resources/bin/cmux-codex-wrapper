@@ -161,6 +161,18 @@ codex_option_consumes_variadic_values() {
     return 1
 }
 
+# Clap accepts required short-option values attached to the option token (for
+# example `-mgpt-5.4`, `-cfoo=bar`, and `-i/tmp/a.png`). In that form the value
+# is complete in the current token and the next bare token remains positional.
+codex_option_has_attached_short_value() {
+    case "$1" in
+        -c?*|-m?*|-p?*|-C?*|-a?*|-s?*|-i?*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 codex_passthrough_option_flag() {
     case "$1" in
         --help|-h|-V|--version)
@@ -213,9 +225,12 @@ should_inject_codex_hooks() {
                 if codex_passthrough_option_flag "$arg"; then
                     return 1
                 fi
+                if codex_option_has_attached_short_value "$arg"; then
+                    continue
+                fi
                 local option_name="${arg%%=*}"
                 if codex_option_consumes_variadic_values "$option_name"; then
-                    skip_variadic_values=true
+                    [[ "$arg" == *=* ]] || skip_variadic_values=true
                     continue
                 fi
                 if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg"; then
@@ -243,23 +258,153 @@ should_inject_codex_hooks() {
 # pre-relaunch record whose pid is already dead, the exit watcher flips it to
 # `.ended`, and the iOS chat shows it read-only with no input bar. The wrapper,
 # unlike codex, knows the resumed id (it is in argv) and the new live pid ($$),
-# so it fires the session-start itself (below). The id is the first UUID-shaped
-# token after the `resume` subcommand; flags (`--all`, `-c k=v`, `--last`, ...)
-# are skipped because they are not UUID-shaped. `codex resume` with no id (the
-# interactive picker) and `--last` carry no id at launch, so this returns
-# non-zero and those are left to codex.
+# so it fires the session-start itself (below). Parse the current root/resume
+# option widths so UUID-shaped option values and prompt text can never be
+# mistaken for the selected session. `codex resume` with no id (the interactive
+# picker), a named selector, and `--last` carry no authoritative UUID at launch,
+# so this returns non-zero and those are left to codex.
+codex_root_boolean_option() {
+    case "$1" in
+        --strict-config|--oss|--yolo|\
+        --dangerously-bypass-approvals-and-sandbox|--dangerously-bypass-hook-trust|\
+        --search|--no-alt-screen)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+codex_resume_boolean_option() {
+    codex_root_boolean_option "$1" && return 0
+    case "$1" in
+        --all|--include-non-interactive|--last)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 cmux_codex_resume_session_id() {
-    local seen_resume=false arg
+    local seen_resume=false
+    local saw_selector=false
+    local selected_last=false
+    local after_terminator=false
+    local skip_next=false
+    local skip_variadic_values=false
+    local variadic_needs_value=false
+    local candidate=""
+    local arg option_name
+
+    # Codex 0.144.3's Clap contract ends a variadic option's value list when its
+    # first value uses `--option=value`; a following bare token is positional.
+    # Split-form variadics keep consuming bare values until an option boundary.
+    # Keep this in lockstep with should_inject_codex_hooks.
     for arg in "$@"; do
-        if [[ "$seen_resume" == true ]]; then
-            if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
-                printf '%s' "$arg"
-                return 0
-            fi
-        elif [[ "$arg" == "resume" ]]; then
-            seen_resume=true
+        if [[ "$skip_next" == true ]]; then
+            # A flag where a required value belongs is invalid. Fail closed
+            # instead of letting a later UUID manufacture a rebind.
+            [[ "$arg" == -* ]] && return 1
+            skip_next=false
+            continue
         fi
+        if [[ "$skip_variadic_values" == true ]]; then
+            if [[ "$arg" != -* ]]; then
+                variadic_needs_value=false
+                continue
+            fi
+            [[ "$variadic_needs_value" == false ]] || return 1
+            skip_variadic_values=false
+            variadic_needs_value=false
+        fi
+
+        if [[ "$seen_resume" == false ]]; then
+            case "$arg" in
+                --)
+                    return 1
+                    ;;
+                -*)
+                    if codex_option_has_attached_short_value "$arg"; then
+                        :
+                    else
+                        option_name="${arg%%=*}"
+                        if codex_option_consumes_variadic_values "$option_name"; then
+                            if [[ "$arg" != *=* ]]; then
+                                skip_variadic_values=true
+                                variadic_needs_value=true
+                            fi
+                        elif codex_option_consumes_value "$option_name"; then
+                            [[ "$arg" == *=* ]] || skip_next=true
+                        elif codex_root_boolean_option "$option_name"; then
+                            # Clap booleans reject `--flag=value`. Do not emit a
+                            # rebind for an invocation Codex will reject.
+                            [[ "$arg" != *=* ]] || return 1
+                        else
+                            return 1
+                        fi
+                    fi
+                    ;;
+                resume)
+                    seen_resume=true
+                    ;;
+                *)
+                    return 1
+                    ;;
+            esac
+            continue
+        fi
+
+        if [[ "$after_terminator" == true ]]; then
+            if [[ "$saw_selector" == false ]]; then
+                saw_selector=true
+                if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+                    candidate="$arg"
+                fi
+            fi
+            continue
+        fi
+
+        case "$arg" in
+            --)
+                after_terminator=true
+                ;;
+            --last)
+                selected_last=true
+                ;;
+            -*)
+                if codex_option_has_attached_short_value "$arg"; then
+                    :
+                else
+                    option_name="${arg%%=*}"
+                    if codex_option_consumes_variadic_values "$option_name"; then
+                        if [[ "$arg" != *=* ]]; then
+                            skip_variadic_values=true
+                            variadic_needs_value=true
+                        fi
+                    elif codex_option_consumes_value "$option_name"; then
+                        [[ "$arg" == *=* ]] || skip_next=true
+                    elif codex_resume_boolean_option "$option_name"; then
+                        [[ "$arg" != *=* ]] || return 1
+                    else
+                        return 1
+                    fi
+                fi
+                ;;
+            *)
+                if [[ "$saw_selector" == false ]]; then
+                    saw_selector=true
+                    if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+                        candidate="$arg"
+                    fi
+                fi
+                ;;
+        esac
     done
+
+    [[ "$skip_next" == false && "$variadic_needs_value" == false ]] || return 1
+    if [[ "$seen_resume" == true && "$selected_last" == false && -n "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
     return 1
 }
 
@@ -314,7 +459,8 @@ fi
 export CMUX_CODEX_HOOKS_DISABLED=0
 export CMUX_CODEX_WRAPPER_HOOK_OWNER=1
 export CMUX_CODEX_PID=$$
-export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+export CMUX_CODEX_HOOK_CMUX_BIN
 export CMUX_AGENT_LAUNCH_KIND="codex"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
@@ -360,7 +506,10 @@ fi
 cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
 if [[ -n "$cmux_codex_resume_sid" \
       && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
-    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\"}"
+    # The handler already prefers CMUX_AGENT_LAUNCH_CWD/PWD from this exported
+    # launch environment. Keep cwd out of hand-built JSON so quotes, backslashes,
+    # and newlines in a valid project path cannot corrupt the critical rebind.
+    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\"}"
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
         ( printf '%s' "$cmux_codex_resume_payload" \
             | nohup "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" hooks codex session-start >/dev/null 2>&1 ) &
