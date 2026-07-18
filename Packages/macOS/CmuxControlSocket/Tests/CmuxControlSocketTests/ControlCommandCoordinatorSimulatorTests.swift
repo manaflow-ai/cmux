@@ -22,11 +22,12 @@ struct ControlCommandCoordinatorSimulatorTests {
         let receipt = ControlSimulatorOperationReceipt(cancellationJoinTimeout: 0)
         let cancelled = SimulatorCancellationProbe()
         receipt.installCancellation { cancelled.mark() }
+        let surfaceID = UUID()
         context.operationResolution = .started(
-            surfaceID: UUID(), timeoutSeconds: 550, receipt: receipt
+            surfaceID: surfaceID, timeoutSeconds: 550, receipt: receipt
         )
 
-        guard case let .err(code, _, _) = coordinator.handleSocketWorkerV2(
+        guard case let .err(code, _, data) = coordinator.handleSocketWorkerV2(
             request("simulator.context", ["operation_timeout_seconds": .double(0.1)]),
             context: context
         ) else {
@@ -34,6 +35,10 @@ struct ControlCommandCoordinatorSimulatorTests {
             return
         }
         #expect(code == "timeout")
+        #expect(data == .object([
+            "surface_id": .string(surfaceID.uuidString),
+            "surface_ref": .string("surface:1"),
+        ]))
         #expect(cancelled.isMarked)
     }
 
@@ -385,6 +390,15 @@ struct ControlCommandCoordinatorSimulatorTests {
             source: "video", path: "/tmp/fixture.mp4", loops: true,
             hostDeviceID: nil
         ))
+
+        context.lastOperation = nil
+        _ = coordinator.handleSocketWorkerV2(request("simulator.camera.switch", [
+            "source": .string("VIDEO"), "path": .string("/tmp/fixture.mp4"),
+        ]), context: context)
+        #expect(context.lastOperation == .cameraSwitch(
+            source: "video", path: "/tmp/fixture.mp4", loops: true,
+            hostDeviceID: nil
+        ))
     }
 
     @Test("serve-sim hardware button aliases and mixed-case native names map to canonical names")
@@ -461,6 +475,66 @@ struct ControlCommandCoordinatorSimulatorTests {
         #expect(context.lastOperation == .gesture(["began", "moved", "ended"].map { phase in
             ControlSimulatorTouch(phase: phase, x: 0.25, y: 0.75, edge: "none")
         }))
+
+        _ = coordinator.handleSocketWorkerV2(request("simulator.gesture", [
+            "events": .array([.object([
+                "phase": .string("began"), "x": .double(0.25), "y": .double(0.75),
+                "edge": .string("LEFT"),
+            ])]),
+        ]), context: context)
+        #expect(context.lastOperation == .gesture([
+            ControlSimulatorTouch(phase: "began", x: 0.25, y: 0.75, edge: "left"),
+        ]))
+
+        _ = coordinator.handleSocketWorkerV2(request("simulator.multi_touch", [
+            "events": .array([.object([
+                "phase": .string("began"), "x": .double(0.25), "y": .double(0.75),
+                "x2": .double(0.75), "y2": .double(0.25), "edge": .int(0),
+            ])]),
+        ]), context: context)
+        #expect(context.lastOperation == .gesture([
+            ControlSimulatorTouch(
+                phase: "began", x: 0.25, y: 0.75,
+                secondX: 0.75, secondY: 0.25, edge: "none"
+            ),
+        ]))
+    }
+
+    @Test("Swipe edge aliases use the shared touch parser")
+    func swipeEdgeAliases() {
+        let context = FakeSimulatorControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let receipt = ControlSimulatorOperationReceipt()
+        receipt.complete(.success(.object([:])))
+        context.operationResolution = .started(
+            surfaceID: UUID(), timeoutSeconds: 1, receipt: receipt
+        )
+
+        _ = coordinator.handleSocketWorkerV2(request("simulator.swipe", [
+            "from_x": .double(0.1), "from_y": .double(0.2),
+            "to_x": .double(0.9), "to_y": .double(0.8),
+            "steps": .int(2), "edge": .string("TOP"),
+        ]), context: context)
+        guard case let .gesture(events)? = context.lastOperation else {
+            Issue.record("Expected a normalized swipe")
+            return
+        }
+        #expect(events.map(\.edge) == ["top", "top", "top"])
+
+        context.lastOperation = nil
+        guard case let .err(code, _, _) = coordinator.handleSocketWorkerV2(
+            request("simulator.swipe", [
+                "from_x": .double(0.1), "from_y": .double(0.2),
+                "to_x": .double(0.9), "to_y": .double(0.8),
+                "edge": .string("diagonal"),
+            ]),
+            context: context
+        ) else {
+            Issue.record("Expected an invalid edge rejection")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastOperation == nil)
     }
 
     @Test("Core Animation diagnostic names are case insensitive")
@@ -477,6 +551,13 @@ struct ControlCommandCoordinatorSimulatorTests {
             "diagnostic": .string("Blended"), "enabled": .bool(true),
         ]), context: context)
         #expect(context.lastOperation == .coreAnimation(diagnostic: "blended", enabled: true))
+
+        _ = coordinator.handleSocketWorkerV2(request("simulator.core_animation", [
+            "diagnostic": .string("slow_animations"), "enabled": .bool(true),
+        ]), context: context)
+        #expect(context.lastOperation == .coreAnimation(
+            diagnostic: "slowAnimations", enabled: true
+        ))
     }
 
     @Test("Permission methods route bounded canonical operations")
@@ -506,6 +587,21 @@ struct ControlCommandCoordinatorSimulatorTests {
             service: "photos-limited",
             bundleIdentifier: "com.example.App"
         ))
+
+        for (alias, service) in [
+            "push": "notifications",
+            "photo": "photos",
+            "mic": "microphone",
+        ] {
+            _ = coordinator.handleSocketWorkerV2(request("simulator.permissions.set", [
+                "action": .string("grant"),
+                "service": .string(alias),
+                "bundle_id": .string("com.example.App"),
+            ]), context: context)
+            #expect(context.lastOperation == .permissionsSet(
+                action: "grant", service: service, bundleIdentifier: "com.example.App"
+            ))
+        }
 
         for bundleIdentifier in ["bad id", String(repeating: "a", count: 256)] {
             context.lastOperation = nil
@@ -549,6 +645,17 @@ struct ControlCommandCoordinatorSimulatorTests {
             option: "color-filter",
             value: "red-green"
         ))
+
+        for (alias, option) in [
+            "content-size": "text-size",
+            "button-shapes": "show-borders",
+            "voice-over": "voiceover",
+        ] {
+            _ = coordinator.handleSocketWorkerV2(request("simulator.ui.set", [
+                "option": .string(alias), "value": .string("on"),
+            ]), context: context)
+            #expect(context.lastOperation == .interfaceSet(option: option, value: "on"))
+        }
 
         for invalidToken in [
             "", "Red Green", "é", String(repeating: "x", count: 65),

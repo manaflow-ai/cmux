@@ -197,6 +197,20 @@ struct ShortcutWhenClauseTests {
         #expect(!ShortcutWhenClause.atom(.terminalFocus).evaluate(state(simulator: true)))
     }
 
+    @Test func canvasZoomDefaultsYieldToFocusedSimulatorContent() {
+        var context = ShortcutContext()
+        context.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
+        context.setBool(ShortcutContextKnownKey.simulatorFocus.rawValue, true)
+
+        for action in [
+            ShortcutAction.canvasZoomIn,
+            ShortcutAction.canvasZoomOut,
+            ShortcutAction.canvasZoomReset,
+        ] {
+            #expect(!action.defaultFocusWhenClause.evaluate(context))
+        }
+    }
+
     @Test func workspaceDigitsExceptSidebar() throws {
         let clause = try #require(ShortcutWhenClause.parse("!sidebarFocus"))
         #expect(clause.evaluate(state()))
