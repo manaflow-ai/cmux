@@ -2128,6 +2128,18 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func graphNodeIdentityCannotCollideThroughEmbeddedSeparators() {
+        let first = makeAgentSessionGraphTestNode(
+            provider: "codex", sessionID: "session\u{1F}shared", runID: "run", updatedAt: 200
+        )
+        let second = makeAgentSessionGraphTestNode(
+            provider: "codex\u{1F}session", sessionID: "shared", runID: "run", updatedAt: 200
+        )
+
+        #expect(first.nodeId != second.nodeId)
+        #expect(AgentSessionGraphNodeIndex.indices([first, second]).count == 2)
+    }
+
     @Test func repeatedRunGraphResolutionStaysLinearAtTenThousandEdges() {
         let count = 10_000
         var parents: [AgentSessionGraphNode] = []
