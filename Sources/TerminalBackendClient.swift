@@ -4,7 +4,7 @@ import CmuxTerminalRenderProtocol
 import Foundation
 
 /// Async service seam between a main-actor terminal façade and the trusted daemon session.
-protocol TerminalBackendClient: Sendable {
+protocol TerminalBackendClient: AnyObject, Sendable {
     func rendererEvents() async -> AsyncStream<TerminalBackendRendererEvent>
     func canonicalSnapshots() async throws -> AsyncStream<TopologySnapshot>
     func canonicalTopologyEvents() async throws -> AsyncStream<TerminalBackendTopologyStreamEvent>

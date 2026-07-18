@@ -309,7 +309,7 @@ final class TerminalBackendFrontendEventRouterRegistry {
     static let shared = TerminalBackendFrontendEventRouterRegistry()
 
     private struct Entry {
-        weak var client: AnyObject?
+        weak var client: (any TerminalBackendClient)?
         weak var router: TerminalBackendFrontendEventRouter?
         weak var configSource: TerminalBackendRenderConfigSource?
     }
@@ -320,10 +320,9 @@ final class TerminalBackendFrontendEventRouterRegistry {
         for client: any TerminalBackendClient,
         configSource: TerminalBackendRenderConfigSource?
     ) -> TerminalBackendFrontendEventRouter {
-        let clientObject = client as AnyObject
-        let identifier = ObjectIdentifier(clientObject)
+        let identifier = ObjectIdentifier(client)
         if var entry = entries[identifier],
-           entry.client === clientObject,
+           entry.client === client,
            let router = entry.router {
             if let configSource, entry.configSource == nil {
                 entry.configSource = configSource
@@ -345,7 +344,7 @@ final class TerminalBackendFrontendEventRouterRegistry {
             configUpdates: updates
         )
         entries[identifier] = Entry(
-            client: clientObject,
+            client: client,
             router: router,
             configSource: configSource
         )

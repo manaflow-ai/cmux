@@ -1188,7 +1188,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     }
 
     private func refreshFrontendEventRoute() {
-        guard !detached, attachedPresentation != nil, visible else {
+        guard needsFrontendEventRoute else {
             deactivateFrontendEventRoute()
             return
         }
@@ -1257,9 +1257,18 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         frontendEventRegistrationGeneration == generation
             && self.presentationID == presentationID
             && currentWorkspaceID == workspaceID
+            && needsFrontendEventRoute
+    }
+
+    /// A hidden presentation remains routed only while its exact renderer
+    /// quiescence proof or receiver retirement is still outstanding.
+    private var needsFrontendEventRoute: Bool {
+        !detached
             && attachedPresentation != nil
-            && visible
-            && !detached
+            && (visible
+                || backendPresentationOpen
+                || receiver != nil
+                || receiverRetirementTask != nil)
     }
 
     private func deactivateFrontendEventRoute() {
@@ -1284,6 +1293,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             binding: binding
         ) {
             backendPresentationOpen = false
+            refreshFrontendEventRoute()
             rendererReconfigureNeeded = true
             scheduleDrain()
         } else {
@@ -1336,6 +1346,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         }
         backendPresentationOpen = false
         await rotateReceiverAfterQuiescenceProof()
+        refreshFrontendEventRoute()
         rendererReconfigureNeeded = true
         scheduleDrain()
     }
@@ -1361,6 +1372,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             if oldWorkerDied {
                 await rotateReceiverAfterQuiescenceProof()
                 backendPresentationOpen = false
+                refreshFrontendEventRoute()
             }
             if changed.state == .ready {
                 rendererReconfigureNeeded = true
@@ -1377,6 +1389,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                     binding: binding
                 ) {
                     backendPresentationOpen = false
+                    refreshFrontendEventRoute()
                     rendererReconfigureNeeded = true
                     scheduleDrain()
                 } else {
@@ -1400,6 +1413,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 binding: lostBinding
             ) {
                 backendPresentationOpen = false
+                refreshFrontendEventRoute()
                 scheduleDrain()
             } else {
                 markUnavailable()
@@ -1591,6 +1605,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private func stopRendererPresentation() async {
         backendPresentationOpen = false
         await rotateReceiverAfterQuiescenceProof()
+        refreshFrontendEventRoute()
     }
 
     private func detachPresentation() {
