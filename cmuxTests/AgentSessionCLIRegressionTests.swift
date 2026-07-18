@@ -477,6 +477,36 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.stdout == expected, Comment(rawValue: result.stdout))
     }
 
+    @Test func agentsTreeTextExposesAnIncrementalLineSequence() throws {
+        func node(sessionID: String, runID: String, updatedAt: TimeInterval) -> AgentSessionGraphNode {
+            AgentSessionGraphNode(
+                provider: "opencode", sessionId: sessionID, runId: runID,
+                pid: nil, processStartedAt: nil, cmuxRuntime: nil,
+                workspaceId: "workspace-\(sessionID)", surfaceId: "surface-\(sessionID)",
+                processState: .unknown, sessionState: .active,
+                foregroundState: .idle, attentionState: .none,
+                activity: AgentActivitySnapshot(state: .idle, busy: false, modes: [], counts: .init()),
+                effectiveState: .idle, workloads: [], restoreAuthority: true,
+                startedAt: 100, updatedAt: updatedAt, endedAt: nil
+            )
+        }
+
+        let root = node(sessionID: "root", runID: "root-run", updatedAt: 100)
+        let child = node(sessionID: "child", runID: "child-run", updatedAt: 101)
+        let edge = AgentSessionGraphEdge(
+            fromRunId: root.runId, fromSessionId: root.sessionId,
+            toNodeId: child.nodeId, toRunId: child.runId, relationship: .spawned
+        )
+        var iterator = AgentTreeTextLineSequence(
+            snapshot: AgentSessionGraphSnapshot(nodes: [root, child], edges: [edge]),
+            maximumDepth: 64
+        ).makeIterator()
+
+        #expect(iterator.next() == "opencode root IDLE restore-owner workspace:workspace-root surface:surface-root")
+        #expect(iterator.next() == "└── opencode child IDLE restore-owner workspace:workspace-child surface:surface-child")
+        #expect(iterator.next() == nil)
+    }
+
     @Test func agentsTreeTextDoesNotOverflowTheStackBeyondTwoThousandFiveHundredLevels() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
