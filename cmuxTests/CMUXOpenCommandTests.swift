@@ -862,19 +862,66 @@ final class CMUXOpenCommandTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
         try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let socketPath = makeSocketPath("diff-last-turn-context")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "browser.open_split" else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "surface-id", "pane_id": "pane-id"]
+            )
+        }
 
         try runGit(["init"], in: repoURL)
         let result = runCLI(
             cliPath: cliPath,
-            socketPath: makeSocketPath("diff-last-turn-context"),
+            socketPath: socketPath,
             arguments: ["diff", "--last-turn"],
             currentDirectoryURL: repoURL
         )
 
+        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertNotEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stderr.contains("requires --agent and --session"), result.stderr)
+
+        let commandPayload = try XCTUnwrap(
+            state.commands.compactMap { Self.v2Payload(from: $0) }.first { payload in
+                payload["method"] as? String == "browser.open_split"
+            }
+        )
+        let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
+        let rawURL = try XCTUnwrap(params["url"] as? String)
+        let viewerURL = try XCTUnwrap(URL(string: rawURL))
+        let token = try XCTUnwrap(viewerURL.host)
+        let manifestURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+            .appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        let manifest = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        let files = try XCTUnwrap(manifest["files"] as? [[String: Any]])
+        XCTAssertTrue(files.contains { $0["mime_type"] as? String == "text/javascript" })
+
+        let openedFileURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
+        let html = try String(contentsOf: openedFileURL, encoding: .utf8)
+        let payload = try diffViewerPayload(from: html)
+        XCTAssertEqual(payload["statusIsError"] as? Bool, true)
+        XCTAssertTrue(
+            (payload["statusMessage"] as? String)?.contains("requires --agent and --session") == true
+        )
     }
 
     func testDiffCommandPopulatesExistingBrowserSurfaceWithoutOpeningAnotherSplit() throws {
@@ -1007,6 +1054,21 @@ final class CMUXOpenCommandTests: XCTestCase {
         for option in sourceOptions where option["value"] as? String != "last-turn" {
             XCTAssertEqual(option["disabled"] as? Bool, true)
         }
+        let token = try XCTUnwrap(payload["capabilityToken"] as? String)
+        let diffViewerDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+        let branchSession = try FileManager.default
+            .contentsOfDirectory(at: diffViewerDirectory, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(".branch-session-") }
+            .compactMap { url -> [String: Any]? in
+                guard let session = try? JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any],
+                      session["token"] as? String == token else {
+                    return nil
+                }
+                return session
+            }
+            .first
+        XCTAssertEqual(branchSession?["allowedRepoRoots"] as? [String], [rootURL.path])
     }
 
     func testDiffCommandMapsOpenCodeCLINameToProtocolSpelling() throws {
