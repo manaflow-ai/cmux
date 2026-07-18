@@ -108,6 +108,39 @@ struct BrowserDesignModeComposerHostingViewTests {
         #expect(removedIdentity == "#hero")
     }
 
+    @Test func tokenHitTestingResolvesOnlyTheGlyphUnderThePointer() throws {
+        let selection = BrowserDesignModeSelection(
+            selector: "#hero",
+            selectors: ["#hero"],
+            tagName: "h1",
+            domSnippet: "<h1 id=\"hero\">Hero</h1>",
+            textContent: "Hero",
+            textEditable: true,
+            bounds: BrowserDesignModeRect(x: 10, y: 20, width: 200, height: 60),
+            viewport: BrowserDesignModeViewport(width: 800, height: 600),
+            computedStyles: [:]
+        )
+        let textView = BrowserDesignModeTokenTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 40)
+        )
+        let storage = try #require(textView.textStorage)
+        storage.setAttributedString(
+            BrowserDesignModeTokenAttachment.attributedToken(for: selection) { _ in }
+        )
+        let layoutManager = try #require(textView.layoutManager)
+        let textContainer = try #require(textView.textContainer)
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: 0, length: 1),
+            actualCharacterRange: nil
+        )
+        let tokenFrame = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            .offsetBy(dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y)
+
+        #expect(textView.tokenHit(at: NSPoint(x: tokenFrame.midX, y: tokenFrame.midY))?.identity == "#hero")
+        #expect(textView.tokenHit(at: NSPoint(x: 300, y: tokenFrame.midY)) == nil)
+    }
+
     @Test func failedRuntimeRemovalKeepsAuthoritativeSelection() async {
         let controller = makeController()
         controller.phase = .active(annotation: .idle)
