@@ -20,10 +20,12 @@ pub mod transport {
     }
 
     pub fn listen(path: &Path) -> io::Result<Listener> {
+        super::validate_unix_socket_path(path)?;
         imp::listen(path).map(|inner| Listener { inner })
     }
 
     pub fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
+        super::validate_unix_socket_path(path)?;
         imp::connect(path)
     }
 
@@ -128,9 +130,75 @@ pub mod transport {
     }
 }
 
+/// Darwin's `sockaddr_un.sun_path` stores at most 103 filesystem bytes plus
+/// its trailing NUL. Validate before bind/connect so the daemon and every
+/// client reject the same path instead of relying on platform-specific errors.
+pub fn validate_unix_socket_path(path: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+
+        const DARWIN_UNIX_SOCKET_PATH_MAX: usize = 103;
+        let bytes = path.as_os_str().as_bytes().len();
+        if bytes > DARWIN_UNIX_SOCKET_PATH_MAX {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "Unix socket path is {bytes} bytes; Darwin permits at most {DARWIN_UNIX_SOCKET_PATH_MAX}: {}",
+                    path.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn unix_socket_path_fits(path: &Path) -> bool {
+    validate_unix_socket_path(path).is_ok()
+}
+
 /// Runtime socket/pidfile directory for the current user.
 pub fn runtime_dir() -> PathBuf {
     runtime_base_dir().join(format!("cmux-tui-{}", user_id_component()))
+}
+
+/// Short, private runtime directory used when environment-selected runtime
+/// roots cannot fit Darwin's Unix-domain socket path limit.
+pub fn short_runtime_dir() -> PathBuf {
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/tmp").join(format!("cmux-tui-{}", user_id_component()))
+    }
+    #[cfg(windows)]
+    {
+        std::env::temp_dir().join(format!("cmux-tui-{}", user_id_component()))
+    }
+}
+
+/// Environment-independent runtime directory for the macOS app service.
+///
+/// The Swift client derives the same per-user path. Keeping this separate from
+/// [`runtime_dir`] prevents launchd and the app from choosing different sockets
+/// when their `XDG_RUNTIME_DIR` or `TMPDIR` environments differ.
+pub fn app_service_runtime_dir() -> PathBuf {
+    short_runtime_dir()
+}
+
+/// Environment-independent persistent-state directory for the macOS app service.
+///
+/// The native account database is authoritative instead of `HOME`, because the
+/// launch agent and app may receive different environment dictionaries.
+pub fn app_service_state_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        native_home_dir().map(|home| {
+            home.join("Library").join("Application Support").join("cmux-tui").join("state")
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        state_dir()
+    }
 }
 
 /// User config file path, honoring explicit env overrides before the default
@@ -152,19 +220,19 @@ pub fn state_dir() -> Option<PathBuf> {
     }
     #[cfg(target_os = "macos")]
     {
-        return home_dir().map(|home| {
+        home_dir().map(|home| {
             home.join("Library").join("Application Support").join("cmux-tui").join("state")
-        });
+        })
     }
     #[cfg(target_os = "linux")]
     {
-        return env_path("XDG_STATE_HOME")
+        env_path("XDG_STATE_HOME")
             .map(|state_home| state_home.join("cmux-tui"))
-            .or_else(|| home_dir().map(|home| home.join(".local/state/cmux-tui")));
+            .or_else(|| home_dir().map(|home| home.join(".local/state/cmux-tui")))
     }
     #[cfg(windows)]
     {
-        return env_path("LOCALAPPDATA").map(|dir| dir.join("cmux-tui").join("state"));
+        env_path("LOCALAPPDATA").map(|dir| dir.join("cmux-tui").join("state"))
     }
     #[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(windows)))]
     {
@@ -440,6 +508,50 @@ pub fn home_dir() -> Option<PathBuf> {
     env_path("HOME")
 }
 
+#[cfg(target_os = "macos")]
+fn native_home_dir() -> Option<PathBuf> {
+    use std::ffi::{CStr, OsStr};
+    use std::os::unix::ffi::OsStrExt;
+
+    const FALLBACK_BUFFER_SIZE: usize = 16 * 1024;
+    const MAX_BUFFER_SIZE: usize = 1024 * 1024;
+
+    let configured_size = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
+    let mut buffer_size = usize::try_from(configured_size)
+        .ok()
+        .filter(|size| *size > 0)
+        .unwrap_or(FALLBACK_BUFFER_SIZE)
+        .clamp(1024, MAX_BUFFER_SIZE);
+
+    loop {
+        let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
+        let mut result = std::ptr::null_mut();
+        let mut buffer = vec![0_u8; buffer_size];
+        let status = unsafe {
+            libc::getpwuid_r(
+                libc::getuid(),
+                record.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut result,
+            )
+        };
+        if status == libc::ERANGE && buffer_size < MAX_BUFFER_SIZE {
+            buffer_size = (buffer_size * 2).min(MAX_BUFFER_SIZE);
+            continue;
+        }
+        if status != 0 || result.is_null() {
+            return None;
+        }
+        let record = unsafe { record.assume_init() };
+        if record.pw_dir.is_null() {
+            return None;
+        }
+        let bytes = unsafe { CStr::from_ptr(record.pw_dir) }.to_bytes();
+        return (!bytes.is_empty()).then(|| PathBuf::from(OsStr::from_bytes(bytes)));
+    }
+}
+
 #[cfg(windows)]
 pub fn home_dir() -> Option<PathBuf> {
     env_path("USERPROFILE").or_else(|| {
@@ -508,4 +620,26 @@ fn restrict_permissions(path: &Path, mode: u32) -> std::io::Result<()> {
 #[cfg(not(unix))]
 fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn app_service_runtime_path_is_short_and_user_scoped() {
+        assert_eq!(
+            app_service_runtime_dir(),
+            PathBuf::from("/tmp").join(format!("cmux-tui-{}", unsafe { libc::getuid() }))
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_service_state_uses_native_absolute_home() {
+        let state = app_service_state_dir().expect("native account home");
+        assert!(state.is_absolute());
+        assert!(state.ends_with("Library/Application Support/cmux-tui/state"));
+    }
 }

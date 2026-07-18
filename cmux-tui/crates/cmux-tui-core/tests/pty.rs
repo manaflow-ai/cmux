@@ -259,6 +259,35 @@ fn surface_exit_reaps_tree_and_emits_event() {
 }
 
 #[test]
+fn wait_after_command_retains_exited_surface_until_explicit_close() {
+    let opts = SurfaceOptions {
+        command: Some(vec!["/usr/bin/true".to_string()]),
+        wait_after_command: true,
+        ..Default::default()
+    };
+    let mux = Mux::new("test-wait-after-command", opts);
+    let events = mux.subscribe();
+    let surface = mux.new_workspace(None, None).unwrap();
+
+    let got = wait_for(
+        || {
+            events
+                .try_iter()
+                .find(|event| matches!(event, MuxEvent::SurfaceExited(id) if *id == surface.id))
+        },
+        Duration::from_secs(10),
+    );
+    assert!(got.is_some(), "no SurfaceExited event");
+    assert!(surface.is_dead());
+    assert!(surface.wait_after_command());
+    assert!(mux.surface(surface.id).is_some());
+    mux.with_state(|state| assert!(!state.workspaces.is_empty()));
+
+    mux.close_surface(surface.id);
+    mux.with_state(|state| assert!(state.workspaces.is_empty()));
+}
+
+#[test]
 fn control_socket_round_trip() {
     let mux =
         Mux::new(unique_session("test-sock"), shell_opts("printf 'socket-check\\n'; sleep 30"));
@@ -576,15 +605,19 @@ fn control_socket_set_default_colors_merges_fields() {
 #[test]
 fn control_socket_attach_vt_state_includes_effective_colors() {
     let mux = Mux::new(unique_session("test-attach-colors"), shell_opts("cat"));
-    mux.set_default_colors(DefaultColors {
+    let mut defaults = DefaultColors {
         fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
         bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
         cursor_style: Some(CursorShape::Bar),
         cursor_blink: Some(false),
         ..Default::default()
-    });
+    };
+    defaults.palette[4] = Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc });
+    mux.set_default_colors(defaults);
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-    surface.try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07")).unwrap();
+    surface
+        .try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07\x1b]4;4;#112233\x07"))
+        .unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
@@ -603,6 +636,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
             "cursor": "#204060",
             "selection_bg": null,
             "selection_fg": null,
+            "palette": {"4": "#112233"},
             "cursor_style": "bar",
             "cursor_blink": false,
         })
@@ -610,6 +644,30 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
 
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["id"], 1);
+    assert_eq!(response["ok"], true, "attach failed: {response}");
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_attach_vt_state_osc_palette_reset_restores_presentation_authority() {
+    let mux = Mux::new(unique_session("test-attach-palette-reset"), shell_opts("cat"));
+    let mut defaults = DefaultColors::default();
+    defaults.palette[4] = Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc });
+    mux.set_default_colors(defaults);
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    surface.try_with_terminal(|term| term.vt_write(b"\x1b]4;4;#112233\x07\x1b]104;4\x07")).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
+    let vt_state = read_json_line(&mut reader).expect("vt-state event");
+    assert_eq!(vt_state["colors"]["palette"], serde_json::json!({}));
+    let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
     mux.close_surface(surface.id);
@@ -722,6 +780,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
             "cursor": null,
             "selection_bg": null,
             "selection_fg": null,
+            "palette": {},
             "cursor_style": "bar",
             "cursor_blink": false,
         })

@@ -5,7 +5,22 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::{PaneId, ScreenId, SplitDir, Surface, SurfaceId, WorkspaceId};
+use crate::{
+    PaneId, PaneUuid, ScreenId, ScreenUuid, SplitDir, Surface, SurfaceId, SurfaceUuid, WorkspaceId,
+    WorkspaceUuid,
+};
+
+/// Result of resolving a requested mutation against canonical state.
+///
+/// Keeping `Unchanged` distinct from `Missing` lets legacy commands retain
+/// their historical success/event behavior without publishing a canonical
+/// topology revision for a semantic no-op.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChangeState {
+    Missing,
+    Unchanged,
+    Changed,
+}
 
 /// Binary split tree over panes for one screen.
 #[derive(Debug, Clone)]
@@ -95,31 +110,42 @@ impl Node {
         target: PaneId,
         dir: SplitDir,
         new_ratio: f32,
-    ) -> bool {
-        fn walk(node: &mut Node, target: PaneId, dir: SplitDir, new_ratio: f32) -> (bool, bool) {
+    ) -> ChangeState {
+        fn walk(
+            node: &mut Node,
+            target: PaneId,
+            dir: SplitDir,
+            new_ratio: f32,
+        ) -> (bool, bool, bool) {
             match node {
-                Node::Leaf(id) => (*id == target, false),
+                Node::Leaf(id) => (*id == target, false, false),
                 Node::Split { dir: split_dir, ratio, a, b } => {
-                    let (a_contains, a_updated) = walk(a, target, dir, new_ratio);
-                    if a_updated {
-                        return (true, true);
+                    let (a_contains, a_matched, a_updated) = walk(a, target, dir, new_ratio);
+                    if a_matched {
+                        return (true, true, a_updated);
                     }
-                    let (b_contains, b_updated) = walk(b, target, dir, new_ratio);
-                    if b_updated {
-                        return (true, true);
+                    let (b_contains, b_matched, b_updated) = walk(b, target, dir, new_ratio);
+                    if b_matched {
+                        return (true, true, b_updated);
                     }
                     let contains = a_contains || b_contains;
                     if contains && *split_dir == dir {
+                        let changed = *ratio != new_ratio;
                         *ratio = new_ratio;
-                        (true, true)
+                        (true, true, changed)
                     } else {
-                        (contains, false)
+                        (contains, false, false)
                     }
                 }
             }
         }
 
-        walk(self, target, dir, new_ratio).1
+        let (_, matched, changed) = walk(self, target, dir, new_ratio);
+        match (matched, changed) {
+            (false, _) => ChangeState::Missing,
+            (true, false) => ChangeState::Unchanged,
+            (true, true) => ChangeState::Changed,
+        }
     }
 }
 
@@ -127,6 +153,7 @@ impl Node {
 #[derive(Debug)]
 pub struct Pane {
     pub id: PaneId,
+    pub uuid: PaneUuid,
     /// User-assigned name; falls back to the active tab's title.
     pub name: Option<String>,
     pub tabs: Vec<SurfaceId>,
@@ -145,6 +172,7 @@ impl Pane {
 #[derive(Debug)]
 pub struct Screen {
     pub id: ScreenId,
+    pub uuid: ScreenUuid,
     /// User-assigned name; display falls back to the screen's number.
     pub name: Option<String>,
     pub root: Node,
@@ -155,6 +183,7 @@ pub struct Screen {
 #[derive(Debug)]
 pub struct Workspace {
     pub id: WorkspaceId,
+    pub uuid: WorkspaceUuid,
     pub name: String,
     pub screens: Vec<Screen>,
     pub active_screen: usize,
@@ -193,5 +222,48 @@ impl State {
             .get(self.active_workspace)?
             .active_screen_ref()
             .map(|screen| screen.active_pane)
+    }
+
+    pub fn workspace_uuid(&self, id: WorkspaceId) -> Option<WorkspaceUuid> {
+        self.workspaces.iter().find(|workspace| workspace.id == id).map(|workspace| workspace.uuid)
+    }
+
+    pub fn screen_uuid(&self, id: ScreenId) -> Option<ScreenUuid> {
+        self.workspaces
+            .iter()
+            .flat_map(|workspace| &workspace.screens)
+            .find(|screen| screen.id == id)
+            .map(|screen| screen.uuid)
+    }
+
+    pub fn pane_uuid(&self, id: PaneId) -> Option<PaneUuid> {
+        self.panes.get(&id).map(|pane| pane.uuid)
+    }
+
+    pub fn surface_uuid(&self, id: SurfaceId) -> Option<SurfaceUuid> {
+        self.surfaces.get(&id).map(|surface| surface.uuid)
+    }
+
+    pub fn workspace_id_by_uuid(&self, uuid: WorkspaceUuid) -> Option<WorkspaceId> {
+        self.workspaces
+            .iter()
+            .find(|workspace| workspace.uuid == uuid)
+            .map(|workspace| workspace.id)
+    }
+
+    pub fn screen_id_by_uuid(&self, uuid: ScreenUuid) -> Option<ScreenId> {
+        self.workspaces
+            .iter()
+            .flat_map(|workspace| &workspace.screens)
+            .find(|screen| screen.uuid == uuid)
+            .map(|screen| screen.id)
+    }
+
+    pub fn pane_id_by_uuid(&self, uuid: PaneUuid) -> Option<PaneId> {
+        self.panes.values().find(|pane| pane.uuid == uuid).map(|pane| pane.id)
+    }
+
+    pub fn surface_id_by_uuid(&self, uuid: SurfaceUuid) -> Option<SurfaceId> {
+        self.surfaces.values().find(|surface| surface.uuid == uuid).map(|surface| surface.id)
     }
 }

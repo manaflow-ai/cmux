@@ -8,6 +8,7 @@
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::ops::Deref;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
@@ -16,11 +17,16 @@ use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
-    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Terminal,
+    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Scrollbar,
+    SelectionAdjustment, SelectionPoint, SelectionSnapshot, Terminal,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::platform;
+use crate::semantic_scene::{
+    SemanticSceneAttachError, SemanticSceneAttachment, SemanticSceneAttachmentOptions,
+    SemanticSceneHub, SemanticSceneTerminalIdentity,
+};
 use crate::{Mux, MuxEvent, SurfaceId};
 
 use crate::browser::BrowserSurface;
@@ -41,6 +47,8 @@ pub struct SurfaceOptions {
     pub cols: u16,
     pub rows: u16,
     pub scrollback: usize,
+    /// Keep the terminal surface and final VT state after the child exits.
+    pub wait_after_command: bool,
     /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
     pub extra_env: Vec<(String, String)>,
     /// Optional Chrome/Chromium binary for browser surfaces.
@@ -76,6 +84,7 @@ impl Default for SurfaceOptions {
             cols: 80,
             rows: 24,
             scrollback: 10_000,
+            wait_after_command: false,
             extra_env: Vec::new(),
             chrome_binary: None,
             cdp_url: None,
@@ -119,35 +128,61 @@ impl Default for DefaultColors {
 }
 
 /// Effective colors exposed to attached terminal clients.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalColors {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
     pub cursor: Option<Rgb>,
     pub selection_bg: Option<Rgb>,
     pub selection_fg: Option<Rgb>,
+    /// Palette entries explicitly changed by the PTY with OSC 4. Unset
+    /// entries remain presentation-owned theme colors.
+    pub palette: [Option<Rgb>; 256],
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
+}
+
+impl Default for TerminalColors {
+    fn default() -> Self {
+        Self {
+            fg: None,
+            bg: None,
+            cursor: None,
+            selection_bg: None,
+            selection_fg: None,
+            palette: [None; 256],
+            cursor_style: None,
+            cursor_blink: None,
+        }
+    }
 }
 
 impl TerminalColors {
     fn from_terminal(term: &mut Terminal, defaults: DefaultColors) -> Self {
         let (fg, bg, cursor) = term.effective_colors();
-        let cursor_visual = term.cursor_overridden().then(|| {
-            RenderState::new()
-                .and_then(|mut state| {
-                    state.update(term)?;
-                    state.cursor_visual()
-                })
-                .ok()
+        let render_state = RenderState::new()
+            .and_then(|mut state| {
+                state.update(term)?;
+                Ok(state)
+            })
+            .ok();
+        let cursor_visual = term
+            .cursor_overridden()
+            .then(|| render_state.as_ref().and_then(|state| state.cursor_visual().ok()))
+            .flatten();
+        let palette = std::array::from_fn(|index| {
+            render_state.as_ref().and_then(|state| {
+                let index = index as u8;
+                state.palette_overridden(index).then(|| state.palette_color(index))
+            })
         });
-        let cursor_visual = cursor_visual.flatten();
         TerminalColors {
             fg,
             bg,
             cursor,
             selection_bg: defaults.selection_bg,
             selection_fg: defaults.selection_fg,
+            palette,
             cursor_style: cursor_visual.map(|(style, _)| style).or(defaults.cursor_style),
             cursor_blink: cursor_visual.map(|(_, blink)| blink).or(defaults.cursor_blink),
         }
@@ -340,8 +375,44 @@ impl SurfaceKind {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TerminalSearchSnapshot {
+    pub active: bool,
+    pub query: String,
+    pub selected_match: Option<usize>,
+    pub total_matches: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TerminalInteractionSnapshot {
+    pub copy_mode: bool,
+    pub copy_cursor: Option<SelectionPoint>,
+    pub selection: Option<SelectionSnapshot>,
+    pub search: TerminalSearchSnapshot,
+    pub viewport: Option<Scrollbar>,
+    pub mouse_tracking: bool,
+    pub cursor: Option<SelectionPoint>,
+    pub cursor_visible: bool,
+}
+
+#[derive(Debug, Default)]
+struct TerminalSearchState {
+    query: String,
+    selected_match: Option<usize>,
+    total_matches: usize,
+}
+
+#[derive(Debug, Default)]
+struct TerminalInteractionState {
+    copy_mode: bool,
+    copy_cursor: Option<SelectionPoint>,
+    search: Option<TerminalSearchState>,
+    mouse_selection_anchor: Option<SelectionPoint>,
+}
+
 pub struct SurfaceMeta {
     pub id: SurfaceId,
+    pub uuid: crate::SurfaceUuid,
     /// User-assigned tab name (rename tab); shared by every surface kind.
     pub(crate) name: Mutex<Option<String>>,
     pub(crate) selection: Mutex<Option<String>>,
@@ -373,12 +444,15 @@ pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
+    interaction: Mutex<TerminalInteractionState>,
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
     pid: Option<u32>,
     command: Vec<String>,
+    tty_name: Option<PathBuf>,
     cwd: Option<String>,
+    wait_after_command: bool,
     dead: AtomicBool,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
@@ -396,6 +470,11 @@ pub struct PtySurface {
     /// Single consume-once Ghostty render state shared by the local TUI and
     /// every protocol-v7 render attachment.
     render: Mutex<RenderHub>,
+    /// Per-renderer semantic encoders. Every attachment owns an independent
+    /// canonical cache because overflow can invalidate only that consumer.
+    semantic_scenes: Mutex<SemanticSceneHub>,
+    semantic_attachment_count: AtomicUsize,
+    semantic_identity: SemanticSceneTerminalIdentity,
     render_generation: AtomicU64,
     frame_requests: SyncSender<u64>,
 }
@@ -407,11 +486,13 @@ impl std::fmt::Debug for Surface {
 }
 
 impl Surface {
-    pub(crate) fn spawn(
+    pub(crate) fn spawn_with_uuid(
         id: SurfaceId,
+        uuid: crate::SurfaceUuid,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let semantic_identity = SemanticSceneTerminalIdentity::random(uuid)?;
         let pty = native_pty_system().openpty(PtySize {
             rows: opts.rows,
             cols: opts.cols,
@@ -442,6 +523,10 @@ impl Surface {
         let pid = child.process_id();
         drop(pty.slave);
         let killer = child.clone_killer();
+        #[cfg(unix)]
+        let tty_name = pty.master.tty_name();
+        #[cfg(not(unix))]
+        let tty_name = None;
         let mut reader = pty.master.try_clone_reader()?;
         let writer = pty.master.take_writer()?;
 
@@ -483,15 +568,18 @@ impl Surface {
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
         let surface = Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
+            meta: SurfaceMeta { id, uuid, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
+            interaction: Mutex::new(TerminalInteractionState::default()),
             writer: Mutex::new(writer),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
             pid,
             command: argv,
+            tty_name,
             cwd,
+            wait_after_command: opts.wait_after_command,
             dead: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
@@ -505,6 +593,9 @@ impl Surface {
                 latest: None,
                 taps: Vec::new(),
             }),
+            semantic_scenes: Mutex::new(SemanticSceneHub::default()),
+            semantic_attachment_count: AtomicUsize::new(0),
+            semantic_identity,
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
@@ -587,6 +678,28 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_for_test_with_uuid(id, crate::SurfaceUuid::new(), opts, mux)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn spawn_for_test_with_uuid(
+        id: SurfaceId,
+        uuid: crate::SurfaceUuid,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_for_test_with_frame_producer(id, uuid, opts, mux, false)
+    }
+
+    #[cfg(test)]
+    fn spawn_for_test_with_frame_producer(
+        id: SurfaceId,
+        uuid: crate::SurfaceUuid,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        start_frame_producer: bool,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let semantic_identity = SemanticSceneTerminalIdentity::random(uuid)?;
         let callbacks = Callbacks {
             on_bell: Some(Box::new({
                 let mux = mux.clone();
@@ -610,12 +723,13 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
 
         let render_state = RenderState::new()?;
-        let (frame_requests, _frame_rx) = sync_channel(1);
+        let (frame_requests, frame_rx) = sync_channel(1);
 
-        Ok(Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
+        let surface = Arc::new(Surface::Pty(PtySurface {
+            meta: SurfaceMeta { id, uuid, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
+            interaction: Mutex::new(TerminalInteractionState::default()),
             writer: Mutex::new(Box::new(std::io::sink())),
             master: Mutex::new(Box::new(TestMasterPty {
                 size: Mutex::new(PtySize {
@@ -624,11 +738,14 @@ impl Surface {
                     pixel_width: 0,
                     pixel_height: 0,
                 }),
+                tty_name: PathBuf::from(format!("/dev/ttys{id}")),
             })),
             killer: Mutex::new(Box::new(TestChildKiller)),
             pid: Some(id as u32),
             command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
+            tty_name: Some(PathBuf::from(format!("/dev/ttys{id}"))),
             cwd: opts.cwd,
+            wait_after_command: opts.wait_after_command,
             dead: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
@@ -642,9 +759,16 @@ impl Surface {
                 latest: None,
                 taps: Vec::new(),
             }),
+            semantic_scenes: Mutex::new(SemanticSceneHub::default()),
+            semantic_attachment_count: AtomicUsize::new(0),
+            semantic_identity,
             render_generation: AtomicU64::new(1),
             frame_requests,
-        })))
+        }));
+        if start_frame_producer {
+            spawn_frame_producer(&surface, frame_rx)?;
+        }
+        Ok(surface)
     }
 
     fn as_pty(&self) -> Option<&PtySurface> {
@@ -782,6 +906,300 @@ impl Surface {
         Ok(f(&mut pty.term.lock().unwrap()))
     }
 
+    pub(crate) fn terminal_interaction_snapshot(
+        &self,
+    ) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have terminal interaction state");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let interaction = pty.interaction.lock().unwrap();
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_selection_clear(&self) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have terminal selection state");
+        };
+        let mut term = pty.term.lock().unwrap();
+        term.clear_selection();
+        let mut interaction = pty.interaction.lock().unwrap();
+        if let Some(search) = interaction.search.as_mut() {
+            search.selected_match = None;
+        }
+        pty.terminal_visual_changed_locked(&mut term)?;
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_selection_select_all(
+        &self,
+    ) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have terminal selection state");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let selected = term.select_all()?;
+        let mut interaction = pty.interaction.lock().unwrap();
+        if let Some(selection) = selected {
+            interaction.copy_cursor = Some(selection.end);
+        }
+        pty.terminal_visual_changed_locked(&mut term)?;
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_copy_mode_enter(&self) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal copy mode");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let cursor = term.select_cursor()?.end;
+        term.clear_selection();
+        let mut interaction = pty.interaction.lock().unwrap();
+        interaction.copy_mode = true;
+        interaction.copy_cursor = Some(cursor);
+        pty.terminal_visual_changed_locked(&mut term)?;
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_copy_mode_exit(&self) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal copy mode");
+        };
+        let mut term = pty.term.lock().unwrap();
+        term.clear_selection();
+        let mut interaction = pty.interaction.lock().unwrap();
+        interaction.copy_mode = false;
+        interaction.copy_cursor = None;
+        pty.terminal_visual_changed_locked(&mut term)?;
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_copy_mode_start_selection(
+        &self,
+        line: bool,
+        count: usize,
+    ) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal copy mode");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let mut interaction = pty.interaction.lock().unwrap();
+        if !interaction.copy_mode {
+            anyhow::bail!("terminal copy mode is not active");
+        }
+        let cursor = match interaction.copy_cursor {
+            Some(cursor) => cursor,
+            None => term.select_cursor()?.end,
+        };
+        let mut selection = if line {
+            term.select_line_screen(cursor)?
+        } else {
+            Some(term.select_point_screen(cursor)?)
+        };
+        if line {
+            for _ in 1..count.max(1) {
+                let _ = term.adjust_selection(SelectionAdjustment::Down)?;
+                selection = term.adjust_selection(SelectionAdjustment::EndOfLine)?;
+            }
+        }
+        if let Some(selection) = selection {
+            interaction.copy_cursor = Some(selection.end);
+        }
+        pty.terminal_visual_changed_locked(&mut term)?;
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_copy_mode_adjust(
+        &self,
+        adjustment: SelectionAdjustment,
+        count: usize,
+    ) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal copy mode");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let mut interaction = pty.interaction.lock().unwrap();
+        if !interaction.copy_mode {
+            anyhow::bail!("terminal copy mode is not active");
+        }
+        let extends_selection = term.current_selection()?.is_some();
+        if !extends_selection {
+            let cursor = match interaction.copy_cursor {
+                Some(cursor) => cursor,
+                None => term.select_cursor()?.end,
+            };
+            term.select_point_screen(cursor)?;
+        }
+        for _ in 0..count.max(1) {
+            if let Some(selection) = term.adjust_selection(adjustment)? {
+                interaction.copy_cursor = Some(selection.end);
+            }
+        }
+        if !extends_selection {
+            term.clear_selection();
+        }
+        pty.terminal_visual_changed_locked(&mut term)?;
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_copy_mode_clear_selection(
+        &self,
+    ) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal copy mode");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let mut interaction = pty.interaction.lock().unwrap();
+        if !interaction.copy_mode {
+            anyhow::bail!("terminal copy mode is not active");
+        }
+        if let Some(selection) = term.current_selection()? {
+            interaction.copy_cursor = Some(selection.end);
+        }
+        term.clear_selection();
+        pty.terminal_visual_changed_locked(&mut term)?;
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_copy_mode_copy_and_exit(
+        &self,
+    ) -> anyhow::Result<(Option<String>, TerminalInteractionSnapshot)> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal copy mode");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let text = term.current_selection()?.map(|selection| selection.text);
+        term.clear_selection();
+        let mut interaction = pty.interaction.lock().unwrap();
+        interaction.copy_mode = false;
+        interaction.copy_cursor = None;
+        pty.terminal_visual_changed_locked(&mut term)?;
+        let snapshot = terminal_interaction_snapshot_locked(&mut term, &interaction)?;
+        Ok((text, snapshot))
+    }
+
+    pub(crate) fn terminal_search_start(&self) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal search");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let mut interaction = pty.interaction.lock().unwrap();
+        interaction.search = Some(TerminalSearchState::default());
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_search_update(
+        &self,
+        query: String,
+    ) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal search");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let mut interaction = pty.interaction.lock().unwrap();
+        let search = interaction.search.get_or_insert_with(TerminalSearchState::default);
+        search.query = query;
+        search.selected_match = None;
+        search.total_matches = 0;
+        if search.query.is_empty() {
+            term.clear_selection();
+        } else {
+            let result = term.search_select(&search.query, 0)?;
+            search.total_matches = result.total_matches;
+            search.selected_match = result.selection.is_some().then_some(0);
+        }
+        pty.terminal_visual_changed_locked(&mut term)?;
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_search_navigate(
+        &self,
+        forward: bool,
+    ) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal search");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let mut interaction = pty.interaction.lock().unwrap();
+        let search = interaction
+            .search
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("terminal search is not active"))?;
+        if search.query.is_empty() {
+            return Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?);
+        }
+        let desired = match (search.selected_match, search.total_matches, forward) {
+            (_, 0, _) | (None, _, _) => 0,
+            (Some(index), total, true) => (index + 1) % total,
+            (Some(0), total, false) => total - 1,
+            (Some(index), _, false) => index - 1,
+        };
+        let result = term.search_select(&search.query, desired)?;
+        search.total_matches = result.total_matches;
+        search.selected_match = result.selection.is_some().then_some(desired);
+        pty.terminal_visual_changed_locked(&mut term)?;
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_search_end(&self) -> anyhow::Result<TerminalInteractionSnapshot> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal search");
+        };
+        let mut term = pty.term.lock().unwrap();
+        term.clear_selection();
+        let mut interaction = pty.interaction.lock().unwrap();
+        interaction.search = None;
+        pty.terminal_visual_changed_locked(&mut term)?;
+        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+    }
+
+    pub(crate) fn terminal_mouse_selection(
+        &self,
+        action: ghostty_vt::MouseAction,
+        point: SelectionPoint,
+        click_count: u8,
+    ) -> anyhow::Result<(bool, TerminalInteractionSnapshot)> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not support terminal selection");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let mut interaction = pty.interaction.lock().unwrap();
+        let handled = match action {
+            ghostty_vt::MouseAction::Press => {
+                let selection = match click_count {
+                    1 => Some(term.select_point_screen(point)?),
+                    2 => term.select_word_screen(point)?,
+                    3 => term.select_line_screen(point)?,
+                    _ => unreachable!("terminal mouse click count validated by server"),
+                };
+                interaction.mouse_selection_anchor =
+                    selection.as_ref().map(|selection| selection.start);
+                selection.is_some()
+            }
+            ghostty_vt::MouseAction::Motion => match interaction.mouse_selection_anchor {
+                Some(anchor) => {
+                    term.select_range_screen(anchor, point, false)?;
+                    true
+                }
+                None => false,
+            },
+            ghostty_vt::MouseAction::Release => {
+                let anchor = interaction.mouse_selection_anchor.take();
+                if let Some(anchor) = anchor {
+                    term.select_range_screen(anchor, point, false)?;
+                    true
+                } else {
+                    false
+                }
+            }
+        };
+        if handled {
+            pty.terminal_visual_changed_locked(&mut term)?;
+        }
+        let snapshot = terminal_interaction_snapshot_locked(&mut term, &interaction)?;
+        Ok((handled, snapshot))
+    }
+
     pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
@@ -832,6 +1250,63 @@ impl Surface {
             mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
         }
         Ok(())
+    }
+
+    pub fn scroll_to_top(&self) -> anyhow::Result<()> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let changed = {
+            let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
+            term.scroll_to_top();
+            let after = terminal_scroll_position(&term);
+            if before == after {
+                None
+            } else {
+                broadcast_render_scroll_locked(pty, after);
+                let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                let _ = pty.build_frame_locked(&mut term, generation, false);
+                Some(after)
+            }
+        };
+        if let Some((offset, at_bottom)) = changed
+            && let Some(mux) = pty.mux.upgrade()
+        {
+            mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+        }
+        Ok(())
+    }
+
+    pub fn scroll_to_row(&self, row: u64) -> anyhow::Result<()> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let changed = {
+            let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
+            term.scroll_to_row(row);
+            let after = terminal_scroll_position(&term);
+            if before == after {
+                None
+            } else {
+                broadcast_render_scroll_locked(pty, after);
+                let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                let _ = pty.build_frame_locked(&mut term, generation, false);
+                Some(after)
+            }
+        };
+        if let Some((offset, at_bottom)) = changed
+            && let Some(mux) = pty.mux.upgrade()
+        {
+            mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+        }
+        Ok(())
+    }
+
+    pub fn scroll_pages(&self, pages: isize) -> anyhow::Result<()> {
+        let rows = isize::try_from(self.size().1).unwrap_or(isize::MAX);
+        self.scroll_delta(pages.saturating_mul(rows))
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
@@ -968,14 +1443,34 @@ impl Surface {
         self.as_pty().map(|pty| pty.command.join(" "))
     }
 
+    pub fn spawn_argv(&self) -> Option<Vec<String>> {
+        self.as_pty().map(|pty| pty.command.clone())
+    }
+
+    pub fn tty_name(&self) -> Option<PathBuf> {
+        self.as_pty().and_then(|pty| pty.tty_name.clone())
+    }
+
     pub fn spawn_cwd(&self) -> Option<String> {
         self.as_pty().and_then(|pty| pty.cwd.clone())
+    }
+
+    pub fn wait_after_command(&self) -> bool {
+        self.as_pty().is_some_and(|pty| pty.wait_after_command)
     }
 
     pub fn is_dead(&self) -> bool {
         match self {
             Surface::Pty(pty) => pty.dead.load(Ordering::Acquire),
             Surface::Browser(browser) => browser.is_dead(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mark_dead_for_test(&self) {
+        match self {
+            Surface::Pty(pty) => pty.dead.store(true, Ordering::Release),
+            Surface::Browser(browser) => browser.mark_failed("test exit".to_string()),
         }
     }
 
@@ -1041,6 +1536,35 @@ impl Surface {
             initial
         };
         Ok(RenderAttachStream { initial, stream: rx })
+    }
+
+    /// Return the exact identity of this PTY terminal state lifetime.
+    pub fn semantic_scene_terminal_identity(&self) -> Option<SemanticSceneTerminalIdentity> {
+        self.as_pty().map(|pty| pty.semantic_identity)
+    }
+
+    /// Attach a bounded full-first semantic scene stream for one renderer.
+    ///
+    /// The initial capture and live registration share the terminal lock, so
+    /// PTY output cannot land between the full snapshot and its first delta.
+    pub fn attach_semantic_scene(
+        &self,
+        options: SemanticSceneAttachmentOptions,
+    ) -> Result<SemanticSceneAttachment, SemanticSceneAttachError> {
+        let Some(pty) = self.as_pty() else {
+            return Err(SemanticSceneAttachError::NotPty);
+        };
+        let mut term = pty.term.lock().unwrap();
+        let content_sequence = pty.render_generation.load(Ordering::Acquire);
+        let attachment = pty.semantic_scenes.lock().unwrap().attach_locked(
+            &mut term,
+            pty.semantic_identity,
+            content_sequence,
+            options,
+            pty.frame_requests.clone(),
+        )?;
+        pty.semantic_attachment_count.fetch_add(1, Ordering::AcqRel);
+        Ok(attachment)
     }
 
     pub fn kill(&self) {
@@ -1161,6 +1685,7 @@ impl Surface {
 #[cfg(test)]
 struct TestMasterPty {
     size: Mutex<PtySize>,
+    tty_name: PathBuf,
 }
 
 #[cfg(test)]
@@ -1193,8 +1718,8 @@ impl MasterPty for TestMasterPty {
     }
 
     #[cfg(unix)]
-    fn tty_name(&self) -> Option<std::path::PathBuf> {
-        None
+    fn tty_name(&self) -> Option<PathBuf> {
+        Some(self.tty_name.clone())
     }
 }
 
@@ -1213,7 +1738,49 @@ impl ChildKiller for TestChildKiller {
     }
 }
 
+fn terminal_interaction_snapshot_locked(
+    term: &mut Terminal,
+    interaction: &TerminalInteractionState,
+) -> ghostty_vt::Result<TerminalInteractionSnapshot> {
+    let search = match interaction.search.as_ref() {
+        Some(search) => TerminalSearchSnapshot {
+            active: true,
+            query: search.query.clone(),
+            selected_match: search.selected_match,
+            total_matches: search.total_matches,
+        },
+        None => TerminalSearchSnapshot {
+            active: false,
+            query: String::new(),
+            selected_match: None,
+            total_matches: 0,
+        },
+    };
+    let viewport = term.scrollbar();
+    let cursor = term.cursor_screen_point();
+    let cursor_visible = cursor.zip(viewport).is_some_and(|(cursor, viewport)| {
+        u64::from(cursor.row) >= viewport.offset
+            && u64::from(cursor.row) < viewport.offset.saturating_add(viewport.len)
+    });
+    Ok(TerminalInteractionSnapshot {
+        copy_mode: interaction.copy_mode,
+        copy_cursor: interaction.copy_cursor,
+        selection: term.current_selection()?,
+        search,
+        viewport,
+        mouse_tracking: term.mouse_tracking(),
+        cursor,
+        cursor_visible,
+    })
+}
+
 impl PtySurface {
+    fn terminal_visual_changed_locked(&self, term: &mut Terminal) -> ghostty_vt::Result<()> {
+        let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let _ = self.build_frame_locked(term, generation, true)?;
+        Ok(())
+    }
+
     fn broadcast_attach_output(&self, bytes: &[u8]) {
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {
@@ -1240,6 +1807,14 @@ impl PtySurface {
         generation: u64,
         producer_driven: bool,
     ) -> ghostty_vt::Result<bool> {
+        let semantic_work = if self.semantic_attachment_count.load(Ordering::Acquire) == 0 {
+            false
+        } else {
+            let mut scenes = self.semantic_scenes.lock().unwrap();
+            let worked = scenes.capture_locked(term, self.semantic_identity, generation);
+            self.semantic_attachment_count.store(scenes.attachment_count(), Ordering::Release);
+            worked
+        };
         let built = {
             let mut render = self.render.lock().unwrap();
             if (producer_driven && render.taps.is_empty()) || render.built_generation >= generation
@@ -1270,7 +1845,7 @@ impl PtySurface {
         {
             mux.emit(MuxEvent::SurfaceOutput(self.meta.id));
         }
-        Ok(built)
+        Ok(built || semantic_work)
     }
 
     /// Resize both the PTY and the terminal state. Returns whether the
@@ -1354,6 +1929,39 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ghostty_vt::SceneSectionKind;
+
+    fn semantic_options(
+        surface: &Surface,
+        event_capacity: usize,
+    ) -> SemanticSceneAttachmentOptions {
+        let terminal = surface.semantic_scene_terminal_identity().unwrap();
+        let presentation = crate::SemanticScenePresentationIdentity {
+            presentation_id: crate::PresentationId::new(),
+            generation: 7,
+        };
+        let mut options = SemanticSceneAttachmentOptions::new(terminal, presentation);
+        options.event_capacity = event_capacity;
+        options
+    }
+
+    fn apply_terminal_output(surface: &Surface, bytes: &[u8]) -> (u64, bool) {
+        let pty = surface.as_pty().unwrap();
+        let mut term = pty.term.lock().unwrap();
+        term.vt_write(bytes);
+        let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let worked = pty.build_frame_locked(&mut term, generation, true).unwrap();
+        (generation, worked)
+    }
+
+    fn expect_semantic_scene(event: crate::SemanticSceneEvent) -> crate::SemanticSceneFrame {
+        match event {
+            crate::SemanticSceneEvent::Scene(frame) => frame,
+            crate::SemanticSceneEvent::Failed(error) => {
+                panic!("expected semantic scene, got failure: {error}")
+            }
+        }
+    }
 
     #[test]
     fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {
@@ -1409,5 +2017,263 @@ mod tests {
         drop(render);
         assert!(pty.dirty.load(Ordering::Acquire));
         assert!(matches!(events.try_recv(), Ok(MuxEvent::SurfaceOutput(1))));
+    }
+
+    #[test]
+    fn semantic_scene_attachment_is_full_first_and_then_contiguous_delta() {
+        let mux = Mux::new_for_test("semantic-full-first", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let options = semantic_options(&surface, 2);
+        let attachment = surface.attach_semantic_scene(options.clone()).unwrap();
+
+        assert_eq!(attachment.initial.canonical_kind, SceneSectionKind::Full);
+        assert_eq!(attachment.initial.terminal, options.terminal);
+        assert_eq!(attachment.initial.content_sequence, 1);
+        assert_eq!(attachment.initial.presentation, options.presentation);
+        assert_eq!(attachment.initial.presentation_sequence, 1);
+        assert_eq!(&attachment.initial.as_bytes()[0..4], b"GSCN");
+        assert_eq!(attachment.initial.as_bytes()[16], 1);
+        assert_eq!(
+            &attachment.initial.as_bytes()[24..40],
+            options.terminal.terminal_id.as_uuid().as_bytes()
+        );
+        assert_eq!(
+            u64::from_le_bytes(attachment.initial.as_bytes()[40..48].try_into().unwrap()),
+            options.terminal.runtime_epoch
+        );
+        assert_eq!(
+            &attachment.initial.as_bytes()[80..96],
+            options.presentation.presentation_id.as_uuid().as_bytes()
+        );
+        assert_eq!(
+            u64::from_le_bytes(attachment.initial.as_bytes()[96..104].try_into().unwrap()),
+            options.presentation.generation
+        );
+
+        let (generation, worked) = apply_terminal_output(&surface, b"first delta");
+        assert!(worked);
+        let delta = expect_semantic_scene(attachment.events.try_recv().unwrap());
+        assert_eq!(delta.canonical_kind, SceneSectionKind::Delta);
+        assert_eq!(delta.content_sequence, generation);
+        assert_eq!(delta.presentation_sequence, 2);
+        assert_eq!(delta.as_bytes()[16], 2);
+        assert_eq!(u64::from_le_bytes(delta.as_bytes()[48..56].try_into().unwrap()), generation);
+        assert_eq!(u64::from_le_bytes(delta.as_bytes()[104..112].try_into().unwrap()), 2);
+    }
+
+    #[test]
+    fn semantic_scene_overflow_recovers_full_without_invalidating_other_consumer() {
+        let mux = Mux::new_for_test("semantic-overflow", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let slow = surface.attach_semantic_scene(semantic_options(&surface, 1)).unwrap();
+        let steady = surface.attach_semantic_scene(semantic_options(&surface, 3)).unwrap();
+
+        let (generation_two, _) = apply_terminal_output(&surface, b"two");
+        let (generation_three, _) = apply_terminal_output(&surface, b"three");
+        let (latest_generation, _) = apply_terminal_output(&surface, b"four");
+        assert!(slow.control.needs_full_scene());
+        assert!(!steady.control.needs_full_scene());
+
+        let slow_delta = expect_semantic_scene(slow.events.try_recv().unwrap());
+        assert_eq!(slow_delta.canonical_kind, SceneSectionKind::Delta);
+        assert_eq!(slow_delta.content_sequence, generation_two);
+
+        let pty = surface.as_pty().unwrap();
+        let mut term = pty.term.lock().unwrap();
+        assert!(pty.build_frame_locked(&mut term, latest_generation, true).unwrap());
+        drop(term);
+
+        let slow_recovery = expect_semantic_scene(slow.events.try_recv().unwrap());
+        assert_eq!(slow_recovery.canonical_kind, SceneSectionKind::Full);
+        assert_eq!(slow_recovery.content_sequence, latest_generation);
+        assert_eq!(slow_recovery.presentation_sequence, 3);
+        assert!(!slow.control.needs_full_scene());
+
+        let steady_two = expect_semantic_scene(steady.events.try_recv().unwrap());
+        let steady_three = expect_semantic_scene(steady.events.try_recv().unwrap());
+        let steady_four = expect_semantic_scene(steady.events.try_recv().unwrap());
+        assert_eq!(steady_two.canonical_kind, SceneSectionKind::Delta);
+        assert_eq!(steady_two.content_sequence, generation_two);
+        assert_eq!(steady_two.presentation_sequence, 2);
+        assert_eq!(steady_three.canonical_kind, SceneSectionKind::Delta);
+        assert_eq!(steady_three.content_sequence, generation_three);
+        assert_eq!(steady_three.presentation_sequence, 3);
+        assert_eq!(steady_four.canonical_kind, SceneSectionKind::Delta);
+        assert_eq!(steady_four.content_sequence, latest_generation);
+        assert_eq!(steady_four.presentation_sequence, 4);
+    }
+
+    #[test]
+    fn semantic_scene_force_full_works_without_new_terminal_output() {
+        let mux = Mux::new_for_test("semantic-force-full", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test_with_frame_producer(
+            1,
+            crate::SurfaceUuid::new(),
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            true,
+        )
+        .unwrap();
+        let attachment = surface.attach_semantic_scene(semantic_options(&surface, 1)).unwrap();
+        let worker_control = attachment.control.clone();
+        worker_control.request_full_scene();
+
+        let pty = surface.as_pty().unwrap();
+        let generation = pty.render_generation.load(Ordering::Acquire);
+        let forced =
+            expect_semantic_scene(attachment.events.recv_timeout(Duration::from_secs(2)).unwrap());
+        assert_eq!(forced.canonical_kind, SceneSectionKind::Full);
+        assert_eq!(forced.content_sequence, generation);
+        assert_eq!(forced.presentation_sequence, 2);
+    }
+
+    #[test]
+    fn semantic_scene_preedit_is_presentation_only_and_never_advances_terminal_content() {
+        let mux = Mux::new_for_test("semantic-preedit", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test_with_frame_producer(
+            1,
+            crate::SurfaceUuid::new(),
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            true,
+        )
+        .unwrap();
+        let attachment = surface.attach_semantic_scene(semantic_options(&surface, 1)).unwrap();
+        let generation = surface.as_pty().unwrap().render_generation.load(Ordering::Acquire);
+
+        attachment.control.set_preedit(Some("かな".to_owned()));
+        let preedit =
+            expect_semantic_scene(attachment.events.recv_timeout(Duration::from_secs(2)).unwrap());
+        assert_eq!(preedit.canonical_kind, SceneSectionKind::Unchanged);
+        assert_eq!(preedit.content_sequence, generation);
+        assert_eq!(preedit.presentation_sequence, 2);
+
+        // Setting the same marked text is idempotent and emits no scene.
+        attachment.control.set_preedit(Some("かな".to_owned()));
+        assert!(matches!(attachment.events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn semantic_scene_resize_promotes_unencodable_delta_to_full() {
+        let mux = Mux::new_for_test("semantic-resize", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attachment = surface.attach_semantic_scene(semantic_options(&surface, 1)).unwrap();
+
+        assert!(surface.resize(81, 25).unwrap());
+        let resized = expect_semantic_scene(attachment.events.try_recv().unwrap());
+        assert_eq!(resized.canonical_kind, SceneSectionKind::Full);
+        assert_eq!(resized.content_sequence, 2);
+        assert_eq!(resized.presentation_sequence, 2);
+        assert!(!attachment.control.is_detached());
+    }
+
+    #[test]
+    fn semantic_scene_detach_prunes_cache_and_skips_capture() {
+        let mux = Mux::new_for_test("semantic-detach", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attachment = surface.attach_semantic_scene(semantic_options(&surface, 1)).unwrap();
+        attachment.events.detach();
+
+        let (_, worked) = apply_terminal_output(&surface, b"detached");
+        assert!(!worked);
+        assert!(attachment.events.is_detached());
+        assert_eq!(surface.as_pty().unwrap().semantic_scenes.lock().unwrap().attachment_count(), 0);
+        assert!(matches!(attachment.events.try_recv(), Err(TryRecvError::Disconnected)));
+    }
+
+    #[test]
+    fn semantic_scene_live_limit_failure_is_typed_and_closes_attachment() {
+        let options = SurfaceOptions { cols: 8, rows: 1, ..SurfaceOptions::default() };
+        let mux = Mux::new_for_test("semantic-limit", options.clone());
+        let surface = Surface::spawn_for_test(1, options, Arc::downgrade(&mux)).unwrap();
+        let mut attach_options = semantic_options(&surface, 1);
+        attach_options.capture.limits.max_rows = 1;
+        let attachment = surface.attach_semantic_scene(attach_options).unwrap();
+
+        assert!(surface.resize(8, 2).unwrap());
+        assert!(matches!(
+            attachment.events.try_recv(),
+            Ok(crate::SemanticSceneEvent::Failed(crate::SemanticSceneFailure::LimitExceeded))
+        ));
+        assert!(attachment.events.is_detached());
+        assert_eq!(surface.as_pty().unwrap().semantic_scenes.lock().unwrap().attachment_count(), 0);
+    }
+
+    #[test]
+    fn semantic_scene_kitty_failure_is_typed_and_closes_attachment() {
+        let mux = Mux::new_for_test("semantic-kitty", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attachment = surface.attach_semantic_scene(semantic_options(&surface, 1)).unwrap();
+
+        let (_, worked) = apply_terminal_output(
+            &surface,
+            b"\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2,c=10,r=1;////////\x1b\\",
+        );
+        assert!(worked);
+        assert!(matches!(
+            attachment.events.try_recv(),
+            Ok(crate::SemanticSceneEvent::Failed(
+                crate::SemanticSceneFailure::UnsupportedKittyImages
+            ))
+        ));
+        assert!(attachment.events.is_detached());
+    }
+
+    #[test]
+    fn semantic_scene_failure_remains_bounded_when_event_channel_is_full() {
+        let mux = Mux::new_for_test("semantic-failure-overflow", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attachment = surface.attach_semantic_scene(semantic_options(&surface, 1)).unwrap();
+        let (queued_generation, _) = apply_terminal_output(&surface, b"queued");
+
+        let pty = surface.as_pty().unwrap();
+        let mut wrong_identity = pty.semantic_identity;
+        wrong_identity.runtime_epoch = wrong_identity.runtime_epoch.wrapping_add(1).max(1);
+        let mut term = pty.term.lock().unwrap();
+        assert!(pty.semantic_scenes.lock().unwrap().capture_locked(
+            &mut term,
+            wrong_identity,
+            queued_generation,
+        ));
+        drop(term);
+
+        let queued = expect_semantic_scene(attachment.events.try_recv().unwrap());
+        assert_eq!(queued.content_sequence, queued_generation);
+        assert!(matches!(
+            attachment.events.try_recv(),
+            Ok(crate::SemanticSceneEvent::Failed(crate::SemanticSceneFailure::InvalidInput))
+        ));
+        assert!(attachment.events.is_detached());
+    }
+
+    #[test]
+    fn semantic_scene_custom_shader_and_stale_identity_fail_before_registration() {
+        let mux = Mux::new_for_test("semantic-invalid", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+
+        let mut shader_options = semantic_options(&surface, 1);
+        shader_options.capture.custom_shader_count = 1;
+        assert!(matches!(
+            surface.attach_semantic_scene(shader_options),
+            Err(SemanticSceneAttachError::Capture(
+                crate::SemanticSceneFailure::UnsupportedCustomShaders
+            ))
+        ));
+
+        let mut stale_options = semantic_options(&surface, 1);
+        stale_options.terminal.runtime_epoch =
+            stale_options.terminal.runtime_epoch.wrapping_add(1).max(1);
+        assert!(matches!(
+            surface.attach_semantic_scene(stale_options),
+            Err(SemanticSceneAttachError::TerminalIdentityMismatch)
+        ));
+        assert_eq!(surface.as_pty().unwrap().semantic_scenes.lock().unwrap().attachment_count(), 0);
     }
 }

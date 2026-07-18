@@ -41,6 +41,7 @@ fn main() {
         .current_dir(&ghostty_dir)
         .arg("build")
         .arg("-Demit-lib-vt=true")
+        .arg("-Demit-lib-vt-shared=false")
         .arg("-Demit-xcframework=false")
         .arg("-Doptimize=ReleaseFast");
     if target != host

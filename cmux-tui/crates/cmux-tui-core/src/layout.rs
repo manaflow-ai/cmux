@@ -320,7 +320,10 @@ mod tests {
         let target = split_for_pane_edge(&one_nested_side, area, 3, SplitEdge::Right).unwrap();
         assert_eq!(target.area, area);
         assert_eq!(target.set_pane, 2);
-        assert!(one_nested_side.set_deepest_ratio(target.set_pane, SplitDir::Right, 0.7));
+        assert_eq!(
+            one_nested_side.set_deepest_ratio(target.set_pane, SplitDir::Right, 0.7),
+            crate::model::ChangeState::Changed
+        );
         let Node::Split { ratio: root_ratio, a, .. } = &one_nested_side else {
             panic!("root should be split");
         };
@@ -352,12 +355,18 @@ mod tests {
         let left_inner =
             split_for_pane_edge(&nested_both_sides, area, 1, SplitEdge::Right).unwrap();
         assert_eq!(left_inner.area, Rect { x: 0, y: 0, width: 50, height: 20 });
-        assert!(nested_both_sides.set_deepest_ratio(left_inner.set_pane, SplitDir::Right, 0.3));
+        assert_eq!(
+            nested_both_sides.set_deepest_ratio(left_inner.set_pane, SplitDir::Right, 0.3,),
+            crate::model::ChangeState::Changed
+        );
 
         let right_inner =
             split_for_pane_edge(&nested_both_sides, area, 2, SplitEdge::Right).unwrap();
         assert_eq!(right_inner.area, Rect { x: 50, y: 0, width: 50, height: 20 });
-        assert!(nested_both_sides.set_deepest_ratio(right_inner.set_pane, SplitDir::Right, 0.8));
+        assert_eq!(
+            nested_both_sides.set_deepest_ratio(right_inner.set_pane, SplitDir::Right, 0.8,),
+            crate::model::ChangeState::Changed
+        );
 
         let Node::Split { ratio: root_ratio, a, b, .. } = &nested_both_sides else {
             panic!("root should be split");

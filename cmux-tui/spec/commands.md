@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v7 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v8 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -40,23 +40,55 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 object{topology_revision:uint64,workspaces:array<Workspace>}
 ```
 
+`CanonicalTopology`:
+
+```text
+object{workspaces:array<CanonicalWorkspace>}
+
+CanonicalWorkspace = object{
+  id:Id,uuid:Uuid,name:string,screens:array<CanonicalScreen>
+}
+CanonicalScreen = object{
+  id:Id,uuid:Uuid,name:string|null,layout:CanonicalLayout,panes:array<CanonicalPane>
+}
+CanonicalLayout = object{type:"leaf",pane:Id,pane_uuid:Uuid}
+  | object{type:"split",dir:"right"|"down",ratio:float32,a:CanonicalLayout,b:CanonicalLayout}
+CanonicalPane = object{
+  id:Id,uuid:Uuid,name:string|null,tabs:array<CanonicalTab>
+}
+CanonicalTab = object{
+  id:Id,uuid:Uuid,kind:"pty"|"browser",name:string|null
+}
+```
+
+The zero-workspace topology is valid and is exactly `{"workspaces":[]}`. Every screen layout names exactly its nested panes, and every pane has at least one tab. Active workspace, screen, pane, tab, zoom, and scroll state is presentation state and never appears in this structural snapshot.
+
 `Presentation`:
 
 ```text
 object{
   presentation_id:Uuid,
+  generation:uint64,
   client:uint64,
-  view:object{workspace:Id|null,screen:Id|null,pane:Id|null,tab:Id|null},
-  zoom:object{pane:Id|null},
-  scroll:object{surface:Id|null,offset:uint64}
+  view:object{
+    workspace:Id|null,workspace_uuid:Uuid|null,
+    screen:Id|null,screen_uuid:Uuid|null,
+    pane:Id|null,pane_uuid:Uuid|null,
+    tab:Id|null,surface_uuid:Uuid|null
+  },
+  zoom:object{pane:Id|null,pane_uuid:Uuid|null},
+  scroll:object{surface:Id|null,surface_uuid:Uuid|null,offset:uint64}
 }
 ```
 
 `Presentation.view`, `Presentation.zoom`, and `Presentation.scroll` are owned by
 one client window. They do not change canonical workspace selection, screen
 selection, pane focus, tab selection, pane zoom, or terminal scroll state.
-`zoom` and `scroll` reserve the wire shape for later presentation-local
-viewport operations.
+Each accepted change increments `generation`; an exact no-op leaves it unchanged.
+The protocol-v7 numeric field names remain accepted and returned. UUID fields are
+additive. A request may supply either identity form or both; both forms must
+resolve to the same live entity. Ancestry is validated against canonical
+topology.
 
 `Workspace`:
 
@@ -163,16 +195,19 @@ object{
   session_id:Uuid,
   daemon_instance_id:Uuid,
   topology_revision:uint64,
+  canonical_topology_revision:uint64,
   pid:uint32
 }
 ```
 
-`protocol` remains the protocol-v7 compatibility field. The inclusive range is
-currently `protocol_min:6` through `protocol_max:7`. `session_id` identifies the
+`protocol` is currently `8`. The inclusive range is `protocol_min:6` through
+`protocol_max:8`. `session_id` identifies the
 logical session and is reloaded from the versioned daemon state store.
 `daemon_instance_id` is fresh for each server process lifetime.
-`topology_revision` is the latest committed canonical tree revision at the
-instant this response reads the mux.
+`topology_revision` preserves the protocol-v7 legacy tree contract, including
+focus, selection, and zoom transactions. `canonical_topology_revision` is the
+protocol-v8 structural cursor used by `topology-snapshot` and
+`subscribe-topology`. Both revisions are read atomically.
 
 Errors:
 
@@ -194,7 +229,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"protocol_min":6,"protocol_max":7,"capabilities":["durable-session-identity-v1","presentation-registry-v1","render-attach-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":42,"pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":8,"capabilities":["durable-session-identity-v1","canonical-topology-snapshot-v1","presentation-registry-v1","render-attach-v1","stable-entity-uuid-v1","topology-resume-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
 ```
 
 ### ping
@@ -205,7 +240,9 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Lightweight liveness probe. Unlike `identify`, this does not return session metadata.
+Lightweight liveness and authority probe. It returns enough identity to prove
+that the expected durable session and daemon process own the socket without
+fetching or decoding a topology snapshot.
 
 Params: none.
 
@@ -219,15 +256,19 @@ object{
   protocol_min:uint32,
   protocol_max:uint32,
   capabilities:array<string>,
+  session:string,
+  session_id:Uuid,
   daemon_instance_id:Uuid,
-  topology_revision:uint64
+  topology_revision:uint64,
+  canonical_topology_revision:uint64,
+  pid:uint32
 }
 ```
 
-`daemon_instance_id` lets a liveness monitor distinguish a responsive existing
-daemon from a replacement at the same socket path without returning session
-metadata. `topology_revision` lets a monitor determine whether canonical tree
-state advanced since its previous snapshot.
+`session_id` proves durable session authority, `daemon_instance_id` detects a
+replacement daemon at the same socket, and `pid` proves process continuity.
+The two revisions have the same legacy and structural meanings as `identify`.
+Health checks do not need `topology-snapshot`.
 
 Errors: `bad request: ...`.
 
@@ -237,7 +278,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":7,"protocol_min":6,"protocol_max":7,"capabilities":["durable-session-identity-v1","presentation-registry-v1","render-attach-v1","topology-revision-v1","tree-delta-v1"],"daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":42}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":8,"protocol_min":6,"protocol_max":8,"capabilities":["durable-session-identity-v1","canonical-topology-snapshot-v1","presentation-registry-v1","render-attach-v1","stable-entity-uuid-v1","topology-resume-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
 ```
 
 ### open-presentation
@@ -246,20 +287,22 @@ Example:
 | --- | --- |
 | name | `open-presentation` |
 | status | implemented |
-| since | protocol 7 capability `presentation-registry-v1` |
+| since | protocol 7 capability `presentation-registry-v1`; UUID entity fields and generation are protocol 8 additive fields |
 
 Creates connection-owned state for one window. A connection may own several
 presentations. Omitted nested objects and fields use null identities and zero
 scroll offset. Opening a presentation does not select or focus anything in the
-canonical mux tree.
+canonical mux tree. The daemon permits 64 presentations per client and 1024
+presentations globally. Closing one or disconnecting its client releases the
+capacity.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `view` | `object{workspace?:Id,screen?:Id,pane?:Id,tab?:Id}` | default all null | Presentation-local selection placeholders |
-| `zoom` | `object{pane?:Id}` | default null pane | Presentation-local zoom placeholder |
-| `scroll` | `object{surface?:Id,offset?:uint64}` | default null surface and `0` | Presentation-local scroll placeholder |
+| `view` | `object{workspace?:Id,workspace_uuid?:Uuid,screen?:Id,screen_uuid?:Uuid,pane?:Id,pane_uuid?:Uuid,tab?:Id,surface_uuid?:Uuid}` | default all null | Every supplied identity must exist and share one ancestry chain; paired numeric and UUID fields must identify the same entity |
+| `zoom` | `object{pane?:Id,pane_uuid?:Uuid}` | default null pane | When view ancestry is present, the pane must belong to that screen/workspace |
+| `scroll` | `object{surface?:Id,surface_uuid?:Uuid,offset?:uint64}` | default null surface and `0` | When view ancestry is present, the surface must belong to that pane/screen/workspace |
 
 Result: `Presentation`.
 
@@ -268,6 +311,12 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown client <id>` | The connection was already removed |
+| `unknown presentation <entity> <id>` | A supplied numeric identity does not exist |
+| `unknown <entity> UUID <uuid>` | A supplied canonical identity does not exist |
+| `presentation <entity> numeric handle and UUID refer to different entities` | Both identity forms were supplied but disagree |
+| `presentation <entity> is outside its <parent>` | Supplied identities do not form one ancestry chain |
+| `presentation limit reached for client ...` | The client already owns 64 presentations |
+| `global presentation limit reached ...` | The daemon already owns 1024 presentations |
 | `bad request: ...` | A field has the wrong JSON type |
 
 CLI mapping: none. Frontends issue this connection-scoped command directly.
@@ -275,8 +324,41 @@ CLI mapping: none. Frontends issue this connection-scoped command directly.
 Example:
 
 ```json
-{"id":3,"cmd":"open-presentation","view":{"workspace":11,"screen":12,"pane":13,"tab":14}}
-{"id":3,"ok":true,"data":{"presentation_id":"06344852-c8e7-4bf1-9feb-8f5c5818f342","client":1,"view":{"workspace":11,"screen":12,"pane":13,"tab":14},"zoom":{"pane":null},"scroll":{"surface":null,"offset":0}}}
+{"id":3,"cmd":"open-presentation","view":{"workspace":4,"screen":3,"pane":2,"tab":1}}
+{"id":3,"ok":true,"data":{"presentation_id":"06344852-c8e7-4bf1-9feb-8f5c5818f342","generation":1,"client":1,"view":{"workspace":4,"workspace_uuid":"<uuid>","screen":3,"screen_uuid":"<uuid>","pane":2,"pane_uuid":"<uuid>","tab":1,"surface_uuid":"<uuid>"},"zoom":{"pane":null,"pane_uuid":null},"scroll":{"surface":null,"surface_uuid":null,"offset":0}}}
+```
+
+### update-presentation
+
+| Field | Value |
+| --- | --- |
+| name | `update-presentation` |
+| status | implemented |
+| since | protocol 8 capability `presentation-registry-v1` |
+
+Atomically replaces any supplied presentation groups. Omitted `view`, `zoom`, or `scroll` groups retain their current values. `expected_generation` must match the current generation. A changed update increments generation once; an exact no-op returns the unchanged generation.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `presentation_id` | `Uuid` | required | Must be owned by this connection |
+| `expected_generation` | `uint64` | required | Must equal the current generation |
+| `view` | presentation view object | optional | Replaces the complete view group and must pass ancestry validation |
+| `zoom` | presentation zoom object | optional | Replaces the complete zoom group and must pass ancestry validation |
+| `scroll` | presentation scroll object | optional | Replaces the complete scroll group and must pass ancestry validation |
+
+Result: `Presentation`.
+
+Errors include unknown presentation, wrong owner, `stale presentation generation <expected>; current generation is <current>`, mismatched numeric and UUID identities, invalid ancestry, malformed fields, and generation exhaustion.
+
+CLI mapping: none.
+
+Example:
+
+```json
+{"id":4,"cmd":"update-presentation","presentation_id":"06344852-c8e7-4bf1-9feb-8f5c5818f342","expected_generation":1,"zoom":{"pane_uuid":"<uuid>"}}
+{"id":4,"ok":true,"data":{"presentation_id":"06344852-c8e7-4bf1-9feb-8f5c5818f342","generation":2,"client":1,"view":{"workspace":4,"workspace_uuid":"<uuid>","screen":3,"screen_uuid":"<uuid>","pane":2,"pane_uuid":"<uuid>","tab":1,"surface_uuid":"<uuid>"},"zoom":{"pane":2,"pane_uuid":"<uuid>"},"scroll":{"surface":null,"surface_uuid":null,"offset":0}}}
 ```
 
 ### close-presentation
@@ -316,7 +398,7 @@ CLI mapping: none.
 | --- | --- |
 | name | `list-presentations` |
 | status | implemented |
-| since | protocol 7 capability `presentation-registry-v1` |
+| since | protocol 7 capability `presentation-registry-v1`; UUID entity fields and generation are protocol 8 additive fields |
 
 Returns the requesting connection's presentations in ascending UUID order.
 Presentation-local state owned by other clients is not disclosed.
@@ -549,6 +631,42 @@ Example:
 {"id":5,"ok":true,"data":{}}
 ```
 
+### topology-snapshot
+
+| Field | Value |
+| --- | --- |
+| name | `topology-snapshot` |
+| status | implemented |
+| since | protocol 8, capabilities `canonical-topology-snapshot-v1` and `stable-entity-uuid-v1` |
+
+Returns the complete canonical topology and its revision under one state lock. The snapshot excludes connection-owned presentations and dynamic terminal state: content, geometry, title, process status, notification and agent metadata, PTY bytes, and render frames.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  daemon_instance_id:Uuid,
+  session_id:Uuid,
+  revision:uint64,
+  topology:CanonicalTopology
+}
+```
+
+Numeric `id` fields remain current-daemon command handles so a protocol-v8 frontend can call legacy numeric-ID commands. Parallel UUID fields are introduced by the protocol-v8 canonical topology capability and identify daemon-owned entities across renames, reorders, and moves. Protocol-v7 tree payloads remain numeric and do not gain a UUID contract. Closing and recreating an entity creates a new UUID. A daemon restart changes `daemon_instance_id`, even when it reloads the same `session_id`.
+
+Errors: `bad request: ...`.
+
+CLI mapping: verb `topology-snapshot`; flags none; plain and JSON output both print the exact result object.
+
+Example:
+
+```json
+{"id":6,"cmd":"topology-snapshot"}
+{"id":6,"ok":true,"data":{"daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","revision":0,"topology":{"workspaces":[]}}}
+```
+
 ### list-workspaces
 
 | Field | Value |
@@ -557,7 +675,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags. `topology_revision` and the tree are captured under one canonical-state lock. A successful topology mutation advances the revision before either value becomes visible to readers.
+Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags. `topology_revision` and the tree are captured under one canonical-state lock. This legacy revision advances for structural changes and for successful legacy focus, selection, zoom, and tree-event transactions. Protocol-v8 structural consumers use `topology-snapshot.revision` instead.
 
 Params: none.
 
@@ -987,6 +1105,89 @@ Example:
 {"id":8,"ok":true,"data":{"surface":10}}
 ```
 
+### ensure-terminal
+
+| Field | Value |
+| --- | --- |
+| name | `ensure-terminal` |
+| status | implemented |
+| since | protocol 8 with capability `ensure-terminal-v1` |
+
+Ensures that one daemon-owned PTY exists at a caller-supplied stable surface
+UUID. The command is available only on a trusted local Unix connection. A
+first request creates the terminal and either attaches it to the target
+workspace's active pane or creates that workspace. Concurrent and reconnected
+requests with the same UUID return the existing terminal without spawning a
+second child or replaying startup input.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace_uuid` | `UUID` | required | Nonzero stable target workspace identity |
+| `surface_uuid` | `UUID` | required | Nonzero stable terminal identity |
+| `cwd` | `string` | default null | Creation-only working directory |
+| `argv` | `array<string>` | default null | Creation-only non-empty exact spawn argv; mutually exclusive with `command` |
+| `command` | `string` | default null | Creation-only non-empty shell command, encoded as the platform shell plus `-lc`; mutually exclusive with `argv`; at most 64 KiB |
+| `env` | `array<object{name:string,value:string}>` | default `[]` | Creation-only environment additions; names cannot be empty or contain `=` or NUL; values cannot contain NUL |
+| `initial_input` | `string` | default null | Written once after creation; at most 1 MiB |
+| `wait_after_command` | `boolean` | default false | Creation-only; when true, retain the exited terminal in canonical topology until explicit close |
+| `cols` | `uint16` | required | Nonzero initial columns |
+| `rows` | `uint16` | required | Nonzero initial rows |
+
+Every creation-only field is ignored when `surface_uuid` already exists. The
+existing terminal must already belong to `workspace_uuid`; use
+`reparent-terminal` to move it. A retained terminal still emits
+`surface-exited`, preserves its final VT state and process identity, and is
+removed by the normal explicit close command.
+
+Result:
+
+```text
+object{created:boolean,workspace:Id,workspace_uuid:UUID,screen:Id,screen_uuid:UUID,pane:Id,pane_uuid:UUID,surface:Id,surface_uuid:UUID}
+```
+
+`created` is true only for the request that spawned the canonical terminal.
+
+Errors include untrusted transport, zero or malformed UUIDs, invalid creation
+arguments, a surface UUID owned by a browser or another workspace, missing
+canonical topology, PTY spawn failure, and `bad request: ...`.
+
+There is no public CLI verb. This command is a control-plane primitive for
+frontends and SDK clients.
+
+### reparent-terminal
+
+| Field | Value |
+| --- | --- |
+| name | `reparent-terminal` |
+| status | implemented |
+| since | protocol 8 with capability `reparent-terminal-v1` |
+
+Moves an existing stable terminal into the target workspace's active pane
+without replacing its PTY, child process, VT state, or surface UUID. The
+command is available only on a trusted local Unix connection. A successful
+move advances canonical topology exactly once; a retry after the move is an
+idempotent no-op.
+
+Params: `object{surface_uuid:UUID,workspace_uuid:UUID}`. Both UUIDs must be
+nonzero, the surface must be a terminal in canonical topology, and the target
+workspace must already exist.
+
+Result:
+
+```text
+object{moved:boolean,workspace:Id,workspace_uuid:UUID,screen:Id,screen_uuid:UUID,pane:Id,pane_uuid:UUID,surface:Id,surface_uuid:UUID}
+```
+
+`moved` is false when the terminal is already in the target workspace.
+
+Errors include untrusted transport, unknown terminal or target workspace,
+browser surface identity, missing canonical topology, and `bad request: ...`.
+
+There is no public CLI verb. This command is a control-plane primitive for
+frontends and SDK clients.
+
 ### new-screen
 
 | Field | Value |
@@ -1096,7 +1297,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets the deepest split ratio in `dir` on the path to `pane`. The server clamps the supplied ratio to `0.05..0.95` before applying it. The result does not report the clamped value.
+Sets the deepest split ratio in `dir` on the path to `pane`. The server clamps the supplied ratio to `0.05..0.95` before applying it. The result does not report the clamped value. A known split already at the clamped value retains the protocol-v5 `tree-changed` and `layout-changed` events but does not advance the protocol-v8 structural revision.
 
 Params:
 
@@ -1207,7 +1408,7 @@ CLI mapping: verb `swap-pane`; flags `--pane <id> (--dir left|right|up|down | --
 | status | implemented |
 | since | protocol 6 |
 
-Sets per-screen zoom state. A zoomed pane renders as the only pane in its screen; the canonical split tree is preserved for restore and export.
+Sets legacy per-screen zoom state. A zoomed pane renders as the only pane in its screen; the canonical split tree is preserved for restore and export. Zoom is presentation state, so this command never advances the protocol-v8 structural topology revision.
 
 Params: `object{pane?:Id,mode?:"toggle"|"on"|"off"}`. Defaults: active pane and `toggle`.
 
@@ -1236,12 +1437,59 @@ Params: `object{surface:Id}`.
 Result:
 
 ```text
-object{pid:uint32|null,command:string|null,cwd:string|null}
+object{pid:uint32|null,command:array<string>|null,cwd:string|null,tty:string|null}
 ```
+
+`command` is the exact spawn argv and never a shell-joined display string.
+`tty` is the canonical PTY name reported by the daemon-owned master, such as
+`/dev/ttys004`. Repeated attachment and terminal reparenting preserve both
+fields for the lifetime of the surface.
 
 Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.
 
-CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v>`; JSON stdout prints the exact result object.
+CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<json-array> cwd=<v> tty=<v>`; JSON stdout prints the exact result object.
+
+### canonical terminal interaction
+
+| Field | Value |
+| --- | --- |
+| names | `terminal-state`, `terminal-binding-action`, `terminal-selection`, `terminal-copy-mode`, `terminal-search`, `terminal-scroll` |
+| status | implemented |
+| since | protocol 8 with capability `terminal-interaction-v1` |
+| CLI mapping | none, frontend-internal |
+
+Every command targets a stable `surface_uuid` and mutates the daemon-owned Ghostty terminal. The returned `state` is canonical. Frontends must not maintain a second VT parser, search index, selection, copy-mode cursor, or scrollback viewport.
+
+`terminal-state` takes only `surface_uuid` and returns:
+
+```text
+object{
+  surface_uuid:Uuid,
+  copy_mode:boolean,
+  copy_cursor:null|object{column:uint16,row:uint32},
+  cursor:null|object{column:uint16,row:uint32,visible:boolean},
+  selection:object{
+    has_selection:boolean,
+    text:null|string,
+    range:null|object{
+      start:Point,end:Point,top_left:Point,bottom_right:Point,rectangle:boolean
+    }
+  },
+  search:object{active:boolean,query:string,selected_match:null|uint,total_matches:uint},
+  viewport:null|object{total_rows:uint64,offset:uint64,visible_rows:uint64},
+  mouse_tracking:boolean
+}
+```
+
+Point rows, including `cursor.row`, are zero-based absolute rows in retained screen history. A visible cursor maps to a viewport row by subtracting `viewport.offset`.
+
+`terminal-selection` takes `operation:"read"|"clear"|"select-all"` and returns `{selection,state}`. `terminal-copy-mode` takes `operation:"enter"|"exit"|"start-selection"|"start-line-selection"|"clear-selection"|"adjust"|"copy-and-exit"`. `adjust` also requires `adjustment:"left"|"right"|"up"|"down"|"home"|"end"|"page-up"|"page-down"|"beginning-of-line"|"end-of-line"`; `count` defaults to 1 and is bounded to 10,000. Copy mode owns a cursor separately from an active selection. `copy-and-exit` returns selected text as `clipboard_text`; the frontend owns platform clipboard access.
+
+`terminal-search` takes `operation:"start"|"update"|"next"|"previous"|"end"`. `update` requires `query`; `start` may include it. Queries are UTF-8 and at most 65,536 bytes. Matches cover the active screen and retained scrollback, are indexed newest-first, wrap during navigation, install the selected match as the canonical selection, and scroll it into view.
+
+`terminal-scroll` takes `operation:"lines"|"pages"|"top"|"bottom"`; signed `amount` defaults to 1 for lines/pages. `terminal-binding-action` takes a Ghostty action string and optional `repeat_count`, routes supported copy/search/scroll/selection actions through the same primitives, and returns `{handled,clipboard_text,state}`. Unsupported actions return `handled:false` without mutating the terminal.
+
+`terminal-mouse` is the application mouse-protocol path while `terminal-state.mouse_tracking` is true. Frontends use `terminal-scroll` for wheel input while it is false. `click_count` defaults to 1 and accepts 1 through 3.
 
 ### set-default-colors
 
@@ -1482,7 +1730,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets a pane user-visible name. An empty `name` clears the pane name so display falls back to the active tab title or shell label.
+Sets a pane user-visible name. An empty `name` clears the pane name so display falls back to the active tab title or shell label. Repeating the current name retains the protocol-v5 `tree-changed` event but does not advance the protocol-v8 structural revision.
 
 Params:
 
@@ -1529,7 +1777,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets a tab user-visible name on a surface. An empty `name` clears the tab name so display falls back to generated tab label and process title.
+Sets a tab user-visible name on a surface. An empty `name` clears the tab name so display falls back to generated tab label and process title. Repeating the current name retains the protocol-v7 `tab-renamed` event (or its coarse fallback) but does not advance the protocol-v8 structural revision.
 
 Params:
 
@@ -1576,7 +1824,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets a screen user-visible name. An empty `name` clears the screen name so display falls back to the screen number.
+Sets a screen user-visible name. An empty `name` clears the screen name so display falls back to the screen number. Repeating the current name retains the protocol-v7 `screen-renamed` event (or its coarse fallback) but does not advance the protocol-v8 structural revision.
 
 Params:
 
@@ -1623,7 +1871,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets a workspace name. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name and does not clear to a generated fallback in v5.
+Sets a workspace name. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name and does not clear to a generated fallback in v5. Repeating the current name retains the protocol-v7 `workspace-renamed` event (or its coarse fallback) but does not advance the protocol-v8 structural revision.
 
 Params:
 
@@ -1718,7 +1966,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Makes `pane` the active pane of its screen and also activates the containing screen and workspace. This is an explicit focus-intent command.
+Makes `pane` the active pane of its screen and also activates the containing screen and workspace. This is an explicit legacy focus-intent command. A known pane emits `tree-changed` even when already focused. Focus never advances the protocol-v8 structural revision.
 
 Params:
 
@@ -1767,6 +2015,8 @@ Example:
 Selects a tab within a pane by zero-based `index` or relative `delta`. If both `index` and `delta` are present, v5 uses `index` and ignores `delta`. If `pane` is absent, the active pane is used.
 
 No-op event behavior is split by target resolution. If the target pane cannot be resolved, or if the resolved pane has no tabs, v5 returns success and emits no `tree-changed`. This includes an unknown supplied pane, no supplied pane with no active pane, and an empty pane. If the target pane resolves and has tabs, an out-of-range `index` or missing `index`/`delta` returns success and emits `tree-changed` even though the active tab does not change.
+
+Tab selection never advances the protocol-v8 structural revision.
 
 Params:
 
@@ -1817,6 +2067,8 @@ Selects a screen in the active workspace by zero-based `index` or relative `delt
 
 No-op event behavior is split by target resolution. If there is no active workspace or the active workspace has no screens, v5 returns success and emits no `tree-changed`. If the active workspace resolves and has screens, an out-of-range `index` or missing `index`/`delta` returns success and emits `tree-changed` even though the active screen does not change.
 
+Screen selection never advances the protocol-v8 structural revision.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
@@ -1864,6 +2116,8 @@ Example:
 Selects a workspace by zero-based `index` or relative `delta`. If both `index` and `delta` are present, v5 uses `index` and ignores `delta`.
 
 No-op event behavior is split by target resolution. If the session has no workspaces, v5 returns success and emits no `tree-changed`. If at least one workspace exists, an out-of-range `index` or missing `index`/`delta` returns success and emits `tree-changed` even though the active workspace does not change.
+
+Workspace selection never advances the protocol-v8 structural revision.
 
 Params:
 
@@ -2096,6 +2350,78 @@ Example:
 {"id":27,"ok":true,"data":{}}
 {"event":"tree-changed"}
 ```
+
+### subscribe-topology
+
+| Field | Value |
+| --- | --- |
+| name | `subscribe-topology` |
+| status | implemented |
+| since | protocol 8, capability `topology-resume-v1` |
+
+Atomically validates a snapshot cursor, seeds every retained delta after it, and registers the same bounded mailbox for live deltas while holding the canonical state lock. This closes the mutation window between `topology-snapshot` and subscription registration.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `daemon_instance_id` | `Uuid` | required | Must equal the current daemon process identity |
+| `session_id` | `Uuid` | required | Must equal the current durable session identity |
+| `revision` | `uint64` | required | Snapshot revision to resume after |
+
+Success result:
+
+```text
+object{
+  status:"subscribed",
+  daemon_instance_id:Uuid,
+  session_id:Uuid,
+  from_revision:uint64,
+  current_revision:uint64,
+  replayed:usize
+}
+```
+
+Recovery result:
+
+```text
+object{
+  status:"resnapshot-required",
+  daemon_instance_id:Uuid,
+  session_id:Uuid,
+  current_revision:uint64,
+  reason:"stale-daemon"|"stale-session"|"revision-ahead"|"history-gap"|"replay-too-large"
+}
+```
+
+A successful registration emits zero or more ordered events:
+
+```text
+object{
+  event:"topology-delta",
+  daemon_instance_id:Uuid,
+  session_id:Uuid,
+  base_revision:uint64,
+  revision:uint64,
+  operation:"workspace-created"|"screen-created"|"pane-split"|"surface-attached"|
+    "surface-closed"|"pane-closed"|"screen-closed"|"workspace-closed"|
+    "workspace-renamed"|"screen-renamed"|"pane-renamed"|"surface-renamed"|
+    "split-ratio-changed"|"panes-swapped"|"layout-applied"|"tab-moved"|
+    "workspace-moved",
+  targets:object{
+    workspaces?:array<Uuid>,screens?:array<Uuid>,panes?:array<Uuid>,surfaces?:array<Uuid>
+  },
+  replacement:CanonicalTopology
+}
+```
+
+Each committed structural transaction increments the revision once and emits one delta with `base_revision + 1 == revision`. Failed requests and semantic no-ops do not increment or emit. Legacy global focus, selection, and zoom commands remain protocol-v5-v7 compatibility state: they can emit their documented legacy events but never advance the protocol-v8 structural revision. Capability-v1 carries a complete replacement in every delta. Consumers replace their prior canonical topology after checking daemon, session, and adjacent revisions. Replacement construction and wire bandwidth scale with the entire topology, including dormant workspaces. A later capability may add typed patches while retaining this daemon, session, revision, and recovery contract.
+
+The daemon retains at most 512 deltas and 16 MiB of serialized history. Each subscriber mailbox retains at most 256 deltas and 8 MiB. One connection may open one topology stream, and one daemon permits at most 256 live topology streams. Duplicate and excess registrations fail before allocating a topology mailbox or output thread. If a live consumer exceeds either mailbox bound, the server drains its accepted prefix, emits `{"event":"topology-resnapshot-required","daemon_instance_id":"<uuid>","session_id":"<uuid>","current_revision":42,"reason":"slow-consumer"}`, and ends that stream. `current_revision` is omitted only when the bounded transport queue, rather than the topology mailbox, produces the terminal overflow event. No skipped delta is followed by a later delta on the same subscription.
+
+The registration response and replay events may interleave. Route by `event` and `id`; do not treat the response as a stream barrier.
+
+CLI mapping: verb `subscribe-topology`; flags `--daemon-instance-id <uuid> --session-id <uuid> --revision <n>`; stdout is one event JSON object per line. An immediate `resnapshot-required` result is printed and exits with code `1`.
 
 ### attach-surface
 

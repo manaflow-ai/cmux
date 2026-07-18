@@ -207,6 +207,7 @@ impl StateStore {
         let path = directory.join(format!("{}.lock", session_key(session)));
         let file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&path)

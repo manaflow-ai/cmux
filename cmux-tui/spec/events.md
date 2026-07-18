@@ -1,6 +1,6 @@
 # Event Contract
 
-This file specifies event lines emitted by protocol v7, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
+This file specifies event lines emitted by protocol v8, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
 
 The schema notation and `Id`, `Workspace`, `Screen`, `Pane`, and `Tab` types come from [`commands.md`](commands.md#notation). `Cursor`, `Row`, and `Run` come from [`render.md`](render.md#shared-render-types).
 
@@ -8,7 +8,8 @@ Implemented event lines can appear on two stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `renderer-config-invalidated`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `empty`, `overflow` |
+| Canonical topology stream v8 | `subscribe-topology` command | `topology-delta`, `topology-resnapshot-required` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -20,6 +21,8 @@ Events and command responses share one full-duplex connection. Each event or res
 Every entity-scoped event carries its subject id in the field named below. Tree deltas also carry every parent id needed to place the entity. Legacy session-wide events have no numeric entity subject; the table marks them `session` rather than inventing an id and changing their v5/v6 payloads.
 
 Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. The table's canonical protocol-v7 subscribe and attach event-name sets are otherwise disjoint: an attach stream never emits tree/client/global events, and a v7 subscribe stream never emits render, byte, or attach-viewport events. The wire-compatibility exception is `scroll-changed`: protocol v6 already delivers that attach event name to legacy subscribe consumers. That legacy delivery is retained and recorded in the compatibility column; event instances remain ordered within the registration that produced them.
+
+Protocol-v8 topology events belong only to the `subscribe-topology` registration. They contain canonical workspace structure and stable UUID subjects, excluding presentations and dynamic terminal, notification, agent, PTY, and render state. Legacy focus, selection, zoom, and `subscribe` behavior is unchanged and does not advance the structural topology revision.
 
 | Event | Stream | Subject field | Since/compatibility |
 | --- | --- | --- | --- |
@@ -34,6 +37,8 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `tab-added` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
 | `tab-closed` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
 | `tab-renamed` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
+| `topology-delta` | canonical topology | UUID arrays in `targets` | protocol 8 |
+| `topology-resnapshot-required` | canonical topology | session and daemon | protocol 8 |
 | `tree-changed` | subscribe (`coarse`; `deltas` fallback) | session | protocol 5; `coarse` is the default and exact v6 behavior |
 | `layout-changed` | subscribe | `screen` | protocol 6 |
 | `surface-output` | subscribe | `surface` | protocol 5 |
@@ -43,6 +48,7 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `bell` | subscribe | `surface` | protocol 5 |
 | `notification` | subscribe | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
+| `renderer-config-invalidated` | subscribe | session | protocol 8 with `renderer-semantic-scene-v1` |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
@@ -78,9 +84,29 @@ Protocol v6 attach streams are ordered as `vt-state -> (resized | output | color
 
 Protocol v7 render attach streams are ordered as `render-state -> (render-delta | scroll-changed)* -> detached`. The initial state snapshot and render tap are registered under one terminal lock, matching the byte stream's no-gap/no-duplication guarantee. `render-delta` frames coalesce damage but preserve authoritative state order. See [`render.md`](render.md#stream-ordering).
 
-When a surface exits, the mux removes it from the tree itself. Before `surface-exited`, a coarse subscription normally receives `tree-changed`, while a delta subscription normally receives the applicable close delta or the `tree-changed` fallback; either mode may also receive `empty`. By the time `surface-exited` is observed, frontends should consider the surface reaped from authoritative tree state.
+Protocol v8 canonical topology streams are ordered by adjacent revisions. A delta always has `base_revision + 1 == revision`, and its complete `replacement` is the canonical topology after that structural transaction. Snapshot validation, retained replay selection, and live registration happen under the same canonical state lock, so a successful resume cannot miss the mutation between snapshot and registration. History and live mailboxes are bounded by count and serialized bytes. One connection may register one topology stream, and one daemon permits 256 live topology streams. A gap or overflow terminates recovery with `topology-resnapshot-required`; the server never skips a revision and continues the same stream.
+
+When an ordinary surface exits, the mux removes it from the tree itself. Before `surface-exited`, a coarse subscription normally receives `tree-changed`, while a delta subscription normally receives the applicable close delta or the `tree-changed` fallback; either mode may also receive `empty`. A terminal created with `wait_after_command:true` is the exception: it emits `surface-exited` but remains in canonical topology with its final VT state until explicit close.
 
 ## Subscribe Events
+
+### topology-delta
+
+The complete payload and operation enum are specified by [`subscribe-topology`](commands.md#subscribe-topology). Apply only a delta whose daemon and session match the accepted cursor and whose `base_revision` equals the locally applied revision. Replace the local canonical topology with `replacement`, then advance to `revision`.
+
+### topology-resnapshot-required
+
+```text
+object{
+  event:"topology-resnapshot-required",
+  daemon_instance_id:Uuid,
+  session_id:Uuid,
+  current_revision?:uint64,
+  reason:"slow-consumer"
+}
+```
+
+Discard the topology cursor, fetch `topology-snapshot`, and open a new `subscribe-topology` stream on a new connection. The old stream sends no later topology delta. Mailbox overflow includes `current_revision`; bounded transport-queue overflow may omit it.
 
 ### overflow
 
@@ -585,6 +611,43 @@ Example:
 {"event":"config-reload-requested"}
 ```
 
+### renderer-config-invalidated
+
+| Field | Value |
+| --- | --- |
+| event | `renderer-config-invalidated` |
+| status | implemented |
+| since | protocol 8 with capability `renderer-semantic-scene-v1` |
+
+Payload:
+
+```text
+object{
+  event:"renderer-config-invalidated",
+  revision:uint64,
+  reason:"default-colors-changed",
+  default_colors:TerminalColors
+}
+```
+
+Meaning: presentation-owned Ghostty theme configuration is stale. A renderer
+frontend must rebuild its resolved configuration from `default_colors` and
+upsert every live presentation before treating another worker frame as
+current. `revision` increases once per changed daemon default and duplicate
+`set-default-colors` values emit nothing. The trusted `renderer-workers`
+response carries the same `default_colors_revision` and `default_colors`
+snapshot so a reconnect cannot miss invalidation.
+
+`default_colors.palette` is a sparse object keyed by decimal palette index.
+These values are presentation defaults, while OSC overrides remain in the
+canonical semantic scene.
+
+Example:
+
+```json
+{"event":"renderer-config-invalidated","revision":3,"reason":"default-colors-changed","default_colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"palette":{},"cursor_style":null,"cursor_blink":null}}
+```
+
 ### window-title-requested
 
 | Field | Value |
@@ -706,18 +769,19 @@ object{
     cursor:ColorHex|null,
     selection_bg:ColorHex|null,
     selection_fg:ColorHex|null,
+    palette:object<string,ColorHex>,
     cursor_style:"block"|"underline"|"bar"|null,
     cursor_blink:boolean|null
   }
 }
 ```
 
-Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` is captured with the replay and reports the surface's effective foreground, background, and cursor colors, including active OSC 10/11/12 overrides. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session's Ghostty `cursor-style` and `cursor-style-blink` defaults. A field is `null` when the server cannot determine it; the current server does not track selection colors, so `selection_bg` and `selection_fg` are `null`. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
+Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` reports effective special colors and a sparse `palette` object containing only PTY-authored OSC 4 overrides. Missing palette indexes remain owned by the frontend's presentation theme. OSC 104 reset removes the corresponding key. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session's Ghostty `cursor-style` and `cursor-style-blink` defaults. A field is `null` when the server cannot determine it. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
 
 Example:
 
 ```json
-{"event":"vt-state","surface":1,"cols":80,"rows":24,"data":"G1s/bA==","colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"cursor_style":"bar","cursor_blink":false}}
+{"event":"vt-state","surface":1,"cols":80,"rows":24,"data":"G1s/bA==","colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"palette":{"4":"#112233"},"cursor_style":"bar","cursor_blink":false}}
 ```
 
 ### output
@@ -784,17 +848,18 @@ object{
   cursor:ColorHex|null,
   selection_bg:ColorHex|null,
   selection_fg:ColorHex|null,
+  palette:object<string,ColorHex>,
   cursor_style:"block"|"underline"|"bar"|null,
   cursor_blink:boolean|null
 }
 ```
 
-Meaning: The session defaults changed through `set-default-colors`. Each live PTY byte-attach stream receives the effective colors and cursor state for its surface after applying the merged defaults. Active per-surface OSC 10/11/12 and DECSCUSR overrides remain authoritative. `cursor_style` and `cursor_blink` use the same surface-state, Ghostty-config, then `null` precedence as `vt-state.colors`; their values may be unchanged by the color update. Protocol v7 requires the explicit `surface` subject id so multiple attach streams on one connection can be routed without implicit stream state. Protocol-v6 payloads omit `surface`; v6 clients remain compatible because the new field is additive. The current server emits `null` for both selection fields because it cannot query the terminal's OSC 17/19 selection-color state.
+Meaning: The session defaults changed through `set-default-colors`. Each live PTY byte-attach stream receives the effective colors, sparse PTY-authored OSC 4 palette overrides, and cursor state for its surface after applying the merged defaults. Session palette defaults never populate `palette`. Active per-surface OSC 10/11/12, OSC 4, and DECSCUSR overrides remain authoritative. Protocol v7 requires the explicit `surface` subject id so multiple attach streams on one connection can be routed without implicit stream state.
 
 Example:
 
 ```json
-{"event":"colors-changed","surface":1,"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"cursor_style":"bar","cursor_blink":false}
+{"event":"colors-changed","surface":1,"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"palette":{},"cursor_style":"bar","cursor_blink":false}
 ```
 
 ### detached

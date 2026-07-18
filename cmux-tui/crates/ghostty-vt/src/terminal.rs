@@ -68,6 +68,62 @@ pub struct Scrollbar {
     pub len: u64,
 }
 
+/// One absolute terminal coordinate in retained screen history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionPoint {
+    pub column: u16,
+    pub row: u32,
+}
+
+/// Snapshot of the terminal-owned active selection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectionSnapshot {
+    pub text: String,
+    pub start: SelectionPoint,
+    pub end: SelectionPoint,
+    pub top_left: SelectionPoint,
+    pub bottom_right: SelectionPoint,
+    pub rectangle: bool,
+}
+
+/// Result of one complete active-screen and scrollback search.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchSelection {
+    pub total_matches: usize,
+    pub selection: Option<SelectionSnapshot>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectionAdjustment {
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    BeginningOfLine,
+    EndOfLine,
+}
+
+impl SelectionAdjustment {
+    fn raw(self) -> sys::GhosttySelectionAdjust {
+        match self {
+            Self::Left => sys::GHOSTTY_SELECTION_ADJUST_LEFT,
+            Self::Right => sys::GHOSTTY_SELECTION_ADJUST_RIGHT,
+            Self::Up => sys::GHOSTTY_SELECTION_ADJUST_UP,
+            Self::Down => sys::GHOSTTY_SELECTION_ADJUST_DOWN,
+            Self::Home => sys::GHOSTTY_SELECTION_ADJUST_HOME,
+            Self::End => sys::GHOSTTY_SELECTION_ADJUST_END,
+            Self::PageUp => sys::GHOSTTY_SELECTION_ADJUST_PAGE_UP,
+            Self::PageDown => sys::GHOSTTY_SELECTION_ADJUST_PAGE_DOWN,
+            Self::BeginningOfLine => sys::GHOSTTY_SELECTION_ADJUST_BEGINNING_OF_LINE,
+            Self::EndOfLine => sys::GHOSTTY_SELECTION_ADJUST_END_OF_LINE,
+        }
+    }
+}
+
 impl Scrollbar {
     /// Whether the viewport is scrolled away from the live bottom.
     pub fn scrolled_back(&self) -> bool {
@@ -702,6 +758,24 @@ impl Terminal {
         unsafe { sys::ghostty_terminal_scroll_viewport(self.raw, behavior) }
     }
 
+    pub fn scroll_to_top(&mut self) {
+        let behavior = sys::GhosttyTerminalScrollViewport {
+            tag: sys::GHOSTTY_SCROLL_VIEWPORT_TOP,
+            value: sys::GhosttyTerminalScrollViewportValue { delta: 0 },
+        };
+        unsafe { sys::ghostty_terminal_scroll_viewport(self.raw, behavior) }
+    }
+
+    pub fn scroll_to_row(&mut self, row: u64) {
+        let behavior = sys::GhosttyTerminalScrollViewport {
+            tag: sys::GHOSTTY_SCROLL_VIEWPORT_ROW,
+            value: sys::GhosttyTerminalScrollViewportValue {
+                row: usize::try_from(row).unwrap_or(usize::MAX),
+            },
+        };
+        unsafe { sys::ghostty_terminal_scroll_viewport(self.raw, behavior) }
+    }
+
     /// Scrollbar geometry for the current viewport. The engine notes this
     /// can be expensive for arbitrary scroll positions; call it once per
     /// frame at most.
@@ -712,6 +786,290 @@ impl Terminal {
             return None;
         }
         Some(Scrollbar { total: raw.total, offset: raw.offset, len: raw.len })
+    }
+
+    /// Cursor position in absolute retained-screen coordinates.
+    pub fn cursor_screen_point(&self) -> Option<SelectionPoint> {
+        let (column, active_row) = self.cursor_position()?;
+        let grid_ref =
+            self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, column, u64::from(active_row))?;
+        self.selection_point(&grid_ref).ok()
+    }
+
+    /// Read the active selection, including formatted text and stable absolute
+    /// coordinates copied before the next terminal mutation.
+    pub fn current_selection(&mut self) -> Result<Option<SelectionSnapshot>> {
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result = unsafe {
+            sys::ghostty_terminal_get(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_DATA_SELECTION,
+                (&mut selection as *mut sys::GhosttySelection).cast(),
+            )
+        };
+        if result == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(result)?;
+        self.selection_snapshot(&selection).map(Some)
+    }
+
+    pub fn clear_selection(&mut self) {
+        unsafe {
+            sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_SELECTION, ptr::null());
+        }
+    }
+
+    pub fn select_all(&mut self) -> Result<Option<SelectionSnapshot>> {
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result = unsafe { sys::ghostty_terminal_select_all(self.raw, &mut selection) };
+        if result == sys::GHOSTTY_NO_VALUE {
+            self.clear_selection();
+            return Ok(None);
+        }
+        check(result)?;
+        self.install_selection(&selection)?;
+        self.selection_snapshot(&selection).map(Some)
+    }
+
+    pub fn select_cursor(&mut self) -> Result<SelectionSnapshot> {
+        let (column, row) = self.cursor_position().ok_or(crate::Error::NoValue)?;
+        let grid_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, column, u64::from(row))
+            .ok_or(crate::Error::InvalidValue)?;
+        let selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            start: grid_ref,
+            end: grid_ref,
+            rectangle: false,
+        };
+        self.install_selection(&selection)?;
+        self.selection_snapshot(&selection)
+    }
+
+    pub fn select_point_screen(&mut self, point: SelectionPoint) -> Result<SelectionSnapshot> {
+        self.select_range_screen(point, point, false)
+    }
+
+    pub fn select_range_screen(
+        &mut self,
+        start: SelectionPoint,
+        end: SelectionPoint,
+        rectangle: bool,
+    ) -> Result<SelectionSnapshot> {
+        let grid_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, start.column, u64::from(start.row))
+            .ok_or(crate::Error::InvalidValue)?;
+        let end_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, end.column, u64::from(end.row))
+            .ok_or(crate::Error::InvalidValue)?;
+        let selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            start: grid_ref,
+            end: end_ref,
+            rectangle,
+        };
+        self.install_selection(&selection)?;
+        self.selection_snapshot(&selection)
+    }
+
+    pub fn select_word_screen(
+        &mut self,
+        point: SelectionPoint,
+    ) -> Result<Option<SelectionSnapshot>> {
+        let grid_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
+            .ok_or(crate::Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectWordOptions {
+            size: size_of::<sys::GhosttyTerminalSelectWordOptions>(),
+            ref_: grid_ref,
+            boundary_codepoints: ptr::null(),
+            boundary_codepoints_len: 0,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result =
+            unsafe { sys::ghostty_terminal_select_word(self.raw, &options, &mut selection) };
+        if result == sys::GHOSTTY_NO_VALUE {
+            self.clear_selection();
+            return Ok(None);
+        }
+        check(result)?;
+        self.install_selection(&selection)?;
+        self.selection_snapshot(&selection).map(Some)
+    }
+
+    pub fn select_line_screen(
+        &mut self,
+        point: SelectionPoint,
+    ) -> Result<Option<SelectionSnapshot>> {
+        let grid_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
+            .ok_or(crate::Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectLineOptions {
+            size: size_of::<sys::GhosttyTerminalSelectLineOptions>(),
+            ref_: grid_ref,
+            whitespace: ptr::null(),
+            whitespace_len: 0,
+            semantic_prompt_boundary: false,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result =
+            unsafe { sys::ghostty_terminal_select_line(self.raw, &options, &mut selection) };
+        if result == sys::GHOSTTY_NO_VALUE {
+            self.clear_selection();
+            return Ok(None);
+        }
+        check(result)?;
+        self.install_selection(&selection)?;
+        self.selection_snapshot(&selection).map(Some)
+    }
+
+    pub fn adjust_selection(
+        &mut self,
+        adjustment: SelectionAdjustment,
+    ) -> Result<Option<SelectionSnapshot>> {
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let current = unsafe {
+            sys::ghostty_terminal_get(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_DATA_SELECTION,
+                (&mut selection as *mut sys::GhosttySelection).cast(),
+            )
+        };
+        if current == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(current)?;
+        check(unsafe {
+            sys::ghostty_terminal_selection_adjust(self.raw, &mut selection, adjustment.raw())
+        })?;
+        self.install_selection(&selection)?;
+        self.selection_snapshot(&selection).map(Some)
+    }
+
+    /// Search retained screen history, install one newest-first match as the
+    /// active selection, and place its first row inside the viewport.
+    pub fn search_select(&mut self, query: &str, match_index: usize) -> Result<SearchSelection> {
+        let options = sys::GhosttyTerminalSearchSelectOptions {
+            size: size_of::<sys::GhosttyTerminalSearchSelectOptions>(),
+            needle: query.as_ptr(),
+            needle_len: query.len(),
+            match_index,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let mut total_matches = 0;
+        let result = unsafe {
+            sys::ghostty_terminal_search_select(
+                self.raw,
+                &options,
+                &mut selection,
+                &mut total_matches,
+            )
+        };
+        if result == sys::GHOSTTY_NO_VALUE {
+            self.clear_selection();
+            return Ok(SearchSelection { total_matches, selection: None });
+        }
+        check(result)?;
+        self.install_selection(&selection)?;
+        let selection = self.selection_snapshot(&selection)?;
+        let viewport_rows = self.rows().max(1);
+        self.scroll_to_row(u64::from(
+            selection.top_left.row.saturating_sub(u32::from(viewport_rows / 2)),
+        ));
+        Ok(SearchSelection { total_matches, selection: Some(selection) })
+    }
+
+    fn install_selection(&mut self, selection: &sys::GhosttySelection) -> Result<()> {
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_SELECTION,
+                (selection as *const sys::GhosttySelection).cast(),
+            )
+        })
+    }
+
+    fn selection_snapshot(
+        &mut self,
+        selection: &sys::GhosttySelection,
+    ) -> Result<SelectionSnapshot> {
+        let start = self.selection_point(&selection.start)?;
+        let end = self.selection_point(&selection.end)?;
+        let (top_left, bottom_right) = if selection.rectangle {
+            (
+                SelectionPoint {
+                    column: start.column.min(end.column),
+                    row: start.row.min(end.row),
+                },
+                SelectionPoint {
+                    column: start.column.max(end.column),
+                    row: start.row.max(end.row),
+                },
+            )
+        } else if (start.row, start.column) <= (end.row, end.column) {
+            (start, end)
+        } else {
+            (end, start)
+        };
+        let text = self.selection_text_from_snapshot(selection)?;
+        Ok(SelectionSnapshot {
+            text,
+            start,
+            end,
+            top_left,
+            bottom_right,
+            rectangle: selection.rectangle,
+        })
+    }
+
+    fn selection_point(&self, grid_ref: &sys::GhosttyGridRef) -> Result<SelectionPoint> {
+        let mut point = sys::GhosttyPointCoordinate::default();
+        check(unsafe {
+            sys::ghostty_terminal_point_from_grid_ref(
+                self.raw,
+                grid_ref,
+                sys::GHOSTTY_POINT_TAG_SCREEN,
+                &mut point,
+            )
+        })?;
+        Ok(SelectionPoint { column: point.x, row: point.y })
+    }
+
+    fn selection_text_from_snapshot(
+        &mut self,
+        selection: &sys::GhosttySelection,
+    ) -> Result<String> {
+        let opts = sys::GhosttyFormatterTerminalOptions {
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
+            unwrap: true,
+            trim: true,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                ..Default::default()
+            },
+            selection,
+        };
+        Ok(String::from_utf8_lossy(&self.format(opts)?).into_owned())
     }
 
     /// Plain text of a selection range given in viewport coordinates

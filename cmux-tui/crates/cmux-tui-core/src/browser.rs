@@ -517,8 +517,21 @@ pub(crate) enum BrowserBootstrap {
     ExistingTarget { target_id: String, url: String },
 }
 
+#[cfg(test)]
 pub(crate) fn new_surface(
     id: SurfaceId,
+    url: String,
+    size: (u16, u16),
+    cell_pixels: (u16, u16),
+    opts: &SurfaceOptions,
+    mux: Weak<Mux>,
+) -> Arc<Surface> {
+    new_surface_with_uuid(id, crate::SurfaceUuid::new(), url, size, cell_pixels, opts, mux)
+}
+
+pub(crate) fn new_surface_with_uuid(
+    id: SurfaceId,
+    uuid: crate::SurfaceUuid,
     url: String,
     size: (u16, u16),
     cell_pixels: (u16, u16),
@@ -542,7 +555,7 @@ pub(crate) fn new_surface(
     #[cfg(not(test))]
     let worker_done_tx = None;
     let surface = Arc::new(Surface::Browser(BrowserSurface {
-        meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
+        meta: SurfaceMeta { id, uuid, name: Mutex::new(None), selection: Mutex::new(None) },
         session: Mutex::new(None),
         state: Mutex::new(BrowserState {
             latest_frame: None,
