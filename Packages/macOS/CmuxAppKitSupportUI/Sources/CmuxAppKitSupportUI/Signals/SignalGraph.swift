@@ -7,7 +7,11 @@
 @MainActor
 public final class SignalGraph {
     private weak var activeObserver: (any SignalObserver)?
-    private var pendingObservers: [ObjectIdentifier: any SignalObserver] = [:]
+    private var pendingObserverIDs: Set<ObjectIdentifier> = []
+    private var pendingMemos: [any SignalObserver] = []
+    private var pendingEffects: [any SignalObserver] = []
+    private var memoReadIndex = 0
+    private var effectReadIndex = 0
     private var batchDepth = 0
     private var isFlushing = false
 
@@ -55,13 +59,28 @@ public final class SignalGraph {
     /// Coalesces all writes in `updates` before recomputing memos and effects.
     ///
     /// - Parameter updates: Synchronous signal mutations to perform as one batch.
-    public func batch(_ updates: () -> Void) {
+    @discardableResult
+    public func batch<Result>(_ updates: () throws -> Result) rethrows -> Result {
         batchDepth += 1
-        updates()
-        batchDepth -= 1
-        if batchDepth == 0 {
-            flush()
+        defer {
+            batchDepth -= 1
+            if batchDepth == 0 {
+                flush()
+            }
         }
+        return try updates()
+    }
+
+    /// Runs `body` without recording signal reads as dependencies.
+    ///
+    /// Use this for diagnostics, invariant checks, and incidental reads that
+    /// must not change the active memo or effect's subscription set.
+    @discardableResult
+    public func untrack<Result>(_ body: () throws -> Result) rethrows -> Result {
+        let previousObserver = activeObserver
+        activeObserver = nil
+        defer { activeObserver = previousObserver }
+        return try body()
     }
 
     func track(_ dependency: any SignalDependency) {
@@ -80,24 +99,61 @@ public final class SignalGraph {
 
     func schedule(_ observers: [any SignalObserver]) {
         for observer in observers {
-            pendingObservers[ObjectIdentifier(observer)] = observer
+            let identifier = ObjectIdentifier(observer)
+            guard pendingObserverIDs.insert(identifier).inserted else { continue }
+            switch observer.observerKind {
+            case .memo:
+                pendingMemos.append(observer)
+            case .effect:
+                pendingEffects.append(observer)
+            }
         }
         if batchDepth == 0 {
             flush()
         }
     }
 
+    /// Settles a memo before a dependent memo reads it. The queued entry is
+    /// left in place and skipped later, keeping removal O(1).
+    func settle(_ observer: any SignalObserver) {
+        let identifier = ObjectIdentifier(observer)
+        guard pendingObserverIDs.remove(identifier) != nil else { return }
+        observer.run()
+    }
+
     private func flush() {
         guard !isFlushing else { return }
         isFlushing = true
-        defer { isFlushing = false }
-
-        while !pendingObservers.isEmpty {
-            guard let observer = pendingObservers.values.min(by: {
-                $0.schedulingPriority < $1.schedulingPriority
-            }) else { return }
-            pendingObservers.removeValue(forKey: ObjectIdentifier(observer))
-            observer.run()
+        defer {
+            isFlushing = false
+            compactQueues()
         }
+
+        while memoReadIndex < pendingMemos.count || effectReadIndex < pendingEffects.count {
+            drainMemos()
+            guard effectReadIndex < pendingEffects.count else { continue }
+            runIfPending(pendingEffects[effectReadIndex])
+            effectReadIndex += 1
+        }
+    }
+
+    private func drainMemos() {
+        while memoReadIndex < pendingMemos.count {
+            runIfPending(pendingMemos[memoReadIndex])
+            memoReadIndex += 1
+        }
+    }
+
+    private func runIfPending(_ observer: any SignalObserver) {
+        let identifier = ObjectIdentifier(observer)
+        guard pendingObserverIDs.remove(identifier) != nil else { return }
+        observer.run()
+    }
+
+    private func compactQueues() {
+        pendingMemos.removeAll(keepingCapacity: true)
+        pendingEffects.removeAll(keepingCapacity: true)
+        memoReadIndex = 0
+        effectReadIndex = 0
     }
 }

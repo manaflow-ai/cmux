@@ -96,6 +96,124 @@ import Testing
         withExtendedLifetime(effect) {}
     }
 
+    @Test func layeredDiamondsSettleEachMemoOncePerBatch() {
+        var duplicateSettlements = 0
+
+        // ObjectIdentifier-backed dictionary iteration is deliberately not a
+        // topological order. Exercise enough independent diamonds to prove the
+        // scheduler, rather than one lucky hash ordering, owns settlement.
+        for _ in 0..<200 {
+            let graph = SignalGraph()
+            let source = graph.createSignal(1)
+            var leftRuns = 0
+            var rightRuns = 0
+            var combinedRuns = 0
+            let left = graph.createMemo {
+                leftRuns += 1
+                return source.get() * 2
+            }
+            let right = graph.createMemo {
+                rightRuns += 1
+                return source.get() + 3
+            }
+            let combined = graph.createMemo {
+                combinedRuns += 1
+                return left.get() + right.get()
+            }
+            let effect = graph.createEffect { _ in
+                _ = combined.get()
+            }
+
+            graph.batch {
+                source.set(2)
+            }
+
+            #expect(leftRuns == 2)
+            #expect(rightRuns == 2)
+            if combinedRuns != 2 {
+                duplicateSettlements += 1
+            }
+            withExtendedLifetime(effect) {}
+        }
+
+        #expect(duplicateSettlements == 0)
+    }
+
+    @Test func cancellingDiamondsDoNotRunDownstreamEffects() {
+        var unnecessaryEffectRuns = 0
+
+        for _ in 0..<200 {
+            let graph = SignalGraph()
+            let source = graph.createSignal(1)
+            let positive = graph.createMemo { source.get() }
+            let negative = graph.createMemo { -source.get() }
+            let sum = graph.createMemo { positive.get() + negative.get() }
+            var effectRuns = 0
+            let effect = graph.createEffect { _ in
+                _ = sum.get()
+                effectRuns += 1
+            }
+
+            source.set(2)
+
+            if effectRuns != 1 {
+                unnecessaryEffectRuns += 1
+            }
+            #expect(sum.get() == 0)
+            withExtendedLifetime(effect) {}
+        }
+
+        #expect(unnecessaryEffectRuns == 0)
+    }
+
+    @Test func untrackedReadDoesNotBecomeAnEffectDependency() {
+        let graph = SignalGraph()
+        let tracked = graph.createSignal(0)
+        let incidental = graph.createSignal(0)
+        var effectRuns = 0
+        let effect = graph.createEffect { _ in
+            _ = tracked.get()
+            _ = graph.untrack { incidental.get() }
+            effectRuns += 1
+        }
+
+        incidental.set(1)
+        #expect(effectRuns == 1)
+
+        tracked.set(1)
+        #expect(effectRuns == 2)
+        withExtendedLifetime(effect) {}
+    }
+
+    @Test func throwingBatchRestoresPropagation() {
+        enum TestError: Error {
+            case expected
+        }
+
+        let graph = SignalGraph()
+        let value = graph.createSignal(0)
+        var observedValues: [Int] = []
+        let effect = graph.createEffect { _ in
+            observedValues.append(value.get())
+        }
+
+        do {
+            try graph.batch {
+                value.set(1)
+                throw TestError.expected
+            }
+        } catch TestError.expected {
+            // The batch must flush and restore its nesting depth on error.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        value.set(2)
+
+        #expect(observedValues == [0, 1, 2])
+        withExtendedLifetime(effect) {}
+    }
+
     @Test func cleanupRunsBeforeRerunAndOnDispose() {
         let graph = SignalGraph()
         let value = graph.createSignal(0)

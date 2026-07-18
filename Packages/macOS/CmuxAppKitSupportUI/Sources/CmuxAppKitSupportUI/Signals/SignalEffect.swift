@@ -1,7 +1,7 @@
 /// A disposable side effect that automatically follows the signals it reads.
 @MainActor
 public final class SignalEffect: SignalObserver {
-    let schedulingPriority = 1
+    let observerKind = SignalObserverKind.effect
 
     private let graph: SignalGraph
     private let body: @MainActor (SignalEffectContext) -> Void

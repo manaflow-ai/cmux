@@ -1,4 +1,5 @@
 import Combine
+import CmuxAppKitSupportUI
 import CmuxCore
 import CmuxWorkspaces
 import Foundation
@@ -28,7 +29,8 @@ extension View {
         debouncedInterval: RunLoop.SchedulerTimeType.Stride,
         onChange: @MainActor @escaping (UUID) -> Void
     ) -> some View {
-        task(id: ids) { @MainActor in
+        sidebarWorkspaceCustomTitleSignals(ids: ids, workspaces: workspaces, onChange: onChange)
+        .task(id: ids) { @MainActor in
             await withTaskGroup(of: Void.self) { group in
                 for (id, workspace) in zip(ids, workspaces) {
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
@@ -52,6 +54,20 @@ extension View {
                 }
             }
         }
+    }
+
+    func sidebarWorkspaceCustomTitleSignals(
+        ids: [UUID],
+        workspaces: [Workspace],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        modifier(
+            SidebarWorkspaceCustomTitleSignalModifier(
+                ids: ids,
+                workspaces: workspaces,
+                onChange: onChange
+            )
+        )
     }
 
     func sidebarAgentRuntimeObservation(
@@ -155,8 +171,52 @@ extension View {
     }
 }
 
+@MainActor
+private final class SidebarWorkspaceCustomTitleSignalOwner: ObservableObject {
+    private var effects: [SignalEffect] = []
+
+    func bind(
+        ids: [UUID],
+        workspaces: [Workspace],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) {
+        dispose()
+        effects = zip(ids, workspaces).map { id, workspace in
+            workspace.observeSidebarCustomTitle { _ in
+                onChange(id)
+            }
+        }
+    }
+
+    func dispose() {
+        effects.forEach { $0.dispose() }
+        effects.removeAll(keepingCapacity: true)
+    }
+}
+
+private struct SidebarWorkspaceCustomTitleSignalModifier: ViewModifier {
+    let ids: [UUID]
+    let workspaces: [Workspace]
+    let onChange: @MainActor (UUID) -> Void
+
+    @StateObject private var owner = SidebarWorkspaceCustomTitleSignalOwner()
+
+    func body(content: Content) -> some View {
+        let workspaceIdentities = workspaces.map(ObjectIdentifier.init)
+        content
+            .onAppear {
+                owner.bind(ids: ids, workspaces: workspaces, onChange: onChange)
+            }
+            .onChange(of: workspaceIdentities) { _, _ in
+                owner.bind(ids: ids, workspaces: workspaces, onChange: onChange)
+            }
+            .onDisappear {
+                owner.dispose()
+            }
+    }
+}
+
 private struct SidebarImmediateObservationState: Equatable {
-    let customTitle: String?
     let customDescription: String?
     let isPinned: Bool
     let customColor: String?
@@ -202,8 +262,7 @@ extension Workspace {
     // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.
     static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
-        let workspaceFields = Publishers.CombineLatest4(
-            $customTitle,
+        let workspaceFields = Publishers.CombineLatest3(
             $customDescription,
             $isPinned,
             $customColor
@@ -226,10 +285,9 @@ extension Workspace {
             .combineLatest(conversationFields, todoFields)
             .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
-                    customTitle: workspaceFields.0,
-                    customDescription: workspaceFields.1,
-                    isPinned: workspaceFields.2,
-                    customColor: workspaceFields.3,
+                    customDescription: workspaceFields.0,
+                    isPinned: workspaceFields.1,
+                    customColor: workspaceFields.2,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,

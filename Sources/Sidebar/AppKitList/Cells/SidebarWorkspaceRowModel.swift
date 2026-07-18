@@ -14,7 +14,7 @@ struct SidebarWorkspaceRowModel: Equatable {
     let index: Int
     let snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
     let settings: SidebarTabItemSettingsSnapshot
-    // `var` (not `let`) so the optimistic press/deselect paint can apply a
+    // `var` (not `let`) so the optimistic mouse-up/deselect paint can apply a
     // selection-flipped copy of the model; the stored model stays
     // authoritative and reconciles on the next configure.
     var isActive: Bool
@@ -42,6 +42,34 @@ struct SidebarWorkspaceRowModel: Equatable {
 
     func scaled(_ base: CGFloat) -> CGFloat {
         GlobalFontMagnification.scaledSize(base * fontScale, percent: globalFontMagnificationPercent)
+    }
+
+    func replacingSnapshot(_ snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot) -> Self {
+        Self(
+            workspaceId: workspaceId,
+            index: index,
+            snapshot: snapshot,
+            settings: settings,
+            isActive: isActive,
+            isMultiSelected: isMultiSelected,
+            canCloseWorkspace: canCloseWorkspace,
+            accessibilityWorkspaceCount: accessibilityWorkspaceCount,
+            unreadCount: unreadCount,
+            latestNotificationText: latestNotificationText,
+            showsAgentActivity: showsAgentActivity,
+            rowSpacing: rowSpacing,
+            isBeingDragged: isBeingDragged,
+            topDropIndicatorVisible: topDropIndicatorVisible,
+            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+            isGrouped: isGrouped,
+            isFirstRow: isFirstRow,
+            shortcutHintText: shortcutHintText,
+            showsShortcutHints: showsShortcutHints,
+            colorSchemeIsDark: colorSchemeIsDark,
+            globalFontMagnificationPercent: globalFontMagnificationPercent,
+            isChecklistExpanded: isChecklistExpanded,
+            checklistAddFieldActivationToken: checklistAddFieldActivationToken
+        )
     }
 }
 

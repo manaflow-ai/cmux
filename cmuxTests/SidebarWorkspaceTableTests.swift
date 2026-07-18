@@ -12,6 +12,33 @@ import Testing
 struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
+    func appKitRowRenameEnterCommitsSignalDraftInsteadOfStaleControlText() {
+        let field = SidebarRowInlineRenameField()
+        var committedTitle: String?
+        field.onCommit = { committedTitle = $0 }
+        field.beginInlineRename(with: "Original")
+
+        field.stringValue = "Renamed"
+        field.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+        // AppKit can still expose the pre-edit control value while dispatching
+        // the Return command. Resolution must read the signal-owned draft.
+        field.stringValue = "Original"
+        let editor = NSTextView()
+        editor.string = "Original"
+
+        let handled = field.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+
+        #expect(handled)
+        #expect(committedTitle == "Renamed")
+    }
+
+    @Test
+    @MainActor
     func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let column = try #require(container.tableView.tableColumns.first)

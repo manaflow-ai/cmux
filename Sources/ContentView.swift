@@ -11677,7 +11677,17 @@ struct VerticalTabsSidebar: View, Equatable {
             actions: rowActions,
             groupId: input.groupId,
             isPinned: input.workspace.isPinned,
-            environment: environment
+            environment: environment,
+            workspace: tab,
+            rebuild: { [weak tab] in
+                guard let tab else { return model }
+                let snapshot = makeWorkspaceSnapshot(
+                    workspace: tab,
+                    settings: input.settings,
+                    showsAgentActivity: input.showsAgentActivity
+                )
+                return model.replacingSnapshot(snapshot)
+            }
         )
     }
 
@@ -11694,6 +11704,12 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
+            .sidebarWorkspaceCustomTitleSignals(
+                ids: renderContext.workspaceIds,
+                workspaces: renderContext.tabs
+            ) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
             .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
             .onChange(of: renderContext.workspaceIds) { _, _ in
@@ -13618,6 +13634,8 @@ struct VerticalTabsSidebar: View, Equatable {
             )
         }
 
+        let customTitleState = tab.sidebarCustomTitleState
+
         let todoStatusResolution = WorkspaceTaskStatusOverride.effectiveStatus(
             override: tab.todoState.statusOverride,
             inferred: tab.inferredTaskStatus
@@ -13637,10 +13655,10 @@ struct VerticalTabsSidebar: View, Equatable {
             workspace: workspaceSnapshot,
             isActive: tabManager.selectedTabId == tab.id,
             isMultiSelected: selectedTabIds.contains(tab.id),
-            hasUserCustomTitle: tab.effectiveCustomTitleSource == .user,
-            hasCustomTitle: tab.hasCustomTitle,
+            hasUserCustomTitle: customTitleState.source == .user,
+            hasCustomTitle: customTitleState.hasTitle,
             hasCustomDescription: tab.hasCustomDescription,
-            customTitle: tab.customTitle,
+            customTitle: customTitleState.title,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount

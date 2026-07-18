@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import Foundation
 
 /// Title and description ownership: which of the process title, the custom
@@ -6,6 +7,13 @@ import Foundation
 /// observation stream.
 extension Workspace {
     // MARK: - Title Management
+
+    struct SidebarCustomTitleState: Equatable {
+        let title: String?
+        let source: CustomTitleSource?
+
+        var hasTitle: Bool { title != nil }
+    }
 
     /// Who set a custom title. Auto-naming (AI-generated titles) must never
     /// overwrite a user-set title; this enum carries that distinction for
@@ -26,6 +34,30 @@ extension Workspace {
     /// provenance was never recorded (pre-provenance snapshots, carried moves).
     var effectiveCustomTitleSource: CustomTitleSource? {
         hasCustomTitle ? (customTitleSource ?? .user) : nil
+    }
+
+    /// Atomic custom-title state consumed by sidebar snapshots and AppKit rows.
+    /// The legacy `@Published` fields remain persistence/model mirrors; sidebar
+    /// rendering observes this signal so it never reads a half-written rename.
+    var sidebarCustomTitleState: SidebarCustomTitleState {
+        sidebarCustomTitleSignal.get()
+    }
+
+    var sidebarDisplayTitle: String {
+        sidebarCustomTitleState.title ?? title
+    }
+
+    func observeSidebarCustomTitle(
+        _ body: @escaping @MainActor (SidebarCustomTitleState) -> Void
+    ) -> SignalEffect {
+        sidebarCustomTitleSignalGraph.createEffect { [weak self] _ in
+            guard let self else { return }
+            body(self.sidebarCustomTitleSignal.get())
+        }
+    }
+
+    private func publishSidebarCustomTitle(_ title: String?, source: CustomTitleSource?) {
+        sidebarCustomTitleSignal.set(SidebarCustomTitleState(title: title, source: source))
     }
 
     var hasCustomDescription: Bool {
@@ -139,14 +171,16 @@ extension Workspace {
             if customTitle != nil {
                 sidebarProcessTitleObservation.cancelPendingProcessTitleChange()
             }
-            customTitle = nil
-            customTitleSource = nil
             self.title = processTitle
+            customTitleSource = nil
+            customTitle = nil
+            publishSidebarCustomTitle(nil, source: nil)
         } else {
             sidebarProcessTitleObservation.cancelPendingProcessTitleChange()
-            customTitle = trimmed
-            customTitleSource = source
             self.title = trimmed
+            customTitleSource = source
+            customTitle = trimmed
+            publishSidebarCustomTitle(trimmed, source: source)
         }
         return true
     }

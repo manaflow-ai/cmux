@@ -1,7 +1,7 @@
 /// A cached read-only reactive value derived from other signals or memos.
 @MainActor
 public final class SignalMemo<Value: Equatable>: SignalDependency, SignalObserver {
-    let schedulingPriority = 0
+    let observerKind = SignalObserverKind.memo
 
     private let graph: SignalGraph
     private let compute: @MainActor () -> Value
@@ -19,6 +19,7 @@ public final class SignalMemo<Value: Equatable>: SignalDependency, SignalObserve
     ///
     /// - Returns: The most recently computed value.
     public func get() -> Value {
+        graph.settle(self)
         graph.track(self)
         return cachedValue
     }
