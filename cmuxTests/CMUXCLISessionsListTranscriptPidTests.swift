@@ -68,6 +68,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let sessions = try #require(object["sessions"] as? [[String: Any]])
         let session = try #require(sessions.first)
         #expect(session["session_id"] as? String == sessionId)
+        #expect(session["transcript_backed"] as? Bool == transcriptMatchesSession)
         #expect(session["hook_record_restorable"] as? Bool == transcriptMatchesSession)
         #expect(session["fork_command_available"] as? Bool == transcriptMatchesSession)
         #expect(session["fork_supported"] as? Bool == transcriptMatchesSession)

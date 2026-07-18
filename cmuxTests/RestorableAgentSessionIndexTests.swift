@@ -561,6 +561,59 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
     }
 
+    @Test
+    func testClaudeForkIgnoresStaleExplicitTranscriptPathWhenExactLookupSucceeds() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-fork-stale-path-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let launchCwd = root.appendingPathComponent("repo.main", isDirectory: true)
+        let driftedCwd = root.appendingPathComponent("worktree", isDirectory: true)
+        try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: driftedCwd, withIntermediateDirectories: true)
+
+        let sessionId = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+        let realProjectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(launchCwd.path),
+            isDirectory: true
+        )
+        let realTranscriptURL = realProjectDir.appendingPathComponent("\(sessionId).jsonl")
+        try writeClaudeTranscript(sessionId: sessionId, transcriptURL: realTranscriptURL, cwd: launchCwd)
+        let staleProjectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(driftedCwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: staleProjectDir, withIntermediateDirectories: true)
+        let staleTranscriptURL = staleProjectDir.appendingPathComponent("\(sessionId).jsonl")
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                sessionId: driftedHookRecord(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: driftedCwd.path,
+                    launchCwd: launchCwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: staleTranscriptURL.path,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        let snapshot = try #require(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        #expect(snapshot.workingDirectory == launchCwd.path)
+        #expect(snapshot.resumeCommand?.contains("cd -- '\(launchCwd.path)'") == true)
+        #expect(snapshot.resumeCommand?.contains(driftedCwd.path) == false)
+    }
+
     // The transcript exists but its project directory encodes to neither the launch cwd nor the
     // drifted cwd (an out-of-tree transcript_path), and the config dir holds no matching project
     // folder, so neither verifier can confirm a candidate. Resolution must still prefer the launch
@@ -1271,6 +1324,54 @@ struct RestorableAgentSessionIndexTests {
         #expect(
             index.snapshot(workspaceId: workspaceId, panelId: panelId) == nil,
             "A transcript path for another session must not authorize restore"
+        )
+    }
+
+    @Test(arguments: [
+        " session-id",
+        "session-id ",
+        "\tsession-id",
+        "session-id\n",
+    ])
+    func testClaudeSessionRejectsIdentityChangedByWhitespaceNormalization(
+        rawSessionId: String
+    ) throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-raw-session-id-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(expectedClaudeProjectDirName(cwd.path), isDirectory: true)
+            .appendingPathComponent("session-id.jsonl", isDirectory: false)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try writeClaudeTranscript(sessionId: "session-id", transcriptURL: transcriptURL, cwd: cwd)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                rawSessionId: hookRecord(
+                    sessionId: rawSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: transcriptURL.path,
+                    isRestorable: true,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        #expect(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId) == nil,
+            "Claude restore must preserve the hook's exact session identifier"
         )
     }
 
