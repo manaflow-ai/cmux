@@ -45,16 +45,30 @@ struct AgentHookSessionRegistryBridge {
             registryURL = URL(fileURLWithPath: stateDirectory, isDirectory: true)
                 .appendingPathComponent(CmuxAgentSessionRegistry.filename, isDirectory: false)
         }
-        return try? CmuxAgentSessionRegistry(url: registryURL).snapshotsImportingLegacy(
-            sources: specifications.map { specification in
-                CmuxAgentSessionRegistry.LegacySource(
-                    provider: specification.provider,
-                    url: URL(fileURLWithPath: stateDirectory, isDirectory: true)
-                        .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
-                )
-            },
-            fileManager: fileManager
-        )
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let sources = specifications.map { specification in
+            CmuxAgentSessionRegistry.LegacySource(
+                provider: specification.provider,
+                url: URL(fileURLWithPath: stateDirectory, isDirectory: true)
+                    .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
+            )
+        }
+        do {
+            return try registry.snapshotsImportingLegacy(
+                sources: sources,
+                fileManager: fileManager
+            )
+        } catch {
+            var recovered: [String: CmuxAgentSessionRegistry.Snapshot] = [:]
+            for source in sources {
+                recovered[source.provider] = (try? registry.snapshotImportingLegacy(
+                    provider: source.provider,
+                    legacyURL: source.url,
+                    fileManager: fileManager
+                )) ?? (try? registry.snapshot(provider: source.provider))
+            }
+            return recovered.isEmpty ? nil : recovered
+        }
     }
 
     func load(decoder: JSONDecoder = JSONDecoder()) -> ClaudeHookSessionStoreFile {
@@ -67,7 +81,12 @@ struct AgentHookSessionRegistryBridge {
             return try decode(snapshot, decoder: decoder)
         } catch {
             // Hook reads must remain available when the bounded SQLite busy
-            // timeout expires. Writers never use this fallback for commits.
+            // timeout expires. A corrupt compatibility projection keeps the
+            // last complete SQLite snapshot visible. Writers still fail closed.
+            if let snapshot = try? registry.snapshot(provider: provider),
+               let state = try? decode(snapshot, decoder: decoder) {
+                return state
+            }
             return readLegacy(decoder: decoder)
         }
     }
