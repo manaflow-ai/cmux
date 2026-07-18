@@ -95,6 +95,81 @@ import Testing
         #expect(recorded.contains("CLAUDE_CODE_USE_VERTEX=1"), Comment(rawValue: recorded))
     }
 
+    @Test func bundledClaudeWrapperUsesGeneratedNativeHookSettings() throws {
+        let fileManager = FileManager.default
+        let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let wrapperURL = repoRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
+        #expect(fileManager.isExecutableFile(atPath: wrapperURL.path))
+        guard fileManager.isExecutableFile(atPath: wrapperURL.path) else { return }
+
+        let sandbox = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-claude-native-hooks-\(String(UUID().uuidString.prefix(8)))", isDirectory: true)
+        let binDir = sandbox.appendingPathComponent("bin", isDirectory: true)
+        let homeDir = sandbox.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: homeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let socketURL = sandbox.appendingPathComponent("cmux.sock", isDirectory: false)
+        let socketFD = try bindUnixSocket(at: socketURL.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketURL.path)
+        }
+
+        let claudeRecordURL = sandbox.appendingPathComponent("claude-argv.txt", isDirectory: false)
+        let cmuxRecordURL = sandbox.appendingPathComponent("cmux-argv.txt", isDirectory: false)
+        try writeExecutable(
+            binDir.appendingPathComponent("claude", isDirectory: false),
+            """
+            #!/usr/bin/env bash
+            printf '%s\n' "$@" > \(shellQuotedForTest(claudeRecordURL.path))
+            """
+        )
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        try writeExecutable(
+            fakeCmuxURL,
+            """
+            #!/usr/bin/env bash
+            printf '%s\n' "$*" >> \(shellQuotedForTest(cmuxRecordURL.path))
+            if [[ "${1:-}" == "--socket" && "${3:-}" == "ping" ]]; then
+              exit 0
+            fi
+            if [[ "$*" == "hooks claude inject-settings" ]]; then
+              printf '%s' '{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"/tmp/cmux-native-sentinel","timeout":1}]}]}}'
+              exit 0
+            fi
+            exit 1
+            """
+        )
+
+        let process = Process()
+        process.executableURL = wrapperURL
+        process.environment = [
+            "PATH": "\(binDir.path):/usr/bin:/bin",
+            "HOME": homeDir.path,
+            "TMPDIR": sandbox.path,
+            "CMUX_SURFACE_ID": UUID().uuidString,
+            "CMUX_SOCKET_PATH": socketURL.path,
+            "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(process, shellDescription: "cmux-claude-wrapper native hook settings")
+
+        let claudeArguments = try String(contentsOf: claudeRecordURL, encoding: .utf8)
+        let cmuxArguments = try String(contentsOf: cmuxRecordURL, encoding: .utf8)
+        #expect(
+            cmuxArguments.contains("hooks claude inject-settings"),
+            "The wrapper must ask the bundled CLI for content-addressed native hook settings: \(cmuxArguments)"
+        )
+        #expect(
+            claudeArguments.contains("/tmp/cmux-native-sentinel"),
+            "The wrapper must pass the generated settings to Claude: \(claudeArguments)"
+        )
+    }
+
     private func runWithBoundedWait(
         _ process: Process,
         shellDescription: String,
