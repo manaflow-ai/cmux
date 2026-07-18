@@ -6,7 +6,25 @@ struct SimulatorPaneToolbar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            devicePicker
+            SimulatorDevicePicker(
+                snapshot: simulatorDevicePickerSnapshot(
+                    devices: coordinator.devices,
+                    selectedDeviceID: coordinator.selectedDeviceID,
+                    localizedState: {
+                        String(localized: simulatorStrings.deviceState($0))
+                    }
+                ),
+                coordinatorIdentity: ObjectIdentifier(coordinator),
+                actions: SimulatorDevicePickerActions(
+                    select: { coordinator.selectDevice(id: $0) },
+                    refresh: {
+                        coordinator.scheduleControlAction("reload-devices") {
+                            _ = await $0.reloadDevices()
+                        }
+                    }
+                )
+            )
+            .equatable()
             statusView
             Spacer(minLength: 8)
             controlButtons
@@ -24,44 +42,89 @@ struct SimulatorPaneToolbar: View {
         .frame(height: 36)
     }
 
-    private var devicePicker: some View {
+}
+
+struct SimulatorDevicePickerSnapshot: Equatable {
+    struct Row: Identifiable, Equatable {
+        let id: String
+        let label: String
+        let isSelected: Bool
+    }
+
+    let rows: [Row]
+    let selectedDeviceName: String
+    let selectedDeviceSymbol: String
+}
+
+func simulatorDevicePickerSnapshot(
+    devices: [SimulatorDevice],
+    selectedDeviceID: String?,
+    localizedState: (SimulatorDeviceState) -> String
+) -> SimulatorDevicePickerSnapshot {
+    let selectedDevice = devices.first(where: { $0.id == selectedDeviceID })
+    return SimulatorDevicePickerSnapshot(
+        rows: devices.map { device in
+            SimulatorDevicePickerSnapshot.Row(
+                id: device.id,
+                label: simulatorDeviceRowLabel(
+                    device,
+                    among: devices,
+                    localizedState: localizedState(device.state)
+                ),
+                isSelected: device.id == selectedDeviceID
+            )
+        },
+        selectedDeviceName: selectedDevice?.name
+            ?? String(localized: simulatorStrings.chooseDevice),
+        selectedDeviceSymbol: selectedDevice?.family == .iPad ? "ipad" : "iphone"
+    )
+}
+
+private struct SimulatorDevicePickerActions {
+    let select: (String) -> Void
+    let refresh: () -> Void
+}
+
+private struct SimulatorDevicePicker: View, Equatable {
+    let snapshot: SimulatorDevicePickerSnapshot
+    let coordinatorIdentity: ObjectIdentifier
+    let actions: SimulatorDevicePickerActions
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.snapshot == rhs.snapshot
+            && lhs.coordinatorIdentity == rhs.coordinatorIdentity
+    }
+
+    var body: some View {
         Menu {
-            if coordinator.devices.isEmpty {
-                Button(simulatorStrings.refresh) {
-                    coordinator.scheduleControlAction("reload-devices") { _ = await $0.reloadDevices() }
-                }
+            if snapshot.rows.isEmpty {
+                Button(simulatorStrings.refresh, action: actions.refresh)
             } else {
-                ForEach(coordinator.devices) { device in
-                    let label = simulatorDeviceRowLabel(
-                        device,
-                        among: coordinator.devices,
-                        localizedState: String(localized: simulatorStrings.deviceState(device.state))
-                    )
+                ForEach(snapshot.rows) { row in
                     Button {
-                        coordinator.selectDevice(id: device.id)
+                        actions.select(row.id)
                     } label: {
-                        if device.id == coordinator.selectedDeviceID {
-                            Label(label, systemImage: "checkmark")
+                        if row.isSelected {
+                            Label(row.label, systemImage: "checkmark")
                         } else {
-                            Text(label)
+                            Text(row.label)
                         }
                     }
                 }
                 Divider()
-                Button(simulatorStrings.refresh) {
-                    coordinator.scheduleControlAction("reload-devices") { _ = await $0.reloadDevices() }
-                }
+                Button(simulatorStrings.refresh, action: actions.refresh)
             }
         } label: {
-            Label(selectedDeviceName, systemImage: selectedDeviceSymbol)
+            Label(snapshot.selectedDeviceName, systemImage: snapshot.selectedDeviceSymbol)
                 .lineLimit(1)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
     }
+}
 
-    @ViewBuilder
-    private var statusView: some View {
+private extension SimulatorPaneToolbar {
+    @ViewBuilder var statusView: some View {
         switch coordinator.status {
         case .idle:
             Label(simulatorStrings.selectToStart, systemImage: "circle")
@@ -92,7 +155,7 @@ struct SimulatorPaneToolbar: View {
         }
     }
 
-    private var controlButtons: some View {
+    var controlButtons: some View {
         HStack(spacing: 4) {
             toolbarButton(simulatorStrings.rotateLeft, symbol: "rotate.left", action: coordinator.rotateLeft)
                 .disabled(!coordinator.supports(.rotation))
@@ -109,7 +172,7 @@ struct SimulatorPaneToolbar: View {
         }
     }
 
-    private func toolbarButton(
+    func toolbarButton(
         _ label: LocalizedStringResource,
         symbol: String,
         action: @escaping () -> Void
@@ -119,18 +182,6 @@ struct SimulatorPaneToolbar: View {
         }
         .buttonStyle(.borderless)
         .help(label)
-    }
-
-    private var selectedDeviceName: String {
-        coordinator.devices.first(where: { $0.id == coordinator.selectedDeviceID })?.name
-            ?? String(localized: simulatorStrings.chooseDevice)
-    }
-
-    private var selectedDeviceSymbol: String {
-        switch coordinator.devices.first(where: { $0.id == coordinator.selectedDeviceID })?.family {
-        case .iPad: "ipad"
-        default: "iphone"
-        }
     }
 
 }

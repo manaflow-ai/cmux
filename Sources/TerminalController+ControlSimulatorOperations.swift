@@ -63,6 +63,9 @@ extension TerminalController {
         do {
             if case .selectDevice = operation {
                 await coordinator.prepareForExplicitDeviceSelection()
+            } else if case .context = operation, persistedDeviceID != nil {
+                // Persisted identity is enough for a read-only context query.
+                // Leave a stopped pane stopped instead of booting its device.
             } else {
                 await coordinator.start()
             }
