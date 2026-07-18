@@ -634,6 +634,8 @@ struct CLIHookNoResponseTests {
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_AGENT_HOOK_DELIVERY_ID": "native-admission-deadline",
+                "OPENAI_API_KEY": "provider-test-key",
+                "UNRELATED_OVERSIZED_VALUE": String(repeating: "x", count: 129 * 1_024),
                 "CMUX_TEST_FALLBACK_ARGS": fallbackArgs.path,
                 "CMUX_TEST_LEADER_PID": leaderPIDFile.path,
                 "CMUX_TEST_DESCENDANT_PID": descendantPIDFile.path,
@@ -657,6 +659,10 @@ struct CLIHookNoResponseTests {
         #expect(params["delivery_id"] as? String == "native-admission-deadline")
         let encodedPayload = try #require(params["payload_b64"] as? String)
         #expect(Data(base64Encoded: encodedPayload) == Data(payload.utf8))
+        let event = try #require(AgentHookDeliveryEvent(params: params))
+        #expect(event.environment["CMUX_SURFACE_ID"] == "22222222-2222-2222-2222-222222222222")
+        #expect(event.environment["OPENAI_API_KEY"] == "provider-test-key")
+        #expect(event.environment["UNRELATED_OVERSIZED_VALUE"] == nil)
         let markerFields = String(decoding: record.marker, as: UTF8.self)
             .split(separator: "\n")
             .map { String($0) }

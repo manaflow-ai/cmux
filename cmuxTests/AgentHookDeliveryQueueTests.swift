@@ -613,6 +613,55 @@ struct AgentHookDeliveryQueueTests {
         ) == nil)
     }
 
+    @Test func transientSecretReadFailurePreservesActiveAuthorityForRecovery() async throws {
+        let root = try temporaryDirectory(named: "outbox-transient-secret-read")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let budgetURL = outboxURL.appendingPathComponent(".quota-v1")
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let audience = "com.cmuxterm.test.outbox-transient-secret-read"
+        let original = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: audience,
+            deliveryQueue: queue
+        ))
+        await original.stop()
+        let originalBudget = try Data(contentsOf: budgetURL)
+        let originalGeneration = originalBudget.subdata(in: 40..<56)
+
+        let injectionKey = "CMUX_TEST_AGENT_HOOK_OUTBOX_SECRET_READ_FAILURE_PATH"
+        #expect(setenv(injectionKey, outboxURL.path, 1) == 0)
+        var injectionInstalled = true
+        defer {
+            if injectionInstalled { unsetenv(injectionKey) }
+        }
+        #expect(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: audience,
+            deliveryQueue: queue
+        ) == nil)
+        let budgetAfterFailure = try Data(contentsOf: budgetURL)
+        #expect(budgetAfterFailure.subdata(in: 40..<56) == originalGeneration)
+        #expect(budgetAfterFailure[56] == 1)
+
+        unsetenv(injectionKey)
+        injectionInstalled = false
+        let recovered = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: audience,
+            deliveryQueue: queue
+        ))
+        let recoveredBudget = try Data(contentsOf: budgetURL)
+        #expect(recoveredBudget.subdata(in: 40..<56) == originalGeneration)
+        #expect(recoveredBudget[56] == 1)
+        await recovered.stop()
+    }
+
     @Test func pendingQueueHasFixedRowAndByteAdmissionBounds() async throws {
         let rowRoot = try temporaryDirectory(named: "pending-row-budget")
         defer { try? FileManager.default.removeItem(at: rowRoot) }
