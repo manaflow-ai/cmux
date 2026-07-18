@@ -1,8 +1,19 @@
 import type { TerminalVtFrame } from "./protocol";
+import {
+  MAX_FORMATTED_TERMINAL_HTML_BYTES,
+  MAX_LIVE_TERMINAL_SURFACES,
+  MAX_TERMINAL_CELLS,
+  MAX_TOTAL_TERMINAL_CELLS,
+} from "./terminalLimits";
 
 const GHOSTTY_SUCCESS = 0;
+const GHOSTTY_OUT_OF_SPACE = -3;
 const GHOSTTY_FORMATTER_FORMAT_HTML = 2;
-const MAX_FORMATTED_HTML_BYTES = 16 * 1_024 * 1_024;
+export const GHOSTTY_WASM_SHA256 = "8d56baad2c353299d1ec1dec38b69bc3915c7fe816f58b2b5365bbb6dbb3cdab";
+
+export function ghosttyWasmAssetURL(): string {
+  return `/ghostty-vt.wasm?v=${GHOSTTY_WASM_SHA256}`;
+}
 
 const RENDER_DATA_CURSOR_VISUAL_STYLE = 10;
 const RENDER_DATA_CURSOR_VISIBLE = 11;
@@ -72,6 +83,13 @@ export class GhosttyTerminalRenderer {
     return result;
   }
 
+  retainSurfaces(surfaceIds: Iterable<string>): Promise<void> {
+    const retained = new Set(surfaceIds);
+    const result = this.queue.then(() => this.retainSurfacesNow(retained));
+    this.queue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
   dispose(): void {
     this.disposed = true;
     for (const surface of this.surfaces.values()) surface.handle.dispose();
@@ -82,6 +100,8 @@ export class GhosttyTerminalRenderer {
   private async applyNow(frame: TerminalVtFrame): Promise<TerminalApplyResult> {
     if (this.disposed) return { status: "ignored" };
     const previous = this.surfaces.get(frame.surfaceId);
+
+    if (frame.columns * frame.rows > MAX_TERMINAL_CELLS) return { status: "ignored" };
 
     if (frame.kind === "patch") {
       if (this.awaitingResync.has(frame.surfaceId)) return { status: "waiting" };
@@ -109,6 +129,13 @@ export class GhosttyTerminalRenderer {
     }
 
     if (frame.kind === "snapshot") {
+      const activeCells = [...this.surfaces.values()].reduce(
+        (total, surface) => total + surface.columns * surface.rows,
+        0,
+      );
+      const projectedCells = activeCells - (previous ? previous.columns * previous.rows : 0) + frame.columns * frame.rows;
+      if ((!previous && this.surfaces.size >= MAX_LIVE_TERMINAL_SURFACES) ||
+          projectedCells > MAX_TOTAL_TERMINAL_CELLS) return { status: "ignored" };
       let handle: GhosttySurfaceHandle | null = null;
       try {
         const runtime = await this.loadRuntime();
@@ -142,6 +169,18 @@ export class GhosttyTerminalRenderer {
     if (this.awaitingResync.has(surfaceId)) return { status: "waiting" };
     this.awaitingResync.add(surfaceId);
     return { status: "resync", surfaceId };
+  }
+
+  private retainSurfacesNow(retained: ReadonlySet<string>): void {
+    if (this.disposed) return;
+    for (const [surfaceId, surface] of this.surfaces) {
+      if (retained.has(surfaceId)) continue;
+      surface.handle.dispose();
+      this.surfaces.delete(surfaceId);
+    }
+    for (const surfaceId of this.awaitingResync) {
+      if (!retained.has(surfaceId)) this.awaitingResync.delete(surfaceId);
+    }
   }
 }
 
@@ -208,9 +247,8 @@ type GhosttyExports = {
   readonly ghostty_terminal_free: (terminal: number) => void;
   readonly ghostty_terminal_vt_write: (terminal: number, data: number, length: number) => void;
   readonly ghostty_formatter_terminal_new: (allocator: number, output: number, terminal: number, options: number) => number;
-  readonly ghostty_formatter_format_alloc: (formatter: number, allocator: number, output: number, length: number) => number;
+  readonly ghostty_formatter_format_buf: (formatter: number, output: number, capacity: number, written: number) => number;
   readonly ghostty_formatter_free: (formatter: number) => void;
-  readonly ghostty_free: (allocator: number, pointer: number, length: number) => void;
   readonly ghostty_render_state_new: (allocator: number, output: number) => number;
   readonly ghostty_render_state_update: (state: number, terminal: number) => number;
   readonly ghostty_render_state_get: (state: number, data: number, output: number) => number;
@@ -219,13 +257,16 @@ type GhosttyExports = {
 };
 
 class GhosttyWasmRuntime implements GhosttyTerminalRuntime {
+  private liveSurfaceCount = 0;
+  private liveCellCount = 0;
+
   private constructor(
     private readonly wasm: GhosttyExports,
     private readonly layout: TypeLayout,
   ) {}
 
   static async load(): Promise<GhosttyWasmRuntime> {
-    const response = await fetch("/ghostty-vt.wasm", { cache: "force-cache" });
+    const response = await fetch(ghosttyWasmAssetURL(), { cache: "force-cache" });
     if (!response.ok) throw new Error(`ghostty_vt_fetch_${response.status}`);
     return GhosttyWasmRuntime.instantiate(await response.arrayBuffer());
   }
@@ -244,7 +285,22 @@ class GhosttyWasmRuntime implements GhosttyTerminalRuntime {
   }
 
   createSurface(columns: number, rows: number): GhosttySurfaceHandle {
-    return new GhosttyWasmSurface(this.wasm, this.layout, columns, rows);
+    const cells = columns * rows;
+    if (!Number.isSafeInteger(columns) || !Number.isSafeInteger(rows) ||
+        columns <= 0 || rows <= 0 || cells > MAX_TERMINAL_CELLS) {
+      throw new Error("ghostty_terminal_dimensions_exceeded");
+    }
+    if (this.liveSurfaceCount >= MAX_LIVE_TERMINAL_SURFACES ||
+        this.liveCellCount + cells > MAX_TOTAL_TERMINAL_CELLS) {
+      throw new Error("ghostty_terminal_capacity_exceeded");
+    }
+    const surface = new GhosttyWasmSurface(this.wasm, this.layout, columns, rows, () => {
+      this.liveSurfaceCount -= 1;
+      this.liveCellCount -= cells;
+    });
+    this.liveSurfaceCount += 1;
+    this.liveCellCount += cells;
+    return surface;
   }
 }
 
@@ -259,6 +315,7 @@ class GhosttyWasmSurface implements GhosttySurfaceHandle {
     private readonly layout: TypeLayout,
     columns: number,
     rows: number,
+    private readonly onDispose: () => void,
   ) {
     this.terminal = this.createTerminal(columns, rows);
     try {
@@ -305,9 +362,13 @@ class GhosttyWasmSurface implements GhosttySurfaceHandle {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.wasm.ghostty_render_state_free(this.renderState);
-    this.wasm.ghostty_formatter_free(this.formatter);
-    this.wasm.ghostty_terminal_free(this.terminal);
+    try {
+      this.wasm.ghostty_render_state_free(this.renderState);
+      this.wasm.ghostty_formatter_free(this.formatter);
+      this.wasm.ghostty_terminal_free(this.terminal);
+    } finally {
+      this.onDispose();
+    }
   }
 
   private createTerminal(columns: number, rows: number): number {
@@ -360,21 +421,7 @@ class GhosttyWasmSurface implements GhosttySurfaceHandle {
   }
 
   private formatHtml(): string {
-    const output = this.wasm.ghostty_wasm_alloc_opaque();
-    const outputLength = this.wasm.ghostty_wasm_alloc_usize();
-    let pointer = 0;
-    let length = 0;
-    try {
-      checkResult(this.wasm.ghostty_formatter_format_alloc(this.formatter, 0, output, outputLength), "formatter_format");
-      pointer = readU32(this.wasm, output);
-      length = readU32(this.wasm, outputLength);
-      if (length > MAX_FORMATTED_HTML_BYTES) throw new Error("ghostty_formatted_html_too_large");
-      return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(this.wasm.memory.buffer, pointer, length));
-    } finally {
-      if (pointer) this.wasm.ghostty_free(0, pointer, length);
-      this.wasm.ghostty_wasm_free_opaque(output);
-      this.wasm.ghostty_wasm_free_usize(outputLength);
-    }
+    return formatGhosttyHtmlBounded(this.wasm, this.formatter);
   }
 
   private readColors(): { background: string; foreground: string; cursor: string | null; palette: readonly string[] } {
@@ -478,6 +525,46 @@ class GhosttyWasmSurface implements GhosttySurfaceHandle {
   }
 }
 
+export type GhosttyFormatterBufferExports = {
+  readonly memory: WebAssembly.Memory;
+  readonly ghostty_wasm_alloc_u8_array: (length: number) => number;
+  readonly ghostty_wasm_free_u8_array: (pointer: number, length: number) => void;
+  readonly ghostty_wasm_alloc_usize: () => number;
+  readonly ghostty_wasm_free_usize: (pointer: number) => void;
+  readonly ghostty_formatter_format_buf: (formatter: number, output: number, capacity: number, written: number) => number;
+};
+
+export function formatGhosttyHtmlBounded(
+  wasm: GhosttyFormatterBufferExports,
+  formatter: number,
+  maximumBytes = MAX_FORMATTED_TERMINAL_HTML_BYTES,
+): string {
+  const outputLength = wasm.ghostty_wasm_alloc_usize();
+  let pointer = 0;
+  let capacity = 0;
+  try {
+    const queryResult = wasm.ghostty_formatter_format_buf(formatter, 0, 0, outputLength);
+    if (queryResult !== GHOSTTY_OUT_OF_SPACE && queryResult !== GHOSTTY_SUCCESS) {
+      throw new Error(`ghostty_formatter_size_${queryResult}`);
+    }
+    capacity = readU32(wasm, outputLength);
+    if (capacity > maximumBytes) throw new Error("ghostty_formatted_html_too_large");
+    if (capacity === 0) return "";
+
+    pointer = wasm.ghostty_wasm_alloc_u8_array(capacity);
+    if (!pointer) throw new Error("ghostty_formatter_buffer_alloc_failed");
+    checkResult(wasm.ghostty_formatter_format_buf(formatter, pointer, capacity, outputLength), "formatter_format");
+    const written = readU32(wasm, outputLength);
+    if (written > capacity) throw new Error("ghostty_formatter_output_overflow");
+    return new TextDecoder("utf-8", { fatal: true }).decode(
+      new Uint8Array(wasm.memory.buffer, pointer, written),
+    );
+  } finally {
+    if (pointer) wasm.ghostty_wasm_free_u8_array(pointer, capacity);
+    wasm.ghostty_wasm_free_usize(outputLength);
+  }
+}
+
 export function sanitizeGhosttyHtml(html: string, palette: readonly string[]): string {
   let output = "";
   let offset = 0;
@@ -508,6 +595,7 @@ function sanitizeStyle(style: string, palette: readonly string[]): string {
     if (colon <= 0) continue;
     const property = declaration.slice(0, colon).trim();
     let value = declaration.slice(colon + 1).trim();
+    if (property === "font-family" && value === "monospace") value = "inherit";
     value = value.replace(/var\(--vt-palette-(\d{1,3})\)/gu, (_match, rawIndex: string) => {
       const index = Number(rawIndex);
       return index >= 0 && index < 256 ? palette[index] ?? "#000000" : "#000000";
@@ -519,7 +607,7 @@ function sanitizeStyle(style: string, palette: readonly string[]): string {
 
 function safeStyleDeclaration(property: string, value: string): boolean {
   switch (property) {
-    case "font-family": return value === "monospace";
+    case "font-family": return value === "inherit";
     case "white-space": return value === "pre";
     case "display": return value === "inline";
     case "font-weight": return value === "bold";
@@ -569,9 +657,8 @@ function normalizeExports(exports: WebAssembly.Exports): GhosttyExports {
     "ghostty_terminal_free",
     "ghostty_terminal_vt_write",
     "ghostty_formatter_terminal_new",
-    "ghostty_formatter_format_alloc",
+    "ghostty_formatter_format_buf",
     "ghostty_formatter_free",
-    "ghostty_free",
     "ghostty_render_state_new",
     "ghostty_render_state_update",
     "ghostty_render_state_get",
@@ -601,7 +688,7 @@ function requiredField(struct: StructLayout, name: string): FieldLayout {
   return field;
 }
 
-function readU32(wasm: GhosttyExports, pointer: number): number {
+function readU32(wasm: { readonly memory: WebAssembly.Memory }, pointer: number): number {
   return new DataView(wasm.memory.buffer, pointer, 4).getUint32(0, true);
 }
 

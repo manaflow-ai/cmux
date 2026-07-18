@@ -17,8 +17,7 @@ final class WorkspaceShareExporter {
     private let sendFrame: SendFrame
     private let cursorOverlay: WorkspaceShareCursorOverlayController
     private var layoutRevision: UInt64 = 0
-    private var terminalGenerationBySurfaceID: [UUID: UInt64] = [:]
-    private var terminalSequenceBySurfaceID: [UUID: UInt64] = [:]
+    private var terminalTransportTracker = WorkspaceShareTerminalTransportTracker()
     private var terminalEmissionStateBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
     private var documentsByPanelID: [UUID: WorkspaceShareTextDocument] = [:]
     private var documentCounterByPanelID: [UUID: UInt64] = [:]
@@ -31,7 +30,7 @@ final class WorkspaceShareExporter {
     private var notificationObservers: [NSObjectProtocol] = []
     private var mouseMonitor: Any?
     private var previousAcceptsMouseMovedEvents: Bool?
-    private var pendingTerminalSurfaceIDs: Set<UUID> = []
+    private var terminalFlushBarrier = WorkspaceShareTerminalFlushBarrier()
     private var terminalFlushScheduled = false
     private var snapshotScheduled = false
     private var snapshotInFlight = false
@@ -41,6 +40,7 @@ final class WorkspaceShareExporter {
     private var lastBrowserDataURLByPanelID: [UUID: String] = [:]
     private var releaseRenderedFrameNotifications: (() -> Void)?
     private var releaseTickNotifications: (() -> Void)?
+    private var terminalSequenceTrackingID: UUID?
 
     init(
         workspace: Workspace,
@@ -58,6 +58,7 @@ final class WorkspaceShareExporter {
         guard let workspace else { return }
         releaseRenderedFrameNotifications = GhosttyNSView.retainRenderedFrameNotifications()
         releaseTickNotifications = GhosttyApp.retainTickNotifications()
+        terminalSequenceTrackingID = MobileTerminalByteTee.shared.retainSequenceTracking()
         attachWorkspaceObservers(workspace)
         attachTerminalObservers()
         attachTextSelectionObserver()
@@ -87,6 +88,10 @@ final class WorkspaceShareExporter {
         releaseRenderedFrameNotifications = nil
         releaseTickNotifications?()
         releaseTickNotifications = nil
+        if let terminalSequenceTrackingID {
+            MobileTerminalByteTee.shared.releaseSequenceTracking(terminalSequenceTrackingID)
+            self.terminalSequenceTrackingID = nil
+        }
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         mouseMonitor = nil
         if let window = tabManager?.window,
@@ -101,16 +106,20 @@ final class WorkspaceShareExporter {
     }
 
     func sendSnapshot() async {
-        guard !snapshotInFlight else {
+        guard !snapshotInFlight, !terminalFlushScheduled else {
             snapshotRequestedWhileInFlight = true
             return
         }
         snapshotInFlight = true
+        terminalFlushBarrier.beginSnapshot()
         defer {
+            terminalFlushBarrier.endSnapshot()
             snapshotInFlight = false
             if snapshotRequestedWhileInFlight {
                 snapshotRequestedWhileInFlight = false
                 scheduleSnapshot()
+            } else {
+                schedulePendingTerminalFlushIfReady()
             }
         }
         guard let emission = await snapshotPayload(),
@@ -495,15 +504,38 @@ final class WorkspaceShareExporter {
     }
 
     private func scheduleTerminalFlush(surfaceIDs: Set<UUID>) {
-        pendingTerminalSurfaceIDs.formUnion(surfaceIDs)
-        guard !terminalFlushScheduled else { return }
+        terminalFlushBarrier.enqueue(surfaceIDs)
+        schedulePendingTerminalFlushIfReady()
+    }
+
+    private func schedulePendingTerminalFlushIfReady() {
+        guard !terminalFlushScheduled,
+              !snapshotInFlight,
+              !snapshotScheduled else { return }
         terminalFlushScheduled = true
         Task { @MainActor [weak self] in
             guard let self else { return }
-            terminalFlushScheduled = false
-            let surfaceIDs = pendingTerminalSurfaceIDs
-            pendingTerminalSurfaceIDs.removeAll()
+            if snapshotInFlight || snapshotScheduled || snapshotRequestedWhileInFlight {
+                terminalFlushScheduled = false
+                if snapshotRequestedWhileInFlight, !snapshotInFlight, !snapshotScheduled {
+                    snapshotRequestedWhileInFlight = false
+                    scheduleSnapshot()
+                }
+                return
+            }
+            let surfaceIDs = terminalFlushBarrier.takePendingIfReady()
+            guard !surfaceIDs.isEmpty else {
+                terminalFlushScheduled = false
+                return
+            }
             await emitTerminalFrames(surfaceIDs: surfaceIDs)
+            terminalFlushScheduled = false
+            if snapshotRequestedWhileInFlight {
+                snapshotRequestedWhileInFlight = false
+                scheduleSnapshot()
+            } else {
+                schedulePendingTerminalFlushIfReady()
+            }
         }
     }
 
@@ -546,14 +578,12 @@ final class WorkspaceShareExporter {
         )
         refreshCursorCoordinateSpace(topology: topology)
         let selectedTerminalIDs = selectedTerminalPanelIDs(topology: topology)
-        terminalGenerationBySurfaceID = terminalGenerationBySurfaceID.filter {
-            selectedTerminalIDs.contains($0.key)
-        }
-        terminalSequenceBySurfaceID = terminalSequenceBySurfaceID.filter {
-            selectedTerminalIDs.contains($0.key)
-        }
+        let liveTerminalIDs = Set(topology.panes.flatMap(\.surfaceIDs).filter {
+            workspace.terminalPanel(for: $0) != nil
+        })
+        terminalTransportTracker.prune(keeping: Set(liveTerminalIDs.map(\.uuidString)))
         terminalEmissionStateBySurfaceID = terminalEmissionStateBySurfaceID.filter {
-            selectedTerminalIDs.contains($0.key)
+            liveTerminalIDs.contains($0.key)
         }
         let terminalVTFrames = selectedTerminalIDs.compactMap { panelID in
             workspace.terminalPanel(for: panelID).flatMap { renderFrame(panel: $0, reset: true) }
@@ -660,13 +690,12 @@ final class WorkspaceShareExporter {
         panel: TerminalPanel,
         reset: Bool
     ) -> WorkspaceShareTerminalVTFrame? {
-        let previousSequence = terminalSequenceBySurfaceID[panel.id] ?? 0
-        let sequenceOverflowed = previousSequence >= WorkspaceShareTerminalVTFrame.maximumSafeSequence
-        let sequence = sequenceOverflowed ? 1 : previousSequence + 1
-        let startsNewStream = reset || sequenceOverflowed || terminalGenerationBySurfaceID[panel.id] == nil
+        let surfaceID = panel.id.uuidString
+        let startsNewStream = reset || terminalTransportTracker.requiresSnapshot(surfaceId: surfaceID)
         let previousEmissionState = startsNewStream ? nil : terminalEmissionStateBySurfaceID[panel.id]
+        let sourceSequence = MobileTerminalByteTee.shared.currentSequence(surfaceID: panel.id) ?? 0
         guard let fullFrame = panel.surface.mobileRenderGridFrame(
-            stateSeq: sequence,
+            stateSeq: sourceSequence,
             full: true,
             includeTheme: startsNewStream || previousEmissionState == nil
         )?.frame,
@@ -675,31 +704,17 @@ final class WorkspaceShareExporter {
         ) else { return nil }
 
         let kind: WorkspaceShareTerminalVTFrame.Kind = emission.frame.full ? .snapshot : .patch
-        let previousGeneration = terminalGenerationBySurfaceID[panel.id] ?? 0
-        let generation: UInt64
-        if kind == .snapshot {
-            generation = previousGeneration >= WorkspaceShareTerminalVTFrame.maximumSafeSequence
-                ? 1
-                : previousGeneration + 1
-        } else {
-            guard previousGeneration > 0 else { return nil }
-            generation = previousGeneration
-        }
         let bytes = kind == .snapshot
             ? emission.frame.vtReplacementBytes()
             : emission.frame.vtPatchBytes()
-        guard let payload = try? WorkspaceShareTerminalVTFrame(
-            surfaceId: panel.id.uuidString,
-            generation: generation,
-            stateSeq: sequence,
+        guard let payload = try? terminalTransportTracker.makeFrame(
+            surfaceId: surfaceID,
+            kind: kind,
             columns: emission.frame.columns,
             rows: emission.frame.rows,
-            kind: kind,
             data: bytes
         ) else { return nil }
 
-        terminalGenerationBySurfaceID[panel.id] = generation
-        terminalSequenceBySurfaceID[panel.id] = sequence
         terminalEmissionStateBySurfaceID[panel.id] = emission.state
         return payload
     }

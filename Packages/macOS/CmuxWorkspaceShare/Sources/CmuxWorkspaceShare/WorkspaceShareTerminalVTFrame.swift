@@ -6,6 +6,8 @@ public struct WorkspaceShareTerminalVTFrame: Codable, Equatable, Sendable {
     public static let maximumDataBytes = 1_500_000
     /// Maximum terminal dimension accepted by the web terminal renderer.
     public static let maximumDimension = 1_000
+    /// Maximum number of cells allocated for one terminal viewport.
+    public static let maximumCells = 200_000
     /// Largest integer that JavaScript can represent without losing precision.
     public static let maximumSafeSequence: UInt64 = 9_007_199_254_740_991
 
@@ -48,7 +50,8 @@ public struct WorkspaceShareTerminalVTFrame: Codable, Equatable, Sendable {
             throw WorkspaceShareTerminalVTFrameError.invalidSequence
         }
         guard (1...Self.maximumDimension).contains(columns),
-              (1...Self.maximumDimension).contains(rows) else {
+              (1...Self.maximumDimension).contains(rows),
+              columns * rows <= Self.maximumCells else {
             throw WorkspaceShareTerminalVTFrameError.invalidDimensions
         }
         guard !data.isEmpty, data.count <= Self.maximumDataBytes else {

@@ -98,15 +98,21 @@ struct WorkspaceSharePendingSendBudgetTests {
     func rejectsCountAndByteOverflowUntilQueuedFramesDrain() {
         var budget = WorkspaceSharePendingSendBudget(maximumMessages: 2, maximumBytes: 10)
 
-        #expect(budget.reserve(byteCount: 4))
-        #expect(budget.reserve(byteCount: 6))
-        #expect(!budget.reserve(byteCount: 1))
+        let first = budget.reserve(byteCount: 4)
+        let second = budget.reserve(byteCount: 6)
+        let countOverflow = budget.reserve(byteCount: 1)
+        #expect(first)
+        #expect(second)
+        #expect(!countOverflow)
 
         budget.release(byteCount: 4)
-        #expect(budget.reserve(byteCount: 4))
-        #expect(!budget.reserve(byteCount: 1))
+        let replacement = budget.reserve(byteCount: 4)
+        let byteOverflow = budget.reserve(byteCount: 1)
+        #expect(replacement)
+        #expect(!byteOverflow)
 
         budget.reset()
-        #expect(budget.reserve(byteCount: 10))
+        let afterReset = budget.reserve(byteCount: 10)
+        #expect(afterReset)
     }
 }

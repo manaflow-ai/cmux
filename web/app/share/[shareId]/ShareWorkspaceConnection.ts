@@ -7,12 +7,14 @@ import {
   type ShareChatMessage,
   type ShareParticipant,
   type SharePointer,
+  type TerminalVtFrame,
   type TextSelectionAwareness,
   type WorkspaceScene,
 } from "../../../services/share/protocol";
 import {
   GhosttyTerminalRenderer,
   type RenderedGhosttyTerminal,
+  type TerminalApplyResult,
 } from "../../../services/share/ghosttyTerminal";
 import {
   ReplicatedTextDocument,
@@ -64,6 +66,7 @@ export class ShareWorkspaceConnection {
   private readonly documents = new Map<string, ReplicatedTextDocument>();
   private readonly compositions = new Map<string, TextCompositionSnapshot>();
   private readonly terminalRenderer = new GhosttyTerminalRenderer();
+  private terminalSurfaceIds: ReadonlySet<string> = new Set();
   private state = initialShareWorkspaceViewState;
   private socket: WebSocket | null = null;
   private abortController: AbortController | null = null;
@@ -214,7 +217,16 @@ export class ShareWorkspaceConnection {
     }
     if (frame.type === "workspace.snapshot" || frame.type === "workspace.layout") {
       const scene = normalizeWorkspaceScene(payload.scene ?? payload);
-      if (scene) this.patch({ scene, status: "approved" });
+      if (scene) {
+        const terminalSurfaceIds = new Set(scene.panes.flatMap((pane) =>
+          pane.surfaces.filter((surface) => surface.kind === "terminal").map((surface) => surface.id)));
+        this.terminalSurfaceIds = terminalSurfaceIds;
+        void this.terminalRenderer.retainSurfaces(terminalSurfaceIds);
+        const terminals = new Map(
+          [...this.state.terminals].filter(([surfaceId]) => terminalSurfaceIds.has(surfaceId)),
+        );
+        this.patch({ scene, status: "approved", terminals });
+      }
       if (Array.isArray(payload.terminalFrames)) {
         for (const value of payload.terminalFrames) this.applyTerminal(value);
       }
@@ -303,13 +315,16 @@ export class ShareWorkspaceConnection {
   private applyTerminal(value: unknown): void {
     const frame = normalizeTerminalVtFrame(value);
     if (!frame) return;
-    void this.terminalRenderer.apply(frame).then((result) => {
+    const application = applyTerminalFrameInScene(this.terminalRenderer, this.terminalSurfaceIds, frame);
+    if (!application) return;
+    void application.then((result) => {
       if (this.disposed) return;
       if (result.status === "resync") {
         this.send("workspace.resync.request", { reason: "terminal_sequence" });
         return;
       }
       if (result.status !== "rendered") return;
+      if (!this.terminalSurfaceIds.has(result.terminal.surfaceId)) return;
       const terminals = new Map(this.state.terminals);
       terminals.set(result.terminal.surfaceId, result.terminal);
       this.patch({ terminals });
@@ -382,6 +397,14 @@ export class ShareWorkspaceConnection {
     this.state = { ...this.state, ...patch };
     this.onState(this.state);
   }
+}
+
+export function applyTerminalFrameInScene(
+  renderer: Pick<GhosttyTerminalRenderer, "apply">,
+  terminalSurfaceIds: ReadonlySet<string>,
+  frame: TerminalVtFrame,
+): Promise<TerminalApplyResult> | null {
+  return terminalSurfaceIds.has(frame.surfaceId) ? renderer.apply(frame) : null;
 }
 
 function normalizeTicket(value: unknown): TicketResponse | null {

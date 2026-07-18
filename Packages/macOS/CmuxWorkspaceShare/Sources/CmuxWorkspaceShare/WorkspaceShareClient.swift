@@ -6,6 +6,7 @@ public actor WorkspaceShareClient {
         let id: UInt64
         let socket: URLSessionWebSocketTask
         let message: URLSessionWebSocketTask.Message
+        let byteCount: Int
         let continuation: CheckedContinuation<Void, any Error>
     }
 
@@ -20,6 +21,7 @@ public actor WorkspaceShareClient {
     private var pendingSends: [PendingSend] = []
     private var sendDrainTask: Task<Void, Never>?
     private var sendGeneration: UInt64 = 0
+    private var pendingSendBudget = WorkspaceSharePendingSendBudget()
 
     /// Creates a host transport.
     /// - Parameter urlSession: URL session used to open the WebSocket.
@@ -72,12 +74,17 @@ public actor WorkspaceShareClient {
         guard let string = String(data: data, encoding: .utf8) else {
             throw WorkspaceShareError.invalidResponse
         }
+        guard pendingSendBudget.reserve(byteCount: data.count) else {
+            disconnect(reason: "send_queue_overflow")
+            throw WorkspaceShareError.transport("send_queue_overflow")
+        }
         try await withCheckedThrowingContinuation { continuation in
             nextPendingSendID &+= 1
             pendingSends.append(PendingSend(
                 id: nextPendingSendID,
                 socket: socket,
                 message: .string(string),
+                byteCount: data.count,
                 continuation: continuation
             ))
             startSendDrainIfNeeded()
@@ -125,6 +132,7 @@ public actor WorkspaceShareClient {
             }
             guard generation == sendGeneration,
                   pendingSends.first?.id == pending.id else { return }
+            pendingSendBudget.release(byteCount: pending.byteCount)
             pendingSends.removeFirst().continuation.resume()
         }
         guard generation == sendGeneration else { return }
@@ -135,6 +143,7 @@ public actor WorkspaceShareClient {
     private func failPendingSends(with error: WorkspaceShareError) {
         let pending = pendingSends
         pendingSends.removeAll(keepingCapacity: true)
+        pendingSendBudget.reset()
         for frame in pending {
             frame.continuation.resume(throwing: error)
         }

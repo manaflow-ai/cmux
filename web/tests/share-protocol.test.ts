@@ -54,6 +54,7 @@ describe("share terminal VT protocol", () => {
     expect(normalizeTerminalVtFrame({ ...frame, generation: 0 })).toBeNull();
     expect(normalizeTerminalVtFrame({ ...frame, stateSeq: Number.MAX_SAFE_INTEGER + 1 })).toBeNull();
     expect(normalizeTerminalVtFrame({ ...frame, columns: 1_001 })).toBeNull();
+    expect(normalizeTerminalVtFrame({ ...frame, columns: 501, rows: 400 })).toBeNull();
     expect(normalizeTerminalVtFrame({ ...frame, kind: "delta" })).toBeNull();
     expect(normalizeTerminalVtFrame({ ...frame, dataB64: "***=" })).toBeNull();
   });

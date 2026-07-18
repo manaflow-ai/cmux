@@ -1,3 +1,5 @@
+import { MAX_TERMINAL_CELLS } from "./terminalLimits";
+
 export const SHARE_PROTOCOL_VERSION = 1 as const;
 export const SHARE_WEBSOCKET_PROTOCOL = "cmux-share.v1";
 export const SHARE_TICKET_PROTOCOL_PREFIX = "cmux-share-ticket.";
@@ -135,6 +137,7 @@ export function normalizeTerminalVtFrame(value: unknown): TerminalVtFrame | null
     !positiveInteger(frame.stateSeq) ||
     !positiveInteger(frame.columns) || (frame.columns as number) > 1_000 ||
     !positiveInteger(frame.rows) || (frame.rows as number) > 1_000 ||
+    (frame.columns as number) * (frame.rows as number) > MAX_TERMINAL_CELLS ||
     (frame.kind !== "snapshot" && frame.kind !== "patch") ||
     !validTerminalBase64(frame.dataB64)
   ) return null;

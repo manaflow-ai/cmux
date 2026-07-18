@@ -8,6 +8,7 @@ export const MAX_WORKSPACE_TITLE_CHARACTERS = 160;
 export const MAX_TEXT_OPERATION_ATOMS = 256;
 export const MAX_TEXT_IDENTIFIER_CLOCK = 999_999_999;
 export const MAX_TERMINAL_DIMENSION = 1_000;
+export const MAX_TERMINAL_CELLS = 200_000;
 export const MAX_TERMINAL_VT_BYTES = 1_500_000;
 const MAX_TERMINAL_VT_BASE64_CHARACTERS = Math.ceil(MAX_TERMINAL_VT_BYTES / 3) * 4;
 
@@ -138,6 +139,7 @@ export function validTerminalVTPayload(payload: Record<string, unknown>): boolea
     boundedPositiveInteger(payload.stateSeq, Number.MAX_SAFE_INTEGER) &&
     boundedPositiveInteger(payload.columns, MAX_TERMINAL_DIMENSION) &&
     boundedPositiveInteger(payload.rows, MAX_TERMINAL_DIMENSION) &&
+    (payload.columns as number) * (payload.rows as number) <= MAX_TERMINAL_CELLS &&
     (payload.kind === "snapshot" || payload.kind === "patch") &&
     validBoundedBase64(payload.dataB64);
 }
