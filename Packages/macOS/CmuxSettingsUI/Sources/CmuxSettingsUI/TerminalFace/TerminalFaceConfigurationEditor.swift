@@ -97,6 +97,7 @@ public struct TerminalFaceConfigurationEditor: View {
         HStack(spacing: 10) {
             Text(title).frame(width: 130, alignment: .leading)
             Slider(value: value, in: range)
+                .accessibilityLabel(title)
             Text(value.wrappedValue.formatted(.number.precision(.fractionLength(2))))
                 .monospacedDigit()
                 .frame(width: 34, alignment: .trailing)
@@ -108,10 +109,12 @@ public struct TerminalFaceConfigurationEditor: View {
             Text(title)
             HStack(spacing: 4) {
                 TerminalFaceColorWell(hex: text)
+                    .accessibilityLabel(title)
                 TextField(
                     String(localized: "settings.terminal.face.color.placeholder", defaultValue: "#RRGGBB"),
                     text: text
                 )
+                .accessibilityLabel(title)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 104)
             }

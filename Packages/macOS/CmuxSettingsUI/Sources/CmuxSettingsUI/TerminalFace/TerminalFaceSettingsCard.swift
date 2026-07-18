@@ -6,6 +6,7 @@ struct TerminalFaceSettingsCard: View {
     @State private var model: JSONValueModel<TerminalFaceConfiguration>
     @State private var draft: TerminalFaceConfiguration
     @State private var expanded = false
+    @State private var isDirty = false
 
     init(store: JSONConfigStore, key: JSONKey<TerminalFaceConfiguration>, errorLog: SettingsErrorLog) {
         let model = JSONValueModel(store: store, key: key, errorLog: errorLog)
@@ -23,20 +24,13 @@ struct TerminalFaceSettingsCard: View {
                     defaultValue: "Draws a customizable face behind terminal text and reacts to agent activity."
                 )
             ) {
-                HStack(spacing: 8) {
-                    Toggle("", isOn: Binding(
-                        get: { draft.enabled },
-                        set: { draft.enabled = $0; save() }
-                    ))
-                    .labelsHidden()
-                    Button(expanded
-                        ? String(localized: "settings.terminal.face.hideCustomization", defaultValue: "Hide")
-                        : String(localized: "settings.terminal.face.customize", defaultValue: "Customize…")) {
-                        expanded.toggle()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                Button(expanded
+                    ? String(localized: "settings.terminal.face.hideCustomization", defaultValue: "Hide")
+                    : String(localized: "settings.terminal.face.customize", defaultValue: "Customize…")) {
+                    expanded.toggle()
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
             if expanded {
                 SettingsCardDivider()
@@ -51,6 +45,7 @@ struct TerminalFaceSettingsCard: View {
                         save()
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(!isDirty)
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 14)
@@ -61,7 +56,10 @@ struct TerminalFaceSettingsCard: View {
             draft = model.current
         }
         .onChange(of: model.current) { _, value in
-            if value != draft { draft = value }
+            if !isDirty, value != draft { draft = value }
+        }
+        .onChange(of: draft) { _, value in
+            isDirty = value != model.current
         }
     }
 
@@ -69,5 +67,6 @@ struct TerminalFaceSettingsCard: View {
         var sanitized = draft
         sanitized.sanitize()
         model.set(sanitized)
+        isDirty = false
     }
 }

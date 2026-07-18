@@ -39,6 +39,7 @@ final class TerminalFaceController {
     private var states: [UUID: TerminalFaceState] = [:]
     private var settingsTask: Task<Void, Never>?
     private var editorWindows: [NSWindowController] = []
+    private var eventsSinceStatePrune = 0
 
     init(runtime: SettingsRuntime) {
         store = runtime.jsonStore
@@ -74,16 +75,21 @@ final class TerminalFaceController {
     }
 
     func refreshAll() {
-        let managers = AppDelegate.shared?.mainWindowContexts.values.map(\.tabManager) ?? []
-        for workspace in managers.flatMap(\.tabs) { refresh(workspace: workspace) }
+        let workspaces = liveWorkspaces
+        pruneStates(in: workspaces)
+        for workspace in workspaces { refresh(workspace: workspace) }
     }
 
     func noteHookEvent(_ event: WorkstreamEvent) {
+        eventsSinceStatePrune += 1
+        if eventsSinceStatePrune >= 64 {
+            pruneStates(in: liveWorkspaces)
+        }
         let state: TerminalFaceState
         switch event.hookEventName {
         case .userPromptSubmit, .preCompact:
             state = .thinking
-        case .postToolUse where event.extraFieldsJSON?.contains("\"is_error\":true") == true:
+        case .postToolUse where toolUseFailed(event):
             state = .error
         case .preToolUse, .postToolUse, .todoWrite, .subagentStart, .subagentStop, .postCompact:
             state = .working
@@ -126,21 +132,38 @@ final class TerminalFaceController {
     }
 
     private func panel(for event: WorkstreamEvent) -> TerminalPanel? {
-        if let workspaceString = event.workspaceId,
-           let workspaceID = UUID(uuidString: workspaceString),
-           let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceID) {
-            if let surfaceString = event.surfaceId,
-               let surfaceID = UUID(uuidString: surfaceString),
-               let panel = workspace.terminalPanel(for: surfaceID) { return panel }
-            if let focused = workspace.focusedPanelId { return workspace.terminalPanel(for: focused) }
+        guard let surfaceString = event.surfaceId,
+              let surfaceID = UUID(uuidString: surfaceString) else { return nil }
+        if let workspaceString = event.workspaceId {
+            guard let workspaceID = UUID(uuidString: workspaceString),
+                  let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceID)
+            else { return nil }
+            return workspace.terminalPanel(for: surfaceID)
         }
-        if let surfaceString = event.surfaceId, let surfaceID = UUID(uuidString: surfaceString) {
-            let managers = AppDelegate.shared?.mainWindowContexts.values.map(\.tabManager) ?? []
-            for workspace in managers.flatMap(\.tabs) {
-                if let panel = workspace.terminalPanel(for: surfaceID) { return panel }
-            }
+        for workspace in liveWorkspaces {
+            if let panel = workspace.terminalPanel(for: surfaceID) { return panel }
         }
         return nil
+    }
+
+    private var liveWorkspaces: [Workspace] {
+        let managers = AppDelegate.shared?.mainWindowContexts.values.map(\.tabManager) ?? []
+        return managers.flatMap(\.tabs)
+    }
+
+    private func pruneStates(in workspaces: [Workspace]) {
+        let liveIDs = Set(workspaces.flatMap { workspace in
+            workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id }
+        })
+        states = states.filter { liveIDs.contains($0.key) }
+        eventsSinceStatePrune = 0
+    }
+
+    private func toolUseFailed(_ event: WorkstreamEvent) -> Bool {
+        guard let json = event.extraFieldsJSON,
+              let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+        else { return false }
+        return object["is_error"] as? Bool == true
     }
 
     private func presentEditor(
@@ -156,6 +179,7 @@ final class TerminalFaceController {
             save: save
         )
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.terminalFaceEditor")
         window.title = title
         window.styleMask = [.titled, .closable, .resizable]
         window.setContentSize(NSSize(width: 540, height: 650))
