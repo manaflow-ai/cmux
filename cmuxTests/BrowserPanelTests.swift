@@ -745,6 +745,26 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertNil(loadingOverlay.superview)
     }
 
+    func testDiffViewerLoadingOverlayClosesWhenAnotherPageCommits() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
+        let loadingOverlay = NSView(frame: container.bounds)
+        container.addSubview(loadingOverlay)
+        panel.diffViewerLoadingOverlay = loadingOverlay
+
+        panel.reconcileDiffViewerLoadingOverlayAfterNavigationCommit(
+            to: DiffViewerLoadingPage.url
+        )
+        XCTAssertTrue(panel.diffViewerLoadingOverlay === loadingOverlay)
+
+        panel.reconcileDiffViewerLoadingOverlayAfterNavigationCommit(
+            to: try XCTUnwrap(URL(string: "https://example.com/destination"))
+        )
+        XCTAssertNil(panel.diffViewerLoadingOverlay)
+        XCTAssertNil(loadingOverlay.superview)
+    }
+
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
         let panel = BrowserPanel(
