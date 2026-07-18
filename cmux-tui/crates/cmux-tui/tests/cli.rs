@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -42,6 +42,23 @@ impl HeadlessServer {
         }
         panic!("headless server did not create socket at {}", self.socket.display());
     }
+
+    fn wait_for_exit(&mut self) -> std::process::ExitStatus {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                return status;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("headless server did not exit after a fatal persistence failure");
+    }
+
+    fn read_stderr(&mut self) -> String {
+        let mut stderr = String::new();
+        self.child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+        stderr
+    }
 }
 
 impl Drop for HeadlessServer {
@@ -51,6 +68,36 @@ impl Drop for HeadlessServer {
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+#[test]
+fn durability_failure_terminates_daemon_and_releases_session_lock() {
+    let mut server = HeadlessServer::start("durability-failure");
+    let store = cmux_tui_core::StateStore::new(server.dir.join("state"));
+    let journal = store.journal_path("main");
+    fs::remove_file(&journal).unwrap();
+    fs::create_dir(&journal).unwrap();
+
+    let mutation = cli(&server, &["new-workspace", "--name", "must-not-acknowledge"]);
+    assert!(!mutation.status.success(), "undurable mutation was acknowledged");
+    let status = server.wait_for_exit();
+    assert!(!status.success(), "daemon exited successfully after losing durability");
+    assert!(transport::connect(&server.socket).is_err(), "stale socket still accepted clients");
+
+    let lock_path = fs::read_dir(store.root().join("locks"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "lock"))
+        .expect("session lock file is missing");
+    let lock = fs::OpenOptions::new().read(true).write(true).open(lock_path).unwrap();
+    fs2::FileExt::try_lock_exclusive(&lock).expect("daemon retained its session lock after exit");
+    fs2::FileExt::unlock(&lock).unwrap();
+
+    let stderr = server.read_stderr();
+    assert!(
+        stderr.contains("cmux-tui: fatal canonical persistence failure:"),
+        "fatal persistence diagnostic missing from stderr: {stderr:?}"
+    );
 }
 
 #[test]

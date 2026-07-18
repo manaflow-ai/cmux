@@ -509,7 +509,7 @@ pub fn home_dir() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn native_home_dir() -> Option<PathBuf> {
+pub(crate) fn native_home_dir() -> Option<PathBuf> {
     use std::ffi::{CStr, OsStr};
     use std::os::unix::ffi::OsStrExt;
 
@@ -550,6 +550,11 @@ fn native_home_dir() -> Option<PathBuf> {
         let bytes = unsafe { CStr::from_ptr(record.pw_dir) }.to_bytes();
         return (!bytes.is_empty()).then(|| PathBuf::from(OsStr::from_bytes(bytes)));
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn native_home_dir() -> Option<PathBuf> {
+    home_dir()
 }
 
 #[cfg(windows)]

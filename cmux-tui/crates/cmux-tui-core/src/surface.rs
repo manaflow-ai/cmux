@@ -906,6 +906,29 @@ impl Surface {
         Ok(f(&mut pty.term.lock().unwrap()))
     }
 
+    /// Apply daemon-authored recovery output to canonical terminal state.
+    /// This intentionally bypasses the PTY writer so the restarted child
+    /// cannot interpret the notice as input.
+    pub(crate) fn inject_terminal_output(&self, bytes: &[u8]) -> anyhow::Result<()> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let generation = {
+            let mut term = pty.term.lock().unwrap();
+            term.vt_write(bytes);
+            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.broadcast_attach_output(bytes);
+            pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+        };
+        pty.request_frame(generation);
+        if !pty.dirty.swap(true, Ordering::AcqRel)
+            && let Some(mux) = pty.mux.upgrade()
+        {
+            mux.emit(MuxEvent::SurfaceOutput(self.id));
+        }
+        Ok(())
+    }
+
     pub(crate) fn terminal_interaction_snapshot(
         &self,
     ) -> anyhow::Result<TerminalInteractionSnapshot> {

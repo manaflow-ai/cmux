@@ -530,6 +530,14 @@ impl StateStore {
     /// strictly ordered, checksummed journal entries.
     pub(crate) fn open_session(&self, session: &str) -> Result<OpenedSession, StateStoreError> {
         let lock = self.lock_session(session)?;
+        let loaded = self.load_session_while_locked(session)?;
+        Ok(self.finish_open_session(session, loaded, lock))
+    }
+
+    /// Load checkpoint and journal bytes while the caller owns the session
+    /// lock. Keeping the lock outside this helper lets explicit recovery
+    /// revalidate and repair corrupt state in one cross-process transaction.
+    fn load_session_while_locked(&self, session: &str) -> Result<LoadedSession, StateStoreError> {
         let checkpoint_path = self.session_path(session);
         let journal_path = self.journal_path(session);
         let (checkpoint, migrated) = self.load_or_create_checkpoint(session, &checkpoint_path)?;
@@ -543,7 +551,17 @@ impl StateStore {
             checkpoint.body.state,
             self.limits,
         )?;
-        Ok(OpenedSession {
+        Ok(LoadedSession { checkpoint_path, journal_path, replay })
+    }
+
+    fn finish_open_session(
+        &self,
+        session: &str,
+        loaded: LoadedSession,
+        lock: SessionLock,
+    ) -> OpenedSession {
+        let LoadedSession { checkpoint_path, journal_path, replay } = loaded;
+        OpenedSession {
             snapshot: replay.state.clone(),
             durable: DurableSession {
                 checkpoint_path,
@@ -559,7 +577,7 @@ impl StateStore {
                 _lock: lock,
             },
             quarantined_tail: replay.quarantined_tail,
-        })
+        }
     }
 
     /// Load an existing session identity or atomically create an empty
@@ -585,10 +603,14 @@ impl StateStore {
     /// Explicitly archive corrupt checkpoint/journal bytes and create a new
     /// empty session. Valid durable state is returned unchanged.
     pub fn recover_session(&self, session: &str) -> Result<StateRecovery, StateStoreError> {
-        match self.open_session(session) {
-            Ok(opened) => {
+        // The probe and any repair share one lock. Releasing between them lets
+        // a second recovery replace the corrupt bytes, after which this caller
+        // could archive that newly valid state and rotate the identity again.
+        let _lock = self.lock_session(session)?;
+        match self.load_session_while_locked(session) {
+            Ok(loaded) => {
                 return Ok(StateRecovery {
-                    session_id: opened.snapshot.session_id,
+                    session_id: loaded.replay.state.session_id,
                     archived_corrupt_state: None,
                 });
             }
@@ -599,7 +621,6 @@ impl StateStore {
             Err(StateStoreError::Corrupt { .. }) => {}
         }
 
-        let _lock = self.lock_session(session)?;
         let checkpoint = self.session_path(session);
         let journal = self.journal_path(session);
         let archive = checkpoint.with_extension(format!("corrupt-{}.json", Uuid::new_v4()));
@@ -667,12 +688,8 @@ impl StateStore {
 
     fn lock_session(&self, session: &str) -> Result<SessionLock, StateStoreError> {
         let directory = self.root.join("locks");
-        fs::create_dir_all(&directory).map_err(|error| StateStoreError::io(&directory, error))?;
-        platform::restrict_directory(&self.root)
-            .map_err(|error| StateStoreError::io(&self.root, error))?;
-        platform::restrict_directory(&directory)
-            .map_err(|error| StateStoreError::io(&directory, error))?;
         let path = directory.join(format!("{}.lock", session_key(session)));
+        ensure_private_parent(&path)?;
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -693,6 +710,12 @@ struct JournalReplay {
     record_count: usize,
     valid_bytes: usize,
     quarantined_tail: Option<PathBuf>,
+}
+
+struct LoadedSession {
+    checkpoint_path: PathBuf,
+    journal_path: PathBuf,
+    replay: JournalReplay,
 }
 
 fn replay_journal(
@@ -1277,11 +1300,30 @@ fn replace_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), StateStoreEr
 
 fn ensure_private_parent(path: &Path) -> Result<(), StateStoreError> {
     let directory = path.parent().expect("state file has a parent");
+    let mut created = Vec::new();
+    let mut candidate = Some(directory);
+    while let Some(path) = candidate {
+        if path.try_exists().map_err(|error| StateStoreError::io(path, error))? {
+            break;
+        }
+        created.push(path.to_path_buf());
+        candidate = path.parent();
+    }
     fs::create_dir_all(directory).map_err(|error| StateStoreError::io(directory, error))?;
     if let Some(root) = directory.parent() {
         platform::restrict_directory(root).map_err(|error| StateStoreError::io(root, error))?;
     }
-    platform::restrict_directory(directory).map_err(|error| StateStoreError::io(directory, error))
+    platform::restrict_directory(directory)
+        .map_err(|error| StateStoreError::io(directory, error))?;
+    // Sync every newly created directory entry through its parent. Syncing the
+    // sessions directory after a file rename does not itself make a newly
+    // created `sessions/` entry durable in the state directory.
+    for created_directory in created.iter().rev() {
+        if let Some(parent) = created_directory.parent() {
+            sync_directory(parent)?;
+        }
+    }
+    Ok(())
 }
 
 fn read_bounded(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, StateStoreError> {
@@ -1410,6 +1452,40 @@ mod tests {
         assert_eq!(value["body"]["state"]["session_id"], first_session.to_string());
         assert!(value["body"]["state"].get("pid").is_none());
         assert!(value["body"]["state"].get("terminal_output").is_none());
+    }
+
+    #[test]
+    fn first_use_creates_private_durable_directories_and_reopens() {
+        let directory = TestDirectory::new("first-use");
+        let store = StateStore::new(directory.0.join("nested/state"));
+        assert!(!store.root().exists());
+
+        let opened = store.open_session("main").unwrap();
+        let session_id = opened.snapshot.session_id;
+        drop(opened.durable);
+
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot.session_id, session_id);
+        drop(reopened.durable);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let sessions = store.root().join("sessions");
+            let locks = store.root().join("locks");
+            assert_eq!(fs::metadata(store.root()).unwrap().permissions().mode() & 0o777, 0o700);
+            assert_eq!(fs::metadata(&sessions).unwrap().permissions().mode() & 0o777, 0o700);
+            assert_eq!(fs::metadata(&locks).unwrap().permissions().mode() & 0o777, 0o700);
+            assert_eq!(
+                fs::metadata(store.session_path("main")).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(store.journal_path("main")).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
     }
 
     #[test]
@@ -1626,6 +1702,43 @@ mod tests {
         let archive = recovered.archived_corrupt_state.unwrap();
         assert_eq!(fs::read(archive).unwrap(), corrupt);
         assert_eq!(store.load_or_create_session("main").unwrap(), recovered.session_id);
+    }
+
+    #[test]
+    fn concurrent_recovery_converges_without_archiving_valid_state() {
+        use std::sync::Barrier;
+
+        let directory = TestDirectory::new("concurrent-recovery");
+        let store = StateStore::new(&directory.0);
+        let path = store.session_path("main");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let corrupt = b"{ concurrently-corrupt";
+        fs::write(&path, corrupt).unwrap();
+
+        let start = std::sync::Arc::new(Barrier::new(16));
+        let workers = (0..16)
+            .map(|_| {
+                let store = store.clone();
+                let start = start.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    store.recover_session("main").unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let recoveries =
+            workers.into_iter().map(|worker| worker.join().unwrap()).collect::<Vec<_>>();
+
+        let session_id = recoveries[0].session_id;
+        assert!(recoveries.iter().all(|recovery| recovery.session_id == session_id));
+        let archives = recoveries
+            .iter()
+            .filter_map(|recovery| recovery.archived_corrupt_state.as_ref())
+            .collect::<Vec<_>>();
+        assert_eq!(archives.len(), 1);
+        assert_eq!(fs::read(archives[0]).unwrap(), corrupt);
+        assert_eq!(store.load_or_create_session("main").unwrap(), session_id);
+        assert_eq!(store.recover_session("main").unwrap().archived_corrupt_state, None);
     }
 
     #[test]

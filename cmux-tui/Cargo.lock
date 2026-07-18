@@ -197,6 +197,7 @@ dependencies = [
  "base64",
  "cmux-tui-core",
  "crossterm",
+ "fs2",
  "ghostty-vt",
  "libc",
  "ratatui",

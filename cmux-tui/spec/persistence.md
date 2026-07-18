@@ -27,7 +27,9 @@ state directory:
 
 Directories use the platform private-directory policy and files use the
 private-file policy. A second daemon cannot open the same session while the
-first owns the lock.
+first owns the lock. First-use directory creation syncs each new directory's
+parent before checkpoint or journal acknowledgement, including the state
+directory entry that owns `sessions/`.
 
 The checkpoint and every journal record contain a format marker, format
 version, session identity, epoch, sequence, body, and CRC32 checksum over the
@@ -85,8 +87,12 @@ published or the command handler can return success, the daemon:
 3. appends one complete newline-terminated record;
 4. calls `fsync` on the journal file.
 
-An append or sync failure poisons the canonical mutex before acknowledgement.
-The daemon therefore cannot continue from an undurable in-memory mutation.
+An append or sync failure terminates the daemon process before acknowledgement.
+This releases its socket and daemon-lifetime lock instead of leaving a live
+service whose canonical mutex is poisoned. The installed launchd service uses
+`KeepAlive` and restarts the backend after the process exits; a persistent disk
+failure remains visible as a throttled restart failure rather than an
+undurable live daemon.
 
 Topology transactions currently mint an internal idempotency key and retain a
 stable UUID-only result. The Mux exposes the retained-result lookup and keyed
@@ -140,3 +146,13 @@ rebuilds the exact UUID topology and ordering, and respawns every retained
 terminal recipe under its original terminal UUID. The new process reports
 only its new PID, TTY, and runtime epoch. No old PID is present in durable
 state or copied into the recovered runtime.
+
+Terminal restore failures are isolated per surface. If a saved cwd no longer
+exists, the daemon retries the exact saved argv from the account's native home
+directory and writes a fixed recovery notice directly into canonical VT state.
+If the saved argv cannot start, the daemon opens the platform default shell
+from native home under the same terminal UUID. A fallback surface receives a
+recovery label only when it has no user name. Notices and errors never include
+the saved argv, environment, or cwd. The durable recipe remains unchanged so a
+later daemon restart retries the user's original command. Failure to create
+even the fallback shell or PTY still fails startup.

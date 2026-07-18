@@ -548,10 +548,12 @@ impl CanonicalState {
             .expect("durable session checked above")
             .append(snapshot, idempotency_key, result)
             .unwrap_or_else(|error| {
-                // This panic occurs while the canonical mutex is held. It
-                // poisons the state so no control handler can acknowledge or
-                // build on an in-memory mutation that was not fsynced.
-                panic!("canonical persistence failed before acknowledgement: {error}")
+                // Mutation handlers run on detached connection threads. A
+                // panic would only poison the mutex while leaving a live
+                // socket and daemon lock behind, so fail the whole process
+                // before any handler can acknowledge undurable state.
+                eprintln!("cmux-tui: fatal canonical persistence failure: {error}");
+                std::process::abort();
             });
     }
 
@@ -1060,8 +1062,11 @@ impl Mux {
             TopologyLimits::default(),
             snapshot.topology_revision,
         );
-        mux.restore_persisted_state(snapshot)?;
+        // Restored children can exit before their pane attachments are
+        // published. Install the journal writer first so the final reap after
+        // attachment durably records that closure.
         mux.state.lock().unwrap().durable = Some(opened.durable);
+        mux.restore_persisted_state(snapshot)?;
         Ok(mux)
     }
 
@@ -1176,18 +1181,10 @@ impl Mux {
         let mut spawned = Vec::with_capacity(snapshot.surfaces.len());
         for persisted in &snapshot.surfaces {
             let (id, _) = self.entity_ids.surface();
-            let surface = match &persisted.kind {
-                PersistedSurfaceKind::Terminal { launch } => self
-                    .spawn_surface_with_allocated_identity(
-                        id,
-                        persisted.uuid,
-                        launch.cwd.clone(),
-                        Some(launch.argv.clone()),
-                        launch.environment_pairs(),
-                        Some(launch.wait_after_command),
-                        Some((launch.cols, launch.rows)),
-                        Some(launch.scrollback),
-                    )?,
+            let (surface, recovery_notice) = match &persisted.kind {
+                PersistedSurfaceKind::Terminal { launch } => {
+                    self.restore_persisted_terminal(id, persisted.uuid, launch)?
+                }
                 PersistedSurfaceKind::Browser => {
                     let opts = self.surface_options.lock().unwrap().clone();
                     let cell_pixels = *self.cell_pixels.lock().unwrap();
@@ -1201,10 +1198,18 @@ impl Mux {
                         Arc::downgrade(self),
                     );
                     self.state.lock().unwrap().surfaces.insert(id, surface.clone());
-                    surface
+                    (surface, None)
                 }
             };
-            surface.set_name(persisted.name.clone());
+            surface.set_name(
+                persisted
+                    .name
+                    .clone()
+                    .or_else(|| recovery_notice.map(|_| "Recovered terminal".to_string())),
+            );
+            if let Some(notice) = recovery_notice {
+                surface.inject_terminal_output(notice.as_bytes())?;
+            }
             if surface_ids.insert(persisted.uuid, id).is_some() {
                 anyhow::bail!("duplicate persisted surface UUID {}", persisted.uuid);
             }
@@ -1319,6 +1324,76 @@ impl Mux {
             }
         }
         Ok(())
+    }
+
+    fn restore_persisted_terminal(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        uuid: SurfaceUuid,
+        launch: &PersistedLaunchRecipe,
+    ) -> anyhow::Result<(Arc<Surface>, Option<&'static str>)> {
+        const CWD_NOTICE: &str = concat!(
+            "cmux recovery: saved working directory was unavailable; ",
+            "restarted the saved command from your home directory.\r\n"
+        );
+        const COMMAND_NOTICE: &str = concat!(
+            "cmux recovery: saved command could not be started; ",
+            "opened your default shell in your home directory.\r\n"
+        );
+
+        let native_home = || {
+            crate::platform::native_home_dir()
+                .map(|path| path.to_string_lossy().into_owned())
+                .ok_or_else(|| anyhow::anyhow!("native home directory is unavailable for recovery"))
+        };
+        let cwd_unavailable =
+            launch.cwd.as_deref().is_some_and(|cwd| !std::path::Path::new(cwd).is_dir());
+        let original_cwd = if cwd_unavailable { Some(native_home()?) } else { launch.cwd.clone() };
+        let spawn_saved = |cwd| {
+            self.spawn_surface_with_allocated_identity(
+                id,
+                uuid,
+                cwd,
+                Some(launch.argv.clone()),
+                launch.environment_pairs(),
+                Some(launch.wait_after_command),
+                Some((launch.cols, launch.rows)),
+                Some(launch.scrollback),
+            )
+        };
+        let mut original = spawn_saved(original_cwd);
+        let cwd_disappeared_during_spawn = !cwd_unavailable
+            && launch.cwd.as_deref().is_some_and(|cwd| !std::path::Path::new(cwd).is_dir());
+        if original.is_err() && cwd_disappeared_during_spawn {
+            original = spawn_saved(Some(native_home()?));
+        }
+        let (surface, recovery_notice) = match original {
+            Ok(surface) => {
+                (surface, (cwd_unavailable || cwd_disappeared_during_spawn).then_some(CWD_NOTICE))
+            }
+            Err(_) => {
+                let surface = self
+                    .spawn_surface_with_allocated_identity(
+                        id,
+                        uuid,
+                        Some(native_home()?),
+                        Some(vec![crate::platform::default_shell()]),
+                        launch.environment_pairs(),
+                        Some(launch.wait_after_command),
+                        Some((launch.cols, launch.rows)),
+                        Some(launch.scrollback),
+                    )
+                    .map_err(|_| {
+                        anyhow::anyhow!("failed to start a recovery shell for terminal {uuid}")
+                    })?;
+                (surface, Some(COMMAND_NOTICE))
+            }
+        };
+
+        // A fallback changes only this runtime. Keep the user's original
+        // recipe so a later daemon restart can retry it unchanged.
+        self.state.lock().unwrap().launch_recipes.insert(uuid, launch.clone());
+        Ok((surface, recovery_notice))
     }
 
     #[cfg(test)]
@@ -6695,6 +6770,60 @@ mod tests {
         }
     }
 
+    fn persisted_launch(argv: Vec<String>, cwd: Option<String>) -> PersistedLaunchRecipe {
+        PersistedLaunchRecipe::sanitized(argv, cwd, Vec::new(), 80, 24, 10_000, false)
+    }
+
+    fn seed_persisted_terminals(
+        store: &StateStore,
+        terminals: Vec<(SurfaceUuid, Option<String>, PersistedLaunchRecipe)>,
+    ) -> PersistedSessionState {
+        let mut opened = store.open_session("main").unwrap();
+        let workspace_uuid = WorkspaceUuid::new();
+        let screen_uuid = ScreenUuid::new();
+        let pane_uuid = PaneUuid::new();
+        let tabs = terminals.iter().map(|(uuid, _, _)| *uuid).collect::<Vec<_>>();
+        let mut state = opened.snapshot.clone();
+        state.topology_revision = 1;
+        state.active_workspace = Some(workspace_uuid);
+        state.workspaces = vec![PersistedWorkspace {
+            uuid: workspace_uuid,
+            name: "1".to_string(),
+            screens: vec![PersistedScreen {
+                uuid: screen_uuid,
+                name: None,
+                root: PersistedNode::Leaf { pane_uuid },
+                active_pane: pane_uuid,
+                zoomed_pane: None,
+            }],
+            active_screen: 0,
+        }];
+        state.panes =
+            vec![PersistedPane { uuid: pane_uuid, name: None, tabs, active_tab: 0, active_at: 1 }];
+        state.surfaces = terminals
+            .into_iter()
+            .map(|(uuid, name, launch)| PersistedSurface {
+                uuid,
+                name,
+                kind: PersistedSurfaceKind::Terminal { launch },
+            })
+            .collect();
+        opened.durable.append(state.clone(), "seed".to_string(), None).unwrap();
+        drop(opened.durable);
+        state
+    }
+
+    fn wait_for_surface_uuid(mux: &Mux, uuid: SurfaceUuid, present: bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if mux.with_state(|state| state.surface_id_by_uuid(uuid).is_some()) == present {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("surface {uuid} presence did not become {present}");
+    }
+
     #[test]
     fn daemon_restart_restores_exact_uuid_topology_with_new_terminal_runtime() {
         let directory = PersistenceTestDirectory::new("daemon-restart");
@@ -6767,6 +6896,128 @@ mod tests {
         );
         let old_tty = old_tty.to_string_lossy();
         assert!(!journal.windows(old_tty.len()).any(|window| window == old_tty.as_bytes()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restored_child_exit_is_tombstoned_before_a_second_restart() {
+        let directory = PersistenceTestDirectory::new("restore-exit");
+        let store = StateStore::new(&directory.0);
+        let exited_uuid = SurfaceUuid::new();
+        let retained_uuid = SurfaceUuid::new();
+        seed_persisted_terminals(
+            &store,
+            vec![
+                (
+                    exited_uuid,
+                    Some("exits".to_string()),
+                    persisted_launch(vec!["/usr/bin/true".to_string()], None),
+                ),
+                (
+                    retained_uuid,
+                    Some("retained".to_string()),
+                    persisted_launch(vec!["/bin/cat".to_string()], None),
+                ),
+            ],
+        );
+
+        let first =
+            Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        wait_for_surface_uuid(&first, exited_uuid, false);
+        wait_for_surface_uuid(&first, retained_uuid, true);
+        assert!(first.state.lock().unwrap().tombstones.iter().any(|entry| {
+            entry.kind == PersistedEntityKind::Surface && entry.uuid == exited_uuid.as_uuid()
+        }));
+        drop(first);
+
+        let second =
+            Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        second.with_state(|state| {
+            assert!(state.surface_id_by_uuid(exited_uuid).is_none());
+            assert!(state.surface_id_by_uuid(retained_uuid).is_some());
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_isolates_missing_cwd_and_command_with_stable_uuids() {
+        let directory = PersistenceTestDirectory::new("isolated-recovery");
+        let store = StateStore::new(&directory.0);
+        let cwd_uuid = SurfaceUuid::new();
+        let command_uuid = SurfaceUuid::new();
+        let neighbor_uuid = SurfaceUuid::new();
+        let missing_cwd = directory.0.join("deleted-project");
+        let missing_command = directory.0.join("do-not-log-secret-command");
+        let cwd_recipe =
+            persisted_launch(vec!["/bin/cat".to_string()], Some(missing_cwd.display().to_string()));
+        let command_recipe = persisted_launch(
+            vec![missing_command.display().to_string(), "secret-argument".to_string()],
+            None,
+        );
+        let neighbor_recipe = persisted_launch(vec!["/bin/cat".to_string()], None);
+        seed_persisted_terminals(
+            &store,
+            vec![
+                (cwd_uuid, Some("user label".to_string()), cwd_recipe.clone()),
+                (command_uuid, None, command_recipe.clone()),
+                (neighbor_uuid, Some("neighbor".to_string()), neighbor_recipe.clone()),
+            ],
+        );
+
+        let restored =
+            Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        let home = crate::platform::native_home_dir().unwrap().to_string_lossy().into_owned();
+        let cwd_surface = restored
+            .surface(restored.with_state(|state| state.surface_id_by_uuid(cwd_uuid)).unwrap())
+            .unwrap();
+        let command_surface = restored
+            .surface(restored.with_state(|state| state.surface_id_by_uuid(command_uuid)).unwrap())
+            .unwrap();
+        let neighbor_surface = restored
+            .surface(restored.with_state(|state| state.surface_id_by_uuid(neighbor_uuid)).unwrap())
+            .unwrap();
+
+        assert_eq!(cwd_surface.uuid, cwd_uuid);
+        assert_eq!(cwd_surface.name().as_deref(), Some("user label"));
+        assert_eq!(cwd_surface.spawn_argv(), Some(vec!["/bin/cat".to_string()]));
+        assert_eq!(cwd_surface.spawn_cwd().as_deref(), Some(home.as_str()));
+        let cwd_text = cwd_surface.try_with_terminal(|term| term.plain_text()).unwrap().unwrap();
+        assert!(cwd_text.contains("saved working directory was unavailable"));
+
+        assert_eq!(command_surface.uuid, command_uuid);
+        assert_eq!(command_surface.name().as_deref(), Some("Recovered terminal"));
+        assert_eq!(command_surface.spawn_argv(), Some(vec![crate::platform::default_shell()]));
+        assert_eq!(command_surface.spawn_cwd().as_deref(), Some(home.as_str()));
+        let command_text =
+            command_surface.try_with_terminal(|term| term.plain_text()).unwrap().unwrap();
+        assert!(command_text.contains("saved command could not be started"));
+        assert!(!command_text.contains("do-not-log-secret-command"));
+        assert!(!command_text.contains("secret-argument"));
+
+        assert_eq!(neighbor_surface.uuid, neighbor_uuid);
+        assert_eq!(neighbor_surface.name().as_deref(), Some("neighbor"));
+        assert_eq!(neighbor_surface.spawn_argv(), Some(vec!["/bin/cat".to_string()]));
+        let neighbor_text =
+            neighbor_surface.try_with_terminal(|term| term.plain_text()).unwrap().unwrap();
+        assert!(!neighbor_text.contains("cmux recovery:"));
+
+        let canonical = restored.state.lock().unwrap();
+        assert_eq!(canonical.launch_recipes.get(&cwd_uuid), Some(&cwd_recipe));
+        assert_eq!(canonical.launch_recipes.get(&command_uuid), Some(&command_recipe));
+        assert_eq!(canonical.launch_recipes.get(&neighbor_uuid), Some(&neighbor_recipe));
+        drop(canonical);
+        drop(cwd_surface);
+        drop(command_surface);
+        drop(neighbor_surface);
+        drop(restored);
+
+        let restarted =
+            Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        restarted.with_state(|state| {
+            assert!(state.surface_id_by_uuid(cwd_uuid).is_some());
+            assert!(state.surface_id_by_uuid(command_uuid).is_some());
+            assert!(state.surface_id_by_uuid(neighbor_uuid).is_some());
+        });
     }
 
     #[test]

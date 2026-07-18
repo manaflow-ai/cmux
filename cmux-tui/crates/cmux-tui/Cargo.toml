@@ -27,3 +27,6 @@ toml.workspace = true
 base64.workspace = true
 libc.workspace = true
 smallvec.workspace = true
+
+[dev-dependencies]
+fs2.workspace = true
