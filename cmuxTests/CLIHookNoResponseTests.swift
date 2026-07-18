@@ -16,7 +16,7 @@ private func cmuxTestShmOpen(
     _ mode: mode_t
 ) -> Int32
 
-@Suite("CLI hook no-response telemetry")
+@Suite("CLI hook no-response telemetry", .serialized)
 struct CLIHookNoResponseTests {
     final class BundleProbe {}
 
