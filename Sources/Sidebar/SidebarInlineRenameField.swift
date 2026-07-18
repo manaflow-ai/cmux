@@ -35,6 +35,7 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         field.placeholderString = placeholder
         field.setAccessibilityLabel(accessibilityLabel)
         field.delegate = context.coordinator
+        context.coordinator.begin(draft: initialText)
         return field
     }
 

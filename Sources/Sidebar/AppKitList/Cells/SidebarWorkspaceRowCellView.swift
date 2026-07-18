@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSidebar
 import CmuxWorkspaces
@@ -53,8 +54,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
     private var contextMenuDidClose: (() -> Void)?
-    private var isEditing = false
     private var pumpCancellables: [AnyCancellable] = []
+    private lazy var renamePhaseEffect = renameField.observePhase { [weak self] phase in
+        guard let self else { return }
+        let isEditing = phase.isEditing
+        self.renameField.isHidden = !isEditing
+        self.titleView.isHidden = isEditing
+        self.needsLayout = true
+    }
 
     /// Per-row churn pump: mirrors TabItemView's onReceive subscriptions so
     /// metadata/branch/PR updates repaint just this cell without any
@@ -153,6 +160,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         addSubview(titleView)
         renameField.isHidden = true
         addSubview(renameField)
+        _ = renamePhaseEffect
         addSubview(trailingBadge)
         closeButton.onClick = { [weak self] in self?.actions?.commands.closeWorkspace() }
         addSubview(closeButton)
@@ -208,7 +216,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
         if previous?.workspaceId != model.workspaceId {
-            endInlineRename(commit: false)
+            renameField.cancelInlineRename()
         }
         guard previous != model || hoverChanged else { return }
         self.model = model
@@ -655,31 +663,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     func beginInlineRename() {
         guard let model else { return }
-        isEditing = true
-        renameField.resetForNewSession()
         renameField.stringValue = model.snapshot.title
         renameField.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
         renameField.textColor = palette(model).selectedForeground(1.0)
-        renameField.isHidden = false
-        titleView.isHidden = true
         renameField.onCommit = { [weak self] text in
             self?.actions?.commitRename(text)
-            self?.endInlineRename(commit: true)
         }
-        renameField.onCancel = { [weak self] in
-            self?.endInlineRename(commit: false)
-        }
+        renameField.onCancel = {}
+        renameField.beginInlineRename(with: model.snapshot.title)
         window?.makeFirstResponder(renameField)
         renameField.selectText(nil)
-        needsLayout = true
-    }
-
-    private func endInlineRename(commit: Bool) {
-        guard isEditing else { return }
-        isEditing = false
-        renameField.isHidden = true
-        titleView.isHidden = false
-        needsLayout = true
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -762,6 +755,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
         let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
         let titleWidth = max(10, titleMaxX - x)
+        let isEditing = renameField.isInlineRenaming
         let titleHeight = isEditing
             ? ceil(renameField.intrinsicContentSize.height)
             : titleView.measuredHeight(width: titleWidth)
@@ -968,8 +962,25 @@ final class SidebarRowInlineRenameField: NSTextField, NSTextFieldDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func resetForNewSession() {
-        renameCoordinator.resetForNewSession()
+    var isInlineRenaming: Bool { renameCoordinator.phase.isEditing }
+
+    func beginInlineRename(with draft: String) {
+        stringValue = draft
+        renameCoordinator.begin(draft: draft)
+    }
+
+    func cancelInlineRename() {
+        renameCoordinator.cancel()
+    }
+
+    func observePhase(
+        _ body: @escaping @MainActor (SidebarInlineRenamePhase) -> Void
+    ) -> SignalEffect {
+        renameCoordinator.observePhase(body)
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        renameCoordinator.controlTextDidChange(obj)
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
