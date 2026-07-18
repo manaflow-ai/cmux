@@ -12,6 +12,7 @@ struct SidebarWorkspaceRowSnapshot: Equatable {
     let index: Int
     let workspaceCount: Int
     let workspace: SidebarWorkspaceSnapshotBuilder.Snapshot
+    let content: SidebarWorkspaceRowContentModel
     let isActive: Bool
     let isMultiSelected: Bool
     let hasUserCustomTitle: Bool

@@ -13,6 +13,7 @@ struct SidebarWorkspaceRowModel: Equatable {
     let workspaceId: UUID
     let index: Int
     let snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    let content: SidebarWorkspaceRowContentModel
     let settings: SidebarTabItemSettingsSnapshot
     // `var` (not `let`) so the optimistic press/deselect paint can apply a
     // selection-flipped copy of the model; the stored model stays

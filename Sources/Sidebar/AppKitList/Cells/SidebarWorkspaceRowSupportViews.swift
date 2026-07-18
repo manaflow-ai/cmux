@@ -43,12 +43,6 @@ struct SidebarRowPalette {
 /// One "small icon + text" line (metadata entry, log line, branch/dir line).
 @MainActor
 final class SidebarRowIconTextLine: NSView {
-    struct BranchLineContent {
-        let branch: String?
-        let directoryCandidates: [String]
-        let stacked: Bool
-    }
-
     private let iconView = NSImageView()
     private let iconLabel = NSTextField(labelWithString: "")
     private let textView = SidebarRowTextView(lines: 1)
@@ -73,10 +67,11 @@ final class SidebarRowIconTextLine: NSView {
     }
 
     func configureMetadataEntry(
-        _ entry: SidebarStatusEntry,
+        _ row: SidebarWorkspaceStatusRowContent,
         model: SidebarWorkspaceRowModel,
         color: NSColor
     ) {
+        let entry = row.entry
         stacked = false
         secondTextView.isHidden = true
         iconLabel.isHidden = true
@@ -106,8 +101,7 @@ final class SidebarRowIconTextLine: NSView {
                 }
             }
         }
-        let text = entry.key.isEmpty ? entry.value : "\(entry.key): \(entry.value)"
-        textView.stringValue = text
+        textView.stringValue = row.text
         textView.font = .systemFont(ofSize: model.scaled(10))
         textView.textColor = color
         needsLayout = true
@@ -160,14 +154,16 @@ final class SidebarRowIconTextLine: NSView {
     /// Branch/dir line with width-adaptive directory candidate selection
     /// (manual ViewThatFits: longest candidate that fits wins).
     func configureBranchLine(
-        _ content: BranchLineContent,
+        _ content: SidebarWorkspaceBranchDirectoryRowContent,
         model: SidebarWorkspaceRowModel,
         palette: SidebarRowPalette
     ) {
         iconView.isHidden = true
         iconLabel.isHidden = true
         iconSize = 0
-        stacked = content.stacked && content.branch != nil && !content.directoryCandidates.isEmpty
+        stacked = content.stacksBranchAndDirectory
+            && content.branch != nil
+            && !content.directoryCandidates.isEmpty
         let font = NSFont.monospacedSystemFont(ofSize: model.scaled(10), weight: .regular)
         let color = palette.secondary(0.75)
         pendingCandidates = content.directoryCandidates
@@ -275,40 +271,32 @@ final class SidebarRowPullRequestLine: NSView {
     }
 
     func configure(
-        _ display: SidebarWorkspaceSnapshotBuilder.PullRequestDisplay,
+        _ content: SidebarWorkspacePullRequestRowContent,
         model: SidebarWorkspaceRowModel,
         palette: SidebarRowPalette,
-        clickable: Bool,
         onOpen: @escaping () -> Void
     ) {
         let color = model.isActive ? palette.secondary(0.75) : NSColor.secondaryLabelColor
         let font = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
-        iconView.configure(status: display.status, color: color, fontScale: model.fontScale)
-        iconSize = SidebarRowPullRequestIconView.size(status: display.status, fontScale: model.fontScale)
-        let title = "\(display.label) #\(display.number)"
-        titleButton.isHidden = !clickable
-        titleLabel.isHidden = clickable
-        if clickable {
+        iconView.configure(status: content.status, color: color, fontScale: model.fontScale)
+        iconSize = SidebarRowPullRequestIconView.size(status: content.status, fontScale: model.fontScale)
+        titleButton.isHidden = !content.isClickable
+        titleLabel.isHidden = content.isClickable
+        if content.isClickable {
             titleButton.configure(
-                title: title, font: font, color: color, underlined: true,
-                toolTip: String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open pull request"),
+                title: content.title, font: font, color: color, underlined: true,
+                toolTip: content.openTooltip,
                 onClick: onOpen
             )
         } else {
-            titleLabel.stringValue = title
+            titleLabel.stringValue = content.title
             titleLabel.font = font
             titleLabel.textColor = color
         }
-        let statusText: String
-        switch display.status {
-        case .open: statusText = String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
-        case .merged: statusText = String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
-        case .closed: statusText = String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
-        }
-        statusLabel.stringValue = statusText
+        statusLabel.stringValue = content.statusLabel
         statusLabel.font = font
         statusLabel.textColor = color
-        alphaValue = display.isStale ? 0.5 : 1
+        alphaValue = content.isStale ? 0.5 : 1
         lineHeight = max(iconSize.height, ceil(font.ascender - font.descender + font.leading))
         needsLayout = true
     }
@@ -323,11 +311,11 @@ final class SidebarRowPullRequestLine: NSView {
             x: 0, y: (bounds.height - iconSize.height) / 2,
             width: iconSize.width, height: iconSize.height
         )
-        let statusSize = statusLabel.intrinsicContentSize
+        let statusSize = statusLabel.unconstrainedContentSize
         let titleX = iconSize.width + 4
         let titleWidth = max(10, bounds.width - titleX - statusSize.width - 8)
         let title: NSView = titleButton.isHidden ? titleLabel : titleButton
-        let titleSize = titleButton.isHidden ? titleLabel.intrinsicContentSize : titleButton.intrinsicContentSize
+        let titleSize = titleButton.isHidden ? titleLabel.unconstrainedContentSize : titleButton.intrinsicContentSize
         title.frame = NSRect(
             x: titleX, y: (bounds.height - titleSize.height) / 2,
             width: min(ceil(titleSize.width), titleWidth), height: titleSize.height

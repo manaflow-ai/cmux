@@ -25,7 +25,7 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.sidebar.showNotificationMessage) == true)
         #expect(client.value(for: catalog.sidebar.notificationMessageLineLimit) == 12)
         #expect(client.value(for: catalog.sidebar.branchVerticalLayout) == true)
-        #expect(client.value(for: catalog.sidebar.stackBranchDirectory) == false)
+        #expect(client.value(for: catalog.sidebar.stackBranchDirectory) == true)
         #expect(client.value(for: catalog.sidebar.pathLastSegmentOnly) == false)
         #expect(client.value(for: catalog.sidebar.makePullRequestsClickable) == true)
         #expect(client.value(for: catalog.app.keepWorkspaceOpenWhenClosingLastSurface) == true)
@@ -78,6 +78,10 @@ struct UserDefaultsSettingsClientTests {
         client.set(24, for: catalog.sidebar.notificationMessageLineLimit)
         #expect(defaults.object(forKey: "sidebarNotificationMessageLineLimit") as? Int == 24)
         #expect(client.value(for: catalog.sidebar.notificationMessageLineLimit) == 24)
+
+        client.set(false, for: catalog.sidebar.stackBranchDirectory)
+        #expect(defaults.object(forKey: "sidebarBranchDirectoryStacked") as? Bool == false)
+        #expect(client.value(for: catalog.sidebar.stackBranchDirectory) == false)
     }
 
     @Test func resetRestoresDefault() throws {

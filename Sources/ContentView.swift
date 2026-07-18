@@ -11657,6 +11657,7 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceId: input.workspaceId,
             index: input.index,
             snapshot: input.workspace,
+            content: input.content,
             settings: input.settings,
             isActive: input.isActive,
             isMultiSelected: input.isMultiSelected,
@@ -13711,6 +13712,11 @@ struct VerticalTabsSidebar: View, Equatable {
                 showsAgentActivity: renderContext.showsAgentActivity
             )
         }
+        let content = SidebarWorkspaceRowContentModel(
+            workspace: workspaceSnapshot,
+            settings: settings,
+            latestNotificationText: liveLatestNotificationText
+        )
 
         let todoStatusResolution = WorkspaceTaskStatusOverride.effectiveStatus(
             override: tab.todoState.statusOverride,
@@ -13729,6 +13735,7 @@ struct VerticalTabsSidebar: View, Equatable {
             index: index,
             workspaceCount: renderContext.workspaceCount,
             workspace: workspaceSnapshot,
+            content: content,
             isActive: tabManager.selectedTabId == tab.id,
             isMultiSelected: selectedTabIds.contains(tab.id),
             hasUserCustomTitle: tab.effectiveCustomTitleSource == .user,
@@ -14654,10 +14661,8 @@ struct TabItemView: View, Equatable {
     @State private var renameDraft = ""
     @State private var renameBaselineHadUserCustomTitle = false
 
-    private static let maxWrappedTitleLines = 8
-    private static let maxDisplayedTitleCharacters = 2048
-
     var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot { snapshot.workspace }
+    var content: SidebarWorkspaceRowContentModel { snapshot.content }
     var workspaceId: UUID { snapshot.workspaceId }
     var index: Int { snapshot.index }
     var isActive: Bool { snapshot.isActive }
@@ -14694,24 +14699,8 @@ struct TabItemView: View, Equatable {
         settings.alwaysShowShortcutHints
     }
 
-    private var sidebarShowGitBranch: Bool {
-        settings.showsGitBranch
-    }
-
-    private var sidebarBranchVerticalLayout: Bool {
-        settings.usesVerticalBranchLayout
-    }
-
-    private var sidebarStacksBranchAndDirectory: Bool {
-        settings.stacksBranchAndDirectory
-    }
-
     private var sidebarUsesLastSegmentPath: Bool {
         settings.usesLastSegmentPath
-    }
-
-    private var sidebarShowGitBranchIcon: Bool {
-        settings.showsGitBranchIcon
     }
 
     private var sidebarShowSSH: Bool {
@@ -14845,10 +14834,12 @@ struct TabItemView: View, Equatable {
     }
 
     private var showCloseButton: Bool {
-        isPointerHovering
-            && !contextMenuVisible
-            && canCloseWorkspace
-            && !(showsModifierShortcutHints || alwaysShowShortcutHints)
+        content.showsCloseButton(
+            isPointerHovering: isPointerHovering,
+            contextMenuVisible: contextMenuVisible,
+            canCloseWorkspace: canCloseWorkspace,
+            showsModifierShortcutHints: showsModifierShortcutHints
+        )
     }
 
     private var workspaceShortcutLabel: String? {
@@ -14990,20 +14981,7 @@ struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let latestNotificationSubtitle = latestNotificationText
-        let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
-            ? workspaceSnapshot.latestConversationMessage?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            : nil
-        let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
-        let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : settings.notificationMessageLineLimit
-        // Bound notification payloads before shaping so pathological text stays cheap in lazy, Equatable rows.
-        let displayedSubtitle = effectiveSubtitle?.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
         let detailVisibility = visibleAuxiliaryDetails
-        let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
-        let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
-            maxDisplayedLines: titleLineLimit,
-            maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
-        )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledLoadingSpinnerSize = max(10, 12 * fontScale)
         let titleFirstLineCenter = GlobalFontMagnification.scaledSize(
@@ -15102,10 +15080,10 @@ struct TabItemView: View, Equatable {
                     .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                     .layoutPriority(1)
                 } else {
-                    Text(displayedTitle)
+                    Text(content.title)
                         .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
                         .foregroundColor(activePrimaryTextColor)
-                        .lineLimit(titleLineLimit)
+                        .lineLimit(content.titleLineLimit)
                         .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -15127,11 +15105,11 @@ struct TabItemView: View, Equatable {
                 )
             }
 
-            if let subtitle = displayedSubtitle {
+            if let subtitle = content.subtitle {
                 Text(subtitle)
                     .font(magnifiedFont(scaledFontSize(10)))
                     .foregroundColor(activeSecondaryColor(0.8))
-                    .lineLimit(subtitleLineLimit)
+                    .lineLimit(content.subtitleLineLimit)
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -15159,11 +15137,11 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSection(snapshot: workspaceSnapshot)
 
             if detailVisibility.showsMetadata {
-                let metadataEntries = workspaceSnapshot.metadataEntries
+                let statusRows = content.statusRows
                 let metadataBlocks = workspaceSnapshot.metadataBlocks
-                if !metadataEntries.isEmpty {
+                if !statusRows.isEmpty {
                     SidebarMetadataRows(
-                        entries: metadataEntries,
+                        rows: statusRows,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -15222,122 +15200,79 @@ struct TabItemView: View, Equatable {
             }
 
             // Branch + directory row
-            if detailVisibility.showsBranchDirectory {
-                if sidebarBranchVerticalLayout {
-                    if !workspaceSnapshot.branchDirectoryLines.isEmpty {
-                        HStack(alignment: .top, spacing: 3) {
-                            if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
-                                CmuxSystemSymbolImage(magnified: "arrow.triangle.branch", pointSize: scaledFontSize(9))
-                                    .foregroundColor(activeSecondaryColor(0.6))
-                            }
-                            VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                    if sidebarStacksBranchAndDirectory {
-                                        if let branch = line.branch {
-                                            Text(branch)
-                                                .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                        }
-                                        if !line.directoryCandidates.isEmpty {
-                                            SidebarDirectoryText(
-                                                candidates: line.directoryCandidates,
-                                                color: activeSecondaryColor(0.75),
-                                                fontScale: fontScale
-                                            )
-                                        }
-                                    } else {
-                                        HStack(spacing: 3) {
-                                            if let branch = line.branch {
-                                                Text(branch)
-                                                    .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
-                                                    .foregroundColor(activeSecondaryColor(0.75))
-                                                    .lineLimit(1)
-                                                    .truncationMode(.tail)
-                                            }
-                                            if line.branch != nil, !line.directoryCandidates.isEmpty {
-                                                CmuxSystemSymbolImage(magnified: "circle.fill", pointSize: scaledFontSize(3))
-                                                    .foregroundColor(activeSecondaryColor(0.6))
-                                                    .padding(.horizontal, 1)
-                                            }
-                                            if !line.directoryCandidates.isEmpty {
-                                                SidebarDirectoryText(
-                                                    candidates: line.directoryCandidates,
-                                                    color: activeSecondaryColor(0.75),
-                                                    fontScale: fontScale
-                                                )
-                                            }
-                                        }
+            if !content.branchDirectoryRows.isEmpty {
+                HStack(alignment: .top, spacing: 3) {
+                    if content.showsBranchIcon {
+                        CmuxSystemSymbolImage(magnified: "arrow.triangle.branch", pointSize: scaledFontSize(9))
+                            .foregroundColor(activeSecondaryColor(0.6))
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        ForEach(Array(content.branchDirectoryRows.enumerated()), id: \.offset) { _, line in
+                            if line.stacksBranchAndDirectory {
+                                if let branch = line.branch {
+                                    Text(branch)
+                                        .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
+                                        .foregroundColor(activeSecondaryColor(0.75))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                }
+                                if !line.directoryCandidates.isEmpty {
+                                    SidebarDirectoryText(
+                                        candidates: line.directoryCandidates,
+                                        color: activeSecondaryColor(0.75),
+                                        fontScale: fontScale
+                                    )
+                                }
+                            } else {
+                                HStack(spacing: 3) {
+                                    if let branch = line.branch {
+                                        Text(branch)
+                                            .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
+                                            .foregroundColor(activeSecondaryColor(0.75))
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                    }
+                                    if line.branch != nil, !line.directoryCandidates.isEmpty {
+                                        CmuxSystemSymbolImage(magnified: "circle.fill", pointSize: scaledFontSize(3))
+                                            .foregroundColor(activeSecondaryColor(0.6))
+                                            .padding(.horizontal, 1)
+                                    }
+                                    if !line.directoryCandidates.isEmpty {
+                                        SidebarDirectoryText(
+                                            candidates: line.directoryCandidates,
+                                            color: activeSecondaryColor(0.75),
+                                            fontScale: fontScale
+                                        )
                                     }
                                 }
                             }
                         }
                     }
-                } else if sidebarStacksBranchAndDirectory,
-                          (workspaceSnapshot.compactGitBranchSummaryText != nil
-                           || !workspaceSnapshot.compactDirectoryCandidates.isEmpty) {
-                    HStack(alignment: .top, spacing: 3) {
-                        if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
-                            CmuxSystemSymbolImage(magnified: "arrow.triangle.branch", pointSize: scaledFontSize(9))
-                                .foregroundColor(activeSecondaryColor(0.6))
-                        }
-                        VStack(alignment: .leading, spacing: 1) {
-                            if let branchRow = workspaceSnapshot.compactGitBranchSummaryText {
-                                Text(branchRow)
-                                    .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
-                                    .foregroundColor(activeSecondaryColor(0.75))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                            if !workspaceSnapshot.compactDirectoryCandidates.isEmpty {
-                                SidebarDirectoryText(
-                                    candidates: workspaceSnapshot.compactDirectoryCandidates,
-                                    color: activeSecondaryColor(0.75),
-                                    fontScale: fontScale
-                                )
-                            }
-                        }
-                    }
-                } else if !workspaceSnapshot.compactBranchDirectoryCandidates.isEmpty {
-                    HStack(spacing: 3) {
-                        if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
-                            CmuxSystemSymbolImage(magnified: "arrow.triangle.branch", pointSize: scaledFontSize(9))
-                                .foregroundColor(activeSecondaryColor(0.6))
-                        }
-                        SidebarDirectoryText(
-                            candidates: workspaceSnapshot.compactBranchDirectoryCandidates,
-                            color: activeSecondaryColor(0.75),
-                            fontScale: fontScale
-                        )
-                    }
                 }
             }
 
             // Pull request rows
-            if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
+            if !content.pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
-                    ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
-                        let pullRequestNumber = String(pullRequest.number)
-                        let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
+                    ForEach(content.pullRequestRows) { pullRequest in
                         let rowContent = HStack(alignment: .center, spacing: 4) {
                             PullRequestStatusIcon(
                                 status: pullRequest.status,
                                 color: pullRequestForegroundColor,
                                 fontScale: fontScale
                             )
-                            Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
-                            Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
+                            Text(pullRequest.title).underline(pullRequest.isClickable).lineLimit(1).truncationMode(.tail)
+                            Text(pullRequest.statusLabel).lineLimit(1)
                             Spacer(minLength: 0)
                         }
                         .font(magnifiedFont(scaledFontSize(10), weight: .semibold))
                         .foregroundColor(pullRequestForegroundColor)
                         .opacity(pullRequest.isStale ? 0.5 : 1)
-                        if settings.makesPullRequestsClickable {
+                        if pullRequest.isClickable {
                             Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
                                 .buttonStyle(.plain)
                                 .tint(pullRequestForegroundColor)
-                                .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
+                                .safeHelp(pullRequest.openTooltip)
                                 .accessibilityIdentifier("SidebarPullRequestRow")
                         } else {
                             rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
@@ -15575,14 +15510,6 @@ struct TabItemView: View, Equatable {
 
     private func openPortLink(_ port: Int) {
         actions.openPort(port)
-    }
-
-    private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
-        switch status {
-        case .open: return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
-        case .merged: return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
-        case .closed: return String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
-        }
     }
 
     private func logLevelIcon(_ level: SidebarLogLevel) -> String {
@@ -15913,7 +15840,7 @@ extension String {
 }
 
 private struct SidebarMetadataRows: View {
-    let entries: [SidebarStatusEntry]
+    let rows: [SidebarWorkspaceStatusRowContent]
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
@@ -15925,9 +15852,9 @@ private struct SidebarMetadataRows: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(visibleEntries, id: \.key) { entry in
+            ForEach(visibleRows) { row in
                 SidebarMetadataEntryRow(
-                    entry: entry,
+                    row: row,
                     isActive: isActive,
                     activeForegroundColor: activeForegroundColor,
                     fontScale: fontScale,
@@ -15951,30 +15878,28 @@ private struct SidebarMetadataRows: View {
         .safeHelp(helpText)
     }
 
-    private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
-        return Array(entries.prefix(collapsedEntryLimit))
+    private var visibleRows: [SidebarWorkspaceStatusRowContent] {
+        guard !isExpanded, rows.count > collapsedEntryLimit else { return rows }
+        return Array(rows.prefix(collapsedEntryLimit))
     }
 
     private var helpText: String {
-        entries.map { entry in
-            let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? entry.key : trimmed
-        }
-        .joined(separator: "\n")
+        rows.map(\.text).joined(separator: "\n")
     }
 
     private var shouldShowToggle: Bool {
-        entries.count > collapsedEntryLimit
+        rows.count > collapsedEntryLimit
     }
 }
 
 private struct SidebarMetadataEntryRow: View {
-    let entry: SidebarStatusEntry
+    let row: SidebarWorkspaceStatusRowContent
     let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+
+    private var entry: SidebarStatusEntry { row.entry }
 
     var body: some View {
         Group {
@@ -16050,18 +15975,16 @@ private struct SidebarMetadataEntryRow: View {
 
     @ViewBuilder
     private func metadataText(underlined: Bool) -> some View {
-        let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let display = trimmed.isEmpty ? entry.key : trimmed
         if entry.format == .markdown,
            let attributed = try? AttributedString(
-                markdown: display,
+                markdown: row.text,
                 options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
            ) {
             Text(attributed)
                 .underline(underlined)
                 .foregroundColor(foregroundColor)
         } else {
-            Text(display)
+            Text(row.text)
                 .underline(underlined)
                 .foregroundColor(foregroundColor)
         }
