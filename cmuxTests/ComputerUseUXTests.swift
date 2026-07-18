@@ -176,6 +176,16 @@ struct ComputerUseUXTests {
         #expect(first.contentViewController !== second.contentViewController)
     }
 
+    @Test @MainActor func onboardingWindowCanMoveByDraggingItsBackground() {
+        let controller = ComputerUseOnboardingWindowController(
+            permissionService: ComputerUsePermissionService()
+        )
+        let window = controller.makeWindow()
+        defer { window.close() }
+
+        #expect(window.isMovableByWindowBackground)
+    }
+
     @Test func menuRefreshPolicyDebouncesAndSkipsFullyInactiveFeature() throws {
         let policy = ComputerUseMenuBarRefreshPolicy(minimumEventReloadInterval: 0.2)
         let firstEvent = Date(timeIntervalSince1970: 1_900_000_000)
