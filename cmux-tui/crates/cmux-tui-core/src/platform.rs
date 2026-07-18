@@ -9,8 +9,18 @@ pub mod transport {
     use std::path::Path;
     use std::time::Duration;
 
+    /// Kernel-authenticated identity of the process connected to a local
+    /// transport stream.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct PeerCredentials {
+        pub process_id: Option<u32>,
+        pub user_id: u32,
+        pub group_id: u32,
+    }
+
     pub trait Stream: Read + Write + Send + Sync {
         fn try_clone_box(&self) -> io::Result<Box<dyn Stream>>;
+        fn peer_credentials(&self) -> io::Result<Option<PeerCredentials>>;
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
         fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
         fn shutdown(&self, how: Shutdown) -> io::Result<()>;
@@ -39,11 +49,12 @@ pub mod transport {
     #[cfg(unix)]
     mod imp {
         use std::io;
+        use std::os::fd::AsRawFd;
         use std::os::unix::net::{UnixListener, UnixStream};
         use std::path::Path;
         use std::time::Duration;
 
-        use super::Stream;
+        use super::{PeerCredentials, Stream};
 
         pub(super) struct Listener {
             inner: UnixListener,
@@ -69,6 +80,10 @@ pub mod transport {
                 Ok(Box::new(self.try_clone()?))
             }
 
+            fn peer_credentials(&self) -> io::Result<Option<PeerCredentials>> {
+                peer_credentials(self).map(Some)
+            }
+
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
                 UnixStream::set_read_timeout(self, timeout)
             }
@@ -81,6 +96,109 @@ pub mod transport {
                 UnixStream::shutdown(self, how)
             }
         }
+
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        fn peer_credentials(stream: &UnixStream) -> io::Result<PeerCredentials> {
+            use std::mem::{MaybeUninit, size_of};
+
+            let mut credentials = MaybeUninit::<libc::ucred>::uninit();
+            let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+            let status = unsafe {
+                libc::getsockopt(
+                    stream.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_PEERCRED,
+                    credentials.as_mut_ptr().cast(),
+                    &mut length,
+                )
+            };
+            if status != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if length as usize != size_of::<libc::ucred>() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "kernel returned an invalid Unix peer credential length",
+                ));
+            }
+            let credentials = unsafe { credentials.assume_init() };
+            Ok(PeerCredentials {
+                process_id: u32::try_from(credentials.pid).ok(),
+                user_id: credentials.uid,
+                group_id: credentials.gid,
+            })
+        }
+
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly"
+        ))]
+        fn peer_credentials(stream: &UnixStream) -> io::Result<PeerCredentials> {
+            let mut user_id = 0;
+            let mut group_id = 0;
+            let status =
+                unsafe { libc::getpeereid(stream.as_raw_fd(), &mut user_id, &mut group_id) };
+            if status != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(PeerCredentials { process_id: peer_process_id(stream)?, user_id, group_id })
+        }
+
+        #[cfg(target_os = "macos")]
+        fn peer_process_id(stream: &UnixStream) -> io::Result<Option<u32>> {
+            use std::mem::size_of;
+
+            let mut process_id = 0 as libc::pid_t;
+            let mut length = size_of::<libc::pid_t>() as libc::socklen_t;
+            let status = unsafe {
+                libc::getsockopt(
+                    stream.as_raw_fd(),
+                    libc::SOL_LOCAL,
+                    libc::LOCAL_PEERPID,
+                    (&mut process_id as *mut libc::pid_t).cast(),
+                    &mut length,
+                )
+            };
+            if status != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if length as usize != size_of::<libc::pid_t>() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "kernel returned an invalid Unix peer process credential length",
+                ));
+            }
+            Ok(u32::try_from(process_id).ok())
+        }
+
+        #[cfg(any(
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly"
+        ))]
+        fn peer_process_id(_stream: &UnixStream) -> io::Result<Option<u32>> {
+            Ok(None)
+        }
+
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "macos",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly"
+        )))]
+        fn peer_credentials(_stream: &UnixStream) -> io::Result<PeerCredentials> {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Unix peer credentials are unavailable on this platform",
+            ))
+        }
     }
 
     #[cfg(windows)]
@@ -89,7 +207,7 @@ pub mod transport {
         use std::path::Path;
         use std::time::Duration;
 
-        use super::Stream;
+        use super::{PeerCredentials, Stream};
         use uds_windows::{UnixListener, UnixStream};
 
         pub(super) struct Listener {
@@ -114,6 +232,10 @@ pub mod transport {
         impl Stream for UnixStream {
             fn try_clone_box(&self) -> io::Result<Box<dyn Stream>> {
                 Ok(Box::new(self.try_clone()?))
+            }
+
+            fn peer_credentials(&self) -> io::Result<Option<PeerCredentials>> {
+                Ok(None)
             }
 
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
@@ -694,6 +816,18 @@ fn env_path(name: &str) -> Option<PathBuf> {
     (!value.is_empty()).then(|| PathBuf::from(value))
 }
 
+/// Effective user identifier that owns local daemon trust and private files.
+#[cfg(unix)]
+pub fn effective_user_id() -> Option<u32> {
+    Some(unsafe { libc::geteuid() })
+}
+
+/// Windows local transport does not currently expose a comparable numeric UID.
+#[cfg(not(unix))]
+pub fn effective_user_id() -> Option<u32> {
+    None
+}
+
 #[cfg(not(windows))]
 fn env_string(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.trim().is_empty())
@@ -866,7 +1000,7 @@ fn validate_private_attributes(
     mode: u32,
     expected_mode: u32,
 ) -> std::io::Result<()> {
-    let current_user = unsafe { libc::getuid() };
+    let current_user = unsafe { libc::geteuid() };
     if owner != current_user {
         return Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
@@ -934,7 +1068,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn private_attribute_policy_rejects_foreign_owners_and_broad_modes() {
-        let current_user = unsafe { libc::getuid() };
+        let current_user = unsafe { libc::geteuid() };
         let foreign_user = current_user.wrapping_add(1);
         let path = Path::new("fixture");
 
@@ -947,5 +1081,32 @@ mod tests {
             .expect_err("broad mode must fail");
         assert_eq!(broad.kind(), std::io::ErrorKind::PermissionDenied);
         assert!(broad.to_string().contains("must have mode 0700"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_transport_retains_kernel_peer_credentials() {
+        let directory = PathBuf::from("/tmp").join(format!(
+            "cmux-peer-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        ensure_private_directory(&directory).unwrap();
+        let socket = directory.join("peer.sock");
+        let listener = transport::listen(&socket).unwrap();
+        let client = transport::connect(&socket).unwrap();
+        let server = listener.accept().unwrap();
+
+        let credentials = server.peer_credentials().unwrap().expect("Unix peer credentials");
+        assert_eq!(credentials.user_id, unsafe { libc::geteuid() });
+        assert_eq!(credentials.group_id, unsafe { libc::getegid() });
+        #[cfg(any(target_os = "macos", target_os = "linux", target_os = "android"))]
+        assert_eq!(credentials.process_id, Some(std::process::id()));
+
+        drop(server);
+        drop(client);
+        drop(listener);
+        std::fs::remove_file(socket).unwrap();
+        std::fs::remove_dir(directory).unwrap();
     }
 }
