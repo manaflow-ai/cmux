@@ -16,7 +16,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Discovery's stable tmux session id (`$N`), seeded at creation so id-based
     /// de-dup works before the control stream reports `connection.sessionId`.
     let seededSessionId: Int?
-    let connection: RemoteTmuxControlConnection
+    let connection: any RemoteTmuxSessionSource
     let onControlPaneRemoved: (PaneID, UUID?) -> Void
     let onControlSurfaceRemoved: (UUID) -> Void
 
@@ -151,7 +151,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Per-window renderers, created from each window's first published layout.
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var pendingExplicitFocusWindowId: Int?
-    private var observerToken: RemoteTmuxControlConnection.ObserverToken?
+    private var observerToken: UUID?
     private var paneInputForwarder: RemoteTmuxPaneInputForwarder?
 
     /// Snapshots the session's ordered input seam for a Ghostty I/O callback.
@@ -168,7 +168,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         host: RemoteTmuxHost,
         sessionName: String,
         seededSessionId: Int? = nil,
-        connection: RemoteTmuxControlConnection,
+        connection: any RemoteTmuxSessionSource,
         tabManager: TabManager,
         workspace: Workspace,
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
@@ -200,7 +200,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
 
         // Register as one of possibly several observers — never overwrite a
         // single shared closure on the connection.
-        self.observerToken = connection.addObserver(
+        self.observerToken = connection.addObserver(RemoteTmuxSessionObservers(
             onPaneOutput: { [weak self] paneId, data in
                 self?.routeOutput(paneId: paneId, data: data)
             },
@@ -243,7 +243,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                     }
                 }
             }
-        )
+        ))
         rebuild()
     }
 
