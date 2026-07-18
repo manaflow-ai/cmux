@@ -10562,6 +10562,11 @@ struct VerticalTabsSidebar: View, Equatable {
     /// so per-width-tick body evals skip the row-projection prelude. Plain
     /// (non-observed) box: writing it from body cannot re-trigger a render.
     @State private var appKitFrozenTableRowsBox = SidebarAppKitFrozenRowsBox()
+    /// Bumped once per interactive-resize end: an apply during the drag
+    /// serves frozen rows, so content that changed mid-drag (renames,
+    /// notifications) would otherwise stay unrendered until the next
+    /// unrelated sidebar change. The bump forces one fresh rebuild.
+    @State private var appKitPostResizeRefreshToken: UInt64 = 0
     @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var checklistPopoverWorkspaceId: UUID?
     // Pending keyed refresh ids are intentionally non-observed. Workspace
@@ -11328,6 +11333,7 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func appKitWorkspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         let _ = anchorCwdRevision
+        let _ = appKitPostResizeRefreshToken
         let tableRows: [SidebarWorkspaceTableRowConfiguration]
         let isDividerDragActive = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(
             in: observedWindow
@@ -11380,6 +11386,13 @@ struct VerticalTabsSidebar: View, Equatable {
                 // Workspace switches produce no outside click for .transient auto-dismiss; close popovers explicitly.
                 if let dismissed = checklistPopoverWorkspaceId { checklistAddFieldActivationTokens[dismissed] = nil }
                 checklistPopoverWorkspaceId = nil
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cmuxInteractiveGeometryResizeDidEnd)) { _ in
+                // Applies during a drag serve frozen rows; rebuild once from
+                // live state so renames/notifications that landed mid-drag
+                // can't stay stale until the next unrelated change.
+                appKitFrozenTableRowsBox.rows = nil
+                appKitPostResizeRefreshToken &+= 1
             }
             .onReceive(NotificationCenter.default.publisher(for: .workspaceCurrentDirectoryDidChange)) { _ in
                 // Drive a revision counter that the group-header resolver
