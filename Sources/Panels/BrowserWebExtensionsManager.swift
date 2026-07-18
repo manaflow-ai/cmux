@@ -70,7 +70,6 @@ final class BrowserWebExtensionsManager: NSObject {
     private var pendingActionInvocations: [ActionInvocationKey: [PendingActionInvocation]] = [:]
     private var lastActionInvocations: [ActionInvocationKey: PendingActionInvocation] = [:]
     private var popupWebViews: [String: WeakPopupWebView] = [:]
-    private var backgroundLoadErrors: [String: any Error] = [:]
     private var actionUpdateFlushTask: Task<Void, Never>?
     private var pendingActionUpdates: [ActionUpdateKey: PendingActionUpdate] = [:]
     private var installTasks: [UUID: Task<BrowserWebExtensionInstallReceipt, any Error>] = [:]
@@ -139,7 +138,6 @@ final class BrowserWebExtensionsManager: NSObject {
         }
         loadedContexts.removeAll()
         toolbarPinnedExtensionIdentifiers.removeAll()
-        backgroundLoadErrors.removeAll()
         loadErrors.removeAll()
         tabAdapters.removeAll()
         windowAdapters.removeAll()
@@ -559,22 +557,6 @@ final class BrowserWebExtensionsManager: NSObject {
         try controller.load(context)
         loadedContexts.append(context)
         enqueueActionUpdate(action: nil, context: context, panelID: nil)
-        if webExtension.hasBackgroundContent {
-            context.loadBackgroundContent { [weak self, weak context] error in
-                guard let self, !self.isShutDown, let context else { return }
-                if let error {
-                    self.backgroundLoadErrors[context.uniqueIdentifier] = error
-#if DEBUG
-                    cmuxDebugLog(
-                        "browser.extensions.background-failed name=\(context.webExtension.displayName ?? context.uniqueIdentifier) " +
-                        "error=\(error)"
-                    )
-#endif
-                } else {
-                    self.backgroundLoadErrors.removeValue(forKey: context.uniqueIdentifier)
-                }
-            }
-        }
         return context
     }
 
@@ -605,14 +587,14 @@ final class BrowserWebExtensionsManager: NSObject {
         return [
             "extensions": matchingContexts(identifier).map { context in
                 let identifier = context.uniqueIdentifier
-                let backgroundError: Any = backgroundLoadErrors[identifier]
-                    .map(Self.errorPayload) ?? NSNull()
                 return [
                     "id": identifier,
                     "name": context.webExtension.displayName ?? identifier,
                     "version": context.webExtension.version ?? "",
                     "errors": context.errors.map(Self.errorPayload),
-                    "background_error": backgroundError,
+                    // WebKit owns background activation and reports lifecycle
+                    // failures through the extension context's error collection.
+                    "background_error": NSNull(),
                     "has_popup_webview": popupWebViews[identifier]?.webView != nil,
                     "inspectable": context.isInspectable,
                 ] as [String: Any]
