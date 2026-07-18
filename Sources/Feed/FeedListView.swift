@@ -5,14 +5,10 @@ import Foundation
 import SwiftUI
 
 struct FeedListView: View {
-    let filter: FeedPanelView.Filter
     let presentation: FeedPresentationSnapshot
     let placement: FeedPlacement
     let focusScopeID: UUID
     let onFocusHostChange: (FeedKeyboardFocusView?) -> Void
-    let hasMorePersistedItems: Bool
-    let isLoadingOlderItems: Bool
-    let onLoadOlderItems: () -> Void
 
     @State private var focusSnapshot = FeedFocusSnapshot()
     @State private var scrollRequest: FeedScrollRequest?
@@ -23,19 +19,14 @@ struct FeedListView: View {
     @State private var actionTaskStore = FeedRowActions.TaskStore()
 
     var body: some View {
-        let activityGroups = filter == .activity ? presentation.activity : nil
-        let snapshots = activityGroups?.ordered ?? presentation.actionable
+        let snapshots = presentation.actionable
         let rowActions = FeedRowActions.bound(taskStore: actionTaskStore)
         ScrollViewReader { proxy in
             Group {
-                if snapshots.isEmpty && !shouldShowActivityHistoryLoader {
+                if snapshots.isEmpty {
                     emptyState
                 } else {
-                    contentBody(
-                        snapshots: snapshots,
-                        activityGroups: activityGroups,
-                        actions: rowActions
-                    )
+                    stableScrollSurface(snapshots: snapshots, actions: rowActions)
                 }
             }
             .onChange(of: scrollRequest) { _, request in
@@ -93,27 +84,6 @@ struct FeedListView: View {
         }
     }
 
-    @ViewBuilder
-    private func contentBody(
-        snapshots: [FeedItemSnapshot],
-        activityGroups: FeedActivitySnapshotGroups?,
-        actions: FeedRowActions
-    ) -> some View {
-        switch filter {
-        case .actionable:
-            stableScrollSurface(
-                snapshots: snapshots,
-                actions: actions
-            )
-        case .activity:
-            activityScrollSurface(
-                groups: activityGroups ?? FeedActivitySnapshotGroups(stable: [], history: []),
-                actions: actions,
-                showsLoadMore: hasMorePersistedItems
-            )
-        }
-    }
-
     private func stableScrollSurface(
         snapshots: [FeedItemSnapshot],
         actions: FeedRowActions
@@ -132,56 +102,6 @@ struct FeedListView: View {
         }
         .feedZeroScrollContentMargins()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    private func activityScrollSurface(
-        groups: FeedActivitySnapshotGroups,
-        actions: FeedRowActions,
-        showsLoadMore: Bool
-    ) -> some View {
-        List {
-            ForEach(groups.stable, id: \.id) { snapshot in
-                rowSurface(
-                    snapshot: snapshot,
-                    actions: actions,
-                    showsDivider: snapshot.id != groups.stable.last?.id
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
-            if !groups.stable.isEmpty && (!groups.history.isEmpty || showsLoadMore) {
-                rowSeparator
-                    .id("feed.activity.separator")
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            }
-            ForEach(groups.history, id: \.id) { snapshot in
-                rowSurface(
-                    snapshot: snapshot,
-                    actions: actions,
-                    showsDivider: snapshot.id != groups.history.last?.id
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
-            if showsLoadMore {
-                FeedHistoryLoadMoreRow(
-                    isLoading: isLoadingOlderItems,
-                    action: onLoadOlderItems
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .feedZeroScrollContentMargins()
-        .environment(\.defaultMinListRowHeight, 0)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func rowSurface(
@@ -233,10 +153,6 @@ struct FeedListView: View {
                 }
             }
         )
-    }
-
-    private var shouldShowActivityHistoryLoader: Bool {
-        filter == .activity && hasMorePersistedItems
     }
 
     private func selectRow(_ id: UUID, focusFeed: Bool) {
@@ -399,27 +315,14 @@ struct FeedListView: View {
         focusSnapshot = controller.feedFocusSnapshot()
     }
 
-    private var rowSeparator: some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.08))
-            .frame(maxWidth: .infinity)
-            .frame(height: 1)
-    }
-
     private var emptyState: some View {
         VStack(spacing: 4) {
-            Text(filter == .actionable
-                 ? String(localized: "feed.empty.actionable.title",
-                          defaultValue: "No pending decisions")
-                 : String(localized: "feed.empty.activity.title",
-                          defaultValue: "No activity yet"))
+            Text(String(localized: "feed.empty.actionable.title",
+                        defaultValue: "No pending decisions"))
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
-            Text(filter == .actionable
-                 ? String(localized: "feed.empty.actionable.subtitle",
-                          defaultValue: "Permission, plan, and question requests from AI agents will appear here.")
-                 : String(localized: "feed.empty.activity.subtitle",
-                          defaultValue: "Agent decisions and todo-list updates will appear here."))
+            Text(String(localized: "feed.empty.actionable.subtitle",
+                        defaultValue: "Permission, plan, and question requests from AI agents will appear here."))
                 .cmuxFont(size: 11)
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)

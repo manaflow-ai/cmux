@@ -792,7 +792,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
-		FEE200000000000000000013 /* FeedActivitySnapshotGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */; };
 		FEE200000000000000000012 /* FeedBlockingCallBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000012 /* FeedBlockingCallBridge.swift */; };
 		FEE200000000000000000017 /* FeedBlockingWaiterCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000017 /* FeedBlockingWaiterCompletion.swift */; };
 		FEE200000000000000000002 /* FeedBlockingWaiterRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */; };
@@ -2890,7 +2889,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
-		FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedActivitySnapshotGroups.swift; sourceTree = "<group>"; };
 		FEE100000000000000000012 /* FeedBlockingCallBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedBlockingCallBridge.swift; sourceTree = "<group>"; };
 		FEE100000000000000000017 /* FeedBlockingWaiterCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedBlockingWaiterCompletion.swift; sourceTree = "<group>"; };
 		FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedBlockingWaiterRegistry.swift; sourceTree = "<group>"; };
@@ -6342,7 +6340,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */,
 				FEE100000000000000000017 /* FeedBlockingWaiterCompletion.swift */,
 				FEE100000000000000000012 /* FeedBlockingCallBridge.swift */,
-				FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */,
 				FEE100000000000000000014 /* FeedPresentationSnapshot.swift */,
 				FEE100000000000000000016 /* FeedPresentationStore.swift */,
 				F17A00000000000000000001 /* FeedButton.swift */,
@@ -7286,7 +7283,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
-				FEE200000000000000000013 /* FeedActivitySnapshotGroups.swift in Sources */,
 				FEE200000000000000000012 /* FeedBlockingCallBridge.swift in Sources */,
 				FEE200000000000000000017 /* FeedBlockingWaiterCompletion.swift in Sources */,
 				FEE200000000000000000002 /* FeedBlockingWaiterRegistry.swift in Sources */,

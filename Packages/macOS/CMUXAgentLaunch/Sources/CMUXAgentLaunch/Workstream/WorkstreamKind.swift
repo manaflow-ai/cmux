@@ -1,15 +1,14 @@
 import Foundation
 
-/// Classifies a `WorkstreamItem`. Actionable kinds are surfaced in the
-/// default Feed view; telemetry kinds are stored but hidden behind the
-/// "All" filter toggle.
+/// Classifies a `WorkstreamItem`. Actionable kinds enter the Feed. Telemetry
+/// kinds can enrich nearby actionable context but are not retained.
 public enum WorkstreamKind: String, Codable, Sendable, CaseIterable, Equatable {
     // Actionable — shown by default.
     case permissionRequest
     case exitPlan
     case question
 
-    // Telemetry — stored, hidden by default.
+    // Telemetry — transient context only.
     case toolUse
     case toolResult
     case userPrompt

@@ -4,94 +4,83 @@ import Testing
 
 @Suite("WorkstreamPersistence")
 struct WorkstreamPersistenceTests {
-    @Test("Append + loadRecent round-trips items oldest-first")
-    func appendAndLoad() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-workstream-test-\(UUID().uuidString).jsonl")
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        let persistence = WorkstreamPersistence(fileURL: tmp)
-        let items = (0..<5).map { i in
-            WorkstreamItem(
-                workstreamId: "s\(i)",
-                source: .claude,
-                kind: .permissionRequest,
-                payload: .permissionRequest(
-                    requestId: "r\(i)",
-                    toolName: "Write",
-                    toolInputJSON: "{}",
-                    pattern: nil
-                )
-            )
-        }
-        for item in items {
-            try await persistence.append(item)
-        }
+    @Test("Pending snapshot round-trips items oldest-first")
+    func snapshotRoundTrip() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let persistence = WorkstreamPersistence(fileURL: fixture.url)
+        let items = (0..<5).map(Self.pendingItem)
+
+        try await persistence.replacePendingItems(items, generation: 1)
+
         let loaded = try await persistence.loadRecent(limit: 10)
-        #expect(loaded.count == 5)
-        #expect(loaded.first?.workstreamId == "s0")
-        #expect(loaded.last?.workstreamId == "s4")
+        #expect(loaded.map(\.workstreamId) == ["s0", "s1", "s2", "s3", "s4"])
     }
 
-    @Test("loadRecent with limit returns the most recent suffix")
-    func loadRecentLimit() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-workstream-test-\(UUID().uuidString).jsonl")
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        let persistence = WorkstreamPersistence(fileURL: tmp)
-        for i in 0..<5 {
-            try await persistence.append(WorkstreamItem(
-                workstreamId: "s\(i)",
-                source: .claude,
-                kind: .permissionRequest,
-                payload: .permissionRequest(requestId: "r\(i)", toolName: "t", toolInputJSON: "{}", pattern: nil)
-            ))
-        }
-        let loaded = try await persistence.loadRecent(limit: 2)
-        #expect(loaded.count == 2)
-        #expect(loaded.first?.workstreamId == "s3")
-        #expect(loaded.last?.workstreamId == "s4")
+    @Test("Snapshot item limit keeps the most recent pending suffix")
+    func snapshotItemLimit() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let persistence = WorkstreamPersistence(
+            fileURL: fixture.url,
+            maximumItemCount: 2
+        )
+
+        try await persistence.replacePendingItems(
+            (0..<5).map(Self.pendingItem),
+            generation: 1
+        )
+
+        let loaded = try await persistence.loadRecent(limit: 10)
+        #expect(loaded.map(\.workstreamId) == ["s3", "s4"])
     }
 
-    @Test("loadPage pages older rows before a stable byte cursor")
-    func loadPageBeforeCursor() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-workstream-page-\(UUID().uuidString).jsonl")
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        let persistence = WorkstreamPersistence(fileURL: tmp)
-        for i in 0..<5 {
-            try await persistence.append(WorkstreamItem(
-                workstreamId: "s\(i)",
-                source: .claude,
-                kind: .permissionRequest,
-                payload: .permissionRequest(requestId: "r\(i)", toolName: "t", toolInputJSON: "{}", pattern: nil)
-            ))
-        }
+    @Test("Stale asynchronous generations cannot resurrect older pending state")
+    func staleGenerationIgnored() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let persistence = WorkstreamPersistence(fileURL: fixture.url)
 
-        let newest = try await persistence.loadPage(limit: 2)
-        #expect(newest.items.map(\.workstreamId) == ["s3", "s4"])
-        #expect(newest.hasMoreBefore)
-        let cursor = try #require(newest.startOffset)
+        try await persistence.replacePendingItems([Self.pendingItem(1)], generation: 2)
+        try await persistence.replacePendingItems([Self.pendingItem(0)], generation: 1)
 
-        try await persistence.append(WorkstreamItem(
-            workstreamId: "s5",
+        #expect(try await persistence.loadRecent(limit: 10).map(\.workstreamId) == ["s1"])
+    }
+
+    @Test("Snapshot filters telemetry and resolved history")
+    func snapshotFiltersHistory() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let persistence = WorkstreamPersistence(fileURL: fixture.url)
+        let resolved = WorkstreamItem(
+            workstreamId: "resolved",
             source: .claude,
-            kind: .permissionRequest,
-            payload: .permissionRequest(requestId: "r5", toolName: "t", toolInputJSON: "{}", pattern: nil)
-        ))
+            kind: .question,
+            status: .resolved(.question(selections: ["Done"]), at: Date()),
+            payload: .question(requestId: "resolved", questions: [])
+        )
+        let telemetry = WorkstreamItem(
+            workstreamId: "telemetry",
+            source: .claude,
+            kind: .toolUse,
+            payload: .toolUse(toolName: "Read", toolInputJSON: "{}")
+        )
 
-        let older = try await persistence.loadPage(endingBefore: cursor, limit: 2)
-        #expect(older.items.map(\.workstreamId) == ["s1", "s2"])
-        #expect(older.hasMoreBefore)
+        try await persistence.replacePendingItems(
+            [telemetry, resolved, Self.pendingItem(0)],
+            generation: 1
+        )
+
+        #expect(try await persistence.loadRecent(limit: 10).map(\.workstreamId) == ["s0"])
     }
 
-    @Test("append redacts sensitive tool input before writing JSONL")
-    func appendRedactsSensitiveToolInput() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-workstream-redact-\(UUID().uuidString).jsonl")
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        let persistence = WorkstreamPersistence(fileURL: tmp)
+    @Test("Snapshot redacts sensitive tool input")
+    func snapshotRedactsSensitiveToolInput() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let persistence = WorkstreamPersistence(fileURL: fixture.url)
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
-        try await persistence.append(WorkstreamItem(
+        let item = WorkstreamItem(
             workstreamId: "s",
             source: .claude,
             kind: .permissionRequest,
@@ -101,7 +90,9 @@ struct WorkstreamPersistenceTests {
                 toolInputJSON: #"{"command":"OPENAI_API_KEY=sk-test node \#(homePath)/app.js","env":{"SECRET":"value"}}"#,
                 pattern: nil
             )
-        ))
+        )
+
+        try await persistence.replacePendingItems([item], generation: 1)
 
         let loaded = try await persistence.loadRecent(limit: 1)
         guard case .permissionRequest(_, _, let toolInputJSON, _) = loaded[0].payload else {
@@ -118,50 +109,35 @@ struct WorkstreamPersistenceTests {
         #expect((object["command"] as? String)?.contains("~/app.js") == true)
     }
 
-    @Test("Missing file returns empty")
-    func missingFileEmpty() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-workstream-missing-\(UUID().uuidString).jsonl")
-        let persistence = WorkstreamPersistence(fileURL: tmp)
-        let loaded = try await persistence.loadRecent(limit: 10)
-        #expect(loaded.isEmpty)
+    @Test("Missing file and non-positive limits return empty")
+    func emptyReads() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let persistence = WorkstreamPersistence(fileURL: fixture.url)
+        #expect(try await persistence.loadRecent(limit: 10).isEmpty)
+        try await persistence.replacePendingItems([Self.pendingItem(0)], generation: 1)
+        #expect(try await persistence.loadRecent(limit: 0).isEmpty)
     }
 
-    @Test("Non-positive limit returns empty")
-    func nonPositiveLimitEmpty() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-workstream-limit-\(UUID().uuidString).jsonl")
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        let persistence = WorkstreamPersistence(fileURL: tmp)
-        try await persistence.append(WorkstreamItem(
-            workstreamId: "s", source: .claude, kind: .sessionStart, payload: .sessionStart
-        ))
-        let loaded = try await persistence.loadRecent(limit: 0)
-        #expect(loaded.isEmpty)
-    }
-
-    @Test("clear removes the backing file")
+    @Test("Clear removes the backing file")
     func clearRemovesFile() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-workstream-clear-\(UUID().uuidString).jsonl")
-        let persistence = WorkstreamPersistence(fileURL: tmp)
-        try await persistence.append(WorkstreamItem(
-            workstreamId: "s", source: .claude, kind: .sessionStart, payload: .sessionStart
-        ))
-        #expect(FileManager.default.fileExists(atPath: tmp.path))
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let persistence = WorkstreamPersistence(fileURL: fixture.url)
+        try await persistence.replacePendingItems([Self.pendingItem(0)], generation: 1)
+        #expect(FileManager.default.fileExists(atPath: fixture.url.path))
         try await persistence.clear()
-        #expect(!FileManager.default.fileExists(atPath: tmp.path))
+        #expect(!FileManager.default.fileExists(atPath: fixture.url.path))
     }
 
     @Test("Persisted Feed state stays below the disk byte ceiling")
     func persistedStateHasByteCeiling() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-workstream-bounded-\(UUID().uuidString).jsonl")
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let persistence = WorkstreamPersistence(fileURL: fixture.url)
         let largeInput = String(repeating: "x", count: 64 * 1024)
-        for i in 0..<64 {
-            try await persistence.append(WorkstreamItem(
+        let items = (0..<100).map { i in
+            WorkstreamItem(
                 workstreamId: "s\(i)",
                 source: .claude,
                 kind: .permissionRequest,
@@ -171,11 +147,40 @@ struct WorkstreamPersistenceTests {
                     toolInputJSON: largeInput,
                     pattern: nil
                 )
-            ))
+            )
         }
 
-        let attributes = try FileManager.default.attributesOfItem(atPath: tmp.path)
+        try await persistence.replacePendingItems(items, generation: 1)
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: fixture.url.path)
         let fileSize = try #require(attributes[.size] as? NSNumber).intValue
-        #expect(fileSize <= 2 * 1024 * 1024)
+        #expect(fileSize <= WorkstreamDefaultPersistedByteLimit)
+        #expect(try await persistence.loadRecent(limit: 100).last?.workstreamId == "s99")
+    }
+
+    private static func pendingItem(_ index: Int) -> WorkstreamItem {
+        WorkstreamItem(
+            workstreamId: "s\(index)",
+            source: .claude,
+            kind: .permissionRequest,
+            payload: .permissionRequest(
+                requestId: "r\(index)",
+                toolName: "Write",
+                toolInputJSON: "{}",
+                pattern: nil
+            )
+        )
+    }
+}
+
+private struct Fixture {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("cmux-workstream-\(UUID().uuidString).jsonl")
+
+    func remove() {
+        try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(
+            at: WorkstreamPersistence.removedItemsFileURL(for: url)
+        )
     }
 }

@@ -108,11 +108,11 @@ final class FeedCoordinator: @unchecked Sendable {
     guard let requestId = event.requestId, waitTimeout > 0 else {
       let itemID = await MainActor.run { () -> UUID? in
         guard !Task.isCancelled else { return nil }
-        self.store.ingest(event)
+        let itemID = self.store.ingest(event)
         if let ppid = event.ppid, ppid > 0 {
           self.armPidWatcher(ppid: ppid)
         }
-        return self.store.items.last?.id
+        return itemID
       }
       return Task.isCancelled ? .timedOut(itemId: itemID) : .acknowledged(itemId: itemID)
     }
@@ -137,8 +137,7 @@ final class FeedCoordinator: @unchecked Sendable {
       : nil
     let ingestResult: (itemID: UUID?, attentionTarget: AttentionTarget?) = await MainActor.run {
       guard !Task.isCancelled else { return (nil, nil) }
-      self.store.ingest(event)
-      let itemID = self.store.items.last?.id
+      let itemID = self.store.ingest(event)
       if let ppid = event.ppid, ppid > 0 {
         self.armPidWatcher(ppid: ppid)
       }

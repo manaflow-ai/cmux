@@ -1,41 +1,36 @@
 import Foundation
 
-/// Append-only JSONL persistence for `WorkstreamItem`. One item per line,
-/// unbounded on disk. The in-memory ring buffer on `WorkstreamStore` is
-/// the only cap on working set size; this layer exists for restart
-/// recovery and long-term audit.
+public let WorkstreamDefaultPersistedItemLimit = 100
+public let WorkstreamDefaultPersistedByteLimit = 2 * 1024 * 1024
+public let WorkstreamDefaultLegacyReadByteLimit = 8 * 1024 * 1024
+
+/// Bounded restart recovery for pending Feed decisions.
 ///
-/// Writes are serialized through an actor so the store can fire them off
-/// without awaiting disk IO; reads happen on the caller's executor since
-/// load runs once per process at launch.
+/// The file remains JSONL for backward compatibility, but it is now an atomic
+/// snapshot instead of an append-only activity log. Every write keeps pending
+/// actionable items only, caps both row count and encoded bytes, and removes
+/// the legacy tombstone sidecar.
 public actor WorkstreamPersistence {
-    public struct Page: Sendable, Equatable {
-        public let items: [WorkstreamItem]
-        public let hasMoreBefore: Bool
-        public let startOffset: UInt64?
-
-        public init(
-            items: [WorkstreamItem],
-            hasMoreBefore: Bool,
-            startOffset: UInt64?
-        ) {
-            self.items = items
-            self.hasMoreBefore = hasMoreBefore
-            self.startOffset = startOffset
-        }
-    }
-
     private let fileURL: URL
     private let removedItemsFileURL: URL
+    private let maximumItemCount: Int
+    private let maximumFileBytes: Int
+    private let maximumLegacyReadBytes: Int
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private var handle: FileHandle?
-    private var removedItemsHandle: FileHandle?
-    private var cachedRemovedItemIDs: Set<UUID>?
+    private var latestGeneration: UInt64 = 0
 
-    public init(fileURL: URL) {
+    public init(
+        fileURL: URL,
+        maximumItemCount: Int = WorkstreamDefaultPersistedItemLimit,
+        maximumFileBytes: Int = WorkstreamDefaultPersistedByteLimit,
+        maximumLegacyReadBytes: Int = WorkstreamDefaultLegacyReadByteLimit
+    ) {
         self.fileURL = fileURL
         self.removedItemsFileURL = Self.removedItemsFileURL(for: fileURL)
+        self.maximumItemCount = max(0, maximumItemCount)
+        self.maximumFileBytes = max(0, maximumFileBytes)
+        self.maximumLegacyReadBytes = max(0, maximumLegacyReadBytes)
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         self.encoder = enc
@@ -44,214 +39,122 @@ public actor WorkstreamPersistence {
         self.decoder = dec
     }
 
-    /// Default JSONL path in the user's cmuxterm state directory.
+    /// Default snapshot path in the user's cmuxterm state directory.
     public static func defaultFileURL() -> URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home
+        FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("workstream.jsonl", isDirectory: false)
     }
 
+    /// Legacy removal log path, retained only so migration can delete it.
     public static func removedItemsFileURL(for fileURL: URL) -> URL {
         fileURL.deletingPathExtension().appendingPathExtension("removed.jsonl")
     }
 
-    /// Appends a single item as a JSON line. Creates the file and parent
-    /// directory lazily on first write.
-    public func append(_ item: WorkstreamItem) throws {
-        let data = try encoder.encode(item.redactedForPersistence())
-        var line = data
-        line.append(0x0A) // "\n"
-        let fh = try handleForWriting()
-        try fh.seekToEnd()
-        try fh.write(contentsOf: line)
+    /// Loads pending actionable rows from the bounded tail of either the new
+    /// snapshot or a legacy append-only file. Order is oldest-first.
+    public func loadPendingItems(limit: Int) throws -> [WorkstreamItem] {
+        guard limit > 0,
+              maximumLegacyReadBytes > 0,
+              FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        let fileSize = try handle.seekToEnd()
+        let readSize = min(Int(fileSize), maximumLegacyReadBytes)
+        guard readSize > 0 else { return [] }
+        try handle.seek(toOffset: fileSize - UInt64(readSize))
+        guard let tail = try handle.read(upToCount: readSize), !tail.isEmpty else { return [] }
+
+        let removedItemIDs = try loadLegacyRemovedItemIDs()
+        let startsMidLine = UInt64(readSize) < fileSize
+        var lines = tail.split(separator: 0x0A, omittingEmptySubsequences: true)
+        if startsMidLine, !lines.isEmpty {
+            lines.removeFirst()
+        }
+        return lines.compactMap { line -> WorkstreamItem? in
+            guard let item = try? decoder.decode(WorkstreamItem.self, from: Data(line)),
+                  item.kind.isActionable,
+                  item.status.isPending,
+                  !removedItemIDs.contains(item.id) else { return nil }
+            return item.retainedForFeed()
+        }
+        .suffix(min(limit, maximumItemCount))
+        .map { $0 }
     }
 
-    /// Persists an item tombstone without rewriting the unbounded event log.
-    /// Readers apply tombstones while paging, so user removals survive restart
-    /// and existing byte cursors remain stable while new events are appended.
-    public func remove(_ itemID: UUID) throws {
-        var removedItemIDs = try loadRemovedItemIDs()
-        guard removedItemIDs.insert(itemID).inserted else { return }
+    /// Atomically replaces persisted state. Stale asynchronous writes are
+    /// ignored by generation so an older snapshot cannot resurrect a decision.
+    public func replacePendingItems(
+        _ items: [WorkstreamItem],
+        generation: UInt64
+    ) throws {
+        guard generation >= latestGeneration else { return }
+        latestGeneration = generation
 
-        var line = Data(itemID.uuidString.utf8)
-        line.append(0x0A)
-        let fh = try handleForRemovedItemsWriting()
-        try fh.seekToEnd()
-        try fh.write(contentsOf: line)
-        cachedRemovedItemIDs = removedItemIDs
-    }
+        let candidates = items
+            .filter { $0.kind.isActionable && $0.status.isPending }
+            .suffix(maximumItemCount)
+            .map { $0.retainedForFeed().redactedForPersistence() }
 
-    /// Loads the last `limit` items from the file. Order in the returned
-    /// array is oldest-first. Missing file returns empty.
-    public func loadRecent(limit: Int) throws -> [WorkstreamItem] {
-        try loadPage(endingBefore: nil, limit: limit).items
-    }
-
-    /// Loads up to `limit` items ending before `endOffset`. Order in the
-    /// returned array is oldest-first. `startOffset` can be passed back
-    /// as `endOffset` to page older history without depending on line
-    /// counts, which keeps the cursor stable while new rows are appended.
-    public func loadPage(
-        endingBefore endOffset: UInt64? = nil,
-        limit: Int
-    ) throws -> Page {
-        guard limit > 0 else {
-            return Page(items: [], hasMoreBefore: false, startOffset: nil)
-        }
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return Page(items: [], hasMoreBefore: false, startOffset: nil)
-        }
-        let removedItemIDs = try loadRemovedItemIDs()
-        let fh = try FileHandle(forReadingFrom: fileURL)
-        defer { try? fh.close() }
-        let fileSize = try fh.seekToEnd()
-        let pageEnd = min(endOffset ?? fileSize, fileSize)
-        guard fileSize > 0, pageEnd > 0 else {
-            return Page(items: [], hasMoreBefore: false, startOffset: nil)
+        var selectedLines: [Data] = []
+        var selectedByteCount = 0
+        for item in candidates.reversed() {
+            var line = try encoder.encode(item)
+            line.append(0x0A)
+            guard line.count <= maximumFileBytes else { continue }
+            guard selectedByteCount + line.count <= maximumFileBytes else { break }
+            selectedLines.append(line)
+            selectedByteCount += line.count
         }
 
-        let chunkSize = 64 * 1024
-        var offset = pageEnd
-        var tail = Data()
-        var lineRanges: [(range: Range<Int>, startOffset: UInt64)] = []
-        while offset > 0 {
-            let readSize = min(chunkSize, Int(offset))
-            offset -= UInt64(readSize)
-            try fh.seek(toOffset: offset)
-            guard let chunk = try fh.read(upToCount: readSize), !chunk.isEmpty else {
-                break
-            }
-            tail.insert(contentsOf: chunk, at: 0)
-            lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
-            if lineRanges.count > limit + removedItemIDs.count {
-                break
-            }
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(at: removedItemsFileURL)
+        guard !selectedLines.isEmpty else {
+            try? fileManager.removeItem(at: fileURL)
+            return
         }
-
-        if lineRanges.isEmpty {
-            lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
-        }
-        var decoded: [(item: WorkstreamItem, startOffset: UInt64)] = []
-        decoded.reserveCapacity(lineRanges.count)
-        for lineRange in lineRanges {
-            let slice = tail.subdata(in: lineRange.range)
-            if let item = try? decoder.decode(WorkstreamItem.self, from: slice),
-               !removedItemIDs.contains(item.id) {
-                decoded.append((item, lineRange.startOffset))
-            }
-            // Malformed lines are dropped silently; the audit log is
-            // append-only and we don't want a corrupt row to block startup.
-        }
-        let selected = decoded.suffix(limit)
-        let out = selected.map(\.item)
-        let startOffset = selected.first?.startOffset
-        return Page(
-            items: out,
-            hasMoreBefore: (startOffset ?? 0) > 0,
-            startOffset: startOffset
+        try fileManager.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
         )
+        var snapshot = Data(capacity: selectedByteCount)
+        for line in selectedLines.reversed() {
+            snapshot.append(line)
+        }
+        try snapshot.write(to: fileURL, options: .atomic)
     }
 
-    /// Truncates the JSONL file. Used by `cmux feed clear`.
+    /// Compatibility read used by diagnostics and focused tests.
+    public func loadRecent(limit: Int) throws -> [WorkstreamItem] {
+        try loadPendingItems(limit: limit)
+    }
+
+    /// Removes the snapshot and any legacy tombstones.
     public func clear() throws {
-        if let fh = handle {
-            try fh.close()
-        }
-        if let fh = removedItemsHandle {
-            try fh.close()
-        }
-        handle = nil
-        removedItemsHandle = nil
-        cachedRemovedItemIDs = []
+        latestGeneration &+= 1
         for url in [fileURL, removedItemsFileURL] {
             do {
                 try FileManager.default.removeItem(at: url)
             } catch {
                 let nsError = error as NSError
-                if nsError.domain == NSCocoaErrorDomain,
-                   nsError.code == NSFileNoSuchFileError {
-                    continue
-                }
-                throw error
+                guard nsError.domain == NSCocoaErrorDomain,
+                      nsError.code == NSFileNoSuchFileError else { throw error }
             }
         }
     }
 
-    private func handleForWriting() throws -> FileHandle {
-        if let handle { return handle }
-        let fm = FileManager.default
-        try fm.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if !fm.fileExists(atPath: fileURL.path) {
-            fm.createFile(atPath: fileURL.path, contents: nil)
-        }
-        let fh = try FileHandle(forWritingTo: fileURL)
-        handle = fh
-        return fh
-    }
-
-    private func handleForRemovedItemsWriting() throws -> FileHandle {
-        if let removedItemsHandle { return removedItemsHandle }
-        let fm = FileManager.default
-        try fm.createDirectory(
-            at: removedItemsFileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if !fm.fileExists(atPath: removedItemsFileURL.path) {
-            fm.createFile(atPath: removedItemsFileURL.path, contents: nil)
-        }
-        let fh = try FileHandle(forWritingTo: removedItemsFileURL)
-        removedItemsHandle = fh
-        return fh
-    }
-
-    private func loadRemovedItemIDs() throws -> Set<UUID> {
-        if let cachedRemovedItemIDs { return cachedRemovedItemIDs }
-        guard FileManager.default.fileExists(atPath: removedItemsFileURL.path) else {
-            cachedRemovedItemIDs = []
-            return []
-        }
+    private func loadLegacyRemovedItemIDs() throws -> Set<UUID> {
+        guard FileManager.default.fileExists(atPath: removedItemsFileURL.path) else { return [] }
+        let attributes = try FileManager.default.attributesOfItem(atPath: removedItemsFileURL.path)
+        let fileSize = (attributes[.size] as? NSNumber)?.intValue ?? 0
+        guard fileSize <= maximumLegacyReadBytes else { return [] }
         let data = try Data(contentsOf: removedItemsFileURL)
-        let removedItemIDs = Set(
+        return Set(
             String(decoding: data, as: UTF8.self)
                 .split(whereSeparator: \.isNewline)
                 .compactMap { UUID(uuidString: String($0)) }
         )
-        cachedRemovedItemIDs = removedItemIDs
-        return removedItemIDs
-    }
-
-    private static func lineRanges(
-        in data: Data,
-        baseOffset: UInt64
-    ) -> [(range: Range<Int>, startOffset: UInt64)] {
-        var ranges: [(range: Range<Int>, startOffset: UInt64)] = []
-        ranges.reserveCapacity(128)
-        var lineStart = 0
-        for (idx, byte) in data.enumerated() {
-            guard byte == 0x0A else { continue }
-            if lineStart < idx {
-                ranges.append(
-                    (
-                        range: lineStart..<idx,
-                        startOffset: baseOffset + UInt64(lineStart)
-                    )
-                )
-            }
-            lineStart = idx + 1
-        }
-        if lineStart < data.count {
-            ranges.append(
-                (
-                    range: lineStart..<data.count,
-                    startOffset: baseOffset + UInt64(lineStart)
-                )
-            )
-        }
-        return ranges
     }
 }
 

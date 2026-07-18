@@ -6,10 +6,8 @@ import Darwin
 import Glibc
 #endif
 
-/// Size of the in-memory ring buffer. Older items are evicted to disk-only.
-public let WorkstreamDefaultRingCapacity = 2_000
-public let WorkstreamDefaultInitialLoadLimit = 300
-public let WorkstreamDefaultHistoryPageSize = 300
+/// Maximum number of actionable cards retained in memory.
+public let WorkstreamDefaultRingCapacity = 200
 
 /// Main-actor `@Observable` store that holds the Feed state.
 ///
@@ -22,8 +20,6 @@ public let WorkstreamDefaultHistoryPageSize = 300
 @Observable
 public final class WorkstreamStore {
     public private(set) var items: [WorkstreamItem] = []
-    public private(set) var hasMorePersistedItems = false
-    public private(set) var isLoadingOlderItems = false
 
     public var pending: [WorkstreamItem] {
         items.filter { $0.status.isPending }
@@ -36,53 +32,48 @@ public final class WorkstreamStore {
     private let transport: any WorkstreamTransport
     private let persistence: WorkstreamPersistence?
     private let ringCapacity: Int
-    private let initialLoadLimit: Int
-    private let historyPageSize: Int
+    private let contextCapacity: Int
     private let clock: @Sendable () -> Date
     private let titleProvider: (WorkstreamEvent) -> String?
-    private var oldestLoadedPersistenceOffset: UInt64?
+    private var persistenceGeneration: UInt64 = 0
 
     /// Last known conversational context for each workstream. Tool hooks
     /// usually arrive without the surrounding user prompt, so the store
     /// carries forward prompt/preamble context from nearby telemetry rows.
     private var lastContextByWorkstream: [String: WorkstreamContext] = [:]
+    private var contextWorkstreamOrder: [String] = []
 
     /// Creates a store for Feed workstream items.
     ///
     /// - Parameters:
     ///   - transport: Source and reply transport for live Feed events.
-    ///   - persistence: Optional JSONL persistence for event history.
+    ///   - persistence: Optional bounded persistence for pending decisions.
     ///   - ringCapacity: Maximum in-memory item count.
-    ///   - initialLoadLimit: Maximum persisted item count loaded at startup.
-    ///   - historyPageSize: Page size for older persisted history.
     ///   - clock: Clock used for timestamps and expiry checks.
     ///   - titleProvider: App boundary hook for localized display titles.
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
         ringCapacity: Int = WorkstreamDefaultRingCapacity,
-        initialLoadLimit: Int = WorkstreamDefaultInitialLoadLimit,
-        historyPageSize: Int = WorkstreamDefaultHistoryPageSize,
         clock: @escaping @Sendable () -> Date = { Date() },
         titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil }
     ) {
         self.transport = transport
         self.persistence = persistence
-        self.ringCapacity = ringCapacity
-        self.initialLoadLimit = initialLoadLimit
-        self.historyPageSize = historyPageSize
+        self.ringCapacity = max(0, ringCapacity)
+        self.contextCapacity = max(0, ringCapacity)
         self.clock = clock
         self.titleProvider = titleProvider
     }
 
     public func start() async {
         if let persistence {
-            if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
-                items = page.items
-                hasMorePersistedItems = page.hasMoreBefore
-                oldestLoadedPersistenceOffset = page.startOffset
+            if let restored = try? await persistence.loadPendingItems(limit: ringCapacity) {
+                items = restored.suffix(ringCapacity).map { $0.retainedForFeed() }
                 rebuildContextIndex()
             }
+            persistenceGeneration &+= 1
+            try? await persistence.replacePendingItems(items, generation: persistenceGeneration)
         }
         do {
             try await transport.subscribe { [weak self] event in
@@ -97,48 +88,22 @@ public final class WorkstreamStore {
         }
     }
 
-    public func loadOlderItems() async {
-        guard !isLoadingOlderItems, hasMorePersistedItems else { return }
-        guard let persistence, let oldestLoadedPersistenceOffset else {
-            hasMorePersistedItems = false
-            return
-        }
-
-        isLoadingOlderItems = true
-        defer { isLoadingOlderItems = false }
-
-        guard let page = try? await persistence.loadPage(
-            endingBefore: oldestLoadedPersistenceOffset,
-            limit: historyPageSize
-        ), !page.items.isEmpty else {
-            hasMorePersistedItems = false
-            return
-        }
-
-        let existingIds = Set(items.map(\.id))
-        let olderItems = page.items.filter { !existingIds.contains($0.id) }
-        if !olderItems.isEmpty {
-            items.insert(contentsOf: olderItems, at: 0)
-        }
-        self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
-        hasMorePersistedItems = page.hasMoreBefore
-        rebuildContextIndex()
-    }
-
     // MARK: - Ingest
 
     /// Applies an inbound wire frame. Creates or updates a
-    /// `WorkstreamItem`, enforces the ring-buffer cap, and appends to
-    /// the JSONL log.
-    public func ingest(_ event: WorkstreamEvent) {
-        let item = makeItem(from: event)
-        insert(item)
+    /// `WorkstreamItem` for actionable events. Telemetry updates a bounded
+    /// context cache only and is never retained in memory or on disk.
+    @discardableResult
+    public func ingest(_ event: WorkstreamEvent) -> UUID? {
+        let item = makeItem(from: event).retainedForFeed()
         updateContextIndex(with: item)
-        if let persistence {
-            Task { [persistence, item] in
-                try? await persistence.append(item)
-            }
+        if event.hookEventName == .sessionEnd {
+            removeContext(for: event.sessionId)
         }
+        guard item.kind.isActionable else { return nil }
+        insert(item)
+        schedulePendingSnapshot()
+        return item.id
     }
 
     // MARK: - Actions
@@ -150,16 +115,16 @@ public final class WorkstreamStore {
         applyResolution(for: action)
     }
 
-    /// Removes one Feed item immediately and records a durable tombstone so
-    /// it does not return when persisted history is loaded again.
+    /// Removes one Feed item immediately and replaces the pending snapshot.
     @discardableResult
     public func removeItem(id: UUID) async throws -> Bool {
         guard items.contains(where: { $0.id == id }) else { return false }
-        if let persistence {
-            try await persistence.remove(id)
-        }
         items.removeAll { $0.id == id }
         rebuildContextIndex()
+        if let persistence {
+            persistenceGeneration &+= 1
+            try await persistence.replacePendingItems(items, generation: persistenceGeneration)
+        }
         return true
     }
 
@@ -172,6 +137,8 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .resolved(decision, at: now)
         items[idx].updatedAt = now
+        items[idx] = items[idx].retainedForFeed()
+        schedulePendingSnapshot()
     }
 
     /// Marks one still-pending item expired.
@@ -181,28 +148,46 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .expired(at: now)
         items[idx].updatedAt = now
+        schedulePendingSnapshot()
     }
 
     /// Marks every still-pending item created before `threshold` as
     /// expired. Call periodically to clean stale items.
     public func expirePending(olderThan threshold: TimeInterval) {
         let now = clock()
+        var didChange = false
         for idx in items.indices {
             guard items[idx].status.isPending else { continue }
             if now.timeIntervalSince(items[idx].createdAt) > threshold {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                didChange = true
             }
         }
+        if didChange { schedulePendingSnapshot() }
     }
 
     // MARK: - Private helpers
 
     private func insert(_ item: WorkstreamItem) {
-        items.append(item)
+        guard ringCapacity > 0 else { return }
+        items.append(item.retainedForFeed())
         if items.count > ringCapacity {
             let overflow = items.count - ringCapacity
             items.removeFirst(overflow)
+        }
+    }
+
+    private func schedulePendingSnapshot() {
+        guard let persistence else { return }
+        persistenceGeneration &+= 1
+        let generation = persistenceGeneration
+        let pendingItems = items.filter { $0.status.isPending }
+        Task { [persistence, pendingItems] in
+            try? await persistence.replacePendingItems(
+                pendingItems,
+                generation: generation
+            )
         }
     }
 
@@ -244,12 +229,15 @@ public final class WorkstreamStore {
     /// so the exact moment an agent dies, its pending cards close.
     public func expireItems(forPpid ppid: Int) {
         let now = clock()
+        var didChange = false
         for idx in items.indices {
             guard items[idx].status.isPending,
                   items[idx].ppid == ppid else { continue }
             items[idx].status = .expired(at: now)
             items[idx].updatedAt = now
+            didChange = true
         }
+        if didChange { schedulePendingSnapshot() }
     }
 
     /// Marks every pending item whose emitting agent process is no
@@ -262,14 +250,17 @@ public final class WorkstreamStore {
         isProcessAlive: (Int) -> Bool = WorkstreamStore.defaultIsProcessAlive
     ) {
         let now = clock()
+        var didChange = false
         for idx in items.indices {
             guard items[idx].status.isPending else { continue }
             guard let ppid = items[idx].ppid, ppid > 0 else { continue }
             if !isProcessAlive(ppid) {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                didChange = true
             }
         }
+        if didChange { schedulePendingSnapshot() }
     }
 
     /// Default liveness probe: `kill(pid, 0)` returns 0 if the
@@ -435,6 +426,7 @@ public final class WorkstreamStore {
 
     private func rebuildContextIndex() {
         lastContextByWorkstream.removeAll(keepingCapacity: true)
+        contextWorkstreamOrder.removeAll(keepingCapacity: true)
         for item in items.sorted(by: { $0.createdAt < $1.createdAt }) {
             updateContextIndex(with: item)
         }
@@ -481,8 +473,20 @@ public final class WorkstreamStore {
             break
         }
 
-        guard let next, !next.isEmpty else { return }
-        lastContextByWorkstream[item.workstreamId] = next
+        guard let next, !next.isEmpty, contextCapacity > 0 else { return }
+        let workstreamID = item.workstreamId
+        contextWorkstreamOrder.removeAll { $0 == workstreamID }
+        contextWorkstreamOrder.append(workstreamID)
+        lastContextByWorkstream[workstreamID] = next.retainedForFeed()
+        while contextWorkstreamOrder.count > contextCapacity {
+            let evicted = contextWorkstreamOrder.removeFirst()
+            lastContextByWorkstream.removeValue(forKey: evicted)
+        }
+    }
+
+    private func removeContext(for workstreamID: String) {
+        lastContextByWorkstream.removeValue(forKey: workstreamID)
+        contextWorkstreamOrder.removeAll { $0 == workstreamID }
     }
 
     private static func carriedContext(from context: WorkstreamContext) -> WorkstreamContext? {
