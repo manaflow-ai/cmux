@@ -17,6 +17,7 @@ public struct ChatScreen: View {
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
     @State private var selectedBlockSelection: ChatBlockSelection?
+    @State private var selectedArtifact: ChatArtifactPathSelection?
 
     private let detailBuilder = ChatBlockDetailBuilder()
     @Binding private var draft: String
@@ -91,6 +92,13 @@ public struct ChatScreen: View {
                 )
             }
         }
+        .navigationDestination(isPresented: artifactIsPresented) {
+            if let selectedArtifact {
+                ChatArtifactViewerDestination(path: selectedArtifact.path) {
+                    self.selectedArtifact = nil
+                }
+            }
+        }
         .task {
             guard runsStoreTask else { return }
             await store.run()
@@ -99,6 +107,15 @@ public struct ChatScreen: View {
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
         .onChange(of: store.lastErrorDescription) { announceLastError() }
         #endif
+    }
+
+    private var artifactIsPresented: Binding<Bool> {
+        Binding(
+            get: { selectedArtifact != nil },
+            set: { isPresented in
+                if !isPresented { selectedArtifact = nil }
+            }
+        )
     }
 
     @ViewBuilder
@@ -296,6 +313,9 @@ public struct ChatScreen: View {
                 store.discard(pendingID: id)
             },
             openTerminal: onOpenTerminal,
+            openArtifact: { path in
+                selectedArtifact = ChatArtifactPathSelection(path: path)
+            },
             showMessageDetail: { message in
                 selectedBlockSelection = .message(id: message.id)
             },

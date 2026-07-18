@@ -53,6 +53,8 @@ extension CmxIrohHostRuntime {
         await admissionController?.updateManagedRelayURLs(replacementManagedURLs)
         try requireCurrent(revision)
 
+        relayActivationTask?.cancel()
+        relayActivationTask = nil
         await relayCoordinator?.deactivate()
         relayCoordinator = nil
         guard profile.source == .managed,

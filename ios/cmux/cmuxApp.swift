@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
 import SwiftUI
@@ -15,9 +16,13 @@ struct cmuxApp: App {
         let reachability = ReachabilityService()
         let auth = MobileAuthComposition(reachability: reachability)
         auth.start()
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: MobileIOSBuildScope.current()
+        )
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
-            reachability: reachability
+            reachability: reachability,
+            discoveryCompatibilityPolicy: buildCompatibilityPolicy
         )
         iroh.configure(auth: auth.coordinator)
 
@@ -108,6 +113,7 @@ struct cmuxApp: App {
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
+            personalIrohDiscovery: Self.root.iroh,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )
@@ -129,6 +135,7 @@ struct cmuxApp: App {
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
+            personalIrohDiscovery: Self.root.iroh,
             signOutHook: Self.root.signOutHook
         )
         .environment(\.irohSettingsController, Self.root.iroh)

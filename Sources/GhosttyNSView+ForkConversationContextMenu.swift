@@ -106,12 +106,14 @@ extension GhosttyNSView {
             destination = AgentConversationForkDefaultSettings.current()
         }
 
-        guard workspace.forkAgentConversationFromContextMenu(
-            fromPanelId: panelId,
-            destination: destination
-        ) else {
-            NSSound.beep()
-            return
+        Task { @MainActor in
+            guard await workspace.forkAgentConversationFromContextMenu(
+                fromPanelId: panelId,
+                destination: destination
+            ) else {
+                NSSound.beep()
+                return
+            }
         }
     }
 }

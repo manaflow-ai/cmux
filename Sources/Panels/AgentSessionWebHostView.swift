@@ -51,7 +51,7 @@ final class AgentSessionWebHostView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        guard let hostedWebView else {
+        guard hostedWebView != nil else {
             super.scrollWheel(with: event)
             return
         }

@@ -36,6 +36,7 @@ public struct CMUXMobileRootScene: View {
     private let analytics: any AnalyticsEmitting
     private let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
+    private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
@@ -80,7 +81,9 @@ public struct CMUXMobileRootScene: View {
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
     ///     the environment for the pairing and disconnected surfaces.
     ///   - personalIrohRouteCatalog: Authenticated personal-account Iroh routes
-    ///     to merge only when refreshing an already-paired Mac.
+    ///     to merge when refreshing paired Macs and listing live candidates.
+    ///   - personalIrohDiscovery: Live same-account Mac discovery used before
+    ///     presenting QR pairing.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
     ///     injected into the shell store for the DEV feedback round-trip.
@@ -94,6 +97,7 @@ public struct CMUXMobileRootScene: View {
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
+        personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog? = nil
     ) {
@@ -106,6 +110,7 @@ public struct CMUXMobileRootScene: View {
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
+        self.personalIrohDiscovery = personalIrohDiscovery
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -128,6 +133,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
+        self.personalIrohDiscovery = nil
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -198,9 +204,8 @@ public struct CMUXMobileRootScene: View {
     /// the current session and selected team.
     @MainActor
     private func makePresenceClient() -> PresenceClient? {
-        // Presence follows the resolved auth channel (not the build config):
-        // a --prod-auth dev build must subscribe to the production worker its
-        // production Macs heartbeat to (issue 7145).
+        // Presence follows the resolved auth channel so each worker can verify
+        // the token. Build compatibility filters the returned Mac instances.
         guard let baseURL = PresenceClient.resolvedServiceBaseURL(
             isDevelopmentAuthChannel: auth.authEnvironment == .development
         ) else { return nil }
@@ -221,7 +226,8 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeBackedUpPairedMacStore(
         restoreBoundary: PairedMacRestoreBoundary,
-        buildScope: MobileIOSBuildScope?
+        buildScope: MobileIOSBuildScope?,
+        buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     ) -> (any MobilePairedMacStoring)? {
         guard let store = pairedMacStore else { return nil }
         let coordinator = auth.coordinator
@@ -232,7 +238,7 @@ public struct CMUXMobileRootScene: View {
             buildScopedStore = store
         }
         let scopedStore = TeamScopedPairedMacStore(
-            inner: buildScopedStore,
+            inner: buildCompatibilityPolicy.scoping(buildScopedStore),
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
         guard MobilePairedMacBackup.resolved().isEnabled,
@@ -305,6 +311,9 @@ public struct CMUXMobileRootScene: View {
     private func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: buildScope
+        )
         let identityProvider = AuthCoordinatorIdentityProvider(
             coordinator: auth.coordinator,
             isDevelopmentAuthEnvironment: auth.authEnvironment == .development
@@ -312,7 +321,8 @@ public struct CMUXMobileRootScene: View {
         let restoreBoundary = PairedMacRestoreBoundary()
         let backedUpPairedMacStore = makeBackedUpPairedMacStore(
             restoreBoundary: restoreBoundary,
-            buildScope: buildScope
+            buildScope: buildScope,
+            buildCompatibilityPolicy: buildCompatibilityPolicy
         )
         let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
         let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
@@ -324,8 +334,10 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
+            personalIrohDiscovery: personalIrohDiscovery,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
@@ -341,8 +353,10 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
+            personalIrohDiscovery: personalIrohDiscovery,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },

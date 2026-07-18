@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+internal import CmuxMobileDiagnostics
 public import CmuxMobilePairedMac
 public import CmuxMobileRPC
 public import CmuxMobileShellModel
@@ -28,55 +29,19 @@ extension MobileShellComposite {
         }
     }
 
-    /// User-initiated reconnect from the Retry control.
-    func recoverForegroundConnectionIfNeeded() {
-        // Scene notifications can repeat while the first foreground probe is
-        // still redialing. Coalesce them so a later notification cannot cancel
-        // the task after it has torn down the old client but before it installs
-        // the replacement.
-        guard foregroundConnectionRecoveryTask == nil else { return }
+    /// Foreground, network, presence, liveness, and stream-failure recovery all
+    /// enter the same owner. Foreground starts with a positive-liveness probe;
+    /// a failed probe promotes that exact attempt to one stored-Mac redial.
+    func recoverForegroundConnectionIfNeeded(resyncAfterHealthy: Bool) {
         guard connectionState == .connected,
               let client = remoteClient,
               pairedMacStore != nil else { return }
-        let recoveryID = UUID()
-        let generation = connectionGeneration
-        let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
-        foregroundConnectionRecoveryID = recoveryID
-        foregroundConnectionRecoveryTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                if self.foregroundConnectionRecoveryID == recoveryID {
-                    self.foregroundConnectionRecoveryTask = nil
-                    self.foregroundConnectionRecoveryID = nil
-                }
-            }
-            let healthy = await self.reloadWorkspaceListFromMac(
-                timeoutNanoseconds: self.runtime?.livenessProbeTimeoutNanoseconds
-            )
-            guard !Task.isCancelled,
-                  self.foregroundConnectionRecoveryID == recoveryID,
-                  self.connectionGeneration == generation,
-                  self.remoteClient === client else { return }
-            if healthy {
-                self.markMacConnectionHealthy()
-                return
-            }
-            guard !self.connectionRequiresReauth, !self.recoveryInFlight else { return }
-            self.recoveryInFlight = true
-            self.isRecoveringConnection = true
-            self.connectionRecoveryFailed = false
-            self.connectionState = .disconnected
-            self.macConnectionStatus = .unavailable
-            self.clearRemoteConnectionContext()
-            let reconnected = await self.reconnectActiveMacIfAvailable(
-                stackUserID: stackUserID
-            )
-            if !reconnected, !Task.isCancelled {
-                self.connectionRecoveryFailed = true
-            }
-            self.recoveryInFlight = false
-            self.isRecoveringConnection = false
-        }
+        beginConnectionRecovery(
+            trigger: .foreground,
+            expectedClient: client,
+            probeCurrentConnection: true,
+            resyncAfterHealthy: resyncAfterHealthy
+        )
     }
 
     /// Single guarded recovery entry for every trigger (network change, manual
@@ -87,31 +52,226 @@ extension MobileShellComposite {
     /// shows Retry and the next network change re-attempts automatically.
     func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
-        if connectionState == .connected, remoteClient != nil {
-            markMacConnectionReconnecting()
-            resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
-            if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
-                scheduleSecondaryAggregation()
+        if let accountID = identityProvider?.currentUserID {
+            switch trigger {
+            case .manual, .networkChange:
+                clearTransientAutomaticReconnectBackoff(accountID: accountID)
+            case .presencePush:
+                guard !automaticIrohReconnectIsBlocked(accountID: accountID) else {
+                    return
+                }
+            case .foreground, .liveness, .eventStreamEnded,
+                 .subscriptionStartFailed, .transportWriteTimedOut,
+                 .automaticBackoffExpired:
+                break
+            }
+        }
+        beginConnectionRecovery(
+            trigger: trigger,
+            expectedClient: remoteClient,
+            probeCurrentConnection: connectionState == .connected && remoteClient != nil,
+            resyncAfterHealthy: true
+        )
+        if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
+            scheduleSecondaryAggregation()
+        }
+    }
+
+    /// A definitive event-stream failure bypasses same-client resubscription.
+    /// Once the exact session is proven dead, rebuilding its listener only hides
+    /// the failure behind the transport's reconnect behavior and leaves the
+    /// shell owner stale. Instead, transition the one lifecycle owner to a fresh
+    /// authenticated stored-Mac dial.
+    func recoverDeadConnection(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient
+    ) {
+        guard remoteClient === expectedClient, connectionState == .connected else { return }
+
+        if connectionRecoveryOwner.isRedialingOrValidating {
+            let replacementIsInstalled = connectionRecoveryOwner.isValidatingReplacement
+                || connectionRecoveryOwner.activeAttempt?.sourceConnectionGeneration != connectionGeneration
+            guard replacementIsInstalled else { return }
+            _ = connectionRecoveryOwner.failReplacement()
+            connectionState = .disconnected
+            macConnectionStatus = .unavailable
+            clearRemoteConnectionContext()
+            applyConnectionRecoveryOwnerState()
+            return
+        }
+
+        let superseding = connectionRecoveryOwner.supersedeProbeWithRedial(
+            trigger: trigger.description,
+            sourceConnectionGeneration: connectionGeneration
+        )
+        startConnectionRecovery(
+            trigger: trigger,
+            expectedClient: expectedClient,
+            probeCurrentConnection: false,
+            resyncAfterHealthy: false,
+            preclaimedAttempt: superseding
+        )
+    }
+
+    private func beginConnectionRecovery(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient?,
+        probeCurrentConnection: Bool,
+        resyncAfterHealthy: Bool
+    ) {
+        startConnectionRecovery(
+            trigger: trigger,
+            expectedClient: expectedClient,
+            probeCurrentConnection: probeCurrentConnection,
+            resyncAfterHealthy: resyncAfterHealthy,
+            preclaimedAttempt: nil
+        )
+    }
+
+    private func startConnectionRecovery(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient?,
+        probeCurrentConnection: Bool,
+        resyncAfterHealthy: Bool,
+        preclaimedAttempt: MobileConnectionRecoveryOwner.Attempt?
+    ) {
+        guard pairedMacStore != nil else {
+            guard connectionState == .connected else { return }
+            // Preview/legacy clients can have a live RPC shell without durable
+            // pairing state. Liveness and network-path changes can rebuild that
+            // listener on the existing client, but a definitively ended stream
+            // cannot safely invent a redial route and must remain unavailable.
+            switch trigger {
+            case .liveness, .networkChange:
+                markMacConnectionReconnecting()
+                resyncTerminalOutput(reason: trigger.description, restartEventStream: true)
+            case .manual, .presencePush, .foreground, .eventStreamEnded,
+                 .subscriptionStartFailed, .transportWriteTimedOut, .automaticBackoffExpired:
+                markMacConnectionUnavailableIfNoStore()
             }
             return
         }
-        guard !recoveryInFlight else { return }
-        recoveryInFlight = true
-        isRecoveringConnection = true
-        connectionRecoveryFailed = false
-        let stackUserID = lastReconnectStackUserID
-        recoveryTask?.cancel()
-        recoveryTask = Task { @MainActor [weak self] in
-            defer {
-                self?.recoveryInFlight = false
-                self?.isRecoveringConnection = false
-            }
-            guard let self, self.connectionState != .connected else { return }
-            let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-            if !reconnected, !Task.isCancelled {
-                self.connectionRecoveryFailed = true
+        let attempt = preclaimedAttempt ?? connectionRecoveryOwner.begin(
+            trigger: trigger.description,
+            sourceConnectionGeneration: connectionGeneration,
+            probing: probeCurrentConnection
+        )
+        guard let attempt else { return }
+        applyConnectionRecoveryOwnerState()
+        let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await withTaskCancellationHandler {
+                defer { self.connectionRecoveryOwner.clearTask(for: attempt) }
+                guard self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+
+                if probeCurrentConnection, let expectedClient {
+                    let healthy = await self.reloadWorkspaceListFromMac(
+                        timeoutNanoseconds: self.runtime?.livenessProbeTimeoutNanoseconds
+                    )
+                    guard !Task.isCancelled,
+                          self.connectionRecoveryOwner.isCurrent(attempt),
+                          self.remoteClient === expectedClient,
+                          self.connectionGeneration == attempt.sourceConnectionGeneration else {
+                        return
+                    }
+                    if healthy {
+                        _ = self.connectionRecoveryOwner.complete(attempt)
+                        self.markMacConnectionHealthy()
+                        if resyncAfterHealthy {
+                            self.resyncTerminalOutput(
+                                reason: "connectionRecovery.\(trigger)",
+                                restartEventStream: true
+                            )
+                        }
+                        self.applyConnectionRecoveryOwnerState()
+                        return
+                    }
+                }
+
+                guard !Task.isCancelled,
+                      self.connectionRecoveryOwner.transitionToRedialing(attempt) else { return }
+                if let expectedClient {
+                    guard self.remoteClient === expectedClient else { return }
+                    // Detach the stale shell synchronously on the main actor
+                    // before awaiting its transport teardown. This cancels every
+                    // tracked producer and makes untracked producers fail their
+                    // identity guard, so they cannot reopen the old endpoint
+                    // while the fresh stored-Mac dial starts.
+                    self.connectionState = .disconnected
+                    self.macConnectionStatus = .unavailable
+                    self.clearRemoteConnectionContext()
+                    self.applyConnectionRecoveryOwnerState()
+                    await expectedClient.disconnect()
+                    guard !Task.isCancelled,
+                          self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                }
+                if self.connectionState == .connected {
+                    self.connectionState = .disconnected
+                    self.macConnectionStatus = .unavailable
+                    self.clearRemoteConnectionContext()
+                }
+                self.applyConnectionRecoveryOwnerState()
+
+                // Recovery uses authenticated local Iroh state first. A stuck
+                // account-backup fetch must not block a known EndpointID from
+                // dialing; normal launch reconnect still refreshes first.
+                let reconnected = await self.reconnectActiveMacIfAvailable(
+                    stackUserID: stackUserID,
+                    refreshBackupBeforeDial: false
+                )
+                guard !Task.isCancelled,
+                      self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                if reconnected {
+                    let generation = self.connectionGeneration
+                    if self.lastSuccessfulTerminalSubscriptionGeneration == generation {
+                        _ = self.connectionRecoveryOwner.complete(attempt)
+                    } else {
+                        _ = self.connectionRecoveryOwner.transitionToValidation(
+                            attempt,
+                            connectionGeneration: generation
+                        )
+                    }
+                } else {
+                    _ = self.connectionRecoveryOwner.fail(attempt)
+                }
+                self.applyConnectionRecoveryOwnerState()
+            } onCancel: {
+                MobileDebugLog.anchormux(
+                    "connection.recovery cancelled trigger=\(trigger.description) attempt=\(attempt.id.uuidString)"
+                )
             }
         }
+        connectionRecoveryOwner.install(task, for: attempt)
+    }
+
+    func recordSuccessfulTerminalSubscription() {
+        lastSuccessfulTerminalSubscriptionGeneration = connectionGeneration
+        if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
+            applyConnectionRecoveryOwnerState()
+        }
+    }
+
+    func applyConnectionRecoveryOwnerState() {
+        switch connectionRecoveryOwner.phase {
+        case .idle:
+            isRecoveringConnection = false
+            connectionRecoveryFailed = false
+        case .probing, .redialing, .validatingReplacement:
+            isRecoveringConnection = true
+            connectionRecoveryFailed = false
+            if connectionState == .connected { markMacConnectionReconnecting() }
+        case .failed:
+            isRecoveringConnection = false
+            connectionRecoveryFailed = true
+        }
+    }
+
+    private func markMacConnectionUnavailableIfNoStore() {
+        macConnectionStatus = .unavailable
+        isRecoveringConnection = false
+        connectionRecoveryFailed = true
     }
 
     static func storedMacTicket(
@@ -262,6 +422,7 @@ extension MobileShellComposite {
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
         instanceTag: String?,
+        automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
@@ -272,6 +433,7 @@ extension MobileShellComposite {
             instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
                 storedInstanceTag: instanceTag
             ),
+            automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
             ifStillCurrent: ifStillCurrent
         )
@@ -285,6 +447,7 @@ extension MobileShellComposite {
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
         instanceTagExpectation: MobileMacInstanceTagExpectation,
+        automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
@@ -312,6 +475,12 @@ extension MobileShellComposite {
                 )
             } catch {
                 guard ifStillCurrent?() ?? true else { return false }
+                if let automaticReconnectAccountID {
+                    recordAutomaticReconnectBackoff(
+                        error: error,
+                        accountID: automaticReconnectAccountID
+                    )
+                }
                 if !disconnectForAuthorizationFailureIfNeeded(error) {
                     connectionState = .disconnected
                     macConnectionStatus = .unavailable
@@ -343,10 +512,110 @@ extension MobileShellComposite {
             }
         }
 
-        return (ifStillCurrent?() ?? true)
+        let connected = (ifStillCurrent?() ?? true)
             && connectionState == .connected
             && remoteClient != nil
             && foregroundMacDeviceID == pairedMacDeviceID
+        if connected, let automaticReconnectAccountID {
+            clearAutomaticReconnectBackoff(accountID: automaticReconnectAccountID)
+        }
+        return connected
+    }
+
+    func automaticIrohReconnectIsBlocked(accountID: String) -> Bool {
+        automaticReconnectBackoffOwner.isBlocked(
+            accountID: accountID,
+            now: runtime?.now() ?? Date()
+        )
+    }
+
+    func recordAutomaticReconnectBackoff(error: any Error, accountID: String) {
+        guard let retryAfterError = error as? any CmxRetryAfterProviding,
+              let retryAfterSeconds = retryAfterError.retryAfterSeconds else { return }
+        let now = runtime?.now() ?? Date()
+        let retryAt = automaticReconnectBackoffOwner.record(
+            accountID: accountID,
+            retryAfterSeconds: retryAfterSeconds,
+            now: now
+        )
+        scheduleAutomaticReconnectRetry(accountID: accountID, retryAt: retryAt, now: now)
+    }
+
+    func recordTransientAutomaticReconnectBackoff(accountID: String) {
+        let now = runtime?.now() ?? Date()
+        let retryAt = automaticReconnectBackoffOwner.recordTransientFailure(
+            accountID: accountID,
+            now: now
+        )
+        scheduleAutomaticReconnectRetry(accountID: accountID, retryAt: retryAt, now: now)
+    }
+
+    func clearTransientAutomaticReconnectBackoff(accountID: String) {
+        automaticReconnectBackoffOwner.clearTransientCooldown(accountID: accountID)
+        let now = runtime?.now() ?? Date()
+        if let retryAt = automaticReconnectBackoffOwner.retryAt, retryAt > now {
+            scheduleAutomaticReconnectRetry(accountID: accountID, retryAt: retryAt, now: now)
+        } else {
+            automaticReconnectRetryTask?.cancel()
+            automaticReconnectRetryTask = nil
+            automaticReconnectRetryAccountID = nil
+            automaticReconnectRetryAt = nil
+        }
+    }
+
+    func clearAutomaticReconnectBackoff(accountID: String? = nil) {
+        automaticReconnectBackoffOwner.clear(accountID: accountID)
+        guard accountID == nil || automaticReconnectBackoffOwner.accountID == nil else { return }
+        automaticReconnectRetryTask?.cancel()
+        automaticReconnectRetryTask = nil
+        automaticReconnectRetryAccountID = nil
+        automaticReconnectRetryAt = nil
+    }
+
+    private func scheduleAutomaticReconnectRetry(
+        accountID: String,
+        retryAt: Date,
+        now: Date
+    ) {
+        if automaticReconnectRetryTask != nil,
+           automaticReconnectRetryAccountID == accountID,
+           automaticReconnectRetryAt == retryAt {
+            return
+        }
+        automaticReconnectRetryTask?.cancel()
+        automaticReconnectRetryAccountID = accountID
+        automaticReconnectRetryAt = retryAt
+        let delay = max(0, retryAt.timeIntervalSince(now))
+        automaticReconnectRetryTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.identityProvider?.currentUserID == accountID,
+                  self.automaticReconnectBackoffOwner.accountID == accountID,
+                  self.automaticReconnectRetryAccountID == accountID,
+                  self.automaticReconnectRetryAt == retryAt else { return }
+            self.automaticReconnectRetryTask = nil
+            self.automaticReconnectRetryAccountID = nil
+            self.automaticReconnectRetryAt = nil
+            guard self.isSignedIn, self.connectionState != .connected else { return }
+            let currentNow = self.runtime?.now() ?? Date()
+            if self.automaticReconnectBackoffOwner.isBlocked(
+                accountID: accountID,
+                now: currentNow
+            ), let nextRetryAt = self.automaticReconnectBackoffOwner.retryAt {
+                self.scheduleAutomaticReconnectRetry(
+                    accountID: accountID,
+                    retryAt: nextRetryAt,
+                    now: currentNow
+                )
+                return
+            }
+            self.recoverMobileConnection(trigger: .automaticBackoffExpired)
+        }
     }
 
     /// Connect the live session to a specific registry app instance (a tag on a

@@ -11,6 +11,108 @@ use ratatui::style::{Modifier, Style};
 
 use crate::app::{App, ContextMenu, MenuItem};
 
+struct PairingCopy {
+    title: &'static str,
+    confirm: &'static str,
+    peer_prefix: &'static str,
+    deny: &'static str,
+    approve: &'static str,
+}
+
+fn pairing_copy() -> PairingCopy {
+    let locale = std::env::var("LC_ALL")
+        .or_else(|_| std::env::var("LC_MESSAGES"))
+        .or_else(|_| std::env::var("LANG"))
+        .unwrap_or_default();
+    pairing_copy_for_locale(&locale)
+}
+
+fn pairing_copy_for_locale(locale: &str) -> PairingCopy {
+    if locale.to_ascii_lowercase().starts_with("ja") {
+        PairingCopy {
+            title: "ブラウザを承認しますか？",
+            confirm: "ブラウザのコードと一致するか確認:",
+            peer_prefix: "接続元:",
+            deny: "[ 拒否 esc ]",
+            approve: "[ 承認 enter ]",
+        }
+    } else {
+        PairingCopy {
+            title: "Approve browser?",
+            confirm: "Confirm this code matches the browser:",
+            peer_prefix: "from",
+            deny: "[ Deny esc ]",
+            approve: "[ Approve enter ]",
+        }
+    }
+}
+
+/// Trusted approval dialog for a browser pairing request.
+pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
+    let screen = frame.area();
+    let width = 48.min(screen.width.saturating_sub(2)).max(24);
+    let height = 10;
+    if screen.width < width || screen.height < height {
+        return;
+    }
+    let x = (screen.width - width) / 2;
+    let y = (screen.height - height) / 2;
+    let Some(dialog) = app.pairing_dialog.as_mut() else { return };
+    let copy = pairing_copy();
+    dialog.rect = Rect { x, y, width, height };
+
+    let chrome = app.chrome;
+    let base = Style::default().bg(chrome.prompt_bg).fg(chrome.prompt_fg);
+    let border = base.fg(chrome.prompt_border);
+    let title = base.fg(chrome.prompt_title_fg).add_modifier(Modifier::BOLD);
+    let code = base.fg(chrome.prompt_button_accent_fg).add_modifier(Modifier::BOLD);
+    let buf = frame.buffer_mut();
+    for dy in 0..height {
+        for dx in 0..width {
+            set_cell(buf, x + dx, y + dy, " ", base);
+        }
+    }
+    draw_border(buf, dialog.rect, border);
+    buf.set_stringn(x + 2, y + 1, copy.title, (width - 4) as usize, title);
+    buf.set_stringn(x + 2, y + 3, copy.confirm, (width - 4) as usize, base);
+    let code_x = x + width.saturating_sub(label_width(&dialog.challenge.code)) / 2;
+    buf.set_stringn(code_x, y + 5, &dialog.challenge.code, (width - 4) as usize, code);
+    let peer = format!("{} {}", copy.peer_prefix, dialog.challenge.peer);
+    buf.set_stringn(x + 2, y + 6, &peer, (width - 4) as usize, base);
+
+    let deny_label = copy.deny;
+    let approve_label = copy.approve;
+    let deny_w = label_width(deny_label);
+    let approve_w = label_width(approve_label);
+    let approve_x = x + width - 2 - approve_w;
+    let deny_x = approve_x.saturating_sub(deny_w + 2);
+    let button_y = y + 8;
+    dialog.approve = Rect { x: approve_x, y: button_y, width: approve_w, height: 1 };
+    dialog.deny = Rect { x: deny_x, y: button_y, width: deny_w, height: 1 };
+    let button_style = |rect: Rect, accent: bool| {
+        let hovered = app.hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
+        let mut style = if accent { base.fg(chrome.prompt_button_accent_fg) } else { base };
+        if hovered {
+            style = style.add_modifier(Modifier::BOLD).bg(chrome.prompt_button_hover_bg);
+        }
+        style
+    };
+    frame.buffer_mut().set_stringn(
+        deny_x,
+        button_y,
+        deny_label,
+        deny_w as usize,
+        button_style(dialog.deny, false),
+    );
+    frame.buffer_mut().set_stringn(
+        approve_x,
+        button_y,
+        approve_label,
+        approve_w as usize,
+        button_style(dialog.approve, true),
+    );
+}
+
 /// Centered prompt dialog: bordered box with title, input row, and
 /// clickable shortcut buttons. Writes the dialog, input, and button rects
 /// back into the prompt so mouse handling matches the drawn geometry.
@@ -225,4 +327,15 @@ fn draw_border(buf: &mut Buffer, rect: Rect, style: Style) {
 
 fn label_width(label: &str) -> u16 {
     label.chars().count() as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pairing_copy_for_locale;
+
+    #[test]
+    fn pairing_dialog_has_english_and_japanese_copy() {
+        assert_eq!(pairing_copy_for_locale("en_US.UTF-8").title, "Approve browser?");
+        assert_eq!(pairing_copy_for_locale("ja_JP.UTF-8").title, "ブラウザを承認しますか？");
+    }
 }
