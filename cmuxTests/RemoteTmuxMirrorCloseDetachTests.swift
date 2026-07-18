@@ -289,6 +289,10 @@ import Testing
         harness.cacheConnection(host: host, session: "one")
         #expect(harness.appDelegate.focusMainWindow(windowId: harness.windowId))
         #expect(harness.appDelegate.tabManager === harness.manager)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === harness.manager)
+        let focusedBefore = try #require(
+            TerminalController.shared.v2Identify(params: [:])["focused"] as? [String: Any]
+        )
 
         let responseText = await Task.detached {
             TerminalController.shared.v2RemoteTmuxWindow(
@@ -304,6 +308,14 @@ import Testing
         )
 
         #expect(harness.appDelegate.tabManager === harness.manager)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === harness.manager)
+        let focusedAfter = try #require(
+            TerminalController.shared.v2Identify(params: [:])["focused"] as? [String: Any]
+        )
+        #expect(focusedAfter["window_id"] as? String == focusedBefore["window_id"] as? String)
+        #expect(focusedAfter["workspace_id"] as? String == focusedBefore["workspace_id"] as? String)
+        #expect(focusedAfter["pane_id"] as? String == focusedBefore["pane_id"] as? String)
+        #expect(focusedAfter["surface_id"] as? String == focusedBefore["surface_id"] as? String)
     }
 
     private func writeExecutable(at url: URL, contents: String) throws {
