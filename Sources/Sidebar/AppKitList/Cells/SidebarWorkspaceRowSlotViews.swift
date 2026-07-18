@@ -236,4 +236,9 @@ final class SidebarRowTextView: NSTextField {
         let size = cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)) ?? .zero
         return ceil(size.height)
     }
+
+    var unconstrainedContentSize: NSSize {
+        let size = cell?.cellSize ?? intrinsicContentSize
+        return NSSize(width: ceil(size.width), height: ceil(size.height))
+    }
 }

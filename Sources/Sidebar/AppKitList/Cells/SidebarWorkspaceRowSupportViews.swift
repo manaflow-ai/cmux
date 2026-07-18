@@ -311,11 +311,11 @@ final class SidebarRowPullRequestLine: NSView {
             x: 0, y: (bounds.height - iconSize.height) / 2,
             width: iconSize.width, height: iconSize.height
         )
-        let statusSize = statusLabel.intrinsicContentSize
+        let statusSize = statusLabel.unconstrainedContentSize
         let titleX = iconSize.width + 4
         let titleWidth = max(10, bounds.width - titleX - statusSize.width - 8)
         let title: NSView = titleButton.isHidden ? titleLabel : titleButton
-        let titleSize = titleButton.isHidden ? titleLabel.intrinsicContentSize : titleButton.intrinsicContentSize
+        let titleSize = titleButton.isHidden ? titleLabel.unconstrainedContentSize : titleButton.intrinsicContentSize
         title.frame = NSRect(
             x: titleX, y: (bounds.height - titleSize.height) / 2,
             width: min(ceil(titleSize.width), titleWidth), height: titleSize.height
