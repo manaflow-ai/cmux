@@ -111,6 +111,11 @@ struct BrowserWebExtensionsManagerTests {
         #expect(entries.allSatisfy { $0.packageSHA256.count == 64 })
     }
 
+    @Test func toolbarExtensionIconMatchesBrowserChromeScale() {
+        #expect(BrowserExtensionIconMetrics.toolbarContentSize(iconPointSize: 11) == 13)
+        #expect(BrowserExtensionIconMetrics.toolbarContentSize(iconPointSize: 16) == 18)
+    }
+
     @Test func packageVerifierAcceptsPinnedDigestAndRejectsChangedBytes() throws {
         let data = Data("cmux".utf8)
         let digest = "548d4fabc56e7b556bbd7d01c3bcb6288fc8de3078dcb38fc3698fb3c26508c9"
