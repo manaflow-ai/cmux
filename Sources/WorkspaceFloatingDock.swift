@@ -6,15 +6,28 @@ import Observation
 @MainActor
 @Observable
 final class WorkspaceFloatingDock: Identifiable {
+    enum Persistence: Equatable, Sendable {
+        case session
+        case transient
+    }
+
+    enum CloseBehavior: Equatable, Sendable {
+        case remove
+        case hide
+    }
+
     let id: UUID
     let workspaceId: UUID
+    let persistence: Persistence
+    let closeBehavior: CloseBehavior
     var title: String
     var frame: CGRect
     var isPresented: Bool
     var ownsInputFocus = false
 
     @ObservationIgnored let store: DockSplitStore
-    @ObservationIgnored let noteFilePath: String
+    @ObservationIgnored let noteFilePath: String?
+    @ObservationIgnored private let seedsDefaultNote: Bool
     @ObservationIgnored private(set) var notePanelId: UUID?
 
     init(
@@ -23,7 +36,10 @@ final class WorkspaceFloatingDock: Identifiable {
         title: String,
         frame: CGRect,
         isPresented: Bool,
-        noteFilePath: String,
+        persistence: Persistence = .session,
+        closeBehavior: CloseBehavior = .remove,
+        contentPolicy: DockSplitStore.ContentPolicy = .flexible,
+        noteFilePath: String?,
         seedsDefaultNote: Bool = true,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings
@@ -33,11 +49,15 @@ final class WorkspaceFloatingDock: Identifiable {
         self.title = title
         self.frame = frame
         self.isPresented = isPresented
+        self.persistence = persistence
+        self.closeBehavior = closeBehavior
         self.noteFilePath = noteFilePath
+        self.seedsDefaultNote = seedsDefaultNote
         self.store = DockSplitStore(
             workspaceId: workspaceId,
             scope: .workspace,
             loadsConfiguration: false,
+            contentPolicy: contentPolicy,
             baseDirectoryProvider: baseDirectoryProvider,
             remoteBrowserSettingsProvider: remoteBrowserSettingsProvider
         )
@@ -59,6 +79,7 @@ final class WorkspaceFloatingDock: Identifiable {
     }
 
     func restoreSessionContent(_ snapshot: SessionFloatingDockContentSnapshot) {
+        guard let noteFilePath else { return }
         notePanelId = store.restoreFloatingDockSessionSnapshot(
             snapshot,
             noteFilePath: noteFilePath,
@@ -68,7 +89,9 @@ final class WorkspaceFloatingDock: Identifiable {
     }
 
     private func seedDefaultNoteIfNeeded() {
-        guard notePanel == nil,
+        guard seedsDefaultNote,
+              let noteFilePath,
+              notePanel == nil,
               let rootPane = store.bonsplitController.allPaneIds.first else { return }
         notePanelId = store.newSurface(
             kind: .note,

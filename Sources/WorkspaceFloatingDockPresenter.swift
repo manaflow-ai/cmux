@@ -29,8 +29,14 @@ final class WorkspaceFloatingDockPresenter {
                         dock: dock,
                         parentWindow: parentWindow,
                         onCloseRequest: { [weak self, weak workspace] dockId in
-                            guard let workspace else { return }
-                            _ = workspace.closeFloatingDock(id: dockId)
+                            guard let workspace,
+                                  let dock = workspace.floatingDock(id: dockId) else { return }
+                            switch dock.closeBehavior {
+                            case .remove:
+                                _ = workspace.closeFloatingDock(id: dockId)
+                            case .hide:
+                                dock.isPresented = false
+                            }
                             self?.refresh()
                         },
                         onCreateRequest: { [weak self] in

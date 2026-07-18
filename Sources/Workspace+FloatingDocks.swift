@@ -10,21 +10,34 @@ extension Workspace {
         title: String? = nil,
         frame: CGRect? = nil,
         isPresented: Bool = true,
-        sessionContent: SessionFloatingDockContentSnapshot? = nil
+        sessionContent: SessionFloatingDockContentSnapshot? = nil,
+        persistence: WorkspaceFloatingDock.Persistence = .session,
+        closeBehavior: WorkspaceFloatingDock.CloseBehavior = .remove,
+        contentPolicy: DockSplitStore.ContentPolicy = .flexible,
+        seedsDefaultNote: Bool = true
     ) -> WorkspaceFloatingDock? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = resolvedTitle?.isEmpty == false
             ? resolvedTitle!
             : String(localized: "floatingDock.defaultTitle", defaultValue: "Notes")
-        guard let noteFileURL = floatingDockNoteFileURL(dockId: id) else { return nil }
+        let noteFilePath: String?
+        if seedsDefaultNote || sessionContent != nil {
+            guard let noteFileURL = floatingDockNoteFileURL(dockId: id) else { return nil }
+            noteFilePath = noteFileURL.path
+        } else {
+            noteFilePath = nil
+        }
         let dock = WorkspaceFloatingDock(
             id: id,
             workspaceId: self.id,
             title: displayTitle,
             frame: Self.sanitizedFloatingDockFrame(frame ?? nextFloatingDockFrame),
             isPresented: isPresented,
-            noteFilePath: noteFileURL.path,
-            seedsDefaultNote: sessionContent == nil,
+            persistence: persistence,
+            closeBehavior: closeBehavior,
+            contentPolicy: contentPolicy,
+            noteFilePath: noteFilePath,
+            seedsDefaultNote: seedsDefaultNote,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 self?.dockRemoteBrowserSettingsSnapshot() ?? .local
@@ -66,8 +79,9 @@ extension Workspace {
     }
 
     func floatingDockSessionSnapshots() -> [SessionFloatingDockSnapshot]? {
-        let snapshots = floatingDocks.map { dock in
-            SessionFloatingDockSnapshot(
+        let snapshots = floatingDocks.compactMap { dock -> SessionFloatingDockSnapshot? in
+            guard dock.persistence == .session else { return nil }
+            return SessionFloatingDockSnapshot(
                 id: dock.id,
                 title: dock.title,
                 x: dock.frame.origin.x,
