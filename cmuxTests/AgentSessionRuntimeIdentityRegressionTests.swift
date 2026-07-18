@@ -9,6 +9,48 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func restoreLoaderFallsBackToLastCompleteRegistrySnapshot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-restore-corrupt-legacy-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacyURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let sessionID = "restore-last-complete"
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: [
+                "sessionId": sessionID,
+                "workspaceId": "11111111-1111-1111-1111-111111111111",
+                "surfaceId": "22222222-2222-2222-2222-222222222222",
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+        ]).write(to: legacyURL, options: .atomic)
+        let environment = ["CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path]
+        let decoder = JSONDecoder()
+        #expect(RestorableAgentHookSessionStoreFile.load(
+            provider: "codex",
+            legacyURL: legacyURL,
+            environment: environment,
+            fileManager: .default,
+            decoder: decoder
+        )?.sessions[sessionID] != nil)
+
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: "partial-record"],
+        ]).write(to: legacyURL, options: .atomic)
+
+        #expect(RestorableAgentHookSessionStoreFile.load(
+            provider: "codex",
+            legacyURL: legacyURL,
+            environment: environment,
+            fileManager: .default,
+            decoder: decoder
+        )?.sessions[sessionID] != nil)
+    }
+
     @Test func appRestoreLoaderHonorsExplicitAgentRegistryPath() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-explicit-registry-\(UUID().uuidString)", isDirectory: true)
